@@ -4,6 +4,22 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { HostSetupStep } from "../adapters/project-plan.js";
+import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
+import {
+  COMMAND_GROUPS,
+  commandHelpDocument,
+  defaultCommands,
+  machineCommands,
+  machineHelpDocument,
+  rootHelpDocument,
+} from "../cli/command-help.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import {
+  focusedGuideDocument,
+  guideFileDocument,
+  guideIndexDocument,
+  TOPIC_GUIDES,
+} from "../cli/guides.js";
 import {
   applyExecutionFailureDocument,
   applyReportDocument,
@@ -54,6 +70,31 @@ import type {
   PresentationNode,
 } from "../cli/presentation-document.js";
 import type { ApplicationInfo } from "../installer/info.js";
+
+/**
+ * Selective document shape: kinds, keys, categories, and order — the carried
+ * wording and complete rendering stay locked by the golden snapshots (#390,
+ * TEST-003/TEST-016).
+ */
+function nodeShape(node: PresentationNode): string {
+  switch (node.kind) {
+    case "sentence":
+    case "prose":
+      return `${node.kind}${node.category === undefined ? "" : `(${node.category})`}`;
+    case "heading":
+      return "heading";
+    case "key-value":
+      return `key-value:${node.key.trim()}${node.category === undefined ? "" : `(${node.category})`}`;
+    case "verbatim":
+      return node.text.length === 0 ? "spacer" : "verbatim";
+    default:
+      return node.kind;
+  }
+}
+
+function shapes(document: PresentationDocument): readonly string[] {
+  return document.map(nodeShape);
+}
 import { INVENTORY_TOPICS, MACHINE_INVENTORY_TOPICS } from "../cli/inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
@@ -7211,5 +7252,378 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
     expect(wording.problem).toBe(".opencode/opencode.json is an occupied directory path");
     expect(wording.remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
     expect(wording.remedy).toContain("opencode.json or .opencode/opencode.json");
+  });
+});
+
+describe("authoring and teardown receipt documents (#390)", () => {
+  const home = homedir();
+  const projectPath = join(home, "projects", "demo");
+
+  test("the created receipt presents a success headline and the next command", () => {
+    const { document, copyableValues } = initReceiptDocument({
+      outcome: "created",
+      path: `/test/workspace`,
+      workspaceScaffolded: true,
+    });
+    // Selective shape: kinds, categories, order, and atomic values — the
+    // carried wording is locked by the golden snapshots.
+    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect(copyableValues).toEqual([]);
+    expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
+    expect(document[1]).toMatchObject({ kind: "sentence", category: "command" });
+  });
+
+  test("the created receipt without scaffolding points at validate", () => {
+    const { document } = initReceiptDocument({
+      outcome: "created",
+      path: `/test/workspace`,
+      workspaceScaffolded: false,
+    });
+    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect((document[1] as { readonly text: string }).text).toContain("validate");
+  });
+
+  test("the migrated and unchanged receipts carry their severities and values", () => {
+    const migrated = initReceiptDocument({
+      outcome: "migrated",
+      path: `/test/workspace`,
+    });
+    expect(shapes(migrated.document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect(migrated.copyableValues).toEqual([]);
+    const unchanged = initReceiptDocument({
+      outcome: "unchanged",
+      path: `/test/workspace`,
+    });
+    // Space-free values need no wrapping protection.
+    expect(unchanged.copyableValues).toEqual([]);
+    expect(shapes(unchanged.document)).toEqual(["sentence"]);
+  });
+
+  test("the recorded bind receipt presents binding detail and the next command", () => {
+    const { document, copyableValues } = bindReceiptDocument({
+      outcome: "created",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex", "pi"],
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
+    ]);
+    expect(copyableValues).toEqual([]);
+    expect(document[1]).toEqual({
+      kind: "key-value",
+      key: "  Profile",
+      value: { kind: "identifier", value: "coding" },
+      category: "path",
+    });
+    expect(document.at(-1)).toEqual({
+      kind: "key-value",
+      key: "Next",
+      value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
+      category: "command",
+    });
+  });
+
+  test("the replaced bind receipt keeps only the changed deltas", () => {
+    const { document } = bindReceiptDocument({
+      outcome: "replaced",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+      previousProfile: "coding",
+      previousHosts: ["codex", "pi"],
+    });
+    // The unchanged Profile delta is omitted; the changed Hosts delta remains.
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
+    ]);
+    expect(document[1]).toEqual({
+      kind: "key-value",
+      key: "  Hosts",
+      value: { kind: "identifier", value: "codex, pi → codex" },
+    });
+  });
+
+  test("the unchanged bind and unbind receipts stay informational", () => {
+    const unchangedBind = bindReceiptDocument({
+      outcome: "unchanged",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+    });
+    expect(shapes(unchangedBind.document)).toEqual([
+      "sentence",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "key-value:Next(command)",
+    ]);
+    const unchangedUnbind = unbindReceiptDocument({
+      outcome: "unchanged",
+      requestedProject: "~/projects/absent",
+    });
+    expect(shapes(unchangedUnbind.document)).toEqual(["sentence"]);
+  });
+
+  test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
+    const { document, copyableValues } = unbindReceiptDocument({
+      outcome: "removed",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "coding",
+      hosts: ["codex"],
+      recovery: "canonical",
+      generatedOutputSurvives: true,
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+      "prose",
+      "key-value:Next(command)",
+    ]);
+    expect(document.at(-1)).toEqual({
+      kind: "key-value",
+      key: "Next",
+      value: { kind: "command", program: "apkit", args: [
+        { kind: "text", value: "status" },
+        { kind: "text", value: "--all" },
+      ] },
+      category: "command",
+    });
+  });
+
+  test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
+    const { document, copyableValues } = unbindReceiptDocument({
+      outcome: "removed",
+      project: "/opt/authored/demo",
+      profile: "coding",
+      hosts: ["codex"],
+      recovery: "authored-path",
+      configurationPath: `/test/config.yaml`,
+      generatedOutputSurvives: false,
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Recovery",
+      "key-value:Local Configuration(path)",
+      "key-value:Profile(path)",
+      "key-value:Hosts",
+    ]);
+    // Space-free values need no wrapping protection.
+    expect(copyableValues).toEqual([]);
+  });
+});
+
+describe("help documents (#390)", () => {
+  test("root help presents the wordmark, intro, usage, quick start, groups, and guidance", () => {
+    const { document, copyableValues } = rootHelpDocument([]);
+    expect(shapes(document)).toEqual([
+      "sentence",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
+      "spacer",
+      "sentence",
+      "spacer",
+      "heading",
+      ...defaultCommands()
+        .filter((command) => command.group === "common")
+        .flatMap(() => ["sentence(command)", "sentence"]),
+      "spacer",
+      "heading",
+      ...COMMAND_GROUPS
+        .filter(([group]) => group !== "common")
+        .flatMap(([group]) => {
+          const listed = defaultCommands().filter((command) => command.group === group);
+          if (listed.length === 0) return [];
+          return ["heading", ...listed.flatMap(() => ["sentence(command)", "sentence"])];
+        }),
+      "spacer",
+      "sentence(muted)",
+    ]);
+    // The usage line is one atomic command.
+    expect(document[2]).toEqual({
+      kind: "key-value",
+      key: "Usage",
+      value: {
+        kind: "command",
+        program: "apkit",
+        args: [
+          { kind: "text", value: "<command>" },
+          { kind: "text", value: "[arguments]" },
+        ],
+      },
+      category: "heading",
+    });
+    // Every listed syntax line must survive wrapping whole.
+    for (const command of defaultCommands()) {
+      expect(copyableValues).toContain(command.syntax);
+    }
+    expect(copyableValues).toHaveLength(defaultCommands().length);
+  });
+
+  test("root help renders the wordmark lines before the intro when interactive", () => {
+    const { document } = rootHelpDocument(["  /\\  Agent Profile Kit", " /__\\ reusable agent material"]);
+    expect(shapes(document).slice(0, 2)).toEqual(["verbatim", "verbatim"]);
+    expect(document[0]).toEqual({ kind: "verbatim", text: "  /\\  Agent Profile Kit" });
+    expect(document[1]).toEqual({ kind: "verbatim", text: " /__\\ reusable agent material" });
+  });
+
+  test("focused command help presents purpose, usage, examples, writes, and next", () => {
+    const status = defaultCommands().find((command) => command.name === "status")!;
+    const { document, copyableValues } = commandHelpDocument(status);
+    expect(shapes(document)).toEqual([
+      "sentence(heading)",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      "heading",
+      ...status.examples.map(() => "sentence(command)"),
+      "spacer",
+      "sentence(heading)",
+      "spacer",
+      "sentence(command)",
+    ]);
+    expect(document[2]).toEqual({
+      kind: "key-value",
+      key: "Usage",
+      value: {
+        kind: "command",
+        program: "apkit",
+        args: status.syntax.split(/\s+/).map((token) => ({ kind: "text", value: token })),
+      },
+      category: "heading",
+    });
+    for (const example of status.examples) {
+      expect(copyableValues).toContain(`apkit ${example}`);
+    }
+    expect(copyableValues).toContain(status.syntax);
+  });
+
+  test("focused command help lists supported Hosts when the command carries them", () => {
+    const bind = defaultCommands().find((command) => command.name === "bind")!;
+    const { document } = commandHelpDocument(bind);
+    const sections = shapes(document);
+    const examplesIndex = sections.indexOf("heading");
+    // The Supported Hosts sentence sits after Examples and before Writes.
+    const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
+    expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
+    expect((document[hostIndex] as { readonly text: string }).text)
+      .toContain(`Supported Hosts: ${bind.supportedHosts!.join(", ")}`);
+  });
+
+  test("machine help presents the namespace intro, usage, and machine commands", () => {
+    const { document, copyableValues } = machineHelpDocument();
+    expect(shapes(document)).toEqual([
+      "sentence",
+      "spacer",
+      "key-value:Usage(heading)",
+      "spacer",
+      ...machineCommands().flatMap(() => ["sentence(command)", "sentence"]),
+    ]);
+    for (const command of machineCommands()) {
+      expect(copyableValues).toContain(command.syntax);
+    }
+    expect(copyableValues).toHaveLength(machineCommands().length);
+  });
+});
+
+describe("guide documents (#390)", () => {
+  test("the guide index presents the title, intro, topics, references, and examples", () => {
+    const { document, copyableValues } = guideIndexDocument();
+    expect(shapes(document)).toEqual([
+      "heading",
+      "spacer",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence",
+      "sentence(command)",
+      "sentence",
+      "spacer",
+      "heading",
+      "sentence(command)",
+      "sentence(command)",
+      "sentence(command)",
+    ]);
+    expect(copyableValues).toEqual([
+      "apkit guide profile",
+      "apkit guide context",
+      "apkit guide skill",
+      "apkit guide --full",
+      "apkit guide --agent",
+      "apkit init",
+      "apkit guide profile",
+      "apkit bind example --host codex",
+    ]);
+  });
+
+  test("the focused guide keeps its fenced examples as verbatim content", () => {
+    const { document, copyableValues } = focusedGuideDocument("profile");
+    const example = AUTHORING_EXAMPLES.profile;
+    const contextExample = AUTHORING_EXAMPLES.context;
+    expect(shapes(document)).toEqual([
+      "heading",
+      "spacer",
+      "sentence",
+      "spacer",
+      "verbatim",
+      "spacer",
+      "verbatim",
+      "spacer",
+      "sentence(heading)",
+    ]);
+    // Example bodies are true verbatim content: reproduced exactly.
+    expect(document[4]).toEqual({
+      kind: "verbatim",
+      text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
+    });
+    expect(document[6]).toEqual({
+      kind: "verbatim",
+      text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
+    });
+    // The carried next action renders whole, as the literal block it came from.
+    expect(copyableValues).toEqual([TOPIC_GUIDES.profile.next]);
+  });
+
+  test("the focused context and skill guides end at their next line without extra examples", () => {
+    for (const topic of ["context", "skill"] as const) {
+      const { document } = focusedGuideDocument(topic);
+      const bodies = document.filter(
+        (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
+          node.kind === "verbatim" && node.text.length > 0,
+      );
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
+      expect(shapes(document).at(-1)).toBe("sentence(heading)");
+    }
+  });
+
+  test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
+    const { document, copyableValues } = guideFileDocument("# Title\n\nBody line.\n");
+    expect(shapes(document)).toEqual(["verbatim"]);
+    expect(copyableValues).toEqual([]);
   });
 });

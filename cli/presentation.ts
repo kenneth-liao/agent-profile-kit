@@ -3162,6 +3162,65 @@ export function wrappedLifecycleLine(
   );
 }
 
+/**
+ * Wrap one sentence as continuous flowing prose: protected tokens (command
+ * invocations and supplied copyable values) stay inline and whole instead of
+ * being promoted onto dedicated lines. This is the diagnostic and help-surface
+ * wrapping policy — the lifecycle policy that promotes copyable values stays
+ * in {@link wrappedLifecycleLine}.
+ */
+export function wrappedSentenceLine(
+  line: string,
+  width: number,
+  copyableValueProtector: CopyableValueProtector,
+): readonly string[] {
+  if (line.trim().length === 0) return [line];
+  const indentation = line.match(/^\s*/)?.[0] ?? "";
+  const content = line.slice(indentation.length);
+  const commandMarker = unusedPresentationMarker(content, "command");
+  const copyableMarker = unusedPresentationMarker(
+    `${content}${commandMarker}`,
+    "value",
+    "\u0001",
+  );
+  const protectedContent = protectCommandInvocations(
+    protectCopyableValues(content, copyableValueProtector, copyableMarker),
+    commandMarker,
+  );
+  const measure = Math.max(1, width - indentation.length - 2);
+  return wrapProtectedText(protectedContent, measure, commandMarker, copyableMarker)
+    .map((part, index) =>
+      index === 0 ? `${indentation}${part}` : `${indentation}  ${part}`);
+}
+
+/**
+ * Greedy word wrap that measures each candidate after restoring protected
+ * values, so marker padding cannot make a sentence wrap early.
+ */
+function wrapProtectedText(
+  protectedText: string,
+  width: number,
+  ...markers: readonly string[]
+): readonly string[] {
+  const restore = (part: string): string =>
+    markers.reduce((restored, marker) => restoreMarker(restored, marker), part);
+  const words = protectedText.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return protectedText.length === 0 ? [""] : [restore(protectedText)];
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (current.length > 0 && restore(candidate).length > width) {
+      lines.push(restore(current));
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) lines.push(restore(current));
+  return lines;
+}
+
 function lifecycleCopyableValues(
   reports: readonly ReconciliationReport[],
   scope: LocationDisplayScope,
@@ -3233,26 +3292,6 @@ function responsiveLifecycleOutput(
     return wrappedLifecycleLine(line, context.width, copyableValueProtector);
   });
   return lines.join("\n");
-}
-
-/**
- * Shared responsive wrapping for human surfaces that carry no lifecycle
- * Context fences: inventory, info, validation, teardown, authoring, and error
- * views receive the same trusted width policy as lifecycle reports. Structural
- * copyable values (paths, identities, command lines) stay whole on dedicated
- * lines while prose wraps to the selected measure.
- */
-export function responsiveHumanText(
-  text: string,
-  context: TerminalPresentationContext | undefined,
-  copyableValues: readonly string[] = [],
-): string {
-  if (context === undefined) return text;
-  const copyableValueProtector = createCopyableValueProtector(copyableValues);
-  return text
-    .split("\n")
-    .flatMap((line) => wrappedLifecycleLine(line, context.width, copyableValueProtector))
-    .join("\n");
 }
 
 interface LifecycleHumanOptions {

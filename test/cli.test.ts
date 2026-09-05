@@ -889,8 +889,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(projectPath, { recursive: true });
 
     const cases: { workspace: string; setup?: () => void; pattern: RegExp }[] = [
-      { workspace: "./relative-ws", pattern: /absolute path or home-relative/i },
-      { workspace: "~/projects/*", pattern: /without wildcards/i },
+      { workspace: "./relative-ws", pattern: /absolute path or\s+home-relative/i },
+      { workspace: "~/projects/*", pattern: /without\s+wildcards/i },
       { workspace: join(home, "missing-ws"), pattern: /must be an existing directory/i },
       {
         workspace: join(home, "as-file"),
@@ -967,6 +967,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(custom, "README.md"))).toBe(true);
     expect(existsSync(join(custom, "AGENTS.md"))).toBe(true);
     expect(existsSync(join(custom, ".gitignore"))).toBe(true);
+  });
+
+  test("a space-containing Workspace path stays whole in the init receipt at narrow width", async () => {
+    const home = isolatedHome();
+    const custom = join(home, "My Workspaces");
+
+    const narrow = await runCliInPty(home, 40, "init", custom);
+    const wide = await runCliInPty(home, 100, "init", custom);
+
+    expectExitCode(narrow, 0);
+    expectExitCode(wide, 0);
+    // The presented path is atomic: it never splits across lines, at any width.
+    for (const rendered of [narrow.stdout, wide.stdout]) {
+      const receiptLine = rendered.split("\n").find((line) => line.includes("My Workspaces"));
+      expect(receiptLine).toBeDefined();
+      expect(receiptLine!.includes(custom)).toBe(true);
+    }
   });
 
   test("init creates missing parent directories for an explicit Workspace destination", async () => {
@@ -1242,11 +1259,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }[] = [
       {
         authored: () => "./relative-workspace",
-        pattern: /absolute path or home-relative/i,
+        pattern: /absolute path or\s+home-relative/i,
       },
       {
         authored: () => "~/projects/*",
-        pattern: /without wildcards/i,
+        pattern: /without\s+wildcards/i,
       },
       {
         authored: (home) => join(home, "as-file"),
@@ -1964,8 +1981,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const cases = [
       { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
       { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
-      { cwd: undefined, target: "relative/project", pattern: /absolute path or home-relative/i },
-      { cwd: undefined, target: "~/projects/*", pattern: /without wildcards/i },
+      { cwd: undefined, target: "relative/project", pattern: /absolute path or\s+home-relative/i },
+      { cwd: undefined, target: "~/projects/*", pattern: /without\s+wildcards/i },
       { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
       { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
     ] as const;
@@ -2398,6 +2415,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 1);
     expect(failed.stderr).toContain("is not a bound Project");
     expect(humanText(failed.stderr)).not.toMatch(INTERNAL_TERM_PATTERN);
+  });
+
+  test("an unbound-target error renders as one readable sentence with usage as what to type", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const unbound = join(home, "unbound");
+    mkdirSync(unbound, { recursive: true });
+    const failed = await runCli(home, "apply", unbound);
+    expectExitCode(failed, 1);
+    const lines = failed.stderr.split("\n");
+    // What happened: one labelled sentence, never an orphaned empty label.
+    expect(lines[0]).toMatch(/^apkit: apkit apply Project target/);
+    expect(lines.map((line) => line.trimStart()).slice(0, -2).join(" ")).toBe(
+      "apkit: apkit apply Project target '" + unbound +
+        "' is not a bound Project; run apkit list projects or apkit bind",
+    );
+    expect(lines.at(-3)!.trimStart()).toContain("run apkit list projects or apkit bind");
+    expect(lines.at(-3)!.endsWith("run apkit list projects or apkit bind")).toBe(true);
+    // What to type: the usage line as one whole command line.
+    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(lines.at(-1)).toBe("");
   });
 
   test("blocked default output does not repeat the working-directory project root", async () => {
@@ -7640,7 +7682,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCliAt(home, projectPath, "unbind");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed configured Project for .");
+    expect(humanText(result.stdout)).toContain("Removed configured Project for .");
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
@@ -7872,7 +7914,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
 
     const removed = await runCli(home, "unbind", projectPath);
     expectExitCode(removed, 0);
-    expect(removed.stdout).toContain(`Removed configured Project for ${projectPath}`);
+    expect(humanText(removed.stdout)).toContain(`Removed configured Project for ${projectPath}`);
     expect(removed.stdout).not.toContain(realpathSync(projectPath));
     expect(removed.stdout).not.toContain(configPath(home));
     expect(removed.stdout).toContain("Generated files remain until apply");
@@ -8147,7 +8189,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", alias);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${projectPath}`);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
     expect(existsSync(alias)).toBe(true);
@@ -8206,7 +8248,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const result = await runCli(home, "unbind", removed);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Removed configured Project for ${removed}`);
+    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${removed}`);
     expect(result.stdout).not.toContain(realpathSync(removed));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -8343,7 +8385,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Profile: coding → ops");
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
@@ -8373,7 +8415,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(humanText(result.stdout)).not.toContain("Profile:");
   });
@@ -8577,7 +8619,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const relative = await runCli(home, "bind", "coding", "relative/path", "--host", "codex");
     expectExitCode(relative, 1);
-    expect(relative.stderr).toMatch(/absolute path or home-relative/i);
+    expect(relative.stderr).toMatch(/absolute path or\s+home-relative/i);
 
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
@@ -9048,7 +9090,7 @@ describe("responsive lifecycle reports", () => {
     expect(blocked.stdout).toContain("\nNext:\n- ");
   });
 
-  test("colored wrapped output does not style continuation lines as new prose", async () => {
+  test("colored focused guides carry only authored categories on wrapped lines", async () => {
     const home = isolatedHome();
     const colored = await runCliInPtyWithEnvironment(
       home,
@@ -9060,8 +9102,10 @@ describe("responsive lifecycle reports", () => {
 
     expectExitCode(colored, 0);
     expect(colored.stdout).toMatch(/\u001b\[/);
-    expect(colored.stdout.split("\n").filter((line) => line.includes("\u001b[2m"))).toHaveLength(1);
-    expect(colored.stdout).toContain("\u001b[2mA Profile");
+    // Guide prose carries no category, so wrapped prose stays uncoloured.
+    expect(colored.stdout).not.toContain("\u001b[2m");
+    // The guide title and next action keep their authored heading category.
+    expect(colored.stdout.split("\n").some((line) => line.includes("\u001b[1;34m"))).toBe(true);
   });
 });
 
@@ -11788,7 +11832,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const bind = await runCli(home, "bind", "coding", authored, "--host", "codex");
     expectExitCode(bind, 0);
-    expect(bind.stdout).toContain(`Recorded configured Project for ${authored}\n`);
+    expect(humanText(bind.stdout)).toContain(`Recorded configured Project for ${authored}`);
     expect(bind.stdout).not.toContain(canonical);
 
     const list = await runCli(home, "list", "projects");
@@ -11825,7 +11869,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const unbind = await runCli(home, "unbind", authored);
     expectExitCode(unbind, 0);
-    expect(unbind.stdout).toContain(`Removed configured Project for ${authored}\n`);
+    expect(humanText(unbind.stdout)).toContain(`Removed configured Project for ${authored}`);
     expect(unbind.stdout).not.toContain(canonical);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });

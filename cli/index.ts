@@ -3,11 +3,30 @@
 import { homedir } from "node:os";
 import type { WriteStream } from "node:tty";
 
-import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
 import {
-  capitalize,
+  agentGuide,
+  focusedGuideDocument,
+  guideFileDocument,
+  guideIndexDocument,
+  humanGuide,
+  type GuideTopic,
+} from "./guides.js";
+import {
+  carriedErrorParts,
+  diagnosticDocument,
+} from "./diagnostics.js";
+import {
+  commandHelpDocument,
+  machineHelpDocument,
+  rootHelpDocument,
+} from "./command-help.js";
+import {
+  bindReceiptDocument,
+  initReceiptDocument,
+  unbindReceiptDocument,
+} from "./receipts.js";
+import {
   DEFAULT_VIEW_LEXICON,
-  displayProjectPath,
   formatApplyJson,
   formatApplyReport,
   formatApplyExecutionFailure,
@@ -48,12 +67,11 @@ import {
   formatValidationResult,
   lifecycleExitCode,
   temporaryBlockedMessagesDocument,
-  responsiveHumanText,
   type LifecycleCommand,
 } from "./presentation.js";
-import { renderPresentationDocument } from "./presentation-document.js";
+import { renderPresentationDocument, type PresentationDocument } from "./presentation-document.js";
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
-import { bindProject, hostsEqual } from "../installer/bind-project.js";
+import { bindProject } from "../installer/bind-project.js";
 import {
   unbindProject,
 } from "../installer/unbind-project.js";
@@ -85,7 +103,6 @@ import {
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import { installerErrorSentence } from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
-import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import {
   listHosts,
   listProfiles,
@@ -117,7 +134,6 @@ import {
   agentProfileKitWordmark,
   renderHumanOutput,
   terminalPresentationContext,
-  wrapPresentationText,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
 import {
@@ -143,20 +159,33 @@ function writeHuman(
   stream.write(renderHumanOutput(text, context, { commandNames: COMMAND_NAMES }));
 }
 
-/** Authoring and teardown output wrapped through the shared human boundary. */
-function humanOutput(
-  text: string,
-  copyableValues: readonly string[] = [],
-): string {
-  return responsiveHumanText(text, stdoutPresentationContext, copyableValues);
+/**
+ * The interactive wordmark authored at the CLI boundary — the one place allowed
+ * to read the terminal context (DEC-012).
+ */
+function rootWordmark(context: TerminalPresentationContext): readonly string[] {
+  return context.interactive ? agentProfileKitWordmark(context.width) : [];
 }
 
-/** Diagnostic output (errors and warnings) wrapped through the shared human boundary. */
-function humanError(
-  text: string,
+/** Help output rendered from a presentation document, without the regex categoriser. */
+function writeHelp(
+  stream: WriteStream,
+  help: { readonly document: PresentationDocument; readonly copyableValues: readonly string[] },
+  context: TerminalPresentationContext,
+): void {
+  writeHumanDocument(stream, help.document, context, help.copyableValues);
+}
+
+/** Human output rendered from a presentation document (DEC-018). */
+function writeHumanDocument(
+  stream: WriteStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
   copyableValues: readonly string[] = [],
-): string {
-  return responsiveHumanText(text, stderrPresentationContext, copyableValues);
+): void {
+  stream.write(
+    `${renderPresentationDocument(document, context, { copyableValues })}\n`,
+  );
 }
 
 /**
@@ -193,14 +222,26 @@ function formatError(error: unknown): string {
   return errorMessage(error);
 }
 
-function usageLine(command: { readonly syntax: string }): string {
-  return `Usage: ${COMMAND_NAME} ${command.syntax}`;
+/** The carried syntax of one named command, for diagnostic usage nodes. */
+function commandSyntax(name: string): string {
+  return findCommand(name).syntax;
 }
 
-/** The single line of usage guidance for one named command. */
-function commandUsage(name: string): string {
-  const command = findCommand(name);
-  return `${usageLine(command)}\n`;
+/**
+ * The human diagnostic for one lifecycle tool error: the carried sentence as
+ * what happened, any carried cause lines as why, and usage guidance as what
+ * to type when the error names a Project target.
+ */
+function lifecycleToolErrorDiagnostic(
+  command: LifecycleCommand,
+  error: unknown,
+): PresentationDocument {
+  const { happened, why } = carriedErrorParts(formatErrorForHuman(error));
+  return diagnosticDocument({
+    happened,
+    why,
+    ...(error instanceof ProjectTargetError ? { usage: commandSyntax(command) } : {}),
+  });
 }
 
 /**
@@ -356,29 +397,29 @@ function sanitizeCommandToken(token: string): string {
   return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
 }
 
-function wrapErrorLine(text: string, width: number): string {
-  return wrapPresentationText(text, width)
-    .map((line, index) => index === 0 ? line : `  ${line}`)
-    .join("\n");
+/** The diagnostic for one command removed behind the machine namespace (DEC-019). */
+function removedNamespaceDiagnostic(name: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: `${name} moved behind the machine namespace`,
+    whatToType: [`Use ${COMMAND_NAME} machine ${name}`],
+  });
 }
 
-function unknownCommandHelp(unknown: string, context: TerminalPresentationContext): string {
+function unknownCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = suggestedCommand(safeUnknown);
-  const unknownLine = `${COMMAND_NAME}: unknown command '${safeUnknown}'`;
-  const lines = [unknownLine];
-  if (suggestion !== undefined) lines.push(`Did you mean: ${COMMAND_NAME} ${suggestion}?`);
-  lines.push("", `Run ${COMMAND_NAME} --help for available commands.`);
-  return lines
-    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
-    .join("\n") + "\n";
+  return diagnosticDocument({
+    happened: `unknown command '${safeUnknown}'`,
+    whatToType: [
+      ...(suggestion === undefined ? [] : [`Did you mean: ${COMMAND_NAME} ${suggestion}?`]),
+      "",
+      `Run ${COMMAND_NAME} --help for available commands.`,
+    ],
+  });
 }
 
 /** Unknown-command help inside the machine-facing namespace (DEC-019). */
-function unknownMachineCommandHelp(
-  unknown: string,
-  context: TerminalPresentationContext,
-): string {
+function unknownMachineCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
   const suggestion = machineCommands()
     .map((command) => ({
@@ -391,112 +432,16 @@ function unknownMachineCommandHelp(
       return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
     })[0]
     ?.name;
-  const lines = [`${COMMAND_NAME}: unknown machine command '${safeUnknown}'`];
-  if (suggestion !== undefined) {
-    lines.push(`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`);
-  }
-  lines.push("", `Run ${COMMAND_NAME} machine --help for available machine commands.`);
-  return lines
-    .map((line) => line === "" ? "" : wrapErrorLine(line, context.width))
-    .join("\n") + "\n";
-}
-
-function perCommandHelp(
-  command: CommandHelp,
-  context: TerminalPresentationContext,
-): string {
-  const supportedHosts = command.supportedHosts === undefined
-    ? ""
-    : `Supported Hosts: ${command.supportedHosts.join(", ")}\n\n`;
-  return responsiveHumanText(
-    `Purpose: ${command.summary}\n\n` +
-      `${usageLine(command)}\n\n` +
-      "Examples:\n" +
-      command.examples.map((example) => `  ${COMMAND_NAME} ${example}\n`).join("") +
-      `\n${supportedHosts}` +
-      `Writes: ${command.writes}\n\n` +
-      `Next: ${command.next}\n`,
-    context,
-    [
-      usageLine(command),
-      ...command.examples.map((example) => `${COMMAND_NAME} ${example}`),
-      ...(command.supportedHosts === undefined
+  return diagnosticDocument({
+    happened: `unknown machine command '${safeUnknown}'`,
+    whatToType: [
+      ...(suggestion === undefined
         ? []
-        : [`Supported Hosts: ${command.supportedHosts.join(", ")}`]),
+        : [`Did you mean: ${COMMAND_NAME} machine ${suggestion}?`]),
+      "",
+      `Run ${COMMAND_NAME} machine --help for available machine commands.`,
     ],
-  );
-}
-
-/** Root help shown for a bare invocation and root `--help` aliases. */
-function rootHelp(context: TerminalPresentationContext): string {
-  const wordmark = context.interactive ? agentProfileKitWordmark(context.width) : [];
-  const proseWidth = Math.max(1, context.width - 4);
-  const listedCommands = defaultCommands();
-  const commandLines = (group: CommandHelp["group"]): string[] =>
-    listedCommands
-      .filter((candidate) => candidate.group === group)
-      .flatMap((command) => [
-        `  ${command.syntax}`,
-        ...wrapPresentationText(command.summary, proseWidth)
-          .map((line) => `    ${line}`),
-      ]);
-  const commonGroupLabel = COMMAND_GROUPS.find(([group]) => group === "common")?.[1];
-  if (commonGroupLabel === undefined) throw new Error("Common command group is not configured");
-  const commonCommandLines = commandLines("common");
-  const secondaryCommandLines = COMMAND_GROUPS
-    .filter(([group]) => group !== "common")
-    .flatMap(([group, label]) => {
-      const lines = commandLines(group);
-      return lines.length === 0 ? [] : [`  ${label}:`, ...lines];
-    });
-  const intro = wrapPresentationText(
-    "Agent Profile Kit composes reusable agent material into host-native projects.",
-    context.width,
-  ).join("\n");
-  const guidance = wrapPresentationText(
-    `For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ${COMMAND_NAME} guide --full.`,
-    context.width,
-  ).join("\n");
-  const quickStartHeading = "First run:";
-  const discovery = wrapPresentationText(
-    `Choose a Profile with ${COMMAND_NAME} guide profile; see ${COMMAND_NAME} bind --help for supported Host values.`,
-    Math.max(1, context.width - 2),
-  ).map((line) => `  ${line}`).join("\n");
-  const identity = wordmark.length === 0 ? "" : `${wordmark.join("\n")}\n\n`;
-  return identity + `${intro}\n\n` +
-    `Usage: ${COMMAND_NAME} <command> [arguments]\n\n` +
-    `${quickStartHeading}\n` +
-    `  ${COMMAND_NAME} init\n` +
-    `  ${COMMAND_NAME} bind <profile> --host <host>\n` +
-    `  ${COMMAND_NAME} status\n` +
-    `  ${COMMAND_NAME} apply\n\n` +
-    `${discovery}\n\n` +
-    `${commonGroupLabel}:\n` +
-    `${commonCommandLines.join("\n")}\n\n` +
-    "More commands:\n" +
-    `${secondaryCommandLines.join("\n")}\n\n` +
-    `${guidance}\n`;
-}
-
-/**
- * Help for the machine-facing namespace (DEC-019): the only place its commands
- * are listed, deliberately absent from the default command list.
- */
-function machineHelp(context: TerminalPresentationContext): string {
-  const proseWidth = Math.max(1, context.width - 4);
-  const commandLines = machineCommands()
-    .flatMap((command) => [
-      `  ${command.syntax}`,
-      ...wrapPresentationText(command.summary, proseWidth)
-        .map((line) => `    ${line}`),
-    ]);
-  const intro = wrapPresentationText(
-    "Machine-facing commands for external runners and automation. Temporary Profile Installation behavior, JSON payloads, and exit codes are unchanged from their documented contract.",
-    context.width,
-  ).join("\n");
-  return `${intro}\n\n` +
-    `Usage: ${COMMAND_NAME} machine <command> [arguments]\n\n` +
-    `${commandLines.join("\n")}\n`;
+  });
 }
 
 /** Runs a command-argument parser and, on failure, reports the error with that command's usage. */
@@ -504,9 +449,12 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   try {
     return parse();
   } catch (error) {
-    writeHuman(
+    writeHumanDocument(
       process.stderr,
-      humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`) + commandUsage(command),
+      diagnosticDocument({
+        ...carriedErrorParts(formatErrorForHuman(error)),
+        usage: commandSyntax(command),
+      }),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -865,51 +813,46 @@ async function main(): Promise<void> {
     (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
   ) {
     const context = stdoutPresentationContext;
-    writeHuman(process.stdout, rootHelp(context), context);
+    writeHelp(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
     return;
   }
   const focusedHelp = focusedHelpRequest(arguments_);
   if (focusedHelp?.kind === "root") {
-    const context = stdoutPresentationContext;
-    writeHuman(process.stdout, rootHelp(context), context);
+    writeHelp(
+      process.stdout,
+      rootHelpDocument(rootWordmark(stdoutPresentationContext)),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (focusedHelp?.kind === "machine") {
-    writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+    writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
     return;
   }
   if (focusedHelp?.kind === "removedTemporary") {
-    writeHuman(
+    writeHumanDocument(
       process.stderr,
-      humanError(
-        `${COMMAND_NAME}: ${focusedHelp.name} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${focusedHelp.name}\n`,
-      ),
+      removedNamespaceDiagnostic(focusedHelp.name),
       stderrPresentationContext,
     );
     process.exitCode = 1;
     return;
   }
   if (focusedHelp?.kind === "command") {
-    writeHuman(
-      process.stdout,
-      perCommandHelp(focusedHelp.command, stdoutPresentationContext),
-      stdoutPresentationContext,
-    );
+    writeHelp(process.stdout, commandHelpDocument(focusedHelp.command), stdoutPresentationContext);
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "guide") {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      const context = stdoutPresentationContext;
-      writeHuman(process.stdout, guideIndex(context), context);
+      writeHelp(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
-      const context = stdoutPresentationContext;
-      writeHuman(process.stdout, focusedGuide(parsed.topic, context), context);
+      writeHelp(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
     } else if (parsed.kind === "agent") {
-      process.stdout.write(await agentGuide());
+      writeHelp(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      writeHuman(process.stdout, await humanGuide(), stdoutPresentationContext);
+      writeHelp(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }
@@ -918,45 +861,21 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     const result = await initializeWorkspace(home, parsed);
     for (const warning of result.warnings) {
-      writeHuman(process.stderr, humanError(`${COMMAND_NAME}: warning: ${warning}\n`), stderrPresentationContext);
-    }
-    if (result.outcome === "migrated") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}\n` +
-            `Next: run ${COMMAND_NAME} validate, then status and apply as needed\n`,
-          [
-            `Migrated ${DEFAULT_VIEW_LEXICON.localConfiguration} and validated the Agent Profile Kit Workspace at ${result.path}`,
-          ],
-        ),
-        stdoutPresentationContext,
+      writeHumanDocument(
+        process.stderr,
+        diagnosticDocument({
+          happened: `warning: ${warning}`,
+          severity: "attention",
+        }),
+        stderrPresentationContext,
       );
-      return;
     }
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.\n`,
-          [`Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} already initialized at ${result.path}; unchanged.`],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    const next = result.workspaceScaffolded
-      ? `Next: from the project you want to try, run ${COMMAND_NAME} bind ${AUTHORING_EXAMPLES.profile.id} --host codex\n`
-      : `Next: run ${COMMAND_NAME} validate\n`;
-    writeHuman(
+    const initReceipt = initReceiptDocument(result);
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}\n` + next,
-        [
-          `Initialized Agent Profile Kit Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} at ${result.path}`,
-        ],
-      ),
+      initReceipt.document,
       stdoutPresentationContext,
+      initReceipt.copyableValues,
     );
     return;
   }
@@ -970,60 +889,12 @@ async function main(): Promise<void> {
       ...(parsed.replace ? { replace: true } : {}),
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-            `  Profile: ${result.profile}\n` +
-            `  Hosts: ${result.hosts.join(", ")}\n` +
-            `Next: ${COMMAND_NAME} status\n`,
-          [
-            `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-            result.hosts.join(", "),
-          ],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    if (result.outcome === "replaced") {
-      const deltaLines = [
-        result.previousProfile === result.profile
-          ? undefined
-          : `  Profile: ${result.previousProfile} → ${result.profile}`,
-        hostsEqual(result.previousHosts, result.hosts)
-          ? undefined
-          : `  Hosts: ${result.previousHosts.join(", ")} → ${result.hosts.join(", ")}`,
-      ].filter((line) => line !== undefined);
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-            deltaLines.map((line) => `${line}\n`).join("") +
-            `Next: ${COMMAND_NAME} status\n`,
-          [
-            `Replaced ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-            ...deltaLines.map((line) => line.slice(2)),
-          ],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
-    writeHuman(
+    const bindReceipt = bindReceiptDocument(result);
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}\n` +
-          `  Profile: ${result.profile}\n` +
-          `  Hosts: ${result.hosts.join(", ")}\n` +
-          `Next: ${COMMAND_NAME} status\n`,
-        [
-          `Recorded ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${displayProjectPath(result.canonicalProject, result.project, "project")}`,
-          result.hosts.join(", "),
-        ],
-      ),
+      bindReceipt.document,
       stdoutPresentationContext,
+      bindReceipt.copyableValues,
     );
     return;
   }
@@ -1034,50 +905,14 @@ async function main(): Promise<void> {
       home,
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
     });
-    if (result.outcome === "unchanged") {
-      writeHuman(
-        process.stdout,
-        humanOutput(
-          `${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}\n`,
-          [`${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.singular)} unchanged; no ${DEFAULT_VIEW_LEXICON.projectBinding.singular} matched ${result.requestedProject}`],
-        ),
-        stdoutPresentationContext,
-      );
-      return;
-    }
     // Exceptional recovery keeps the diagnostic detail needed to act safely;
     // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
-    const recoveryExplanation =
-      "Recovery: exact authored path match; canonical project identity could not be proven";
-    const recovery = result.recovery === "authored-path"
-      ? `  ${recoveryExplanation}\n` +
-        `  Local Configuration: ${result.configurationPath}\n`
-      : "";
-    const recoveryCopyable = result.recovery === "authored-path"
-      ? [recoveryExplanation, `Local Configuration: ${result.configurationPath}`]
-      : [];
-    const survival = result.generatedOutputSurvives
-      ? "Generated files remain until apply\n" +
-        `Next: ${COMMAND_NAME} status --all\n`
-      : "";
-    const presentedProject = result.recovery === "canonical"
-      ? displayProjectPath(result.canonicalProject, result.project, "project")
-      : displayProjectPath(result.project, result.project, "project");
-    writeHuman(
+    const unbindReceipt = unbindReceiptDocument(result);
+    writeHumanDocument(
       process.stdout,
-      humanOutput(
-        `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}\n` +
-          recovery +
-          `  Profile: ${result.profile}\n` +
-          `  Hosts: ${result.hosts.join(", ")}\n` +
-          survival,
-        [
-          `Removed ${DEFAULT_VIEW_LEXICON.projectBinding.singular} for ${presentedProject}`,
-          ...recoveryCopyable,
-          result.hosts.join(", "),
-        ],
-      ),
+      unbindReceipt.document,
       stdoutPresentationContext,
+      unbindReceipt.copyableValues,
     );
     return;
   }
@@ -1108,7 +943,11 @@ async function main(): Promise<void> {
           formatInfoToolErrorJson(applicationInfoLocations(home), formatError(error)),
         );
       } else {
-        writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+        writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
       }
       process.exitCode = 1;
     }
@@ -1142,7 +981,11 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+            writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
           }
           process.exitCode = 1;
         }
@@ -1162,7 +1005,11 @@ async function main(): Promise<void> {
           if (parsed.json) {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
-            writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+            writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
           }
           process.exitCode = 1;
         }
@@ -1251,11 +1098,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
       } else {
-        const guidance = error instanceof ProjectTargetError ? commandUsage("apply") : "";
-        const failureText = formatErrorForHuman(error);
-        writeHuman(
+        writeHumanDocument(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
+          lifecycleToolErrorDiagnostic("apply", error),
           stderrPresentationContext,
         );
       }
@@ -1287,11 +1132,9 @@ async function main(): Promise<void> {
       if (parsed.json) {
         process.stdout.write(formatLifecycleToolErrorJson("status", formatError(error)));
       } else {
-        const guidance = error instanceof ProjectTargetError ? commandUsage("status") : "";
-        const failureText = formatErrorForHuman(error);
-        writeHuman(
+        writeHumanDocument(
           process.stderr,
-          humanError(`${COMMAND_NAME}: ${failureText}\n`) + guidance,
+          lifecycleToolErrorDiagnostic("status", error),
           stderrPresentationContext,
         );
       }
@@ -1310,11 +1153,9 @@ async function main(): Promise<void> {
   }
   if (arguments_.length >= 1 && REMOVED_TEMPORARY_COMMANDS.some((name) => name === arguments_[0])) {
     const removed = arguments_[0]!;
-    writeHuman(
+    writeHumanDocument(
       process.stderr,
-      humanError(
-        `${COMMAND_NAME}: ${removed} moved behind the machine namespace\nUse ${COMMAND_NAME} machine ${removed}\n`,
-      ),
+      removedNamespaceDiagnostic(removed),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -1323,14 +1164,14 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
     const rest = arguments_.slice(1);
     if (rest.length === 0) {
-      writeHuman(process.stdout, machineHelp(stdoutPresentationContext), stdoutPresentationContext);
+      writeHelp(process.stdout, machineHelpDocument(), stdoutPresentationContext);
       return;
     }
     const machineFocusedHelp = focusedMachineHelpRequest(rest);
     if (machineFocusedHelp?.kind === "command") {
-      writeHuman(
+      writeHelp(
         process.stdout,
-        perCommandHelp(machineFocusedHelp.command, stdoutPresentationContext),
+        commandHelpDocument(machineFocusedHelp.command),
         stdoutPresentationContext,
       );
       return;
@@ -1388,13 +1229,14 @@ async function main(): Promise<void> {
               }),
             );
           } else {
-            writeHuman(
+            writeHumanDocument(
               process.stderr,
-              humanError(
-                `${COMMAND_NAME}: ${formatError(error)}\n` +
-                  `${COMMAND_NAME}: removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}\n`,
-                [error.temporaryInstallationId],
-              ),
+              diagnosticDocument({
+                ...carriedErrorParts(formatError(error)),
+                whatToType: [
+                  `removal is required; run ${COMMAND_NAME} machine remove-temp ${error.temporaryInstallationId}`,
+                ],
+              }),
               stderrPresentationContext,
             );
           }
@@ -1406,7 +1248,11 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("install-temp", formatError(error)),
           );
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
         }
         process.exitCode = 1;
       }
@@ -1458,7 +1304,11 @@ async function main(): Promise<void> {
             formatTemporaryInstallationToolErrorJson("remove-temp", formatError(error)),
           );
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
         }
         process.exitCode = 1;
       }
@@ -1492,14 +1342,21 @@ async function main(): Promise<void> {
         if (parsed.json) {
           process.stdout.write(formatTemporaryInventoryToolErrorJson(formatError(error)));
         } else {
-          writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+          writeHumanDocument(
+            process.stderr,
+            diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+            stderrPresentationContext,
+          );
         }
         process.exitCode = 1;
       }
       return;
     }
-    const context = stderrPresentationContext;
-    writeHuman(process.stderr, unknownMachineCommandHelp(subcommand, context), context);
+    writeHumanDocument(
+      process.stderr,
+      unknownMachineCommandDiagnostic(subcommand),
+      stderrPresentationContext,
+    );
     process.exitCode = 1;
     return;
   }
@@ -1507,12 +1364,19 @@ async function main(): Promise<void> {
   const unknown = focusedHelp?.kind === "unknown"
     ? focusedHelp.token
     : arguments_[0] ?? "";
-  const context = stderrPresentationContext;
-  writeHuman(process.stderr, unknownCommandHelp(unknown, context), context);
+  writeHumanDocument(
+    process.stderr,
+    unknownCommandDiagnostic(unknown),
+    stderrPresentationContext,
+  );
   process.exitCode = 1;
 }
 
 main().catch((error: unknown) => {
-  writeHuman(process.stderr, humanError(`${COMMAND_NAME}: ${formatErrorForHuman(error)}\n`), stderrPresentationContext);
+  writeHumanDocument(
+  process.stderr,
+  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+  stderrPresentationContext,
+);
   process.exitCode = 1;
 });
