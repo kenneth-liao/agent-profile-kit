@@ -1,5 +1,5 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
-import type { InlineContent } from "./project-plan.js";
+import { flatInlineText, type InlineContent } from "./project-plan.js";
 
 /** The affected-item evidence an Adapter capability failure can carry: a Host or a path. */
 export type AdapterCapabilityAffectedItemKind = "host" | "path";
@@ -21,7 +21,7 @@ export interface AdapterCapabilityFailure {
   readonly affectedItems: readonly AdapterCapabilityAffectedItem[];
   readonly host: SupportedHost;
   readonly message: string;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -38,7 +38,7 @@ export interface AdapterCapabilityFailure {
 export class AdapterCapabilityError extends Error implements AdapterCapabilityFailure {
   readonly affectedItems: readonly AdapterCapabilityAffectedItem[];
   readonly host: SupportedHost;
-  readonly parts?: readonly InlineContent[];
+  readonly parts: readonly InlineContent[];
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
@@ -54,7 +54,7 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
     this.remedy = failure.remedy;
     this.requirement = failure.requirement;
     this.scope = failure.scope;
-    if (failure.parts !== undefined) this.parts = failure.parts;
+    this.parts = failure.parts;
     if (failure.requiredVersion !== undefined) this.requiredVersion = failure.requiredVersion;
   }
 }
@@ -80,12 +80,17 @@ export function capabilityFailure(
   problem: string,
   remedy: string,
   affectedItems: readonly AdapterCapabilityAffectedItem[] = [],
-  message = `${problem}; ${remedy}`,
+  message?: string,
+  parts?: readonly InlineContent[],
 ): AdapterCapabilityError {
+  const allAffected = [{ kind: "host" as const, value: host }, ...affectedItems];
+  const authoredParts = parts ?? (message !== undefined ? [message] : [`${problem}; ${remedy}`]);
+  const flatMessage = message ?? flatInlineText(authoredParts);
   return new AdapterCapabilityError({
-    affectedItems: [{ kind: "host", value: host }, ...affectedItems],
+    affectedItems: allAffected,
     host,
-    message,
+    message: flatMessage,
+    parts: authoredParts,
     problem,
     remedy,
     requirement: capabilityRequirement(host),
@@ -103,11 +108,14 @@ export function versionFloorCapabilityFailure(
   problem: string,
   remedy: string,
   requiredVersion: string,
+  parts?: readonly InlineContent[],
 ): AdapterCapabilityError {
+  const authoredParts = parts ?? [`${problem}; ${remedy}`];
   return new AdapterCapabilityError({
     affectedItems: [{ kind: "host", value: host }],
     host,
-    message: `${problem}; ${remedy}`,
+    message: flatInlineText(authoredParts),
+    parts: authoredParts,
     problem,
     remedy,
     requirement: capabilityRequirement(host),
@@ -140,5 +148,6 @@ export function caughtCapabilityFailure(
       : "check the Project surface, then retry",
     [{ kind: "host", value: host }],
     message,
+    [message],
   );
 }

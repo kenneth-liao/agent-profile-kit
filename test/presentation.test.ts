@@ -4,7 +4,8 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
-import { appendDiagnosticWarnings } from "../installer/project-plan.js";
+import { capabilityFailure } from "../adapters/capability.js";
+import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
   flatInlineText,
@@ -1876,6 +1877,54 @@ describe("responsive lifecycle presentation", () => {
       { kind: "identifier", value: `${projectPath}/.codex/config.toml` },
       " or ",
       { kind: "identifier", value: globalPath },
+      " (1 Project)",
+    ]);
+  });
+
+  test("adapter-authored capability failure warning document retains structured identifier parts through normalization pipeline", () => {
+    const projectPath = "/projects/my-app";
+    const agentsPath = `${projectPath}/.agents`;
+    const failure = capabilityFailure(
+      "antigravity",
+      "project",
+      `Antigravity project surface cannot host Context: ${agentsPath} is a file, not a directory`,
+      "ensure the Antigravity Context surface is a directory, then retry",
+      [{ kind: "path", value: agentsPath }],
+      `Antigravity project surface cannot host Context: ${agentsPath} is a file, not a directory`,
+      [
+        "Antigravity project surface cannot host Context: ",
+        identifierPart(agentsPath),
+        " is a file, not a directory",
+      ],
+    );
+
+    const capWarning = capabilityWarning("antigravity", failure);
+
+    const report = machineReport([
+      machineProject(projectPath, {
+        warnings: [
+          {
+            copyableValues: [...capWarning.warning.copyableValues],
+            kind: "host-attention",
+            message: capWarning.warning.message,
+            parts: capWarning.warning.parts,
+          },
+        ],
+      }),
+    ]);
+
+    const doc = lifecycleStatusDocument(report);
+    const nodes = flattenPresentationNodes(doc);
+    const warningItem = nodes.find((node) =>
+      node.kind === "list-item" &&
+      node.parts.some((part) => typeof part === "object" && part.kind === "identifier" && part.value === agentsPath)
+    ) as Extract<PresentationNode, { kind: "list-item" }> | undefined;
+
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toEqual([
+      "Antigravity project surface cannot host Context: ",
+      { kind: "identifier", value: agentsPath },
+      " is a file, not a directory",
       " (1 Project)",
     ]);
   });

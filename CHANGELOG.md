@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
-- Preserve structured warning inline parts across adapter diagnostics, Git exclusions, lifecycle normalization, and reconciliation rather than dropping them or searching composed messages ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
+- Author canonical structured inline parts across adapter capability failures, diagnostics, Git exclusions, lifecycle normalization, and reconciliation rather than dropping them or searching composed messages ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
 
 ### Removed
 

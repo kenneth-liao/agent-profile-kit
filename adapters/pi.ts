@@ -23,14 +23,14 @@ import {
   skillsRequireDisabledModelInvocation,
   type AdapterPlanningMaterials,
 } from "./skill-package.js";
-import type {
-  AdapterHostSetupStep,
-  AdapterDiagnosticWarning,
-  AdapterProjectPlan,
-  ProposedProjectFileOutput,
-  ProposedProjectOutput,
+import {
+  identifierPart,
+  type AdapterHostSetupStep,
+  type AdapterDiagnosticWarning,
+  type AdapterProjectPlan,
+  type ProposedProjectFileOutput,
+  type ProposedProjectOutput,
 } from "./project-plan.js";
-import { identifierPart } from "../cli/inline-content.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -290,6 +290,11 @@ export async function assertPiProjectSurface(
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
         problem,
+        [
+          "Pi shared project surface cannot host Skills: ",
+          identifierPart(agentsPath),
+          ` is a ${agentsKind}, not a directory`,
+        ],
       );
     }
     const skillsPath = join(project, ...PI_PROJECT_SKILLS_ROOT.split("/"));
@@ -303,6 +308,11 @@ export async function assertPiProjectSurface(
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
         problem,
+        [
+          "Pi shared project surface cannot host Skills: ",
+          identifierPart(skillsPath),
+          ` is a ${skillsKind}, not a directory`,
+        ],
       );
     }
   }
@@ -319,6 +329,11 @@ export async function assertPiProjectSurface(
         "ensure the Pi project surface is a directory, then retry",
         [{ kind: "path", value: piPath }],
         problem,
+        [
+          "Pi project surface cannot host outputs: ",
+          identifierPart(piPath),
+          ` is a ${piKind}, not a directory`,
+        ],
       );
     }
     const contextPath = join(project, ...PI_CONTEXT_PATH.split("/"));
@@ -333,6 +348,11 @@ export async function assertPiProjectSurface(
         "ensure the Pi Context destination is a regular file, then retry",
         [{ kind: "path", value: contextPath }],
         problem,
+        [
+          "Pi append-system destination cannot host Context: ",
+          identifierPart(contextPath),
+          ` is a ${contextKind}, not a regular file`,
+        ],
       );
     }
   }

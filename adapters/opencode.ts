@@ -29,13 +29,14 @@ import {
   SHARED_SKILLS_DISCOVERY_ROOT,
   SHARED_SKILL_DISCOVERY_REQUIREMENT,
 } from "./shared-skill.js";
-import type {
-  AdapterDiagnosticWarning,
-  AdapterHostSetupStep,
-  AdapterProjectPlan,
-  OutputRemedyKey,
-  ProposedProjectFileOutput,
-  ProposedProjectOutput,
+import {
+  identifierPart,
+  type AdapterDiagnosticWarning,
+  type AdapterHostSetupStep,
+  type AdapterProjectPlan,
+  type OutputRemedyKey,
+  type ProposedProjectFileOutput,
+  type ProposedProjectOutput,
 } from "./project-plan.js";
 
 /** Capability Contract for OpenCode native project instructions and shared Skills. */
@@ -213,6 +214,11 @@ export async function assertOpenCodeProjectSurface(
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
         problem,
+        [
+          "OpenCode shared project surface cannot host Skills: ",
+          identifierPart(agentsPath),
+          ` is a ${agentsKind}, not a directory`,
+        ],
       );
     }
     const skillsPath = join(project, ...OPENCODE_PROJECT_SKILLS_ROOT.split("/"));
@@ -226,6 +232,11 @@ export async function assertOpenCodeProjectSurface(
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
         problem,
+        [
+          "OpenCode shared project surface cannot host Skills: ",
+          identifierPart(skillsPath),
+          ` is a ${skillsKind}, not a directory`,
+        ],
       );
     }
   }
@@ -242,6 +253,11 @@ export async function assertOpenCodeProjectSurface(
         "ensure the .opencode project surface is a directory, then retry",
         [{ kind: "path", value: opencodePath }],
         problem,
+        [
+          "OpenCode project surface cannot host outputs: ",
+          identifierPart(opencodePath),
+          ` is a ${opencodeKind}, not a directory`,
+        ],
       );
     }
   }
@@ -258,6 +274,11 @@ export async function assertOpenCodeProjectSurface(
         "ensure the .agent-profile-kit project surface is a directory, then retry",
         [{ kind: "path", value: apkPath }],
         problem,
+        [
+          "OpenCode project surface cannot host Context: ",
+          identifierPart(apkPath),
+          ` is a ${apkKind}, not a directory`,
+        ],
       );
     }
     const apkOpenCodePath = join(project, ".agent-profile-kit", "opencode");
@@ -271,6 +292,11 @@ export async function assertOpenCodeProjectSurface(
         "ensure the .agent-profile-kit/opencode project surface is a directory, then retry",
         [{ kind: "path", value: apkOpenCodePath }],
         problem,
+        [
+          "OpenCode project surface cannot host Context: ",
+          identifierPart(apkOpenCodePath),
+          ` is a ${apkOpenCodeKind}, not a directory`,
+        ],
       );
     }
   }

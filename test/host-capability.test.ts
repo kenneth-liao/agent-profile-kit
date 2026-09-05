@@ -24,6 +24,9 @@ import {
 } from "../adapters/capability.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
+import { previewReconciliation } from "../installer/reconcile.js";
+import { lifecycleStatusDocument } from "../cli/presentation.js";
+import type { PresentationNode } from "../cli/presentation-document.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -111,6 +114,7 @@ describe("Host capability probing", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
 
+    const realAgentsPath = join(realpathSync(project), ".agents");
     expect(desired.installations[0]?.capabilityWarnings).toEqual([
       {
         host: "antigravity",
@@ -118,13 +122,33 @@ describe("Host capability probing", () => {
         warning: {
           copyableValues: [
             "antigravity",
-            join(realpathSync(project), ".agents"),
+            realAgentsPath,
           ],
-          message: expect.stringContaining("Antigravity project surface cannot host Context"),
-          parts: expect.any(Array),
+          message: `Antigravity project surface cannot host Context: ${realAgentsPath} is a file, not a directory`,
+          parts: [
+            "Antigravity project surface cannot host Context: ",
+            { kind: "identifier", value: realAgentsPath },
+            " is a file, not a directory",
+          ],
         },
       },
     ]);
+
+    const report = await previewReconciliation(desired.installations, {
+      receipts: [],
+      removedTemporaryInstallationIds: [],
+      schemaVersion: 9,
+    });
+    const document = lifecycleStatusDocument(report);
+    const warningItem = (document as PresentationNode[]).find(
+      (node): node is Extract<PresentationNode, { readonly kind: "list-item" }> =>
+        node.kind === "list-item",
+    );
+    expect(warningItem).toBeDefined();
+    expect(warningItem?.parts).toContainEqual({
+      kind: "identifier",
+      value: join(project, ".agents"),
+    });
   });
 
   test("each Adapter capability boundary emits typed evidence and remains an Error", async () => {

@@ -153,7 +153,7 @@ export function capabilityWarning(
     warning: {
       copyableValues: failure.affectedItems.map((item) => item.value),
       message: failure.message,
-      parts: failure.parts ?? [failure.message],
+      parts: failure.parts,
     },
   };
 }
