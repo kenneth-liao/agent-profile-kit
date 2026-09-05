@@ -77,7 +77,6 @@ function policyAuthorityFailure(
     problem,
     remedy,
     [{ kind: "path", value: yamlPath }],
-    `${problem}; ${remedy}`,
     [
       "Skill '",
       identifierPart(skill.id),

@@ -1890,7 +1890,6 @@ describe("responsive lifecycle presentation", () => {
       `Antigravity project surface cannot host Context: ${agentsPath} is a file, not a directory`,
       "ensure the Antigravity Context surface is a directory, then retry",
       [{ kind: "path", value: agentsPath }],
-      `Antigravity project surface cannot host Context: ${agentsPath} is a file, not a directory`,
       [
         "Antigravity project surface cannot host Context: ",
         identifierPart(agentsPath),

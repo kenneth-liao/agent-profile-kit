@@ -260,7 +260,6 @@ export async function assertClaudeProjectSurface(
       problem,
       "ensure the Claude project surface is a directory, then retry",
       [{ kind: "path", value: claudePath }],
-      problem,
       [
         "Claude project surface cannot host outputs: ",
         identifierPart(claudePath),
@@ -285,7 +284,6 @@ export async function assertClaudeProjectSurface(
       problem,
       "ensure the Claude rules surface is a directory, then retry",
       [{ kind: "path", value: rulesPath }],
-      problem,
       [
         "Claude project surface cannot host unscoped rules: ",
         identifierPart(rulesPath),

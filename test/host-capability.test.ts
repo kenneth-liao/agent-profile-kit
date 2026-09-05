@@ -124,10 +124,10 @@ describe("Host capability probing", () => {
             "antigravity",
             realAgentsPath,
           ],
-          message: `Antigravity project surface cannot host Context: ${realAgentsPath} is a file, not a directory`,
+          message: "Antigravity project surface cannot host Context: .agents is a file, not a directory",
           parts: [
             "Antigravity project surface cannot host Context: ",
-            { kind: "identifier", value: realAgentsPath },
+            { kind: "identifier", value: ".agents" },
             " is a file, not a directory",
           ],
         },
@@ -147,7 +147,7 @@ describe("Host capability probing", () => {
     expect(warningItem).toBeDefined();
     expect(warningItem?.parts).toContainEqual({
       kind: "identifier",
-      value: join(project, ".agents"),
+      value: ".agents",
     });
   });
 
@@ -355,7 +355,7 @@ describe("Host capability probing", () => {
     // A typed Adapter failure passes through with its authored scope and floor.
     const typed = capabilityFailure("codex", "project", "occupied", "retry", [
       { kind: "path", value: "/p" },
-    ], "occupied; retry");
+    ]);
     expect(caughtCapabilityFailure("codex", "project", typed)).toBe(typed);
 
     // A foreign error from a phase becomes typed evidence with that phase's

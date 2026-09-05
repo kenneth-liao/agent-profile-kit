@@ -80,16 +80,14 @@ export function capabilityFailure(
   problem: string,
   remedy: string,
   affectedItems: readonly AdapterCapabilityAffectedItem[] = [],
-  message?: string,
   parts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const allAffected = [{ kind: "host" as const, value: host }, ...affectedItems];
-  const authoredParts = parts ?? (message !== undefined ? [message] : [`${problem}; ${remedy}`]);
-  const flatMessage = message ?? flatInlineText(authoredParts);
+  const authoredParts = parts ?? [`${problem}; ${remedy}`];
   return new AdapterCapabilityError({
     affectedItems: allAffected,
     host,
-    message: flatMessage,
+    message: flatInlineText(authoredParts),
     parts: authoredParts,
     problem,
     remedy,
@@ -147,7 +145,6 @@ export function caughtCapabilityFailure(
       ? "check the Host CLI works, then retry"
       : "check the Project surface, then retry",
     [{ kind: "host", value: host }],
-    message,
     [message],
   );
 }

@@ -289,7 +289,6 @@ export async function assertPiProjectSurface(
         problem,
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
-        problem,
         [
           "Pi shared project surface cannot host Skills: ",
           identifierPart(agentsPath),
@@ -307,7 +306,6 @@ export async function assertPiProjectSurface(
         problem,
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
-        problem,
         [
           "Pi shared project surface cannot host Skills: ",
           identifierPart(skillsPath),
@@ -328,7 +326,6 @@ export async function assertPiProjectSurface(
         problem,
         "ensure the Pi project surface is a directory, then retry",
         [{ kind: "path", value: piPath }],
-        problem,
         [
           "Pi project surface cannot host outputs: ",
           identifierPart(piPath),
@@ -347,7 +344,6 @@ export async function assertPiProjectSurface(
         problem,
         "ensure the Pi Context destination is a regular file, then retry",
         [{ kind: "path", value: contextPath }],
-        problem,
         [
           "Pi append-system destination cannot host Context: ",
           identifierPart(contextPath),

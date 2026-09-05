@@ -213,7 +213,6 @@ export async function assertOpenCodeProjectSurface(
         problem,
         "ensure the shared .agents project surface is a directory, then retry",
         [{ kind: "path", value: agentsPath }],
-        problem,
         [
           "OpenCode shared project surface cannot host Skills: ",
           identifierPart(agentsPath),
@@ -231,7 +230,6 @@ export async function assertOpenCodeProjectSurface(
         problem,
         "ensure the shared .agents/skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
-        problem,
         [
           "OpenCode shared project surface cannot host Skills: ",
           identifierPart(skillsPath),
@@ -252,7 +250,6 @@ export async function assertOpenCodeProjectSurface(
         problem,
         "ensure the .opencode project surface is a directory, then retry",
         [{ kind: "path", value: opencodePath }],
-        problem,
         [
           "OpenCode project surface cannot host outputs: ",
           identifierPart(opencodePath),
@@ -273,7 +270,6 @@ export async function assertOpenCodeProjectSurface(
         problem,
         "ensure the .agent-profile-kit project surface is a directory, then retry",
         [{ kind: "path", value: apkPath }],
-        problem,
         [
           "OpenCode project surface cannot host Context: ",
           identifierPart(apkPath),
@@ -291,7 +287,6 @@ export async function assertOpenCodeProjectSurface(
         problem,
         "ensure the .agent-profile-kit/opencode project surface is a directory, then retry",
         [{ kind: "path", value: apkOpenCodePath }],
-        problem,
         [
           "OpenCode project surface cannot host Context: ",
           identifierPart(apkOpenCodePath),

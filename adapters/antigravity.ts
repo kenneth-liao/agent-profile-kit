@@ -210,18 +210,16 @@ function surfaceFailure(
   kind: string,
   requirement: string,
 ): ReturnType<typeof capabilityFailure> {
-  const fullPath = join(project, path);
-  const problem = `Antigravity project surface cannot host ${requirement}: ${fullPath} is a ${kind}, not a directory`;
+  const problem = `Antigravity project surface cannot host ${requirement}: ${path} is a ${kind}, not a directory`;
   return capabilityFailure(
     "antigravity",
     "project",
     problem,
     `ensure the Antigravity ${requirement} surface is a directory, then retry`,
-    [{ kind: "path", value: fullPath }],
-    problem,
+    [{ kind: "path", value: join(project, path) }],
     [
       `Antigravity project surface cannot host ${requirement}: `,
-      identifierPart(fullPath),
+      identifierPart(path),
       ` is a ${kind}, not a directory`,
     ],
   );
@@ -288,7 +286,6 @@ function rulePath(index: number, moduleId?: string): string {
       problem,
       "select fewer Context Modules and retry",
       [],
-      problem,
       [
         "Antigravity rule sequence '",
         identifierPart(numericSequence),
@@ -317,7 +314,6 @@ function assertRuleSize(path: string, bytes: string): void {
     problem,
     "shorten the selected Context Module so its complete always-on rule fits, then retry",
     [{ kind: "path", value: path }],
-    problem,
     [
       "Antigravity rule '",
       identifierPart(path),

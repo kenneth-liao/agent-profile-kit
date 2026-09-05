@@ -685,7 +685,6 @@ export async function assertGrokProjectSurface(
       problem,
       "ensure the Grok project surface is a directory, then retry",
       [{ kind: "path", value: grokPath }],
-      problem,
       [
         "Grok project surface cannot host outputs: ",
         identifierPart(grokPath),
@@ -706,7 +705,6 @@ export async function assertGrokProjectSurface(
         problem,
         "ensure the Grok Skills surface is a directory, then retry",
         [{ kind: "path", value: skillsPath }],
-        problem,
         [
           "Grok project surface cannot host Skills: ",
           identifierPart(skillsPath),
@@ -729,7 +727,6 @@ export async function assertGrokProjectSurface(
         problem,
         "ensure the Grok rules surface is a directory, then retry",
         [{ kind: "path", value: rulesPath }],
-        problem,
         [
           "Grok project surface cannot host unscoped rules: ",
           identifierPart(rulesPath),
