@@ -3,7 +3,14 @@
 import { homedir } from "node:os";
 import type { WriteStream } from "node:tty";
 
-import { agentGuide, focusedGuide, guideIndex, humanGuide, type GuideTopic } from "./guides.js";
+import {
+  agentGuide,
+  focusedGuideDocument,
+  guideFileDocument,
+  guideIndexDocument,
+  humanGuide,
+  type GuideTopic,
+} from "./guides.js";
 import {
   carriedErrorParts,
   diagnosticDocument,
@@ -128,7 +135,6 @@ import {
   agentProfileKitWordmark,
   renderHumanOutput,
   terminalPresentationContext,
-  wrapPresentationText,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
 import {
@@ -841,15 +847,13 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      const context = stdoutPresentationContext;
-      writeHuman(process.stdout, guideIndex(context), context);
+      writeHelp(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
-      const context = stdoutPresentationContext;
-      writeHuman(process.stdout, focusedGuide(parsed.topic, context), context);
+      writeHelp(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
     } else if (parsed.kind === "agent") {
-      process.stdout.write(await agentGuide());
+      writeHelp(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      writeHuman(process.stdout, await humanGuide(), stdoutPresentationContext);
+      writeHelp(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }

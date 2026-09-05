@@ -122,19 +122,19 @@ exports[`golden snapshots of every human view guide index: guide-index 1`] = `
 # Agent Profile Kit guide
 
 Choose a focused authoring topic, read the complete human guide, or open the
-agent workflow reference.
+  agent workflow reference.
 
 Topics:
   apkit guide profile
-    Profile: A Profile selects reusable material for a kind of work through its
-    context and skills lists.
+    Profile: A Profile selects reusable material for a kind of work through
+      its context and skills lists.
   apkit guide context
     Context Module: A Context Module is an independently reusable unit of
-    always-loaded guidance. Profiles select it by its frontmatter \`id\`.
+      always-loaded guidance. Profiles select it by its frontmatter \`id\`.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
-    frontmatter \`name\`, and its description tells an Agent Host when the
-    workflow applies.
+      frontmatter \`name\`, and its description tells an Agent Host when the
+      workflow applies.
 
 Complete references:
   apkit guide --full
@@ -155,7 +155,7 @@ exports[`golden snapshots of every human view focused guide: focused-guide 1`] =
 # Profile
 
 A Profile selects reusable material for a kind of work through its context and
-skills lists.
+  skills lists.
 
 Create \`profiles/example.yaml\`:
 
@@ -186,7 +186,7 @@ exports[`golden snapshots of every human view focused guide context: focused-gui
 # Context Module
 
 A Context Module is an independently reusable unit of always-loaded guidance.
-Profiles select it by its frontmatter \`id\`.
+  Profiles select it by its frontmatter \`id\`.
 
 Create \`context/example-context.md\`:
 
@@ -208,7 +208,7 @@ exports[`golden snapshots of every human view focused guide skill: focused-guide
 # Skill
 
 A Skill is a reusable workflow package. Profiles select it by its frontmatter
-\`name\`, and its description tells an Agent Host when the workflow applies.
+  \`name\`, and its description tells an Agent Host when the workflow applies.
 
 Create \`skills/example-skill/SKILL.md\`:
 

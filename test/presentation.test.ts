@@ -12,6 +12,13 @@ import {
   machineHelpDocument,
   rootHelpDocument,
 } from "../cli/command-help.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import {
+  focusedGuideDocument,
+  guideFileDocument,
+  guideIndexDocument,
+  TOPIC_GUIDES,
+} from "../cli/guides.js";
 import {
   applyExecutionFailureDocument,
   applyReportDocument,
@@ -7597,5 +7604,102 @@ describe("help documents (#390)", () => {
     for (const command of machineCommands()) {
       expect(copyableValues).toContain(command.syntax);
     }
+  });
+});
+
+describe("guide documents (#390)", () => {
+  test("the guide index presents the title, intro, topics, references, and examples", () => {
+    const { document, copyableValues } = guideIndexDocument();
+    const texts = document.map((node) =>
+      node.kind === "sentence" || node.kind === "prose" || node.kind === "heading"
+        ? node.text
+        : "",
+    );
+    expect(texts).toEqual([
+      "# Agent Profile Kit guide",
+      "",
+      "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
+      "",
+      "Topics:",
+      "  apkit guide profile",
+      "    Profile: A Profile selects reusable material for a kind of work through its context and skills lists.",
+      "  apkit guide context",
+      "    Context Module: A Context Module is an independently reusable unit of always-loaded guidance. Profiles select it by its frontmatter `id`.",
+      "  apkit guide skill",
+      "    Skill: A Skill is a reusable workflow package. Profiles select it by its frontmatter `name`, and its description tells an Agent Host when the workflow applies.",
+      "",
+      "Complete references:",
+      "  apkit guide --full",
+      "    Complete human Workspace guide",
+      "  apkit guide --agent",
+      "    Agent workflow reference",
+      "",
+      "Examples:",
+      "  apkit init",
+      "  apkit guide profile",
+      "  apkit bind example --host codex",
+    ]);
+    expect(copyableValues).toEqual([
+      "apkit guide profile",
+      "apkit guide context",
+      "apkit guide skill",
+      "apkit guide --full",
+      "apkit guide --agent",
+      "apkit init",
+      "apkit guide profile",
+      "apkit bind example --host codex",
+    ]);
+  });
+
+  test("the focused guide keeps its fenced examples as verbatim content", () => {
+    const { document, copyableValues } = focusedGuideDocument("profile");
+    const example = AUTHORING_EXAMPLES.profile;
+    const contextExample = AUTHORING_EXAMPLES.context;
+    expect(document).toEqual([
+      { kind: "heading", text: "# Profile" },
+      { kind: "verbatim", text: "" },
+      {
+        kind: "sentence",
+        text: "A Profile selects reusable material for a kind of work through its context and skills lists.",
+      },
+      { kind: "verbatim", text: "" },
+      {
+        kind: "verbatim",
+        text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
+      },
+      { kind: "verbatim", text: "" },
+      {
+        kind: "verbatim",
+        text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
+      },
+      { kind: "verbatim", text: "" },
+      {
+        kind: "sentence",
+        text: "Next: run `apkit bind example --host codex`.",
+        category: "heading",
+      },
+    ]);
+    // The carried next action renders whole, as the literal block it came from.
+    expect(copyableValues).toEqual([TOPIC_GUIDES.profile.next]);
+  });
+
+  test("the focused context and skill guides end at their next line without extra examples", () => {
+    for (const topic of ["context", "skill"] as const) {
+      const { document } = focusedGuideDocument(topic);
+      expect(document.some((node) => node.kind === "verbatim" && node.text !== "" &&
+        node.text.includes(AUTHORING_EXAMPLES[topic].path))).toBe(true);
+      expect(document.filter((node) => node.kind === "verbatim" && node.text !== "").length).toBe(1);
+      expect(document.at(-1)).toEqual({
+        kind: "sentence",
+        text: TOPIC_GUIDES[topic].next,
+        category: "heading",
+      });
+    }
+  });
+
+  test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
+    const { document, copyableValues } = guideFileDocument("# Title\n\nBody line.\n");
+    expect(document).toEqual([{ kind: "verbatim", text: "# Title\n\nBody line." }]);
+    expect(copyableValues).toEqual([]);
   });
 });

@@ -9073,7 +9073,7 @@ describe("responsive lifecycle reports", () => {
     expect(blocked.stdout).toContain("\nNext:\n- ");
   });
 
-  test("colored wrapped output does not style continuation lines as new prose", async () => {
+  test("colored focused guides carry only authored categories on wrapped lines", async () => {
     const home = isolatedHome();
     const colored = await runCliInPtyWithEnvironment(
       home,
@@ -9085,8 +9085,10 @@ describe("responsive lifecycle reports", () => {
 
     expectExitCode(colored, 0);
     expect(colored.stdout).toMatch(/\u001b\[/);
-    expect(colored.stdout.split("\n").filter((line) => line.includes("\u001b[2m"))).toHaveLength(1);
-    expect(colored.stdout).toContain("\u001b[2mA Profile");
+    // Guide prose carries no category, so wrapped prose stays uncoloured.
+    expect(colored.stdout).not.toContain("\u001b[2m");
+    // The guide title and next action keep their authored heading category.
+    expect(colored.stdout.split("\n").some((line) => line.includes("\u001b[1;34m"))).toBe(true);
   });
 });
 
