@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Delegate Project inventory problem formatting to the canonical error wording boundary, preserving configuration locators and cause details without duplicate wording switches ([#466](https://github.com/kenneth-liao/agent-profile-kit/pull/466)).
+
 - Render recognizable Project identities in created, unchanged, and replaced binding receipts when invoked inside the bound Project without error-shaped dot aliases or redundant canonical paths (US-058, DEC-039, [#437](https://github.com/kenneth-liao/agent-profile-kit/issues/437)).
 
 - Preserve invoked scope in lifecycle recovery retry guidance so blocked status and apply do not widen scoped runs to fleet retry ([#464](https://github.com/kenneth-liao/agent-profile-kit/pull/464)).

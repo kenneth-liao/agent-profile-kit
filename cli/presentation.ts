@@ -637,40 +637,13 @@ function inventoryTopicNodes(
 }
 
 
-function formatProjectInventoryProblem(problem: InstallerToolErrorFact): readonly InlineContent[] {
-  switch (problem.kind) {
-    case "missing-directory":
-      return ["missing directory; must be an existing directory"];
-    case "dangling-symlink":
-      return [
-        `dangling symlink; ${
-          problem.field === "workspace"
-            ? "restore its target or choose an existing Workspace directory"
-            : "restore its target or choose an existing directory"
-        }`,
-      ];
-    case "relative-path":
-      return ["relative path; must be an absolute path or ~/ path"];
-    case "wildcard-path":
-      return ["wildcard path; must be an explicit path without wildcards"];
-    case "duplicate-canonical-root":
-      return [`duplicate canonical root '${problem.canonicalProject}'`];
-    case "duplicate-missing-project":
-      return [`duplicate missing project '${problem.project}'`];
-    case "foreign-diagnostic":
-      return [problem.detail];
-    default:
-      return formatInstallerToolError(problem);
-  }
-}
-
 function projectInventoryStateNode(problem: InstallerToolErrorFact | null): PresentationNode {
   if (problem === null) {
     return { kind: "identifier", value: "configured" };
   }
   return {
     kind: "prose",
-    parts: formatProjectInventoryProblem(problem),
+    parts: formatInstallerToolError(problem),
     category: "attention",
   };
 }

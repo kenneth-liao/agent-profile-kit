@@ -4784,7 +4784,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("2 Projects configured.");
   });
 
-  test("project inventory preserves actionable problem details without redundant path identity", () => {
+  test("project inventory preserves canonical diagnostic evidence and repair locators", () => {
     const problems = [
       {
         problem: {
@@ -4797,7 +4797,7 @@ describe("standalone view presentation documents (#389)", () => {
           field: "project",
           authored: "~/projects/missing",
         },
-        expected: "missing directory; must be an existing directory",
+        expected: "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[0] project '~/projects/missing' must be an existing directory",
       },
       {
         problem: {
@@ -4810,7 +4810,7 @@ describe("standalone view presentation documents (#389)", () => {
           field: "project",
           authored: "~/projects/dangling",
         },
-        expected: "dangling symlink; restore its target or choose an existing directory",
+        expected: "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[1] project '~/projects/dangling' is a dangling symlink; restore its target or choose an existing directory",
       },
       {
         problem: {
@@ -4822,7 +4822,7 @@ describe("standalone view presentation documents (#389)", () => {
           },
           field: "project",
         },
-        expected: "relative path; must be an absolute path or ~/ path",
+        expected: "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[2] project must be an absolute path or home-relative path beginning with ~/",
       },
       {
         problem: {
@@ -4834,7 +4834,7 @@ describe("standalone view presentation documents (#389)", () => {
           },
           field: "project",
         },
-        expected: "wildcard path; must be an explicit path without wildcards",
+        expected: "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[3] project must be an explicit directory path without wildcards",
       },
       {
         problem: {
@@ -4843,7 +4843,14 @@ describe("standalone view presentation documents (#389)", () => {
           bindingIndex: 4,
           canonicalProject: "/home/projects/dup",
         },
-        expected: "duplicate canonical root '/home/projects/dup'",
+        expected: "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[4] project resolves to duplicate canonical root '/home/projects/dup'",
+      },
+      {
+        problem: {
+          kind: "foreign-diagnostic" as const,
+          detail: "Configured project root does not exist on this machine and cannot be reconciled.",
+        },
+        expected: "Configured project root does not exist on this machine and cannot be reconciled.",
       },
     ];
 
@@ -4864,6 +4871,90 @@ describe("standalone view presentation documents (#389)", () => {
       const row = document.find((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row")!;
       expect(nodeText(row.cells[3]!.content)).toBe(expected);
     }
+  });
+
+  test("project inventory preserves configuration locators when alphabetical sort differs from configuration order", () => {
+    // In config.yaml:
+    // binding[0] is zeta-broken
+    // binding[1] is alpha-broken
+    const projects = [
+      {
+        canonicalProject: null,
+        hosts: ["codex" as const],
+        problem: {
+          kind: "dangling-symlink" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 1,
+          },
+          field: "project",
+          authored: "~/projects/alpha-broken",
+        },
+        profile: "engineering",
+        project: "~/projects/alpha-broken",
+      },
+      {
+        canonicalProject: null,
+        hosts: ["claude" as const],
+        problem: {
+          kind: "missing-directory" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 0,
+          },
+          field: "project",
+          authored: "~/projects/zeta-broken",
+        },
+        profile: "devops",
+        project: "~/projects/zeta-broken",
+      },
+    ];
+
+    const document = projectInventoryDocument(projects, "/home", "/home");
+    const rows = document.filter((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row");
+    expect(rows).toHaveLength(2);
+
+    // Row 0 is alpha-broken, but its state carries bindings[1] locator from configuration
+    expect(nodeText(rows[0]!.cells[3]!.content)).toContain("bindings[1]");
+    expect(nodeText(rows[0]!.cells[3]!.content)).toContain("dangling symlink");
+
+    // Row 1 is zeta-broken, but its state carries bindings[0] locator from configuration
+    expect(nodeText(rows[1]!.cells[3]!.content)).toContain("bindings[0]");
+    expect(nodeText(rows[1]!.cells[3]!.content)).toContain("must be an existing directory");
+  });
+
+  test("project inventory accurately reports existing non-directory file without claiming absence", () => {
+    const document = projectInventoryDocument(
+      [
+        {
+          canonicalProject: null,
+          hosts: ["pi" as const],
+          problem: {
+            kind: "missing-directory" as const,
+            origin: {
+              source: "local-configuration" as const,
+              configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+              bindingIndex: 0,
+            },
+            field: "project",
+            authored: "~/projects/charlie-file",
+          },
+          profile: "coding",
+          project: "~/projects/charlie-file",
+        },
+      ],
+      "/home",
+      "/home",
+    );
+
+    const row = document.find((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row")!;
+    const stateText = nodeText(row.cells[3]!.content);
+    expect(stateText).toBe(
+      "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[0] project '~/projects/charlie-file' must be an existing directory",
+    );
+    expect(stateText).not.toContain("missing directory;");
   });
 
   test("project inventory labels invalid relative paths through the canonical presenter", () => {
