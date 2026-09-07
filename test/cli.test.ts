@@ -2290,21 +2290,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(home, ".codex", "config.toml"), `[features ${secretLikeValue}\n`);
     const malformed = await runCli(home, "status", "--verbose");
     expectExitCode(malformed, 0);
-    expect(malformed.stdout).toContain("Warnings:");
+    expect(malformed.stdout).not.toContain("Warnings:");
     expect(malformed.stdout).toContain("invalid TOML at line 1, column 2");
     expect(malformed.stdout).not.toContain(secretLikeValue);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = \"false\"\n");
     const invalidType = await runCli(home, "status", "--verbose");
     expectExitCode(invalidType, 0);
-    expect(invalidType.stdout).toContain("Warnings:");
+    expect(invalidType.stdout).not.toContain("Warnings:");
     expect(invalidType.stdout).toContain("[features].hooks at");
     expect(invalidType.stdout).toContain("must be a boolean");
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
     const disabled = await runCli(home, "status", "--verbose");
     expectExitCode(disabled, 0);
-    expect(disabled.stdout).toContain("Warnings:");
+    expect(disabled.stdout).not.toContain("Warnings:");
     expect(disabled.stdout).toContain("SessionStart hooks are not enabled");
     expect(disabled.stdout).toContain(join(home, ".codex", "config.toml"));
     expect(disabled.stdout).toContain("[features].hooks = true");
@@ -2313,7 +2313,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(projectConfig, "[features]\nhooks = false\n");
     const projectDisabled = await runCli(home, "status", "--verbose");
     expectExitCode(projectDisabled, 0);
-    expect(projectDisabled.stdout).toContain("Warnings:");
+    expect(projectDisabled.stdout).not.toContain("Warnings:");
     expect(projectDisabled.stdout).toContain(projectConfig);
 
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = false\n");
@@ -2392,14 +2392,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCli(home, "apply", "--verbose");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Warnings:");
+    expect(apply.stdout).not.toContain("Warnings:");
     expect(apply.stdout).toContain("SessionStart hooks are not enabled");
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
 
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: current`));
-    expect(status.stdout).toContain("Warnings:");
+    expect(status.stdout).not.toContain("Warnings:");
     expect(status.stdout).toContain("SessionStart hooks are not enabled");
     expect(status.stdout).not.toContain(`${projectPath}: blocked`);
   });
@@ -11720,7 +11720,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     );
     expectExitCode(humanInstall, 0);
     expect(humanInstall.stdout).toContain("Installed temporary Profile");
-    expect(humanInstall.stdout).toContain("Warnings:");
+    expect(humanInstall.stdout).not.toContain("Warnings:");
     expect(humanInstall.stdout).toMatch(/hooks are not enabled/i);
     expect(humanInstall.stdout).toContain("Codex setup:");
     expect(humanInstall.stdout).toMatch(/SessionStart hook/i);
@@ -12921,9 +12921,9 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     const uninstall = await runCli(home, "uninstall");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(false);
-    // The failed publication surfaces as a warning, and the failure is never
+    // The failed publication surfaces as an inline warning, and the failure is never
     // reported as a "Cleaned Git exclusions" success.
-    expect(uninstall.stdout).toContain("Warnings:");
+    expect(uninstall.stdout).not.toContain("Warnings:");
     expect(uninstall.stdout).toContain(exclude);
     expect(uninstall.stdout).not.toContain("Cleaned Git exclusions");
 

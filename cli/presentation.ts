@@ -1212,10 +1212,10 @@ export function uninstallResultDocument(
   if (result.warnings.length > 0) {
     nodes.push(
       spacerNode(),
-      { kind: "prose", parts: ["Warnings:"], category: "attention" },
       ...result.warnings.map((warning) => ({
         kind: "list-item" as const,
         parts: [warning],
+        category: "attention" as const,
       })),
     );
   }
@@ -1749,7 +1749,10 @@ export interface WarningPresentationGroup {
   }[];
 }
 
-function groupWarnings(report: ReconciliationReport): readonly WarningPresentationGroup[] {
+function groupWarnings(
+  reports: ReconciliationReport | readonly ReconciliationReport[],
+): readonly WarningPresentationGroup[] {
+  const reportList = Array.isArray(reports) ? reports : [reports];
   const groups = new Map<string, {
     consequence?: string;
     copyableValues: readonly string[];
@@ -1758,34 +1761,36 @@ function groupWarnings(report: ReconciliationReport): readonly WarningPresentati
     projects: { canonicalProject: string; project: string }[];
   }>();
 
-  for (const projectRecord of report.projects) {
-    for (const warning of projectRecord.warnings) {
-      const message = flatInlineText(warning.parts);
-      if (
-        message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
-        message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
-      ) {
-        continue;
-      }
-      const key = warningGroupKey(warning);
-      const existing = groups.get(key);
-      if (!existing) {
-        groups.set(key, {
-          ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
-          copyableValues: [...warning.copyableValues],
-          kind: warning.kind,
-          parts: warning.parts,
-          projects: [{
-            canonicalProject: projectRecord.canonicalProject,
-            project: projectRecord.project,
-          }],
-        });
-      } else {
-        if (!existing.projects.some((p) => p.canonicalProject === projectRecord.canonicalProject)) {
-          existing.projects.push({
-            canonicalProject: projectRecord.canonicalProject,
-            project: projectRecord.project,
+  for (const report of reportList) {
+    for (const projectRecord of report.projects) {
+      for (const warning of projectRecord.warnings) {
+        const message = flatInlineText(warning.parts);
+        if (
+          message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
+          message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
+        ) {
+          continue;
+        }
+        const key = warningGroupKey(warning);
+        const existing = groups.get(key);
+        if (!existing) {
+          groups.set(key, {
+            ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
+            copyableValues: [...warning.copyableValues],
+            kind: warning.kind,
+            parts: warning.parts,
+            projects: [{
+              canonicalProject: projectRecord.canonicalProject,
+              project: projectRecord.project,
+            }],
           });
+        } else {
+          if (!existing.projects.some((p) => p.canonicalProject === projectRecord.canonicalProject)) {
+            existing.projects.push({
+              canonicalProject: projectRecord.canonicalProject,
+              project: projectRecord.project,
+            });
+          }
         }
       }
     }
@@ -2796,6 +2801,7 @@ function conciseApplyDocument(
 
   const nodes: PresentationNode[] = [
     applyOutcomeNotice(report, noOpApply || receipt !== undefined),
+    ...warningNodes(receipt ? [report, receipt] : report, groups, scope),
   ];
   if (noOpApply) {
     nodes.push({
@@ -2905,8 +2911,6 @@ function conciseApplyDocument(
     });
   }
 
-  nodes.push(...warningNodes(report, groups, scope));
-
   const setupNodes = conciseFirstUseNodes(
     presentedSetupSteps("apply", report, receipt, false, scope),
     receipt,
@@ -2939,8 +2943,10 @@ function verboseApplyDocument(
 ): PresentationDocument {
   const scope = locationDisplayScope(options, result.resultingState);
   const untrackRecovery: UntrackRecovery = { kind: "pointer", command: "apply" };
+  const groups = groupProjects(result.resultingState).groups;
   const nodes: PresentationNode[] = [
     applyOutcomeNotice(result.resultingState, true),
+    ...verboseWarningNodes([result.resultingState, result.receipt], groups, scope),
     { kind: "heading", text: "Pending:" },
     ...verboseLifecycleSections(result.resultingState, {
       scope,
@@ -3026,8 +3032,10 @@ export function blockedApplyReportDocument(
     ];
   }
   if (options.verbose === true) {
+    const groups = groupProjects(report).groups;
     return [
       applyOutcomeNotice(report, false),
+      ...verboseWarningNodes(report, groups, scope),
       ...verboseLifecycleSections(report, {
         scope,
         untrackRecovery: { kind: "pointer", command: "apply" },
@@ -3542,23 +3550,42 @@ function formatWarningGroupParts(
 }
 
 function warningNodes(
-  report: ReconciliationReport,
+  reports: ReconciliationReport | readonly ReconciliationReport[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
 ): PresentationNode[] {
-  const warningGroups = groupWarnings(report);
+  const warningGroups = groupWarnings(reports);
   if (warningGroups.length === 0) return [];
-  return [
-    spacerNode(),
-    { kind: "heading", text: "Warnings:", category: "attention" },
-    ...warningGroups.map((group) => ({
+  return warningGroups.map((group) => ({
+    kind: "list-item" as const,
+    parts: [
+      ...formatWarningGroupParts(group, groups, scope),
+      ` (${plural(group.projects.length, "Project")})`,
+    ],
+    category: "attention" as const,
+  }));
+}
+
+function verboseWarningNodes(
+  reports: ReconciliationReport | readonly ReconciliationReport[],
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const warningGroups = groupWarnings(reports);
+  if (warningGroups.length === 0) return [];
+  return warningGroups.map((group) => {
+    const projectList = group.projects
+      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope))
+      .join(", ");
+    return {
       kind: "list-item" as const,
       parts: [
         ...formatWarningGroupParts(group, groups, scope),
-        ` (${plural(group.projects.length, "Project")})`,
+        ` (${projectList})`,
       ],
-    })),
-  ];
+      category: "attention" as const,
+    };
+  });
 }
 
 /** The verbose lifecycle detail sections and Blocker section as typed nodes.
@@ -3606,7 +3633,6 @@ function verboseDetailNodes(
   const items = reportItems(report);
   const outputs = reportOutputs(report);
   const exclusions = changedRepositoryExclusions(report);
-  const warningGroups = groupWarnings(report);
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Projects:" },
     ...(items.length === 0
@@ -3658,23 +3684,6 @@ function verboseDetailNodes(
   if (desired.length === 0) nodes.push({ kind: "prose", parts: ["(none)"] });
   for (const installation of desired) {
     nodes.push(...verboseInstallationNodes(installation, report.projects, scope));
-  }
-  nodes.push({ kind: "heading", text: "Warnings:", category: "attention" });
-  if (warningGroups.length === 0) {
-    nodes.push({ kind: "prose", parts: ["(none)"] });
-    return nodes;
-  }
-  for (const group of warningGroups) {
-    const projectList = group.projects
-      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope))
-      .join(", ");
-    nodes.push({
-      kind: "list-item",
-      parts: [
-        ...formatWarningGroupParts(group, groups, scope),
-        ` (${projectList})`,
-      ],
-    });
   }
   return nodes;
 }
@@ -3801,14 +3810,13 @@ function conciseStatusDocument(
     ];
   }
 
-  const nodes: PresentationNode[] = [];
+  const nodes: PresentationNode[] = [
+    statusOutcomeNotice(report),
+    ...warningNodes(report, groups, scope),
+  ];
   if (fullyCurrentStatus) {
-    nodes.push(statusOutcomeNotice(report));
-    nodes.push(...warningNodes(report, groups, scope));
     return nodes;
   }
-
-  nodes.push(statusOutcomeNotice(report));
 
   const partition = partitionFleet(report);
   for (const cause of PRIMARY_CAUSE_ORDER) {
@@ -3845,7 +3853,6 @@ function conciseStatusDocument(
         nodes: [{ kind: "prose", parts: [blockedSummary] }],
       });
     }
-    nodes.push(...warningNodes(report, groups, scope));
     nodes.push(spacerNode(), ...nextActionNodes("status", report, {
       groups,
       unscopedItems: grouped.unscopedItems,
@@ -3853,7 +3860,6 @@ function conciseStatusDocument(
     return nodes;
   }
 
-  nodes.push(...warningNodes(report, groups, scope));
   nodes.push(...readyStatusGuidanceNodes(report, options));
   return nodes;
 }
@@ -3863,8 +3869,10 @@ function verboseStatusDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
+  const groups = groupProjects(report).groups;
   return [
     statusOutcomeNotice(report),
+    ...verboseWarningNodes(report, groups, scope),
     ...verboseLifecycleSections(report, { scope, untrackRecovery: { kind: "pointer", command: "status" } }),
     ...verboseHostSetupNodes("status", report, scope),
   ];
@@ -4274,10 +4282,10 @@ export function temporaryInstallationDocument(
     ];
     if (receipt.warnings.length > 0) {
       nodes.push(
-        { kind: "prose", parts: ["Warnings:"], category: "attention" },
         ...receipt.warnings.map((warning, index) => ({
           kind: "list-item" as const,
           parts: receipt.warningParts?.[index] ?? [warning],
+          category: "attention" as const,
         })),
       );
     }

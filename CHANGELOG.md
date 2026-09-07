@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Render warnings inline directly beside command outcomes across status, apply, teardown, and temporary views without separate titled sections or empty warning blocks ([#439](https://github.com/kenneth-liao/agent-profile-kit/issues/439)).
+
 - Default `status` and `apply` lifecycle commands to fleet scope, add `--here` for explicit current-directory scope, reject conflicting scope arguments before execution, and preserve invoked scope across next-action recommendations and Blocker retry guidance ([#436](https://github.com/kenneth-liao/agent-profile-kit/issues/436)).
 
 - Present concise lifecycle status as a complete primary-cause fleet partition across the 5 canonical causes (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`) with all actionable Project identities, settled counts, contained Blockers, and single-line wholly settled outcome (DEC-041, [#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435)).

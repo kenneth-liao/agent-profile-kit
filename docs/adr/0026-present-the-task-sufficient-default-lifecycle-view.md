@@ -27,7 +27,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 
 5. **Shared Fleet Identity Policy.** In fleet context (`LocationDisplayScope: "fleet"`), all Project identities are rendered with home-relative paths (e.g. `~/project-a`), never bare `.` or working-directory aliases.
 
-6. **Advisory Warnings Independence.** Advisory host-attention warnings (e.g., missing or outdated Host CLIs per ADR-0025) do not classify an otherwise settled Project into `needs attention`. Warnings remain visible in their independent `Warnings:` section.
+6. **Advisory Warnings Independence.** Advisory host-attention warnings (e.g., missing or outdated Host CLIs per ADR-0025) do not classify an otherwise settled Project into `needs attention`. Warnings render inline directly beside command outcomes without a separate titled `Warnings:` section or empty warning block (DEC-010, US-018).
 
 7. **Delivery Distinction for Filtering.** DEC-041 establishes the task-sufficient default view architecture and supersedes the filter policy of ADR-0024. Replacement human filter flags (`--stale` and `--blocked`) are delivered under ticket #455; `--blockers-only` remains in force until that ticket lands. This decision governs the default presentation.
 
