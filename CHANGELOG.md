@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Delegate Project inventory problem formatting to the canonical error wording boundary, preserving configuration locators and cause details without duplicate wording switches ([#466](https://github.com/kenneth-liao/agent-profile-kit/pull/466)).
+
 - Render recognizable Project identities in created, unchanged, and replaced binding receipts when invoked inside the bound Project without error-shaped dot aliases or redundant canonical paths (US-058, DEC-039, [#437](https://github.com/kenneth-liao/agent-profile-kit/issues/437)).
 
 - Preserve invoked scope in lifecycle recovery retry guidance so blocked status and apply do not widen scoped runs to fleet retry ([#464](https://github.com/kenneth-liao/agent-profile-kit/pull/464)).
@@ -33,6 +35,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Delete the legacy string presentation pipeline: the regex categoriser, English prefix table, copyable-value substring protector, and string wrapping path are removed now that every human view flows through presentation documents and the pure renderer with atomic inline parts ([#391](https://github.com/kenneth-liao/agent-profile-kit/issues/391)).
 
 ### Added
+
+- Render Project inventory as aligned rows with complete unambiguous short identity, Profile, Hosts, and configuration state, followed by an inventory summary footer (US-015, DEC-008, DEC-009, [#438](https://github.com/kenneth-liao/agent-profile-kit/issues/438)).
 
 - Migrate root help, machine help, per-command help, the guide index, focused guides, and complete guide files onto the presentation document, and render every CLI-boundary diagnostic (including stderr) through the same document and renderer. Diagnostics now present what happened, why, and what to type as one readable sentence — errors that shattered into one line per protected value read as a sentence again — with usage as an atomic command node and wording carried over unchanged. Authoring and teardown receipts (init, bind, unbind) also render as documents with authored categories. The machine JSON surface is byte-identical, exit codes are unchanged, and snapshot diffs are limited to wrapping, eliding, alignment, colour extent, and the corrected sentence structure of previously shattered errors ([#390](https://github.com/kenneth-liao/agent-profile-kit/issues/390)).
 

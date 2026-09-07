@@ -10870,15 +10870,17 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Projects (2):");
-    expect(result.stdout).toContain("Project: ~/projects/alpha");
-    expect(result.stdout).toContain("Project: ~/projects/beta");
-    expect(result.stdout).toContain("Profile: coding");
-    expect(result.stdout).toContain("Hosts: claude, codex");
-    expect(result.stdout).toContain("Hosts: codex, pi");
+    expect(result.stdout).toContain("~/projects/alpha");
+    expect(result.stdout).toContain("~/projects/beta");
+    expect(result.stdout).toContain("coding");
+    expect(result.stdout).toContain("claude, codex");
+    expect(result.stdout).toContain("codex, pi");
+    expect(result.stdout).toContain("configured");
+    expect(result.stdout).toContain("2 Projects configured.");
     expect(result.stdout).toContain("Use apkit status to inspect Project lifecycle diagnostics.");
     expect(result.stdout).not.toContain("Next:");
-    expect(result.stdout.indexOf("Project: ~/projects/alpha")).toBeLessThan(
-      result.stdout.indexOf("Project: ~/projects/beta"),
+    expect(result.stdout.indexOf("~/projects/alpha")).toBeLessThan(
+      result.stdout.indexOf("~/projects/beta"),
     );
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -10907,8 +10909,8 @@ describe("apkit list", () => {
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Project: ~/projects/alpha");
-    expect(result.stdout).toContain("Project: ~/projects/beta");
+    expect(result.stdout).toContain("~/projects/alpha");
+    expect(result.stdout).toContain("~/projects/beta");
     expect(result.stdout).not.toContain("Project: .");
   });
 
@@ -10958,14 +10960,14 @@ describe("apkit list", () => {
       "echo-duplicate",
       "zeta-existing",
     ]) {
-      expect(result.stdout).toContain(`Project: ~/projects/${project}`);
+      expect(result.stdout).toContain(`~/projects/${project}`);
     }
-    expect(result.stdout.match(/Problem:/g)).toHaveLength(4);
     expect(result.stdout).toContain("must be an existing directory");
     expect(result.stdout).toContain("dangling symlink");
-    expect(result.stdout).toContain("resolves to duplicate canonical root");
-    expect(result.stdout.indexOf("Project: ~/projects/alpha-missing")).toBeLessThan(
-      result.stdout.indexOf("Project: ~/projects/zeta-existing"),
+    expect(result.stdout).toContain("duplicate canonical root");
+    expect(result.stdout).toContain("5 Projects: 1 configured, 4 problems.");
+    expect(result.stdout.indexOf("~/projects/alpha-missing")).toBeLessThan(
+      result.stdout.indexOf("~/projects/zeta-existing"),
     );
 
     const machine = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
@@ -11088,9 +11090,11 @@ describe("apkit list", () => {
     const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Project: ~/projects/current-project");
-    expect(result.stdout).toContain("Profile: coding");
-    expect(result.stdout).toContain("Hosts: codex");
+    expect(result.stdout).toContain("~/projects/current-project");
+    expect(result.stdout).toContain("coding");
+    expect(result.stdout).toContain("codex");
+    expect(result.stdout).toContain("configured");
+    expect(result.stdout).toContain("1 Project configured.");
   });
 
   test("help distinguishes Project inventory from lifecycle diagnostics", async () => {
@@ -12041,7 +12045,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const list = await runCli(home, "list", "projects");
     expectExitCode(list, 0);
-    expect(list.stdout).toContain(`Project: ${authored}\n`);
+    expect(list.stdout).toContain(authored);
     expect(list.stdout).not.toContain(canonical);
 
     const status = await runCli(home, "status");

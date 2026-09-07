@@ -173,7 +173,8 @@ set in `cli/examples.ts`.
 `list` is the read-only inventory entrypoint: without a topic it names each
 available inventory topic once with one human description, while focused `list`
 help retains JSON syntax and examples. `list projects` reads Project Bindings from
-normalized Local Configuration, `list profiles` reads Profile selections from
+normalized Local Configuration and presents one aligned row per Project with its
+short identity, Profile, Hosts, and configuration state, followed by a summary footer. `list profiles` reads Profile selections from
 the selected Workspace, and `list hosts` leads with the canonical Hosts supported
 for configured Projects without probing the machine. Temporary-install eligibility
 remains available in focused `machine install-temp` help and Host inventory JSON.
