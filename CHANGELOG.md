@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Render recognizable Project identities in created, unchanged, and replaced binding receipts when invoked inside the bound Project without error-shaped dot aliases or redundant canonical paths (US-058, DEC-039, [#437](https://github.com/kenneth-liao/agent-profile-kit/issues/437)).
+
 - Preserve invoked scope in lifecycle recovery retry guidance so blocked status and apply do not widen scoped runs to fleet retry ([#464](https://github.com/kenneth-liao/agent-profile-kit/pull/464)).
 
 - Nest the concise removal explanation under every unbound needs-attention member so later teardown Projects keep their reason in mixed fleets ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).

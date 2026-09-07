@@ -8416,13 +8416,14 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
-    const projectPath = project();
+    const projectPath = homeGitRepository(home, "sample");
     const before = readFileSync(configPath(home), "utf8");
 
     const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Recorded configured Project for .\n");
+    expect(result.stdout).toContain("Recorded configured Project for ~/projects/sample\n");
+    expect(result.stdout).not.toContain("Recorded configured Project for .");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -8432,6 +8433,58 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("bind inside bound Project renders recognizable identity across created, unchanged, and replaced without error-shaped dot", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home, "coding");
+    writeContextProfile(home, "ops");
+    const projectPath = homeGitRepository(home, "my-app");
+    const subDir = join(projectPath, "src", "nested");
+    mkdirSync(subDir, { recursive: true });
+
+    // 1. Created from inside project root without project argument:
+    const bindCreated = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    expectExitCode(bindCreated, 0);
+    expect(humanText(bindCreated.stdout)).toContain("Recorded configured Project for ~/projects/my-app");
+    expect(bindCreated.stdout).not.toContain("Recorded configured Project for .");
+    expect(bindCreated.stdout).not.toContain(realpathSync(projectPath));
+
+    // Stored project in config.yaml preserves canonical path
+    const storedConfig1 = readFileSync(configPath(home), "utf8");
+    expect(storedConfig1).toContain(`project: ${realpathSync(projectPath)}`);
+
+    // 2. Unchanged from inside project root:
+    const unchangedRoot = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    expectExitCode(unchangedRoot, 0);
+    expect(humanText(unchangedRoot.stdout)).toContain("Configured Project unchanged for ~/projects/my-app");
+    expect(unchangedRoot.stdout).not.toContain("Configured Project unchanged for .");
+
+    // 3. Unchanged from inside subdirectory with explicit path:
+    const unchangedSub = await runCliAt(home, subDir, "bind", "coding", "~/projects/my-app", "--host", "codex");
+    expectExitCode(unchangedSub, 0);
+    expect(humanText(unchangedSub.stdout)).toContain("Configured Project unchanged for ~/projects/my-app");
+    expect(unchangedSub.stdout).not.toContain("Configured Project unchanged for .");
+    expect(unchangedSub.stdout).not.toContain("Configured Project unchanged for ..");
+
+    // 4. Replaced from inside project root without project argument:
+    const replaced = await runCliAt(
+      home,
+      projectPath,
+      "bind",
+      "ops",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--replace",
+    );
+    expectExitCode(replaced, 0);
+    expect(humanText(replaced.stdout)).toContain("Replaced configured Project for ~/projects/my-app");
+    expect(replaced.stdout).not.toContain("Replaced configured Project for .");
+    expect(humanText(replaced.stdout)).toContain("Profile: coding → ops");
+    expect(humanText(replaced.stdout)).toContain("Hosts: codex → claude, codex");
   });
 
   test("bind accepts an explicit absolute project path and multi-Host set in canonical order", async () => {
