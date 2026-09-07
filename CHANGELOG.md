@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Present concise lifecycle status as a complete primary-cause fleet partition across the 5 canonical causes (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`) with all actionable Project identities, settled counts, contained Blockers, and single-line wholly settled outcome (DEC-041, [#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435)).
+
 - Complete the presentation contract: every human formatter API returns a presentation document and the CLI renders each document once at the output boundary, and the remaining in-process lifecycle, inventory, info, and temporary-installation prose assertions are replaced by semantic document assertions over node kinds, categories, structure, and stable domain values, with prose duplicates removed. Rendering-behaviour coverage (wrapping widths, colour extent, atomic commands) renders documents through the pure renderer, and the structural vocabulary guard keeps running against rendered output. Machine JSON, exit codes, wording, and golden snapshots are unchanged ([#391](https://github.com/kenneth-liao/agent-profile-kit/issues/391)).
 
 ### Fixed

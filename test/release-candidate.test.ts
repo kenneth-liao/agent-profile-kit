@@ -558,7 +558,7 @@ describe("project-bound release candidate", () => {
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toMatch(/Updates ready for \d+ projects? \(\d+ file updates?\)\./);
+    expect(staleStatus.stdout).toContain("Ready to apply\n- source changed (5):\n");
 
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
@@ -1052,7 +1052,7 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toMatch(/Updates ready for \d+ projects? \(\d+ file updates?\)\./);
+    expect(staleStatus.stdout).toContain("Ready to apply\n- source changed (2):\n");
     const reapply = await runCli(home, ["apply"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
     expect(
@@ -1273,7 +1273,8 @@ describe("project-bound release candidate", () => {
     const pathWithHosts = installAllControlledHosts(home);
     const plannedStatus = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(plannedStatus, 0);
-    expect(plannedStatus.stdout).toContain("Updates ready for");
+    expect(plannedStatus.stdout).toContain("Ready to apply");
+    expect(plannedStatus.stdout).toContain("- not installed yet (1):");
 
     const apply = await runCli(home, ["apply"], { path: pathWithHosts });
     expectExitCode(apply, 0);
@@ -1495,7 +1496,8 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(readyStatus, 0);
-    expect(readyStatus.stdout).toContain("Updates ready for 1 project (2 file additions).");
+    expect(readyStatus.stdout).toContain("Ready to apply");
+    expect(readyStatus.stdout).toContain("- not installed yet (1):");
     // INT-2: the selected Project is a typed path argument rendered through the
     // shared project-scope identity, kept on one line by eliding to the width.
     const nextLine = readyStatus.stdout.split("\n")
