@@ -4599,7 +4599,7 @@ describe("standalone view presentation documents (#389)", () => {
     ]);
   });
 
-  test("project inventory presents each Project as typed path, Profile, and Hosts fields", () => {
+  test("project inventory presents each Project as an aligned row with identity, Profile, Hosts, and State", () => {
     const project = "/home/projects/a-very-long-project-identity";
     const document = projectInventoryDocument(
       [
@@ -4622,24 +4622,248 @@ describe("standalone view presentation documents (#389)", () => {
     expect(document.map(shape)).toEqual([
       "heading",
       "blank",
-      "key-value(Project)",
-      "key-value(Profile):path",
-      "key-value(Hosts)",
-      "prose:attention",
+      "row",
       "blank",
       "prose",
+      "prose",
     ]);
-    const projectField = keyValuesIn(document, "Project")[0]!;
-    expect(projectField.value).toEqual({
+    const row = document.find((node) => node.kind === "row") as Extract<PresentationNode, { kind: "row" }>;
+    expect(row).toBeDefined();
+    expect(row.cells).toHaveLength(4);
+    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Hosts", "State"]);
+    expect(row.cells[0]!.content).toEqual({
       kind: "path",
       canonicalPath: project,
       authoredPath: project,
       scope: "fleet",
     });
-    const problem = flattenPresentationNodes(document).find((node) =>
-      node.kind === "prose" && node.category === "attention"
-    ) as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(problem)).toContain("Configured project root does not exist on this machine and cannot be reconciled.");
+    expect(row.cells[1]!.content).toEqual({
+      category: "path",
+      kind: "identifier",
+      value: "engineering",
+    });
+    expect(row.cells[2]!.content).toEqual({
+      kind: "identifier",
+      value: "claude, codex",
+    });
+    expect(nodeText(row.cells[3]!.content)).toContain(
+      "Configured project root does not exist on this machine and cannot be reconciled.",
+    );
+    const summary = document[4] as Extract<PresentationNode, { kind: "prose" }>;
+    expect(nodeText(summary)).toBe("1 Project: 1 problem.");
+    const guidance = document[5] as Extract<PresentationNode, { kind: "prose" }>;
+    expect(nodeText(guidance)).toContain("apkit status");
+  });
+
+  test("project inventory presents clean Projects with configured state and summary count", () => {
+    const projects = [
+      {
+        canonicalProject: "/home/projects/alpha",
+        hosts: ["codex" as const],
+        problem: null,
+        profile: "engineering",
+        project: "~/projects/alpha",
+      },
+      {
+        canonicalProject: "/home/projects/beta",
+        hosts: ["claude" as const, "codex" as const],
+        problem: null,
+        profile: "devops",
+        project: "~/projects/beta",
+      },
+    ];
+
+    const document = projectInventoryDocument(projects, "/home", "/home");
+    expect(document.map(shape)).toEqual([
+      "heading",
+      "blank",
+      "row",
+      "row",
+      "blank",
+      "prose",
+      "prose",
+    ]);
+    const rows = document.filter((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.cells[3]!.content).toEqual({
+      kind: "identifier",
+      value: "configured",
+    });
+    expect(rows[1]!.cells[3]!.content).toEqual({
+      kind: "identifier",
+      value: "configured",
+    });
+
+    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
+    expect(nodeText(summary)).toBe("2 Projects configured.");
+  });
+
+  test("project inventory aligns columns across records of differing lengths", () => {
+    const projects = [
+      {
+        canonicalProject: "/home/p/short",
+        hosts: ["codex" as const],
+        problem: null,
+        profile: "eng",
+        project: "~/p/short",
+      },
+      {
+        canonicalProject: "/home/projects/much-longer-project-name",
+        hosts: ["claude" as const, "codex" as const, "opencode" as const],
+        problem: null,
+        profile: "data-engineering",
+        project: "~/projects/much-longer-project-name",
+      },
+    ];
+
+    const document = projectInventoryDocument(projects, "/home", "/home");
+    const rendered = renderPresentationDocument(document, {
+      color: false,
+      interactive: true,
+      width: 120,
+    }, { home: "/home", cwd: "/home" });
+
+    const lines = rendered.split("\n");
+    // lines: [ "Projects (2):", "", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
+    expect(lines[0]).toBe("Projects (2):");
+    const row1 = lines[2]!;
+    const row2 = lines[3]!;
+    expect(row1).toBeDefined();
+    expect(row2).toBeDefined();
+
+    // The columns are: Project, Profile, Hosts, State.
+    // In row 1: "~/p/short" padded to match "~/projects/much-longer-project-name"
+    // In row 2: "~/projects/much-longer-project-name"
+    // Then 2 spaces gap, then "eng" vs "data-engineering", then 2 spaces gap, then "codex" vs "claude, codex, opencode", then "configured"
+    const profile1Index = row1.indexOf("eng");
+    const profile2Index = row2.indexOf("data-engineering");
+    expect(profile1Index).toBe(profile2Index);
+
+    const hosts1Index = row1.indexOf("codex");
+    const hosts2Index = row2.indexOf("claude, codex, opencode");
+    expect(hosts1Index).toBe(hosts2Index);
+
+    const state1Index = row1.indexOf("configured");
+    const state2Index = row2.indexOf("configured");
+    expect(state1Index).toBe(state2Index);
+  });
+
+  test("project inventory degrades to stacked fields on narrow terminals without dropping fields", () => {
+    const projects = [
+      {
+        canonicalProject: "/home/projects/alpha",
+        hosts: ["codex" as const],
+        problem: null,
+        profile: "engineering",
+        project: "~/projects/alpha",
+      },
+      {
+        canonicalProject: "/home/projects/beta",
+        hosts: ["claude" as const],
+        problem: null,
+        profile: "devops",
+        project: "~/projects/beta",
+      },
+    ];
+
+    const document = projectInventoryDocument(projects, "/home", "/home");
+    const rendered = renderPresentationDocument(document, {
+      color: false,
+      interactive: true,
+      width: 40,
+    }, { home: "/home", cwd: "/home" });
+
+    const lines = rendered.split("\n");
+    expect(rendered).toContain("Project: ~/projects/alpha");
+    expect(rendered).toContain("Profile: engineering");
+    expect(rendered).toContain("Hosts: codex");
+    expect(rendered).toContain("State: configured");
+    expect(rendered).toContain("Project: ~/projects/beta");
+    expect(rendered).toContain("Profile: devops");
+    expect(rendered).toContain("Hosts: claude");
+    expect(rendered).toContain("2 Projects configured.");
+  });
+
+  test("project inventory preserves actionable problem details without redundant path identity", () => {
+    const problems = [
+      {
+        problem: {
+          kind: "missing-directory" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 0,
+          },
+          field: "project",
+          authored: "~/projects/missing",
+        },
+        expected: "missing directory; must be an existing directory",
+      },
+      {
+        problem: {
+          kind: "dangling-symlink" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 1,
+          },
+          field: "project",
+          authored: "~/projects/dangling",
+        },
+        expected: "dangling symlink; restore its target or choose an existing directory",
+      },
+      {
+        problem: {
+          kind: "relative-path" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 2,
+          },
+          field: "project",
+        },
+        expected: "relative path; must be an absolute path or ~/ path",
+      },
+      {
+        problem: {
+          kind: "wildcard-path" as const,
+          origin: {
+            source: "local-configuration" as const,
+            configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+            bindingIndex: 3,
+          },
+          field: "project",
+        },
+        expected: "wildcard path; must be an explicit path without wildcards",
+      },
+      {
+        problem: {
+          kind: "duplicate-canonical-root" as const,
+          configurationPath: "/home/.agents/agent-profile-kit/config.yaml",
+          bindingIndex: 4,
+          canonicalProject: "/home/projects/dup",
+        },
+        expected: "duplicate canonical root '/home/projects/dup'",
+      },
+    ];
+
+    for (const { problem, expected } of problems) {
+      const document = projectInventoryDocument(
+        [
+          {
+            canonicalProject: null,
+            hosts: ["codex"],
+            problem,
+            profile: "engineering",
+            project: "~/projects/test",
+          },
+        ],
+        "/home",
+        "/home",
+      );
+      const row = document.find((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row")!;
+      expect(nodeText(row.cells[3]!.content)).toBe(expected);
+    }
   });
 
   test("project inventory labels invalid relative paths through the canonical presenter", () => {
@@ -4660,9 +4884,10 @@ describe("standalone view presentation documents (#389)", () => {
     }));
 
     const document = projectInventoryDocument(projects, "/home", "/home/projects/alpha");
-    const fields = keyValuesIn(document, "Project").map((node) => node.value);
+    const rows = document.filter((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row");
+    const projectCells = rows.map((row) => row.cells[0]!.content);
     for (const project of [".", "..", "../alpha"]) {
-      expect(fields).toContainEqual({
+      expect(projectCells).toContainEqual({
         kind: "path",
         canonicalPath: project,
         authoredPath: project,

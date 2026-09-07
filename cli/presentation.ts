@@ -10,6 +10,7 @@ import {
   humanBlockerWording,
 } from "./blocker-wording.js";
 import { formatInstallerToolError } from "./error-wording.js";
+import type { InstallerToolErrorFact } from "../installer/tool-errors.js";
 import {
   STATE_READ_FAILURE_CASES,
   type StateReadFailureFact,
@@ -636,7 +637,55 @@ function inventoryTopicNodes(
 }
 
 
-/** Index view for the machine-namespaced inventory command (DEC-019). */
+function formatProjectInventoryProblem(problem: InstallerToolErrorFact): readonly InlineContent[] {
+  switch (problem.kind) {
+    case "missing-directory":
+      return ["missing directory; must be an existing directory"];
+    case "dangling-symlink":
+      return [
+        `dangling symlink; ${
+          problem.field === "workspace"
+            ? "restore its target or choose an existing Workspace directory"
+            : "restore its target or choose an existing directory"
+        }`,
+      ];
+    case "relative-path":
+      return ["relative path; must be an absolute path or ~/ path"];
+    case "wildcard-path":
+      return ["wildcard path; must be an explicit path without wildcards"];
+    case "duplicate-canonical-root":
+      return [`duplicate canonical root '${problem.canonicalProject}'`];
+    case "duplicate-missing-project":
+      return [`duplicate missing project '${problem.project}'`];
+    case "foreign-diagnostic":
+      return [problem.detail];
+    default:
+      return formatInstallerToolError(problem);
+  }
+}
+
+function projectInventoryStateNode(problem: InstallerToolErrorFact | null): PresentationNode {
+  if (problem === null) {
+    return { kind: "identifier", value: "configured" };
+  }
+  return {
+    kind: "prose",
+    parts: formatProjectInventoryProblem(problem),
+    category: "attention",
+  };
+}
+
+function projectInventorySummary(projects: readonly ProjectInventoryRecord[]): string {
+  const problemCount = projects.filter((project) => project.problem !== null).length;
+  if (problemCount === 0) {
+    return `${plural(projects.length, "Project")} configured.`;
+  }
+  const configuredCount = projects.length - problemCount;
+  if (configuredCount === 0) {
+    return `${plural(projects.length, "Project")}: ${plural(problemCount, "problem")}.`;
+  }
+  return `${plural(projects.length, "Project")}: ${configuredCount} configured, ${plural(problemCount, "problem")}.`;
+}
 
 /** The Project inventory listing as a presentation document. */
 export function projectInventoryDocument(
@@ -662,40 +711,39 @@ export function projectInventoryDocument(
     ];
   }
 
-  const nodes: PresentationNode[] = [{ kind: "heading", text: `Projects (${projects.length}):` }];
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: `Projects (${projects.length}):` },
+    spacerNode(),
+  ];
   for (const project of projects) {
-    nodes.push(
-      spacerNode(),
-      {
-        kind: "key-value",
-        key: "Project",
-        value: projectPathNode(project.canonicalProject ?? project.project, project.project, "fleet"),
-      },
-      {
-        kind: "key-value",
-        key: "  Profile",
-        value: { kind: "identifier", value: project.profile },
-        category: "path",
-      },
-      {
-        kind: "key-value",
-        key: "  Hosts",
-        value: { kind: "identifier", value: project.hosts.join(", ") },
-      },
-    );
-    if (project.problem !== null) {
-      nodes.push({
-        kind: "prose",
-        parts: [
-          "  Problem: ",
-          ...formatInstallerToolError(project.problem),
-        ],
-        category: "attention",
-      });
-    }
+    nodes.push({
+      kind: "row",
+      cells: [
+        {
+          column: "Project",
+          content: projectPathNode(project.canonicalProject ?? project.project, project.project, "fleet"),
+        },
+        {
+          column: "Profile",
+          content: { kind: "identifier", value: project.profile, category: "path" },
+        },
+        {
+          column: "Hosts",
+          content: { kind: "identifier", value: project.hosts.join(", ") },
+        },
+        {
+          column: "State",
+          content: projectInventoryStateNode(project.problem),
+        },
+      ],
+    });
   }
   nodes.push(
     spacerNode(),
+    {
+      kind: "prose",
+      parts: [projectInventorySummary(projects)],
+    },
     {
       kind: "prose",
       parts: [
