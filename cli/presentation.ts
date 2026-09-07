@@ -434,7 +434,6 @@ function needsAttentionCauseNodes(
     kind: "list-item",
     parts: [`${PRIMARY_CAUSE_LABELS["needs-attention"]} (${projects.length}):`],
   }];
-  let removalExplained = false;
   for (const project of projects) {
     nodes.push({
       kind: "prose",
@@ -451,12 +450,11 @@ function needsAttentionCauseNodes(
         scope,
       ));
     }
-    if (project.state.kind === "removal" && !removalExplained) {
+    if (project.state.kind === "removal") {
       nodes.push({
         kind: "prose",
         parts: ["    Apply will remove generated files for unbound projects."],
       });
-      removalExplained = true;
     }
   }
   return nodes;

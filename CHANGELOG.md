@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Nest the concise removal explanation under every unbound needs-attention member so later teardown Projects keep their reason in mixed fleets ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).
+
 - Nest each concise needs-attention member under its primary-cause frame with its diagnostic children, so Blocker remedies stay attributed when multiple Projects share an affected path ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).
 
 - Correct missing vs changed drift classification predicate when unchanged siblings exist, explain unbound removal under concise needs attention, and enforce exactly-once project member identity across concise blocker and next-action output without duplicate Scope or Next lines ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).

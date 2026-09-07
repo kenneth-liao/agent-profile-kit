@@ -8035,6 +8035,141 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
     });
 
+    test("two interleaved removals each keep nested teardown explanation among blocked and healthy peers", () => {
+      const sharedPath = ".codex/hooks.json";
+      const nodeHasPath = (node: PresentationNode, canonical: string): boolean => {
+        if (node.kind !== "prose" && node.kind !== "list-item") return false;
+        return node.parts.some((part) =>
+          typeof part !== "string" && part.kind === "path" && part.canonicalPath === canonical,
+        );
+      };
+      const nextCauseAt = (nodes: readonly PresentationNode[], after: number): number =>
+        nodes.findIndex((node, index) =>
+          index > after && node.kind === "list-item" && nodeText(node).startsWith("not installed yet"));
+      const beta = createRecord({
+        blockers: [
+          normalizeBlocker(outputOwnershipConflictBlocker({
+            paths: [sharedPath],
+            project: "/project-beta",
+          })),
+          normalizeBlocker(occupiedOutputBlocker({
+            occupied: { case: "drifted-output" },
+            path: "second.json",
+            project: "/project-beta",
+          })),
+        ],
+        canonicalProject: "/project-beta",
+        project: "/project-beta",
+      });
+      const removalFirst = createRecord({
+        canonicalProject: "/removal-first",
+        project: "/removal-first",
+        state: { kind: "removal" },
+      });
+      const alpha = createRecord({
+        blockers: [normalizeBlocker(occupiedOutputBlocker({
+          occupied: { case: "drifted-output" },
+          path: sharedPath,
+          project: "/project-alpha",
+        }))],
+        canonicalProject: "/project-alpha",
+        project: "/project-alpha",
+      });
+      const removalSecond = createRecord({
+        canonicalProject: "/removal-second",
+        project: "/removal-second",
+        state: { kind: "removal" },
+      });
+      const pending = createRecord({
+        canonicalProject: "/pending",
+        project: "/pending",
+        state: { kind: "addition" },
+      });
+      const settled = createRecord({
+        canonicalProject: "/settled",
+        project: "/settled",
+        state: { kind: "current" },
+      });
+
+      const report: ReconciliationReport = {
+        globalBlockers: [],
+        projects: [beta, removalFirst, alpha, removalSecond, pending, settled],
+      };
+
+      const document = lifecycleStatusDocument(report, { all: true });
+      const nodes = flattenPresentationNodes(document);
+      const attentionAt = indexWhere(nodes, (node) =>
+        node.kind === "list-item" && nodeText(node) === "needs attention (4):");
+      const betaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-beta"));
+      const removalFirstAt = indexWhere(nodes, (node) => nodeHasPath(node, "/removal-first"));
+      const alphaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-alpha"));
+      const removalSecondAt = indexWhere(nodes, (node) => nodeHasPath(node, "/removal-second"));
+      const pendingGroupAt = nextCauseAt(nodes, removalSecondAt);
+      expect(attentionAt).toBeGreaterThan(-1);
+      expect(betaAt).toBeGreaterThan(attentionAt);
+      expect(removalFirstAt).toBeGreaterThan(betaAt);
+      expect(alphaAt).toBeGreaterThan(removalFirstAt);
+      expect(removalSecondAt).toBeGreaterThan(alphaAt);
+      expect(pendingGroupAt).toBeGreaterThan(removalSecondAt);
+
+      const betaChildren = nodes.slice(betaAt + 1, removalFirstAt);
+      expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
+      expect(betaChildren.some((node) => nodeText(node).includes("second.json"))).toBe(true);
+      expect(betaChildren.some((node) => nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(false);
+      expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
+
+      const removalFirstChildren = nodes.slice(removalFirstAt + 1, alphaAt);
+      expect(removalFirstChildren.some((node) =>
+        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+      expect(removalFirstChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
+      expect(removalFirstChildren.some((node) => nodeHasPath(node, "/removal-first"))).toBe(false);
+
+      const alphaChildren = nodes.slice(alphaAt + 1, removalSecondAt);
+      expect(alphaChildren.some((node) => nodeText(node).includes("occupied by unowned or drifted output"))).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(false);
+
+      const removalSecondChildren = nodes.slice(removalSecondAt + 1, pendingGroupAt);
+      expect(removalSecondChildren.some((node) =>
+        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+      expect(removalSecondChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
+      expect(removalSecondChildren.some((node) => nodeHasPath(node, "/removal-second"))).toBe(false);
+      expect(pendingGroupAt).not.toBe(removalSecondAt + 1);
+
+      for (const width of [40, 60, 80, 10_000]) {
+        const rendered = renderBoundary(document, { ...defaultRenderContext, width });
+        expect(rendered).toContain("- needs attention (4):");
+        expect(rendered).toContain("- not installed yet (1):");
+        expect(rendered).toContain("- settled (1)");
+        expect((rendered.match(/\/project-beta/g) || []).length).toBe(1);
+        expect((rendered.match(/\/removal-first/g) || []).length).toBe(1);
+        expect((rendered.match(/\/project-alpha/g) || []).length).toBe(1);
+        expect((rendered.match(/\/removal-second/g) || []).length).toBe(1);
+        expect((rendered.match(/\/pending/g) || []).length).toBe(1);
+        expect((rendered.match(/\/settled/g) || []).length).toBe(0);
+
+        const compact = (text: string): string => text.replace(/\s+/g, " ");
+        const betaStart = rendered.indexOf("/project-beta");
+        const removalFirstStart = rendered.indexOf("/removal-first");
+        const alphaStart = rendered.indexOf("/project-alpha");
+        const removalSecondStart = rendered.indexOf("/removal-second");
+        expect(betaStart).toBeGreaterThan(-1);
+        expect(removalFirstStart).toBeGreaterThan(betaStart);
+        expect(alphaStart).toBeGreaterThan(removalFirstStart);
+        expect(removalSecondStart).toBeGreaterThan(alphaStart);
+        const removalFirstSection = compact(rendered.slice(removalFirstStart, alphaStart));
+        const removalSecondSection = compact(rendered.slice(removalSecondStart, rendered.indexOf("- not installed yet")));
+        const alphaSection = compact(rendered.slice(alphaStart, removalSecondStart));
+        expect(removalFirstSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalFirstSection).not.toContain("Blocker:");
+        expect(removalSecondSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalSecondSection).not.toContain("Blocker:");
+        expect(alphaSection).toContain("occupied by unowned or drifted output");
+        expect(alphaSection).not.toContain("Apply will remove generated files for unbound projects.");
+      }
+    });
+
     test("nested needs-attention members bind each blocker remedy to its project among reversed multi-blocked, removal, pending, and settled peers", () => {
       const sharedPath = ".codex/hooks.json";
       const beta = createRecord({
