@@ -952,10 +952,8 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
 
     // 2. Verbose human output lists all 15 Projects and no warning.
     const verbose = lifecycleStatusDocument(statusReport, { selection: { kind: "all" }, verbose: true });
-    const warningsAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Warnings:");
-    const nextSection = verbose.findIndex((node, index) => index > warningsAt && node.kind === "heading");
-    expect(warningsAt).toBeGreaterThan(-1);
-    expect(verbose.slice(warningsAt + 1, nextSection).filter((node) => node.kind !== "verbatim").map((node) => node.kind)).toEqual(["prose"]);
+    expect(verbose.filter((node) => node.kind === "heading").map((node) => node.text)).not.toContain("Warnings:");
+    expect(verbose.filter((node) => node.kind === "list-item" && node.category === "attention")).toHaveLength(0);
     for (const project of projects) {
       expect(verbose.some((node) => node.kind === "prose" && node.parts.some((part) =>
         typeof part !== "string" && part.kind === "identifier" && part.value === project

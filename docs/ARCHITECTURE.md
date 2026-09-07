@@ -156,7 +156,7 @@ warning messages independent from Project identity (messages exclude Project
 path prefixes), while nested Project records in the ReconciliationReport remain
 the sole scope authority. Human presentation groups warnings across Projects by
 the exact warning tuple `(kind, message, consequence, copyableValues)` with
-deterministic canonical sorting: concise output renders each semantic warning
+deterministic canonical sorting and renders them inline directly beside command outcomes without a separate titled `Warnings:` section or empty warning block: concise output renders each semantic warning
 once with its deterministic affected-Project count `(N Projects)`, while
 ordinary verbose output renders each semantic warning once and lists every
 affected Project via the canonical Project presenter (`displayProjectPath`).

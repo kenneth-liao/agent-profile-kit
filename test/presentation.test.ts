@@ -650,8 +650,6 @@ describe("lifecycle status document", () => {
       "prose",
       "prose",
       "verbatim",
-      "heading:attention",
-      "prose",
       "heading:error",
       "prose",
       "heading",
@@ -673,7 +671,6 @@ describe("lifecycle status document", () => {
       "Outputs:",
       "Git exclusions:",
       "Selected setup:",
-      "Warnings:",
       "Blockers:",
       "Host Setup:",
       "Standing Host setup:",
@@ -753,8 +750,6 @@ describe("lifecycle status document", () => {
     const document = lifecycleStatusDocument(hostAttention);
     expect(document.map(shape)).toEqual([
       "notice:attention",
-      "blank",
-      "heading:attention",
       "list-item",
     ]);
     // Severity drives the colour, not rendered copy (TEST-008).
@@ -906,7 +901,8 @@ describe("lifecycle status document", () => {
         expect(rendered).toContain(`\u001b[31m${line}\u001b[0m`);
       }
     }
-    expect(rendered).toContain("\u001b[33mWarnings:\u001b[0m");
+    expect(rendered).toContain("\u001b[33m- The Workspace warning explains a long condition that needs attention. (1\u001b[0m");
+    expect(rendered).not.toContain("Warnings:");
     expect(rendered).toContain("\u001b[1;34mNext:\u001b[0m");
   });
 });
@@ -3568,9 +3564,10 @@ describe("status concise terminology", () => {
     expect(noticesIn(verbose)[0]).toMatchObject({ kind: "notice", severity: "error" });
     const sectionAt = (text: string) => indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === text);
-    for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Selected setup:", "Warnings:", "Blockers:", "State explanations:"]) {
+    for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Selected setup:", "Blockers:", "State explanations:"]) {
       expect(sectionAt(section)).toBeGreaterThan(-1);
     }
+    expect(headingsIn(verbose)).not.toContain("Warnings:");
     expect(projectStateLines(verbose)).toContain("/project-a");
     const outputLine = (path: string, kind: string) => nodes.some((node) =>
       node.kind === "prose" &&
@@ -5093,9 +5090,9 @@ describe("standalone view presentation documents (#389)", () => {
 
     expect(document.map(shape)).toEqual([
       "notice:success",
+      "list-item",
       "key-value(Profiles found)",
       "key-value(Hosts bound)",
-      "prose:attention",
       "key-value(Next)",
     ]);
     const next = keyValuesIn(document, "Next")[0]!;
@@ -5232,7 +5229,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(keptReason.category).toBe("error");
   });
 
-  test("uninstall presents warnings as a titled list of typed list items", () => {
+  test("uninstall presents warnings as inline typed list items beside the outcome notice", () => {
     const document = uninstallResultDocument({
       kept: [],
       projects: [],
@@ -5243,7 +5240,8 @@ describe("standalone view presentation documents (#389)", () => {
 
     const items = flattenPresentationNodes(document).filter((node) => node.kind === "list-item");
     expect(items).toHaveLength(1);
-    expect(document.map(shape)).toContain("prose:attention");
+    expect(items[0]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(document.map(shape)).toEqual(["notice:success", "list-item", "blank", "prose"]);
     expect(keyValuesIn(document, "Project")).toEqual([]);
   });
 
@@ -5325,12 +5323,11 @@ describe("standalone view presentation documents (#389)", () => {
     const document = temporaryInstallationDocument("install-temp", receipt);
     expect(document.map(shape)).toEqual([
       "notice:success",
+      "list-item",
       "key-value(Profile):path",
       "key-value(Host):path",
       "key-value(Project)",
       "key-value(Temporary installation):path",
-      "prose:attention",
-      "list-item",
       "heading",
       "list-item",
       "prose",
@@ -6016,10 +6013,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       warnings: ["Project /project-a carries an adapter warning."],
     });
 
-    // The adapter warning joins the no-op view as a Warnings heading with a
-    // single list item, still without an Applied section.
+    // The adapter warning joins the no-op view as an inline warning list item,
+    // without a Warnings heading and still without an Applied section.
     const document = applyReportDocument(applyResult(report));
-    expect(headingsIn(document)).toEqual(["Warnings:"]);
+    expect(headingsIn(document)).toEqual([]);
     expect(listItemsIn(document)).toEqual([expect.stringContaining("Project /project-a carries an adapter warning.")]);
     expect(headingsIn(document)).not.toContain("Applied:");
   });
@@ -6478,10 +6475,10 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
       ],
     });
-    const warningHeading = flattenPresentationNodes(result).find((node) =>
-      node.kind === "prose" && node.category === "attention"
+    const warningItem = flattenPresentationNodes(result).find((node) =>
+      node.kind === "list-item" && node.category === "attention"
     );
-    expect(warningHeading).toBeDefined();
+    expect(warningItem).toBeDefined();
     expect(listItemsIn(result)).toContain(
       "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
     );
@@ -7258,7 +7255,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       text.startsWith("OpenCode discovers Skills from both .claude/skills and .agents/skills"));
     // One grouped warning item carries the affected-Project count.
     expect(warningItems).toHaveLength(1);
-    expect(headingsIn(concise)).toContain("Warnings:");
+    expect(headingsIn(concise)).not.toContain("Warnings:");
   });
 
   test("concise lifecycle output reports (1 Project) for a single affected project", () => {
@@ -7276,7 +7273,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     };
 
     const concise = lifecycleStatusDocument(report);
-    expect(headingsIn(concise)).toContain("Warnings:");
+    expect(headingsIn(concise)).not.toContain("Warnings:");
     expect(listItemsIn(concise)).toEqual([expect.stringContaining("Codex SessionStart hooks are not enabled")]);
   });
 
@@ -7447,6 +7444,282 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       "Shared warning message (/project-3)",
       "Shared warning message (/project-4)",
     ]);
+  });
+
+  test("multi-report apply deduplicates same Project across receipt and resultingState without inflating count", () => {
+    const w1 = {
+      copyableValues: [".claude/skills"],
+      kind: "diagnostic" as const,
+      parts: ["Skill discovery collision warning"],
+    };
+    const w2 = {
+      copyableValues: ["/tmp/config.toml"],
+      kind: "diagnostic" as const,
+      parts: ["Codex SessionStart hooks warning"],
+    };
+
+    const receiptReport: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [w1],
+        }),
+        machineProject("/project-c", {
+          warnings: [w2],
+        }),
+      ],
+    };
+
+    const resultingStateReport: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [w1],
+        }),
+        machineProject("/project-b", {
+          warnings: [w1],
+        }),
+      ],
+    };
+
+    const applyRes: ApplyReconciliationResult = {
+      receipt: receiptReport,
+      resultingState: resultingStateReport,
+    };
+
+    const concise = applyReportDocument(applyRes);
+    const conciseWarnings = listItemsIn(concise).filter((text) =>
+      text.startsWith("Skill discovery collision warning") || text.startsWith("Codex SessionStart hooks warning"));
+    // w1 affects 2 projects (/project-a, /project-b) because /project-a is unioned once.
+    expect(conciseWarnings).toContainEqual(expect.stringContaining("Skill discovery collision warning (2 Projects)"));
+    // w2 affects 1 project (/project-c) which was only in receipt.
+    expect(conciseWarnings).toContainEqual(expect.stringContaining("Codex SessionStart hooks warning (1 Project)"));
+    expect(headingsIn(concise)).not.toContain("Warnings:");
+
+    const verbose = applyReportDocument(applyRes, { verbose: true });
+    const verboseWarnings = listItemsIn(verbose).filter((text) =>
+      text.startsWith("Skill discovery collision warning") || text.startsWith("Codex SessionStart hooks warning"));
+    expect(verboseWarnings).toContainEqual("Skill discovery collision warning (/project-a, /project-b)");
+    expect(verboseWarnings).toContainEqual("Codex SessionStart hooks warning (/project-c)");
+    expect(headingsIn(verbose)).not.toContain("Warnings:");
+  });
+
+  test("warnings are placed inline directly beside outcome notices across all lifecycle views and failure views", () => {
+    const warning = {
+      copyableValues: ["/path/to/diagnostic"],
+      kind: "diagnostic" as const,
+      parts: ["Sample diagnostic warning"],
+    };
+
+    const statusReport: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [warning],
+        }),
+      ],
+    };
+
+    // 1. Status document (concise)
+    const statusConcise = lifecycleStatusDocument(statusReport);
+    expect(statusConcise[0]?.kind).toBe("notice");
+    expect(statusConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(statusConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(statusConcise)).not.toContain("Warnings:");
+
+    // 2. Status document (verbose)
+    const statusVerbose = lifecycleStatusDocument(statusReport, { verbose: true });
+    expect(statusVerbose[0]?.kind).toBe("notice");
+    expect(statusVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(statusVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(statusVerbose)).not.toContain("Warnings:");
+
+    // 3. Apply document (concise)
+    const applyConcise = applyReportDocument(applyResult(statusReport));
+    expect(applyConcise[0]?.kind).toBe("notice");
+    expect(applyConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(applyConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(applyConcise)).not.toContain("Warnings:");
+
+    // 4. Apply document (verbose)
+    const applyVerbose = applyReportDocument(applyResult(statusReport), { verbose: true });
+    expect(applyVerbose[0]?.kind).toBe("notice");
+    expect(applyVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(applyVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(applyVerbose)).not.toContain("Warnings:");
+
+    // 5. Blocked apply document (concise & verbose)
+    const blockedReport: ReconciliationReport = {
+      globalBlockers: [normalizeBlocker({
+        affectedItems: [],
+        detail: "Global failure",
+        kind: "installation-state-unreadable",
+        scope: "global",
+      })],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [warning],
+        }),
+      ],
+    };
+    const blockedConcise = blockedApplyReportDocument(blockedReport);
+    expect(blockedConcise[0]?.kind).toBe("notice");
+    expect(blockedConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(blockedConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(blockedConcise)).not.toContain("Warnings:");
+
+    const blockedVerbose = blockedApplyReportDocument(blockedReport, { verbose: true });
+    expect(blockedVerbose[0]?.kind).toBe("notice");
+    expect(blockedVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(blockedVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(blockedVerbose)).not.toContain("Warnings:");
+
+    // 6. Apply Execution Failure (concise & verbose)
+    const execFailure = {
+      detail: "disk full",
+      failedProject: executionProject("/project-a"),
+      message: "Apply execution failed",
+      pendingProjects: [],
+      receipt: statusReport,
+      resultingState: statusReport,
+    };
+    const execConcise = applyExecutionFailureDocument(execFailure, {});
+    expect(execConcise[0]?.kind).toBe("notice");
+    expect(execConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(execConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(execConcise)).not.toContain("Warnings:");
+
+    const execVerbose = applyExecutionFailureDocument(execFailure, { verbose: true });
+    expect(execVerbose[0]?.kind).toBe("notice");
+    expect(execVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(execVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(execVerbose)).not.toContain("Warnings:");
+
+    // 7. Apply Verification Failure (concise & verbose)
+    const verifyConcise = applyVerificationFailureDocument(statusReport, "Verification check failed", {});
+    expect(verifyConcise[0]?.kind).toBe("notice");
+    expect(verifyConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(verifyConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(verifyConcise)).not.toContain("Warnings:");
+
+    const verifyVerbose = applyVerificationFailureDocument(statusReport, "Verification check failed", { verbose: true });
+    expect(verifyVerbose[0]?.kind).toBe("notice");
+    expect(verifyVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(verifyVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(verifyVerbose)).not.toContain("Warnings:");
+
+    // 8. Uninstall result document (with Projects and kept Projects)
+    const uninstallDoc = uninstallResultDocument({
+      kept: [{ project: "/project-b", reason: "permission denied" }],
+      projects: [{ outputs: [".codex/hooks.json"], project: "/project-a", repositoryExclusions: [] }],
+      warnings: ["Sample uninstall warning"],
+    });
+    expect(uninstallDoc[0]?.kind).toBe("notice");
+    expect(uninstallDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(uninstallDoc)).toContain("Sample uninstall warning");
+    expect(headingsIn(uninstallDoc)).not.toContain("Warnings:");
+
+    // 9. Validation result document
+    const validationDoc = validationResultDocument({
+      bindings: 1,
+      hosts: ["codex"],
+      profiles: ["engineering"],
+      warnings: ["Sample validation warning"],
+    });
+    expect(validationDoc[0]?.kind).toBe("notice");
+    expect(validationDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(validationDoc)).toContain("Sample validation warning");
+    expect(headingsIn(validationDoc)).not.toContain("Warnings:");
+
+    // 10. Temporary installation document (install-temp and remove-temp)
+    const tempReceipt: TemporaryInstallationReceiptView = {
+      completionState: "installed",
+      diagnosticValues: [],
+      host: "codex",
+      outputs: [".codex/hooks.json"],
+      profileId: "engineering",
+      project: "/project-a",
+      setupSteps: [],
+      temporaryInstallationId: "temp-987",
+      warnings: ["Sample temporary warning"],
+    };
+    const tempInstallDoc = temporaryInstallationDocument("install-temp", tempReceipt);
+    expect(tempInstallDoc[0]?.kind).toBe("notice");
+    expect(tempInstallDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(tempInstallDoc)).toContain("Sample temporary warning");
+    expect(headingsIn(tempInstallDoc)).not.toContain("Warnings:");
+
+    const tempRemoveDoc = temporaryInstallationDocument("remove-temp", tempReceipt);
+    expect(tempRemoveDoc[0]?.kind).toBe("notice");
+    expect(tempRemoveDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(tempRemoveDoc)).toContain("Sample temporary warning");
+    expect(headingsIn(tempRemoveDoc)).not.toContain("Warnings:");
+  });
+
+  test("--blockers-only strictly suppresses warning text and attention items across all views", () => {
+    const warning = {
+      copyableValues: ["/path/to/diagnostic"],
+      kind: "diagnostic" as const,
+      parts: ["Strictly suppressed warning text"],
+    };
+
+    const blockedReport: ReconciliationReport = {
+      globalBlockers: [normalizeBlocker({
+        affectedItems: [],
+        detail: "Global failure",
+        kind: "installation-state-unreadable",
+        scope: "global",
+      })],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [warning],
+        }),
+      ],
+    };
+
+    // 1. Blocked status (--blockers-only concise & verbose)
+    const statusBlockersConcise = lifecycleStatusDocument(blockedReport, { blockersOnly: true });
+    expect(renderBoundary(statusBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(statusBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const statusBlockersVerbose = lifecycleStatusDocument(blockedReport, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(statusBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(statusBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 2. Blocked apply (--blockers-only concise & verbose)
+    const applyBlockersConcise = blockedApplyReportDocument(blockedReport, { blockersOnly: true });
+    expect(renderBoundary(applyBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(applyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const applyBlockersVerbose = blockedApplyReportDocument(blockedReport, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(applyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(applyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 3. Execution failure with blockers
+    const execFailure = {
+      detail: "disk full",
+      failedProject: executionProject("/project-a"),
+      message: "Apply execution failed",
+      pendingProjects: [],
+      receipt: blockedReport,
+      resultingState: blockedReport,
+    };
+    const execBlockersConcise = applyExecutionFailureDocument(execFailure, { blockersOnly: true });
+    expect(renderBoundary(execBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(execBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const execBlockersVerbose = applyExecutionFailureDocument(execFailure, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(execBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(execBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 4. Verification failure with blockers
+    const verifyBlockersConcise = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true });
+    expect(renderBoundary(verifyBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(verifyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const verifyBlockersVerbose = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true, verbose: true });
+    expect(renderBoundary(verifyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(verifyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
   });
 });
 
@@ -8449,7 +8722,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const rendered = renderBoundary(document);
 
       expect(rendered).toContain("Host attention required");
-      expect(rendered).toContain("Warnings:");
+      expect(rendered).not.toContain("Warnings:");
       expect(rendered).toContain("Agent Host codex CLI is outdated");
       expect(rendered).not.toContain("needs attention");
       expect(rendered).not.toContain("Next:");
