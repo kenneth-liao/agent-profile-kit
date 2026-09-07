@@ -16,6 +16,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Preserve invoked scope in lifecycle recovery retry guidance so blocked status and apply do not widen scoped runs to fleet retry ([#464](https://github.com/kenneth-liao/agent-profile-kit/pull/464)).
+
 - Nest the concise removal explanation under every unbound needs-attention member so later teardown Projects keep their reason in mixed fleets ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).
 
 - Nest each concise needs-attention member under its primary-cause frame with its diagnostic children, so Blocker remedies stay attributed when multiple Projects share an affected path ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).

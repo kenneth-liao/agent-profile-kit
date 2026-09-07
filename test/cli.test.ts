@@ -1842,6 +1842,68 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(unrelated, ".agent-profile-kit"))).toBe(false);
   });
 
+  test("blocked status and apply preserve scope in recovery retry guidance and never offer fleet widening on scoped runs", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const firstProject = join(home, "projects", "first");
+    const secondProject = join(home, "projects", "second");
+    mkdirSync(firstProject, { recursive: true });
+    mkdirSync(secondProject, { recursive: true });
+    // Place an unowned file in secondProject to trigger a Project-scoped Blocker.
+    mkdirSync(join(secondProject, ".codex"));
+    writeFileSync(join(secondProject, ".codex", "hooks.json"), "unowned content\n");
+
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${firstProject}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${secondProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    // 1. Blocked status --here from inside secondProject
+    const statusHere = await runCliAt(home, secondProject, "status", "--here");
+    expectExitCode(statusHere, 2);
+    expect(humanText(statusHere.stdout)).toContain("Resolve the reported blocker, then run apkit status --here again.");
+    expect(statusHere.stdout).not.toContain("then run apkit status again.");
+
+    // 2. Blocked apply --here from inside secondProject
+    const applyHere = await runCliAt(home, secondProject, "apply", "--here");
+    expectExitCode(applyHere, 2);
+    expect(humanText(applyHere.stdout)).toContain("Resolve the reported blocker, then run apkit apply --here again.");
+    expect(applyHere.stdout).not.toContain("then run apkit apply again.");
+    // Prove firstProject was NOT written by the scoped apply
+    expect(existsSync(join(firstProject, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(firstProject, ".codex"))).toBe(false);
+
+    // 3. Blocked status <secondProject> by explicit path
+    const statusExact = await runCli(home, "status", secondProject);
+    expectExitCode(statusExact, 2);
+    expect(humanText(statusExact.stdout)).toContain("Resolve the reported blocker, then run apkit status ~/projects/second again.");
+    expect(statusExact.stdout).not.toContain("then run apkit status again.");
+
+    // 4. Blocked apply <secondProject> by explicit path
+    const applyExact = await runCli(home, "apply", secondProject);
+    expectExitCode(applyExact, 2);
+    expect(humanText(applyExact.stdout)).toContain("Resolve the reported blocker, then run apkit apply ~/projects/second again.");
+    expect(applyExact.stdout).not.toContain("then run apkit apply again.");
+    // Prove firstProject was still NOT written
+    expect(existsSync(join(firstProject, ".agent-profile-kit"))).toBe(false);
+
+    // 5. Global blocker with scoped invocation preserves scope in retry
+    mkdirSync(join(home, ".agents", "agent-profile-kit", "state"), { recursive: true });
+    writeFileSync(statePath(home), "not-valid-json\n");
+
+    const globalBlockedApplyHere = await runCliAt(home, firstProject, "apply", "--here");
+    expectExitCode(globalBlockedApplyHere, 2);
+    expect(humanText(globalBlockedApplyHere.stdout)).toContain("Resolve the reported global blocker, then run apkit apply --here again.");
+
+    const globalBlockedApplyExact = await runCli(home, "apply", firstProject);
+    expectExitCode(globalBlockedApplyExact, 2);
+    expect(humanText(globalBlockedApplyExact.stdout)).toContain("Resolve the reported global blocker, then run apkit apply ~/projects/first again.");
+  });
+
   test("--here in an unbound working directory fails with actionable guidance", async () => {
     const home = isolatedHome();
     await initialize(home);

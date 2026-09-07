@@ -2187,12 +2187,8 @@ function nextActionNodes(
 ): PresentationNode[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
   const scope = locationDisplayScope(options, report);
-  const selection = effectiveLifecycleSelection(options);
-  const applyCommandArgs: readonly CommandArg[] = selection.kind === "project"
-    ? selection.match === "containing"
-      ? [arg("apply"), arg("--here")]
-      : [arg("apply"), arg(selection.target)]
-    : [arg("apply")];
+  const commandArgs = lifecycleCommandArgs(command, options.selection, report, scope);
+  const applyCommandArgs = lifecycleCommandArgs("apply", options.selection, report, scope);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<
@@ -2219,7 +2215,7 @@ function nextActionNodes(
         "Resolve the reported ",
         blockerWord,
         ", then run ",
-        commandPart(COMMAND_NAME, [arg(command)]),
+        commandPart(COMMAND_NAME, commandArgs),
         " again.",
       ]);
       continue;
@@ -2252,7 +2248,7 @@ function nextActionNodes(
       "Resolve the reported global ",
       blockerWord,
       ", then run ",
-      commandPart(COMMAND_NAME, [arg(command)]),
+      commandPart(COMMAND_NAME, commandArgs),
       " again.",
     ]);
   }
@@ -2518,21 +2514,41 @@ function readyStatusImpactLines(
   ];
 }
 
-function effectiveLifecycleSelection(
-  options: LifecycleHumanOptions,
-): ProjectBindingSelection {
-  if (options.selection !== undefined) return options.selection;
-  if (options.project !== undefined) {
-    return { command: "status", kind: "project", match: "exact", target: options.project };
+/** Build command arguments preserving selection scope. */
+function lifecycleCommandArgs(
+  command: LifecycleCommand,
+  selection: ProjectBindingSelection,
+  report?: ReconciliationReport,
+  scope?: LocationDisplayScope,
+  extraArgs: readonly CommandArg[] = [],
+): readonly CommandArg[] {
+  const args: CommandArg[] = [{ kind: "text", value: command }];
+  if (selection.kind === "project") {
+    if (selection.match === "containing") {
+      args.push({ kind: "text", value: "--here" });
+    } else {
+      if (report !== undefined && scope !== undefined) {
+        const group = selectedProjectGroup(report, selection.target);
+        args.push({
+          kind: "path",
+          canonicalPath: group.canonicalProject,
+          authoredPath: group.project,
+          scope,
+        });
+      } else {
+        args.push({ kind: "text", value: selection.target });
+      }
+    }
   }
-  return { kind: "all" };
+  args.push(...extraArgs);
+  return args;
 }
 
 function isFleetLifecycle(
   options: LifecycleHumanOptions,
-  report: ReconciliationReport,
+  _report: ReconciliationReport,
 ): boolean {
-  return effectiveLifecycleSelection(options).kind === "all";
+  return options.selection.kind === "all";
 }
 
 function locationDisplayScope(
@@ -2540,21 +2556,6 @@ function locationDisplayScope(
   report: ReconciliationReport,
 ): LocationDisplayScope {
   return isFleetLifecycle(options, report) ? "fleet" : "project";
-}
-
-function lifecycleInvocation(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-): string {
-  const selection = effectiveLifecycleSelection(options);
-  if (selection.kind === "project") {
-    if (selection.match === "containing") {
-      return `${COMMAND_NAME} ${command} --here`;
-    }
-    return `${COMMAND_NAME} ${command} ${selection.target}`;
-  }
-  return `${COMMAND_NAME} ${command}`;
 }
 
 
@@ -2594,12 +2595,10 @@ function operationReceiptPathLines(
 }
 
 
-interface LifecycleHumanOptions {
-  readonly all?: boolean;
+export interface LifecycleHumanOptions {
   readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
-  readonly project?: string;
-  readonly selection?: ProjectBindingSelection;
+  readonly selection: ProjectBindingSelection;
   readonly verbose?: boolean;
 }
 
@@ -2982,7 +2981,7 @@ function focusedApplyDocument(
 /** The apply receipt view as a presentation document. */
 export function applyReportDocument(
   result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const focused =
     options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
@@ -2994,7 +2993,7 @@ export function applyReportDocument(
 /** The blocked apply view as a presentation document. */
 export function blockedApplyReportDocument(
   report: BlockedReconciliationReport,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
   if (options.blockersOnly === true) {
@@ -3028,7 +3027,7 @@ export function applyExecutionFailureDocument(
     readonly receipt: ReconciliationReport;
     readonly resultingState: ReconciliationReport | undefined;
   },
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, failure.receipt);
   const failedProject = failure.failedProject === undefined
@@ -3093,7 +3092,7 @@ export function applyExecutionFailureDocument(
 export function applyVerificationFailureDocument(
   receipt: ReconciliationReport,
   message: string,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, receipt);
   if (options.verbose === true) {
@@ -3448,22 +3447,13 @@ function statusLifecycleCommand(
   options: LifecycleHumanOptions,
   extraArgs: readonly CommandArg[] = [],
 ): CommandNode {
-  const selection = effectiveLifecycleSelection(options);
-  const args: CommandArg[] = [{ kind: "text", value: command }];
-  if (selection.kind === "project") {
-    if (selection.match === "containing") {
-      args.push({ kind: "text", value: "--here" });
-    } else {
-      const group = selectedProjectGroup(report, selection.target);
-      args.push({
-        kind: "path",
-        canonicalPath: group.canonicalProject,
-        authoredPath: group.project,
-        scope: locationDisplayScope(options, report),
-      });
-    }
-  }
-  args.push(...extraArgs);
+  const args = lifecycleCommandArgs(
+    command,
+    options.selection,
+    report,
+    locationDisplayScope(options, report),
+    extraArgs,
+  );
   return { kind: "command", program: COMMAND_NAME, args };
 }
 
@@ -3864,13 +3854,8 @@ function blockersOnlyStatusDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
-  const selection = effectiveLifecycleSelection(options);
   if (reportBlockers(report).length === 0) {
-    const statusCommandArgs: readonly CommandArg[] = selection.kind === "project"
-      ? selection.match === "containing"
-        ? [arg("status"), arg("--here")]
-        : [arg("status"), arg(selection.target)]
-      : [arg("status")];
+    const statusCommandArgs = lifecycleCommandArgs("status", options.selection, report, scope);
     return [
       { kind: "prose", parts: ["No blockers."], category: "success" },
       {
@@ -3902,7 +3887,7 @@ function blockersOnlyStatusDocument(
 
 export function lifecycleStatusDocument(
   report: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   if (options.blockersOnly === true) return blockersOnlyStatusDocument(report, options);
   if (options.verbose === true) return verboseStatusDocument(report, options);

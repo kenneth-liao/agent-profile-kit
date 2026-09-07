@@ -288,9 +288,9 @@ The same compact decision scales to a fleet:
 
 ```
 Updates ready for 14 projects (96 file updates).
-Next: apkit apply --all
+Next: apkit apply
 
-Details: apkit status --all --verbose
+Details: apkit status --verbose
 ```
 
 Verbose retains the full per-Project, per-path, Git, and Host Setup Step
@@ -303,13 +303,13 @@ report, and redirected output and JSON never carry progress bytes.
 
 ### 8. Apply
 
-`apply` defaults to the bound Project containing the current working directory,
-accepts one explicit existing absolute or home-relative bound Project root, and
-requires `--all` for the complete fleet. Scoped apply does not plan, probe,
-inspect, report, or write unrelated Projects; it rewrites the owned section of a
-shared Git exclusion target from the receipts that will exist after the
-operation, preserving unrelated bytes (best-effort bookkeeping, ADR-0025).
-`apply --all` stops every write for a global
+`apply` defaults to the complete fleet, accepts `--here` for the bound Project
+containing the current working directory, accepts one explicit existing absolute
+or home-relative bound Project root, and retains `--all` as explicit fleet scope.
+Scoped apply does not plan, probe, inspect, report, or write unrelated Projects;
+it rewrites the owned section of a shared Git exclusion target from the receipts
+that will exist after the operation, preserving unrelated bytes (best-effort
+bookkeeping, ADR-0025). `apply` on fleet scope stops every write for a global
 Blocker, but leaves Project-scoped blocked Projects untouched while committing
 and freshly verifying healthy Projects sequentially. A partial blocker result
 exits `2`; a tool or verification failure exits `1` and identifies committed,

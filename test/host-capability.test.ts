@@ -138,7 +138,7 @@ describe("Host capability probing", () => {
       removedTemporaryInstallationIds: [],
       schemaVersion: 9,
     });
-    const document = lifecycleStatusDocument(report);
+    const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     const warningItem = (document as PresentationNode[]).find(
       (node): node is Extract<PresentationNode, { readonly kind: "list-item" }> =>
         node.kind === "list-item" &&

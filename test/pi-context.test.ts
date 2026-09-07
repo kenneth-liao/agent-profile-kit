@@ -615,7 +615,7 @@ describe("Pi Adapter", () => {
       consumingHosts: ["codex", "pi"],
       path: ".agents/skills/review-pr",
     }));
-    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { selection: { kind: "all" }, verbose: true });
     const consumingEvidence = verbose.filter((node) => node.kind === "prose")
       .filter((node) => flatInlineText(node.parts).includes(".agents/skills/review-pr"));
     expect(consumingEvidence.some((node) =>

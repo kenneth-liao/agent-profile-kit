@@ -1225,7 +1225,7 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -1255,7 +1255,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1283,7 +1285,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1313,7 +1317,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1342,7 +1348,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1372,7 +1380,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1402,7 +1412,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1476,7 +1488,7 @@ Project: ~/projects/blocked
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -1537,7 +1549,7 @@ Git exclusions: 2 entries to add.
 Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit apply again.
+- Resolve the reported blocker, then run apkit apply ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -2045,7 +2057,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status
+  apkit status ~/projects/blocked
   again.
 --- stderr ---
 "
@@ -2089,7 +2101,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 \x1B[1;34mNext:\x1B[0m
 - Resolve the reported blocker, then run
-  apkit status
+  apkit status ~/projects/blocked
   again.
 --- stderr ---
 "
@@ -2117,7 +2129,7 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -2144,7 +2156,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 \x1B[31mProjects: 1 · Blockers: 1\x1B[0m
 
 \x1B[1;34mNext:\x1B[0m
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
