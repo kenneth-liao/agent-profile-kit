@@ -1071,7 +1071,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.149.0
+Engine version: 0.149.1
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1206,9 +1206,6 @@ exports[`golden snapshots of every human view status blocked: status-blocked 1`]
 Cannot apply
 - needs attention (1): ~/projects/blocked
 
-Project: ~/projects/blocked
-  Profile: example
-  Hosts: codex
   Blocker: These generated paths are tracked by Git, so Agent Profile Kit
     cannot write to them without conflicting with repository ownership.
     Requirement: Generated files must be exclusively managed by Agent Profile
@@ -1918,7 +1915,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.149.0
+Engine version: 0.149.1
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1928,7 +1925,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.149.0\x1B[0m
+\x1B[35mEngine version: 0.149.1\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1938,7 +1935,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.149.0
+Engine version: 0.149.1
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1948,7 +1945,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.149.0\x1B[0m
+\x1B[35mEngine version: 0.149.1\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2036,9 +2033,6 @@ Cannot apply
 - needs attention (1):
   ~/projects/blocked
 
-Project: ~/projects/blocked
-  Profile: example
-  Hosts: codex
   Blocker: These generated paths are
     tracked by Git, so Agent Profile Kit
     cannot write to them without
@@ -2085,9 +2079,6 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 - needs attention (1):
   ~/projects/blocked
 
-Project: \x1B[35m~/projects/blocked\x1B[0m
-\x1B[35m  Profile: example\x1B[0m
-  Hosts: codex
 \x1B[31m  Blocker: These generated paths are\x1B[0m
 \x1B[31m    tracked by Git, so Agent Profile Kit\x1B[0m
 \x1B[31m    cannot write to them without\x1B[0m
@@ -2133,9 +2124,6 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 Cannot apply
 - needs attention (1): ~/projects/blocked
 
-Project: ~/projects/blocked
-  Profile: example
-  Hosts: codex
   Blocker: These generated paths are tracked by Git, so Agent Profile Kit cannot write to them
     without conflicting with repository ownership.
     Requirement: Generated files must be exclusively managed by Agent Profile Kit;
@@ -2164,9 +2152,6 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 \x1B[31mCannot apply\x1B[0m
 - needs attention (1): ~/projects/blocked
 
-Project: \x1B[35m~/projects/blocked\x1B[0m
-\x1B[35m  Profile: example\x1B[0m
-  Hosts: codex
 \x1B[31m  Blocker: These generated paths are tracked by Git, so Agent Profile Kit cannot write to them\x1B[0m
 \x1B[31m    without conflicting with repository ownership.\x1B[0m
     Requirement: Generated files must be exclusively managed by Agent Profile Kit;

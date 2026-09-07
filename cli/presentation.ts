@@ -312,19 +312,18 @@ export function hasNeedsAttention(project: ReconciliationProjectRecord): boolean
 }
 
 export function hasGeneratedFilesChanged(project: ReconciliationProjectRecord): boolean {
-  return (
-    project.outputs.some((output) => output.driftKind === "changed") ||
-    (project.state.kind === "drifted output" &&
-      project.outputs.some((output) => output.driftKind !== "missing"))
-  );
+  if (project.outputs.some((output) => output.driftKind === "changed")) {
+    return true;
+  }
+  const hasExplicitDrift = project.outputs.some((output) => output.driftKind !== undefined);
+  if (!hasExplicitDrift && project.state.kind === "drifted output") {
+    return true;
+  }
+  return false;
 }
 
 export function hasGeneratedFilesMissing(project: ReconciliationProjectRecord): boolean {
-  return (
-    project.outputs.some((output) => output.driftKind === "missing") ||
-    (project.state.kind === "drifted output" &&
-      project.outputs.every((output) => output.driftKind === "missing"))
-  );
+  return project.outputs.some((output) => output.driftKind === "missing");
 }
 
 export function hasNotInstalledYet(project: ReconciliationProjectRecord): boolean {
@@ -3770,44 +3769,31 @@ function conciseStatusDocument(
     nodes.push(settledCountNode(partition.settledCount));
   }
 
+  const removalProjects = report.projects.filter((p) => p.state.kind === "removal");
+  if (removalProjects.length > 0) {
+    nodes.push(spacerNode(), {
+      kind: "prose",
+      parts: ["Apply will remove generated files for unbound projects."],
+    });
+  }
+
   if (blocked) {
     const activeGroups = groups.filter((group) => group.blockers.length > 0);
     if (activeGroups.length > 0) {
       for (const group of activeGroups) {
         nodes.push(
           spacerNode(),
-          {
-            kind: "key-value",
-            key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-            value: projectPathNode(group.canonicalProject, group.project, scope),
-          },
-        );
-        const desired = desiredInstallation(report, group.canonicalProject);
-        if (desired) {
-          nodes.push(
-            {
-              kind: "key-value",
-              key: "  Profile",
-              value: { kind: "identifier", value: desired.profile },
-              category: "path",
-            },
-            {
-              kind: "key-value",
-              key: "  Hosts",
-              value: { kind: "identifier", value: desired.hosts.join(", ") },
-            },
-          );
-        }
-        nodes.push(...group.blockers.flatMap((blocker) =>
-          conciseBlockerNodes(
-            blocker,
-            displayProjectPath(group.canonicalProject, group.project, scope),
-            groups,
-            "  ",
-            { kind: "pointer", command: "status" },
-            scope,
+          ...group.blockers.flatMap((blocker) =>
+            conciseBlockerNodes(
+              blocker,
+              displayProjectPath(group.canonicalProject, group.project, scope),
+              groups,
+              "  ",
+              { kind: "pointer", command: "status" },
+              scope,
+            ),
           ),
-        ));
+        );
       }
     }
 

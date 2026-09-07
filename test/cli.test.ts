@@ -3184,7 +3184,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(humanText(result.stdout)).toContain(humanText(`Project: ${authoredProject}`));
+    expect(humanText(result.stdout)).toContain(
+      humanText(`Scope: Project ${authoredProject}`),
+    );
     expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
     expect(result.stdout).toContain("Requirement:");
     expect(result.stdout).toContain("Remedy:");
@@ -4971,7 +4973,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Cannot apply\n")).toBe(true);
-    expect(humanText(result.stdout)).toContain("Project:");
+    expect(humanText(result.stdout)).toContain("Scope: Project");
     expect(humanText(result.stdout)).toContain(projectPath.split("/").at(-1)!);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("State:");
@@ -4992,7 +4994,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(result.stdout.match(/Project:/g)).toHaveLength(1);
+    expect(result.stdout).toContain("- needs attention (1): ~/home-relative-blocked-project");
+    expect(result.stdout.match(/Scope: Project/g)).toHaveLength(1);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
   });
 
@@ -5019,6 +5022,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(removal, 0);
     expect(removal.stdout).not.toContain("State: removal");
     expect(removal.stdout).toContain("- needs attention (1):");
+    expect(removal.stdout).toContain("Apply will remove generated files for unbound projects.");
   });
 
   test("status attributes blockers by canonical project identity instead of path prefix", async () => {
@@ -5583,7 +5587,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const concise = await runCli(home, "status");
     expectExitCode(concise, 0);
-    expect(concise.stdout).toContain("- generated files changed (1):");
+    expect(concise.stdout).toContain("- generated files missing (1):");
 
     for (const command of ["status"] as const) {
       const result = await runCli(home, command, "--verbose");
@@ -6751,7 +6755,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(moduleRule);
     const repair = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repair, 0);
-    expect(repair.stdout).toContain("- generated files changed (1):");
+    expect(repair.stdout).toContain("- generated files missing (1):");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(moduleRule)).toBe(true);
 
@@ -6930,7 +6934,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
     const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repairStatus, 0);
-    expect(repairStatus.stdout).toContain("- generated files changed (1):");
+    expect(repairStatus.stdout).toContain("- generated files missing (1):");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "apply"), 0);
     expect(existsSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
 
@@ -7960,6 +7964,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     expectExitCode(status, 0);
     expect(status.stdout).toContain(projectPath);
     expect(status.stdout).toContain("- needs attention (1):");
+    expect(status.stdout).toContain("Apply will remove generated files for unbound projects.");
     const verbose = await runCli(home, "status", "--verbose");
     expect(verbose.stdout).toMatch(/removal/i);
 

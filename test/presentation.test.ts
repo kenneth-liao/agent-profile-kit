@@ -537,9 +537,6 @@ describe("lifecycle status document", () => {
       "notice:error",
       "list-item",
       "blank",
-      "key-value(Project)",
-      "key-value(Profile):path",
-      "key-value(Hosts)",
       "prose:error",
       "prose",
       "prose",
@@ -859,7 +856,6 @@ describe("lifecycle status document", () => {
         expect(rendered).toContain(`\u001b[31m${line}\u001b[0m`);
       }
     }
-    expect(rendered).toContain("\u001b[35m/project-a\u001b[0m");
     expect(rendered).toContain("\u001b[33mWarnings:\u001b[0m");
     expect(rendered).toContain("\u001b[1;34mNext:\u001b[0m");
   });
@@ -2299,7 +2295,7 @@ describe("status concise terminology", () => {
     expect(headingsIn(concise)).toContain("Global blockers:");
     expect(nodes.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(2);
     const projectAt = indexWhere(nodes, (node) =>
-      node.kind === "key-value" && node.key === "Project");
+      node.kind === "list-item" && typeof node.parts?.[0] === "string" && node.parts[0].includes("needs attention"));
     const globalAt = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Global blockers:");
     expect(projectAt).toBeGreaterThan(-1);
@@ -3343,24 +3339,9 @@ describe("status concise terminology", () => {
     const conciseNodes = flattenPresentationNodes(concise);
     // Only the blocked Project presents its binding block; no planned-change
     // summary or state explanations.
-    expect(conciseNodes.some((node) =>
-      node.kind === "key-value" && node.key === "Project" &&
-      (node.value as { readonly canonicalPath?: string }).canonicalPath === "/project-a"
-    )).toBe(false);
-    const projectB = conciseNodes.find((node) =>
-      node.kind === "key-value" && node.key === "Project" &&
-      (node.value as { readonly canonicalPath?: string }).canonicalPath === "/project-b");
-    expect(projectB).toBeDefined();
-    // The binding Profile and Hosts carry their values as typed nodes, and the
-    // Blocker evidence follows as an error-category prose node.
-    expect(keyValuesIn(concise, "  Profile")[0]!.value).toEqual({
-      kind: "identifier",
-      value: "coding",
-    });
-    expect(keyValuesIn(concise, "  Hosts")[0]!.value).toEqual({
-      kind: "identifier",
-      value: "codex",
-    });
+    const conciseText = renderBoundary(concise);
+    expect(conciseText).toContain("- needs attention (1): /project-b");
+    expect(conciseText).toContain("- source changed (1): /project-a");
     expect(concise.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(headingsIn(concise)).not.toContain("State explanations:");
     expect(headingsIn(concise)).not.toContain("Changes:");
@@ -7709,6 +7690,28 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       }))).toBe("generated-files-missing");
     });
 
+    test("classifies generated-files-missing when one output is missing and sibling outputs are unchanged", () => {
+      const record = createRecord({
+        outputs: [
+          {
+            consumingHosts: ["codex"],
+            driftKind: "missing",
+            kind: "update",
+            path: "context.md",
+          },
+          {
+            consumingHosts: ["codex"],
+            kind: "unchanged",
+            path: "hooks.json",
+          },
+        ],
+        state: { kind: "drifted output", reason: "context.md" },
+      });
+      expect(hasGeneratedFilesChanged(record)).toBe(false);
+      expect(hasGeneratedFilesMissing(record)).toBe(true);
+      expect(classifyPrimaryCause(record)).toBe("generated-files-missing");
+    });
+
     test("classifies not-installed-yet for fresh additions", () => {
       expect(classifyPrimaryCause(createRecord({
         outputs: [{
@@ -8016,6 +8019,60 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("Agent Host codex CLI is outdated");
       expect(rendered).not.toContain("needs attention");
       expect(rendered).not.toContain("Next:");
+    });
+
+    test("concise status explains removal for unbound teardown under needs attention", () => {
+      const p1 = createRecord({
+        canonicalProject: "/project-1",
+        project: "/project-1",
+        state: { kind: "removal" },
+      });
+
+      const report: ReconciliationReport = {
+        globalBlockers: [],
+        projects: [p1],
+      };
+
+      const document = lifecycleStatusDocument(report);
+      const rendered = renderBoundary(document);
+
+      expect(rendered).toContain("- needs attention (1): /project-1");
+      expect(rendered).toContain("Apply will remove generated files for unbound projects.");
+      expect(rendered).not.toContain("Blocker:");
+      expect(rendered).not.toContain("Project: /project-1");
+    });
+
+    test("multi-blocked fleet names each project once while preserving attribution of every blocker remedy", () => {
+      const p1 = createRecord({
+        blockers: [fixtureBlocker("occupied output", "/project-1")],
+        canonicalProject: "/project-1",
+        project: "/project-1",
+      });
+      const p2 = createRecord({
+        blockers: [fixtureBlocker("occupied output", "/project-2")],
+        canonicalProject: "/project-2",
+        project: "/project-2",
+      });
+      const p3 = createRecord({
+        canonicalProject: "/project-3",
+        project: "/project-3",
+        state: { kind: "current" },
+      });
+
+      const report: ReconciliationReport = {
+        globalBlockers: [],
+        projects: [p1, p2, p3],
+      };
+
+      const document = lifecycleStatusDocument(report, { all: true });
+      const rendered = renderBoundary(document);
+
+      expect(rendered).toContain("- needs attention (2): /project-1, /project-2");
+      expect(rendered).toContain("- settled (1)");
+      expect(rendered).not.toMatch(/\nProject: \/project-1/);
+      expect(rendered).not.toMatch(/\nProject: \/project-2/);
+      expect(rendered).toContain("Scope: Project /project-1");
+      expect(rendered).toContain("Scope: Project /project-2");
     });
   });
 });

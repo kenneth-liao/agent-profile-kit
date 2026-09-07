@@ -29,7 +29,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 
 6. **Advisory Warnings Independence.** Advisory host-attention warnings (e.g., missing or outdated Host CLIs per ADR-0025) do not classify an otherwise settled Project into `needs attention`. Warnings remain visible in their independent `Warnings:` section.
 
-7. **Delivery Distinction for Filtering.** DEC-041 establishes the task-sufficient default view architecture and supersedes the filter policy of ADR-0024. Dedicated human filter flags (such as `--filter`) are delivered under ticket #455; this decision governs the default presentation.
+7. **Delivery Distinction for Filtering.** DEC-041 establishes the task-sufficient default view architecture and supersedes the filter policy of ADR-0024. Replacement human filter flags (`--stale` and `--blocked`) are delivered under ticket #455; `--blockers-only` remains in force until that ticket lands. This decision governs the default presentation.
 
 8. **Language and Vocabulary.** This decision extends ADR-0014's user-facing vocabulary standards. Primary cause labels (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`) are human presentation policy; versioned machine schemas, exit codes, and typed diagnostic facts are preserved.
 
@@ -38,7 +38,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 This record supersedes:
 - **ADR-0017 (grouping and truncation):** Representative Project caps with `--verbose` escape hatches are superseded by complete wrapped primary-cause listings.
 - **ADR-0020 (omission of routine detail):** Replaces operation-summary and exception-based presentation with the 5 primary cause fleet partition.
-- **ADR-0024 (filter policy):** Superseded by task-sufficient default views that contain Blockers and display complete fleet partitions; extended filtering flags are delivered under #455.
+- **ADR-0024 (filter policy):** Superseded by task-sufficient default views that contain Blockers and display complete fleet partitions; replacement filter flags (`--stale` and `--blocked`) are delivered under #455 while `--blockers-only` remains in force until #455 lands.
 
 ## Consequences
 

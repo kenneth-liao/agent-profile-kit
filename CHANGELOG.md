@@ -14,6 +14,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Correct missing vs changed drift classification predicate when unchanged siblings exist, explain unbound removal under concise needs attention, and avoid duplicate Project heading lines in concise blocker rendering ([#435](https://github.com/kenneth-liao/agent-profile-kit/issues/435), [#462](https://github.com/kenneth-liao/agent-profile-kit/pull/462)).
+
 - Store warning wording only as canonical structured inline parts across adapter capability failures, diagnostics, Git exclusions, lifecycle normalization, and reconciliation, and derive flat machine messages only at projection boundaries ([#428](https://github.com/kenneth-liao/agent-profile-kit/pull/428)).
 
 ### Removed
