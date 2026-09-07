@@ -218,8 +218,8 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).not.toContain("Project Binding");
     // One collapsed next action; no repeated per-Project blocks or zero-value
     // blocker clauses.
-    expect(preview.stdout.match(/Next: apkit apply --all/g)).toHaveLength(1);
-    expect(preview.stdout.match(/Details: apkit status --all --verbose/g)).toHaveLength(1);
+    expect(preview.stdout.match(/Next: apkit apply/g)).toHaveLength(1);
+    expect(preview.stdout.match(/Details: apkit status --verbose/g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Blockers: 0");
     expect(preview.stdout).not.toContain("State: current");
 

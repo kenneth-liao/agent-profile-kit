@@ -20,6 +20,7 @@ export const COMMAND_EXAMPLES = {
   list: inventoryCommandExamples(),
   apply: [
     "apply",
+    "apply --here",
     `apply ${project}`,
     "apply --all",
     "apply --blockers-only",
@@ -28,6 +29,7 @@ export const COMMAND_EXAMPLES = {
   ],
   status: [
     "status",
+    "status --here",
     `status ${project}`,
     "status --all",
     "status --blockers-only",

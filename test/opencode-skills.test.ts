@@ -947,11 +947,11 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const statusReport = await previewReconciliation(desired.installations, state);
 
     // 1. Concise human output carries no duplicate-Skill warning.
-    const concise = lifecycleStatusDocument(statusReport);
+    const concise = lifecycleStatusDocument(statusReport, { selection: { kind: "all" } });
     expect(concise.filter((node) => node.kind === "heading").map((node) => node.text)).not.toContain("Warnings:");
 
     // 2. Verbose human output lists all 15 Projects and no warning.
-    const verbose = lifecycleStatusDocument(statusReport, { verbose: true });
+    const verbose = lifecycleStatusDocument(statusReport, { selection: { kind: "all" }, verbose: true });
     const warningsAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Warnings:");
     const nextSection = verbose.findIndex((node, index) => index > warningsAt && node.kind === "heading");
     expect(warningsAt).toBeGreaterThan(-1);

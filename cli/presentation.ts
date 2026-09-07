@@ -37,6 +37,7 @@ import {
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
+import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -2186,13 +2187,8 @@ function nextActionNodes(
 ): PresentationNode[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
   const scope = locationDisplayScope(options, report);
-  const applyCommandArgs: readonly CommandArg[] = options.all === true
-    ? [arg("apply"), arg("--all")]
-    : options.project !== undefined
-    ? [arg("apply"), arg(options.project)]
-    : report.projects.length > 1
-    ? [arg("apply"), arg("--all")]
-    : [arg("apply")];
+  const commandArgs = lifecycleCommandArgs(command, options.selection, report, scope);
+  const applyCommandArgs = lifecycleCommandArgs("apply", options.selection, report, scope);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<
@@ -2219,7 +2215,7 @@ function nextActionNodes(
         "Resolve the reported ",
         blockerWord,
         ", then run ",
-        commandPart(COMMAND_NAME, [arg(command)]),
+        commandPart(COMMAND_NAME, commandArgs),
         " again.",
       ]);
       continue;
@@ -2252,7 +2248,7 @@ function nextActionNodes(
       "Resolve the reported global ",
       blockerWord,
       ", then run ",
-      commandPart(COMMAND_NAME, [arg(command)]),
+      commandPart(COMMAND_NAME, commandArgs),
       " again.",
     ]);
   }
@@ -2518,11 +2514,41 @@ function readyStatusImpactLines(
   ];
 }
 
+/** Build command arguments preserving selection scope. */
+function lifecycleCommandArgs(
+  command: LifecycleCommand,
+  selection: ProjectBindingSelection,
+  report?: ReconciliationReport,
+  scope?: LocationDisplayScope,
+  extraArgs: readonly CommandArg[] = [],
+): readonly CommandArg[] {
+  const args: CommandArg[] = [{ kind: "text", value: command }];
+  if (selection.kind === "project") {
+    if (selection.match === "containing") {
+      args.push({ kind: "text", value: "--here" });
+    } else {
+      if (report !== undefined && scope !== undefined) {
+        const group = selectedProjectGroup(report, selection.target);
+        args.push({
+          kind: "path",
+          canonicalPath: group.canonicalProject,
+          authoredPath: group.project,
+          scope,
+        });
+      } else {
+        args.push({ kind: "text", value: selection.target });
+      }
+    }
+  }
+  args.push(...extraArgs);
+  return args;
+}
+
 function isFleetLifecycle(
   options: LifecycleHumanOptions,
-  report: ReconciliationReport,
+  _report: ReconciliationReport,
 ): boolean {
-  return options.all === true || (options.project === undefined && report.projects.length > 1);
+  return options.selection.kind === "all";
 }
 
 function locationDisplayScope(
@@ -2530,18 +2556,6 @@ function locationDisplayScope(
   report: ReconciliationReport,
 ): LocationDisplayScope {
   return isFleetLifecycle(options, report) ? "fleet" : "project";
-}
-
-function lifecycleInvocation(
-  command: LifecycleCommand,
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-): string {
-  if (isFleetLifecycle(options, report)) {
-    return `${COMMAND_NAME} ${command} --all`;
-  }
-  if (options.project !== undefined) return `${COMMAND_NAME} ${command} ${options.project}`;
-  return `${COMMAND_NAME} ${command}`;
 }
 
 
@@ -2581,11 +2595,10 @@ function operationReceiptPathLines(
 }
 
 
-interface LifecycleHumanOptions {
-  readonly all?: boolean;
+export interface LifecycleHumanOptions {
   readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
-  readonly project?: string;
+  readonly selection: ProjectBindingSelection;
   readonly verbose?: boolean;
 }
 
@@ -2968,7 +2981,7 @@ function focusedApplyDocument(
 /** The apply receipt view as a presentation document. */
 export function applyReportDocument(
   result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const focused =
     options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
@@ -2980,7 +2993,7 @@ export function applyReportDocument(
 /** The blocked apply view as a presentation document. */
 export function blockedApplyReportDocument(
   report: BlockedReconciliationReport,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
   if (options.blockersOnly === true) {
@@ -3014,7 +3027,7 @@ export function applyExecutionFailureDocument(
     readonly receipt: ReconciliationReport;
     readonly resultingState: ReconciliationReport | undefined;
   },
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, failure.receipt);
   const failedProject = failure.failedProject === undefined
@@ -3079,7 +3092,7 @@ export function applyExecutionFailureDocument(
 export function applyVerificationFailureDocument(
   receipt: ReconciliationReport,
   message: string,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, receipt);
   if (options.verbose === true) {
@@ -3434,19 +3447,13 @@ function statusLifecycleCommand(
   options: LifecycleHumanOptions,
   extraArgs: readonly CommandArg[] = [],
 ): CommandNode {
-  const args: CommandArg[] = [{ kind: "text", value: command }];
-  if (isFleetLifecycle(options, report)) {
-    args.push({ kind: "text", value: "--all" });
-  } else if (options.project !== undefined) {
-    const group = selectedProjectGroup(report, options.project);
-    args.push({
-      kind: "path",
-      canonicalPath: group.canonicalProject,
-      authoredPath: group.project,
-      scope: locationDisplayScope(options, report),
-    });
-  }
-  args.push(...extraArgs);
+  const args = lifecycleCommandArgs(
+    command,
+    options.selection,
+    report,
+    locationDisplayScope(options, report),
+    extraArgs,
+  );
   return { kind: "command", program: COMMAND_NAME, args };
 }
 
@@ -3848,6 +3855,7 @@ function blockersOnlyStatusDocument(
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
   if (reportBlockers(report).length === 0) {
+    const statusCommandArgs = lifecycleCommandArgs("status", options.selection, report, scope);
     return [
       { kind: "prose", parts: ["No blockers."], category: "success" },
       {
@@ -3855,9 +3863,7 @@ function blockersOnlyStatusDocument(
         category: "command",
         parts: [
           "Next: Run ",
-          options.all === true
-            ? commandPart(COMMAND_NAME, [arg("status"), arg("--all")])
-            : commandPart(COMMAND_NAME, [arg("status")]),
+          commandPart(COMMAND_NAME, statusCommandArgs),
           " for the complete lifecycle view.",
         ],
       },
@@ -3881,7 +3887,7 @@ function blockersOnlyStatusDocument(
 
 export function lifecycleStatusDocument(
   report: ReconciliationReport,
-  options: LifecycleHumanOptions = {},
+  options: LifecycleHumanOptions,
 ): PresentationDocument {
   if (options.blockersOnly === true) return blockersOnlyStatusDocument(report, options);
   if (options.verbose === true) return verboseStatusDocument(report, options);

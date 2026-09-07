@@ -26,12 +26,12 @@ Common commands:
       binding
   validate
     Check Workspace and settings validity
-  status [project | --all] [--verbose] [--blockers-only] [--json]
-    Show the complete read-only apply plan for the current Project, one
-      explicit Project, or the complete fleet; --blockers-only shows a focused
-      Blocker-only view (combines with --verbose, not --json)
-  apply [project | --all] [--verbose] [--blockers-only] [--json]
-    Sync the current Project, one explicit Project, or the complete fleet;
+  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+    Show the complete read-only apply plan for the complete fleet, the
+      containing Project, or one explicit Project; --blockers-only shows a
+      focused Blocker-only view (combines with --verbose, not --json)
+  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
+    Sync the complete fleet, the containing Project, or one explicit Project;
       --blockers-only shows a focused Blocker-only view that always keeps the
       Applied receipt and failed or pending Projects visible (combines with
       --verbose, not --json); with no Blockers the ordinary receipt view renders
@@ -78,14 +78,15 @@ Usage: apkit machine <command> [arguments]
 
 exports[`golden snapshots of every human view focused command help: focused-command-help 1`] = `
 "--- stdout ---
-Purpose: Show the complete read-only apply plan for the current Project, one
-  explicit Project, or the complete fleet; --blockers-only shows a focused
+Purpose: Show the complete read-only apply plan for the complete fleet, the
+  containing Project, or one explicit Project; --blockers-only shows a focused
   Blocker-only view (combines with --verbose, not --json)
 
-Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 
 Examples:
   apkit status
+  apkit status --here
   apkit status ~/projects/example-project
   apkit status --all
   apkit status --blockers-only
@@ -1071,7 +1072,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.149.4
+Engine version: 0.150.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1224,7 +1225,7 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -1254,7 +1255,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1282,7 +1285,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1312,7 +1317,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1341,7 +1348,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1371,7 +1380,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1401,7 +1412,9 @@ Project: ~/projects/tracked-counts
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/tracked-counts
+  again.
 --- stderr ---
 "
 `;
@@ -1475,7 +1488,7 @@ Project: ~/projects/blocked
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -1536,7 +1549,7 @@ Git exclusions: 2 entries to add.
 Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit apply again.
+- Resolve the reported blocker, then run apkit apply ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -1614,7 +1627,7 @@ exports[`golden snapshots of every human view unbound-directory error: unbound-d
 apkit: apkit status Project target
   '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a bound Project; run
   apkit list projects or apkit bind
-Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 "
 `;
 
@@ -1654,25 +1667,25 @@ Common commands:
   validate
     Check Workspace and settings
       validity
-  status [project | --all] [--verbose] [--blockers-only] [--json]
+  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
     Show the complete read-only apply
-      plan for the current Project, one
-      explicit Project, or the complete
-      fleet; --blockers-only shows a
-      focused Blocker-only view
+      plan for the complete fleet, the
+      containing Project, or one
+      explicit Project; --blockers-only
+      shows a focused Blocker-only view
       (combines with --verbose, not
       --json)
-  apply [project | --all] [--verbose] [--blockers-only] [--json]
-    Sync the current Project, one
-      explicit Project, or the complete
-      fleet; --blockers-only shows a
-      focused Blocker-only view that
-      always keeps the Applied receipt
-      and failed or pending Projects
-      visible (combines with --verbose,
-      not --json); with no Blockers the
-      ordinary receipt view renders
-      unchanged
+  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
+    Sync the complete fleet, the
+      containing Project, or one
+      explicit Project; --blockers-only
+      shows a focused Blocker-only view
+      that always keeps the Applied
+      receipt and failed or pending
+      Projects visible (combines with
+      --verbose, not --json); with no
+      Blockers the ordinary receipt view
+      renders unchanged
 
 More commands:
   Inventory:
@@ -1736,25 +1749,25 @@ Agent Profile Kit composes reusable
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings
       validity
-\x1B[36m  status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+\x1B[36m  status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
     Show the complete read-only apply
-      plan for the current Project, one
-      explicit Project, or the complete
-      fleet; --blockers-only shows a
-      focused Blocker-only view
+      plan for the complete fleet, the
+      containing Project, or one
+      explicit Project; --blockers-only
+      shows a focused Blocker-only view
       (combines with --verbose, not
       --json)
-\x1B[36m  apply [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
-    Sync the current Project, one
-      explicit Project, or the complete
-      fleet; --blockers-only shows a
-      focused Blocker-only view that
-      always keeps the Applied receipt
-      and failed or pending Projects
-      visible (combines with --verbose,
-      not --json); with no Blockers the
-      ordinary receipt view renders
-      unchanged
+\x1B[36m  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+    Sync the complete fleet, the
+      containing Project, or one
+      explicit Project; --blockers-only
+      shows a focused Blocker-only view
+      that always keeps the Applied
+      receipt and failed or pending
+      Projects visible (combines with
+      --verbose, not --json); with no
+      Blockers the ordinary receipt view
+      renders unchanged
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
@@ -1808,15 +1821,15 @@ Common commands:
     Configure a Project with a Profile and Agent Hosts, or replace an existing binding
   validate
     Check Workspace and settings validity
-  status [project | --all] [--verbose] [--blockers-only] [--json]
-    Show the complete read-only apply plan for the current Project, one explicit Project, or the
-      complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose,
+  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+    Show the complete read-only apply plan for the complete fleet, the containing Project, or one
+      explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose,
       not --json)
-  apply [project | --all] [--verbose] [--blockers-only] [--json]
-    Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a
-      focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
-      visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
-      renders unchanged
+  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
+    Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only
+      shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending
+      Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt
+      view renders unchanged
 
 More commands:
   Inventory:
@@ -1863,15 +1876,15 @@ Agent Profile Kit composes reusable agent material into host-native projects.
     Configure a Project with a Profile and Agent Hosts, or replace an existing binding
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings validity
-\x1B[36m  status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
-    Show the complete read-only apply plan for the current Project, one explicit Project, or the
-      complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose,
+\x1B[36m  status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+    Show the complete read-only apply plan for the complete fleet, the containing Project, or one
+      explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose,
       not --json)
-\x1B[36m  apply [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
-    Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a
-      focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects
-      visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view
-      renders unchanged
+\x1B[36m  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+    Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only
+      shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending
+      Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt
+      view renders unchanged
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
@@ -1894,7 +1907,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.149.4
+Engine version: 0.150.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1904,7 +1917,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.149.4\x1B[0m
+\x1B[35mEngine version: 0.150.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1914,7 +1927,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.149.4
+Engine version: 0.150.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1924,7 +1937,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.149.4\x1B[0m
+\x1B[35mEngine version: 0.150.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2044,7 +2057,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status
+  apkit status ~/projects/blocked
   again.
 --- stderr ---
 "
@@ -2088,7 +2101,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 \x1B[1;34mNext:\x1B[0m
 - Resolve the reported blocker, then run
-  apkit status
+  apkit status ~/projects/blocked
   again.
 --- stderr ---
 "
@@ -2116,7 +2129,7 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -2143,7 +2156,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 \x1B[31mProjects: 1 · Blockers: 1\x1B[0m
 
 \x1B[1;34mNext:\x1B[0m
-- Resolve the reported blocker, then run apkit status again.
+- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
 --- stderr ---
 "
 `;
@@ -2364,7 +2377,7 @@ apkit: apkit status Project target
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not a bound Project; run
   apkit list projects or apkit bind
-Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
 `;
@@ -2375,7 +2388,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31m  '/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  is not a bound Project; run\x1B[0m
 \x1B[31m  apkit list projects or apkit bind\x1B[0m
-Usage: \x1B[36mapkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
 `;
@@ -2384,7 +2397,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 "--- stdout ---
 apkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a
   bound Project; run apkit list projects or apkit bind
-Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
 `;
@@ -2393,7 +2406,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 "--- stdout ---
 \x1B[31mapkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a\x1B[0m
 \x1B[31m  bound Project; run apkit list projects or apkit bind\x1B[0m
-Usage: \x1B[36mapkit status [project | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
 `;

@@ -29,10 +29,10 @@ import {
   TOPIC_GUIDES,
 } from "../cli/guides.js";
 import {
-  applyExecutionFailureDocument,
-  applyReportDocument,
-  applyVerificationFailureDocument,
-  blockedApplyReportDocument,
+  applyExecutionFailureDocument as rawApplyExecutionFailureDocument,
+  applyReportDocument as rawApplyReportDocument,
+  applyVerificationFailureDocument as rawApplyVerificationFailureDocument,
+  blockedApplyReportDocument as rawBlockedApplyReportDocument,
   formatApplyJson,
   formatApplyVerificationFailureJson,
   formatBlockedApplyJson,
@@ -41,7 +41,8 @@ import {
   hostInventoryDocument,
   infoDocument,
   inventoryIndexDocument,
-  lifecycleStatusDocument,
+  lifecycleStatusDocument as rawLifecycleStatusDocument,
+  type LifecycleHumanOptions,
   formatMissingProfileError,
   machineInventoryIndexDocument,
   profileInventoryDocument,
@@ -147,6 +148,57 @@ function asBlockedReport(report: ReconciliationReport): BlockedReconciliationRep
     throw new Error("blocked report fixture requires a blocker");
   }
   return report;
+}
+
+function lifecycleStatusDocument(
+  report: ReconciliationReport,
+  options: Partial<LifecycleHumanOptions> = {},
+): PresentationDocument {
+  return rawLifecycleStatusDocument(report, {
+    selection: { kind: "all" },
+    ...options,
+  });
+}
+
+function applyReportDocument(
+  result: ApplyReconciliationResult,
+  options: Partial<LifecycleHumanOptions> = {},
+): PresentationDocument {
+  return rawApplyReportDocument(result, {
+    selection: { kind: "all" },
+    ...options,
+  });
+}
+
+function blockedApplyReportDocument(
+  report: BlockedReconciliationReport,
+  options: Partial<LifecycleHumanOptions> = {},
+): PresentationDocument {
+  return rawBlockedApplyReportDocument(report, {
+    selection: { kind: "all" },
+    ...options,
+  });
+}
+
+function applyExecutionFailureDocument(
+  failure: Parameters<typeof rawApplyExecutionFailureDocument>[0],
+  options: Partial<LifecycleHumanOptions> = {},
+): PresentationDocument {
+  return rawApplyExecutionFailureDocument(failure, {
+    selection: { kind: "all" },
+    ...options,
+  });
+}
+
+function applyVerificationFailureDocument(
+  report: ReconciliationReport,
+  message: string,
+  options: Partial<LifecycleHumanOptions> = {},
+): PresentationDocument {
+  return rawApplyVerificationFailureDocument(report, message, {
+    selection: { kind: "all" },
+    ...options,
+  });
 }
 
 /** One structured fixture blocker; global without a project, project-scoped with one. */
@@ -729,7 +781,7 @@ describe("lifecycle status document", () => {
     });
 
     const nodes = flattenPresentationNodes(
-      lifecycleStatusDocument(report, { project }),
+      lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
     );
     const commands = nodes.filter((node) => node.kind === "command")
       .map((node) => node.kind === "command" ? node : undefined);
@@ -750,7 +802,7 @@ describe("lifecycle status document", () => {
     )).toBe(true);
 
     const rendered = renderBoundary(
-      lifecycleStatusDocument(report, { project }),
+      lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
       { color: false, interactive: true, width: 40 },
     );
     for (const line of rendered.split("\n")) {
@@ -1675,11 +1727,11 @@ describe("responsive lifecycle presentation", () => {
     // displayPath (INT-2) so each command stays on one fitting line; with room
     // to spare the copyable Project path survives intact.
     const status = renderBoundary(
-      lifecycleStatusDocument(report, { project }),
+      lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
       context(40),
     );
     const wideStatus = renderBoundary(
-      lifecycleStatusDocument(report, { project }),
+      lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
       context(80),
     );
     const emptyStatus = renderBoundary(lifecycleStatusDocument(emptyReport()), context(40));
@@ -2583,7 +2635,10 @@ describe("status concise terminology", () => {
     const project = process.cwd();
     const report = identityReport(project);
 
-    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, {
+      selection: { command: "status", kind: "project", match: "containing", target: project },
+      verbose: true,
+    });
     const nodes = flattenPresentationNodes(verbose);
     const projectsIndex = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Projects:");
@@ -2597,7 +2652,10 @@ describe("status concise terminology", () => {
     const project = dirname(process.cwd());
     const report = identityReport(project);
 
-    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, {
+      selection: { command: "status", kind: "project", match: "containing", target: project },
+      verbose: true,
+    });
     const nodes = flattenPresentationNodes(verbose);
     const projectsIndex = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Projects:");
@@ -3749,7 +3807,7 @@ describe("status concise terminology", () => {
         }],
         receipt: emptyReport(),
         resultingState: undefined,
-      }, { all: true });
+      }, { selection: { kind: "all" } });
       const nodes = flattenPresentationNodes(document);
 
       // Failure header, Failed Project, and Still pending prose carry the
@@ -4112,12 +4170,12 @@ describe("status next-action guidance", () => {
     });
 
     const mixedStatus = lifecycleStatusDocument(mixedActionable);
-    expect(nextGuidance(mixedStatus)).toEqual(["apkit apply --all"]);
+    expect(nextGuidance(mixedStatus)).toEqual(["apkit apply"]);
     // The Details key-value carries the typed fleet-verbose command.
     expect(keyValuesIn(mixedStatus, "Details")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
-      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--all" }, { kind: "text", value: "--verbose" }],
+      args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
     });
   });
 
@@ -5124,13 +5182,12 @@ describe("operation-first multi-Project presentation", () => {
     // Details command values; no per-Project receipt bookkeeping appears.
     expect(noticesIn(concise)).toHaveLength(1);
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nextGuidance(concise)).toEqual(["apkit apply --all"]);
+    expect(nextGuidance(concise)).toEqual(["apkit apply"]);
     expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
       args: [
         { kind: "text", value: "status" },
-        { kind: "text", value: "--all" },
         { kind: "text", value: "--verbose" },
       ],
     });
@@ -5209,7 +5266,7 @@ describe("operation-first multi-Project presentation", () => {
       }],
     });
 
-    const concise = lifecycleStatusDocument(report, { project: "/project-a" });
+    const concise = lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: "/project-a" } });
 
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
     // The selected Project is a typed path argument on each guidance command.
@@ -5342,7 +5399,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const status = lifecycleStatusDocument(report);
     // The typed Next command value carries the fleet invocation once.
-    expect(nextGuidance(status)).toEqual(["apkit apply --all"]);
+    expect(nextGuidance(status)).toEqual(["apkit apply"]);
     expect(keyValuesIn(status, "Next")).toHaveLength(1);
   });
 
@@ -5360,7 +5417,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
 
-    const status = lifecycleStatusDocument(report, { project: "/project-a" });
+    const status = lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: "/project-a" } });
     // The authored identity is the path argument; the canonical spelling stays
     // out of the document.
     expect(keyValuesIn(status, "Next")[0]!.value).toEqual({
@@ -6381,8 +6438,11 @@ describe("focused blockers-only status view (#351)", () => {
     expect(inlineCommandTexts(concise)).toEqual(["apkit status"]);
     expect(concise.map(shape)).toEqual(["prose:success", "prose:command"]);
 
-    const fleet = lifecycleStatusDocument(emptyReport(), { all: true, blockersOnly: true });
-    expect(inlineCommandTexts(fleet)).toEqual(["apkit status --all"]);
+    const here = lifecycleStatusDocument(emptyReport(), {
+      blockersOnly: true,
+      selection: { command: "status", kind: "project", match: "containing", target: process.cwd() },
+    });
+    expect(inlineCommandTexts(here)).toEqual(["apkit status --here"]);
   });
 });
 
@@ -7921,7 +7981,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [p1, p2, p3, p4, p5, p6],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
       expect(rendered).toStartWith("Ready to apply\n");
@@ -7933,8 +7993,8 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("- not installed yet (1): /project-4");
       expect(rendered).toContain("- source changed (1): /project-5");
       expect(rendered).toContain("- settled (1)");
-      expect(rendered).toContain("Next: apkit apply --all");
-      expect(rendered).toContain("Details: apkit status --all --verbose");
+      expect(rendered).toContain("Next: apkit apply");
+      expect(rendered).toContain("Details: apkit status --verbose");
     });
 
     test("contains Blockers concisely while preserving the full fleet partition", () => {
@@ -7954,7 +8014,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [p1, p2],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
       expect(rendered).toStartWith("Cannot apply\n");
@@ -7978,7 +8038,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [p1, p2],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
       expect(rendered.trim()).toBe("All Projects are current (2 Projects)");
@@ -8096,7 +8156,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [beta, removalFirst, alpha, removalSecond, pending, settled],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const nodes = flattenPresentationNodes(document);
       const attentionAt = indexWhere(nodes, (node) =>
         node.kind === "list-item" && nodeText(node) === "needs attention (4):");
@@ -8210,7 +8270,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [beta, alpha, removal, pending, settled],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const nodes = flattenPresentationNodes(document);
       const nodeHasPath = (node: PresentationNode, canonical: string): boolean => {
         if (node.kind !== "prose" && node.kind !== "list-item") return false;
@@ -8316,7 +8376,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [pMissing, pChanged, pSettled],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
       expect(rendered).toContain("- generated files missing (1): /project-missing");
@@ -8325,7 +8385,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect((rendered.match(/\/project-missing/g) || []).length).toBe(1);
       expect((rendered.match(/\/project-changed/g) || []).length).toBe(1);
       expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
-      expect(rendered).toContain("Next: apkit apply --all");
+      expect(rendered).toContain("Next: apkit apply");
     });
 
     test("wrapped concise status preserves exactly-once project identity in narrow terminals", () => {
@@ -8353,7 +8413,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         projects: [p1, p2],
       };
 
-      const document = lifecycleStatusDocument(report, { all: true });
+      const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       for (const width of [40, 60, 80]) {
         const rendered = renderBoundary(document, { ...defaultRenderContext, width });
         expect((rendered.match(/project-one/g) || []).length).toBe(1);

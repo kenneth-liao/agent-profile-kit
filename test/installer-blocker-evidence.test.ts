@@ -145,10 +145,10 @@ describe("structured Installer blocker evidence", () => {
       expect(flatInlineText(humanWording.remedy)).not.toMatch(term);
     }
 
-    const human = lifecycleStatusDocument(report);
+    const human = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     expect(human.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Global blockers:");
     expect(human.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
-    const verbose = lifecycleStatusDocument(report, { verbose: true });
+    const verbose = lifecycleStatusDocument(report, { selection: { kind: "all" }, verbose: true });
     expect(verbose.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Blockers:");
     const blockersAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Blockers:");
     const nextSection = verbose.findIndex((node, index) => index > blockersAt && node.kind === "heading");

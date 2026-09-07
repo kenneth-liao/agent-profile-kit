@@ -728,19 +728,19 @@ function assertNever(value: never): never {
 }
 
 interface ParsedLifecycleArguments {
-  readonly all: boolean;
   readonly blockersOnly: boolean;
   readonly json: boolean;
-  readonly project?: string;
+  readonly selection: ProjectBindingSelection;
   readonly verbose: boolean;
 }
 
 function parseLifecycleArguments(
-  command: LifecycleCommand,
+  command: "apply" | "status",
   arguments_: readonly string[],
 ): ParsedLifecycleArguments {
   let all = false;
   let blockersOnly = false;
+  let here = false;
   let json = false;
   let project: string | undefined;
   let verbose = false;
@@ -761,6 +761,10 @@ function parseLifecycleArguments(
       all = true;
       continue;
     }
+    if (argument === "--here") {
+      here = true;
+      continue;
+    }
     if (!argument.startsWith("-")) {
       if (project !== undefined) {
         throw new Error(`${command} accepts at most one Project path`);
@@ -773,30 +777,28 @@ function parseLifecycleArguments(
   if (all && project !== undefined) {
     throw new Error(`${command} --all cannot be combined with a Project path`);
   }
+  if (here && all) {
+    throw new Error(`${command} --here cannot be combined with --all`);
+  }
+  if (here && project !== undefined) {
+    throw new Error(`${command} --here cannot be combined with a Project path`);
+  }
   if (blockersOnly && json) {
     throw new Error(
       `${command} --blockers-only cannot be combined with --json; use ${command} --json for the complete machine report`,
     );
   }
+  const selection: ProjectBindingSelection = here
+    ? { command, kind: "project", match: "containing", target: process.cwd() }
+    : project !== undefined
+    ? { command, kind: "project", match: "exact", target: project }
+    : { kind: "all" };
+
   return {
-    all,
     blockersOnly,
     json,
-    ...(project === undefined ? {} : { project }),
+    selection,
     verbose,
-  };
-}
-
-function lifecycleSelection(
-  command: "apply" | "status",
-  parsed: ParsedLifecycleArguments,
-): ProjectBindingSelection {
-  if (parsed.all) return { kind: "all" };
-  return {
-    command,
-    kind: "project",
-    match: parsed.project === undefined ? "containing" : "exact",
-    target: parsed.project ?? process.cwd(),
   };
 }
 
@@ -1024,7 +1026,7 @@ async function main(): Promise<void> {
     const context = stdoutPresentationContext;
     try {
       const applied = await applyApplication(home, {
-        selection: lifecycleSelection("apply", parsed),
+        selection: parsed.selection,
       });
       if (parsed.json) {
         process.stdout.write(formatApplyJson(applied));
@@ -1090,7 +1092,7 @@ async function main(): Promise<void> {
     const progress = interactiveProgress(context, parsed.json, STATUS_PROGRESS_LABEL);
     try {
       const report = await statusApplication(home, {
-        selection: lifecycleSelection("status", parsed),
+        selection: parsed.selection,
       });
       progress?.finish();
       if (parsed.json) {
