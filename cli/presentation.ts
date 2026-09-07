@@ -279,6 +279,194 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
 };
 
+export type PrimaryCauseKind =
+  | "needs-attention"
+  | "generated-files-changed"
+  | "generated-files-missing"
+  | "not-installed-yet"
+  | "source-changed";
+
+export const PRIMARY_CAUSE_ORDER: readonly PrimaryCauseKind[] = [
+  "needs-attention",
+  "generated-files-changed",
+  "generated-files-missing",
+  "not-installed-yet",
+  "source-changed",
+] as const;
+
+export const PRIMARY_CAUSE_LABELS: Readonly<Record<PrimaryCauseKind, string>> = {
+  "needs-attention": "needs attention",
+  "generated-files-changed": "generated files changed",
+  "generated-files-missing": "generated files missing",
+  "not-installed-yet": "not installed yet",
+  "source-changed": "source changed",
+};
+
+export function hasNeedsAttention(project: ReconciliationProjectRecord): boolean {
+  return (
+    project.blockers.length > 0 ||
+    project.state.kind === "malformed ownership state" ||
+    project.state.kind === "blocked" ||
+    project.state.kind === "removal"
+  );
+}
+
+export function hasGeneratedFilesChanged(project: ReconciliationProjectRecord): boolean {
+  if (project.outputs.some((output) => output.driftKind === "changed")) {
+    return true;
+  }
+  const hasExplicitDrift = project.outputs.some((output) => output.driftKind !== undefined);
+  if (!hasExplicitDrift && project.state.kind === "drifted output") {
+    return true;
+  }
+  return false;
+}
+
+export function hasGeneratedFilesMissing(project: ReconciliationProjectRecord): boolean {
+  return project.outputs.some((output) => output.driftKind === "missing");
+}
+
+export function hasNotInstalledYet(project: ReconciliationProjectRecord): boolean {
+  return project.state.kind === "addition";
+}
+
+export function hasSourceChanged(project: ReconciliationProjectRecord): boolean {
+  return (
+    project.state.kind === "stale source" ||
+    project.state.kind === "update" ||
+    project.outputs.some(
+      (output) =>
+        output.kind === "addition" ||
+        output.kind === "removal" ||
+        (output.kind === "update" && output.driftKind === undefined),
+    )
+  );
+}
+
+export function classifyPrimaryCause(
+  project: ReconciliationProjectRecord,
+): PrimaryCauseKind | "settled" {
+  if (hasNeedsAttention(project)) return "needs-attention";
+  if (hasGeneratedFilesChanged(project)) return "generated-files-changed";
+  if (hasGeneratedFilesMissing(project)) return "generated-files-missing";
+  if (hasNotInstalledYet(project)) return "not-installed-yet";
+  if (hasSourceChanged(project)) return "source-changed";
+  return "settled";
+}
+
+export function classifyAllCauses(
+  project: ReconciliationProjectRecord,
+): readonly PrimaryCauseKind[] {
+  const causes: PrimaryCauseKind[] = [];
+  if (hasNeedsAttention(project)) causes.push("needs-attention");
+  if (hasGeneratedFilesChanged(project)) causes.push("generated-files-changed");
+  if (hasGeneratedFilesMissing(project)) causes.push("generated-files-missing");
+  if (hasNotInstalledYet(project)) causes.push("not-installed-yet");
+  if (hasSourceChanged(project)) causes.push("source-changed");
+  return causes;
+}
+
+export interface FleetPartition {
+  readonly groups: Readonly<Record<PrimaryCauseKind, readonly ReconciliationProjectRecord[]>>;
+  readonly settledCount: number;
+  readonly totalActionableCount: number;
+  readonly totalFleetCount: number;
+}
+
+export function partitionFleet(report: ReconciliationReport): FleetPartition {
+  const groups: Record<PrimaryCauseKind, ReconciliationProjectRecord[]> = {
+    "needs-attention": [],
+    "generated-files-changed": [],
+    "generated-files-missing": [],
+    "not-installed-yet": [],
+    "source-changed": [],
+  };
+  let settledCount = 0;
+
+  for (const project of report.projects) {
+    const cause = classifyPrimaryCause(project);
+    if (cause === "settled") {
+      settledCount += 1;
+    } else {
+      groups[cause].push(project);
+    }
+  }
+
+  const totalActionableCount =
+    groups["needs-attention"].length +
+    groups["generated-files-changed"].length +
+    groups["generated-files-missing"].length +
+    groups["not-installed-yet"].length +
+    groups["source-changed"].length;
+
+  return {
+    groups,
+    settledCount,
+    totalActionableCount,
+    totalFleetCount: totalActionableCount + settledCount,
+  };
+}
+
+export function primaryCauseGroupNode(
+  label: string,
+  projects: readonly ReconciliationProjectRecord[],
+  scope: LocationDisplayScope,
+): PresentationNode {
+  const parts: InlineContent[] = [`${label} (${projects.length}): `];
+  projects.forEach((record, index) => {
+    if (index > 0) parts.push(", ");
+    parts.push(pathPart(record.canonicalProject, scope, record.project));
+  });
+  return {
+    kind: "list-item",
+    parts,
+  };
+}
+
+/** Nested needs-attention members: each path once, with diagnostic children. */
+function needsAttentionCauseNodes(
+  projects: readonly ReconciliationProjectRecord[],
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+  untrackRecovery: UntrackRecovery,
+): PresentationNode[] {
+  const nodes: PresentationNode[] = [{
+    kind: "list-item",
+    parts: [`${PRIMARY_CAUSE_LABELS["needs-attention"]} (${projects.length}):`],
+  }];
+  for (const project of projects) {
+    nodes.push({
+      kind: "prose",
+      parts: ["  ", pathPart(project.canonicalProject, scope, project.project)],
+    });
+    const displayProject = displayProjectPath(project.canonicalProject, project.project, scope);
+    for (const blocker of project.blockers) {
+      nodes.push(...conciseBlockerNodes(
+        blocker,
+        displayProject,
+        groups,
+        "    ",
+        untrackRecovery,
+        scope,
+      ));
+    }
+    if (project.state.kind === "removal") {
+      nodes.push({
+        kind: "prose",
+        parts: ["    Apply will remove generated files for unbound projects."],
+      });
+    }
+  }
+  return nodes;
+}
+
+export function settledCountNode(count: number): PresentationNode {
+  return {
+    kind: "list-item",
+    parts: [`settled (${count})`],
+  };
+}
+
 interface OutputSummary {
   readonly additions: number;
   readonly removals: number;
@@ -2027,39 +2215,28 @@ function nextActionNodes(
     const project = { authored: group.project, canonical: group.canonicalProject };
     if (group.blockers.length > 0) {
       const blockerWord = group.blockers.length === 1 ? "blocker" : "blockers";
-      addAction(
-        [
-          "Resolve the reported ",
-          blockerWord,
-          ", then run ",
-          commandPart(COMMAND_NAME, [arg(command)]),
-          " again.",
-        ],
-        project,
-      );
+      addAction([
+        "Resolve the reported ",
+        blockerWord,
+        ", then run ",
+        commandPart(COMMAND_NAME, [arg(command)]),
+        " again.",
+      ]);
       continue;
     }
     if (!groupNeedsAttention(group, command)) continue;
     if (reportBlockers(report).length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
-        addAction(
-          [
-            "After all blockers are resolved, run ",
-            commandPart(COMMAND_NAME, applyCommandArgs),
-            ".",
-          ],
-          project,
-        );
-      } else {
-        addAction(
-          [
-            "After all blockers are resolved, run ",
-            commandPart(COMMAND_NAME, applyCommandArgs),
-            command === "apply" ? " again." : ".",
-          ],
-          project,
-        );
+        continue;
       }
+      addAction(
+        [
+          "After all blockers are resolved, run ",
+          commandPart(COMMAND_NAME, applyCommandArgs),
+          command === "apply" ? " again." : ".",
+        ],
+        project,
+      );
       continue;
     }
     if (globalBlockers.length > 0) continue;
@@ -2094,6 +2271,7 @@ function nextActionNodes(
     ).values()].sort((left, right) =>
       compareCanonicalStrings(left.canonical, right.canonical),
     );
+    if (grouped.size === 1) return [...entry.parts];
     if (uniqueProjects.length === 1) {
       const project = uniqueProjects[0]!;
       return [
@@ -2102,7 +2280,6 @@ function nextActionNodes(
         ...entry.parts,
       ];
     }
-    if (grouped.size === 1) return [...entry.parts];
     return [...entry.parts, nextActionScope(uniqueProjects, scope)];
   });
 
@@ -3130,7 +3307,6 @@ function conciseBlockerNodes(
       },
       { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
       { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
-      { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
       ...(paths.length === 0 ? [] as PresentationNode[] : [
         { kind: "prose" as const, parts: [`${indent}  Affected paths (${paths.length}):`] },
         ...trackedPathGroupLines(paths, indent).map((line) => ({
@@ -3150,7 +3326,6 @@ function conciseBlockerNodes(
     },
     { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
     { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
-    { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
     ...blocker.affectedItems.map((item) => ({
       kind: "prose" as const,
       parts: [`${indent}  ${affectedItemLabel(item)}`],
@@ -3576,7 +3751,6 @@ function conciseStatusDocument(
   const emptyStatus =
     !blocked && reportDesired(report).length === 0 && reportItems(report).length === 0;
   const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
-  const readyStatus = !blocked && !emptyStatus && !fullyCurrentStatus;
 
   if (emptyStatus) {
     return [
@@ -3605,110 +3779,54 @@ function conciseStatusDocument(
     nodes.push(...warningNodes(report, groups, scope));
     return nodes;
   }
-  if (readyStatus) {
-    const impact = readyStatusImpactLines(report, scope);
-    const [first, ...rest] = impact;
-    if (first !== undefined) {
-      nodes.push({
+
+  nodes.push(statusOutcomeNotice(report));
+
+  const partition = partitionFleet(report);
+  for (const cause of PRIMARY_CAUSE_ORDER) {
+    const causeProjects = partition.groups[cause];
+    if (causeProjects.length === 0) continue;
+    if (cause === "needs-attention") {
+      nodes.push(...needsAttentionCauseNodes(
+        causeProjects,
+        groups,
+        scope,
+        { kind: "pointer", command: "status" },
+      ));
+      continue;
+    }
+    nodes.push(primaryCauseGroupNode(PRIMARY_CAUSE_LABELS[cause], causeProjects, scope));
+  }
+  if (partition.settledCount > 0 && partition.totalActionableCount > 0) {
+    nodes.push(settledCountNode(partition.settledCount));
+  }
+
+  if (blocked) {
+    const globalBlockers = globalBlockerNodes(report, groups, {
+      kind: "pointer",
+      command: "status",
+    }, scope);
+    if (globalBlockers.length > 0) {
+      nodes.push(spacerNode(), ...globalBlockers);
+    }
+    const blockedSummary = aggregateLine("status", report, groups);
+    if (blockedSummary !== undefined) {
+      nodes.push(spacerNode(), {
         kind: "notice",
-        severity: "success",
-        nodes: [{ kind: "prose", parts: [first] }],
+        severity: "error",
+        nodes: [{ kind: "prose", parts: [blockedSummary] }],
       });
     }
-    for (const line of rest) nodes.push({ kind: "prose", parts: [line] });
-    nodes.push(...operationAttentionNodes(report, scope, true));
-    const exclusionClause = repositoryExclusionClause(report, false, true);
-    if (exclusionClause !== undefined) {
-      nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
-    }
     nodes.push(...warningNodes(report, groups, scope));
-    nodes.push(...readyStatusGuidanceNodes(report, options));
+    nodes.push(spacerNode(), ...nextActionNodes("status", report, {
+      groups,
+      unscopedItems: grouped.unscopedItems,
+    }, options));
     return nodes;
   }
 
-  nodes.push(statusOutcomeNotice(report));
-  const activeGroups = blocked
-    ? groups.filter((group) => group.blockers.length > 0)
-    : groups.filter((group) => groupNeedsAttention(group, "status"));
-  const reportOperationSummary = useOperationSummary(report, blocked);
-  if (reportOperationSummary) {
-    nodes.push(...operationSummaryNodes(report, scope));
-  } else if (activeGroups.length > 0) {
-    for (const group of activeGroups) {
-      nodes.push(
-        spacerNode(),
-        {
-          kind: "key-value",
-          key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-          value: projectPathNode(group.canonicalProject, group.project, scope),
-        },
-      );
-      const desired = desiredInstallation(report, group.canonicalProject);
-      if (desired) {
-        nodes.push(
-          {
-            kind: "key-value",
-            key: "  Profile",
-            value: { kind: "identifier", value: desired.profile },
-            category: "path",
-          },
-          {
-            kind: "key-value",
-            key: "  Hosts",
-            value: { kind: "identifier", value: desired.hosts.join(", ") },
-          },
-        );
-      }
-      if (blocked) {
-        nodes.push(...group.blockers.flatMap((blocker) =>
-          conciseBlockerNodes(
-            blocker,
-            displayProjectPath(group.canonicalProject, group.project, scope),
-            groups,
-            "  ",
-            { kind: "pointer", command: "status" },
-            scope,
-          ),
-        ));
-        continue;
-      }
-      for (const item of group.items) {
-        if (item.kind !== "current") {
-          nodes.push({
-            kind: "key-value",
-            key: "  State",
-            value: { kind: "prose", parts: [itemText(item)] },
-            category: "attention",
-          });
-        }
-      }
-    }
-  }
-
-  const exclusionClause = repositoryExclusionClause(report, false, false);
-  if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
-  }
-  const globalBlockers = globalBlockerNodes(report, groups, {
-    kind: "pointer",
-    command: "status",
-  }, scope);
-  if (globalBlockers.length > 0) {
-    nodes.push(spacerNode(), ...globalBlockers);
-  }
-  const blockedSummary = blocked ? aggregateLine("status", report, groups) : undefined;
-  if (blockedSummary !== undefined) {
-    nodes.push(spacerNode(), {
-      kind: "notice",
-      severity: "error",
-      nodes: [{ kind: "prose", parts: [blockedSummary] }],
-    });
-  }
   nodes.push(...warningNodes(report, groups, scope));
-  nodes.push(spacerNode(), ...nextActionNodes("status", report, {
-    groups,
-    unscopedItems: grouped.unscopedItems,
-  }, options));
+  nodes.push(...readyStatusGuidanceNodes(report, options));
   return nodes;
 }
 

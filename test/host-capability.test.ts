@@ -141,7 +141,8 @@ describe("Host capability probing", () => {
     const document = lifecycleStatusDocument(report);
     const warningItem = (document as PresentationNode[]).find(
       (node): node is Extract<PresentationNode, { readonly kind: "list-item" }> =>
-        node.kind === "list-item",
+        node.kind === "list-item" &&
+        node.parts.some((part) => typeof part === "object" && "kind" in part && part.kind === "identifier" && part.value === ".agents"),
     );
     expect(warningItem).toBeDefined();
     expect(warningItem?.parts).toContainEqual({

@@ -143,16 +143,15 @@ cwd-relative identity. An invalid relative path on a fleet surface is labeled
 as a relative path instead of being rendered as `.`, `..`, or `../…`. Authored
 Project identity must survive aggregation so presentation never substitutes a
 canonical path where the authored identity is available. Concise output
-presents the outcome, affected scope or impact, one next action when one exists, and optional
-first-use guidance, in that order. It renders each semantic fact once and omits
-routine generated paths, Project matrices, Git exclusion bookkeeping, setup
-provenance, and separate consequences. For unblocked pending `status`, one line
-carries every non-zero file-operation count when those operations share a
-Project scope; differing scopes use compact operation lines without a duplicate
-aggregate. Its single `Next:` apply command and optional `Details:` verbose route
-preserve the selected invocation scope. Blockers, warnings, ownership attention,
-drift, destructive-removal attention, and Git exclusion warnings retain the
-identity required for their remedies. Adapter diagnostic normalization keeps
+presents the outcome notice, partitions actionable Projects by primary cause
+(`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`,
+`source changed`) with complete wrapped Project identities, summarizes non-actionable
+Projects as a settled count line in mixed fleets, nests Blocker diagnostics under each needs-attention member,
+and preserves one next action (`Next:` apply) with an optional `Details:`
+verbose route. It renders each semantic fact once and omits routine generated paths,
+Project matrices, Git exclusion bookkeeping, setup provenance, and separate consequences.
+Blockers, warnings, ownership attention, drift, destructive-removal attention, and Git exclusion
+warnings retain the identity required for their remedies. Adapter diagnostic normalization keeps
 warning messages independent from Project identity (messages exclude Project
 path prefixes), while nested Project records in the ReconciliationReport remain
 the sole scope authority. Human presentation groups warnings across Projects by

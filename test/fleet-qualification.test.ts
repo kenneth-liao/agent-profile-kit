@@ -206,13 +206,12 @@ describe("fleet-wide synchronization qualification", () => {
 
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
-    // Differing operation scopes render once without a duplicate aggregate.
-    expect(preview.stdout).toStartWith("Updates ready for 12 projects.\n");
-    expect(preview.stdout).toContain("+ 1 file addition in");
-    expect(preview.stdout).toContain("~ 21 file updates in 12 projects");
+    // Primary-cause fleet partition renders complete actionable fleet.
+    expect(preview.stdout).toStartWith("Ready to apply\n- source changed (12):\n");
+    for (const project of projects) expect(preview.stdout).toContain(project);
     expect(preview.stdout).not.toContain("Project changes:");
     expect(preview.stdout).not.toContain("Projects: 12");
-    // Concise fleet output groups only observable operations and affected
+    // Concise fleet output groups only primary causes and actionable
     // Projects; it does not infer Workspace artifact or Project Binding causes.
     expect(preview.stdout).not.toContain("Workspace changes:");
     expect(preview.stdout).not.toContain("Skill review-pr");
@@ -472,7 +471,7 @@ describe("fleet-wide synchronization qualification", () => {
         new RegExp(`\\r${STATUS_PROGRESS_LABEL}(?:\\.){0,3}\\r[ ]+\\r`),
       );
     }
-    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Updates ready");
+    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Ready to apply");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
@@ -743,7 +742,7 @@ describe("integrated fleet recovery qualification", () => {
 
     // Blocker section after safety prefix contains blocked Project B evidence and footer
     const blockerSection = partialApply.stdout.slice(projectSectionIndex);
-    expect(blockerSection).toContain(projectB);
+    expect(blockerSection).toContain(projectB.split("/").at(-1)!);
     expect(blockerSection).toContain("These generated paths are tracked by Git");
     expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
 

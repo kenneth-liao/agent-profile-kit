@@ -136,6 +136,7 @@ export type OutputReconciliationKind =
   | "update";
 
 export interface OutputReconciliationItem {
+  readonly driftKind?: "changed" | "missing";
   readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
@@ -717,6 +718,7 @@ function nestedReconciliationReport(
     const records = outputsByCanonical.get(key) ?? [];
     records.push({
       consumingHosts: consumers.get(`${key}\0${output.path}`) ?? [],
+      ...(output.driftKind === undefined ? {} : { driftKind: output.driftKind }),
       kind: output.kind,
       path: output.path,
     });
@@ -910,6 +912,7 @@ export async function previewReconciliation(
     for (const output of proposedOutputs) {
       const previousOutput = previousOutputs.get(output.path);
       let kind: OutputReconciliationKind;
+      let driftKind: "changed" | "missing" | undefined;
       if (previousOutput === undefined) {
         kind = "addition";
       } else {
@@ -917,7 +920,10 @@ export async function previewReconciliation(
         // ordinary pending update work that `apply` rewrites from the Workspace.
         const disk = await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput);
         const diskMismatched = !recordedOutputMatches(disk, previousOutput);
-        if (diskMismatched) diskMismatchedOutputs.add(output.path);
+        if (diskMismatched) {
+          diskMismatchedOutputs.add(output.path);
+          driftKind = disk.kind === "missing" ? "missing" : "changed";
+        }
         kind = diskMismatched ||
             previousOutput.hash !== output.hash ||
             previousOutput.mode !== output.mode ||
@@ -926,6 +932,7 @@ export async function previewReconciliation(
           : "unchanged";
       }
       projectOutputItems.push({
+        ...(driftKind === undefined ? {} : { driftKind }),
         kind,
         path: output.path,
         project: installation.binding.project,
