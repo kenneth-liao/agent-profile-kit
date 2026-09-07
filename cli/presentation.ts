@@ -37,6 +37,7 @@ import {
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
+import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -2186,12 +2187,11 @@ function nextActionNodes(
 ): PresentationNode[] {
   if (command === "apply" && reportBlockers(report).length === 0) return [];
   const scope = locationDisplayScope(options, report);
-  const applyCommandArgs: readonly CommandArg[] = options.all === true
-    ? [arg("apply"), arg("--all")]
-    : options.project !== undefined
-    ? [arg("apply"), arg(options.project)]
-    : report.projects.length > 1
-    ? [arg("apply"), arg("--all")]
+  const selection = effectiveLifecycleSelection(options);
+  const applyCommandArgs: readonly CommandArg[] = selection.kind === "project"
+    ? selection.match === "containing"
+      ? [arg("apply"), arg("--here")]
+      : [arg("apply"), arg(selection.target)]
     : [arg("apply")];
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
@@ -2518,11 +2518,21 @@ function readyStatusImpactLines(
   ];
 }
 
+function effectiveLifecycleSelection(
+  options: LifecycleHumanOptions,
+): ProjectBindingSelection {
+  if (options.selection !== undefined) return options.selection;
+  if (options.project !== undefined) {
+    return { command: "status", kind: "project", match: "exact", target: options.project };
+  }
+  return { kind: "all" };
+}
+
 function isFleetLifecycle(
   options: LifecycleHumanOptions,
   report: ReconciliationReport,
 ): boolean {
-  return options.all === true || (options.project === undefined && report.projects.length > 1);
+  return effectiveLifecycleSelection(options).kind === "all";
 }
 
 function locationDisplayScope(
@@ -2537,10 +2547,13 @@ function lifecycleInvocation(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
 ): string {
-  if (isFleetLifecycle(options, report)) {
-    return `${COMMAND_NAME} ${command} --all`;
+  const selection = effectiveLifecycleSelection(options);
+  if (selection.kind === "project") {
+    if (selection.match === "containing") {
+      return `${COMMAND_NAME} ${command} --here`;
+    }
+    return `${COMMAND_NAME} ${command} ${selection.target}`;
   }
-  if (options.project !== undefined) return `${COMMAND_NAME} ${command} ${options.project}`;
   return `${COMMAND_NAME} ${command}`;
 }
 
@@ -2586,6 +2599,7 @@ interface LifecycleHumanOptions {
   readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
   readonly project?: string;
+  readonly selection?: ProjectBindingSelection;
   readonly verbose?: boolean;
 }
 
@@ -3434,17 +3448,20 @@ function statusLifecycleCommand(
   options: LifecycleHumanOptions,
   extraArgs: readonly CommandArg[] = [],
 ): CommandNode {
+  const selection = effectiveLifecycleSelection(options);
   const args: CommandArg[] = [{ kind: "text", value: command }];
-  if (isFleetLifecycle(options, report)) {
-    args.push({ kind: "text", value: "--all" });
-  } else if (options.project !== undefined) {
-    const group = selectedProjectGroup(report, options.project);
-    args.push({
-      kind: "path",
-      canonicalPath: group.canonicalProject,
-      authoredPath: group.project,
-      scope: locationDisplayScope(options, report),
-    });
+  if (selection.kind === "project") {
+    if (selection.match === "containing") {
+      args.push({ kind: "text", value: "--here" });
+    } else {
+      const group = selectedProjectGroup(report, selection.target);
+      args.push({
+        kind: "path",
+        canonicalPath: group.canonicalProject,
+        authoredPath: group.project,
+        scope: locationDisplayScope(options, report),
+      });
+    }
   }
   args.push(...extraArgs);
   return { kind: "command", program: COMMAND_NAME, args };
@@ -3847,7 +3864,13 @@ function blockersOnlyStatusDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
+  const selection = effectiveLifecycleSelection(options);
   if (reportBlockers(report).length === 0) {
+    const statusCommandArgs: readonly CommandArg[] = selection.kind === "project"
+      ? selection.match === "containing"
+        ? [arg("status"), arg("--here")]
+        : [arg("status"), arg(selection.target)]
+      : [arg("status")];
     return [
       { kind: "prose", parts: ["No blockers."], category: "success" },
       {
@@ -3855,9 +3878,7 @@ function blockersOnlyStatusDocument(
         category: "command",
         parts: [
           "Next: Run ",
-          options.all === true
-            ? commandPart(COMMAND_NAME, [arg("status"), arg("--all")])
-            : commandPart(COMMAND_NAME, [arg("status")]),
+          commandPart(COMMAND_NAME, statusCommandArgs),
           " for the complete lifecycle view.",
         ],
       },

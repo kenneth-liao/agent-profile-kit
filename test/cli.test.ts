@@ -1779,7 +1779,41 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stderr).toContain("duplicate canonical root");
   });
 
-  test("apply and status default to the bound Project containing the working directory", async () => {
+  test("apply and status default to fleet scope, including from an unbound working directory", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const first = project("agent-profile-kit-fleet-first-");
+    const second = project("agent-profile-kit-fleet-second-");
+    const unbound = join(home, "unbound-working-directory");
+    mkdirSync(unbound, { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${first}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    // Default status from an unbound working directory selects all bound Projects.
+    const status = await runCliAt(home, unbound, "status", "--json");
+    expectExitCode(status, 0);
+    const payload = JSON.parse(status.stdout) as {
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(first),
+      realpathSync(second),
+    ].sort());
+
+    // Default apply from an unbound working directory applies all bound Projects.
+    const apply = await runCliAt(home, unbound, "apply");
+    expectExitCode(apply, 0);
+    expect(existsSync(join(first, ".agent-profile-kit"))).toBe(true);
+    expect(existsSync(join(second, ".agent-profile-kit"))).toBe(true);
+  });
+
+  test("--here explicitly scopes status and apply to the bound Project containing the working directory", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
@@ -1793,11 +1827,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `  - project: ${unrelated}\n    profile: coding\n    hosts: [codex]\n`,
     );
 
-    const apply = await runCliAt(home, join(selected, "."), "apply");
-    expectExitCode(apply, 0);
-    expect(existsSync(join(unrelated, ".agent-profile-kit"))).toBe(false);
-
-    const status = await runCliAt(home, selected, "status", "--json");
+    const status = await runCliAt(home, selected, "status", "--here", "--json");
     expectExitCode(status, 0);
     const payload = JSON.parse(status.stdout) as {
       readonly projects: readonly { readonly canonicalProject: string }[];
@@ -1805,6 +1835,30 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
       realpathSync(selected),
     ]);
+
+    const apply = await runCliAt(home, join(selected, "."), "apply", "--here");
+    expectExitCode(apply, 0);
+    expect(existsSync(join(selected, ".agent-profile-kit"))).toBe(true);
+    expect(existsSync(join(unrelated, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("--here in an unbound working directory fails with actionable guidance", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+
+    const unbound = join(home, "unbound-dir");
+    mkdirSync(unbound, { recursive: true });
+
+    for (const command of ["apply", "status"] as const) {
+      const failed = await runCliAt(home, unbound, command, "--here");
+      expectExitCode(failed, 1);
+      expect(failed.stderr).toContain("is not a bound Project");
+      expect(failed.stderr).toContain("run apkit list projects or apkit bind");
+      expect(failed.stderr).toContain(`Usage: apkit ${command}`);
+    }
   });
 
   test("status and apply accept one explicit absolute or home-relative bound Project root", async () => {
@@ -1868,17 +1922,27 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     ].sort());
   });
 
-  test("--all is mutually exclusive with an explicit Project root", async () => {
+  test("scope arguments are mutually exclusive and reject conflicting combinations", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
     const marker = join(projectPath, "must-not-write");
 
     for (const command of ["apply", "status"] as const) {
-      const result = await runCli(home, command, projectPath, "--all");
-      expectExitCode(result, 1);
-      expect(result.stderr).toContain(`${command} --all cannot be combined with a Project path`);
-      expect(result.stderr).toContain(`Usage: apkit ${command}`);
+      const allWithPath = await runCli(home, command, projectPath, "--all");
+      expectExitCode(allWithPath, 1);
+      expect(allWithPath.stderr).toContain(`${command} --all cannot be combined with a Project path`);
+      expect(allWithPath.stderr).toContain(`Usage: apkit ${command}`);
+
+      const hereWithAll = await runCli(home, command, "--here", "--all");
+      expectExitCode(hereWithAll, 1);
+      expect(hereWithAll.stderr).toContain(`${command} --here cannot be combined with --all`);
+      expect(hereWithAll.stderr).toContain(`Usage: apkit ${command}`);
+
+      const hereWithPath = await runCli(home, command, "--here", projectPath);
+      expectExitCode(hereWithPath, 1);
+      expect(hereWithPath.stderr).toContain(`${command} --here cannot be combined with a Project path`);
+      expect(hereWithPath.stderr).toContain(`Usage: apkit ${command}`);
     }
     expect(existsSync(marker)).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -1991,7 +2055,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       for (const example of cases) {
         const result = example.cwd === undefined
           ? await runCli(home, command, example.target!)
-          : await runCliAt(home, example.cwd, command);
+          : await runCliAt(home, example.cwd, command, "--here");
         expectExitCode(result, 1);
         expect(result.stderr).toMatch(example.pattern);
         expect(result.stderr).toContain(`Usage: apkit ${command}`);
@@ -2000,11 +2064,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Tool-error JSON preserves the canonical composed sentence; human stderr
     // renders newcomer wording (scope Follow-up, DEC-014/TEST-012).
-    const ambiguousJson = await runCliAt(home, nested, "apply", "--json");
+    const ambiguousJson = await runCliAt(home, nested, "apply", "--here", "--json");
     expectExitCode(ambiguousJson, 1);
     const ambiguousPayload = JSON.parse(ambiguousJson.stdout) as { readonly error: string };
     expect(ambiguousPayload.error).toContain("matches multiple Project Bindings");
-    const ambiguousHuman = await runCliAt(home, nested, "apply");
+    const ambiguousHuman = await runCliAt(home, nested, "apply", "--here");
     expectExitCode(ambiguousHuman, 1);
     expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
@@ -2072,8 +2136,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Projects: 1");
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("Next: apkit apply --all");
-    expect(result.stdout).toContain("Details: apkit status --all --verbose");
+    expect(result.stdout).toContain("Next: apkit apply");
+    expect(result.stdout).toContain("Details: apkit status --verbose");
     expect(result.stdout).not.toContain("Selected setup:");
     expect(result.stdout).not.toContain("Context:");
   });
@@ -2212,7 +2276,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    const result = await runCliAt(home, projectPath, "status");
+    const result = await runCliAt(home, projectPath, "status", "--here");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("enabled by .codex/config.toml;");
@@ -2229,7 +2293,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(projectPath, ".codex"));
     writeFileSync(join(projectPath, ".codex", "config.toml"), "[features]\nhooks = false\n");
 
-    const result = await runCliAt(home, projectPath, "status", "--verbose");
+    const result = await runCliAt(home, projectPath, "status", "--here", "--verbose");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain(".codex/config.toml");
@@ -2247,7 +2311,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = await runCliAt(home, projectPath, "status", "--verbose");
+    const result = await runCliAt(home, projectPath, "status", "--here", "--verbose");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("- .git/info/exclude:");
@@ -2335,9 +2399,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).not.toContain("Skill review-pr");
     expect(status.stdout).not.toContain("Workspace changes:");
     expect(status.stdout.match(/Project: /g)).toBeNull();
-    expect(status.stdout).toContain("Next: apkit apply --all");
-    expect(status.stdout.match(/Next: apkit apply --all/g)).toHaveLength(1);
-    expect(status.stdout).toContain("Details: apkit status --all --verbose");
+    expect(status.stdout).toContain("Next: apkit apply");
+    expect(status.stdout.match(/Next: apkit apply/g)).toHaveLength(1);
+    expect(status.stdout).toContain("Details: apkit status --verbose");
     expect(status.stdout).not.toContain("Blockers: 0");
 
     const verbose = await runCli(home, "status", "--verbose");
@@ -2439,7 +2503,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(lines.at(-3)!.trimStart()).toContain("run apkit list projects or apkit bind");
     expect(lines.at(-3)!.endsWith("run apkit list projects or apkit bind")).toBe(true);
     // What to type: the usage line as one whole command line.
-    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --here | --all] [--verbose] [--blockers-only] [--json]");
     expect(lines.at(-1)).toBe("");
   });
 
@@ -2452,7 +2516,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, projectPath);
 
-    const result = await runCliAt(home, projectPath, "apply");
+    const result = await runCliAt(home, projectPath, "apply", "--here");
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Project: .");
@@ -3279,13 +3343,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "status --blockers-only cannot be combined with --json",
     );
     expect(rejectedJson.stderr).toContain(
-      "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]",
+      "Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]",
     );
     expect(rejectedJson.stdout).not.toContain('"');
 
     const help = await runCli(home, "help", "status");
     expectExitCode(help, 0);
-    expect(help.stdout).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(help.stdout).toContain("Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]");
     expect(help.stdout).toContain("apkit status --blockers-only --verbose");
   });
 
@@ -3302,7 +3366,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).toStartWith("No blockers.");
-    expect(result.stdout).toContain("Run apkit status --all for the complete lifecycle view.");
+    expect(result.stdout).toContain("Run apkit status for the complete lifecycle view.");
     expect(result.stdout).not.toContain("Project:");
   });
 
@@ -3598,7 +3662,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(status.stdout).not.toContain("Git exclusions:");
     expect(status.stdout).not.toContain(join(repository, ".git", "info", "exclude"));
-    expect(status.stdout).toContain("Details: apkit status --all --verbose");
+    expect(status.stdout).toContain("Details: apkit status --verbose");
 
     const verboseStatus = await runCli(home, "status", "--verbose");
     expectExitCode(verboseStatus, 0);
@@ -4436,7 +4500,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const result = await runCli(home, command);
       expectExitCode(result, 0);
       expect(result.stdout).toContain("Ready to apply");
-      expect(result.stdout).toContain("Details: apkit status --all --verbose");
+      expect(result.stdout).toContain("Details: apkit status --verbose");
       expect(result.stdout).not.toContain(exclude);
       const verboseResult = await runCli(home, command, "--verbose");
       expect(verboseResult.stdout).toContain("Git exclusions:");
@@ -5019,7 +5083,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(drift, 0);
     expect(drift.stdout).not.toContain("State: stale source");
     expect(drift.stdout).toContain("- source changed (1):");
-    expect(drift.stdout).toContain("Details: apkit status --all --verbose");
+    expect(drift.stdout).toContain("Details: apkit status --verbose");
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removal = await runCli(home, "status");
@@ -5932,14 +5996,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "apply --blockers-only cannot be combined with --json",
     );
     expect(rejectedJson.stderr).toContain(
-      "Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]",
+      "Usage: apkit apply [project | --here | --all] [--verbose] [--blockers-only] [--json]",
     );
     expect(rejectedJson.stdout).not.toContain('"');
 
     const help = await runCli(isolatedHome(), "help", "apply");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
-      "Usage: apkit apply [project | --all] [--verbose] [--blockers-only] [--json]",
+      "Usage: apkit apply [project | --here | --all] [--verbose] [--blockers-only] [--json]",
     );
     expect(help.stdout).toContain("apkit apply --blockers-only --verbose");
   });
@@ -9061,7 +9125,7 @@ describe("responsive lifecycle reports", () => {
     expect(redirectedNarrow.stdout).toBe(redirectedWide.stdout);
     expect(narrow.stdout).toContain("Ready to apply");
     expect(narrow.stdout).toContain("- not installed yet (1):");
-    expect(narrow.stdout).toContain("Next: apkit apply --all");
+    expect(narrow.stdout).toContain("Next: apkit apply");
     expect(narrow.stdout).not.toContain("Host setup:");
     expect(narrow.stdout).not.toContain("Standing Host setup:");
     expect(narrow.stdout).not.toContain("Consequence:");
@@ -9960,12 +10024,12 @@ describe("apkit root help", () => {
     const badLifecycleFlag = await runCli(home, "status", "--yaml");
     expectExitCode(badLifecycleFlag, 1);
     expect(badLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]");
 
     const badAfterValidLifecycleFlag = await runCli(home, "status", "--verbose", "--yaml");
     expectExitCode(badAfterValidLifecycleFlag, 1);
     expect(badAfterValidLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]");
 
     const badGuideFlag = await runCli(home, "guide", "--json");
     expectExitCode(badGuideFlag, 1);

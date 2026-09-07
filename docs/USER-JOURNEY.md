@@ -91,10 +91,10 @@ The first-run excerpts below were captured from that packed run.
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace` |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
-| 7 | Plan | `status [project \| --all] [--verbose] [--blockers-only] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing; `--blockers-only` shows a focused Blocker-only view (combines with `--verbose`, not `--json`) |
-| 8 | Apply | `apply [project \| --all] [--verbose] [--blockers-only] [--json]` | Generated output for the current Project, one explicit Project, or the explicitly selected fleet, and proof of what changed; `--blockers-only` shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible, and with no Blockers the ordinary receipt view renders unchanged |
+| 7 | Plan | `status [project \| --here \| --all] [--verbose] [--blockers-only] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing; `--blockers-only` shows a focused Blocker-only view (combines with `--verbose`, not `--json`) |
+| 8 | Apply | `apply [project \| --here \| --all] [--verbose] [--blockers-only] [--json]` | Generated output for the complete fleet, the containing Project (`--here`), or one explicit Project, and proof of what changed; `--blockers-only` shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible, and with no Blockers the ordinary receipt view renders unchanged |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
-| 10 | Re-sync | `status [project \| --all] [--blockers-only] [--json]` → `apply [project \| --all]` | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope |
+| 10 | Re-sync | `status [project \| --here \| --all] [--blockers-only] [--json]` → `apply [project \| --here \| --all]` | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope |
 | 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-019) |
@@ -419,8 +419,9 @@ conditional on installed Context, not on the Host alone.
 
 ### 10. Re-sync after a Workspace edit
 
-`status` uses the same Project selection as `apply`: current Project by default,
-one explicit absolute or home-relative bound root, or `--all` for the fleet.
+`status` uses the same Project selection as `apply`: complete fleet by default,
+`--here` for the current Project, one explicit absolute or home-relative bound
+root, or `--all` for explicit fleet scope.
 Ambiguous, unbound, missing, relative, wildcard, and non-directory targets fail
 with command guidance before Project inspection. The tool's best-working loop:
 `stale source` is detected accurately, the gloss is useful the first time, and

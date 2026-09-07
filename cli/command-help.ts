@@ -125,8 +125,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "status",
     group: "common",
-    syntax: "status [project | --all] [--verbose] [--blockers-only] [--json]",
-    summary: "Show the complete read-only apply plan for the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
+    syntax: "status [project | --here | --all] [--verbose] [--blockers-only] [--json]",
+    summary: "Show the complete read-only apply plan for the complete fleet, the containing Project, or one explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("apply"), " for pending work after resolving any blockers."],
@@ -134,8 +134,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "apply",
     group: "common",
-    syntax: "apply [project | --all] [--verbose] [--blockers-only] [--json]",
-    summary: "Sync the current Project, one explicit Project, or the complete fleet; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
+    syntax: "apply [project | --here | --all] [--verbose] [--blockers-only] [--json]",
+    summary: "Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
     next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
