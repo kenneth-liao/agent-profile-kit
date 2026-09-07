@@ -742,7 +742,7 @@ describe("integrated fleet recovery qualification", () => {
 
     // Blocker section after safety prefix contains blocked Project B evidence and footer
     const blockerSection = partialApply.stdout.slice(projectSectionIndex);
-    expect(blockerSection).toContain(projectB);
+    expect(blockerSection).toContain(projectB.split("/").at(-1)!);
     expect(blockerSection).toContain("These generated paths are tracked by Git");
     expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
 

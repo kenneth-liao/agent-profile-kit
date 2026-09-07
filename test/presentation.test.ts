@@ -540,7 +540,6 @@ describe("lifecycle status document", () => {
       "prose:error",
       "prose",
       "prose",
-      "prose",
       "blank",
       "notice:error",
       "blank",
@@ -667,7 +666,6 @@ describe("lifecycle status document", () => {
       "blank",
       "key-value(Project)",
       "prose:error",
-      "prose",
       "prose",
       "prose",
       "blank",
@@ -2001,7 +1999,7 @@ function trackedPathGroups(document: PresentationDocument): PresentationNode[] {
   const start = nodes.findIndex((node) => node.kind === "prose" && node.category === "error");
   expect(start).toBeGreaterThan(-1);
   const groups: PresentationNode[] = [];
-  for (const node of nodes.slice(start + 5)) {
+  for (const node of nodes.slice(start + 4)) {
     if (node.kind !== "prose" || node.category !== undefined || inlineCommandTexts([node]).length > 0) break;
     groups.push(node);
   }
@@ -2141,10 +2139,9 @@ describe("status concise terminology", () => {
       node.kind === "prose" && node.category === "error");
     expect(blockerIndex).toBeGreaterThan(-1);
     // Every structured field is its own prose node in the typed evidence block.
-    expect(nodes.slice(blockerIndex + 1, blockerIndex + 5).map(shape)).toEqual(["prose", "prose", "prose", "prose"]);
+    expect(nodes.slice(blockerIndex + 1, blockerIndex + 4).map(shape)).toEqual(["prose", "prose", "prose"]);
     expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit apply");
-    expect(nodeText(nodes[blockerIndex + 3]!)).toContain("/project-a");
-    expect(nodeText(nodes[blockerIndex + 4]!)).toContain("codex");
+    expect(nodeText(nodes[blockerIndex + 3]!)).toContain("codex");
   });
 
   test("preserves task-authored warning text and typed copyable values without translation", () => {
@@ -3692,7 +3689,7 @@ describe("status concise terminology", () => {
     const concise = applyReportDocument(applyResult(emptyReport(), resultingState));
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "error" });
     expect(noticesIn(concise).map((node) => node.severity)).toEqual(["error", "error"]);
-    expect(nextActionItems(concise).map(nextActionStructure)).toEqual([{ paths: [{ canonicalPath: "/project-a", scope: "project" }], commands: ["apkit apply"] }]);
+    expect(nextActionItems(concise).map(nextActionStructure)).toEqual([{ paths: [], commands: ["apkit apply"] }]);
   });
 
   test("execution failures label only applied receipt Projects as freshly current", () => {
@@ -3905,7 +3902,7 @@ describe("status next-action guidance", () => {
     const status = lifecycleStatusDocument(report);
     // One item retrying status for the blocked Project; no apply guidance.
     expect(nextActionItems(status).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "project" }], commands: ["apkit status"] },
+      { paths: [], commands: ["apkit status"] },
     ]);
     // The outcome notice leads; the aggregate Blocker count follows it.
     expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "error" });
@@ -3926,7 +3923,7 @@ describe("status next-action guidance", () => {
     });
 
     expect(nextActionItems(applyReportDocument(applyResult(report))).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "project" }], commands: ["apkit apply"] },
+      { paths: [], commands: ["apkit apply"] },
     ]);
   });
 
@@ -4056,8 +4053,7 @@ describe("status next-action guidance", () => {
     const status = lifecycleStatusDocument(mixedBlocked);
 
     expect(nextActionItems(status).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "fleet" }], commands: ["apkit apply --all"] },
-      { paths: [{ canonicalPath: "/project-b", scope: "fleet" }], commands: ["apkit status"] },
+      { paths: [], commands: ["apkit status"] },
     ]);
   });
 
@@ -5418,8 +5414,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const status = lifecycleStatusDocument(report);
     expect(nextActionItems(status).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "fleet" }], commands: ["apkit apply --all"] },
-      { paths: [{ canonicalPath: "/project-b", scope: "fleet" }], commands: ["apkit status"] },
+      { paths: [], commands: ["apkit status"] },
     ]);
   });
 
@@ -5453,19 +5448,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     const status = lifecycleStatusDocument(report);
-    // Each Project is a typed fleet-scope path part; the renderer resolves the
-    // working-directory Project to its home-relative identity (never a cwd
-    // alias). Item order follows report grouping, not copy.
-    const structures = nextActionItems(status).map(nextActionStructure);
-    expect(structures).toHaveLength(2);
-    expect(structures).toContainEqual({
-      paths: [{ canonicalPath: current, scope: "fleet" }],
-      commands: ["apkit apply --all"],
-    });
-    expect(structures).toContainEqual({
-      paths: [{ canonicalPath: other, scope: "fleet" }],
-      commands: ["apkit status"],
-    });
+    expect(nextActionItems(status).map(nextActionStructure)).toEqual([
+      { paths: [], commands: ["apkit status"] },
+    ]);
     const rendered = renderBoundary(status, defaultRenderContext);
     expect(rendered).toContain(homeRelative);
     expect(rendered).not.toMatch(/(^|\n)\.: /);
@@ -6280,7 +6265,7 @@ describe("focused blockers-only status view (#351)", () => {
     expect(focused.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(3);
     expect(headingsIn(focused)).toContain("Global blockers:");
     expect(nextActionItems(focused).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "project" }], commands: ["apkit status"] },
+      { paths: [], commands: ["apkit status"] },
       { paths: [], commands: ["apkit status"] },
     ]);
     // The displayed-Blocker footer is the last error prose of the focused view.
@@ -6356,7 +6341,7 @@ describe("focused blockers-only status view (#351)", () => {
     expect(texts.some((text) => text.includes("/project-b"))).toBe(false);
     // Only the displayed-Blocker Project receives an item, retrying status.
     expect(nextActionItems(focused).map(nextActionStructure)).toEqual([
-      { paths: [{ canonicalPath: "/project-a", scope: "fleet" }], commands: ["apkit status"] },
+      { paths: [], commands: ["apkit status"] },
     ]);
   });
 
@@ -7974,7 +7959,9 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("Blocker:");
       expect(rendered).toContain("Requirement:");
       expect(rendered).toContain("Remedy:");
-      expect(rendered).toContain("Scope: Project /project-1");
+      expect(rendered).not.toContain("Scope: Project");
+      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
+      expect((rendered.match(/\/project-2/g) || []).length).toBe(1);
     });
 
     test("wholly settled fleet renders single line outcome without breakdown or next action", () => {
@@ -8039,7 +8026,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("- needs attention (1): /project-1");
       expect(rendered).toContain("Apply will remove generated files for unbound projects.");
       expect(rendered).not.toContain("Blocker:");
-      expect(rendered).not.toContain("Project: /project-1");
+      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
     });
 
     test("multi-blocked fleet names each project once while preserving attribution of every blocker remedy", () => {
@@ -8069,10 +8056,93 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
 
       expect(rendered).toContain("- needs attention (2): /project-1, /project-2");
       expect(rendered).toContain("- settled (1)");
-      expect(rendered).not.toMatch(/\nProject: \/project-1/);
-      expect(rendered).not.toMatch(/\nProject: \/project-2/);
-      expect(rendered).toContain("Scope: Project /project-1");
-      expect(rendered).toContain("Scope: Project /project-2");
+      expect(rendered).not.toContain("Scope: Project");
+      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
+      expect((rendered.match(/\/project-2/g) || []).length).toBe(1);
+      expect((rendered.match(/\/project-3/g) || []).length).toBe(0);
+      expect(rendered).toContain("Blocker: Cannot verify generated-file ownership");
+      expect(rendered).toContain("Requirement:");
+      expect(rendered).toContain("Remedy:");
+      expect(rendered).toContain("Next:\n- Resolve the reported blocker, then run apkit status again.");
+    });
+
+    test("healthy mixed fleet names each actionable project exactly once and settled projects zero times", () => {
+      const pMissing = createRecord({
+        canonicalProject: "/project-missing",
+        outputs: [{
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: "context.md",
+        }],
+        project: "/project-missing",
+        state: { kind: "drifted output" },
+      });
+      const pChanged = createRecord({
+        canonicalProject: "/project-changed",
+        outputs: [{
+          consumingHosts: ["codex"],
+          driftKind: "changed",
+          kind: "update",
+          path: "context.md",
+        }],
+        project: "/project-changed",
+        state: { kind: "drifted output" },
+      });
+      const pSettled = createRecord({
+        canonicalProject: "/project-settled",
+        project: "/project-settled",
+        state: { kind: "current" },
+      });
+
+      const report: ReconciliationReport = {
+        globalBlockers: [],
+        projects: [pMissing, pChanged, pSettled],
+      };
+
+      const document = lifecycleStatusDocument(report, { all: true });
+      const rendered = renderBoundary(document);
+
+      expect(rendered).toContain("- generated files missing (1): /project-missing");
+      expect(rendered).toContain("- generated files changed (1): /project-changed");
+      expect(rendered).toContain("- settled (1)");
+      expect((rendered.match(/\/project-missing/g) || []).length).toBe(1);
+      expect((rendered.match(/\/project-changed/g) || []).length).toBe(1);
+      expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
+      expect(rendered).toContain("Next: apkit apply --all");
+    });
+
+    test("wrapped concise status preserves exactly-once project identity in narrow terminals", () => {
+      const longProject1 = "/long/path/to/first/nested/corporate/monorepo/project-one";
+      const longProject2 = "/long/path/to/second/nested/corporate/monorepo/project-two";
+      const p1 = createRecord({
+        blockers: [fixtureBlocker("occupied output", longProject1)],
+        canonicalProject: longProject1,
+        project: longProject1,
+      });
+      const p2 = createRecord({
+        canonicalProject: longProject2,
+        outputs: [{
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: "context.md",
+        }],
+        project: longProject2,
+        state: { kind: "drifted output" },
+      });
+
+      const report: ReconciliationReport = {
+        globalBlockers: [],
+        projects: [p1, p2],
+      };
+
+      const document = lifecycleStatusDocument(report, { all: true });
+      for (const width of [40, 60, 80]) {
+        const rendered = renderBoundary(document, { ...defaultRenderContext, width });
+        expect((rendered.match(/project-one/g) || []).length).toBe(1);
+        expect((rendered.match(/project-two/g) || []).length).toBe(1);
+      }
     });
   });
 });

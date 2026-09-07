@@ -2178,39 +2178,28 @@ function nextActionNodes(
     const project = { authored: group.project, canonical: group.canonicalProject };
     if (group.blockers.length > 0) {
       const blockerWord = group.blockers.length === 1 ? "blocker" : "blockers";
-      addAction(
-        [
-          "Resolve the reported ",
-          blockerWord,
-          ", then run ",
-          commandPart(COMMAND_NAME, [arg(command)]),
-          " again.",
-        ],
-        project,
-      );
+      addAction([
+        "Resolve the reported ",
+        blockerWord,
+        ", then run ",
+        commandPart(COMMAND_NAME, [arg(command)]),
+        " again.",
+      ]);
       continue;
     }
     if (!groupNeedsAttention(group, command)) continue;
     if (reportBlockers(report).length > 0 && globalBlockers.length === 0) {
       if (command === "status") {
-        addAction(
-          [
-            "After all blockers are resolved, run ",
-            commandPart(COMMAND_NAME, applyCommandArgs),
-            ".",
-          ],
-          project,
-        );
-      } else {
-        addAction(
-          [
-            "After all blockers are resolved, run ",
-            commandPart(COMMAND_NAME, applyCommandArgs),
-            command === "apply" ? " again." : ".",
-          ],
-          project,
-        );
+        continue;
       }
+      addAction(
+        [
+          "After all blockers are resolved, run ",
+          commandPart(COMMAND_NAME, applyCommandArgs),
+          command === "apply" ? " again." : ".",
+        ],
+        project,
+      );
       continue;
     }
     if (globalBlockers.length > 0) continue;
@@ -2245,6 +2234,7 @@ function nextActionNodes(
     ).values()].sort((left, right) =>
       compareCanonicalStrings(left.canonical, right.canonical),
     );
+    if (grouped.size === 1) return [...entry.parts];
     if (uniqueProjects.length === 1) {
       const project = uniqueProjects[0]!;
       return [
@@ -2253,7 +2243,6 @@ function nextActionNodes(
         ...entry.parts,
       ];
     }
-    if (grouped.size === 1) return [...entry.parts];
     return [...entry.parts, nextActionScope(uniqueProjects, scope)];
   });
 
@@ -3281,7 +3270,6 @@ function conciseBlockerNodes(
       },
       { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
       { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
-      { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
       ...(paths.length === 0 ? [] as PresentationNode[] : [
         { kind: "prose" as const, parts: [`${indent}  Affected paths (${paths.length}):`] },
         ...trackedPathGroupLines(paths, indent).map((line) => ({
@@ -3301,7 +3289,6 @@ function conciseBlockerNodes(
     },
     { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
     { kind: "prose", parts: [`${indent}  Remedy: `, ...wording.remedy] },
-    { kind: "prose", parts: [`${indent}  Scope: ${blockerScopeText(blocker, displayProject)}`] },
     ...blocker.affectedItems.map((item) => ({
       kind: "prose" as const,
       parts: [`${indent}  ${affectedItemLabel(item)}`],

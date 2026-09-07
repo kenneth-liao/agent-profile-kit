@@ -2397,7 +2397,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).not.toMatch(INTERNAL_TERM_PATTERN);
     expect(humanText(result.stdout).split(blocker)).toHaveLength(2);
     expect(humanText(result.stdout)).toContain(
-      humanText(`Next:\n- ${projectPath}: Resolve the reported blocker, then run apkit apply again.`),
+      humanText("Next:\n- Resolve the reported blocker, then run apkit apply again."),
     );
     expect(result.stderr).toBe("");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -3185,8 +3185,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(humanText(result.stdout)).toContain(
-      humanText(`Scope: Project ${authoredProject}`),
+      humanText(`- needs attention (1): ${authoredProject}`),
     );
+    expect((result.stdout.match(new RegExp(authoredProject, "g")) || []).length).toBe(1);
+    expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
     expect(result.stdout).toContain("Requirement:");
     expect(result.stdout).toContain("Remedy:");
@@ -4973,8 +4975,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Cannot apply\n")).toBe(true);
-    expect(humanText(result.stdout)).toContain("Scope: Project");
+    expect(result.stdout).toContain("- needs attention (1):");
     expect(humanText(result.stdout)).toContain(projectPath.split("/").at(-1)!);
+    expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("State:");
     expect(result.stdout).toContain("occupied by unowned or drifted output");
@@ -4995,7 +4998,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
     expect(result.stdout).toContain("- needs attention (1): ~/home-relative-blocked-project");
-    expect(result.stdout.match(/Scope: Project/g)).toHaveLength(1);
+    expect(result.stdout).not.toContain("Scope: Project");
+    expect((result.stdout.match(/~\/home-relative-blocked-project/g) || []).length).toBe(1);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
   });
 
