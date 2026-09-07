@@ -1098,6 +1098,11 @@ export function validationResultDocument(result: ValidationResult): Presentation
         ],
       }],
     },
+    ...result.warnings.map((warning) => ({
+      kind: "list-item" as const,
+      parts: [warning],
+      category: "attention" as const,
+    })),
     {
       kind: "key-value",
       key: "Profiles found",
@@ -1114,11 +1119,6 @@ export function validationResultDocument(result: ValidationResult): Presentation
         parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
       },
     },
-    ...result.warnings.map((warning) => ({
-      kind: "prose" as const,
-      parts: [`Warning: ${warning}`],
-      category: "attention" as const,
-    })),
     {
       kind: "key-value",
       key: "Next",
@@ -1156,6 +1156,11 @@ export function uninstallResultDocument(
           : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`],
       }],
     },
+    ...result.warnings.map((warning) => ({
+      kind: "list-item" as const,
+      parts: [warning],
+      category: "attention" as const,
+    })),
   ];
   for (const project of result.projects) {
     nodes.push(
@@ -1208,16 +1213,6 @@ export function uninstallResultDocument(
         { kind: "prose", parts: [`  - ${renderItemReason(kept.reason)}`], category: "error" },
       );
     }
-  }
-  if (result.warnings.length > 0) {
-    nodes.push(
-      spacerNode(),
-      ...result.warnings.map((warning) => ({
-        kind: "list-item" as const,
-        parts: [warning],
-        category: "attention" as const,
-      })),
-    );
   }
   nodes.push(
     spacerNode(),
@@ -3062,6 +3057,15 @@ export function applyExecutionFailureDocument(
   const failedProject = failure.failedProject === undefined
     ? undefined
     : presentProject(failure.failedProject, scope);
+  const reports = failure.resultingState !== undefined
+    ? [failure.resultingState, failure.receipt]
+    : failure.receipt;
+  const groups = groupProjects(failure.resultingState ?? failure.receipt).groups;
+  const warningItems = options.blockersOnly === true
+    ? []
+    : options.verbose === true
+      ? verboseWarningNodes(reports, groups, scope)
+      : warningNodes(reports, groups, scope);
   const nodes: PresentationNode[] = [
     {
       kind: "notice",
@@ -3073,6 +3077,7 @@ export function applyExecutionFailureDocument(
           : `Apply failed at ${failedProject}: ${failure.detail}`],
       }],
     },
+    ...warningItems,
   ];
   if (failedProject !== undefined) {
     nodes.push({ kind: "prose", parts: [`Failed Project: ${failedProject}`] });
@@ -3124,9 +3129,16 @@ export function applyVerificationFailureDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, receipt);
+  const groups = groupProjects(receipt).groups;
+  const warningItems = options.blockersOnly === true
+    ? []
+    : options.verbose === true
+      ? verboseWarningNodes(receipt, groups, scope)
+      : warningNodes(receipt, groups, scope);
   if (options.verbose === true) {
     return [
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
+      ...warningItems,
       { kind: "heading", text: "Applied:" },
       ...verboseLifecycleSections(receipt, {
         scope,
@@ -3141,6 +3153,7 @@ export function applyVerificationFailureDocument(
   }
   const nodes: PresentationNode[] = [
     { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
+    ...warningItems,
     ...applyReceiptNodes(receipt, scope),
   ];
   const setup = conciseFirstUseNodes(
@@ -4260,6 +4273,11 @@ export function temporaryInstallationDocument(
           parts: [`Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
         }],
       },
+      ...receipt.warnings.map((warning, index) => ({
+        kind: "list-item" as const,
+        parts: receipt.warningParts?.[index] ?? [warning],
+        category: "attention" as const,
+      })),
       {
         kind: "key-value",
         key: "  Profile",
@@ -4280,15 +4298,6 @@ export function temporaryInstallationDocument(
         category: "path",
       },
     ];
-    if (receipt.warnings.length > 0) {
-      nodes.push(
-        ...receipt.warnings.map((warning, index) => ({
-          kind: "list-item" as const,
-          parts: receipt.warningParts?.[index] ?? [warning],
-          category: "attention" as const,
-        })),
-      );
-    }
     if (receipt.setupSteps.length > 0) {
       nodes.push(
         { kind: "heading", text: `${capitalize(receipt.host!)} setup:` },
@@ -4343,6 +4352,11 @@ export function temporaryInstallationDocument(
         parts: [`Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
       }],
     },
+    ...receipt.warnings.map((warning, index) => ({
+      kind: "list-item" as const,
+      parts: receipt.warningParts?.[index] ?? [warning],
+      category: "attention" as const,
+    })),
     {
       kind: "key-value",
       key: "  Temporary installation",

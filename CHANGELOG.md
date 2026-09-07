@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Place inline warning nodes beside outcome notices across failure, teardown, validation, and temporary views, and suppress warning text under blockers-only ([#439](https://github.com/kenneth-liao/agent-profile-kit/issues/439), [#467](https://github.com/kenneth-liao/agent-profile-kit/pull/467)).
+
 - Delegate Project inventory problem formatting to the canonical error wording boundary, preserving configuration locators and cause details without duplicate wording switches ([#466](https://github.com/kenneth-liao/agent-profile-kit/pull/466)).
 
 - Render recognizable Project identities in created, unchanged, and replaced binding receipts when invoked inside the bound Project without error-shaped dot aliases or redundant canonical paths (US-058, DEC-039, [#437](https://github.com/kenneth-liao/agent-profile-kit/issues/437)).

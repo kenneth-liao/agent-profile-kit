@@ -1680,7 +1680,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Warning:");
     expect(humanText(result.stdout)).toContain("Pi global settings relevant to planned Skills");
     expect(result.stdout).toContain("Next: apkit status");
     expect(result.stdout).not.toContain("Next: apkit bind");

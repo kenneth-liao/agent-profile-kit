@@ -5090,9 +5090,9 @@ describe("standalone view presentation documents (#389)", () => {
 
     expect(document.map(shape)).toEqual([
       "notice:success",
+      "list-item",
       "key-value(Profiles found)",
       "key-value(Hosts bound)",
-      "prose:attention",
       "key-value(Next)",
     ]);
     const next = keyValuesIn(document, "Next")[0]!;
@@ -5229,7 +5229,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(keptReason.category).toBe("error");
   });
 
-  test("uninstall presents warnings as a titled list of typed list items", () => {
+  test("uninstall presents warnings as inline typed list items beside the outcome notice", () => {
     const document = uninstallResultDocument({
       kept: [],
       projects: [],
@@ -5241,7 +5241,7 @@ describe("standalone view presentation documents (#389)", () => {
     const items = flattenPresentationNodes(document).filter((node) => node.kind === "list-item");
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ kind: "list-item", category: "attention" });
-    expect(document.map(shape)).toEqual(["notice:success", "blank", "list-item", "blank", "prose"]);
+    expect(document.map(shape)).toEqual(["notice:success", "list-item", "blank", "prose"]);
     expect(keyValuesIn(document, "Project")).toEqual([]);
   });
 
@@ -5323,11 +5323,11 @@ describe("standalone view presentation documents (#389)", () => {
     const document = temporaryInstallationDocument("install-temp", receipt);
     expect(document.map(shape)).toEqual([
       "notice:success",
+      "list-item",
       "key-value(Profile):path",
       "key-value(Host):path",
       "key-value(Project)",
       "key-value(Temporary installation):path",
-      "list-item",
       "heading",
       "list-item",
       "prose",
@@ -7504,9 +7504,9 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     expect(headingsIn(verbose)).not.toContain("Warnings:");
   });
 
-  test("warnings are placed inline directly beside outcome notices across all lifecycle views", () => {
+  test("warnings are placed inline directly beside outcome notices across all lifecycle views and failure views", () => {
     const warning = {
-      copyableValues: [],
+      copyableValues: ["/path/to/diagnostic"],
       kind: "diagnostic" as const,
       parts: ["Sample diagnostic warning"],
     };
@@ -7520,21 +7520,35 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       ],
     };
 
-    // 1. Status document
-    const statusDoc = lifecycleStatusDocument(statusReport);
-    expect(statusDoc[0]?.kind).toBe("notice");
-    expect(statusDoc[1]?.kind).toBe("list-item");
-    expect((statusDoc[1] as Extract<PresentationNode, { kind: "list-item" }>).category).toBe("attention");
-    expect(headingsIn(statusDoc)).not.toContain("Warnings:");
+    // 1. Status document (concise)
+    const statusConcise = lifecycleStatusDocument(statusReport);
+    expect(statusConcise[0]?.kind).toBe("notice");
+    expect(statusConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(statusConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(statusConcise)).not.toContain("Warnings:");
 
-    // 2. Apply document
-    const applyDoc = applyReportDocument(applyResult(statusReport));
-    expect(applyDoc[0]?.kind).toBe("notice");
-    expect(applyDoc[1]?.kind).toBe("list-item");
-    expect((applyDoc[1] as Extract<PresentationNode, { kind: "list-item" }>).category).toBe("attention");
-    expect(headingsIn(applyDoc)).not.toContain("Warnings:");
+    // 2. Status document (verbose)
+    const statusVerbose = lifecycleStatusDocument(statusReport, { verbose: true });
+    expect(statusVerbose[0]?.kind).toBe("notice");
+    expect(statusVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(statusVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(statusVerbose)).not.toContain("Warnings:");
 
-    // 3. Blocked apply document
+    // 3. Apply document (concise)
+    const applyConcise = applyReportDocument(applyResult(statusReport));
+    expect(applyConcise[0]?.kind).toBe("notice");
+    expect(applyConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(applyConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(applyConcise)).not.toContain("Warnings:");
+
+    // 4. Apply document (verbose)
+    const applyVerbose = applyReportDocument(applyResult(statusReport), { verbose: true });
+    expect(applyVerbose[0]?.kind).toBe("notice");
+    expect(applyVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(applyVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(applyVerbose)).not.toContain("Warnings:");
+
+    // 5. Blocked apply document (concise & verbose)
     const blockedReport: ReconciliationReport = {
       globalBlockers: [normalizeBlocker({
         affectedItems: [],
@@ -7548,24 +7562,76 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
         }),
       ],
     };
-    const blockedDoc = blockedApplyReportDocument(blockedReport);
-    expect(blockedDoc[0]?.kind).toBe("notice");
-    expect(blockedDoc[1]?.kind).toBe("list-item");
-    expect((blockedDoc[1] as Extract<PresentationNode, { kind: "list-item" }>).category).toBe("attention");
-    expect(headingsIn(blockedDoc)).not.toContain("Warnings:");
+    const blockedConcise = blockedApplyReportDocument(blockedReport);
+    expect(blockedConcise[0]?.kind).toBe("notice");
+    expect(blockedConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(blockedConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(blockedConcise)).not.toContain("Warnings:");
 
-    // 4. Uninstall result document
+    const blockedVerbose = blockedApplyReportDocument(blockedReport, { verbose: true });
+    expect(blockedVerbose[0]?.kind).toBe("notice");
+    expect(blockedVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(blockedVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(blockedVerbose)).not.toContain("Warnings:");
+
+    // 6. Apply Execution Failure (concise & verbose)
+    const execFailure = {
+      detail: "disk full",
+      failedProject: executionProject("/project-a"),
+      message: "Apply execution failed",
+      pendingProjects: [],
+      receipt: statusReport,
+      resultingState: statusReport,
+    };
+    const execConcise = applyExecutionFailureDocument(execFailure, {});
+    expect(execConcise[0]?.kind).toBe("notice");
+    expect(execConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(execConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(execConcise)).not.toContain("Warnings:");
+
+    const execVerbose = applyExecutionFailureDocument(execFailure, { verbose: true });
+    expect(execVerbose[0]?.kind).toBe("notice");
+    expect(execVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(execVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(execVerbose)).not.toContain("Warnings:");
+
+    // 7. Apply Verification Failure (concise & verbose)
+    const verifyConcise = applyVerificationFailureDocument(statusReport, "Verification check failed", {});
+    expect(verifyConcise[0]?.kind).toBe("notice");
+    expect(verifyConcise[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(verifyConcise)).toContain("Sample diagnostic warning");
+    expect(headingsIn(verifyConcise)).not.toContain("Warnings:");
+
+    const verifyVerbose = applyVerificationFailureDocument(statusReport, "Verification check failed", { verbose: true });
+    expect(verifyVerbose[0]?.kind).toBe("notice");
+    expect(verifyVerbose[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(verifyVerbose)).toContain("Sample diagnostic warning (/project-a)");
+    expect(headingsIn(verifyVerbose)).not.toContain("Warnings:");
+
+    // 8. Uninstall result document (with Projects and kept Projects)
     const uninstallDoc = uninstallResultDocument({
-      kept: [],
-      projects: [],
+      kept: [{ project: "/project-b", reason: "permission denied" }],
+      projects: [{ outputs: [".codex/hooks.json"], project: "/project-a", repositoryExclusions: [] }],
       warnings: ["Sample uninstall warning"],
     });
     expect(uninstallDoc[0]?.kind).toBe("notice");
-    expect(uninstallDoc[2]?.kind).toBe("list-item");
-    expect((uninstallDoc[2] as Extract<PresentationNode, { kind: "list-item" }>).category).toBe("attention");
+    expect(uninstallDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(uninstallDoc)).toContain("Sample uninstall warning");
     expect(headingsIn(uninstallDoc)).not.toContain("Warnings:");
 
-    // 5. Temporary installation document
+    // 9. Validation result document
+    const validationDoc = validationResultDocument({
+      bindings: 1,
+      hosts: ["codex"],
+      profiles: ["engineering"],
+      warnings: ["Sample validation warning"],
+    });
+    expect(validationDoc[0]?.kind).toBe("notice");
+    expect(validationDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(validationDoc)).toContain("Sample validation warning");
+    expect(headingsIn(validationDoc)).not.toContain("Warnings:");
+
+    // 10. Temporary installation document (install-temp and remove-temp)
     const tempReceipt: TemporaryInstallationReceiptView = {
       completionState: "installed",
       diagnosticValues: [],
@@ -7577,11 +7643,83 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       temporaryInstallationId: "temp-987",
       warnings: ["Sample temporary warning"],
     };
-    const tempDoc = temporaryInstallationDocument("install-temp", tempReceipt);
-    expect(tempDoc[0]?.kind).toBe("notice");
-    expect(headingsIn(tempDoc)).not.toContain("Warnings:");
-    const tempWarningItem = tempDoc.find((node) => node.kind === "list-item" && node.category === "attention");
-    expect(tempWarningItem).toBeDefined();
+    const tempInstallDoc = temporaryInstallationDocument("install-temp", tempReceipt);
+    expect(tempInstallDoc[0]?.kind).toBe("notice");
+    expect(tempInstallDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(tempInstallDoc)).toContain("Sample temporary warning");
+    expect(headingsIn(tempInstallDoc)).not.toContain("Warnings:");
+
+    const tempRemoveDoc = temporaryInstallationDocument("remove-temp", tempReceipt);
+    expect(tempRemoveDoc[0]?.kind).toBe("notice");
+    expect(tempRemoveDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });
+    expect(renderBoundary(tempRemoveDoc)).toContain("Sample temporary warning");
+    expect(headingsIn(tempRemoveDoc)).not.toContain("Warnings:");
+  });
+
+  test("--blockers-only strictly suppresses warning text and attention items across all views", () => {
+    const warning = {
+      copyableValues: ["/path/to/diagnostic"],
+      kind: "diagnostic" as const,
+      parts: ["Strictly suppressed warning text"],
+    };
+
+    const blockedReport: ReconciliationReport = {
+      globalBlockers: [normalizeBlocker({
+        affectedItems: [],
+        detail: "Global failure",
+        kind: "installation-state-unreadable",
+        scope: "global",
+      })],
+      projects: [
+        machineProject("/project-a", {
+          warnings: [warning],
+        }),
+      ],
+    };
+
+    // 1. Blocked status (--blockers-only concise & verbose)
+    const statusBlockersConcise = lifecycleStatusDocument(blockedReport, { blockersOnly: true });
+    expect(renderBoundary(statusBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(statusBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const statusBlockersVerbose = lifecycleStatusDocument(blockedReport, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(statusBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(statusBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 2. Blocked apply (--blockers-only concise & verbose)
+    const applyBlockersConcise = blockedApplyReportDocument(blockedReport, { blockersOnly: true });
+    expect(renderBoundary(applyBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(applyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const applyBlockersVerbose = blockedApplyReportDocument(blockedReport, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(applyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(applyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 3. Execution failure with blockers
+    const execFailure = {
+      detail: "disk full",
+      failedProject: executionProject("/project-a"),
+      message: "Apply execution failed",
+      pendingProjects: [],
+      receipt: blockedReport,
+      resultingState: blockedReport,
+    };
+    const execBlockersConcise = applyExecutionFailureDocument(execFailure, { blockersOnly: true });
+    expect(renderBoundary(execBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(execBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const execBlockersVerbose = applyExecutionFailureDocument(execFailure, { blockersOnly: true, verbose: true });
+    expect(renderBoundary(execBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(execBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    // 4. Verification failure with blockers
+    const verifyBlockersConcise = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true });
+    expect(renderBoundary(verifyBlockersConcise)).not.toContain("Strictly suppressed warning text");
+    expect(verifyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
+
+    const verifyBlockersVerbose = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true, verbose: true });
+    expect(renderBoundary(verifyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
+    expect(verifyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
   });
 });
 
