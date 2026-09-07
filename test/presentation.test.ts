@@ -7384,6 +7384,72 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(unchangedUnbind)).toEqual(["sentence"]);
   });
 
+  test("bind receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
+    const created = bindReceiptDocument({
+      outcome: "created",
+      canonicalProject: projectPath,
+      project: ".",
+      profile: "coding",
+      hosts: ["codex"],
+    });
+    expect(created[0]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Recorded configured Project for ",
+        {
+          kind: "path",
+          canonicalPath: projectPath,
+          scope: "fleet",
+          authoredPath: "~/projects/demo",
+        },
+      ],
+      category: "success",
+    });
+
+    const unchanged = bindReceiptDocument({
+      outcome: "unchanged",
+      canonicalProject: projectPath,
+      project: ".",
+      profile: "coding",
+      hosts: ["codex"],
+    });
+    expect(unchanged[0]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Configured Project unchanged for ",
+        {
+          kind: "path",
+          canonicalPath: projectPath,
+          scope: "fleet",
+          authoredPath: "~/projects/demo",
+        },
+      ],
+    });
+
+    const replaced = bindReceiptDocument({
+      outcome: "replaced",
+      canonicalProject: projectPath,
+      project: ".",
+      profile: "ops",
+      hosts: ["codex", "claude"],
+      previousProfile: "coding",
+      previousHosts: ["codex"],
+    });
+    expect(replaced[0]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Replaced configured Project for ",
+        {
+          kind: "path",
+          canonicalPath: projectPath,
+          scope: "fleet",
+          authoredPath: "~/projects/demo",
+        },
+      ],
+      category: "success",
+    });
+  });
+
   test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
     const document = unbindReceiptDocument({
       outcome: "removed",

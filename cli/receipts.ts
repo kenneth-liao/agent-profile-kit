@@ -117,8 +117,8 @@ export function bindReceiptDocument(
 ): PresentationDocument {
   const project = pathPart(
     input.canonicalProject,
-    "project",
-    displayProjectPath(input.canonicalProject, input.project, "project"),
+    "fleet",
+    displayProjectPath(input.canonicalProject, input.project, "fleet"),
   );
   const nodes: PresentationNode[] = [];
   if (input.outcome === "unchanged") {
