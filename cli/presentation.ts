@@ -423,6 +423,45 @@ export function primaryCauseGroupNode(
   };
 }
 
+/** Nested needs-attention members: each path once, with diagnostic children. */
+function needsAttentionCauseNodes(
+  projects: readonly ReconciliationProjectRecord[],
+  groups: readonly ProjectGroup[],
+  scope: LocationDisplayScope,
+  untrackRecovery: UntrackRecovery,
+): PresentationNode[] {
+  const nodes: PresentationNode[] = [{
+    kind: "list-item",
+    parts: [`${PRIMARY_CAUSE_LABELS["needs-attention"]} (${projects.length}):`],
+  }];
+  let removalExplained = false;
+  for (const project of projects) {
+    nodes.push({
+      kind: "prose",
+      parts: ["  ", pathPart(project.canonicalProject, scope, project.project)],
+    });
+    const displayProject = displayProjectPath(project.canonicalProject, project.project, scope);
+    for (const blocker of project.blockers) {
+      nodes.push(...conciseBlockerNodes(
+        blocker,
+        displayProject,
+        groups,
+        "    ",
+        untrackRecovery,
+        scope,
+      ));
+    }
+    if (project.state.kind === "removal" && !removalExplained) {
+      nodes.push({
+        kind: "prose",
+        parts: ["    Apply will remove generated files for unbound projects."],
+      });
+      removalExplained = true;
+    }
+  }
+  return nodes;
+}
+
 export function settledCountNode(count: number): PresentationNode {
   return {
     kind: "list-item",
@@ -3748,42 +3787,23 @@ function conciseStatusDocument(
   const partition = partitionFleet(report);
   for (const cause of PRIMARY_CAUSE_ORDER) {
     const causeProjects = partition.groups[cause];
-    if (causeProjects.length > 0) {
-      nodes.push(primaryCauseGroupNode(PRIMARY_CAUSE_LABELS[cause], causeProjects, scope));
+    if (causeProjects.length === 0) continue;
+    if (cause === "needs-attention") {
+      nodes.push(...needsAttentionCauseNodes(
+        causeProjects,
+        groups,
+        scope,
+        { kind: "pointer", command: "status" },
+      ));
+      continue;
     }
+    nodes.push(primaryCauseGroupNode(PRIMARY_CAUSE_LABELS[cause], causeProjects, scope));
   }
   if (partition.settledCount > 0 && partition.totalActionableCount > 0) {
     nodes.push(settledCountNode(partition.settledCount));
   }
 
-  const removalProjects = report.projects.filter((p) => p.state.kind === "removal");
-  if (removalProjects.length > 0) {
-    nodes.push(spacerNode(), {
-      kind: "prose",
-      parts: ["Apply will remove generated files for unbound projects."],
-    });
-  }
-
   if (blocked) {
-    const activeGroups = groups.filter((group) => group.blockers.length > 0);
-    if (activeGroups.length > 0) {
-      for (const group of activeGroups) {
-        nodes.push(
-          spacerNode(),
-          ...group.blockers.flatMap((blocker) =>
-            conciseBlockerNodes(
-              blocker,
-              displayProjectPath(group.canonicalProject, group.project, scope),
-              groups,
-              "  ",
-              { kind: "pointer", command: "status" },
-              scope,
-            ),
-          ),
-        );
-      }
-    }
-
     const globalBlockers = globalBlockerNodes(report, groups, {
       kind: "pointer",
       command: "status",

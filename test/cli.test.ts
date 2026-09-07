@@ -3184,9 +3184,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(humanText(result.stdout)).toContain(
-      humanText(`- needs attention (1): ${authoredProject}`),
-    );
+    expect(result.stdout).toContain("- needs attention (1):");
+    expect(humanText(result.stdout)).toContain(humanText(authoredProject));
     expect((result.stdout.match(new RegExp(authoredProject, "g")) || []).length).toBe(1);
     expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
@@ -4997,7 +4996,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(result.stdout).toContain("- needs attention (1): ~/home-relative-blocked-project");
+    expect(result.stdout).toContain("- needs attention (1):");
+    expect(result.stdout).toContain("~/home-relative-blocked-project");
     expect(result.stdout).not.toContain("Scope: Project");
     expect((result.stdout.match(/~\/home-relative-blocked-project/g) || []).length).toBe(1);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);

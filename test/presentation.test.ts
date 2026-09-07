@@ -536,7 +536,7 @@ describe("lifecycle status document", () => {
     expect(document.map(shape)).toEqual([
       "notice:error",
       "list-item",
-      "blank",
+      "prose",
       "prose:error",
       "prose",
       "prose",
@@ -3337,8 +3337,10 @@ describe("status concise terminology", () => {
     // Only the blocked Project presents its binding block; no planned-change
     // summary or state explanations.
     const conciseText = renderBoundary(concise);
-    expect(conciseText).toContain("- needs attention (1): /project-b");
+    expect(conciseText).toContain("- needs attention (1):");
+    expect(conciseText).toContain("/project-b");
     expect(conciseText).toContain("- source changed (1): /project-a");
+    expect((conciseText.match(/\/project-b/g) || []).length).toBe(1);
     expect(concise.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(headingsIn(concise)).not.toContain("State explanations:");
     expect(headingsIn(concise)).not.toContain("Changes:");
@@ -7923,7 +7925,9 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const rendered = renderBoundary(document);
 
       expect(rendered).toStartWith("Ready to apply\n");
-      expect(rendered).toContain("- needs attention (1): /project-1");
+      expect(rendered).toContain("- needs attention (1):");
+      expect(rendered).toContain("/project-1");
+      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
       expect(rendered).toContain("- generated files changed (1): /project-2");
       expect(rendered).toContain("- generated files missing (1): /project-3");
       expect(rendered).toContain("- not installed yet (1): /project-4");
@@ -7954,7 +7958,8 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const rendered = renderBoundary(document);
 
       expect(rendered).toStartWith("Cannot apply\n");
-      expect(rendered).toContain("- needs attention (1): /project-1");
+      expect(rendered).toContain("- needs attention (1):");
+      expect(rendered).toContain("/project-1");
       expect(rendered).toContain("- not installed yet (1): /project-2");
       expect(rendered).toContain("Blocker:");
       expect(rendered).toContain("Requirement:");
@@ -8023,47 +8028,123 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report);
       const rendered = renderBoundary(document);
 
-      expect(rendered).toContain("- needs attention (1): /project-1");
+      expect(rendered).toContain("- needs attention (1):");
+      expect(rendered).toContain("/project-1");
       expect(rendered).toContain("Apply will remove generated files for unbound projects.");
       expect(rendered).not.toContain("Blocker:");
       expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
     });
 
-    test("multi-blocked fleet names each project once while preserving attribution of every blocker remedy", () => {
-      const p1 = createRecord({
-        blockers: [fixtureBlocker("occupied output", "/project-1")],
-        canonicalProject: "/project-1",
-        project: "/project-1",
+    test("nested needs-attention members bind each blocker remedy to its project among reversed multi-blocked, removal, pending, and settled peers", () => {
+      const sharedPath = ".codex/hooks.json";
+      const beta = createRecord({
+        blockers: [normalizeBlocker(outputOwnershipConflictBlocker({
+          paths: [sharedPath],
+          project: "/project-beta",
+        }))],
+        canonicalProject: "/project-beta",
+        project: "/project-beta",
       });
-      const p2 = createRecord({
-        blockers: [fixtureBlocker("occupied output", "/project-2")],
-        canonicalProject: "/project-2",
-        project: "/project-2",
+      const alpha = createRecord({
+        blockers: [normalizeBlocker(occupiedOutputBlocker({
+          occupied: { case: "drifted-output" },
+          path: sharedPath,
+          project: "/project-alpha",
+        }))],
+        canonicalProject: "/project-alpha",
+        project: "/project-alpha",
       });
-      const p3 = createRecord({
-        canonicalProject: "/project-3",
-        project: "/project-3",
+      const removal = createRecord({
+        canonicalProject: "/project-removal",
+        project: "/project-removal",
+        state: { kind: "removal" },
+      });
+      const pending = createRecord({
+        canonicalProject: "/project-pending",
+        project: "/project-pending",
+        state: { kind: "addition" },
+      });
+      const settled = createRecord({
+        canonicalProject: "/project-settled",
+        project: "/project-settled",
         state: { kind: "current" },
       });
 
       const report: ReconciliationReport = {
         globalBlockers: [],
-        projects: [p1, p2, p3],
+        projects: [beta, alpha, removal, pending, settled],
       };
 
       const document = lifecycleStatusDocument(report, { all: true });
-      const rendered = renderBoundary(document);
+      const nodes = flattenPresentationNodes(document);
+      const nodeHasPath = (node: PresentationNode, canonical: string): boolean => {
+        if (node.kind !== "prose" && node.kind !== "list-item") return false;
+        return node.parts.some((part) =>
+          typeof part !== "string" && part.kind === "path" && part.canonicalPath === canonical,
+        );
+      };
+      const attentionAt = indexWhere(nodes, (node) =>
+        node.kind === "list-item" && nodeText(node) === "needs attention (3):");
+      const betaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-beta"));
+      const alphaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-alpha"));
+      const removalAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-removal"));
+      expect(attentionAt).toBeGreaterThan(-1);
+      expect(betaAt).toBeGreaterThan(attentionAt);
+      expect(alphaAt).toBeGreaterThan(betaAt);
+      expect(removalAt).toBeGreaterThan(alphaAt);
+      expect(nodeHasPath(nodes[attentionAt]!, "/project-beta")).toBe(false);
+      expect(nodeHasPath(nodes[attentionAt]!, "/project-alpha")).toBe(false);
+      expect(nodeHasPath(nodes[attentionAt]!, "/project-removal")).toBe(false);
 
-      expect(rendered).toContain("- needs attention (2): /project-1, /project-2");
-      expect(rendered).toContain("- settled (1)");
-      expect(rendered).not.toContain("Scope: Project");
-      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
-      expect((rendered.match(/\/project-2/g) || []).length).toBe(1);
-      expect((rendered.match(/\/project-3/g) || []).length).toBe(0);
-      expect(rendered).toContain("Blocker: Cannot verify generated-file ownership");
-      expect(rendered).toContain("Requirement:");
-      expect(rendered).toContain("Remedy:");
-      expect(rendered).toContain("Next:\n- Resolve the reported blocker, then run apkit status again.");
+      const betaChildren = nodes.slice(betaAt + 1, alphaAt);
+      expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
+      expect(betaChildren.some((node) => nodeText(node).includes("remove the conflicting paths from repository ownership"))).toBe(true);
+      expect(betaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(false);
+      expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
+
+      const alphaChildren = nodes.slice(alphaAt + 1, removalAt);
+      expect(alphaChildren.some((node) => nodeText(node).includes("occupied by unowned or drifted output"))).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
+      expect(alphaChildren.some((node) => nodeHasPath(node, "/project-alpha"))).toBe(false);
+
+      const removalChildren = nodes.slice(removalAt + 1, indexWhere(nodes, (node) =>
+        node.kind === "list-item" && nodeText(node).startsWith("not installed yet")));
+      expect(removalChildren.some((node) =>
+        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+      expect(removalChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
+
+      for (const width of [40, 60, 80, 10_000]) {
+        const rendered = renderBoundary(document, { ...defaultRenderContext, width });
+        expect(rendered).toContain("- needs attention (3):");
+        expect(rendered).toContain("- not installed yet (1):");
+        expect(rendered).toContain("- settled (1)");
+        expect(rendered).not.toContain("Scope: Project");
+        expect((rendered.match(/\/project-beta/g) || []).length).toBe(1);
+        expect((rendered.match(/\/project-alpha/g) || []).length).toBe(1);
+        expect((rendered.match(/\/project-removal/g) || []).length).toBe(1);
+        expect((rendered.match(/\/project-pending/g) || []).length).toBe(1);
+        expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
+
+        const betaStart = rendered.indexOf("/project-beta");
+        const alphaStart = rendered.indexOf("/project-alpha");
+        const removalStart = rendered.indexOf("/project-removal");
+        expect(betaStart).toBeGreaterThan(-1);
+        expect(alphaStart).toBeGreaterThan(betaStart);
+        expect(removalStart).toBeGreaterThan(alphaStart);
+        const compact = (text: string): string => text.replace(/\s+/g, " ");
+        const betaSection = compact(rendered.slice(betaStart, alphaStart));
+        const alphaSection = compact(rendered.slice(alphaStart, removalStart));
+        const removalSection = compact(rendered.slice(removalStart));
+        expect(betaSection).toContain("tracked by Git");
+        expect(betaSection).toContain("remove the conflicting paths from repository ownership");
+        expect(betaSection).not.toContain("Remove, move, or adopt");
+        expect(alphaSection).toContain("occupied by unowned or drifted output");
+        expect(alphaSection).toContain("Remove, move, or adopt");
+        expect(alphaSection).not.toContain("tracked by Git");
+        expect(removalSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalSection).not.toContain("Blocker:");
+      }
     });
 
     test("healthy mixed fleet names each actionable project exactly once and settled projects zero times", () => {

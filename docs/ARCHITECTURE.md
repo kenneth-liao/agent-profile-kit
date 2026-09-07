@@ -146,8 +146,8 @@ canonical path where the authored identity is available. Concise output
 presents the outcome notice, partitions actionable Projects by primary cause
 (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`,
 `source changed`) with complete wrapped Project identities, summarizes non-actionable
-Projects as a settled count line in mixed fleets, contains Blocker diagnostics
-concisely, and preserves one next action (`Next:` apply) with an optional `Details:`
+Projects as a settled count line in mixed fleets, nests Blocker diagnostics under each needs-attention member,
+and preserves one next action (`Next:` apply) with an optional `Details:`
 verbose route. It renders each semantic fact once and omits routine generated paths,
 Project matrices, Git exclusion bookkeeping, setup provenance, and separate consequences.
 Blockers, warnings, ownership attention, drift, destructive-removal attention, and Git exclusion
