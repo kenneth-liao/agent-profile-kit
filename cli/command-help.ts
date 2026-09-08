@@ -117,7 +117,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "list",
     group: "inventory",
     syntax: inventoryCommandSyntax(),
-    summary: "List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles",
+    summary: "List read-only inventory for Projects, Profiles, or Hosts",
     examples: COMMAND_EXAMPLES.list,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("status"), " for Project lifecycle diagnostics."],
@@ -126,7 +126,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "status",
     group: "common",
     syntax: "status [project | --here | --all] [--verbose] [--blockers-only] [--json]",
-    summary: "Show the complete read-only apply plan for the complete fleet, the containing Project, or one explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose, not --json)",
+    summary: "Show the complete read-only apply plan for the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("apply"), " for pending work after resolving any blockers."],
@@ -135,7 +135,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "apply",
     group: "common",
     syntax: "apply [project | --here | --all] [--verbose] [--blockers-only] [--json]",
-    summary: "Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt view renders unchanged",
+    summary: "Sync the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
     next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
@@ -276,6 +276,18 @@ function syntaxNodes(command: CommandHelp): PresentationNode {
   };
 }
 
+/**
+ * One indented command name line for root help: lists the human command
+ * without flag inventories (US-034, DEC-020).
+ */
+function commandNameNode(command: CommandHelp): PresentationNode {
+  return {
+    kind: "sentence",
+    parts: ["  ", commandPart(command.name, [])],
+    category: "command",
+  };
+}
+
 function summaryNode(command: CommandHelp): PresentationNode {
   return { kind: "sentence", parts: [`    ${command.summary}`] };
 }
@@ -329,7 +341,7 @@ export function rootHelpDocument(wordmark: readonly string[]): PresentationDocum
     { kind: "heading", text: "Common commands:" },
   );
   for (const command of defaultCommands().filter((entry) => entry.group === "common")) {
-    nodes.push(syntaxNodes(command), summaryNode(command));
+    nodes.push(commandNameNode(command), summaryNode(command));
   }
   nodes.push(spacer(), { kind: "heading", text: "More commands:" });
   for (const [group, label] of COMMAND_GROUPS) {
@@ -338,7 +350,7 @@ export function rootHelpDocument(wordmark: readonly string[]): PresentationDocum
     if (listed.length === 0) continue;
     nodes.push({ kind: "heading", text: `  ${label}:` });
     for (const command of listed) {
-      nodes.push(syntaxNodes(command), summaryNode(command));
+      nodes.push(commandNameNode(command), summaryNode(command));
     }
   }
   nodes.push(spacer(), {

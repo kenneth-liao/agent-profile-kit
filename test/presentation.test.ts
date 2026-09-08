@@ -8672,14 +8672,29 @@ describe("help documents (#390)", () => {
       },
       category: "heading",
     });
-    // Every listed syntax line is one atomic command: it renders as one whole
-    // line even at the narrowest measure.
-    const syntaxLines = (document as PresentationNode[])
+    // Every listed command in root help is one atomic command with just
+    // the command name, without command flag inventories (US-034, DEC-020).
+    const commandLines = (document as PresentationNode[])
       .filter((node) => node.kind === "sentence" && node.category === "command")
       .map(renderedNodeLine);
+    const catalogLines = commandLines.slice(4);
+    expect(catalogLines).toHaveLength(defaultCommands().length);
     for (const command of defaultCommands()) {
-      expect(syntaxLines).toContain(`  ${command.syntax}`);
+      expect(catalogLines).toContain(`  ${command.name}`);
     }
+    // Flag inventories and machine-facing commands are absent from root help (DEC-020, DEC-021).
+    for (const line of catalogLines) {
+      expect(line).not.toMatch(/\[--\w+/);
+      expect(line).not.toMatch(/--host\b/);
+      expect(line).not.toMatch(/--replace\b/);
+    }
+    for (const command of machineCommands()) {
+      expect(catalogLines).not.toContain(`  ${command.syntax}`);
+      if (defaultCommands().every((dc) => dc.name !== command.name)) {
+        expect(catalogLines).not.toContain(`  ${command.name}`);
+      }
+    }
+    expect(catalogLines).not.toContain("  machine");
   });
 
   test("root help renders the wordmark lines before the intro when interactive", () => {
