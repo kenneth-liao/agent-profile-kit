@@ -5057,6 +5057,53 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(driftedPath(projectAlpha), "utf8")).not.toContain("hand edit");
   });
 
+  test("a partial apply failure retains complete committed-operation evidence distinct from pending state", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectAlpha = project("agent-profile-kit-partial-alpha-");
+    const projectBeta = project("agent-profile-kit-partial-beta-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${projectAlpha}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${projectBeta}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    // Project Alpha drifts (its replacement must be named in the committed
+    // evidence); both Projects gain pending work from a Workspace source
+    // change, and Project Beta becomes unwritable so apply fails after
+    // committing Alpha's work.
+    const drifted = join(projectAlpha, ".codex", "hooks.json");
+    writeFileSync(drifted, "hand edit\n");
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared Context.\n",
+    );
+    chmodSync(projectBeta, 0o555);
+
+    try {
+      const failed = await runCli(home, "apply", "--all");
+      expectExitCode(failed, 1);
+      const evidence = humanText(failed.stderr);
+      // Complete committed-operation evidence, including the replaced changed
+      // generated file, under the Applied heading.
+      expect(evidence).toContain("Applied:");
+      expect(evidence).toContain(
+        `- ${projectAlpha}: ~ .agent-profile-kit/codex/context.md ~ .codex/hooks.json`,
+      );
+      // Failed and pending resulting state stay distinct from committed work.
+      expect(evidence).toContain(`Failed Project: ${projectBeta}`);
+      expect(evidence).toContain("Still pending: none");
+      expect(evidence).toContain(`Freshly current: ${projectAlpha}`);
+      expect(readFileSync(drifted, "utf8")).not.toContain("hand edit");
+    } finally {
+      chmodSync(projectBeta, 0o755);
+    }
+  });
+
   test("status reports a malformed machine-local Installation Manifest without writing", async () => {
     const home = isolatedHome();
     await initialize(home);
