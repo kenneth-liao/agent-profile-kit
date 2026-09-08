@@ -39,10 +39,6 @@ Source ownership and managed delivery are separate:
   Agent Profile Kit blocks only an exact planned destination it cannot safely
   own, not same-identity material elsewhere.
 
-Future Agent Profile Kit–managed global delivery would need an explicit ADR that
-revisits the no-global-output boundary. Closing this guidance does not put that
-feature on the backlog.
-
 ## Initialize
 
 `apkit init` creates an empty, schema-versioned Workspace at the
@@ -99,41 +95,6 @@ Project Bindings, comments, line endings, and file mode; it never moves or
 rewrites Workspace source. If validation fails, the configuration remains
 unchanged.
 
-Before migrating, make and retain a copy of the version-1 Local Configuration:
-
-```sh
-config_dir="$HOME/.agents/agent-profile-kit"
-cp -p "$config_dir/config.yaml" "$config_dir/config.yaml.before-schema-v2"
-```
-
-Keep this backup until the current CLI has been validated in normal use.
-Rollback is unsupported without it. To use the immediately previous CLI release
-(0.20.x), stop using the current CLI, restore the copy, and then run that older
-binary:
-
-<!-- historical-command-excerpts:start -->
-```sh
-config_dir="$HOME/.agents/agent-profile-kit"
-cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
-agent-profile-kit validate
-```
-<!-- historical-command-excerpts:end -->
-
-The restored file preserves the pre-migration Workspace selection and Project
-Bindings. This reverses only the Local Configuration schema transition; it does
-not undo later Workspace content changes. Do not hand-edit a version-2 file's
-schema marker while relying on an older binary to preserve it.
-
-Older engine versions that understand only Local Configuration schema version 1
-are not compatible with the migrated version-2 file. Before rolling back to
-one, use the backup procedure above and ensure the effective Workspace is
-available at the expected path.
-
-Mixed-version consumers cannot share a migrated `config.yaml`: older engines
-reject the version-2 schema. Keep the migrated file with current binaries, or
-coordinate an explicit rollback using the retained pre-migration version-1
-configuration.
-
 ### Required structure vs initialization scaffolding
 
 A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the
@@ -156,29 +117,6 @@ unused empty directories, or bootstrap docs if you prefer a minimal tree;
 later `init` runs do not restore removed optional scaffolding; validation,
 status, apply, and uninstall keep working. Do not treat generated Host
 output as source material.
-
-### CLI compatibility for minimal Workspaces
-
-Optional scaffolding is a **CLI** behavior change, not a change to the Workspace
-Manifest schema (`schema_version` remains `1`). Agent Profile Kit **0.16.1 and
-later** accept Manifest-only and partial category layouts (with present category
-paths, including symlinks, required to resolve to directories). **0.15.x and
-earlier** still require every artifact directory plus `README.md`, `AGENTS.md`,
-and `.gitignore`.
-
-Before rolling a machine back to a CLI older than 0.16.1, restore a full layout
-so the older tool can validate the Workspace:
-
-1. Ensure `workspace.yaml` still contains `schema_version: 1`.
-2. Recreate any missing category directories: `profiles/`, `context/`,
-   `skills/`, `agents/`, `hooks/`, and `tools/` (empty directories are enough;
-   `.gitkeep` is optional).
-3. Restore any missing bootstrap files the older release required:
-   `README.md`, `AGENTS.md`, and `.gitignore`.
-
-A mixed-version environment (some machines on 0.16.1+, others on 0.15 or older)
-is safe only when every shared Workspace still includes that full layout, or
-when every consumer has upgraded to 0.16.1+.
 
 ## Author the Workspace
 
@@ -273,37 +211,6 @@ SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
 probing is scoped to the selected categories (Skills-only does not require Context
 machinery). Profiles do not inherit, use wildcards, or carry Host settings.
-
-### Remove obsolete Profile placeholders
-
-Agent Profile Kit 0.84.0 removes the former empty `agents`, `hooks`, and `tools`
-Profile placeholders. Before using 0.84.0 or later, remove those three fields
-from every existing Profile. `apkit validate` rejects any remaining placeholder
-and names the fields to remove. This pre-1.0 schema change does not add delivery
-for Agents, Hooks, or Tools, and older Profiles receive no compatibility shim.
-
-### CLI compatibility for Skills-only Profiles
-
-Skills-only Profiles remain under Workspace `schema_version: 1`, but the shape is
-accepted only by Agent Profile Kit **0.17.0 and later**. **0.16.x and earlier**
-still require every Profile to select at least one Context Module and reject
-Skills-only Profiles at Workspace ingestion. A binary rollback onto a Workspace
-that still contains Skills-only Profiles makes normal validate/status/apply
-fail at ingestion and can leave previously installed Host-native Skills
-stranded until source is converted or the install is cleaned with a 0.17+ CLI.
-
-Before rolling a machine back to a CLI older than 0.17.0:
-
-1. On **0.17.0+**, either convert each Skills-only Profile so `context` selects
-   at least one Context Module, or temporarily remove Project Bindings that use
-   those Profiles and run `apply` / `uninstall` so owned Skill packages and
-   installation metadata are removed while the newer CLI still understands them.
-2. Confirm `apkit validate` succeeds after the conversion or cleanup.
-3. Only then install the older CLI binary.
-
-A mixed-version environment is safe only when every shared Workspace Profile
-still selects at least one Context Module, or when every consumer has upgraded
-to 0.17.0+.
 
 ```md
 ---
@@ -480,10 +387,6 @@ project filesystem deletion and cleans any separately surviving local Git
 exclusions whose ownership was recorded. Restoring the project later requires a
 new `bind` and `apply`.
 
-Pre-release installations created by older development builds that expanded a
-binding across worktrees are reset and reapplied; the CLI carries no migration
-or compatibility workflow for that development-only state.
-
 Generated output is owned whole: complete files and artifact directories whose
 Installation Receipt proves Agent Profile Kit ownership, with the receipt's
 recorded hashes providing the continuity evidence that extant material is what
@@ -618,14 +521,6 @@ Active ordinary and temporary installations use one minimal receipt shape;
 removed temporary identities retain only the compact ID needed for idempotent
 retry. Directory receipts retain one aggregate root hash, not complete member
 trees.
-
-The pre-1.0 YAML migration window is closed. If
-`state/manifest.yaml` remains, install the shipped Agent Profile Kit 0.95.0
-release, run a successful state-writing lifecycle command to publish
-`manifest.json`, and then retry with the current release. Current commands reject
-the YAML file without parsing, changing, or removing it. They never reconstruct
-ownership from generated output. Post-1.0 compatibility with the retired YAML
-schemas is not guaranteed.
 
 Back up current `manifest.json` with ordinary machine backup tooling. If the
 current state is missing or malformed, restore a known-good backup and retry.

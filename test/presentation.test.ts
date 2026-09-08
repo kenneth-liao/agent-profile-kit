@@ -8928,12 +8928,17 @@ describe("guide documents (#390)", () => {
     ]);
   });
 
-  test("the focused guide keeps its fenced examples as verbatim content", () => {
-    const document = focusedGuideDocument("profile");
+  test("the focused guide keeps its fenced examples as verbatim content and identifies configured Workspace", () => {
+    const document = focusedGuideDocument("profile", {
+      configurationState: "current",
+      workspace: { canonical: "/tmp/workspace", authored: "~/workspace" },
+    });
     const example = AUTHORING_EXAMPLES.profile;
     const contextExample = AUTHORING_EXAMPLES.context;
     expect(shapes(document)).toEqual([
       "heading",
+      "spacer",
+      "sentence",
       "spacer",
       "sentence",
       "spacer",
@@ -8943,12 +8948,24 @@ describe("guide documents (#390)", () => {
       "spacer",
       "sentence(heading)",
     ]);
-    // Example bodies are true verbatim content: reproduced exactly.
     expect(document[4]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Workspace: ",
+        {
+          kind: "path",
+          canonicalPath: "/tmp/workspace",
+          authoredPath: "~/workspace",
+          scope: "fleet",
+        },
+      ],
+    });
+    // Example bodies are true verbatim content: reproduced exactly.
+    expect(document[6]).toEqual({
       kind: "verbatim",
       text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
     });
-    expect(document[6]).toEqual({
+    expect(document[8]).toEqual({
       kind: "verbatim",
       text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
     });
@@ -8957,9 +8974,35 @@ describe("guide documents (#390)", () => {
       .toBe(TOPIC_GUIDES.profile.next);
   });
 
-  test("the focused context and skill guides end at their next line without extra examples", () => {
+  test("the focused context and skill guides include Workspace location preceding creation instructions", () => {
     for (const topic of ["context", "skill"] as const) {
-      const document = focusedGuideDocument(topic);
+      const document = focusedGuideDocument(topic, {
+        configurationState: "current",
+        workspace: { canonical: "/tmp/workspace", authored: "~/workspace" },
+      });
+      expect(shapes(document)).toEqual([
+        "heading",
+        "spacer",
+        "sentence",
+        "spacer",
+        "sentence",
+        "spacer",
+        "verbatim",
+        "spacer",
+        "sentence(heading)",
+      ]);
+      expect(document[4]).toEqual({
+        kind: "sentence",
+        parts: [
+          "Workspace: ",
+          {
+            kind: "path",
+            canonicalPath: "/tmp/workspace",
+            authoredPath: "~/workspace",
+            scope: "fleet",
+          },
+        ],
+      });
       const bodies = document.filter(
         (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
           node.kind === "verbatim" && nodeText(node).length > 0,
@@ -8968,6 +9011,48 @@ describe("guide documents (#390)", () => {
       expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
       expect(shapes(document).at(-1)).toBe("sentence(heading)");
     }
+  });
+
+  test("focused guide identifies unconfigured Workspace before initialization with actionable init guidance", () => {
+    const document = focusedGuideDocument("profile", {
+      configurationState: "not-configured",
+      workspace: null,
+    });
+    expect(document[4]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Workspace: Not configured (run ",
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+        ")",
+      ],
+    });
+  });
+
+  test("focused guide identifies legacy Workspace configuration with init guidance", () => {
+    const unselected = focusedGuideDocument("profile", {
+      configurationState: "legacy",
+      workspace: null,
+    });
+    expect(unselected[4]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Workspace: Legacy configuration; run ",
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+      ],
+    });
+
+    const selected = focusedGuideDocument("profile", {
+      configurationState: "legacy",
+      workspace: { canonical: "/tmp/legacy-ws", authored: "~/legacy-ws" },
+    });
+    expect(selected[4]).toEqual({
+      kind: "sentence",
+      parts: [
+        "Workspace: Legacy configuration; run ",
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+        " (selected: ~/legacy-ws)",
+      ],
+    });
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {

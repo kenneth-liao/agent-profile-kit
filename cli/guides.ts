@@ -1,10 +1,15 @@
 import { readFile } from "node:fs/promises";
 
+import type {
+  InfoConfigurationState,
+  InfoWorkspaceLocation,
+} from "../installer/info.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import {
   commandPart,
   identifierPart,
+  pathPart,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
@@ -127,13 +132,62 @@ function exampleNodes(
   ];
 }
 
+export interface FocusedGuideWorkspaceInput {
+  readonly configurationState: InfoConfigurationState;
+  readonly workspace: InfoWorkspaceLocation | null;
+}
+
+function focusedGuideWorkspaceNode(input?: FocusedGuideWorkspaceInput): PresentationNode {
+  if (input === undefined || input.configurationState === "not-configured" || input.workspace === null) {
+    if (input?.configurationState === "legacy") {
+      return {
+        kind: "sentence",
+        parts: [
+          "Workspace: Legacy configuration; run ",
+          commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
+        ],
+      };
+    }
+    return {
+      kind: "sentence",
+      parts: [
+        "Workspace: Not configured (run ",
+        commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
+        ")",
+      ],
+    };
+  }
+  if (input.configurationState === "legacy") {
+    return {
+      kind: "sentence",
+      parts: [
+        "Workspace: Legacy configuration; run ",
+        commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
+        ` (selected: ${input.workspace.authored})`,
+      ],
+    };
+  }
+  return {
+    kind: "sentence",
+    parts: [
+      "Workspace: ",
+      pathPart(input.workspace.canonical, "fleet", input.workspace.authored),
+    ],
+  };
+}
+
 /** One focused authoring guide (profile, context, or skill) as a document. */
-export function focusedGuideDocument(topic: GuideTopic): PresentationDocument {
+export function focusedGuideDocument(
+  topic: GuideTopic,
+  workspace?: FocusedGuideWorkspaceInput,
+): PresentationDocument {
   const guide = TOPIC_GUIDES[topic];
   const nodes: PresentationNode[] = [
     { kind: "heading", text: `# ${guide.title}` },
     spacer(),
     { kind: "sentence", parts: [guide.introduction] },
+    spacer(),
+    focusedGuideWorkspaceNode(workspace),
     ...exampleNodes(AUTHORING_EXAMPLES[topic], guide.language),
   ];
   if (topic === "profile") {

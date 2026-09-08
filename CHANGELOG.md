@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Make authoring guides actionable by identifying the configured Workspace location before example creation instructions across all focused authoring topics (`profile`, `context`, `skill`), with structured diagnostic presentation on corrupted configuration, and remove maintainer-only internal commentary while preserving all user-facing authoring information and the authoring-first guide index (US-048, DEC-028, DEC-029, [#447](https://github.com/kenneth-liao/agent-profile-kit/issues/447)).
+
 ### Added
 
 - Add `apkit open`: open the configured Workspace explicitly in the system file manager using the existing configuration-resolution boundary and shared bounded process executor without shell interpolation, providing structured recovery on opener failures without opening automatically during artifact creation (US-047, DEC-027, [#446](https://github.com/kenneth-liao/agent-profile-kit/issues/446)).
