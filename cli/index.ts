@@ -842,7 +842,24 @@ async function main(): Promise<void> {
     if (parsed.kind === "index") {
       writeHumanDocument(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
-      writeHumanDocument(process.stdout, focusedGuideDocument(parsed.topic), stdoutPresentationContext);
+      try {
+        const info = await readApplicationInfo(home);
+        writeHumanDocument(
+          process.stdout,
+          focusedGuideDocument(parsed.topic, {
+            configurationState: info.configurationState,
+            workspace: info.workspace,
+          }),
+          stdoutPresentationContext,
+        );
+      } catch (error) {
+        writeHumanDocument(
+          process.stderr,
+          errorDiagnosticDocument(error),
+          stderrPresentationContext,
+        );
+        process.exitCode = 1;
+      }
     } else if (parsed.kind === "agent") {
       writeHumanDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {

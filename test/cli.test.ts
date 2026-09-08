@@ -7661,6 +7661,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
+    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     const profile = result.stdout.match(
       /Create `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
     )?.[1];
@@ -7689,6 +7690,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
+    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("context/example-context.md");
     expect(result.stdout).toContain(`\`\`\`md\n${scaffolded}\`\`\``);
   });
@@ -7702,6 +7704,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
+    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("skills/example-skill/SKILL.md");
     const example = result.stdout.match(/```md\n([\s\S]*?)```/)?.[1];
     expect(example).toBeDefined();
@@ -7711,6 +7714,46 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
+  });
+
+  test("focused guides state Workspace location preceding creation examples for configured, custom, and unconfigured Workspaces (US-048, DEC-028)", async () => {
+    const home = isolatedHome();
+
+    // 1. Unconfigured home (pre-initialization)
+    for (const topic of ["profile", "context", "skill"] as const) {
+      const result = await runCli(home, "guide", topic);
+      expectExitCode(result, 0);
+      expect(result.stderr).toBe("");
+      const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
+      const createIndex = result.stdout.indexOf("Create `");
+      expect(wsIndex).toBeGreaterThan(-1);
+      expect(createIndex).toBeGreaterThan(-1);
+      expect(wsIndex).toBeLessThan(createIndex);
+    }
+
+    // 2. Custom configured Workspace
+    const customWorkspace = join(home, "custom-authored-ws");
+    const initResult = await runCli(home, "init", customWorkspace);
+    expectExitCode(initResult, 0);
+    for (const topic of ["profile", "context", "skill"] as const) {
+      const result = await runCli(home, "guide", topic);
+      expectExitCode(result, 0);
+      expect(result.stderr).toBe("");
+      const wsIndex = result.stdout.indexOf("Workspace: ~/custom-authored-ws");
+      const createIndex = result.stdout.indexOf("Create `");
+      expect(wsIndex).toBeGreaterThan(-1);
+      expect(createIndex).toBeGreaterThan(-1);
+      expect(wsIndex).toBeLessThan(createIndex);
+    }
+
+    // 3. Corrupted configuration fails fast with exit code 1 and structured error on stderr
+    writeFileSync(configPath(home), "schema_version: invalid:\n");
+    for (const topic of ["profile", "context", "skill"] as const) {
+      const result = await runCli(home, "guide", topic);
+      expectExitCode(result, 1);
+      expect(result.stdout).toBe("");
+      expect(result.stderr).toContain("is invalid YAML");
+    }
   });
 
   test("bare guide indexes topics while --full and --agent serve maintained guides", async () => {
@@ -7781,14 +7824,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/empty categor/i);
     expect(result.stdout).toMatch(/README\.md/);
     expect(result.stdout).toMatch(/optional/i);
-    expect(result.stdout).toMatch(/0\.16\.1/);
-    expect(result.stdout).toMatch(/roll(?:ing|ed)?\s+(?:a\s+)?(?:machine\s+)?back|downgrade|older than 0\.16\.1/i);
     expect(result.stdout).toMatch(/profiles\//);
     expect(result.stdout).toMatch(/at least one supported artifact|Skills-only Profile|no individual category is mandatory/i);
-    expect(result.stdout).toMatch(/0\.17\.0/);
-    expect(result.stdout).toMatch(
-      /Skills-only|before rolling a machine back to a CLI older than 0\.17|convert each Skills-only|stranded/i,
-    );
   });
 
   test("packed human guide separates universal Workspace source ownership from managed delivery", async () => {

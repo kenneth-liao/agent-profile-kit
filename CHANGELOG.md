@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Make authoring guides actionable by identifying the configured Workspace location before example creation instructions across all focused authoring topics (`profile`, `context`, `skill`), with structured diagnostic presentation on corrupted configuration, and remove maintainer-only internal commentary while preserving all user-facing authoring information and the authoring-first guide index (US-048, DEC-028, DEC-029, [#447](https://github.com/kenneth-liao/agent-profile-kit/issues/447)).
+
 ### Added
 
 - Add `apkit open`: open the configured Workspace explicitly in the system file manager using the existing configuration-resolution boundary and shared bounded process executor without shell interpolation, providing structured recovery on opener failures without opening automatically during artifact creation (US-047, DEC-027, [#446](https://github.com/kenneth-liao/agent-profile-kit/issues/446)).
@@ -13,6 +17,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 - Add `apkit new skill <name>`: scaffold one valid Skill into the configured Workspace and print the absolute path of the created `SKILL.md` without prompting or opening an editor, enforcing the Artifact ID schema, the existing duplicate-Artifact-ID ingestion check, and exclusive creation that refuses occupied or symlinked destinations with typed diagnostics (US-042, US-046 Skill clause, US-055 new-Skill non-interaction clause, DEC-026, [#445](https://github.com/kenneth-liao/agent-profile-kit/issues/445)).
 
 ### Fixed
+
+- Preserve selected legacy Workspace paths as atomic path tokens in focused authoring guides so space-containing paths do not split across lines under narrow terminal rendering (ADR-0016, INT-1 review finding on [#475](https://github.com/kenneth-liao/agent-profile-kit/pull/475)).
 
 - Preserve `cleanupFailed` evidence in `workspace-open-failed` tool errors and presentation diagnostics, and provide a structured runnable `cd <workspace>` recovery command instead of prose-only recovery (DEC-014, ADR-0027, review findings INT-1 and INT-2 on [#474](https://github.com/kenneth-liao/agent-profile-kit/pull/474)).
 

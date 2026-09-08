@@ -22,14 +22,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    Claude Code, Grok, OpenCode, and Pi. Put standing facts in
    Context Modules and reusable procedures in Skills. A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
-   Skills-only Profile is valid on CLI 0.17.0+ (convert or uninstall before
-   rolling back to older binaries; see the human Workspace guide). For Skills
-   that must not fire implicitly, use
+   Skills-only Profile is valid. For Skills that must not fire implicitly, use
    `metadata.agent-profile-kit.model-invocation: disabled` (default is
    `allowed`); do not leave Host-native `disable-model-invocation` in
    Workspace source (Adapters project that field for Claude, Grok, and Pi). Profiles
-   contain exactly `id`, `context`, and `skills`; remove obsolete empty `agents`,
-   `hooks`, and `tools` placeholders. Do not create a new artifact merely because
+   contain exactly `id`, `context`, and `skills`. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.
