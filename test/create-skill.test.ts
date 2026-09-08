@@ -256,7 +256,7 @@ describe("createSkill", () => {
     }
   });
 
-  test("cleans up an invocation-created partial write so retry and ingestion recover (PROD-1)", async () => {
+  test("cleans up proven-created material after write failure through a real exclusive open, so retry and ingestion recover (PROD-1)", async () => {
     const home = await initializedHome();
     try {
       // A pre-existing sibling Skill must survive the failed creation untouched.
@@ -270,16 +270,19 @@ describe("createSkill", () => {
           createSkill({
             home,
             name: "review-pr",
-            writeSkillFile: async () => {
+            // Default real exclusive open succeeds (ownership proven); the
+            // injected handle write lands actual partial bytes, then fails.
+            writeSkillFile: async (handle, contents) => {
+              await handle.write(Buffer.from(contents.slice(0, 10), "utf8"));
               throw enospc;
             },
           }),
       );
-      // No residual fact: cleanup removed everything this invocation created.
+      // No residue: cleanup removed the proven-created file and the empty directory.
       expect(failure).toBe(enospc);
       expect(existsSync(join(workspacePath(home), "skills", "review-pr"))).toBe(false);
 
-      // Capacity restored: the same name retries and the Workspace stays valid.
+      // The same name retries and the Workspace stays valid.
       const retried = await createSkill({ home, name: "review-pr" });
       expect(retried.id).toBe("review-pr");
       const workspace = await ingestSelectedWorkspace(home);
@@ -290,22 +293,59 @@ describe("createSkill", () => {
     }
   });
 
-  test("reports typed residual-path evidence when cleanup fails and preserves existing content (PROD-1)", async () => {
+  test("never deletes a file when the exclusive open fails before creating anything (PROD-1)", async () => {
     const home = await initializedHome();
     try {
-      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
-      const skillRoot = join(realpathSync(workspacePath(home)), "skills", "review-pr");
-      // Injected write creates the truncated file before failing, then the
-      // read-only directory makes cleanup of that file fail.
-      chmodSync(join(workspacePath(home), "skills"), 0o755);
+      const foreignBytes = "foreign-skill-bytes\n";
+      const emfile = Object.assign(new Error("Too many open files"), { code: "EMFILE" });
       const failure = await rejection(() =>
         createSkill({
           home,
           name: "review-pr",
-          writeSkillFile: async (path, contents) => {
+          // Simulates a concurrent writer landing SKILL.md before a pre-open
+          // failure: the exclusive open never completes, so nothing is proven
+          // created and no file may be removed.
+          openSkillFile: async (path) => {
             mkdirSync(dirname(path), { recursive: true });
-            writeFileSync(path, contents.slice(0, 10));
-            chmodSync(dirname(path), 0o555);
+            writeFileSync(path, foreignBytes);
+            throw emfile;
+          },
+        }),
+      );
+      // The foreign file is preserved byte-for-byte; the surviving directory
+      // that contains it is reported as unknown-content residue.
+      expect(readFileSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"), "utf8")).toBe(foreignBytes);
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("skill-creation-residue");
+      if (fact.kind === "skill-creation-residue") {
+        expect(fact.contents).toBe("unknown");
+        expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
+      }
+      // Recovery must not call the foreign-containing directory disposable.
+      const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+      const recovery = flatInlineText(diagnostic.whatToType!.flat());
+      expect(recovery).not.toMatch(/remove it[,.;]/i);
+      expect(recovery).toMatch(/review/i);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("reports typed own-material residue when cleanup fails, with complete recovery (PROD-1)", async () => {
+    const home = await initializedHome();
+    try {
+      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+      const skillRoot = join(realpathSync(workspacePath(home)), "skills", "review-pr");
+      // Real exclusive open succeeds; the injected write leaves partial bytes,
+      // then the read-only directory makes cleanup of that file fail.
+      const failure = await rejection(() =>
+        createSkill({
+          home,
+          name: "review-pr",
+          writeSkillFile: async (handle, contents) => {
+            await handle.write(Buffer.from(contents.slice(0, 10), "utf8"));
+            chmodSync(dirname(join(workspacePath(home), "skills", "review-pr", "SKILL.md")), 0o555);
             throw enospc;
           },
         }),
@@ -314,18 +354,22 @@ describe("createSkill", () => {
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("skill-creation-residue");
       if (fact.kind === "skill-creation-residue") {
-        expect(fact.path).toBe(join(skillRoot, "SKILL.md"));
+        // The residue path is the directory: removing it clears the retry
+        // blocker; the surviving material is all Agent Profile Kit-created.
+        expect(fact.path).toBe(skillRoot);
+        expect(fact.contents).toBe("own");
         expect(fact.id).toBe("review-pr");
       }
-      // Presentation owns the recovery sentence and command.
+      // Presentation owns the recovery sentence and command; removing the
+      // reported directory alone unblocks the retry.
       const diagnostic = formatInstallerToolErrorDiagnostic(fact);
-      expect(flatInlineText(diagnostic.happened)).toContain(join(skillRoot, "SKILL.md"));
+      expect(flatInlineText(diagnostic.happened)).toContain(skillRoot);
       expect(diagnostic.whatToType).toBeDefined();
+      expect(flatInlineText(diagnostic.whatToType!.flat())).toContain("apkit new skill review-pr");
 
-      // Restore access, remove the residue, and retry recovers cleanly.
+      // Complete recovery: remove the reported directory, retry recovers.
       chmodSync(skillRoot, 0o755);
-      rmSync(join(skillRoot, "SKILL.md"));
-      rmdirSync(skillRoot);
+      rmSync(skillRoot, { recursive: true });
       const retried = await createSkill({ home, name: "review-pr" });
       expect(retried.id).toBe("review-pr");
       await ingestSelectedWorkspace(home);
@@ -343,10 +387,9 @@ describe("createSkill", () => {
         createSkill({
           home,
           name: "review-pr",
-          writeSkillFile: async (path, contents) => {
-            const directory = dirname(path);
-            mkdirSync(directory, { recursive: true });
-            writeFileSync(path, contents.slice(0, 5));
+          writeSkillFile: async (handle, contents) => {
+            const directory = dirname(join(workspacePath(home), "skills", "review-pr", "SKILL.md"));
+            await handle.write(Buffer.from(contents.slice(0, 5), "utf8"));
             // A concurrent writer lands a foreign entry before our failure.
             writeFileSync(join(directory, "notes.md"), "foreign\n");
             throw enospc;
@@ -354,11 +397,12 @@ describe("createSkill", () => {
         }),
       );
       // Cleanup removes the proven-created SKILL.md, refuses the non-empty
-      // directory, and reports the residual directory as typed evidence.
+      // directory, and classifies the residue as containing foreign material.
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("skill-creation-residue");
       if (fact.kind === "skill-creation-residue") {
+        expect(fact.contents).toBe("unknown");
         expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
       }
       expect(readFileSync(join(workspacePath(home), "skills", "review-pr", "notes.md"), "utf8")).toBe("foreign\n");

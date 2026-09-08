@@ -413,10 +413,15 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "skill-path-occupied":
       return [`Skill '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
     case "skill-creation-residue":
-      return [
-        `Skill creation left incomplete material at ${fact.path}; remove it and run `,
-        commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
-      ];
+      return fact.contents === "own"
+        ? [
+            `Skill creation left incomplete Agent Profile Kit material at ${fact.path}; remove it and run `,
+            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          ]
+        : [
+            `Skill creation left ${fact.path} containing material Agent Profile Kit did not create; review it before removing anything, then run `,
+            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          ];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -527,14 +532,23 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         ]],
       };
     case "skill-creation-residue":
-      return {
-        happened: [`Skill creation left incomplete material at ${fact.path}`],
-        whatToType: [[
-          "Remove the incomplete material, then run ",
-          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
-          " to retry.",
-        ]],
-      };
+      return fact.contents === "own"
+        ? {
+            happened: [`Skill creation left incomplete Agent Profile Kit material at ${fact.path}`],
+            whatToType: [[
+              "Remove it, then run ",
+              commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+              " to retry.",
+            ]],
+          }
+        : {
+            happened: [`Skill creation left ${fact.path} containing material Agent Profile Kit did not create`],
+            whatToType: [[
+              "Review the material, remove only what you determine is unwanted together with the directory, then run ",
+              commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+              " to retry.",
+            ]],
+          };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
