@@ -165,7 +165,7 @@ describe("structured Installer blocker evidence", () => {
       }[];
       readonly schemaVersion: number;
     };
-    expect(machine.schemaVersion).toBe(14);
+    expect(machine.schemaVersion).toBe(15);
     expect(machine.projects[0]!.state).toEqual({
       kind: "malformed ownership state",
       reason: `Installation State exceeds the ${OWNERSHIP_STATE_LIMITS.maxBytes} byte limit`,

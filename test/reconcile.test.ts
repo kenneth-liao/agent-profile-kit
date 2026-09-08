@@ -111,7 +111,7 @@ describe("nested Project reconciliation report", () => {
     });
     const json = JSON.parse(formatLifecycleJson("status", report));
     expect(json).toMatchObject({
-      schemaVersion: 14,
+      schemaVersion: 15,
       command: "status",
       outcome: "blocked",
       globalBlockers: [],

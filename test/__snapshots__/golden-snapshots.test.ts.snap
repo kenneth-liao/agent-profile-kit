@@ -79,15 +79,15 @@ exports[`golden snapshots of every human view focused command help: focused-comm
 Purpose: Show the complete read-only apply plan for the complete fleet, the
   containing Project, or one explicit Project
 
-Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 
 Examples:
   apkit status
   apkit status --here
   apkit status ~/projects/example-project
   apkit status --all
-  apkit status --blockers-only
-  apkit status --blockers-only --verbose
+  apkit status --blocked
+  apkit status --stale --json
   apkit status --json
 
 Writes: Nothing; this command is read-only.
@@ -995,7 +995,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.164.0
+Engine version: 0.165.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1170,25 +1170,25 @@ Next:
 exports[`golden snapshots of every human view status tracked counts grouped-twelve: status-tracked-counts-grouped-twelve 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so
+      Agent Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.claude/skills/single' '.grok/skills/single'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (14):
+        - .agents/skills/ (12 paths)
+        - .claude/skills/single
+        - .grok/skills/single
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.claude/skills/single' '.grok/skills/single'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (14):
-      - .agents/skills/ (12 paths)
-      - .claude/skills/single
-      - .grok/skills/single
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1201,23 +1201,23 @@ Next:
 exports[`golden snapshots of every human view status tracked counts eleven-no-cap: status-tracked-counts-eleven-no-cap 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so
+      Agent Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (11):
+        - .agents/skills/ (11 paths)
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (11):
-      - .agents/skills/ (11 paths)
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1230,25 +1230,25 @@ Next:
 exports[`golden snapshots of every human view status tracked counts root-immediate-parent-equivalent: status-tracked-counts-root-immediate-parent-equivalent 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
+      Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/s001' '.claude/skills/s002' '.grok/skills/s001' '.grok/skills/s002'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (6):
+        - .agents/skills/ (2 paths)
+        - .claude/skills/ (2 paths)
+        - .grok/skills/ (2 paths)
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/s001' '.claude/skills/s002' '.grok/skills/s001' '.grok/skills/s002'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (6):
-      - .agents/skills/ (2 paths)
-      - .claude/skills/ (2 paths)
-      - .grok/skills/ (2 paths)
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1261,24 +1261,24 @@ Next:
 exports[`golden snapshots of every human view status tracked counts overlapping-parent-equivalent: status-tracked-counts-overlapping-parent-equivalent 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
+      Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/single'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (3):
+        - .agents/skills/ (2 paths)
+        - .claude/skills/single
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/single'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (3):
-      - .agents/skills/ (2 paths)
-      - .claude/skills/single
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1291,25 +1291,25 @@ Next:
 exports[`golden snapshots of every human view status tracked counts deterministic-order: status-tracked-counts-deterministic-order 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so
+      Agent Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/alpha' '.claude/skills/beta' '.grok/skills/zeta'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (3):
+        - .agents/skills/alpha
+        - .claude/skills/beta
+        - .grok/skills/zeta
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/alpha' '.claude/skills/beta' '.grok/skills/zeta'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (3):
-      - .agents/skills/alpha
-      - .claude/skills/beta
-      - .grok/skills/zeta
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1322,25 +1322,25 @@ Next:
 exports[`golden snapshots of every human view status tracked counts large-60-60-30: status-tracked-counts-large-60-60-30 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/tracked-counts
+    Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so
+      Agent Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.agents/skills/s013' '.agents/skills/s014' '.agents/skills/s015' '.agents/skills/s016' '.agents/skills/s017' '.agents/skills/s018' '.agents/skills/s019' '.agents/skills/s020' '.agents/skills/s021' '.agents/skills/s022' '.agents/skills/s023' '.agents/skills/s024' '.agents/skills/s025' '.agents/skills/s026' '.agents/skills/s027' '.agents/skills/s028' '.agents/skills/s029' '.agents/skills/s030' '.agents/skills/s031' '.agents/skills/s032' '.agents/skills/s033' '.agents/skills/s034' '.agents/skills/s035' '.agents/skills/s036' '.agents/skills/s037' '.agents/skills/s038' '.agents/skills/s039' '.agents/skills/s040' '.agents/skills/s041' '.agents/skills/s042' '.agents/skills/s043' '.agents/skills/s044' '.agents/skills/s045' '.agents/skills/s046' '.agents/skills/s047' '.agents/skills/s048' '.agents/skills/s049' '.agents/skills/s050' '.agents/skills/s051' '.agents/skills/s052' '.agents/skills/s053' '.agents/skills/s054' '.agents/skills/s055' '.agents/skills/s056' '.agents/skills/s057' '.agents/skills/s058' '.agents/skills/s059' '.agents/skills/s060' '.claude/skills/s001' '.claude/skills/s002' '.claude/skills/s003' '.claude/skills/s004' '.claude/skills/s005' '.claude/skills/s006' '.claude/skills/s007' '.claude/skills/s008' '.claude/skills/s009' '.claude/skills/s010' '.claude/skills/s011' '.claude/skills/s012' '.claude/skills/s013' '.claude/skills/s014' '.claude/skills/s015' '.claude/skills/s016' '.claude/skills/s017' '.claude/skills/s018' '.claude/skills/s019' '.claude/skills/s020' '.claude/skills/s021' '.claude/skills/s022' '.claude/skills/s023' '.claude/skills/s024' '.claude/skills/s025' '.claude/skills/s026' '.claude/skills/s027' '.claude/skills/s028' '.claude/skills/s029' '.claude/skills/s030' '.claude/skills/s031' '.claude/skills/s032' '.claude/skills/s033' '.claude/skills/s034' '.claude/skills/s035' '.claude/skills/s036' '.claude/skills/s037' '.claude/skills/s038' '.claude/skills/s039' '.claude/skills/s040' '.claude/skills/s041' '.claude/skills/s042' '.claude/skills/s043' '.claude/skills/s044' '.claude/skills/s045' '.claude/skills/s046' '.claude/skills/s047' '.claude/skills/s048' '.claude/skills/s049' '.claude/skills/s050' '.claude/skills/s051' '.claude/skills/s052' '.claude/skills/s053' '.claude/skills/s054' '.claude/skills/s055' '.claude/skills/s056' '.claude/skills/s057' '.claude/skills/s058' '.claude/skills/s059' '.claude/skills/s060' '.grok/skills/s001' '.grok/skills/s002' '.grok/skills/s003' '.grok/skills/s004' '.grok/skills/s005' '.grok/skills/s006' '.grok/skills/s007' '.grok/skills/s008' '.grok/skills/s009' '.grok/skills/s010' '.grok/skills/s011' '.grok/skills/s012' '.grok/skills/s013' '.grok/skills/s014' '.grok/skills/s015' '.grok/skills/s016' '.grok/skills/s017' '.grok/skills/s018' '.grok/skills/s019' '.grok/skills/s020' '.grok/skills/s021' '.grok/skills/s022' '.grok/skills/s023' '.grok/skills/s024' '.grok/skills/s025' '.grok/skills/s026' '.grok/skills/s027' '.grok/skills/s028' '.grok/skills/s029' '.grok/skills/s030'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+      Affected paths (150):
+        - .agents/skills/ (60 paths)
+        - .claude/skills/ (60 paths)
+        - .grok/skills/ (30 paths)
 
-Project: ~/projects/tracked-counts
-  Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so Agent
-    Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.agents/skills/s013' '.agents/skills/s014' '.agents/skills/s015' '.agents/skills/s016' '.agents/skills/s017' '.agents/skills/s018' '.agents/skills/s019' '.agents/skills/s020' '.agents/skills/s021' '.agents/skills/s022' '.agents/skills/s023' '.agents/skills/s024' '.agents/skills/s025' '.agents/skills/s026' '.agents/skills/s027' '.agents/skills/s028' '.agents/skills/s029' '.agents/skills/s030' '.agents/skills/s031' '.agents/skills/s032' '.agents/skills/s033' '.agents/skills/s034' '.agents/skills/s035' '.agents/skills/s036' '.agents/skills/s037' '.agents/skills/s038' '.agents/skills/s039' '.agents/skills/s040' '.agents/skills/s041' '.agents/skills/s042' '.agents/skills/s043' '.agents/skills/s044' '.agents/skills/s045' '.agents/skills/s046' '.agents/skills/s047' '.agents/skills/s048' '.agents/skills/s049' '.agents/skills/s050' '.agents/skills/s051' '.agents/skills/s052' '.agents/skills/s053' '.agents/skills/s054' '.agents/skills/s055' '.agents/skills/s056' '.agents/skills/s057' '.agents/skills/s058' '.agents/skills/s059' '.agents/skills/s060' '.claude/skills/s001' '.claude/skills/s002' '.claude/skills/s003' '.claude/skills/s004' '.claude/skills/s005' '.claude/skills/s006' '.claude/skills/s007' '.claude/skills/s008' '.claude/skills/s009' '.claude/skills/s010' '.claude/skills/s011' '.claude/skills/s012' '.claude/skills/s013' '.claude/skills/s014' '.claude/skills/s015' '.claude/skills/s016' '.claude/skills/s017' '.claude/skills/s018' '.claude/skills/s019' '.claude/skills/s020' '.claude/skills/s021' '.claude/skills/s022' '.claude/skills/s023' '.claude/skills/s024' '.claude/skills/s025' '.claude/skills/s026' '.claude/skills/s027' '.claude/skills/s028' '.claude/skills/s029' '.claude/skills/s030' '.claude/skills/s031' '.claude/skills/s032' '.claude/skills/s033' '.claude/skills/s034' '.claude/skills/s035' '.claude/skills/s036' '.claude/skills/s037' '.claude/skills/s038' '.claude/skills/s039' '.claude/skills/s040' '.claude/skills/s041' '.claude/skills/s042' '.claude/skills/s043' '.claude/skills/s044' '.claude/skills/s045' '.claude/skills/s046' '.claude/skills/s047' '.claude/skills/s048' '.claude/skills/s049' '.claude/skills/s050' '.claude/skills/s051' '.claude/skills/s052' '.claude/skills/s053' '.claude/skills/s054' '.claude/skills/s055' '.claude/skills/s056' '.claude/skills/s057' '.claude/skills/s058' '.claude/skills/s059' '.claude/skills/s060' '.grok/skills/s001' '.grok/skills/s002' '.grok/skills/s003' '.grok/skills/s004' '.grok/skills/s005' '.grok/skills/s006' '.grok/skills/s007' '.grok/skills/s008' '.grok/skills/s009' '.grok/skills/s010' '.grok/skills/s011' '.grok/skills/s012' '.grok/skills/s013' '.grok/skills/s014' '.grok/skills/s015' '.grok/skills/s016' '.grok/skills/s017' '.grok/skills/s018' '.grok/skills/s019' '.grok/skills/s020' '.grok/skills/s021' '.grok/skills/s022' '.grok/skills/s023' '.grok/skills/s024' '.grok/skills/s025' '.grok/skills/s026' '.grok/skills/s027' '.grok/skills/s028' '.grok/skills/s029' '.grok/skills/s030'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
-    Affected paths (150):
-      - .agents/skills/ (60 paths)
-      - .claude/skills/ (60 paths)
-      - .grok/skills/ (30 paths)
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1368,29 +1368,31 @@ Standing Host setup:
 "
 `;
 
-exports[`golden snapshots of every human view status blockers-only: status-blockers-only 1`] = `
+exports[`golden snapshots of every human view status blocked filter: status-blocked-filter 1`] = `
 "--- stdout ---
 Cannot apply
+- needs attention (1):
+  ~/projects/blocked
+    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
+      write to it.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        To keep Git ownership instead, run
+        apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+      Affected paths (1):
+        - .codex/hooks.json
 
-Project: ~/projects/blocked
-  Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
-    write to it.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
-      — it stages their removal from the Git index while the files stay on disk;
-      commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
-      To keep Git ownership instead, run
-      apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
-    Affected paths (1):
-      - .codex/hooks.json
-
-Blockers: 1 · Affected Projects: 1
+Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
+- Resolve the reported blocker, then run
+  apkit status ~/projects/blocked --blocked
+  again.
 --- stderr ---
 "
 `;
@@ -1531,7 +1533,7 @@ apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 "
 `;
 
@@ -1801,7 +1803,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.164.0
+Engine version: 0.165.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1811,7 +1813,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.164.0\x1B[0m
+\x1B[35mEngine version: 0.165.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1821,7 +1823,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.164.0
+Engine version: 0.165.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1831,7 +1833,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.164.0\x1B[0m
+\x1B[35mEngine version: 0.165.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2128,7 +2130,7 @@ Run apkit bind to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
-Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
 `;
@@ -2142,7 +2144,7 @@ Run apkit bind to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
-Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
 `;
@@ -2152,7 +2154,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
 `;
@@ -2162,7 +2164,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31mapkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
 `;

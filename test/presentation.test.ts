@@ -711,50 +711,6 @@ describe("lifecycle status document", () => {
     expect(headings.filter((text) => text === "Blockers:")).toHaveLength(1);
   });
 
-  test("blockers-only status keeps Blockers and omits unrelated inventory", () => {
-    const report = emptyReport({
-      blockers: [fixtureBlocker("occupied output", "/project-a")],
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-        setupSteps: [{
-          host: "codex",
-          kind: "trust-required",
-          message: "Trust the bound project in Codex.",
-          provenance: "standing",
-        }],
-      }],
-      items: [{ kind: "blocked", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-      warnings: ["OpenCode reports a duplicate Skill identity"],
-    });
-
-    const document = lifecycleStatusDocument(report, { blockersOnly: true });
-
-    expect(document.map(shape)).toEqual([
-      "notice:error",
-      "blank",
-      "key-value(Project)",
-      "prose:error",
-      "prose",
-      "prose",
-      "blank",
-      "prose:error",
-      "blank",
-      "heading",
-      "list-item",
-    ]);
-    expect(flattenPresentationNodes(document).some((node) => node.kind === "path")).toBe(true);
-    expect(document.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(2);
-    expect(headingsIn(document)).not.toContain("Host Setup:");
-    expect(headingsIn(document)).not.toContain("Warnings:");
-    expect(commandsIn(document)).toEqual([]);
-  });
-
   test("derives the outcome notice severity from report facts, not rendered copy", () => {
     const hostAttention = machineReport([machineProject("/project-a", {
       desired: {
@@ -846,7 +802,7 @@ describe("lifecycle status document", () => {
     expect(detailsLine!.endsWith("--verbose")).toBe(true);
   });
 
-  test("wraps clean, attention, blocked, verbose, and blockers-only status prose to the selected width", () => {
+  test("wraps clean, attention, blocked, and verbose status prose to the selected width", () => {
     const clean = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -882,7 +838,6 @@ describe("lifecycle status document", () => {
         renderBoundary(lifecycleStatusDocument(attention), context(width)),
         renderBoundary(lifecycleStatusDocument(blocked), context(width)),
         renderBoundary(lifecycleStatusDocument(blocked, { verbose: true }), context(width)),
-        renderBoundary(lifecycleStatusDocument(blocked, { blockersOnly: true }), context(width)),
       ];
 
       for (const view of views) {
@@ -2170,7 +2125,7 @@ describe("status concise terminology", () => {
       machineProject("/project-a", { blockers: reportBlockers(structured) }),
     ]);
     expect(JSON.parse(formatLifecycleJson("status", machine))).toMatchObject({
-      schemaVersion: 14,
+      schemaVersion: 15,
       globalBlockers: [],
       projects: [{
         project: "/project-a",
@@ -2461,19 +2416,18 @@ describe("status concise terminology", () => {
     ]);
   });
 
-  test("focused verbose status prints one copyable untracking command with every proven path exactly once (#353)", () => {
+  test("verbose status prints one copyable untracking command with every proven path exactly once (#353)", () => {
     const paths = [
       ".b/space name.md",
       ".a/one.md",
       "-leading-dash.md",
       "weird'name.md",
     ];
-    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
-      blockersOnly: true,
+    const verbose = lifecycleStatusDocument(ownershipReport(paths), {
       verbose: true,
     });
 
-    const gitCommands = inlineCommandTexts(flattenPresentationNodes(focusedVerbose)).filter((text) =>
+    const gitCommands = inlineCommandTexts(flattenPresentationNodes(verbose)).filter((text) =>
       text.includes("rm -r --cached"));
     expect(gitCommands).toHaveLength(1);
     // The remedy carries the exact invocation as one atomic command part;
@@ -2485,11 +2439,11 @@ describe("status concise terminology", () => {
   });
 
   test("the verbose remedy frames the working-files statement and the unbind choice (#440)", () => {
-    const focusedVerbose = lifecycleStatusDocument(
+    const verbose = lifecycleStatusDocument(
       ownershipReport([".codex/hooks.json"]),
-      { blockersOnly: true, verbose: true },
+      { verbose: true },
     );
-    const remedyParts = flattenPresentationNodes(focusedVerbose)
+    const remedyParts = flattenPresentationNodes(verbose)
       .filter((node) => node.kind === "prose" &&
         nodeText(node).startsWith("  Remedy: "))
       .map((node) => nodeText(node));
@@ -2499,13 +2453,12 @@ describe("status concise terminology", () => {
     expect(remedyParts[0]).toContain("To keep Git ownership instead");
   });
 
-  test("ordinary concise, focused concise, and ordinary verbose all carry the command (#440)", () => {
+  test("ordinary concise and verbose views carry the command (#440)", () => {
     const report = ownershipReport([".codex/hooks.json", ".agents/skills/s01.md"]);
     const concise = lifecycleStatusDocument(report);
-    const focusedConcise = lifecycleStatusDocument(report, { blockersOnly: true });
     const verbose = lifecycleStatusDocument(report, { verbose: true });
 
-    for (const document of [concise, focusedConcise, verbose]) {
+    for (const document of [concise, verbose]) {
       expect(inlineCommandTexts(flattenPresentationNodes(document))).toContain(
         untrackCommandFor("/project-a", [".agents/skills/s01.md", ".codex/hooks.json"]),
       );
@@ -2515,7 +2468,7 @@ describe("status concise terminology", () => {
     }
   });
 
-  test("focused verbose apply views print the command while ordinary apply verbose only points to it (#353)", () => {
+  test("blocked and failed apply verbose views print the evidence-derived command (#353)", () => {
     const paths = [".codex/hooks.json", ".agents/skills/s01.md"];
     const project = "/project-b";
     const receipt = emptyReport({
@@ -2538,36 +2491,21 @@ describe("status concise terminology", () => {
     });
     const command = untrackCommandFor("/project-b", paths);
 
-    const focusedApply = applyReportDocument(
+    const verboseApply = applyReportDocument(
       applyResult(receipt, resultingState),
-      { blockersOnly: true, verbose: true },
+      { verbose: true },
     );
     // Every apply view carries the evidence-derived command inline (#440).
-    expect(inlineCommandTexts(flattenPresentationNodes(focusedApply))).toContain(command);
+    expect(inlineCommandTexts(flattenPresentationNodes(verboseApply))).toContain(command);
 
     const blockedApply = blockedApplyReportDocument(
       asBlockedReport(resultingState),
-      { blockersOnly: true, verbose: true },
+      { verbose: true },
     );
     expect(inlineCommandTexts(flattenPresentationNodes(blockedApply))).toContain(command);
-
-    const executionFailure = applyExecutionFailureDocument({
-      detail: "Apply failed while writing the Project",
-      failedProject: executionProject(project),
-      message: "Apply failed while writing the Project",
-      pendingProjects: [],
-      receipt,
-      resultingState,
-    }, { blockersOnly: true, verbose: true });
-    expect(inlineCommandTexts(flattenPresentationNodes(executionFailure))).toContain(command);
-
-    const ordinaryVerbose = flattenPresentationNodes(
-      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
-    );
-    expect(inlineCommandTexts(ordinaryVerbose)).toContain(command);
   });
 
-  test("verification-failure views carry the command in focused and ordinary verbose (#440)", () => {
+  test("verification-failure verbose view carries the command (#440)", () => {
     const paths = [".codex/hooks.json"];
     const project = "/project-b";
     const receipt = emptyReport({
@@ -2585,13 +2523,6 @@ describe("status concise terminology", () => {
       ],
     });
     const message = "Apply verification failed";
-
-    const focused = applyVerificationFailureDocument(receipt, message, {
-      blockersOnly: true,
-      verbose: true,
-    });
-    expect(inlineCommandTexts(flattenPresentationNodes(focused)))
-      .toContain(untrackCommandFor("/project-b", paths));
 
     const ordinary = flattenPresentationNodes(
       applyVerificationFailureDocument(receipt, message, { verbose: true }),
@@ -2612,11 +2543,10 @@ describe("status concise terminology", () => {
       ".opencode/agent/",
     ]);
 
-    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
-      blockersOnly: true,
+    const verbose = lifecycleStatusDocument(ownershipReport(paths), {
       verbose: true,
     });
-    const gitCommands = inlineCommandTexts(flattenPresentationNodes(focusedVerbose)).filter((text) =>
+    const gitCommands = inlineCommandTexts(flattenPresentationNodes(verbose)).filter((text) =>
       text.includes("rm -r --cached"));
     // One complete command: 150 paths plus the project, each shell-quoted.
     expect(gitCommands).toHaveLength(1);
@@ -2629,14 +2559,13 @@ describe("status concise terminology", () => {
       ".agents/skills/a skill with spaces.md",
       ".claude/rules/agent-profile-kit.md",
     ];
-    const focusedVerbose = lifecycleStatusDocument(ownershipReport(paths), {
-      blockersOnly: true,
+    const verbose = lifecycleStatusDocument(ownershipReport(paths), {
       verbose: true,
     });
     const command = untrackCommandFor("/project-a", paths);
 
     // The atomic command node renders on one unsplit line at any width.
-    const rendered = renderBoundary(focusedVerbose, { color: false, interactive: true, width: 40 , rows: undefined });
+    const rendered = renderBoundary(verbose, { color: false, interactive: true, width: 40 , rows: undefined });
     expect(rendered.split("\n").filter((line) => line.includes(command))).toHaveLength(1);
   });
 
@@ -4460,7 +4389,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatLifecycleJson("status", report));
-    expect(payload.schemaVersion).toBe(14);
+    expect(payload.schemaVersion).toBe(15);
     expect(payload.command).toBe("status");
     expect(payload.outcome).toBe("blocked");
     expect(payload.globalBlockers).toEqual([]);
@@ -4571,7 +4500,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatApplyJson(machineApplyResult(receipt, resultingState)));
-    expect(payload.schemaVersion).toBe(14);
+    expect(payload.schemaVersion).toBe(15);
     expect(payload.projects[0].state).toEqual({ kind: "current" });
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
@@ -4582,7 +4511,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 14 });
+    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 15 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
@@ -4602,7 +4531,7 @@ describe("Machine surface JSON and exit codes", () => {
       command: "apply",
       outcome: "error",
       error: "post-apply verification failed: boom",
-      schemaVersion: 14,
+      schemaVersion: 15,
     });
     expect(payload.projects).toEqual([]);
     expect(payload.applied.projects[0].outputs).toEqual([
@@ -4613,7 +4542,7 @@ describe("Machine surface JSON and exit codes", () => {
   test("tool-error JSON uses the empty nested model", () => {
     for (const command of ["status", "apply"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
-        schemaVersion: 14,
+        schemaVersion: 15,
         command,
         outcome: "error",
         error: "missing",
@@ -6500,7 +6429,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(payload).toMatchObject({
       command: "status",
       outcome: "attention",
-      schemaVersion: 14,
+      schemaVersion: 15,
     });
     expect(lifecycleExitCode(report)).toBe(0);
     expect(lifecycleExitCode(emptyReport({
@@ -6761,455 +6690,6 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 });
 
 
-describe("focused blockers-only status view (#351)", () => {
-  const blockedFleet = (): ReconciliationReport => {
-    const projectBlocker = normalizeBlocker({
-      action: "verify",
-      affectedItems: [{ kind: "host", value: "codex" }],
-      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-a/.codex" },
-      kind: "installation-ownership",
-      project: "/project-a",
-      scope: "project",
-    });
-    return emptyReport({
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-        setupSteps: [{
-          consequence: "hook approval required",
-          host: "codex",
-          kind: "approval-required",
-          message: "Approve hook",
-          output: ".codex/hooks.json",
-          provenance: "transition",
-        }],
-      }],
-      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
-      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
-      warnings: ["OpenCode reports a duplicate Skill identity"],
-      blockers: [
-        projectBlocker,
-        normalizeBlocker({
-          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
-          detail: "Installation State is unreadable",
-          kind: "installation-state-unreadable",
-          scope: "global",
-        }),
-      ],
-    });
-  };
-
-  test("focused concise view renders Project and global Blockers and suppresses unrelated inventory", () => {
-    const focused = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
-    const nodes = flattenPresentationNodes(focused);
-    const texts = presentationTexts(focused);
-
-    expect(noticesIn(focused)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    expect(keyValuesIn(focused, "Project")).toHaveLength(1);
-    expect(focused.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(3);
-    expect(headingsIn(focused)).toContain("Global blockers:");
-    expect(nextActionItems(focused).map(nextActionStructure)).toEqual([
-      { paths: [], commands: ["apkit status"] },
-      { paths: [], commands: ["apkit status"] },
-    ]);
-    // The displayed-Blocker footer is the last error prose of the focused view.
-    expect(footerNode(focused)).toMatchObject({ kind: "prose", category: "error" });
-    // No unrelated lifecycle inventory: no warnings, paths, states, setup, or
-    // exclusion sections, and no binding Profile detail.
-    expect(headingsIn(focused).some((text) =>
-      /Warnings:|Host Setup:|Git exclusions/.test(text)
-    )).toBe(false);
-    expect(keyValuesIn(focused, "  State")).toEqual([]);
-    expect(texts.some((text) => text.includes("duplicate Skill identity") || text.includes("Approve hook"))).toBe(false);
-    expect(keyValuesIn(focused, "  Profile")).toEqual([]);
-  });
-
-  test("focused concise output is deterministic across repeated rendering", () => {
-    const first = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
-    const second = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true });
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
-  });
-
-  test("focused concise view deduplicates one shared blocker resolution across Projects", () => {
-    const report = emptyReport({
-      blockers: [
-        fixtureBlocker("Project /z-project is blocked", "/z-project"),
-        fixtureBlocker("Project /a-project is blocked", "/a-project"),
-      ],
-    });
-
-    const focused = lifecycleStatusDocument(report, { blockersOnly: true });
-    const projectKeys = keyValuesIn(focused, "Project")
-      .map((node) => (node.value as { readonly canonicalPath: string }).canonicalPath);
-    expect(projectKeys).toEqual(["/a-project", "/z-project"]);
-    // One shared resolution renders once; the footer is the last error prose
-    // before the shared next action.
-    expect(nextActionItems(focused).map(nextActionStructure)).toEqual([
-      { paths: [], commands: ["apkit status"] },
-    ]);
-    expect(footerNode(focused)).toMatchObject({ kind: "prose", category: "error" });
-  });
-
-  test("focused concise view never attributes next actions to Projects without displayed Blockers", () => {
-    const report = emptyReport({
-      desired: [
-        {
-          canonicalProject: "/project-a",
-          context: "composed",
-          outputs: ["a.md"],
-          profile: "coding",
-          project: "/project-a",
-          resolvedArtifacts: [],
-        },
-        {
-          canonicalProject: "/project-b",
-          context: "composed",
-          outputs: ["b.md"],
-          profile: "coding",
-          project: "/project-b",
-          resolvedArtifacts: [],
-        },
-      ],
-      items: [{ kind: "blocked", project: "/project-a", reason: "tracked path" }],
-      outputs: [
-        { kind: "update", path: "a.md", project: "/project-a" },
-        { kind: "addition", path: "b.md", project: "/project-b" },
-      ],
-      blockers: [fixtureBlocker("Project /project-a is blocked", "/project-a")],
-    });
-
-    const focused = lifecycleStatusDocument(report, { blockersOnly: true });
-    const texts = presentationTexts(focused);
-
-    expect(keyValuesIn(focused, "Project")).toHaveLength(1);
-    expect(texts.some((text) => text.includes("/project-b"))).toBe(false);
-    // Only the displayed-Blocker Project receives an item, retrying status.
-    expect(nextActionItems(focused).map(nextActionStructure)).toEqual([
-      { paths: [], commands: ["apkit status"] },
-    ]);
-  });
-
-  test("focused verbose view retains complete Blocker fields and affected items without unrelated sections", () => {
-    const focused = lifecycleStatusDocument(blockedFleet(), { blockersOnly: true, verbose: true });
-    const nodes = flattenPresentationNodes(focused);
-    const texts = presentationTexts(focused);
-
-    expect(nodes.filter((node) => node.kind === "list-item")).toHaveLength(2);
-    const evidence = nodes.slice(nodes.findIndex((node) => node.kind === "list-item"), -1);
-    expect(evidence.map(shape)).toEqual([
-      "list-item", "prose", "prose", "prose", "prose",
-      "list-item", "prose", "prose", "prose", "prose",
-      "blank",
-    ]);
-    expect(inlineCommandTexts(nodes)).toContain("apkit apply '/project-a'");
-    expect(texts.some((text) => text.includes("/project-a"))).toBe(true);
-    expect(texts.some((text) => text.includes("codex"))).toBe(true);
-    // The displayed-Blocker footer closes the focused verbose view.
-    expect(flattenPresentationNodes(focused).at(-1)).toMatchObject({
-      kind: "prose",
-      category: "error",
-    });
-    // No unrelated sections or next guidance.
-    for (const section of ["Projects:", "Outputs:", "Selected setup:", "Warnings:", "Host Setup:"]) {
-      expect(headingsIn(focused)).not.toContain(section);
-    }
-    expect(nextGuidance(focused)).toEqual([]);
-  });
-
-
-  test("a scope with no Blockers reports that outcome without lifecycle inventory", () => {
-    const concise = lifecycleStatusDocument(emptyReport(), { blockersOnly: true });
-    const verbose = lifecycleStatusDocument(emptyReport(), { blockersOnly: true, verbose: true });
-
-    expect(JSON.stringify(concise)).toBe(JSON.stringify(verbose));
-    expect(concise[0]).toMatchObject({ kind: "prose", category: "success" });
-    expect(concise[1]).toMatchObject({ kind: "prose", category: "command" });
-    expect(inlineCommandTexts(concise)).toEqual(["apkit status"]);
-    expect(concise.map(shape)).toEqual(["prose:success", "prose:command"]);
-
-    const here = lifecycleStatusDocument(emptyReport(), {
-      blockersOnly: true,
-      selection: { command: "status", kind: "project", match: "containing", target: process.cwd() },
-    });
-    expect(inlineCommandTexts(here)).toEqual(["apkit status --here"]);
-  });
-});
-
-describe("focused blockers-only apply view (#352)", () => {
-  const affectedBlocker = () =>
-    normalizeBlocker({
-      action: "verify",
-      affectedItems: [{ kind: "host", value: "codex" }],
-      failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/project-b/.codex" },
-      kind: "installation-ownership",
-      project: "/project-b",
-      scope: "project",
-    });
-
-  /** One committed Project, one Project-scoped Blocker, one still-pending Project. */
-  const partialApply = () => {
-    const receipt = emptyReport({
-      items: [{ kind: "update", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-    const resultingState = emptyReport({
-      desired: [
-        {
-          canonicalProject: "/project-a",
-          context: "composed",
-          outputs: ["a.md"],
-          profile: "coding",
-          project: "/project-a",
-          resolvedArtifacts: [],
-        },
-        {
-          canonicalProject: "/project-b",
-          context: "composed",
-          outputs: ["b.md"],
-          profile: "coding",
-          project: "/project-b",
-          resolvedArtifacts: [],
-        },
-        {
-          canonicalProject: "/project-c",
-          context: "composed",
-          outputs: ["c.md"],
-          profile: "coding",
-          project: "/project-c",
-          resolvedArtifacts: [],
-        },
-      ],
-      items: [
-        { kind: "current", project: "/project-a" },
-        { kind: "blocked", project: "/project-b", reason: "host capability" },
-        { kind: "current", project: "/project-c" },
-      ],
-      outputs: [
-        { kind: "unchanged", path: "a.md", project: "/project-a" },
-        { kind: "addition", path: "b.md", project: "/project-b" },
-        { kind: "addition", path: "c.md", project: "/project-c" },
-      ],
-      warnings: ["OpenCode reports a duplicate Skill identity"],
-      blockers: [affectedBlocker()],
-    });
-    return { receipt, resultingState };
-  };
-
-  test("focused concise apply renders receipt and pending scope before Blocker evidence and suppresses unrelated inventory", () => {
-    const { receipt, resultingState } = partialApply();
-    const document = applyReportDocument({ receipt, resultingState }, { blockersOnly: true });
-    const nodes = flattenPresentationNodes(document);
-
-    expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    // ADR-0024 safety-evidence order: Applied → Freshly current → Still pending
-    // → Project → Blocker → footer, as an ordered prefix before the footer.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
-    // The safety-evidence lines bind the fixture identities: the applied
-    // Project is freshly current, the untouched Project is still pending
-    // (position and fixture identity).
-    const freshIndex = currentEvidenceIndex(nodes, true);
-    const pendingIndex = freshIndex + 2;
-    const projectIndex = indexWhere(nodes, (node) => node.kind === "key-value" && node.key === "Project");
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error");
-    const footerIndex = nodes.indexOf(footerNode(document)!);
-    expect(footerIndex).toBeGreaterThan(-1);
-    expect(nodes[footerIndex]).toMatchObject({ kind: "prose", category: "error" });
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(freshIndex).toBeGreaterThan(appliedIndex);
-    expect(pendingIndex).toBeGreaterThan(freshIndex);
-    expect(projectIndex).toBeGreaterThan(pendingIndex);
-    expect(blockerIndex).toBeGreaterThan(projectIndex);
-    expect(footerIndex).toBeGreaterThan(blockerIndex);
-    // Receipt evidence rendered exactly once inside the prefix.
-    expect(nodes.filter((node) => node.kind === "heading" && nodeText(node) === "Applied:")).toHaveLength(1);
-    // The Applied receipt evidence binds the fixture Project; the composed
-    // count wording is golden-covered.
-    expect(nodes.slice(appliedIndex, pendingIndex).some((node) =>
-      node.kind === "prose" && nodeText(node).includes("/project-a")
-    )).toBe(true);
-    // The strict Blocker filter suppresses ordinary inventory.
-    expect(headingsIn(document)).not.toContain("Warnings:");
-    expect(headingsIn(document)).not.toContain("Host Setup:");
-    expect(headingsIn(document)).not.toContain("Next:");
-    expect(nodes.some((node) => nodeText(node).includes("duplicate Skill identity"))).toBe(false);
-    expect(nodes.some((node) => (nodeText(node).includes("b.md") || nodeText(node).includes("c.md")))).toBe(false);
-  });
-
-  test("focused verbose apply retains every Blocker affected item and the receipt without ordinary inventory sections", () => {
-    const { receipt, resultingState } = partialApply();
-    const document = applyReportDocument(
-      { receipt, resultingState },
-      { blockersOnly: true, verbose: true },
-    );
-    const nodes = flattenPresentationNodes(document);
-
-    expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    // ADR-0024 safety-evidence order (verbose): Applied → Freshly current →
-    // Still pending → Blockers section → footer.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
-    const freshIndex = currentEvidenceIndex(nodes, true);
-    const pendingIndex = freshIndex + 2;
-    const blockersHeading = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Blockers:");
-    const footerIndex = nodes.indexOf(footerNode(document)!);
-    expect(footerIndex).toBeGreaterThan(-1);
-    expect(nodes[footerIndex]).toMatchObject({ kind: "prose", category: "error" });
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(freshIndex).toBeGreaterThan(appliedIndex);
-    expect(pendingIndex).toBeGreaterThan(freshIndex);
-    expect(blockersHeading).toBeGreaterThan(pendingIndex);
-    expect(footerIndex).toBeGreaterThan(blockersHeading);
-    // The Blocker bullet keeps every affected item as typed evidence.
-    expect(nodes.slice(blockersHeading, footerIndex).filter((node) => node.kind === "list-item")).toHaveLength(1);
-    expect(nodes.slice(blockersHeading, footerIndex).some((node) => node.kind === "prose" && nodeText(node).includes("codex"))).toBe(true);
-    // The strict Blocker filter suppresses ordinary verbose inventory.
-    expect(headingsIn(document)).toEqual(expect.arrayContaining(["Applied:", "Blockers:"]));
-    expect(headingsIn(document)).not.toContain("Projects:");
-    expect(headingsIn(document)).not.toContain("Outputs:");
-    expect(headingsIn(document)).not.toContain("Selected setup:");
-    expect(headingsIn(document)).not.toContain("Warnings:");
-    expect(headingsIn(document)).not.toContain("Host Setup:");
-    expect(headingsIn(document)).not.toContain("Git exclusions:");
-    expect(headingsIn(document)).not.toContain("Next:");
-  });
-
-  test("an apply with no Blockers renders the ordinary receipt view under the filter", () => {
-    const receipt = emptyReport({
-      items: [{ kind: "update", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-    const result = applyResult(receipt, emptyReport());
-
-    expect(applyReportDocument(result, { blockersOnly: true })).toEqual(applyReportDocument(result, {}));
-    expect(applyReportDocument(result, { blockersOnly: true, verbose: true })).toEqual(
-      applyReportDocument(result, { verbose: true }),
-    );
-    expect(headingsIn(applyReportDocument(result, { blockersOnly: true }))).toContain("Applied:");
-  });
-
-  test("a globally blocked apply renders focused Blocker evidence without receipt sections", () => {
-    const report = asBlockedReport(emptyReport({
-      blockers: [fixtureBlocker("Installation State is unreadable")],
-    }));
-
-    // Concise: outcome notice, global Blocker section, footer — no receipt,
-    // still-pending, or warning inventory.
-    const concise = blockedApplyReportDocument(report, { blockersOnly: true });
-    expect(noticesIn(concise).map((node) => node.severity)).toEqual(["error"]);
-    expect(headingsIn(concise)).toEqual(["Global blockers:"]);
-    expect(keyValuesIn(concise, "Project")).toEqual([]);
-    expect(concise.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(2);
-    expect(footerNode(concise)).toMatchObject({ kind: "prose", category: "error" });
-
-    // Verbose: the Blocker bullet with its fields, then the footer.
-    const verbose = blockedApplyReportDocument(report, { blockersOnly: true, verbose: true });
-    expect(noticesIn(verbose)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    expect(headingsIn(verbose)).toEqual(["Blockers:"]);
-    expect(verbose.filter((node) => node.kind === "list-item")).toHaveLength(1);
-    // The footer is the last error prose of the view; its count wording is
-    // golden-covered.
-    expect(footerNode(verbose)).toMatchObject({ kind: "prose", category: "error" });
-    expect(headingsIn(verbose)).not.toContain("Applied:");
-    expect(headingsIn(verbose)).not.toContain("Next:");
-    expect(headingsIn(verbose)).not.toContain("Projects:");
-  });
-
-  test("an execution failure retains its safety evidence under the filter and appends Blocker evidence", () => {
-    const { receipt, resultingState } = partialApply();
-    const failure = {
-      detail: "write failed",
-      failedProject: executionProject("/project-b"),
-      message: "Apply failed while writing the Project",
-      pendingProjects: [executionProject("/project-c")],
-      receipt,
-      resultingState,
-    };
-    const document = applyExecutionFailureDocument(failure, { blockersOnly: true });
-    const nodes = flattenPresentationNodes(document);
-
-    expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    // Safety evidence (Applied → Freshly current) precedes the Blocker section.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
-    const freshIndex = currentEvidenceIndex(nodes);
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error");
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(freshIndex).toBeGreaterThan(appliedIndex);
-    expect(blockerIndex).toBeGreaterThan(freshIndex);
-    // The failed and pending evidence bind their fixture identities to the
-    // ordered evidence nodes.
-    expect(nodes.some((node) =>
-      node.kind === "prose" && nodeText(node).includes("/project-b")
-    )).toBe(true);
-    expect(nodes.some((node) =>
-      node.kind === "prose" && nodeText(node).includes("/project-c")
-    )).toBe(true);
-  });
-
-  test("an execution failure with no Blockers renders unchanged under the filter", () => {
-    const receipt = emptyReport({
-      items: [{ kind: "update", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-    const failure = {
-      detail: "write failed",
-      failedProject: executionProject("/project-b"),
-      message: "Apply failed while writing the Project",
-      pendingProjects: [executionProject("/project-b")],
-      receipt,
-      resultingState: undefined,
-    };
-
-    expect(applyExecutionFailureDocument(failure, { blockersOnly: true })).toEqual(
-      applyExecutionFailureDocument(failure, {}),
-    );
-  });
-
-  test("focused execution-failure output uses single blank-line separation before the Blocker section (RE-1)", () => {
-    const { receipt, resultingState } = partialApply();
-    const failure = {
-      detail: "write failed",
-      failedProject: executionProject("/project-b"),
-      message: "Apply failed while writing the Project",
-      pendingProjects: [executionProject("/project-c")],
-      receipt,
-      resultingState,
-    };
-
-    const concise = flattenPresentationNodes(
-      applyExecutionFailureDocument(failure, { blockersOnly: true }),
-    );
-    const freshIndex = currentEvidenceIndex(concise);
-    expect(freshIndex).toBeGreaterThan(-1);
-    // Single blank-line separation before the concise Blocker section (RE-1).
-    expect(concise[freshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
-    expect(concise[freshIndex + 2]).toMatchObject({
-      kind: "key-value",
-      key: "Project",
-      value: { kind: "path", canonicalPath: "/project-b" },
-    });
-    const blockerIndex = concise.findIndex((node, index) =>
-      index > freshIndex && node.kind === "prose" &&
-      node.category === "error");
-    expect(blockerIndex).toBeGreaterThan(freshIndex + 2);
-    expect(concise[blockerIndex - 1]).toMatchObject({
-      kind: "path",
-      canonicalPath: "/project-b",
-    });
-
-    const verbose = flattenPresentationNodes(
-      applyExecutionFailureDocument(failure, { blockersOnly: true, verbose: true }),
-    );
-    const verboseFreshIndex = currentEvidenceIndex(verbose);
-    expect(verboseFreshIndex).toBeGreaterThan(-1);
-    expect(verbose[verboseFreshIndex + 1]).toMatchObject({ kind: "verbatim", text: "" });
-    expect(verbose[verboseFreshIndex + 2]).toMatchObject({ kind: "heading", text: "Blockers:" });
-    expect(verbose[verboseFreshIndex + 3]).toMatchObject({ kind: "list-item" });
-  });
-});
-
 describe("apply presentation documents", () => {
   test("concise apply receipt carries a success notice, receipt evidence, and trailing readiness", () => {
     const receipt = emptyReport({
@@ -7304,52 +6784,6 @@ describe("apply presentation documents", () => {
     expect(nodes.some((node) =>
       node.kind === "prose" && node.category === "error"
     )).toBe(true);
-  });
-
-  test("focused apply places the complete ADR-0024 safety-evidence order before the Blocker footer", () => {
-    const receipt = emptyReport({
-      items: [{ kind: "update", project: "/project-a" }],
-      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
-    });
-    const resultingState = emptyReport({
-      blockers: [fixtureBlocker("occupied output", "/project-b")],
-      desired: [{
-        canonicalProject: "/project-a",
-        context: "composed",
-        outputs: ["a.md"],
-        profile: "coding",
-        project: "/project-a",
-        resolvedArtifacts: [],
-      }, {
-        canonicalProject: "/project-b",
-        context: "composed",
-        outputs: ["b.md"],
-        profile: "coding",
-        project: "/project-b",
-        resolvedArtifacts: [],
-      }],
-      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
-      items: [
-        { kind: "current", project: "/project-a" },
-        { kind: "blocked", project: "/project-b" },
-      ],
-    });
-
-    const nodes = flattenPresentationNodes(
-      applyReportDocument(applyResult(receipt, resultingState), { blockersOnly: true }),
-    );
-    // The complete ADR-0024 order: Applied → Freshly current → Project →
-    // Blocker → footer, each as its own typed node.
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
-    const freshlyCurrentIndex = currentEvidenceIndex(nodes);
-    const projectIndex = indexWhere(nodes, (node) => node.kind === "key-value" && node.key === "Project");
-    const blockerIndex = indexWhere(nodes, (node) => node.kind === "prose" && node.category === "error");
-    const footerIndex = nodes.lastIndexOf(nodes.filter((node) => node.kind === "prose" && node.category === "error").at(-1)!);
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
-    expect(projectIndex).toBeGreaterThan(freshlyCurrentIndex);
-    expect(blockerIndex).toBeGreaterThan(projectIndex);
-    expect(footerIndex).toBeGreaterThan(blockerIndex);
   });
 
   test("execution failure carries an error notice, Project scope, and the committed receipt", () => {
@@ -7833,71 +7267,6 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     expect(headingsIn(tempRemoveDoc)).not.toContain("Warnings:");
   });
 
-  test("--blockers-only strictly suppresses warning text and attention items across all views", () => {
-    const warning = {
-      copyableValues: ["/path/to/diagnostic"],
-      kind: "diagnostic" as const,
-      parts: ["Strictly suppressed warning text"],
-    };
-
-    const blockedReport: ReconciliationReport = {
-      globalBlockers: [normalizeBlocker({
-        affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
-        detail: "Global failure",
-        kind: "installation-state-unreadable",
-        scope: "global",
-      })],
-      projects: [
-        machineProject("/project-a", {
-          warnings: [warning],
-        }),
-      ],
-    };
-
-    // 1. Blocked status (--blockers-only concise & verbose)
-    const statusBlockersConcise = lifecycleStatusDocument(blockedReport, { blockersOnly: true });
-    expect(renderBoundary(statusBlockersConcise)).not.toContain("Strictly suppressed warning text");
-    expect(statusBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    const statusBlockersVerbose = lifecycleStatusDocument(blockedReport, { blockersOnly: true, verbose: true });
-    expect(renderBoundary(statusBlockersVerbose)).not.toContain("Strictly suppressed warning text");
-    expect(statusBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    // 2. Blocked apply (--blockers-only concise & verbose)
-    const applyBlockersConcise = blockedApplyReportDocument(blockedReport, { blockersOnly: true });
-    expect(renderBoundary(applyBlockersConcise)).not.toContain("Strictly suppressed warning text");
-    expect(applyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    const applyBlockersVerbose = blockedApplyReportDocument(blockedReport, { blockersOnly: true, verbose: true });
-    expect(renderBoundary(applyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
-    expect(applyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    // 3. Execution failure with blockers
-    const execFailure = {
-      detail: "disk full",
-      failedProject: executionProject("/project-a"),
-      message: "Apply execution failed",
-      pendingProjects: [],
-      receipt: blockedReport,
-      resultingState: blockedReport,
-    };
-    const execBlockersConcise = applyExecutionFailureDocument(execFailure, { blockersOnly: true });
-    expect(renderBoundary(execBlockersConcise)).not.toContain("Strictly suppressed warning text");
-    expect(execBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    const execBlockersVerbose = applyExecutionFailureDocument(execFailure, { blockersOnly: true, verbose: true });
-    expect(renderBoundary(execBlockersVerbose)).not.toContain("Strictly suppressed warning text");
-    expect(execBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    // 4. Verification failure with blockers
-    const verifyBlockersConcise = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true });
-    expect(renderBoundary(verifyBlockersConcise)).not.toContain("Strictly suppressed warning text");
-    expect(verifyBlockersConcise.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-
-    const verifyBlockersVerbose = applyVerificationFailureDocument(blockedReport, "Verification failed", { blockersOnly: true, verbose: true });
-    expect(renderBoundary(verifyBlockersVerbose)).not.toContain("Strictly suppressed warning text");
-    expect(verifyBlockersVerbose.filter((n) => n.kind === "list-item" && n.category === "attention")).toHaveLength(0);
-  });
 });
 
 describe("every Blocker renders plain wording and an evidence-derived runnable remedy (#440)", () => {
@@ -8425,7 +7794,6 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     (_label, fixture) => {
       for (const options of [{ verbose: false }, { verbose: true }] as const) {
         const document = lifecycleStatusDocument(focusedReport(fixture.blocker), {
-          blockersOnly: true,
           ...options,
         });
         const rendered = renderBoundary(document);

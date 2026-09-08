@@ -87,6 +87,7 @@ import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
   ProjectTargetError,
   type ProjectBindingSelection,
+  type ProjectSelectionFilter,
 } from "../installer/local-configuration.js";
 import { StateReadFailureError } from "../installer/installation-state.js";
 import {
@@ -697,7 +698,6 @@ function assertNever(value: never): never {
 }
 
 interface ParsedLifecycleArguments {
-  readonly blockersOnly: boolean;
   readonly json: boolean;
   readonly selection: ProjectBindingSelection;
   readonly verbose: boolean;
@@ -708,10 +708,11 @@ function parseLifecycleArguments(
   arguments_: readonly string[],
 ): ParsedLifecycleArguments {
   let all = false;
-  let blockersOnly = false;
+  let blocked = false;
   let here = false;
   let json = false;
   let project: string | undefined;
+  let stale = false;
   let verbose = false;
   for (const argument of arguments_) {
     if (argument === "--json") {
@@ -723,7 +724,16 @@ function parseLifecycleArguments(
       continue;
     }
     if (argument === "--blockers-only") {
-      blockersOnly = true;
+      throw new Error(
+        `${command} --blockers-only was removed; use --blocked to select Projects with Project-scoped Blockers, or run without a filter for the complete fleet`,
+      );
+    }
+    if (argument === "--stale") {
+      stale = true;
+      continue;
+    }
+    if (argument === "--blocked") {
+      blocked = true;
       continue;
     }
     if (argument === "--all") {
@@ -752,19 +762,33 @@ function parseLifecycleArguments(
   if (here && project !== undefined) {
     throw new Error(`${command} --here cannot be combined with a Project path`);
   }
-  if (blockersOnly && json) {
+  if (stale && blocked) {
     throw new Error(
-      `${command} --blockers-only cannot be combined with --json; use ${command} --json for the complete machine report`,
+      `${command} --stale and --blocked select different Projects; choose one, or run without a filter for the complete fleet`,
     );
   }
+  const filter: ProjectSelectionFilter | undefined = stale ? "stale" : blocked ? "blocked" : undefined;
   const selection: ProjectBindingSelection = here
-    ? { command, kind: "project", match: "containing", target: process.cwd() }
+    ? {
+        command,
+        kind: "project",
+        match: "containing",
+        target: process.cwd(),
+        ...(filter === undefined ? {} : { filter }),
+      }
     : project !== undefined
-    ? { command, kind: "project", match: "exact", target: project }
-    : { kind: "all" };
+    ? {
+        command,
+        kind: "project",
+        match: "exact",
+        target: project,
+        ...(filter === undefined ? {} : { filter }),
+      }
+    : filter === undefined
+    ? { kind: "all" }
+    : { kind: "all", filter };
 
   return {
-    blockersOnly,
     json,
     selection,
     verbose,

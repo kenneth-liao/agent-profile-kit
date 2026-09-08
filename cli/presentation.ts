@@ -2560,6 +2560,11 @@ function lifecycleCommandArgs(
       }
     }
   }
+  // The copyable command must reproduce the selected write scope: a narrowed
+  // next action never suggests the unfiltered fleet (DEC-006).
+  if (selection.filter !== undefined) {
+    args.push({ kind: "text", value: selection.filter === "stale" ? "--stale" : "--blocked" });
+  }
   args.push(...extraArgs);
   return args;
 }
@@ -2612,7 +2617,6 @@ function operationReceiptPathLines(
 
 
 export interface LifecycleHumanOptions {
-  readonly blockersOnly?: boolean;
   readonly context?: TerminalPresentationContext;
   readonly selection: ProjectBindingSelection;
   readonly verbose?: boolean;
@@ -2953,49 +2957,11 @@ function verboseApplyDocument(
   return nodes;
 }
 
-/**
- * Ordered apply safety evidence for a focused view (#352) as typed nodes: the
- * committed Apply Receipt with the Projects it made current, then still-pending
- * Project identities. The focused filter renders this prefix before Blocker
- * evidence and can never suppress it, because a presentation filter must never
- * hide writes (ADR-0024, spec #345 Decision 6).
- */
-function focusedApplySafetyEvidenceNodes(
-  postState: ReconciliationReport,
-  receipt: ReconciliationReport,
-  scope: LocationDisplayScope,
-): PresentationNode[] {
-  const nodes: PresentationNode[] = [
-    ...committedApplyEvidenceNodes(receipt, postState, postState.projects.length > 1, scope),
-  ];
-  const pending = stillPendingNodes(postState, scope);
-  if (pending.length > 0) nodes.push(spacerNode(), ...pending);
-  return nodes.length > 0 ? [spacerNode(), ...nodes] : nodes;
-}
-
-/** Focused apply view (#352) as a document: safety-evidence prefix, then Blocker evidence. */
-function focusedApplyDocument(
-  result: ApplyReconciliationResult,
-  options: LifecycleHumanOptions,
-): PresentationDocument {
-  const scope = locationDisplayScope(options, result.resultingState);
-  return [
-    applyOutcomeNotice(result.resultingState, true),
-    ...focusedApplySafetyEvidenceNodes(result.resultingState, result.receipt, scope),
-    ...(options.verbose === true
-      ? focusedVerboseBlockerNodes(result.resultingState, scope)
-      : focusedConciseBlockerNodes(result.resultingState, "apply", scope)),
-  ];
-}
-
 /** The apply receipt view as a presentation document. */
 export function applyReportDocument(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions,
 ): PresentationDocument {
-  const focused =
-    options.blockersOnly === true && reportBlockers(result.resultingState).length > 0;
-  if (focused) return focusedApplyDocument(result, options);
   if (options.verbose === true) return verboseApplyDocument(result, options);
   return conciseApplyDocument(result.resultingState, result.receipt, options);
 }
@@ -3006,14 +2972,6 @@ export function blockedApplyReportDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
-  if (options.blockersOnly === true) {
-    return [
-      applyOutcomeNotice(report, false),
-      ...(options.verbose === true
-        ? focusedVerboseBlockerNodes(report, scope)
-        : focusedConciseBlockerNodes(report, "apply", scope)),
-    ];
-  }
   if (options.verbose === true) {
     const groups = groupProjects(report).groups;
     return [
@@ -3048,11 +3006,9 @@ export function applyExecutionFailureDocument(
     ? [failure.resultingState, failure.receipt]
     : failure.receipt;
   const groups = groupProjects(failure.resultingState ?? failure.receipt).groups;
-  const warningItems = options.blockersOnly === true
-    ? []
-    : options.verbose === true
-      ? verboseWarningNodes(reports, groups, scope)
-      : warningNodes(reports, groups, scope);
+  const warningItems = options.verbose === true
+    ? verboseWarningNodes(reports, groups, scope)
+    : warningNodes(reports, groups, scope);
   const nodes: PresentationNode[] = [
     {
       kind: "notice",
@@ -3089,23 +3045,6 @@ export function applyExecutionFailureDocument(
       nodes.push({ kind: "prose", parts: [`Freshly current: ${current.join(", ")}`] });
     }
   }
-  if (
-    options.blockersOnly === true &&
-    failure.resultingState !== undefined &&
-    reportBlockers(failure.resultingState).length > 0
-  ) {
-    // Both focused sections supply their own leading blank line (RE-1).
-    nodes.push(...(options.verbose === true
-      ? focusedVerboseBlockerNodes(
-          failure.resultingState,
-          locationDisplayScope(options, failure.resultingState),
-        )
-      : focusedConciseBlockerNodes(
-          failure.resultingState,
-          "apply",
-          locationDisplayScope(options, failure.resultingState),
-        )));
-  }
   return nodes;
 }
 
@@ -3117,11 +3056,9 @@ export function applyVerificationFailureDocument(
 ): PresentationDocument {
   const scope = locationDisplayScope(options, receipt);
   const groups = groupProjects(receipt).groups;
-  const warningItems = options.blockersOnly === true
-    ? []
-    : options.verbose === true
-      ? verboseWarningNodes(receipt, groups, scope)
-      : warningNodes(receipt, groups, scope);
+  const warningItems = options.verbose === true
+    ? verboseWarningNodes(receipt, groups, scope)
+    : warningNodes(receipt, groups, scope);
   if (options.verbose === true) {
     return [
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
@@ -3146,91 +3083,6 @@ export function applyVerificationFailureDocument(
   return nodes;
 }
 
-
-/**
- * Focused Blocker view for `status --blockers-only` (#351) and
- * `apply --blockers-only` (#352). A strict Blocker filter, not an attention or
- * warning filter: every selected-scope Blocker with concise deterministic
- * grouping, no unrelated lifecycle inventory. Footer counts derive exclusively
- * from the displayed Blockers. Apply renderers place their receipt, failed,
- * and pending safety evidence in an ordered prefix before this section so the
- * filter can never conceal or duplicate it.
- */
-function blockersOnlyFooter(report: ReconciliationReport): string {
-  const blockers = reportBlockers(report);
-  const affectedProjects = new Set(
-    blockers
-      .map((blocker) => blockerProject(blocker))
-      .filter((project): project is string => project !== undefined),
-  );
-  const parts = [`Blockers: ${blockers.length}`];
-  if (affectedProjects.size > 0) {
-    parts.push(`Affected Projects: ${affectedProjects.size}`);
-  }
-  return parts.join(" · ");
-}
-
-/** Groups whose Blockers the focused view displays — the one derivation
- * shared by the focused Blocker section and status next actions, so the two
- * can never desync (INT-1). */
-function displayedBlockerGroups(report: ReconciliationReport): readonly ProjectGroup[] {
-  return groupProjects(report).groups.filter((candidate) => candidate.blockers.length > 0);
-}
-
-
-/** The typed concise focused Blocker section shared by `status` and `apply`:
- * one deterministic group per affected Project, then global Blockers, then the
- * displayed-Blocker footer. The caller owns the outcome notice and any prefix. */
-function focusedConciseBlockerNodes(
-  report: ReconciliationReport,
-  command: LifecycleCommand,
-  scope: LocationDisplayScope,
-): PresentationNode[] {
-  const grouped = groupProjects(report);
-  const nodes: PresentationNode[] = [];
-  for (const group of displayedBlockerGroups(report)) {
-    nodes.push(
-      spacerNode(),
-      {
-        kind: "key-value",
-        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-        value: projectPathNode(group.canonicalProject, group.project, scope),
-      },
-      ...group.blockers.flatMap((blocker) =>
-        conciseBlockerNodes(
-          blocker,
-          displayProjectPath(group.canonicalProject, group.project, scope),
-          grouped.groups,
-          "  ",
-          scope,
-        ),
-      ),
-    );
-  }
-  const globalBlockers = globalBlockerNodes(report, grouped.groups, scope);
-  if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
-  nodes.push(spacerNode(), blockersOnlyFooterNode(report));
-  return nodes;
-}
-
-/** The typed verbose focused Blocker section: complete Blocker fields with
- * every affected item, then the footer. */
-function focusedVerboseBlockerNodes(
-  report: ReconciliationReport,
-  scope: LocationDisplayScope,
-): PresentationNode[] {
-  const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups, scope);
-  return [
-    spacerNode(),
-    { kind: "heading", text: "Blockers:", category: "error" },
-    ...reportBlockers(report).flatMap((blocker) =>
-      verboseBlockerNodes(blocker, groups, shorten, scope)
-    ),
-    spacerNode(),
-    blockersOnlyFooterNode(report),
-  ];
-}
 
 /** The typed untracking recovery for one ownership-conflict Blocker. */
 function shortenInlinePart(
@@ -3356,15 +3208,6 @@ function globalBlockerNodes(
       conciseBlockerNodes(blocker, undefined, groups, "  ", scope)
     ),
   ];
-}
-
-/** The displayed-Blocker footer as one typed summary line. */
-function blockersOnlyFooterNode(report: ReconciliationReport): PresentationNode {
-  return {
-    kind: "prose",
-    parts: [blockersOnlyFooter(report)],
-    category: "error",
-  };
 }
 
 /** The presentation group of an explicitly selected Project, normalized once. */
@@ -3766,47 +3609,10 @@ function verboseStatusDocument(
   ];
 }
 
-function blockersOnlyStatusDocument(
-  report: ReconciliationReport,
-  options: LifecycleHumanOptions,
-): PresentationDocument {
-  const scope = locationDisplayScope(options, report);
-  if (reportBlockers(report).length === 0) {
-    const statusCommandArgs = lifecycleCommandArgs("status", options.selection, report, scope);
-    return [
-      { kind: "prose", parts: ["No blockers."], category: "success" },
-      {
-        kind: "prose",
-        category: "command",
-        parts: [
-          "Next: Run ",
-          commandPart(COMMAND_NAME, statusCommandArgs),
-          " for the complete lifecycle view.",
-        ],
-      },
-    ];
-  }
-  const nodes: PresentationNode[] = [statusOutcomeNotice(report)];
-  if (options.verbose === true) {
-    nodes.push(...focusedVerboseBlockerNodes(report, scope));
-    return nodes;
-  }
-  const grouped = groupProjects(report);
-  const displayedGroups = displayedBlockerGroups(report);
-  nodes.push(...focusedConciseBlockerNodes(report, "status", scope));
-  const next = nextActionNodes("status", report, {
-    groups: displayedGroups,
-    unscopedItems: [],
-  }, options);
-  if (next.length > 0) nodes.push(spacerNode(), ...next);
-  return nodes;
-}
-
 export function lifecycleStatusDocument(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
 ): PresentationDocument {
-  if (options.blockersOnly === true) return blockersOnlyStatusDocument(report, options);
   if (options.verbose === true) return verboseStatusDocument(report, options);
   return conciseStatusDocument(report, options);
 }
@@ -3846,7 +3652,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 14 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 15 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`

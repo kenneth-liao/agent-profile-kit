@@ -234,7 +234,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(14);
+    expect(payload.schemaVersion).toBe(15);
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -685,8 +685,8 @@ describe("integrated fleet recovery qualification", () => {
       { project: projectE, hosts: ["antigravity", "codex"], profile: "engineering" },
     ]);
 
-    // 1. Focused status under a Project Blocker
-    const focusedStatusGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
+    // 1. Blocked-filtered status selects exactly the Project-scoped Blocker
+    const focusedStatusGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--blocked");
     expectExitCode(focusedStatusGlobalBlocked, 2);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Global blockers:");
     expect(focusedStatusGlobalBlocked.stdout).toContain("Blockers:");
@@ -695,60 +695,54 @@ describe("integrated fleet recovery qualification", () => {
     expect(focusedStatusGlobalBlocked.stdout).toContain("Agent Profile Kit cannot write to them.");
     // The evidence-derived untracking command is carried inline in every view (#440).
     expect(focusedStatusGlobalBlocked.stdout).toContain("rm -r --cached --");
-    expect(focusedStatusGlobalBlocked.stdout).toMatch(/Blockers:\s*1\s*·\s*Affected Projects:\s*1/);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updates ready");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Applied:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Host setup:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Standing Host setup:");
-    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Warnings:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectC);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectD);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectE);
 
-    // Material comparison with ordinary verbose
-    const verboseGlobalBlocked = await runCli(home, pathWithHosts, "status", "--all", "--verbose");
-    expectExitCode(verboseGlobalBlocked, 2);
-    expect(focusedStatusGlobalBlocked.stdout.length).toBeLessThan(verboseGlobalBlocked.stdout.length / 2);
+    // Human and machine membership agree for the selected filter.
+    const focusedStatusJson = await runCli(home, pathWithHosts, "status", "--all", "--blocked", "--json");
+    expectExitCode(focusedStatusJson, 2);
+    const focusedJsonPayload = JSON.parse(focusedStatusJson.stdout) as {
+      projects: { canonicalProject: string }[];
+    };
+    expect(focusedJsonPayload.projects.map((project) => project.canonicalProject)).toEqual([projectB]);
 
     // Determinism
-    const repeatFocusedStatus = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only");
+    const repeatFocusedStatus = await runCli(home, pathWithHosts, "status", "--all", "--blocked");
     expect(repeatFocusedStatus.stdout).toBe(focusedStatusGlobalBlocked.stdout);
 
     // Snapshot complete directory trees for Projects A-E, Git exclude files, and Installation State (INT-2)
     const preSnapB = snapshotProjectTree(projectB);
     const preExcludeBContent = readFileSync(join(projectB, ".git", "info", "exclude"), "utf8");
 
-    // 2. Focused partial apply commits healthy Projects, leaves the blocked
+    // 2. Unfiltered partial apply commits healthy Projects, leaves the blocked
     //    Project untouched, and exits with code 2.
-    const partialApply = await runCli(home, pathWithHosts, "apply", "--all", "--blockers-only");
+    const partialApply = await runCli(home, pathWithHosts, "apply", "--all");
     expectExitCode(partialApply, 2);
 
-    // Assert section ordering: committed Apply Receipt evidence forms an ordered prefix before the Blocker section (ADR-0024). The Project key-value renders inline (accepted alignment change).
-    const appliedIndex = partialApply.stdout.indexOf("Applied:");
-    const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
-    const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject: ");
-    const blockerTextIndex = partialApply.stdout.indexOf("are tracked by Git");
-    const blockersFooterIndex = partialApply.stdout.indexOf("Blockers: 1 · Affected Projects: 1");
+    // The committed Apply Receipt evidence and the blocked Project's evidence
+    // render in one view without concealing either.
+    expect(partialApply.stdout).toContain("Applied:");
+    expect(partialApply.stdout).toContain("are tracked by Git");
 
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(freshlyCurrentIndex).toBeGreaterThan(appliedIndex);
-    expect(projectSectionIndex).toBeGreaterThan(freshlyCurrentIndex);
-    expect(blockerTextIndex).toBeGreaterThan(projectSectionIndex);
-    expect(blockersFooterIndex).toBeGreaterThan(blockerTextIndex);
+    // The receipt names the committed Projects and excludes blocked project B
+    const appliedSection = partialApply.stdout.slice(
+      partialApply.stdout.indexOf("Applied:"),
+      partialApply.stdout.indexOf("Blocked:") === -1 ? undefined : partialApply.stdout.indexOf("Blocked:"),
+    );
+    expect(appliedSection).toContain(projectA);
+    expect(appliedSection).toContain(projectC);
+    expect(appliedSection).toContain(projectD);
+    expect(appliedSection).toContain(projectE);
+    expect(appliedSection).not.toContain(projectB);
 
-    // Safety prefix contains applied projects made current and excludes blocked project B
-    const safetyPrefix = partialApply.stdout.slice(appliedIndex, projectSectionIndex);
-    expect(safetyPrefix).toContain(projectA);
-    expect(safetyPrefix).toContain(projectC);
-    expect(safetyPrefix).toContain(projectD);
-    expect(safetyPrefix).toContain(projectE);
-    expect(safetyPrefix).not.toContain(projectB);
-
-    // Blocker section after safety prefix contains blocked Project B evidence and footer
-    const blockerSection = partialApply.stdout.slice(projectSectionIndex);
-    expect(blockerSection).toContain(projectB.split("/").at(-1)!);
-    expect(blockerSection).toContain("are tracked by Git");
-    expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
+    // The blocked Project's Blocker evidence stays visible.
+    expect(partialApply.stdout).toContain(projectB.split("/").at(-1)!);
+    expect(partialApply.stdout).toContain("Blockers:");
 
     // projectA exclusion publication applied
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
@@ -783,8 +777,8 @@ describe("integrated fleet recovery qualification", () => {
     expect(readFileSync(join(projectB, ".claude", "rules", "agent-profile-kit.md"), "utf8")).toBe("# conflicting rule\n");
     expect(readFileSync(join(projectB, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toBe("# conflicting skill 1\n");
 
-    // 4. Focused verbose includes complete Blocker evidence and exact untracking command
-    const focusedVerbose = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only", "--verbose");
+    // 4. The blocked-filtered verbose view includes complete Blocker evidence and exact untracking command
+    const focusedVerbose = await runCli(home, pathWithHosts, "status", "--all", "--blocked", "--verbose");
     expectExitCode(focusedVerbose, 2);
     expect(focusedVerbose.stdout).toContain("are tracked by Git");
     expect(focusedVerbose.stdout).toContain("Requirement:");
@@ -822,7 +816,7 @@ describe("integrated fleet recovery qualification", () => {
         warnings: { kind: string; message: string; copyableValues: string[] }[];
       }[];
     };
-    expect(jsonPayload.schemaVersion).toBe(14);
+    expect(jsonPayload.schemaVersion).toBe(15);
     expect(jsonPayload.outcome).toBe("blocked");
     expect(jsonPayload.projects).toHaveLength(5);
 

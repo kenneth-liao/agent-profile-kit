@@ -169,13 +169,13 @@ describe("verbatim tolerance is scoped to actual verbatim regions", () => {
 });
 
 describe("complete spellings from real command and path forms", () => {
-  const usageBaseline = "Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]\n";
+  const usageBaseline = "Usage: apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]\n";
   const outputsBaseline = "  Outputs: .agent-profile-kit/codex/context.md, .codex/hooks.json\n";
   const recoveryBaseline = "git -C 'my project' rm -r --cached -- 'a b.md'\n";
 
   test("recognizes and guards full usage syntax spans", () => {
     const spellings = collectSpellings(usageBaseline, {});
-    expect(spellings).toContain("apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+    expect(spellings).toContain("apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]");
     expect(() =>
       checkAtomicRendering(
         usageBaseline.replace("apkit status [", "apkit status\n      ["),

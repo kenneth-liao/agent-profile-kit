@@ -52,6 +52,7 @@ import { gitExcludeEntry, type GitProject, type GitWorktree } from "./git.js";
 import {
   ingestApplicationModelFromSource,
   readLocalConfigurationSource,
+  type ProjectSelectionFilter,
 } from "./local-configuration.js";
 import {
   ordinaryReceipts,
@@ -210,6 +211,37 @@ export interface ReconciliationReport {
 
 /** Whether reconciliation may consider installations outside the desired Project set stale. */
 export type ReconciliationScope = { readonly kind: "all" } | { readonly kind: "project" };
+
+/**
+ * The selected-Project narrowing contract (DEC-006): `--stale` selects existing
+ * installations needing updates or restoration — changed source (`update`,
+ * `stale source`) or changed/missing generated files (`drifted output`) —
+ * excluding never-installed (`addition`), removal-pending, and Blocked
+ * Projects; `--blocked` selects Projects with Project-scoped Blockers. Global
+ * Blockers are never Project membership and can never be filtered away.
+ */
+export function isFilterSelectedProject(
+  project: ReconciliationProjectRecord,
+  filter: ProjectSelectionFilter,
+): boolean {
+  if (project.blockers.length > 0) return filter === "blocked";
+  return filter === "stale" &&
+    (project.state.kind === "update" ||
+      project.state.kind === "stale source" ||
+      project.state.kind === "drifted output");
+}
+
+/** Trim report Project membership to the selected filter; Global Blockers stay. */
+export function filterSelectedProjects(
+  report: ReconciliationReport,
+  filter: ProjectSelectionFilter | undefined,
+): ReconciliationReport {
+  if (filter === undefined) return report;
+  return reconciliationReportWithProjects(
+    report,
+    report.projects.filter((project) => isFilterSelectedProject(project, filter)),
+  );
+}
 
 /** Internal reconciliation accumulator normalized into Project records at the boundary. */
 interface ReconciliationAccumulator {
@@ -1393,6 +1425,8 @@ export async function applyReconciliation(
      */
     readonly scheduler?: ProjectReadScheduler;
     readonly scope?: ReconciliationScope;
+    /** Selected-Project narrowing; membership governs writes and both reports (DEC-006). */
+    readonly filter?: ProjectSelectionFilter;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1425,6 +1459,8 @@ async function applyReconciliationLocked(
      */
     readonly scheduler?: ProjectReadScheduler;
     readonly scope?: ReconciliationScope;
+    /** Selected-Project narrowing; membership governs writes and both reports (DEC-006). */
+    readonly filter?: ProjectSelectionFilter;
     readonly verifyReconciliation?: typeof previewReconciliation;
     readonly writeInstallationState?: typeof writeInstallationState;
   } = {},
@@ -1490,12 +1526,19 @@ async function applyReconciliationLocked(
   // serves the preflight report and the ownership proof for stale removals so
   // each owned output is read or walked at most once before any write.
   const preflightOwnershipInspection = createOwnershipInspection();
-  const report = await previewReconciliation(desired, before, {
+  const preflight = await previewReconciliation(desired, before, {
     gitInspection: createGitInspection(),
     ownershipInspection: preflightOwnershipInspection,
     scheduler,
     scope,
   });
+  // One selected-Project contract: the narrowing membership trims the write
+  // scope, the Apply Receipt, and the resulting-state report identically;
+  // global Blockers stay visible and effective (DEC-006).
+  const report = filterSelectedProjects(preflight, options.filter);
+  const selectedProjects = new Set(
+    report.projects.map((project) => project.canonicalProject),
+  );
   if (report.globalBlockers.length > 0) {
     throw new ApplyBlockedError(report);
   }
@@ -1530,7 +1573,10 @@ async function applyReconciliationLocked(
     ordinaryReceipts(before).map((installation) => [installation.project, installation]),
   );
   let workingState = before;
-  const stale = scope.kind === "all"
+  // A filtered selection never owns retirement writes: removal-pending
+  // Projects are outside every narrowing membership (DEC-006), so their
+  // recorded output must not change under --stale or --blocked.
+  const stale = scope.kind === "all" && options.filter === undefined
     ? [...ordinaryReceipts(before), ...retiredReceipts(before)]
       .filter(
         (installation) =>
@@ -1581,7 +1627,7 @@ async function applyReconciliationLocked(
         scope,
       })
     );
-    return verify(desired, state);
+    return filterSelectedProjects(await verify(desired, state), options.filter);
   };
   const failExecution = async (failure: {
     readonly cause: unknown;
@@ -1603,6 +1649,8 @@ async function applyReconciliationLocked(
     });
   };
   for (const [index, item] of desired.entries()) {
+    // A filtered selection writes only its selected membership (DEC-006).
+    if (options.filter !== undefined && !selectedProjects.has(item.binding.canonicalProject)) continue;
     if (blockedProjects.has(item.binding.canonicalProject)) continue;
     const previous = previousFor(item, byProject);
     if (currentProjects.has(item.binding.project)) {
@@ -1678,7 +1726,8 @@ async function applyReconciliationLocked(
           .slice(index + 1)
           .filter((entry) =>
             !blockedProjects.has(entry.binding.canonicalProject) &&
-            !currentProjects.has(entry.binding.project)
+            !currentProjects.has(entry.binding.project) &&
+            (options.filter === undefined || selectedProjects.has(entry.binding.canonicalProject))
           )
           .map((entry) => ({
             canonicalProject: entry.binding.canonicalProject,
@@ -1780,9 +1829,16 @@ async function applyReconciliationLocked(
   // never affects the outcome of the installation. Exclusions are a cache, so
   // there is no rollback: a superseded or failed write self-heals on the next
   // apply.
-  const includedPublicationProjects = scope.kind === "all"
-    ? undefined
-    : new Set(desired.map((installation) => installation.binding.canonicalProject));
+  // A filtered selection publishes only targets a selected Project
+  // contributes to; targets contributed solely by unselected Projects stay
+  // byte-identical because filtered apply changes no unselected Project
+  // (DEC-006). Shared targets still publish the full union of the receipts
+  // that remain, so no contributing Project's entries are dropped.
+  const includedPublicationProjects = options.filter === undefined
+    ? scope.kind === "all"
+      ? undefined
+      : new Set(desired.map((installation) => installation.binding.canonicalProject))
+    : selectedProjects;
   publication = await publishRepositoryExclusions(workingState, {
     gitInspection: createGitInspection(),
     previousState: before,
