@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Add `apkit open`: open the configured Workspace explicitly in the system file manager using the existing configuration-resolution boundary and shared bounded process executor without shell interpolation, providing structured recovery on opener failures without opening automatically during artifact creation (US-047, DEC-027, [#446](https://github.com/kenneth-liao/agent-profile-kit/issues/446)).
+
 - Add `apkit new skill <name>`: scaffold one valid Skill into the configured Workspace and print the absolute path of the created `SKILL.md` without prompting or opening an editor, enforcing the Artifact ID schema, the existing duplicate-Artifact-ID ingestion check, and exclusive creation that refuses occupied or symlinked destinations with typed diagnostics (US-042, US-046 Skill clause, US-055 new-Skill non-interaction clause, DEC-026, [#445](https://github.com/kenneth-liao/agent-profile-kit/issues/445)).
 
 ### Fixed

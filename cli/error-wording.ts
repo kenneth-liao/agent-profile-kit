@@ -429,6 +429,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
         `Skill creation left ${fact.path} and its contents could not be inspected; restore access or review it before removing anything, then run `,
         commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
       ];
+    case "workspace-open-failed":
+      return [`Could not open Workspace at ${fact.path}: ${fact.detail}`];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -566,6 +568,12 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
           commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
           " to retry.",
         ]],
+      };
+    case "workspace-open-failed":
+      return {
+        happened: [`Could not open Workspace at ${fact.path}`],
+        why: [[fact.detail]],
+        whatToType: [["Open ", fact.path, " directly in your file manager or terminal."]],
       };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":

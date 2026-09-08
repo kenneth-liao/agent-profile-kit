@@ -267,6 +267,13 @@ async function bindExample(home: string, projectPath: string): Promise<void> {
   );
 }
 
+function installFakeOpener(home: string): void {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  writeFileSync(join(bin, "open"), "#!/bin/sh\nexit 0\n");
+  chmodSync(join(bin, "open"), 0o755);
+}
+
 async function initializedHome(): Promise<{ home: string; project: string }> {
   const home = isolatedHome();
   await initialize(home);
@@ -505,6 +512,16 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     snapshot: "init",
     commandId: "init",
     prepare: async () => ({ home: isolatedHome(), args: ["init"] }),
+  },
+  {
+    test: "open",
+    snapshot: "open",
+    commandId: "open",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      installFakeOpener(home);
+      return { home, args: ["open"] };
+    },
   },
   {
     test: "new skill",

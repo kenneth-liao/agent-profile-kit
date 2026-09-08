@@ -530,6 +530,25 @@ exit 2
   return bin;
 }
 
+/** Put a controlled system opener stub first on PATH. */
+function installFakeOpener(home: string): { readonly logPath: string; readonly bin: string } {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  const logPath = join(home, "opener.log");
+  writeFileSync(
+    join(bin, "open"),
+    `#!/bin/sh
+if [ -n "\${APKIT_TEST_OPEN_FAIL:-}" ]; then
+  echo "$APKIT_TEST_OPEN_FAIL" >&2
+  exit 1
+fi
+echo "$@" >> "${logPath}"
+`,
+  );
+  execFileSync("chmod", ["+x", join(bin, "open")]);
+  return { logPath, bin };
+}
+
 async function runCliWithPath(
   home: string,
   pathValue: string,
@@ -13100,3 +13119,88 @@ describe("packed CLI new skill", () => {
     expect(Array.from(new Bun.Glob("*").scanSync({ cwd: outside }))).toEqual([]);
   });
 });
+
+describe("packed CLI open workspace", () => {
+  test("open opens the configured Workspace via the system opener", async () => {
+    const home = isolatedHome();
+    const { logPath } = installFakeOpener(home);
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const openResult = await runCli(home, "open");
+    expectExitCode(openResult, 0);
+
+    const openedPath = readFileSync(logPath, "utf8").trim();
+    expect(openedPath).toBe(realpathSync(workspacePath(home)));
+  });
+
+  test("open targets explicitly configured authored Workspace path", async () => {
+    const home = isolatedHome();
+    const customWs = join(home, "custom-workspace");
+    const { logPath } = installFakeOpener(home);
+    expectExitCode(await runCli(home, "init", customWs), 0);
+
+    const openResult = await runCli(home, "open");
+    expectExitCode(openResult, 0);
+
+    const openedPath = readFileSync(logPath, "utf8").trim();
+    expect(openedPath).toBe(realpathSync(customWs));
+  });
+
+  test("open refuses extra positional arguments or flags with command usage", async () => {
+    const home = isolatedHome();
+    installFakeOpener(home);
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const extra = await runCli(home, "open", "extra-arg");
+    expectExitCode(extra, 1);
+    expect(extra.stderr).toContain("open does not accept argument 'extra-arg'");
+    expect(extra.stderr).toContain("Usage: apkit open");
+  });
+
+  test("open rejects uninitialized configuration with structured diagnostic", async () => {
+    const home = isolatedHome();
+    installFakeOpener(home);
+
+    const uninit = await runCli(home, "open");
+    expectExitCode(uninit, 1);
+    expect(uninit.stderr).toContain("Agent Profile Kit is not set up on this machine");
+    expect(uninit.stderr).toContain("Run apkit init to set it up.");
+  });
+
+  test("open reports structured recovery when opener executable fails", async () => {
+    const home = isolatedHome();
+    installFakeOpener(home);
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const failed = await runCliWithEnvironment(
+      home,
+      { APKIT_TEST_OPEN_FAIL: "No application knows how to open path" },
+      "open",
+    );
+    expectExitCode(failed, 1);
+    expect(failed.stderr).toContain("Could not open Workspace at");
+    expect(failed.stderr).toContain("No application knows how to open path");
+    expect(failed.stderr).toContain("Open");
+  });
+
+  test("artifact creation does not automatically open the Workspace as a side effect", async () => {
+    const home = isolatedHome();
+    const { logPath } = installFakeOpener(home);
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const created = await runCli(home, "new", "skill", "my-skill");
+    expectExitCode(created, 0);
+    expect(existsSync(logPath)).toBe(false);
+  });
+
+  test("open help output is accessible through aliases", async () => {
+    const home = isolatedHome();
+    const help1 = await runCli(home, "open", "--help");
+    const help2 = await runCli(home, "help", "open");
+    expectExitCode(help1, 0);
+    expectExitCode(help2, 0);
+    expect(help1.stdout).toContain("Open the configured Workspace in your system file manager");
+    expect(help1.stdout).toBe(help2.stdout);
+  });
+});
+

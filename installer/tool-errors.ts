@@ -164,6 +164,11 @@ export type InstallerToolErrorFact =
        */
       readonly contents: "own" | "foreign" | "uninspectable";
     }
+  | {
+      readonly kind: "workspace-open-failed";
+      readonly path: string;
+      readonly detail: string;
+    }
   | ConfiguredPathErrorFact
   | WorkspaceIngestionErrorFact;
 

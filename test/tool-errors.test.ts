@@ -436,4 +436,24 @@ describe("typed Installer tool errors", () => {
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  test("workspace-open-failed diagnostic carries the failure detail and manual opening recovery", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "workspace-open-failed",
+      path: "/path/to/workspace",
+      detail: "Command failed with exit code 1",
+    };
+    const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+    expect(flatInlineText(diagnostic.happened)).toBe("Could not open Workspace at /path/to/workspace");
+    expect(diagnostic.why).toBeDefined();
+    expect(flatInlineText(diagnostic.why![0]!)).toBe("Command failed with exit code 1");
+    expect(diagnostic.whatToType).toBeDefined();
+    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Open /path/to/workspace directly in your file manager or terminal.");
+    for (const pattern of INTERNAL_ONLY_DEFAULT_TERMS) {
+      expect(flatInlineText(diagnostic.happened)).not.toMatch(pattern);
+      expect(flatInlineText(diagnostic.whatToType![0]!)).not.toMatch(pattern);
+    }
+    const machine = flatInlineText(formatInstallerToolError(fact));
+    expect(machine).toBe("Could not open Workspace at /path/to/workspace: Command failed with exit code 1");
+  });
 });
