@@ -20,6 +20,12 @@ export interface TerminalPresentationContext {
   readonly color: boolean;
   readonly interactive: boolean;
   readonly width: number;
+  /**
+   * The terminal height in rows when interactive and known; undefined when
+   * redirected or unreported. The long-guidance paging decision consumes it;
+   * it is never a layout width.
+   */
+  readonly rows: number | undefined;
 }
 
 export type SemanticCategory =
@@ -83,7 +89,10 @@ function clampWidth(width: number): number {
  * context instead of independently consulting process streams or environment.
  */
 export function terminalPresentationContext(
-  stream: Pick<WriteStream, "isTTY" | "columns"> = process.stdout,
+  stream: Pick<WriteStream, "isTTY"> & {
+    readonly columns?: number;
+    readonly rows?: number;
+  } = process.stdout,
   environment: NodeJS.ProcessEnv = process.env,
 ): TerminalPresentationContext {
   const interactive = stream.isTTY === true;
@@ -92,12 +101,18 @@ export function terminalPresentationContext(
   const width = interactive
     ? clampWidth(terminalColumns ?? environmentColumns ?? DEFAULT_HUMAN_WIDTH)
     : DEFAULT_HUMAN_WIDTH;
+  const terminalRows = positiveColumns(stream.rows);
+  const environmentRows = positiveColumns(environment.LINES);
+  // Unknown height stays unknown: long-guidance paging requires a known
+  // screen size and never pages on a guess.
+  const rows = interactive ? (terminalRows ?? environmentRows) : undefined;
   const terminal = environment.TERM?.toLowerCase();
   const noColor = environment.NO_COLOR !== undefined && environment.NO_COLOR !== "";
   return {
     color: interactive && terminal !== undefined && terminal !== "dumb" && !noColor,
     interactive,
     width,
+    rows,
   };
 }
 

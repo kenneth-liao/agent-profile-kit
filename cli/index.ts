@@ -142,6 +142,10 @@ import {
   type MachineInventoryTopic,
 } from "./inventory-topics.js";
 import {
+  pageGuidanceDocument,
+  shouldPageGuidance,
+} from "./pager.js";
+import {
   agentProfileKitWordmark,
   terminalPresentationContext,
   type TerminalPresentationContext,
@@ -182,6 +186,31 @@ function writeHumanDocument(
 ): void {
   const rendered = renderPresentationDocument(document, context, environment);
   stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
+}
+
+/**
+ * Guidance output (US-050, DEC-029): identical to writeHumanDocument when the
+ * output is redirected or short; on an interactive terminal whose height is
+ * known, long guidance is delivered through the configured pager (cli/pager).
+ * The exit code is unchanged unless the user interrupted a paging session.
+ */
+async function writeGuidanceDocument(
+  stream: WriteStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+  environment: PresentationRenderOptions = {},
+): Promise<void> {
+  const rendered = renderPresentationDocument(document, context, environment);
+  const text = rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+  const exitCode = await pageGuidanceDocument({
+    text,
+    stream,
+    writeAdvisory: (advisory) => {
+      writeHumanDocument(process.stderr, advisory, stderrPresentationContext);
+    },
+    shouldPage: shouldPageGuidance(context, text),
+  });
+  if (exitCode !== 0) process.exitCode = exitCode;
 }
 
 /** The carried syntax of one named command, for diagnostic usage nodes. */
@@ -840,11 +869,11 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("guide", () => parseGuideArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     if (parsed.kind === "index") {
-      writeHumanDocument(process.stdout, guideIndexDocument(), stdoutPresentationContext);
+      await writeGuidanceDocument(process.stdout, guideIndexDocument(), stdoutPresentationContext);
     } else if (parsed.kind === "topic") {
       try {
         const info = await readApplicationInfo(home);
-        writeHumanDocument(
+        await writeGuidanceDocument(
           process.stdout,
           focusedGuideDocument(parsed.topic, {
             configurationState: info.configurationState,
@@ -861,9 +890,9 @@ async function main(): Promise<void> {
         process.exitCode = 1;
       }
     } else if (parsed.kind === "agent") {
-      writeHumanDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
+      await writeGuidanceDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      writeHumanDocument(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
+      await writeGuidanceDocument(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }

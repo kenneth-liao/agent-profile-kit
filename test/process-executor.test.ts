@@ -1,12 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   describeProcessResult,
   expectExitCode,
+  runInteractiveProcess,
   runProcess,
+  type InteractiveProcessResult,
 } from "../process/process-executor.js";
 
 const shell = "sh";
@@ -324,5 +326,233 @@ describe("process diagnostics", () => {
     expect(stderrOverflow.kind).toBe("output-limit");
     expect(stderrOverflow.cleanupFailed).toBe(false);
     expect(stderrOverflow.stdout).toBe("");
+  });
+});
+
+describe("runInteractiveProcess (#448)", () => {
+  test("delivers stdin content to the child and resolves on natural exit", async () => {
+    const result = await runInteractiveProcess({
+      executable: shell,
+      arguments_: ["-c", "cat; exit 0"],
+      stdin: "interactive guidance body\n",
+      stdoutMode: "ignore",
+      commandLabel: "interactive stdin fixture",
+    });
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(0);
+    }
+    expect(result.signal).toBeNull();
+    expect(result.cleanupFailed).toBe(false);
+    expect(result.error).toBeNull();
+  });
+
+  test("imposes no deadline: a slow child runs to natural completion", async () => {
+    const started = Date.now();
+    const result = await runInteractiveProcess({
+      executable: shell,
+      arguments_: ["-c", "sleep 0.4; exit 0"],
+      stdin: "",
+      stdoutMode: "ignore",
+      commandLabel: "interactive no-deadline fixture",
+    });
+    expect(result.kind).toBe("exit");
+    expect(result.exitCode).toBe(0);
+    // Well past any test-scale deadline that would have produced "timeout".
+    expect(Date.now() - started).toBeGreaterThanOrEqual(400);
+  });
+
+  test("cancellation terminates the owned child pid within the cleanup grace", async () => {
+    const controller = new AbortController();
+    const resultPromise = runInteractiveProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "sleep 30"],
+        stdin: "",
+        stdoutMode: "ignore",
+        cleanupGraceMs: 200,
+        commandLabel: "interactive cancel fixture",
+      },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 150);
+    const result = await resultPromise;
+    expect(result.kind).toBe("cancelled");
+    expect(result.cleanupFailed).toBe(false);
+    expect(result.exitCode).toBeNull();
+  });
+
+  test("cancellation terminates the exact published owned pid and claims no descendants", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-interactive-cancel-"));
+    const controller = new AbortController();
+    let execution: Promise<InteractiveProcessResult> | undefined;
+    let ownedPid = 0;
+    let descendantPid = 0;
+    try {
+      const pidFile = join(fixtureDir, "owned-pid.txt");
+      const descendantFile = join(fixtureDir, "descendant-pid.txt");
+      execution = runInteractiveProcess(
+        {
+          executable: shell,
+          arguments_: [
+            "-c",
+            `echo $$ > '${pidFile}'; sleep 30 & echo $! > '${descendantFile}'; wait`,
+          ],
+          stdin: "",
+          stdoutMode: "ignore",
+          cleanupGraceMs: 200,
+          commandLabel: "interactive owned-pid fixture",
+        },
+        controller.signal,
+      );
+      // Wait for the fixture to publish its owned pid and descendant pid
+      // before cancelling, so the probe targets a real, started child.
+      for (let i = 0; i < 100 && (ownedPid === 0 || descendantPid === 0); i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        try {
+          ownedPid = Number(readFileSync(pidFile, "utf8").trim());
+        } catch {
+          // not written yet
+        }
+        try {
+          descendantPid = Number(readFileSync(descendantFile, "utf8").trim());
+        } catch {
+          // not written yet
+        }
+      }
+      expect(ownedPid).toBeGreaterThan(1);
+      expect(descendantPid).toBeGreaterThan(1);
+      controller.abort();
+      const result = await execution;
+      expect(result.kind).toBe("cancelled");
+      expect(result.cleanupFailed).toBe(false);
+      // The exact owned child pid — not a stand-in — is gone on resolution.
+      expectProcessGone(ownedPid, "owned interactive child");
+      // Owned-pid policy (ADR-0028): the executor claims no descendant-tree
+      // cleanup. The backgrounded sleep survives as an orphan while the test
+      // observes it; the fixture owns its termination below.
+      const descendantState = spawnSync("ps", ["-o", "state=", "-p", String(descendantPid)], {
+        encoding: "utf8",
+        timeout: 1000,
+      });
+      expect(descendantState.status).toBe(0);
+      expect(descendantState.stdout.trim()).not.toBe("");
+    } finally {
+      // Fixture-owned cleanup on every path, including failed setup: abort
+      // and settle the owned execution so the executor terminates the child,
+      // then explicitly terminate the fixture descendant the executor does
+      // not claim.
+      controller.abort();
+      if (execution !== undefined) {
+        await execution.catch(() => undefined);
+      }
+      if (descendantPid > 0) {
+        try {
+          process.kill(descendantPid, "SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  test("cancellation escalates to SIGKILL against a TERM-resistant child", async () => {
+    const controller = new AbortController();
+    const started = Date.now();
+    const resultPromise = runInteractiveProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "trap '' TERM; sleep 30"],
+        stdin: "",
+        stdoutMode: "ignore",
+        cleanupGraceMs: 200,
+        commandLabel: "interactive TERM-resistant fixture",
+      },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 100);
+    const outcome = await resultPromise;
+    expect(outcome.kind).toBe("cancelled");
+    expect(outcome.cleanupFailed).toBe(false);
+    // SIGTERM (grace) + SIGKILL escalation, not the unbounded sleep.
+    expect(Date.now() - started).toBeLessThan(5000);
+  });
+
+  test("repeated aborts neither leak the child nor break resolution", async () => {
+    const controller = new AbortController();
+    const resultPromise = runInteractiveProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "sleep 30"],
+        stdin: "",
+        stdoutMode: "ignore",
+        cleanupGraceMs: 200,
+        commandLabel: "interactive repeated-abort fixture",
+      },
+      controller.signal,
+    );
+    controller.abort();
+    controller.abort();
+    const result = await resultPromise;
+    expect(result.kind).toBe("cancelled");
+    expect(result.cleanupFailed).toBe(false);
+  });
+
+  test("spawn failure reports the underlying error without cleanup claims", async () => {
+    const result = await runInteractiveProcess({
+      executable: "/nonexistent/agent-profile-kit-interactive-fixture",
+      arguments_: [],
+      stdin: "",
+      commandLabel: "interactive spawn-error fixture",
+    });
+    expect(result.kind).toBe("spawn-error");
+    if (result.kind === "spawn-error") {
+      expect(result.error?.message).toMatch(/ENOENT|no such file/i);
+    }
+    expect(result.cleanupFailed).toBe(false);
+  });
+
+  test("a child quitting before draining stdin is an ordinary early quit (EPIPE tolerated)", async () => {
+    const result = await runInteractiveProcess({
+      executable: shell,
+      arguments_: ["-c", "exit 0"],
+      stdin: "body the pager never reads\n".repeat(2000),
+      stdoutMode: "ignore",
+      commandLabel: "interactive early-quit fixture",
+    });
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(0);
+    }
+    expect(result.error).toBeNull();
+  });
+
+  test("runs in the caller's foreground process group (no detached spawn)", async () => {
+    const ownPgid = spawnSync("ps", ["-o", "pgid=", "-p", String(process.pid)], {
+      encoding: "utf8",
+      timeout: 1000,
+    });
+    if (ownPgid.status !== 0) {
+      throw new Error(`own pgid inspection failed: ${ownPgid.stderr}`);
+    }
+    const expectedPgid = Number(ownPgid.stdout.trim());
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-interactive-fixture-"));
+    try {
+      const pgidFile = join(fixtureDir, "pgid.txt");
+      const result = await runInteractiveProcess({
+        executable: shell,
+        arguments_: ["-c", `ps -o pgid= -p "$$" > '${pgidFile}'`],
+        stdin: "",
+        commandLabel: "interactive foreground fixture",
+      });
+      expect(result.kind).toBe("exit");
+      if (result.kind === "exit") {
+        expect(result.exitCode).toBe(0);
+      }
+      expect(Number(readFileSync(pgidFile, "utf8").trim())).toBe(expectedPgid);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 });

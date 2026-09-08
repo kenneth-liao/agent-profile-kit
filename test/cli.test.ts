@@ -13242,3 +13242,138 @@ describe("packed CLI open workspace", () => {
   });
 });
 
+
+describe("paged long guidance (#448, US-050, DEC-029)", () => {
+  function pagerFixture(directory: string, name: string, script: string): string {
+    const executable = join(directory, name);
+    writeFileSync(executable, `#!/bin/sh\n${script}\n`);
+    chmodSync(executable, 0o755);
+    return executable;
+  }
+
+  test("redirected guide output never invokes a configured pager and stays unchanged", async () => {
+    const home = isolatedHome();
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
+    temporaryDirectories.push(fixtureDir);
+    const marker = join(fixtureDir, "invoked.marker");
+    const pager = pagerFixture(fixtureDir, "record-pager", `touch '${marker}'`);
+    // The configured pager is genuinely supplied: redirected output must not
+    // invoke it even when PAGER points at this recording executable.
+    const redirected = await runCliWithEnvironment(home, { PAGER: pager }, "guide", "--full");
+    expect(existsSync(marker)).toBe(false);
+    const withoutPager = await runCli(home, "guide", "--full");
+    expect(redirected.stdout).toBe(withoutPager.stdout);
+    expect(redirected.exitCode).toBe(0);
+  });
+
+  test("a redirected run with PAGER pointing at a missing executable is unaffected", async () => {
+    const home = isolatedHome();
+    const result = await runCliWithEnvironment(
+      home,
+      { PAGER: "/nonexistent/agent-profile-kit-pager" },
+      "guide",
+      "skill",
+    );
+    expectExitCode(result, 0);
+    expect(result.stderr).not.toContain("PAGER");
+    expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
+  });
+
+  test("long interactive guidance is paged through the controlled configured pager", async () => {
+    const home = isolatedHome();
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
+    temporaryDirectories.push(fixtureDir);
+    const marker = join(fixtureDir, "invoked.marker");
+    const received = join(fixtureDir, "received.txt");
+    const pager = pagerFixture(
+      fixtureDir,
+      "record-pager",
+      [
+        `cat > '${received}'`,
+        `touch '${marker}'`,
+        "exit 0",
+      ].join("\n"),
+    );
+    // guide --full is the complete Workspace reference: far longer than one
+    // terminal screen, so the paging decision is content-driven.
+    // The PTY harness reports rows=0; LINES exercises the documented
+    // environment fallback that real terminals satisfy via the device.
+    const pty = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      { PAGER: pager, NO_COLOR: "1", LINES: "24" },
+      "guide",
+      "--full",
+    );
+    expectExitCode(pty, 0);
+    expect(existsSync(marker)).toBe(true);
+    const paged = readFileSync(received, "utf8");
+    expect(paged).toContain("Workspace");
+    // The terminal itself received nothing: the pager owned the screen.
+    const direct = await runCli(home, "guide", "--full");
+    expect(paged).toBe(direct.stdout);
+  }, 20000);
+
+  test("short interactive guidance is written directly without the pager", async () => {
+    const home = isolatedHome();
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
+    temporaryDirectories.push(fixtureDir);
+    const marker = join(fixtureDir, "invoked.marker");
+    const pager = pagerFixture(fixtureDir, "record-pager", `touch '${marker}'`);
+    const pty = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      { PAGER: pager, NO_COLOR: "1" },
+      "guide",
+      "skill",
+    );
+    expectExitCode(pty, 0);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("colored interactive guidance reaches the configured pager with readable ANSI handling", async () => {
+    const home = isolatedHome();
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
+    temporaryDirectories.push(fixtureDir);
+    const received = join(fixtureDir, "received.txt");
+    const pager = pagerFixture(
+      fixtureDir,
+      "record-pager",
+      [`cat > '${received}'`, "exit 0"].join("\n"),
+    );
+    // Color-capable terminal (no NO_COLOR): the rendered guidance delivered
+    // to the pager carries its semantic ANSI styling. The guide index is a
+    // styled document (headings, command parts); the complete guide files are
+    // verbatim and unstyled by design. Readability of that styling through
+    // default less is the executor's LESS=FRX default, asserted at the pager
+    // boundary (test/pager.test.ts). LINES=10 makes the ~15-line index exceed
+    // one screen so the paging decision engages.
+    const pty = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      { PAGER: pager, TERM: "xterm-256color", NO_COLOR: undefined, LINES: "10" },
+      "guide",
+    );
+    expectExitCode(pty, 0);
+    const paged = readFileSync(received, "utf8");
+    expect(paged).toContain("Workspace");
+    expect(paged).toMatch(/\u001B\[/);
+  }, 20000);
+
+  test("a configured pager that fails to spawn prints the guidance unchanged with an advisory", async () => {
+    const home = isolatedHome();
+    const pty = await runCliInPtyWithEnvironment(
+      home,
+      80,
+      { PAGER: "/nonexistent/agent-profile-kit-pager", NO_COLOR: "1", LINES: "24" },
+      "guide",
+      "--full",
+    );
+    expectExitCode(pty, 0);
+    expect(pty.stdout).toContain("Workspace");
+    // In the PTY harness the command's stderr is the same pty, so the advisory
+    // and the fallback guidance both arrive in the captured output.
+    expect(pty.stdout).toMatch(/guidance could not be opened/);
+    expect(pty.stdout).toMatch(/PAGER/);
+  }, 20000);
+});
