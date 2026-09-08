@@ -70,6 +70,7 @@ import {
   type PresentationRenderOptions,
 } from "./presentation-document.js";
 import { commandPart, flatInlineText, type CommandArg, type InlineContent } from "./inline-content.js";
+import { nearestName } from "./nearest-match.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -352,36 +353,8 @@ function focusedMachineHelpRequest(arguments_: readonly string[]):
   return undefined;
 }
 
-const MAX_COMMAND_SUGGESTION_DISTANCE = 2;
-
-function editDistance(left: string, right: string): number {
-  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-  for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-    const current = [leftIndex];
-    for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-      current[rightIndex] = Math.min(
-        current[rightIndex - 1]! + 1,
-        previous[rightIndex]! + 1,
-        previous[rightIndex - 1]! + (left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1),
-      );
-    }
-    previous.splice(0, previous.length, ...current);
-  }
-  return previous[right.length]!;
-}
-
 function suggestedCommand(unknown: string): string | undefined {
-  return defaultCommands()
-    .map((command) => ({
-      distance: editDistance(unknown, command.name),
-      name: command.name,
-    }))
-    .filter(({ distance }) => distance <= MAX_COMMAND_SUGGESTION_DISTANCE)
-    .sort((left, right) => {
-      if (left.distance !== right.distance) return left.distance - right.distance;
-      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
-    })[0]
-    ?.name;
+  return nearestName(unknown, defaultCommands().map((command) => command.name));
 }
 
 function sanitizeCommandToken(token: string): string {
@@ -414,17 +387,7 @@ function unknownCommandDiagnostic(unknown: string): PresentationDocument {
 /** Unknown-command help inside the machine-facing namespace (DEC-019). */
 function unknownMachineCommandDiagnostic(unknown: string): PresentationDocument {
   const safeUnknown = sanitizeCommandToken(unknown);
-  const suggestion = machineCommands()
-    .map((command) => ({
-      distance: editDistance(safeUnknown, command.name),
-      name: command.name,
-    }))
-    .filter(({ distance }) => distance <= MAX_COMMAND_SUGGESTION_DISTANCE)
-    .sort((left, right) => {
-      if (left.distance !== right.distance) return left.distance - right.distance;
-      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0;
-    })[0]
-    ?.name;
+  const suggestion = nearestName(safeUnknown, machineCommands().map((command) => command.name));
   return diagnosticDocument({
     happened: [`unknown machine command '${safeUnknown}'`],
     whatToType: [
