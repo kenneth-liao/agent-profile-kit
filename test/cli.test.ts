@@ -4988,6 +4988,75 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(current.stdout).not.toContain("Next:");
   });
 
+  test("the fleet apply receipt names a replaced changed generated file in every invocation mode", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectAlpha = project("agent-profile-kit-drift-alpha-");
+    const projectBeta = project("agent-profile-kit-drift-beta-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${projectAlpha}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${projectBeta}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    const driftedPath = (projectRoot: string): string => join(projectRoot, ".codex", "hooks.json");
+
+    // Concise fleet: the replacement is named with its Project attribution,
+    // and the receipt does not infer who changed the file (US-028, DEC-018).
+    writeFileSync(driftedPath(projectAlpha), "hand edit\n");
+    const concise = await runCli(home, "apply", "--all");
+    expectExitCode(concise, 0);
+    const appliedSection = concise.stdout.slice(
+      concise.stdout.indexOf("Applied:"),
+      concise.stdout.indexOf("First use:") === -1 ? undefined : concise.stdout.indexOf("First use:"),
+    );
+    const appliedText = humanText(appliedSection);
+    expect(appliedText).toContain(`~ .codex/hooks.json (${projectAlpha})`);
+    expect(appliedText).not.toMatch(/\b(you|your|someone|author|owner)\b/i);
+
+    // Verbose: the drifted replacement is distinguishable as changed bytes.
+    writeFileSync(driftedPath(projectAlpha), "hand edit again\n");
+    const verbose = await runCli(home, "apply", "--all", "--verbose");
+    expectExitCode(verbose, 0);
+    const verboseText = humanText(verbose.stdout);
+    expect(verboseText).toContain(
+      `${projectAlpha}/.codex/hooks.json: changed`,
+    );
+
+    // Machine JSON: the applied snapshot carries every operation, including
+    // the named replacement, without key changes. Drift classification stays
+    // presentation-side; the machine receipt names the operation and file.
+    writeFileSync(driftedPath(projectAlpha), "hand edit once more\n");
+    const json = await runCli(home, "apply", "--all", "--json");
+    expectExitCode(json, 0);
+    const payload = JSON.parse(json.stdout) as {
+      readonly applied?: {
+        readonly projects: readonly {
+          readonly canonicalProject: string;
+          readonly outputs: readonly {
+            readonly kind: string;
+            readonly path: string;
+            readonly driftKind?: string;
+            readonly consumingHosts?: readonly string[];
+          }[];
+        }[];
+      };
+    };
+    const appliedAlpha = payload.applied?.projects.find(
+      (entry) => entry.canonicalProject === realpathSync(projectAlpha),
+    );
+    expect(appliedAlpha?.outputs).toContainEqual({
+      kind: "update",
+      path: ".codex/hooks.json",
+      consumingHosts: ["codex"],
+    });
+    expect(readFileSync(driftedPath(projectAlpha), "utf8")).not.toContain("hand edit");
+  });
+
   test("status reports a malformed machine-local Installation Manifest without writing", async () => {
     const home = isolatedHome();
     await initialize(home);
