@@ -130,6 +130,7 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         `skills/${name}/SKILL.md`,
         sourcePath,
         sidecar,
+        sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
     );
@@ -151,6 +152,8 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
           kind: "missing-context-reference",
           profile: profile.id,
           contextId,
+          file: profile.path,
+          available: [...contexts.keys()].sort(),
         });
       }
     }
@@ -160,6 +163,8 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
           kind: "missing-skill-reference",
           profile: profile.id,
           skillId,
+          file: profile.path,
+          available: [...skills.keys()].sort(),
         });
       }
     }

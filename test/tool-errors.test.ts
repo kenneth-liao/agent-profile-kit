@@ -280,8 +280,9 @@ describe("typed Installer tool errors", () => {
       expect(failure).toBeInstanceOf(InstallerToolError);
       expect((failure as InstallerToolError).fact.kind).toBe("missing-context-reference");
       expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
-        "Profile 'broken' selects missing Context Module 'no-such-context'. " +
-          "Restore the Context Module, or remove or update Profile 'broken'",
+        "Profile 'broken' in profiles/broken.yaml selects missing Context Module 'no-such-context'. " +
+          "Restore the Context Module, or remove or update Profile 'broken'. " +
+          "Available Context Modules: team-rules",
       );
     } finally {
       rmSync(home, { recursive: true, force: true });

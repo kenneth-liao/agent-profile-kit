@@ -34,10 +34,31 @@ type DependencyArtifact = (ContextModule | Skill) & {
   readonly dependencies: readonly ArtifactReference[];
 };
 
+function availableNames(
+  reference: ArtifactReference,
+  contexts: ReadonlyMap<string, ContextModule>,
+  skills: ReadonlyMap<string, Skill>,
+): readonly string[] {
+  return (reference.type === "context" ? [...contexts.keys()] : [...skills.keys()]).sort();
+}
+
+/** The Workspace-relative file that authored an artifact's dependency references. */
+function declaringFile(artifact: ContextModule | Skill): string {
+  if ("sidecarPath" in artifact) {
+    const file = artifact.sidecarPath;
+    if (file === undefined) {
+      throw new Error(`skill '${artifact.id}' declares dependencies without a sidecar file`);
+    }
+    return file;
+  }
+  return artifact.path;
+}
+
 function artifactFor(
   reference: ArtifactReference,
   contexts: ReadonlyMap<string, ContextModule>,
   skills: ReadonlyMap<string, Skill>,
+  declaredIn: string,
 ): DependencyArtifact {
   const artifact = reference.type === "context"
     ? contexts.get(reference.id)
@@ -48,6 +69,8 @@ function artifactFor(
       kind: "missing-dependency-reference",
       label,
       id: reference.id,
+      file: declaredIn,
+      available: availableNames(reference, contexts, skills),
     });
   }
   return artifact;
@@ -64,10 +87,11 @@ function rootReferences(profile: Profile): readonly ArtifactReference[] {
   ];
 }
 
-function validationProfile(reference: ArtifactReference): Profile {
+function validationProfile(reference: ArtifactReference, declaringFile: string): Profile {
   return {
     context: reference.type === "context" ? [reference.id] : [],
     id: "dependency-validation",
+    path: declaringFile,
     skills: reference.type === "skill" ? [reference.id] : [],
   };
 }
@@ -98,7 +122,7 @@ export function resolveProfileDependencies(
     }
   }
 
-  function visit(reference: ArtifactReference, reason: InclusionReason): void {
+  function visit(reference: ArtifactReference, reason: InclusionReason, declaredIn: string): void {
     const key = artifactReferenceKey(reference);
     const state = states.get(key);
     if (state === "resolving") {
@@ -107,17 +131,25 @@ export function resolveProfileDependencies(
     }
     if (state === "resolved") {
       addReason(reference, reason);
-      const artifact = artifactFor(reference, contexts, skills);
+      const artifact = artifactFor(reference, contexts, skills, declaredIn);
       for (const dependency of [...artifact.dependencies].sort(compareReferences)) {
-        visit(dependency, { profileId: reason.profileId, path: [...reason.path, reference] });
+        visit(
+          dependency,
+          { profileId: reason.profileId, path: [...reason.path, reference] },
+          declaringFile(artifact),
+        );
       }
       return;
     }
-    const artifact = artifactFor(reference, contexts, skills);
+    const artifact = artifactFor(reference, contexts, skills, declaredIn);
     states.set(key, "resolving");
     path.push(reference);
     for (const dependency of [...artifact.dependencies].sort(compareReferences)) {
-      visit(dependency, { profileId: reason.profileId, path: [...reason.path, reference] });
+      visit(
+        dependency,
+        { profileId: reason.profileId, path: [...reason.path, reference] },
+        declaringFile(artifact),
+      );
     }
     path.pop();
     const resolved: MutableResolvedArtifact = {
@@ -131,7 +163,7 @@ export function resolveProfileDependencies(
   }
 
   for (const reference of rootReferences(profile)) {
-    visit(reference, { profileId: profile.id, path: [] });
+    visit(reference, { profileId: profile.id, path: [] }, profile.path);
   }
 
   return {
@@ -155,6 +187,16 @@ export function validateDependencyCatalog(
     ...[...skills.keys()].sort().map((id) => ({ id, type: "skill" as const })),
   ];
   for (const reference of references) {
-    resolveProfileDependencies(validationProfile(reference), contexts, skills);
+    // The root reference comes from the catalog itself, so the synthetic
+    // profile's declaring file is the artifact's real authored path; a
+    // sidecar-less Skill authors no dependency references, so its source path
+    // stands in and is never read as evidence.
+    const artifact = reference.type === "context"
+      ? contexts.get(reference.id)!
+      : skills.get(reference.id)!;
+    const authoringFile = "sidecarPath" in artifact && artifact.sidecarPath !== undefined
+      ? artifact.sidecarPath
+      : artifact.path;
+    resolveProfileDependencies(validationProfile(reference, authoringFile), contexts, skills);
   }
 }

@@ -673,10 +673,61 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain(
-      "Profile 'example' selects missing Context Module 'example-context'",
-    );
+    expect(result.stderr).toContain("Profile 'example' in profiles/example.yaml");
+    expect(result.stderr).toContain("missing Context");
+    expect(result.stderr).toContain("'example-context'");
     expect(result.stderr).toContain("Restore the Context Module, or remove or update Profile 'example'");
+    expect(result.stderr).toContain("No Context Modules exist in the Workspace");
+    expect(result.stderr).toContain("apkit validate");
+  });
+
+  test("validate suggests the nearest name for a typo'd Profile reference (US-025)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const workspace = workspacePath(home);
+    removeScaffoldedExample(home);
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploys the service.\n---\n\nDeploy.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "typo.yaml"),
+      "id: typo\ncontext: []\nskills:\n  - deplo\n",
+    );
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Profile 'typo' in profiles/typo.yaml");
+    expect(result.stderr).toContain("'deplo'");
+    expect(result.stderr).toContain("Available Skills: deploy");
+    expect(result.stderr).toContain("Did you mean 'deploy'?");
+    expect(result.stderr).toContain("apkit validate");
+  });
+
+  test("a distant invalid reference still names file, value, and available names (US-026)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const workspace = workspacePath(home);
+    removeScaffoldedExample(home);
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploys the service.\n---\n\nDeploy.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "typo.yaml"),
+      "id: typo\ncontext: []\nskills:\n  - entirely-unrelated\n",
+    );
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Profile 'typo' in profiles/typo.yaml");
+    expect(result.stderr).toContain("'entirely-unrelated'");
+    expect(result.stderr).toContain("Available Skills: deploy");
+    expect(result.stderr).not.toContain("Did you mean");
   });
 
   test("manifest-only and partial Workspaces validate; re-init does not restore optional scaffolding", async () => {

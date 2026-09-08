@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Explain invalid Workspace references at validation: the offending authoring file, the invalid referenced value, and the available names are carried from Workspace ingestion into the typed facts and rendered through the existing happened/why/what-to-type structure, with a nearest-name suggestion using the shared selection algorithm when one exists and the full evidence kept visible when none does; machine error payloads keep their keys and meanings, publishing only the enriched carried sentence (US-025, US-026, DEC-014, DEC-017, TEST-001, TEST-002, [#450](https://github.com/kenneth-liao/agent-profile-kit/issues/450)).
+
 ### Fixed
 
 - Follow the POSIX double-quote contract exactly when normalizing `PAGER` at the pager boundary: a backslash inside double quotes is special only before `$`, backtick, `"`, `\\`, and newline, and stays a literal backslash before ordinary characters (e.g. `less -p "\\.agents"` passes a backslash-dot argument); treat an explicitly empty `LESS` as operator authority and preserve it, applying the `LESS=FRX` readable-ANSI default only when `LESS` is unset; and cover real signal propagation at the paging boundary (single abort on repeated SIGINT/SIGTERM, 130/143 exit mapping, no reprint, handler unregister) (review INT-1–3 on [#476](https://github.com/kenneth-liao/agent-profile-kit/pull/476)).

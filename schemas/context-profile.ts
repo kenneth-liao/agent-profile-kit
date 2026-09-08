@@ -13,12 +13,16 @@ export interface ContextModule {
   readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
   readonly content: string;
+  /** Workspace-relative source file this module was parsed from. */
+  readonly path: string;
 }
 
 export interface Profile {
   readonly id: string;
   readonly context: readonly string[];
   readonly skills: readonly string[];
+  /** Workspace-relative source file this Profile was parsed from. */
+  readonly path: string;
 }
 
 function requireExactFields(
@@ -135,6 +139,7 @@ export function parseContextModule(source: string, path: string): ContextModule 
       section: "dependencies",
     }),
     id,
+    path,
   };
 }
 
@@ -173,5 +178,6 @@ export function parseProfile(source: string, path: string): Profile {
     id: mapping.id,
     context: requireStringArray(mapping.context, path, "context"),
     skills: requireStringArray(mapping.skills, path, "skills"),
+    path,
   };
 }
