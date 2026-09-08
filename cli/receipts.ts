@@ -3,7 +3,7 @@ import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
-import { displayProjectPath } from "./display-path.js";
+import { displayPath, displayProjectPath } from "./display-path.js";
 import {
   commandPart,
   identifierPart,
@@ -27,13 +27,21 @@ const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
 const projectBindingSingular = DEFAULT_VIEW_LEXICON.projectBinding.singular;
 const projectBindingCapitalized = capitalize(projectBindingSingular);
 
-/** The receipt document for one `init` invocation. */
-export function initReceiptDocument(input: {
+export interface InitReceiptInput {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
+  readonly authoredPath?: string;
   readonly workspaceScaffolded?: boolean;
-}): PresentationDocument {
-  const workspace = identifierPart(input.path);
+  readonly detectedHosts?: readonly SupportedHost[];
+}
+
+/** The receipt document for one `init` invocation. */
+export function initReceiptDocument(input: InitReceiptInput): PresentationDocument {
+  const workspace = pathPart(
+    input.path,
+    "fleet",
+    displayPath(input.path, input.authoredPath ?? input.path, "fleet"),
+  );
   if (input.outcome === "unchanged") {
     return [{
       kind: "sentence",
@@ -65,6 +73,24 @@ export function initReceiptDocument(input: {
       },
     ];
   }
+  const detectedHosts = input.detectedHosts ?? [];
+  const firstDetectedHost = detectedHosts[0];
+  const nextCommandParts =
+    input.workspaceScaffolded === true && firstDetectedHost !== undefined
+      ? [
+        "Next: from the project you want to try, run ",
+        commandPart(COMMAND_NAME, [
+          arg("bind"),
+          arg(AUTHORING_EXAMPLES.profile.id),
+          arg("--host"),
+          arg(firstDetectedHost),
+        ]),
+      ]
+      : [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+      ];
+
   return [
     {
       kind: "sentence",
@@ -76,20 +102,20 @@ export function initReceiptDocument(input: {
     },
     {
       kind: "sentence",
-      parts: input.workspaceScaffolded === true
-        ? [
-          "Next: from the project you want to try, run ",
-          commandPart(COMMAND_NAME, [
-            arg("bind"),
-            arg(AUTHORING_EXAMPLES.profile.id),
-            arg("--host"),
-            arg("codex"),
-          ]),
-        ]
-        : [
-          "Next: run ",
-          commandPart(COMMAND_NAME, [arg("validate")]),
-        ],
+      parts: [
+        "A Profile is a named selection of Context and Skills to adapt for your projects.",
+      ],
+    },
+    {
+      kind: "sentence",
+      parts:
+        detectedHosts.length > 0
+          ? ["Detected Agent Hosts: ", identifierPart(detectedHosts.join(", "))]
+          : ["Detected Agent Hosts: none"],
+    },
+    {
+      kind: "sentence",
+      parts: nextCommandParts,
       category: "command",
     },
   ];

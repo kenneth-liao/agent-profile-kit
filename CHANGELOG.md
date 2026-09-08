@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Make initialization guidance match the machine by presenting the selected Workspace in actionable home-relative form, explaining Profiles in one sentence, detecting installed Agent Hosts via advisory probes across all six supported Hosts, and selecting the first detected Host for the suggested bind command (or `apkit validate` when none is detected) (US-033, US-036–US-039, DEC-022, DEC-023, [#444](https://github.com/kenneth-liao/agent-profile-kit/issues/444)).
+
 - Support the `-v` short flag to report the packaged engine version identically to `--version` without introducing a short alias for `--verbose` (US-057, DEC-037, [#443](https://github.com/kenneth-liao/agent-profile-kit/issues/443)).
 
 ### Changed

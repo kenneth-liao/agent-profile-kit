@@ -436,6 +436,16 @@ export async function planPiProject(
 
 export const piAdapter = {
   host: "pi",
+  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
+    try {
+      await resolvePiCliVersion(
+        options.env === undefined ? {} : { env: options.env },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;

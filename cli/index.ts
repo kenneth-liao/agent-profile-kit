@@ -78,6 +78,7 @@ import {
   unbindProject,
 } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
+import { detectInstalledHosts } from "../adapters/registry.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
   ProjectTargetError,
@@ -835,7 +836,18 @@ async function main(): Promise<void> {
         stderrPresentationContext,
       );
     }
-    writeHumanDocument(process.stdout, initReceiptDocument(result), stdoutPresentationContext);
+    const detectedHosts = result.outcome === "created"
+      ? await detectInstalledHosts({ env: process.env })
+      : undefined;
+    writeHumanDocument(
+      process.stdout,
+      initReceiptDocument({
+        ...result,
+        ...(parsed.workspace !== undefined ? { authoredPath: parsed.workspace } : {}),
+        ...(detectedHosts !== undefined ? { detectedHosts } : {}),
+      }),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "bind") {

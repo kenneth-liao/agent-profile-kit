@@ -438,6 +438,16 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
 
 export const codexAdapter = {
   host: "codex",
+  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
+    try {
+      await resolveCodexCliVersion(
+        options.env === undefined ? {} : { env: options.env },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(

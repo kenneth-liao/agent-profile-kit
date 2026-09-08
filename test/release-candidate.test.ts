@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
@@ -1460,8 +1460,11 @@ describe("project-bound release candidate", () => {
     const init = await runCli(home, ["init"], { path: pathWithHosts });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("Initialized Agent Profile Kit Workspace and settings at");
+    expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
+    expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
+    expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain(
-      "Next: from the project you want to try, run apkit bind example --host codex",
+      "Next: from the project you want to try, run\n  apkit bind example --host antigravity",
     );
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
@@ -1588,4 +1591,64 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(false);
   }, 30_000);
+
+  test("Agent Host detection is proven with controlled executables present and absent (TEST-016)", async () => {
+    // 1. All controlled hosts present: selects first detected host (antigravity)
+    const allHome = isolatedHome();
+    const allPath = installControlledHosts(allHome);
+    const allInit = await runCli(allHome, ["init"], { path: allPath });
+    expectExitCode(allInit, 0);
+    expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
+    expect(allInit.stdout).toContain(
+      "Next: from the project you want to try, run\n  apkit bind example --host antigravity",
+    );
+
+    // 2. Single host present (only codex): selects codex
+    const codexHome = isolatedHome();
+    const codexBin = join(codexHome, "bin");
+    mkdirSync(codexBin, { recursive: true });
+    writeFileSync(
+      join(codexBin, "codex"),
+      '#!/bin/sh\necho "codex-cli 0.145.0"\n',
+    );
+    execFileSync("chmod", ["+x", join(codexBin, "codex")]);
+    const gitDir = dirname(realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()));
+    const nodeDir = dirname(nodeBinary);
+    const codexPath = `${codexBin}:${gitDir}:${nodeDir}`;
+    const codexInit = await runCli(codexHome, ["init"], { path: codexPath });
+    expectExitCode(codexInit, 0);
+    expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
+    expect(codexInit.stdout).toContain(
+      "Next: from the project you want to try, run apkit bind example --host codex",
+    );
+
+    // 3. Single host present (only claude): selects claude
+    const claudeHome = isolatedHome();
+    const claudeBin = join(claudeHome, "bin");
+    mkdirSync(claudeBin, { recursive: true });
+    writeFileSync(
+      join(claudeBin, "claude"),
+      '#!/bin/sh\necho "2.1.0 (Claude Code)"\n',
+    );
+    execFileSync("chmod", ["+x", join(claudeBin, "claude")]);
+    const claudePath = `${claudeBin}:${gitDir}:${nodeDir}`;
+    const claudeInit = await runCli(claudeHome, ["init"], { path: claudePath });
+    expectExitCode(claudeInit, 0);
+    expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
+    expect(claudeInit.stdout).toContain(
+      "Next: from the project you want to try, run apkit bind example --host claude",
+    );
+
+    // 4. No supported hosts present: names none and suggests validate (does not suggest an absent host)
+    const noHostsHome = isolatedHome();
+    const emptyBin = join(noHostsHome, "empty-bin");
+    mkdirSync(emptyBin, { recursive: true });
+    const emptyPath = `${emptyBin}:${gitDir}:${nodeDir}`;
+    const noHostsInit = await runCli(noHostsHome, ["init"], { path: emptyPath });
+    expectExitCode(noHostsInit, 0);
+    expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
+    expect(noHostsInit.stdout).toContain("Next: run apkit validate");
+    expect(noHostsInit.stdout).not.toContain("--host");
+  }, 30_000);
 });
+
