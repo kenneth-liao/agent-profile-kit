@@ -106,6 +106,7 @@ import { INVENTORY_TOPICS, MACHINE_INVENTORY_TOPICS } from "../cli/inventory-top
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import { type TerminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
+  installationStateUnreadableBlocker,
   normalizeBlocker,
   occupiedOutputBlocker,
   outputOwnershipConflictBlocker,
@@ -116,7 +117,7 @@ import {
 import {
   blockerWording,
   humanBlockerWording,
-  OPENCODE_CONFIG_OCCUPIED_REMEDY,
+  opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
 import type {
   OutputConsumerEvidence,
@@ -205,7 +206,7 @@ function applyVerificationFailureDocument(
 function fixtureBlocker(message: string, project?: string): ReconciliationBlocker {
   return project === undefined
     ? normalizeBlocker({
-        affectedItems: [],
+        affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
         detail: message,
         kind: "installation-state-unreadable",
         scope: "global",
@@ -449,6 +450,49 @@ function nodeText(node: PresentationNode): string {
     return flatInlineText(node.parts);
   }
   return "";
+}
+
+/**
+ * Count prose occurrences of a substring across text spans only: atomic
+ * command arguments (scoped recovery commands) are carried once per command by
+ * design and are not prose identity prose (#440).
+ */
+function proseOccurrences(document: PresentationDocument, substring: string): number {
+  const prose = flattenPresentationNodes(document)
+    .flatMap((node) =>
+      node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item"
+        ? node.parts.flatMap((part) =>
+            typeof part === "string"
+              ? [part]
+              : part.kind === "path"
+              ? [part.authoredPath ?? part.canonicalPath]
+              : [])
+        : node.kind === "heading" || node.kind === "verbatim"
+        ? [node.text]
+        : [])
+    .join("\n");
+  return prose.split(substring).length - 1;
+}
+
+/**
+ * Identity prose only: text spans, path parts, headings, and identifiers.
+ * Atomic command arguments are excluded — a scoped recovery command carries
+ * the canonical Project path on purpose (a runnable copy needs it) (#440).
+ */
+function proseTexts(document: PresentationDocument): string[] {
+  return flattenPresentationNodes(document).flatMap((node) =>
+    node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item"
+      ? node.parts.flatMap((part) =>
+          typeof part === "string"
+            ? [part]
+            : part.kind === "path"
+            ? [part.authoredPath ?? part.canonicalPath]
+            : [])
+      : node.kind === "heading" || node.kind === "verbatim"
+      ? [node.text]
+      : node.kind === "identifier"
+      ? [node.value]
+      : []);
 }
 
 /** One top-level node's kind and semantic category, in document order. */
@@ -837,10 +881,7 @@ describe("lifecycle status document", () => {
     const attention = identityReport("/project-a");
     const blocked = emptyReport({
       blockers: [
-        fixtureOwnershipBlocker(
-          "The selected generated output cannot be replaced until ownership is resolved.",
-          "/project-a",
-        ),
+        fixtureOwnershipBlocker("ownership-unresolved-output.md", "/project-a"),
       ],
       desired: [{
         canonicalProject: "/project-a",
@@ -865,6 +906,9 @@ describe("lifecycle status document", () => {
 
       for (const view of views) {
         for (const line of view.trimEnd().split("\n")) {
+          // Atomic command parts render on one unsplit line by design; prose
+          // wraps to the selected width.
+          if (/^\s*(ls|vi|git|apkit)\s/.test(line)) continue;
           expect(line.length, `line exceeds selected width: ${line}`).toBeLessThanOrEqual(width);
         }
       }
@@ -2153,13 +2197,21 @@ describe("status concise terminology", () => {
         blockers: [{
           affectedItems: [{ kind: "host", value: "codex" }],
           kind: "installation-ownership",
-          message: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
-          problem: "Cannot verify generated-file ownership: owned output .codex/hooks.json has unsafe parent: /project-a/.codex",
+          message: "Cannot verify ownership of generated files: the recorded generated " +
+            "file '.codex/hooks.json' has a parent path '/project-a/.codex' that is not a " +
+            "regular directory inside the Project.",
+          problem: "Cannot verify ownership of generated files: the recorded generated " +
+            "file '.codex/hooks.json' has a parent path '/project-a/.codex' that is not a " +
+            "regular directory inside the Project.",
           project: "/project-a",
-          remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+          remedy: "Manual recovery is required: Agent Profile Kit will not adopt or delete " +
+            "files it cannot prove. Inspect ls -ld '/project-a/.codex', restore it to a " +
+            "regular directory inside the Project yourself, then run apkit apply " +
+            "'/project-a'; or run apkit unbind '/project-a' to stop managing this Project " +
+            "(its generated files stay on disk).",
           requirement:
-            "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-            "active installation record at safe paths",
+            "Agent Profile Kit changes or removes generated files only when ownership " +
+            "is proven by the installation record at safe paths.",
           scope: "project",
         }],
       }],
@@ -2188,7 +2240,9 @@ describe("status concise terminology", () => {
     expect(blockerIndex).toBeGreaterThan(-1);
     // Every structured field is its own prose node in the typed evidence block.
     expect(nodes.slice(blockerIndex + 1, blockerIndex + 4).map(shape)).toEqual(["prose", "prose", "prose"]);
-    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit apply");
+    // The remedy carries the evidence-derived scoped commands as atomic parts.
+    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit apply '/project-a'");
+    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit unbind '/project-a'");
     expect(nodeText(nodes[blockerIndex + 3]!)).toContain("codex");
   });
 
@@ -2263,25 +2317,27 @@ describe("status concise terminology", () => {
       ".claude/rules/agent-profile-kit.md",
       ".codex/hooks.json",
     ]);
-    expect(presentationTexts(concise).some((text) =>
+    // Affected-path group lines elide deep members in the concise view; the
+    // remedy's command arguments carry them.
+    expect(proseTexts(concise).some((text) =>
       text.includes("/project-a/.agents/skills/s08")
     )).toBe(false);
-    expect(commandTexts(concise).some((text) => text.includes("rm -r --cached"))).toBe(false);
 
     const verbose = lifecycleStatusDocument(report, { verbose: true });
-    const verboseTexts = presentationTexts(verbose);
+    const verboseTexts = proseTexts(verbose);
 
-    // Every proven path is an Affected path node; one Requirement; the exact
-    // untracking command stays out of the ordinary verbose view.
+    // Every proven path is an Affected path node; one Requirement.
     expect(verboseTexts.some((text) => text.includes("/project-a/.agents/skills/s11"))).toBe(true);
     expect(verboseTexts.some((text) => text.includes("/project-a/.agents/skills/s12"))).toBe(true);
     expect(verboseTexts.some((text) => text.includes("/project-a/.codex/hooks.json"))).toBe(true);
-    expect(commandTexts(verbose).some((text) => text.includes("rm -r --cached"))).toBe(false);
-    // The ordinary verbose remedy points at the focused view through one
-    // typed inline command part.
-    expect(inlineCommandTexts(flattenPresentationNodes(verbose))).toContain(
-      "apkit status --blockers-only --verbose",
-    );
+    // The evidence-derived untracking command is carried in every view (#440);
+    // the verbose pointer redirect is retired.
+    for (const document of [concise, verbose]) {
+      expect(inlineCommandTexts(flattenPresentationNodes(document)))
+        .toContain(untrackCommandFor("/project-a", [...paths]));
+      expect(proseTexts(document).join("\n"))
+        .not.toContain("to see the exact untracking command");
+    }
   });
 
   test("renders every tracked path in one parent-directory group without an overflow cap", () => {
@@ -2326,7 +2382,7 @@ describe("status concise terminology", () => {
           project,
         })),
         normalizeBlocker({
-          affectedItems: [],
+          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
           detail: "Installation State is unreadable",
           kind: "installation-state-unreadable",
           scope: "global",
@@ -2367,7 +2423,7 @@ describe("status concise terminology", () => {
     });
 
   const untrackCommandFor = (project: string, paths: readonly string[]): string =>
-    `git -C '${project}' rm -r --cached -- ${[...paths]
+    `git --literal-pathspecs -C '${project}' rm -r --cached -- ${[...paths]
       .sort((left, right) => compareCanonicalStrings(left, right))
       .map((path) => `'${path.replaceAll("'", "'\\''")}'`)
       .join(" ")}`;
@@ -2437,34 +2493,33 @@ describe("status concise terminology", () => {
       verbose: true,
     });
 
-    const gitCommands = commandTexts(focusedVerbose).filter((text) =>
+    const gitCommands = inlineCommandTexts(flattenPresentationNodes(focusedVerbose)).filter((text) =>
       text.includes("rm -r --cached"));
     expect(gitCommands).toHaveLength(1);
-    // The command node carries the exact invocation; every proven path appears
-    // once as its own quoted argument.
+    // The remedy carries the exact invocation as one atomic command part;
+    // every proven path appears once as its own quoted argument (#440).
     expect(gitCommands[0]).toBe(untrackCommandFor("/project-a", paths));
-    expect(gitCommands[0]).toContain("git -C '/project-a' rm -r --cached --");
+    expect(gitCommands[0]).toContain("git --literal-pathspecs -C '/project-a' rm -r --cached --");
     expect(gitCommands[0]).toContain("-- '-leading-dash.md'");
     expect(gitCommands[0]).toContain("'weird'\\''name.md'");
   });
 
-  test("focused verbose recovery copy preserves working files and keeps the binding alternative (#353)", () => {
+  test("the verbose remedy frames the working-files statement and the unbind choice (#440)", () => {
     const focusedVerbose = lifecycleStatusDocument(
       ownershipReport([".codex/hooks.json"]),
       { blockersOnly: true, verbose: true },
     );
-    const nodes = flattenPresentationNodes(focusedVerbose);
-    const gitIndex = indexWhere(nodes, (node) =>
-      node.kind === "command" &&
-      commandTexts([node]).includes("git -C '/project-a' rm -r --cached -- '.codex/hooks.json'"));
-    expect(gitIndex).toBeGreaterThan(-1);
-    // The recovery block frames the exact command with the working-files
-    // statement and the binding alternative as prose nodes.
-    expect(nodes[gitIndex - 1]).toMatchObject({ kind: "prose" });
-    expect(nodes[gitIndex + 1]).toMatchObject({ kind: "prose" });
+    const remedyParts = flattenPresentationNodes(focusedVerbose)
+      .filter((node) => node.kind === "prose" &&
+        nodeText(node).startsWith("  Remedy: "))
+      .map((node) => nodeText(node));
+    expect(remedyParts).toHaveLength(1);
+    expect(remedyParts[0]).toContain("stages their removal from the Git index");
+    expect(remedyParts[0]).toContain("the files stay on disk");
+    expect(remedyParts[0]).toContain("To keep Git ownership instead");
   });
 
-  test("ordinary concise, focused concise, and ordinary verbose point to focused diagnostics without the command (#353)", () => {
+  test("ordinary concise, focused concise, and ordinary verbose all carry the command (#440)", () => {
     const report = ownershipReport([".codex/hooks.json", ".agents/skills/s01.md"]);
     const concise = lifecycleStatusDocument(report);
     const focusedConcise = lifecycleStatusDocument(report, { blockersOnly: true });
@@ -2472,9 +2527,11 @@ describe("status concise terminology", () => {
 
     for (const document of [concise, focusedConcise, verbose]) {
       expect(inlineCommandTexts(flattenPresentationNodes(document))).toContain(
-        "apkit status --blockers-only --verbose",
+        untrackCommandFor("/project-a", [".agents/skills/s01.md", ".codex/hooks.json"]),
       );
-      expect(commandTexts(document).some((text) => text.includes("rm -r --cached"))).toBe(false);
+      // The verbose pointer redirect is retired.
+      expect(proseTexts(document).join("\n"))
+        .not.toContain("to see the exact untracking command");
     }
   });
 
@@ -2505,15 +2562,14 @@ describe("status concise terminology", () => {
       applyResult(receipt, resultingState),
       { blockersOnly: true, verbose: true },
     );
-    expect(commandTexts(focusedApply).filter((text) => text.includes("rm -r --cached")))
-      .toHaveLength(1);
-    expect(commandTexts(focusedApply)).toContain(command);
+    // Every apply view carries the evidence-derived command inline (#440).
+    expect(inlineCommandTexts(flattenPresentationNodes(focusedApply))).toContain(command);
 
     const blockedApply = blockedApplyReportDocument(
       asBlockedReport(resultingState),
       { blockersOnly: true, verbose: true },
     );
-    expect(commandTexts(blockedApply)).toContain(command);
+    expect(inlineCommandTexts(flattenPresentationNodes(blockedApply))).toContain(command);
 
     const executionFailure = applyExecutionFailureDocument({
       detail: "Apply failed while writing the Project",
@@ -2523,19 +2579,15 @@ describe("status concise terminology", () => {
       receipt,
       resultingState,
     }, { blockersOnly: true, verbose: true });
-    expect(commandTexts(executionFailure)).toContain(command);
+    expect(inlineCommandTexts(flattenPresentationNodes(executionFailure))).toContain(command);
 
     const ordinaryVerbose = flattenPresentationNodes(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    expect(inlineCommandTexts(ordinaryVerbose)).toContain(
-      "apkit apply --blockers-only --verbose",
-    );
-    expect(commandTexts(applyReportDocument(applyResult(receipt, resultingState), { verbose: true })))
-      .toEqual([]);
+    expect(inlineCommandTexts(ordinaryVerbose)).toContain(command);
   });
 
-  test("focused verbose verification failure prints the command while ordinary verbose only points to it (#353)", () => {
+  test("verification-failure views carry the command in focused and ordinary verbose (#440)", () => {
     const paths = [".codex/hooks.json"];
     const project = "/project-b";
     const receipt = emptyReport({
@@ -2558,18 +2610,13 @@ describe("status concise terminology", () => {
       blockersOnly: true,
       verbose: true,
     });
-    expect(commandTexts(focused).filter((text) => text.includes("rm -r --cached")))
-      .toHaveLength(1);
-    expect(commandTexts(focused)).toContain(untrackCommandFor("/project-b", paths));
+    expect(inlineCommandTexts(flattenPresentationNodes(focused)))
+      .toContain(untrackCommandFor("/project-b", paths));
 
     const ordinary = flattenPresentationNodes(
       applyVerificationFailureDocument(receipt, message, { verbose: true }),
     );
-    expect(inlineCommandTexts(ordinary)).toContain(
-      "apkit apply --blockers-only --verbose",
-    );
-    expect(commandTexts(applyVerificationFailureDocument(receipt, message, { verbose: true })))
-      .toEqual([]);
+    expect(inlineCommandTexts(ordinary)).toContain(untrackCommandFor("/project-b", paths));
   });
 
   test("large tracked-path sets render lossless groups and one complete command (#353)", () => {
@@ -2589,7 +2636,7 @@ describe("status concise terminology", () => {
       blockersOnly: true,
       verbose: true,
     });
-    const gitCommands = commandTexts(focusedVerbose).filter((text) =>
+    const gitCommands = inlineCommandTexts(flattenPresentationNodes(focusedVerbose)).filter((text) =>
       text.includes("rm -r --cached"));
     // One complete command: 150 paths plus the project, each shell-quoted.
     expect(gitCommands).toHaveLength(1);
@@ -2613,12 +2660,15 @@ describe("status concise terminology", () => {
     expect(rendered.split("\n").filter((line) => line.includes(command))).toHaveLength(1);
   });
 
-  test("machine JSON evidence stays byte-identical without any command text (#353)", () => {
+  test("machine JSON publishes the same evidence-derived command in the remedy (#440)", () => {
     const paths = [".codex/hooks.json", ".agents/skills/s01.md"];
     const report = ownershipReport(paths);
 
     const json = formatLifecycleJson("status", report);
-    expect(json).not.toContain("rm -r --cached");
+    expect(json).toContain(
+      "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
+        "'.agents/skills/s01.md' '.codex/hooks.json'",
+    );
     for (const path of paths) {
       expect(json.split(JSON.stringify(path))).toHaveLength(2);
     }
@@ -2982,11 +3032,13 @@ describe("status concise terminology", () => {
     const verbose = lifecycleStatusDocument(operations, { verbose: true });
     const blockedConcise = lifecycleStatusDocument(blocked);
 
-    expect(presentationTexts(concise).some((text) => text.includes("~/aliased-project"))).toBe(true);
-    expect(presentationTexts(verbose).some((text) => text.includes("~/aliased-project") && text.includes("/var/tmp/other-project"))).toBe(true);
-    expect(presentationTexts(blockedConcise).some((text) => text.includes("~/aliased-project"))).toBe(true);
+    expect(proseTexts(concise).some((text) => text.includes("~/aliased-project"))).toBe(true);
+    expect(proseTexts(verbose).some((text) => text.includes("~/aliased-project") && text.includes("/var/tmp/other-project"))).toBe(true);
+    expect(proseTexts(blockedConcise).some((text) => text.includes("~/aliased-project"))).toBe(true);
     for (const document of [concise, verbose, blockedConcise]) {
-      expect(presentationTexts(document).some((text) =>
+      // Identity prose stays home-relative; recovery commands carry the
+      // canonical absolute path as their runnable argument (#440).
+      expect(proseTexts(document).some((text) =>
         text.includes(canonicalProject)
       )).toBe(false);
     }
@@ -3394,7 +3446,7 @@ describe("status concise terminology", () => {
     expect(conciseText).toContain("- needs attention (1):");
     expect(conciseText).toContain("/project-b");
     expect(conciseText).toContain("- source changed (1): /project-a");
-    expect((conciseText.match(/\/project-b/g) || []).length).toBe(1);
+    expect(proseOccurrences(concise, "/project-b")).toBe(1);
     expect(concise.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(headingsIn(concise)).not.toContain("State explanations:");
     expect(headingsIn(concise)).not.toContain("Changes:");
@@ -4333,17 +4385,21 @@ describe("Machine surface JSON and exit codes", () => {
       blockers: [{
         affectedItems: [],
         kind: "installation-ownership",
-        message: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
-          "match the recorded installation and no other recorded root proves ownership " +
-          "continuity; restore the recorded output or remove the generated files, then retry",
-        problem: "Cannot verify generated-file ownership: recorded output CLI missing does not " +
-          "match the recorded installation and no other recorded root proves ownership " +
-          "continuity; restore the recorded output or remove the generated files, then retry",
+        message: "Cannot verify ownership of generated files: the recorded generated " +
+          "file 'CLI missing' does not match the installation record and no other " +
+          "recorded file proves ownership.",
+        problem: "Cannot verify ownership of generated files: the recorded generated " +
+          "file 'CLI missing' does not match the installation record and no other " +
+          "recorded file proves ownership.",
         project,
-        remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+        remedy: "Manual recovery is required: Agent Profile Kit will not adopt or " +
+          "delete files it cannot prove. Inspect ls -ld '/project-a/CLI missing', " +
+          "remove or restore it yourself, then run apkit apply '/project-a'; or run " +
+          "apkit unbind '/project-a' to stop managing this Project (its generated " +
+          "files stay on disk).",
         requirement:
-          "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-          "active installation record at safe paths",
+          "Agent Profile Kit changes or removes generated files only when ownership " +
+          "is proven by the installation record at safe paths.",
         scope: "project",
       }],
       warnings: [{ message: "Review /copy/me", copyableValues: ["/copy/me"], kind: "diagnostic" }],
@@ -5360,7 +5416,7 @@ describe("standalone view presentation documents (#389)", () => {
       const canonical = join(home, "projects", "alpha");
       const blockers = [
         normalizeBlocker({
-          affectedItems: [],
+          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
           detail:
             `${canonical} already has an ordinary Profile Installation; remove it ` +
             "before installing a temporary Profile",
@@ -5371,6 +5427,7 @@ describe("standalone view presentation documents (#389)", () => {
           failure: { case: "symlink-output", output: ".codex/hooks.json" },
           outputs: [".codex/hooks.json"],
           project: canonical,
+          temporaryInstallationId: "temp-1",
         })),
       ];
 
@@ -5389,8 +5446,18 @@ describe("standalone view presentation documents (#389)", () => {
       expect(nodeText(prose[0]!)).toContain("~/projects/alpha");
       expect(prose[0]!.category).toBe("error");
       expect(nodeText(prose[2]!)).toContain(".codex/hooks.json");
-      expect(inlineCommandTexts([prose[3]!])).toContain("apkit machine remove-temp");
-      expect(JSON.stringify(document)).not.toContain(canonical);
+      expect(inlineCommandTexts([prose[3]!])).toContain(
+        "apkit machine remove-temp 'temp-1'",
+      );
+      // Identity prose keeps the authored home-relative display; the remedy's
+      // scoped command arguments carry the canonical runnable path (#440).
+      const proseSpans = flattenPresentationNodes(document)
+        .flatMap((node) =>
+          node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item"
+            ? node.parts.filter((part): part is string => typeof part === "string")
+            : [])
+        .join("\n");
+      expect(proseSpans).not.toContain(canonical);
     } finally {
       rmSync(home, { force: true, recursive: true });
     }
@@ -5403,7 +5470,7 @@ describe("standalone view presentation documents (#389)", () => {
       const canonical = join(home, "projects", "alpha");
       const blockers = [
         normalizeBlocker({
-          affectedItems: [],
+          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
           detail:
             `${canonical} already has an ordinary Profile Installation; remove it ` +
             "before installing a temporary Profile",
@@ -5424,7 +5491,15 @@ describe("standalone view presentation documents (#389)", () => {
         .filter((node) => node.kind === "prose")
         .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
       expect(nodeText(prose[0]!)).toContain("~/projects/alpha");
-      expect(JSON.stringify(document)).not.toContain(canonical);
+      // Identity prose keeps the authored home-relative display; the remedy's
+      // scoped command arguments carry the canonical runnable path (#440).
+      const proseSpans = flattenPresentationNodes(document)
+        .flatMap((node) =>
+          node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item"
+            ? node.parts.filter((part): part is string => typeof part === "string")
+            : [])
+        .join("\n");
+      expect(proseSpans).not.toContain(canonical);
     } finally {
       rmSync(home, { force: true, recursive: true });
     }
@@ -5437,7 +5512,7 @@ describe("standalone view presentation documents (#389)", () => {
       const authored = join(home, "alias-project");
       const blockers = [
         normalizeBlocker({
-          affectedItems: [],
+          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
           detail: `${authored} cannot be resolved: the authored spelling differs from ${canonical}`,
           kind: "installation-state-unreadable",
           scope: "global",
@@ -5456,7 +5531,15 @@ describe("standalone view presentation documents (#389)", () => {
         .filter((node) => node.kind === "prose")
         .map((node) => node as Extract<PresentationNode, { kind: "prose" }>);
       expect(nodeText(prose[0]!)).toContain("~/real-project cannot be resolved: the authored spelling differs from ~/real-project");
-      expect(JSON.stringify(document)).not.toContain(canonical);
+      // Identity prose keeps the authored home-relative display; the remedy's
+      // scoped command arguments carry the canonical runnable path (#440).
+      const proseSpans = flattenPresentationNodes(document)
+        .flatMap((node) =>
+          node.kind === "prose" || node.kind === "sentence" || node.kind === "list-item"
+            ? node.parts.filter((part): part is string => typeof part === "string")
+            : [])
+        .join("\n");
+      expect(proseSpans).not.toContain(canonical);
       expect(JSON.stringify(document)).not.toContain(authored);
     } finally {
       rmSync(home, { force: true, recursive: true });
@@ -6618,7 +6701,7 @@ describe("focused blockers-only status view (#351)", () => {
       blockers: [
         projectBlocker,
         normalizeBlocker({
-          affectedItems: [],
+          affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
           detail: "Installation State is unreadable",
           kind: "installation-state-unreadable",
           scope: "global",
@@ -6724,8 +6807,12 @@ describe("focused blockers-only status view (#351)", () => {
 
     expect(nodes.filter((node) => node.kind === "list-item")).toHaveLength(2);
     const evidence = nodes.slice(nodes.findIndex((node) => node.kind === "list-item"), -1);
-    expect(evidence.map(shape)).toEqual(["list-item", "prose", "prose", "prose", "list-item", "prose", "prose", "prose", "prose", "blank"]);
-    expect(inlineCommandTexts(nodes)).toContain("apkit apply");
+    expect(evidence.map(shape)).toEqual([
+      "list-item", "prose", "prose", "prose", "prose",
+      "list-item", "prose", "prose", "prose", "prose",
+      "blank",
+    ]);
+    expect(inlineCommandTexts(nodes)).toContain("apkit apply '/project-a'");
     expect(texts.some((text) => text.includes("/project-a"))).toBe(true);
     expect(texts.some((text) => text.includes("codex"))).toBe(true);
     // The displayed-Blocker footer closes the focused verbose view.
@@ -7551,7 +7638,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     // 5. Blocked apply document (concise & verbose)
     const blockedReport: ReconciliationReport = {
       globalBlockers: [normalizeBlocker({
-        affectedItems: [],
+        affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
         detail: "Global failure",
         kind: "installation-state-unreadable",
         scope: "global",
@@ -7665,7 +7752,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
     const blockedReport: ReconciliationReport = {
       globalBlockers: [normalizeBlocker({
-        affectedItems: [],
+        affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
         detail: "Global failure",
         kind: "installation-state-unreadable",
         scope: "global",
@@ -7723,33 +7810,180 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
   });
 });
 
-describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () => {
+describe("every Blocker renders plain wording and an evidence-derived runnable remedy (#440)", () => {
   const project = "/project-a";
+  const statePath = "/home/.agents/agent-profile-kit/state/manifest.json";
 
-  const kindFixtures: readonly {
+  /** Flat text of every command part carried by inline content. */
+  const commands = (parts: readonly InlineContent[]): string[] =>
+    parts.flatMap((part) => (typeof part === "string" ? [] : [flatInlineText([part])]));
+
+  const wording = (blocker: ReconciliationBlocker) => humanBlockerWording(blocker);
+  const flat = (blocker: ReconciliationBlocker) => ({
+    message: flatInlineText(wording(blocker).message),
+    problem: flatInlineText(wording(blocker).problem),
+    remedy: flatInlineText(wording(blocker).remedy),
+    requirement: flatInlineText(wording(blocker).requirement),
+  });
+
+  /** One exhaustive fixture per typed variant across all six kinds. */
+  const fixtures: readonly {
     readonly label: string;
     readonly blocker: ReconciliationBlocker;
+    /** Every command invocation the evidence-derived remedy must carry. */
+    readonly expectedCommands: readonly string[];
+    readonly bannedCommands?: readonly string[];
+    /** Honest-consequence phrases the remedy must state. */
+    readonly mustState?: readonly string[];
+    /** Honest phrases the problem sentence must state. */
+    readonly problemMustState?: readonly string[];
   }[] = [
+    // 1. installation-state-unreadable — externally damaged record: manual
+    // recovery stated, inspect/editor commands, status verifies only.
     {
-      blocker: normalizeBlocker({
-        affectedItems: [{ kind: "path", value: "state/manifest.json" }],
-        detail: "EACCES: permission denied, open 'state/manifest.json'",
-        kind: "installation-state-unreadable",
-        scope: "global",
-      }),
-      label: "installation-state-unreadable",
+      label: "state-unreadable/legacy-yaml",
+      blocker: normalizeBlocker(installationStateUnreadableBlocker({
+        stateFailure: { case: "legacy-yaml-state-expired", retiredPath: "/home/state/manifest.yaml" },
+        statePath,
+      })),
+      expectedCommands: [
+        "ls -ld '/home/state/manifest.yaml'",
+        "vi '/home/state/manifest.yaml'",
+        "apkit status",
+      ],
+      mustState: ["Manual recovery is required", "0.95.0"],
     },
     {
-      blocker: normalizeBlocker({
-        affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
-        kind: "occupied-output",
+      label: "state-unreadable/oversize",
+      blocker: normalizeBlocker(installationStateUnreadableBlocker({
+        stateFailure: { case: "oversize-state", limitBytes: 8388608 },
+        statePath,
+      })),
+      expectedCommands: [
+        "ls -lh '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "vi '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "apkit status",
+      ],
+      mustState: ["Manual recovery is required", "8388608"],
+    },
+    {
+      label: "state-unreadable/no-outputs",
+      blocker: normalizeBlocker(installationStateUnreadableBlocker({
+        stateFailure: { case: "receipt-records-no-outputs", project: "/project-a" },
+        statePath,
+      })),
+      expectedCommands: [
+        "ls -lh '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "vi '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "apkit status",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "state-unreadable/foreign-detail",
+      blocker: normalizeBlocker(installationStateUnreadableBlocker({
+        detail: "EACCES: permission denied",
+        statePath,
+      })),
+      expectedCommands: [
+        "ls -ld '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "vi '/home/.agents/agent-profile-kit/state/manifest.json'",
+        "apkit status",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    // 2. occupied-output — the occupying material is the user's decision.
+    {
+      label: "occupied-output/drifted",
+      blocker: normalizeBlocker(occupiedOutputBlocker({
         occupied: { case: "drifted-output" },
+        path: ".codex/hooks.json",
+        project,
+      })),
+      expectedCommands: [
+        "ls -la '/project-a/.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "occupied-output/occupied-directory",
+      blocker: normalizeBlocker(occupiedOutputBlocker({
+        occupied: { case: "occupied-destination", occupation: "directory" },
+        path: ".agents/skills/demo-skill",
+        project,
+      })),
+      expectedCommands: [
+        "ls -la '/project-a/.agents/skills/demo-skill'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "occupied-output/occupied-parent",
+      blocker: normalizeBlocker(occupiedOutputBlocker({
+        occupied: { case: "occupied-parent", occupation: "symlink" },
+        path: ".codex/nested/hooks.json",
+        project,
+      })),
+      expectedCommands: [
+        "ls -ld '/project-a/.codex/nested'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "occupied-output/unowned-artifact-directory",
+      blocker: normalizeBlocker(occupiedOutputBlocker({
+        occupied: { case: "unowned-artifact-directory" },
+        path: ".agents/skills/demo-skill",
+        project,
+      })),
+      expectedCommands: [
+        "ls -la '/project-a/.agents/skills/demo-skill'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "occupied-output/opencode-config",
+      blocker: normalizeBlocker(occupiedOutputBlocker({
+        occupied: { case: "occupied-destination", occupation: "file" },
+        path: ".opencode/opencode.json",
+        project,
+        remedyKey: "opencode-config-occupied",
+      })),
+      expectedCommands: [
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["opencode.json"],
+    },
+    // 3. installation-ownership, verify action — one remedy per failure case.
+    {
+      label: "ownership/verify/git-tracked",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "git-tracked-output", outputs: [".codex/hooks.json", ".agents/skills/s01"] },
+        kind: "installation-ownership",
         project,
         scope: "project",
       }),
-      label: "occupied-output",
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
+          "'.agents/skills/s01' '.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Git index", "files stay on disk"],
     },
     {
+      label: "ownership/verify/continuity",
       blocker: normalizeBlocker({
         action: "verify",
         affectedItems: [],
@@ -7758,33 +7992,327 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
         project,
         scope: "project",
       }),
-      label: "installation-ownership",
+      expectedCommands: [
+        "ls -ld '/project-a/.agent-profile-kit/codex/context.md'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
     },
     {
+      label: "ownership/verify/type-mismatch",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "type-mismatch", expected: "directory", output: ".codex/hooks.json" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "ls -ld '/project-a/.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "ownership/verify/unsafe-parent",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/p/.codex" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "ls -ld '/p/.codex'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+      problemMustState: ["not a regular directory"],
+    },
+    {
+      label: "ownership/verify/unreadable",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "unreadable-output", output: ".codex/hooks.json" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "ls -ld '/project-a/.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "ownership/verify/unsupported-entry",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: {
+          case: "unsupported-entry",
+          member: "scripts/run.sh",
+          output: ".agents/skills/demo-skill",
+        },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "ls -ld '/project-a/.agents/skills/demo-skill/scripts/run.sh'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      // No rm from observed type alone: the user inspects and recovers by hand.
+      bannedCommands: ["rm '"],
+      mustState: ["Manual recovery is required"],
+    },
+    {
+      label: "ownership/verify/unproven",
+      blocker: normalizeBlocker({
+        action: "verify",
+        affectedItems: [],
+        failure: { case: "unproven" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "apkit unbind '/project-a'",
+        "apkit apply '/project-a'",
+      ],
+      mustState: ["nothing is repaired or removed"],
+    },
+    // 3b. installation-ownership, remove action — teardown: explicit --all.
+    {
+      label: "ownership/remove/git-tracked",
+      blocker: normalizeBlocker({
+        action: "remove",
+        affectedItems: [],
+        failure: { case: "git-tracked-output", outputs: [".codex/hooks.json"] },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
+        "apkit apply --all",
+      ],
+      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      mustState: ["every pending Project"],
+    },
+    {
+      label: "ownership/remove/continuity",
+      blocker: normalizeBlocker({
+        action: "remove",
+        affectedItems: [],
+        failure: { case: "no-ownership-continuity", output: ".agent-profile-kit/codex/context.md" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: [
+        "ls -ld '/project-a/.agent-profile-kit/codex/context.md'",
+        "apkit apply --all",
+      ],
+      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      mustState: ["Manual recovery is required", "every pending Project"],
+    },
+    {
+      label: "ownership/remove/unproven",
+      blocker: normalizeBlocker({
+        action: "remove",
+        affectedItems: [],
+        failure: { case: "unproven" },
+        kind: "installation-ownership",
+        project,
+        scope: "project",
+      }),
+      expectedCommands: ["apkit apply --all"],
+      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      mustState: ["Manual recovery is required", "every pending Project"],
+    },
+    // 4. output-ownership-conflict — the stated Git-vs-binding choice.
+    {
+      label: "output-ownership-conflict/single",
       blocker: normalizeBlocker(outputOwnershipConflictBlocker({
         paths: [".codex/hooks.json"],
         project,
       })),
-      label: "output-ownership-conflict",
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+      mustState: ["Git index", "files stay on disk"],
     },
     {
+      label: "output-ownership-conflict/multi",
+      blocker: normalizeBlocker(outputOwnershipConflictBlocker({
+        paths: [".codex/hooks.json", ".agents/skills/s01.md"],
+        project,
+      })),
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
+          "'.agents/skills/s01.md' '.codex/hooks.json'",
+        "apkit apply '/project-a'",
+        "apkit unbind '/project-a'",
+      ],
+    },
+    // Literal pathspecs: glob-significant filenames stay verbatim, quoted.
+    {
+      label: "output-ownership-conflict/literal-pathspecs",
+      blocker: normalizeBlocker(outputOwnershipConflictBlocker({
+        paths: ["we*rd[n].md", "a?b.md"],
+        project,
+      })),
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
+          "'a?b.md' 'we*rd[n].md'",
+      ],
+    },
+    // 5. temporary-installation-conflict.
+    {
+      label: "temp-conflict/with-id",
       blocker: normalizeBlocker(temporaryInstallationConflictBlocker({
         project,
         temporaryInstallationId: "temp-123",
       })),
-      label: "temporary-installation-conflict",
+      expectedCommands: ["apkit machine remove-temp 'temp-123'"],
+      bannedCommands: ["install-temp"],
+      mustState: ["retry your original command"],
     },
     {
+      label: "temp-conflict/ordinary",
+      blocker: normalizeBlocker(temporaryInstallationConflictBlocker({ project })),
+      expectedCommands: ["apkit unbind '/project-a'"],
+      bannedCommands: ["install-temp"],
+      mustState: ["stay on disk", "retry your original command"],
+    },
+    // 6. temporary-installation-removal — identity is required evidence.
+    {
+      label: "temp-removal/git-tracked",
+      blocker: normalizeBlocker(temporaryInstallationRemovalBlocker({
+        failure: { case: "git-tracked-output", outputs: [".codex/hooks.json"] },
+        outputs: [".codex/hooks.json"],
+        project,
+        temporaryInstallationId: "temp-123",
+      })),
+      expectedCommands: [
+        "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
+        "apkit machine remove-temp 'temp-123'",
+      ],
+      mustState: ["Git index", "deletes the generated files from disk"],
+    },
+    {
+      label: "temp-removal/symlink",
       blocker: normalizeBlocker(temporaryInstallationRemovalBlocker({
         failure: { case: "symlink-output", output: ".codex/hooks.json" },
         outputs: [".codex/hooks.json"],
         project,
+        temporaryInstallationId: "temp-123",
       })),
-      label: "temporary-installation-removal",
+      expectedCommands: [
+        "ls -ld '/project-a/.codex/hooks.json'",
+        "apkit machine remove-temp 'temp-123'",
+      ],
+      bannedCommands: ["rm '"],
+      mustState: ["Manual recovery is required", "will not follow"],
+    },
+    {
+      label: "temp-removal/unsafe-parent",
+      blocker: normalizeBlocker(temporaryInstallationRemovalBlocker({
+        failure: { case: "unsafe-parent", output: ".codex/hooks.json", parent: "/p/.codex" },
+        outputs: [".codex/hooks.json"],
+        project,
+        temporaryInstallationId: "temp-123",
+      })),
+      expectedCommands: [
+        "ls -ld '/p/.codex'",
+        "apkit machine remove-temp 'temp-123'",
+      ],
+      mustState: ["Manual recovery is required", "will not traverse outside the Project"],
     },
   ];
 
-  const blockedReport = (blocker: ReconciliationBlocker): ReconciliationReport => {
+  test.each(fixtures.map((fixture) => [fixture.label, fixture] as const))(
+    "%s renders plain wording with exactly its evidence-derived commands",
+    (_label, fixture) => {
+      const { problem, requirement, remedy } = flat(fixture.blocker);
+      // Plain human wording: no prohibited internal-only terms anywhere.
+      for (const sentence of [problem, requirement, remedy]) {
+        for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+          expect(sentence).not.toMatch(term);
+        }
+      }
+      // Every expected command is carried as an atomic command part.
+      const carried = commands(wording(fixture.blocker).remedy);
+      for (const expected of fixture.expectedCommands) {
+        expect(carried).toContain(expected);
+      }
+      for (const banned of fixture.bannedCommands ?? []) {
+        expect(carried.join("\n")).not.toContain(banned);
+        expect(remedy).not.toContain(banned);
+      }
+      for (const phrase of fixture.mustState ?? []) {
+        expect(remedy).toContain(phrase);
+      }
+      for (const phrase of fixture.problemMustState ?? []) {
+        expect(problem).toContain(phrase);
+      }
+      // The remedy never claims the verify command repairs anything.
+      if (fixture.expectedCommands.includes("apkit status")) {
+        expect(remedy).toContain("to verify");
+        expect(remedy).toContain("Manual recovery is required");
+      }
+    },
+  );
+
+  test("every fixture remedy carries at least one runnable command", () => {
+    for (const fixture of fixtures) {
+      expect(
+        commands(wording(fixture.blocker).remedy).length,
+        `${fixture.label} carries no runnable command`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  test("hostile filenames fail closed without hiding the Blocker (#440)", () => {
+    const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
+      paths: ["broken\nname.md"],
+      project,
+    }));
+    const { problem, remedy } = flat(blocker);
+    // No safe command could be derived; the original blocker still renders and
+    // the remedy states the manual fallback.
+    expect(problem).toContain("broken\nname.md");
+    expect(remedy).not.toContain("rm -r --cached");
+    expect(remedy).toContain("Manual recovery is required");
+    expect(commands(wording(blocker).remedy)).toContain("apkit apply '/project-a'");
+    expect(commands(wording(blocker).remedy)).toContain("apkit unbind '/project-a'");
+  });
+
+  test("quoted filenames survive POSIX quoting inside the derived command (#440)", () => {
+    const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
+      paths: ["weird'name.md", "a b.md", "-leading-dash.md"],
+      project,
+    }));
+    const carried = commands(wording(blocker).remedy);
+    const git = carried.find((command) => command.includes("rm -r --cached"))!;
+    expect(git).toBe(
+      "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
+        "'-leading-dash.md' 'a b.md' 'weird'\\''name.md'",
+    );
+  });
+
+  const focusedReport = (blocker: ReconciliationBlocker): ReconciliationReport => {
     const scoped = blocker.scope === "project";
     const affected = scoped ? blocker.project! : project;
     return emptyReport({
@@ -7802,51 +8330,39 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
     });
   };
 
-  test.each(kindFixtures.map((fixture) => [fixture.label, fixture.blocker] as const))(
-    "%s renders human wording free of internal terms with a runnable remedy command",
-    (_label, blocker) => {
+  test.each(fixtures.map((fixture) => [fixture.label, fixture] as const))(
+    "%s carries the same evidence-derived commands in concise and verbose views",
+    (_label, fixture) => {
       for (const options of [{ verbose: false }, { verbose: true }] as const) {
-        const document = lifecycleStatusDocument(blockedReport(blocker), {
+        const document = lifecycleStatusDocument(focusedReport(fixture.blocker), {
           blockersOnly: true,
           ...options,
         });
-        for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
-          expect(renderBoundary(document)).not.toMatch(term);
+        const rendered = renderBoundary(document);
+        for (const expected of fixture.expectedCommands) {
+          expect(rendered).toContain(expected);
         }
+        // The verbose pointer redirect is retired: the command is carried here.
+        expect(rendered).not.toContain("to see the exact untracking command");
       }
-
-      const wording = humanBlockerWording(blocker);
-      if (_label === "output-ownership-conflict") {
-        // The typed recovery nodes carry the runnable untrack command.
-        const focused = lifecycleStatusDocument(blockedReport(blocker), {
-          blockersOnly: true,
-        });
-        expect(
-          inlineCommandTexts(flattenPresentationNodes(focused))
-            .includes("apkit status --blockers-only --verbose") ||
-            commandTexts(focused).some((text) => text.startsWith("git -C "))
-        ).toBe(true);
-        return;
-      }
-      expect(flatInlineText(wording.remedy)).toMatch(/apkit [a-z-]+/);
     },
   );
 
-  test.each(kindFixtures.map((fixture) => [fixture.label, fixture.blocker] as const))(
+  test.each(fixtures.map((fixture) => [fixture.label, fixture] as const))(
     "%s publishes the verbatim stored wording on the machine surface",
-    (_label, blocker) => {
+    (_label, fixture) => {
       const payload = JSON.parse(
-        formatLifecycleJson("status", blockedReport(blocker)),
+        formatLifecycleJson("status", focusedReport(fixture.blocker)),
       ) as {
         readonly globalBlockers: readonly Record<string, string>[];
         readonly projects: readonly { readonly blockers: readonly Record<string, string>[] }[];
       };
       const published = [...payload.globalBlockers, ...payload.projects[0]!.blockers][0]!;
-      const wording = blockerWording(blocker);
-      expect(published.message).toBe(wording.message);
-      expect(published.problem).toBe(wording.problem);
-      expect(published.requirement).toBe(wording.requirement);
-      expect(published.remedy).toBe(wording.remedy);
+      const stored = blockerWording(fixture.blocker);
+      expect(published.message).toBe(stored.message);
+      expect(published.problem).toBe(stored.problem);
+      expect(published.requirement).toBe(stored.requirement);
+      expect(published.remedy).toBe(stored.remedy);
     },
   );
 
@@ -7857,8 +8373,7 @@ describe("blocker wording lives in presentation (DEC-020, US-026, US-027)", () =
       project,
       remedyKey: "opencode-config-occupied",
     }));
-    const wording = blockerWording(blocker);
-    expect(wording.remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
+    expect(blockerWording(blocker).remedy).toBe(opencodeConfigOccupiedRemedy(project));
   });
 });
 
@@ -8680,8 +9195,10 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("Requirement:");
       expect(rendered).toContain("Remedy:");
       expect(rendered).not.toContain("Scope: Project");
-      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
-      expect((rendered.match(/\/project-2/g) || []).length).toBe(1);
+      // Prose identity stays exactly once; recovery commands may repeat the
+      // scoped Project argument (a runnable copy needs it).
+      expect(proseOccurrences(document, "/project-1")).toBe(1);
+      expect(proseOccurrences(document, "/project-2")).toBe(1);
     });
 
     test("wholly settled fleet renders single line outcome without breakdown or next action", () => {
@@ -8840,8 +9357,10 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(removalFirstChildren.some((node) => nodeHasPath(node, "/removal-first"))).toBe(false);
 
       const alphaChildren = nodes.slice(alphaAt + 1, removalSecondAt);
-      expect(alphaChildren.some((node) => nodeText(node).includes("occupied by unowned or drifted output"))).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(true);
+      expect(alphaChildren.some((node) =>
+        nodeText(node).includes("already contains a file Agent Profile Kit did not install")
+      )).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Manual recovery is required"))).toBe(true);
       expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
       expect(alphaChildren.some((node) => nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(false);
 
@@ -8857,9 +9376,9 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         expect(rendered).toContain("- needs attention (4):");
         expect(rendered).toContain("- not installed yet (1):");
         expect(rendered).toContain("- settled (1)");
-        expect((rendered.match(/\/project-beta/g) || []).length).toBe(1);
-        expect((rendered.match(/\/removal-first/g) || []).length).toBe(1);
-        expect((rendered.match(/\/project-alpha/g) || []).length).toBe(1);
+        expect(proseOccurrences(document, "/project-beta")).toBe(1);
+        expect(proseOccurrences(document, "/removal-first")).toBe(1);
+        expect(proseOccurrences(document, "/project-alpha")).toBe(1);
         expect((rendered.match(/\/removal-second/g) || []).length).toBe(1);
         expect((rendered.match(/\/pending/g) || []).length).toBe(1);
         expect((rendered.match(/\/settled/g) || []).length).toBe(0);
@@ -8880,7 +9399,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         expect(removalFirstSection).not.toContain("Blocker:");
         expect(removalSecondSection).toContain("Apply will remove generated files for unbound projects.");
         expect(removalSecondSection).not.toContain("Blocker:");
-        expect(alphaSection).toContain("occupied by unowned or drifted output");
+        expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
         expect(alphaSection).not.toContain("Apply will remove generated files for unbound projects.");
       }
     });
@@ -8948,13 +9467,17 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
 
       const betaChildren = nodes.slice(betaAt + 1, alphaAt);
       expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
-      expect(betaChildren.some((node) => nodeText(node).includes("remove the conflicting paths from repository ownership"))).toBe(true);
+      expect(betaChildren.some((node) =>
+        nodeText(node).includes("stages their removal from the Git index while the files stay on disk")
+      )).toBe(true);
       expect(betaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(false);
       expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
 
       const alphaChildren = nodes.slice(alphaAt + 1, removalAt);
-      expect(alphaChildren.some((node) => nodeText(node).includes("occupied by unowned or drifted output"))).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(true);
+      expect(alphaChildren.some((node) =>
+        nodeText(node).includes("already contains a file Agent Profile Kit did not install")
+      )).toBe(true);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Manual recovery is required"))).toBe(true);
       expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
       expect(alphaChildren.some((node) => nodeHasPath(node, "/project-alpha"))).toBe(false);
 
@@ -8970,8 +9493,8 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         expect(rendered).toContain("- not installed yet (1):");
         expect(rendered).toContain("- settled (1)");
         expect(rendered).not.toContain("Scope: Project");
-        expect((rendered.match(/\/project-beta/g) || []).length).toBe(1);
-        expect((rendered.match(/\/project-alpha/g) || []).length).toBe(1);
+        expect(proseOccurrences(document, "/project-beta")).toBe(1);
+        expect(proseOccurrences(document, "/project-alpha")).toBe(1);
         expect((rendered.match(/\/project-removal/g) || []).length).toBe(1);
         expect((rendered.match(/\/project-pending/g) || []).length).toBe(1);
         expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
@@ -8987,10 +9510,10 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         const alphaSection = compact(rendered.slice(alphaStart, removalStart));
         const removalSection = compact(rendered.slice(removalStart));
         expect(betaSection).toContain("tracked by Git");
-        expect(betaSection).toContain("remove the conflicting paths from repository ownership");
-        expect(betaSection).not.toContain("Remove, move, or adopt");
-        expect(alphaSection).toContain("occupied by unowned or drifted output");
-        expect(alphaSection).toContain("Remove, move, or adopt");
+        expect(betaSection).toContain("stages their removal from the Git index while the files stay on disk");
+        expect(betaSection).not.toContain("Manual recovery is required");
+        expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
+        expect(alphaSection).toContain("Manual recovery is required");
         expect(alphaSection).not.toContain("tracked by Git");
         expect(removalSection).toContain("Apply will remove generated files for unbound projects.");
         expect(removalSection).not.toContain("Blocker:");
@@ -9071,8 +9594,11 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       for (const width of [40, 60, 80]) {
         const rendered = renderBoundary(document, { ...defaultRenderContext, width });
-        expect((rendered.match(/project-one/g) || []).length).toBe(1);
-        expect((rendered.match(/project-two/g) || []).length).toBe(1);
+        // Prose identity stays exactly once; the remedy's scoped command
+        // arguments repeat the Project path on purpose (a runnable copy needs
+        // it), and atomic commands never split.
+        expect(proseOccurrences(document, "project-one")).toBe(1);
+        expect(proseOccurrences(document, "project-two")).toBe(1);
       }
     });
   });

@@ -487,7 +487,7 @@ describe("Temporary Profile Installation recovery", () => {
       (failure as TemporaryInstallationBlockedError)
         .structured.map((blocker) => blockerWording(blocker).problem)
         .join("\n"),
-    ).toMatch(/active Temporary Profile Installation already owns generated files/i);
+    ).toMatch(/temporary Profile already owns generated files in this Project/i);
   });
 
   test("lifecycle lock rejects concurrent install-temp while another operation holds the lock", async () => {

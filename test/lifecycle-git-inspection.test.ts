@@ -277,13 +277,13 @@ describe("lifecycle Git inspection batching", () => {
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe(project);
     expect(blockerWording(blocker).problem).toContain("tracked by Git");
-    expect(blockerWording(blocker).remedy).toContain("will not delete");
+    expect(blockerWording(blocker).remedy).toContain("stages their removal from the Git index");
     const affected = blocker.affectedItems
       .filter((item) => item.kind === "path")
       .map((item) => item.value)
       .sort();
     expect(affected).toEqual([...trackedPaths].sort());
-    expect(blockerWording(blocker).message).toContain("more tracked project");
+    expect(blockerWording(blocker).message).toContain("more files are tracked by Git");
   });
 
   test("reads each shared Repository Exclusion target once per reconciliation pass", async () => {

@@ -933,7 +933,7 @@ describe("project-bound release candidate", () => {
     const goodClaudePath = installFakeClaude(home);
     const surface = await runCli(home, ["apply"], { path: goodClaudePath });
     expectExitCode(surface, 2);
-    expect(`${surface.stdout}${surface.stderr}`).toMatch(/has unsafe parent/i);
+    expect(`${surface.stdout}${surface.stderr}`).toMatch(/not a regular directory inside the Project/i);
     expect(readFileSync(join(projectPath, ".claude"), "utf8")).toBe("not a directory\n");
     expect(existsSync(join(projectPath, ".claude", "rules"))).toBe(false);
   });

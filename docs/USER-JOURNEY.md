@@ -481,50 +481,50 @@ Cannot apply
 
 Project:
   <project-b>
-  Blocker: These generated paths are tracked by Git, so Agent Profile Kit
-    cannot write to them without conflicting with repository ownership.
-    Requirement: Generated files must be exclusively managed by Agent Profile
-      Kit; repository-owned paths cannot be replaced.
-    Remedy: Choose one: keep repository ownership and change the Project
-      Binding or its Host selection so Agent Profile Kit does not plan output at
-      these paths, or intentionally remove the conflicting paths from repository
-      ownership yourself before retrying. Agent Profile Kit will not delete,
-      untrack, adopt, or overwrite repository-owned material.
-    Scope: Project
-      <project-b>
+  Blocker: .agents/skills/deploy-helper and 4 more files are tracked by Git,
+    so Agent Profile Kit cannot write to them.
+    Requirement: Agent Profile Kit must exclusively manage its generated
+      files; Git-tracked paths cannot be replaced.
+    Remedy: Choose one. To let Agent Profile Kit manage these files, run
+      git --literal-pathspecs -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
+      — it stages their removal from the Git index while the files stay on
+      disk; commit afterwards to keep the change — then run
+      apkit apply '<project-b>'.
+      To keep Git ownership instead, run
+      apkit unbind '<project-b>'.
     Affected paths (5):
       - .agents/skills/ (2 paths)
       - .claude/rules/agent-profile-kit.md
       - .claude/skills/ (2 paths)
-    Recovery command: run
-      apkit status --blockers-only --verbose
-      to see the exact untracking command.
 
 Blockers: 1 · Affected Projects: 1
 
 Next:
-- <project-b>:
-  Resolve the reported blocker, then run
-  apkit status
-  again.
+- Resolve the reported blocker, then run apkit status again.
 ```
 
-Under `--blockers-only --verbose`, the complete structured blocker evidence includes copyable Git untracking commands staging removal from Git ownership while preserving working files:
+The evidence-derived recovery command is carried inline in every view — concise,
+verbose, focused, and the machine JSON remedy — so no view redirects to another
+view to see the exact untracking command. Under `--blockers-only --verbose`, the
+complete structured blocker evidence adds the Project scope and every affected
+path next to the same inline remedy:
 
 ```
 $ apkit status --all --blockers-only --verbose
 Cannot apply
 
 Blockers:
-- These generated paths are tracked by Git, so Agent Profile Kit cannot write to
-  them without conflicting with repository ownership.
-  Requirement: Generated files must be exclusively managed by Agent Profile
-    Kit; repository-owned paths cannot be replaced.
-  Remedy: Choose one: keep repository ownership and change the configured
-    Project or its Host selection so Agent Profile Kit does not plan output at these
-    paths, or intentionally remove the conflicting paths from repository
-    ownership yourself before retrying. Agent Profile Kit will not delete,
-    untrack, adopt, or overwrite repository-owned material.
+- .agents/skills/deploy-helper and 4 more files are tracked by Git, so
+  Agent Profile Kit cannot write to them.
+  Requirement: Agent Profile Kit must exclusively manage its generated files;
+    Git-tracked paths cannot be replaced.
+  Remedy: Choose one. To let Agent Profile Kit manage these files, run
+    git --literal-pathspecs -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
+    — it stages their removal from the Git index while the files stay on disk;
+    commit afterwards to keep the change — then run
+    apkit apply '<project-b>'.
+    To keep Git ownership instead, run
+    apkit unbind '<project-b>'.
   Scope: Project
     <project-b>
   Affected path:
@@ -537,11 +537,6 @@ Blockers:
     <project-b>/.claude/skills/deploy-helper
   Affected path:
     <project-b>/.claude/skills/review-pr
-  Recovery: run the command below yourself; Agent Profile Kit never executes
-    it. It stages removal of these paths from Git ownership (the Git index)
-    while the working files are preserved:
-    git -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
-  Alternatively, change or remove the configured Project.
 
 Blockers: 1 · Affected Projects: 1
 ```

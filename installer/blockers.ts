@@ -302,9 +302,14 @@ export function temporaryInstallationRemovalBlocker(options: {
   readonly failure: TemporaryRemovalFailureFact;
   readonly outputs: readonly string[];
   readonly project: string;
+  /** The durable removal identity; required evidence for the recovery command (#440). */
+  readonly temporaryInstallationId: string;
 }): ProjectScopedBlockerInput {
   return {
-    affectedItems: options.outputs.map((output) => ({ kind: "path" as const, value: output })),
+    affectedItems: [
+      ...options.outputs.map((output) => ({ kind: "path" as const, value: output })),
+      { kind: "installation-id" as const, value: options.temporaryInstallationId },
+    ],
     failure: options.failure,
     kind: TEMPORARY_INSTALLATION_REMOVAL,
     project: options.project,
@@ -382,6 +387,21 @@ function rejectProseFields(input: unknown): void {
           `${blockerContext(input)}`,
       );
     }
+  }
+}
+
+/**
+ * The record path is required recovery evidence (#440): every remedy names the
+ * file to inspect and repair, so the boundary rejects blockers that carry no
+ * path fact. Checked after the typed-fact validation so targeted cause
+ * rejections keep their messages.
+ */
+function validateStateUnreadablePathItem(input: StructuredBlockerInput): void {
+  if (input.affectedItems.filter((item) => item.kind === "path").length !== 1) {
+    throw new TypeError(
+      "Structured blocker installation-state-unreadable requires exactly one " +
+        `path affected item${blockerContext(input)}`,
+    );
   }
 }
 
@@ -502,6 +522,25 @@ function validateOwnershipFailure(
   }
 }
 
+/**
+ * The removal identity is required recovery evidence (#440): the remedy command
+ * `apkit machine remove-temp <id>` is only derivable when the durable identity
+ * is carried. Exactly one identity item is required; malformed evidence is
+ * rejected loudly instead of degrading to prose about hidden state.
+ */
+function validateTemporaryRemovalIdentity(
+  affectedItems: readonly BlockerAffectedItem[],
+  input: unknown,
+): void {
+  const identities = affectedItems.filter((item) => item.kind === "installation-id");
+  if (identities.length !== 1) {
+    throw new TypeError(
+      "Structured blocker temporary-installation-removal requires exactly one " +
+        `installation-id affected item${blockerContext(input)}`,
+    );
+  }
+}
+
 function validateTemporaryRemovalFailure(
   value: unknown,
   input: unknown,
@@ -545,9 +584,11 @@ function validateTypedFacts(input: StructuredBlockerInput): void {
       }
       if (input.detail !== undefined) {
         requireText(input.detail, "detail", input);
+        validateStateUnreadablePathItem(input);
         return;
       }
       validateStateReadFailure(input.stateFailure, input);
+      validateStateUnreadablePathItem(input);
       return;
     case OCCUPIED_OUTPUT:
       validateOccupiedFact(input.occupied, input);
@@ -570,6 +611,7 @@ function validateTypedFacts(input: StructuredBlockerInput): void {
       return;
     case TEMPORARY_INSTALLATION_REMOVAL:
       validateTemporaryRemovalFailure(input.failure, input);
+      validateTemporaryRemovalIdentity(input.affectedItems, input);
       return;
     case OUTPUT_OWNERSHIP_CONFLICT:
     case TEMPORARY_INSTALLATION_CONFLICT:

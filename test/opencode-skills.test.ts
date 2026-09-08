@@ -56,7 +56,7 @@ import {
 } from "./support/reconciliation-report.js";
 import {
   blockerWording,
-  OPENCODE_CONFIG_OCCUPIED_REMEDY,
+  opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
 const temporaryDirectories: string[] = [];
 
@@ -718,7 +718,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     );
     if (!occupiedBlocker) throw new Error("expected occupied output blocker for .opencode/opencode.jsonc");
     expect(occupiedBlocker.kind).toBe("occupied-output");
-    expect(blockerWording(occupiedBlocker).remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
+    expect(blockerWording(occupiedBlocker).remedy).toBe(opencodeConfigOccupiedRemedy(occupiedBlocker.project!));
 
     await expect(
       applyReconciliation(home, desired.installations),

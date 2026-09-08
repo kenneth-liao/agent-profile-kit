@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Author every Blocker's plain newcomer wording and an evidence-derived runnable recovery command at the presentation boundary as one source with atomic command parts: scoped `apply`/`unbind` with the Project argument, `git --literal-pathspecs` untracking with `--` and POSIX quoting, identity-derived `apkit machine remove-temp '<id>'`, explicit `apkit apply --all` for teardown retries, and honest manual-recovery inspect/editor commands (`ls -ld`, `ls -la`, `ls -lh`, `vi`) for externally damaged ownership evidence; retire the concise verbose-pointer redirect and the placeholder `install-temp` retry; require the temporary-removal installation identity and the Installation State record path as typed evidence at the normalization boundary, and stop embedding user-facing sentences in ownership evidence facts ([#440](https://github.com/kenneth-liao/agent-profile-kit/issues/440)).
+
 - Render warnings inline directly beside command outcomes across status, apply, teardown, and temporary views without separate titled sections or empty warning blocks ([#439](https://github.com/kenneth-liao/agent-profile-kit/issues/439)).
 
 - Default `status` and `apply` lifecycle commands to fleet scope, add `--here` for explicit current-directory scope, reject conflicting scope arguments before execution, and preserve invoked scope across next-action recommendations and Blocker retry guidance ([#436](https://github.com/kenneth-liao/agent-profile-kit/issues/436)).

@@ -481,7 +481,9 @@ describe("Grok-only Profile Installation lifecycle", () => {
       // The write itself stays blocked by occupied-output ownership, not by probing.
       expect(
         reportBlockers(report).some((blocker) =>
-          blockerWording(blocker).message.includes("is an occupied other parent path"),
+          blockerWording(blocker).message.includes(
+            "cannot be used because its parent path is already occupied by",
+          ),
         ),
       ).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);

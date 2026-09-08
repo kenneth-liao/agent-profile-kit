@@ -318,7 +318,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     symlinkSync("../SKILL.md", scriptPath);
     const unsupported = await previewReconciliation(desired, await readInstallationState(home));
     expect(reportBlockers(unsupported).some((blocker) =>
-      blockerWording(blocker).message.includes("unsupported entry") && blockerWording(blocker).message.includes(directory.path)
+      blockerWording(blocker).message.includes("unsupported file system entry") && blockerWording(blocker).message.includes(directory.path)
     )).toBe(true);
     rmSync(scriptPath);
     writeFileSync(scriptPath, "#!/bin/sh\necho demo\n");
@@ -342,7 +342,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
-      blockerWording(blocker).message.includes("occupied unowned artifact directory")
+      blockerWording(blocker).message.includes("Agent Profile Kit did not install")
     )).toBe(true);
     expect(readFileSync(join(project, directory.path, "SKILL.md"), "utf8")).toBe("foreign\n");
   });
@@ -376,7 +376,7 @@ describe("Installer-owned artifact-directory outputs", () => {
 
     expect(reportBlockers(report)).toHaveLength(1);
     expect(blockerWording(reportBlockers(report)[0]!).message).toContain(
-      `${directory.path} is an occupied directory path`,
+      `${directory.path} is already occupied by a directory.`,
     );
   });
 
@@ -622,7 +622,7 @@ describe("Installer-owned artifact-directory outputs", () => {
       { receipts: [], removedTemporaryInstallationIds: [], schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION },
     );
     expect(reportBlockers(report).some((blocker) =>
-      blockerWording(blocker).message.includes("tracked project path")
+      blockerWording(blocker).message.includes("tracked by Git")
     )).toBe(true);
     expect(existsSync(join(project, directory.path))).toBe(false);
   });

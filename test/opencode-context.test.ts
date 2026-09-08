@@ -53,7 +53,7 @@ import {
 } from "./support/reconciliation-report.js";
 import {
   blockerWording,
-  OPENCODE_CONFIG_OCCUPIED_REMEDY,
+  opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
 const temporaryDirectories: string[] = [];
 
@@ -451,7 +451,8 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(blockers.length).toBeGreaterThanOrEqual(1);
 
     const occupiedBlocker = blockers.find((candidate) =>
-      blockerWording(candidate).message.includes(".opencode/opencode.jsonc is occupied"),
+      blockerWording(candidate).message.includes(".opencode/opencode.jsonc") &&
+      blockerWording(candidate).message.includes("Agent Profile Kit did not install"),
     );
     if (!occupiedBlocker) {
       throw new Error("expected occupied output blocker for .opencode/opencode.jsonc");
@@ -460,7 +461,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(occupiedBlocker.affectedItems).toEqual([
       { kind: "path", value: ".opencode/opencode.jsonc" },
     ]);
-    expect(blockerWording(occupiedBlocker).remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
+    expect(blockerWording(occupiedBlocker).remedy).toBe(opencodeConfigOccupiedRemedy(occupiedBlocker.project!));
     expect(blockerWording(occupiedBlocker).remedy).toContain("opencode.json");
     expect(blockerWording(occupiedBlocker).remedy).toContain(".opencode/opencode.json");
 
@@ -506,7 +507,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     );
     if (!occupiedBlocker) throw new Error("expected occupied output blocker for directory");
     expect(occupiedBlocker.kind).toBe("occupied-output");
-    expect(blockerWording(occupiedBlocker).remedy).toBe(OPENCODE_CONFIG_OCCUPIED_REMEDY);
+    expect(blockerWording(occupiedBlocker).remedy).toBe(opencodeConfigOccupiedRemedy(occupiedBlocker.project!));
 
     await expect(
       applyReconciliation(home, desired.installations),

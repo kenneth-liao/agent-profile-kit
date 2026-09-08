@@ -81,6 +81,30 @@ export function identifierPart(value: string): IdentifierPart {
   return { kind: "identifier", value };
 }
 
+/**
+ * POSIX single-quote a value so a copied command survives spaces and special
+ * characters. The canonical quoting helper for command authoring: wording
+ * tables and the document renderer consume it from this dependency-free leaf.
+ */
+export function shellSingleQuoted(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * Shell-quote a value for command authoring, or refuse it: empty values and
+ * control characters (newlines among them) cannot be copied or pasted safely,
+ * so the authoring boundary returns `undefined` and the remedy degrades to
+ * honest manual-recovery prose instead of emitting an unsafe command (#440).
+ */
+export function safeShellQuoted(value: string): string | undefined {
+  if (value.length === 0) return undefined;
+  for (const character of value) {
+    const code = character.codePointAt(0)!;
+    if (code < 0x20 || code === 0x7f) return undefined;
+  }
+  return shellSingleQuoted(value);
+}
+
 
 /**
  * The plain-text projection of inline content: atomic parts render verbatim.

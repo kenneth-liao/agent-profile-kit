@@ -379,7 +379,11 @@ describe("Claude-only Profile Installation lifecycle", () => {
       });
       // The write itself stays blocked by occupied-output ownership, not by probing.
       expect(
-        reportBlockers(report).some((blocker) => blockerWording(blocker).message.includes("is an occupied other parent path")),
+        reportBlockers(report).some((blocker) =>
+          blockerWording(blocker).message.includes(
+            "cannot be used because its parent path is already occupied by",
+          )
+        ),
       ).toBe(true);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
       expect(existsSync(join(project, ".agent-profile-kit"))).toBe(false);
