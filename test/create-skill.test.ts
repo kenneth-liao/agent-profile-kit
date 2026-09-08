@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { open } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -319,7 +321,7 @@ describe("createSkill", () => {
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("skill-creation-residue");
       if (fact.kind === "skill-creation-residue") {
-        expect(fact.contents).toBe("unknown");
+        expect(fact.contents).toBe("foreign");
         expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
       }
       // Recovery must not call the foreign-containing directory disposable.
@@ -402,11 +404,93 @@ describe("createSkill", () => {
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("skill-creation-residue");
       if (fact.kind === "skill-creation-residue") {
-        expect(fact.contents).toBe("unknown");
+        expect(fact.contents).toBe("foreign");
         expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
       }
       expect(readFileSync(join(workspacePath(home), "skills", "review-pr", "notes.md"), "utf8")).toBe("foreign\n");
       expect(existsSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("retains uninspectable residue evidence when the directory cannot be read (PROD-1)", async () => {
+    const home = await initializedHome();
+    try {
+      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+      const skillRoot = join(realpathSync(workspacePath(home)), "skills", "review-pr");
+      // Real exclusive open + partial bytes, then a fully unreadable directory
+      // (mode 000) blocks cleanup AND inspection of what survived.
+      const failure = await rejection(() =>
+        createSkill({
+          home,
+          name: "review-pr",
+          writeSkillFile: async (handle, contents) => {
+            await handle.write(Buffer.from(contents.slice(0, 10), "utf8"));
+            chmodSync(join(workspacePath(home), "skills", "review-pr"), 0o000);
+            throw enospc;
+          },
+        }),
+      );
+      // Only confirmed absence counts as no residue: an uninspectable
+      // directory is reported as unknown residue with its path retained.
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("skill-creation-residue");
+      if (fact.kind === "skill-creation-residue") {
+        expect(fact.contents).toBe("uninspectable");
+        expect(fact.path).toBe(skillRoot);
+      }
+      // Conservative guidance: review/access recovery, never a definite
+      // claim about foreign contents, never disposable wording.
+      const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+      const recovery = flatInlineText(diagnostic.whatToType!.flat());
+      expect(recovery).toMatch(/review/i);
+      expect(flatInlineText(diagnostic.happened)).not.toMatch(/did not create/i);
+
+      // Complete recovery: restore access, remove the residue, retry.
+      chmodSync(skillRoot, 0o755);
+      rmSync(skillRoot, { recursive: true });
+      const retried = await createSkill({ home, name: "review-pr" });
+      expect(retried.id).toBe("review-pr");
+      await ingestSelectedWorkspace(home);
+    } finally {
+      chmodSync(join(workspacePath(home), "skills", "review-pr"), 0o755);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("never reports success when the post-write close fails (RE-1)", async () => {
+    const home = await initializedHome();
+    try {
+      const closeError = Object.assign(new Error("Input/output error on close"), { code: "EIO" });
+      const failure = await rejection(() =>
+        createSkill({
+          home,
+          name: "review-pr",
+          // Real exclusive open (ownership proven); the write succeeds, then
+          // the post-write close is injected to reject.
+          openSkillFile: async (path) => {
+            const real = await open(path, "wx");
+            return {
+              writeFile: (contents: string) => real.writeFile(contents),
+              close: async () => {
+                await real.close();
+                throw closeError;
+              },
+            } as unknown as FileHandle;
+          },
+        }),
+      );
+      // No successful creation result: the close failure is routed through
+      // creation recovery and reported as the original error.
+      expect(failure).toBe(closeError);
+      expect(existsSync(join(workspacePath(home), "skills", "review-pr"))).toBe(false);
+
+      // Retry recovers cleanly and ingestion stays valid.
+      const retried = await createSkill({ home, name: "review-pr" });
+      expect(retried.id).toBe("review-pr");
+      await ingestSelectedWorkspace(home);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

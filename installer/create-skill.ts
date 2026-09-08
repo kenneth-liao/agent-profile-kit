@@ -48,7 +48,8 @@ async function closeQuietly(handle: FileHandle): Promise<void> {
   try {
     await handle.close();
   } catch {
-    // Close is best-effort once the exclusive open's ownership work is done.
+    // Close during error recovery is secondary; the original error is
+    // preserved and reported instead.
   }
 }
 
@@ -80,24 +81,35 @@ async function reportInvocationResidue(
   } catch {
     // Fall through to classification of what survives.
   }
-  let foreign = false;
+  let inspection: "own" | "foreign";
   try {
     const entries = await readdir(skillDirectory);
     // With a proven-created file, a surviving SKILL.md may be our own partial
     // write; without one, every entry — a surviving SKILL.md included — is
     // material this invocation never created.
-    foreign = provenCreatedFile !== null
-      ? entries.some((entry) => entry !== SKILL_FILE_NAME)
-      : entries.length > 0;
-  } catch {
-    // The directory vanished after all; nothing survived.
-    return undefined;
+    inspection = provenCreatedFile !== null
+      ? (entries.some((entry) => entry !== SKILL_FILE_NAME) ? "foreign" : "own")
+      : (entries.length > 0 ? "foreign" : "own");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      // Confirmed absence is the only proof that nothing survived.
+      return undefined;
+    }
+    // EACCES, EIO, EMFILE, and any other inspection failure do not prove
+    // absence or foreign content: the directory stays reported residue with
+    // conservative uninspectable guidance.
+    return new InstallerToolError({
+      kind: "skill-creation-residue",
+      id,
+      path: skillDirectory,
+      contents: "uninspectable",
+    });
   }
   return new InstallerToolError({
     kind: "skill-creation-residue",
     id,
     path: skillDirectory,
-    contents: foreign ? "unknown" : "own",
+    contents: inspection,
   });
 }
 
@@ -215,14 +227,28 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
     throw error;
   }
 
+  let writeError: unknown;
   try {
     await writeSkillFile(handle, scaffold);
   } catch (error) {
+    writeError = error;
+  }
+  if (writeError !== undefined) {
+    // Close is secondary during error recovery; it must never mask the
+    // original write error.
     await closeQuietly(handle);
+    const residual = await reportInvocationResidue(skillDirectory, skillFile, id);
+    if (residual !== undefined) throw residual;
+    throw writeError;
+  }
+  // Success path: an awaited close failure is a failed creation, never a
+  // success receipt; route it through the same creation recovery.
+  try {
+    await handle.close();
+  } catch (error) {
     const residual = await reportInvocationResidue(skillDirectory, skillFile, id);
     if (residual !== undefined) throw residual;
     throw error;
   }
-  await closeQuietly(handle);
   return { id, path: skillFile };
 }
