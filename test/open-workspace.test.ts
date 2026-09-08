@@ -252,4 +252,42 @@ describe("openWorkspace", () => {
       expect(fact.detail).toContain("timed out after 5000ms");
     }
   });
+
+  test("preserves cleanupFailed evidence when process group cleanup fails", async () => {
+    const home = createHome();
+    const workspacePath = setupWorkspace(home);
+
+    const mockRunProcess = async (options: ExecutorOptions): Promise<ProcessResult> => ({
+      kind: "timeout",
+      exitCode: null,
+      signal: null,
+      error: null,
+      timedOut: true,
+      cancelled: false,
+      cleanupFailed: true,
+      stdout: "",
+      stderr: "",
+      durationMs: 5000,
+      commandLabel: options.commandLabel ?? options.executable,
+    });
+
+    let thrown: unknown;
+    try {
+      await openWorkspace({
+        home,
+        deadlineMs: 5000,
+        runProcess: mockRunProcess,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(InstallerToolError);
+    const fact = (thrown as InstallerToolError).fact;
+    expect(fact.kind).toBe("workspace-open-failed");
+    if (fact.kind === "workspace-open-failed") {
+      expect(fact.path).toBe(workspacePath);
+      expect(fact.cleanupFailed).toBe(true);
+    }
+  });
 });

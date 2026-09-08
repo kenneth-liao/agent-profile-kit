@@ -26,7 +26,7 @@ import {
   substituteInline,
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
-import { commandPart, flatInlineText, identifierPart, type CommandArg, type InlineContent } from "./inline-content.js";
+import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
 import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
 import type { PresentationDocument } from "./presentation-document.js";
 
@@ -429,8 +429,10 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
         `Skill creation left ${fact.path} and its contents could not be inspected; restore access or review it before removing anything, then run `,
         commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
       ];
-    case "workspace-open-failed":
-      return [`Could not open Workspace at ${fact.path}: ${fact.detail}`];
+    case "workspace-open-failed": {
+      const extra = fact.cleanupFailed ? "; opener cleanup failed" : "";
+      return [`Could not open Workspace at ${fact.path}: ${fact.detail}${extra}`];
+    }
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -569,12 +571,22 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
           " to retry.",
         ]],
       };
-    case "workspace-open-failed":
+    case "workspace-open-failed": {
+      const whyLines: (readonly InlineContent[])[] = [[fact.detail]];
+      if (fact.cleanupFailed) {
+        whyLines.push(["The opener process could not be cleaned up completely."]);
+      }
+      const quotedPath = safeShellQuoted(fact.path) ?? shellSingleQuoted(fact.path);
       return {
         happened: [`Could not open Workspace at ${fact.path}`],
-        why: [[fact.detail]],
-        whatToType: [["Open ", fact.path, " directly in your file manager or terminal."]],
+        why: whyLines,
+        whatToType: [[
+          "Run ",
+          commandPart("cd", [arg(quotedPath)]),
+          " to inspect the Workspace directory.",
+        ]],
       };
+    }
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":

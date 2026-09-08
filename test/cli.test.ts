@@ -13180,7 +13180,8 @@ describe("packed CLI open workspace", () => {
     expectExitCode(failed, 1);
     expect(failed.stderr).toContain("Could not open Workspace at");
     expect(failed.stderr).toContain("No application knows how to open path");
-    expect(failed.stderr).toContain("Open");
+    expect(failed.stderr).toContain("cd '");
+    expect(failed.stderr).toContain("to inspect the Workspace directory.");
   });
 
   test("artifact creation does not automatically open the Workspace as a side effect", async () => {

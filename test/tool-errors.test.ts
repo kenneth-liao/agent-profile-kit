@@ -437,7 +437,7 @@ describe("typed Installer tool errors", () => {
     }
   });
 
-  test("workspace-open-failed diagnostic carries the failure detail and manual opening recovery", () => {
+  test("workspace-open-failed diagnostic carries failure detail and runnable recovery command", () => {
     const fact: InstallerToolErrorFact = {
       kind: "workspace-open-failed",
       path: "/path/to/workspace",
@@ -446,14 +446,36 @@ describe("typed Installer tool errors", () => {
     const diagnostic = formatInstallerToolErrorDiagnostic(fact);
     expect(flatInlineText(diagnostic.happened)).toBe("Could not open Workspace at /path/to/workspace");
     expect(diagnostic.why).toBeDefined();
+    expect(diagnostic.why).toHaveLength(1);
     expect(flatInlineText(diagnostic.why![0]!)).toBe("Command failed with exit code 1");
     expect(diagnostic.whatToType).toBeDefined();
-    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Open /path/to/workspace directly in your file manager or terminal.");
+    expect(diagnostic.whatToType![0]![1]).toEqual({
+      kind: "command",
+      program: "cd",
+      args: [{ kind: "text", value: "'/path/to/workspace'" }],
+    });
+    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run cd '/path/to/workspace' to inspect the Workspace directory.");
     for (const pattern of INTERNAL_ONLY_DEFAULT_TERMS) {
       expect(flatInlineText(diagnostic.happened)).not.toMatch(pattern);
       expect(flatInlineText(diagnostic.whatToType![0]!)).not.toMatch(pattern);
     }
     const machine = flatInlineText(formatInstallerToolError(fact));
     expect(machine).toBe("Could not open Workspace at /path/to/workspace: Command failed with exit code 1");
+  });
+
+  test("workspace-open-failed preserves cleanupFailed evidence in why and machine projection", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "workspace-open-failed",
+      path: "/path/to/workspace",
+      detail: "opener process timed out after 5000ms",
+      cleanupFailed: true,
+    };
+    const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+    expect(diagnostic.why).toBeDefined();
+    expect(diagnostic.why).toHaveLength(2);
+    expect(flatInlineText(diagnostic.why![0]!)).toBe("opener process timed out after 5000ms");
+    expect(flatInlineText(diagnostic.why![1]!)).toBe("The opener process could not be cleaned up completely.");
+    const machine = flatInlineText(formatInstallerToolError(fact));
+    expect(machine).toBe("Could not open Workspace at /path/to/workspace: opener process timed out after 5000ms; opener cleanup failed");
   });
 });

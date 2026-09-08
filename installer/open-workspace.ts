@@ -76,5 +76,6 @@ export async function openWorkspace(
     kind: "workspace-open-failed",
     path: workspace.path,
     detail,
+    ...(result.cleanupFailed ? { cleanupFailed: true } : {}),
   });
 }
