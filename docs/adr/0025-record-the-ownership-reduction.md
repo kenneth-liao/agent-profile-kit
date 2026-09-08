@@ -34,3 +34,7 @@ This record supersedes **ADR-0022 in full**: the Safe Repair authority boundary,
 For provenance, the kinds ADR-0023 published — the Repository Exclusion Contribution blocker family — are among those this reduction removed from the typed Blocker class; that record remains a historical account of its delivery.
 
 The maintained glossary (`CONTEXT.md`) owns the canonical Blocker definition; `docs/ARCHITECTURE.md` owns the reduced structural facts.
+
+### Amendment: advisory Host detection during first-run initialization (DEC-022)
+
+Spec #373 (ticket #444) adds non-gating advisory Host detection during first-run `init` so the initialization receipt's suggested `bind` command can select an installed Host on the user's machine without hardcoding an absent Host. `init` executes only the registered Adapter version probes (`CompleteHostAdapter.detectHost`) on newly created Workspaces, and failed or unreadable probes never block initialization. `status` strictly retains its no-process execution guarantee, and Host Resolution remains native to each Agent Host.

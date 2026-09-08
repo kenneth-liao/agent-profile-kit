@@ -71,3 +71,21 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
     .sort()
     .join("+");
 }
+
+/**
+ * Advisory detection of installed supported Agent Hosts on the machine.
+ * Evaluates registered Adapters concurrently and returns detected Hosts in
+ * canonical SUPPORTED_HOSTS order. Detection is advisory and never throws.
+ */
+export async function detectInstalledHosts(
+  options: { readonly env?: NodeJS.ProcessEnv } = {},
+): Promise<readonly SupportedHost[]> {
+  const detections = await Promise.all(
+    HOST_REGISTRY.map(async (entry) => {
+      const detected = await entry.adapter.detectHost(options);
+      return detected ? entry.host : undefined;
+    }),
+  );
+  return detections.filter((host): host is SupportedHost => host !== undefined);
+}
+

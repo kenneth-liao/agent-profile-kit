@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { runProcess, type ProcessResult } from "./process-executor.js";
+import { runProcess, type ProcessResult } from "../../process/process-executor.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -280,6 +280,8 @@ function describeOutcome(result: ProcessResult): string {
       return `signal ${result.signal}`;
     case "timeout":
       return "timeout";
+    case "output-limit":
+      return "output limit";
     case "spawn-error":
       return `spawn error (${result.error.message})`;
     case "cancelled":

@@ -6,7 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Bound all Adapter CLI probes through the shared bounded process executor (extracted to `process/process-executor.ts`, ADR-0027) so a Host executable ignoring SIGTERM can no longer hang `init` after Workspace publication, terminate a probe whose stdout or stderr exceeds a 1 MiB per-stream output budget through that same lifecycle, surface an unclean bounded termination as `cleanupFailed` with no captured output so a parseable version line can never turn a cleanup failure into a detected Host, and carry the effective authored Workspace spelling from Local Configuration through every initialization outcome so bare `init` after adopting an external aliased Workspace renders the authored home-relative alias ([#472](https://github.com/kenneth-liao/agent-profile-kit/pull/472), [#444](https://github.com/kenneth-liao/agent-profile-kit/issues/444)).
+
 ### Added
+
+- Make initialization guidance match the machine by presenting the selected Workspace in actionable home-relative form, explaining Profiles in one sentence, detecting installed Agent Hosts via advisory probes across all six supported Hosts, and selecting the first detected Host for the suggested bind command (or `apkit validate` when none is detected) (US-033, US-036–US-039, DEC-022, DEC-023, [#444](https://github.com/kenneth-liao/agent-profile-kit/issues/444)).
 
 - Support the `-v` short flag to report the packaged engine version identically to `--version` without introducing a short alias for `--verbose` (US-057, DEC-037, [#443](https://github.com/kenneth-liao/agent-profile-kit/issues/443)).
 

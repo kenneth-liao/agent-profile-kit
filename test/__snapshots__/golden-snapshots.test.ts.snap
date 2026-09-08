@@ -1065,7 +1065,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.156.0
+Engine version: 0.157.1
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1147,8 +1147,12 @@ Create one with apkit machine install-temp <profile> <project> --host <host>.
 exports[`golden snapshots of every human view init: init 1`] = `
 "--- stdout ---
 Initialized Agent Profile Kit Workspace and settings at
-  /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace
-Next: from the project you want to try, run apkit bind example --host codex
+  ~/.agents/agent-profile-kit/workspace
+A Profile is a named selection of Context and Skills to adapt for your
+  projects.
+Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
+Next: from the project you want to try, run
+  apkit bind example --host antigravity
 --- stderr ---
 "
 `;
@@ -1858,7 +1862,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.156.0
+Engine version: 0.157.1
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1868,7 +1872,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.156.0\x1B[0m
+\x1B[35mEngine version: 0.157.1\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1878,7 +1882,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.156.0
+Engine version: 0.157.1
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1888,7 +1892,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.156.0\x1B[0m
+\x1B[35mEngine version: 0.157.1\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

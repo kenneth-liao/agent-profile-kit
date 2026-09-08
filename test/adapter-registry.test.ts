@@ -9,6 +9,7 @@ import {
   HOST_REGISTRY,
   SUPPORTED_HOSTS,
   adapterVersionFor,
+  detectInstalledHosts,
   hostRegistrationFor,
   isSupportedHost,
 } from "../adapters/registry.js";
@@ -173,4 +174,63 @@ exit 2
       setupSteps: [],
     });
   });
+
+  test("requires every registered Adapter to implement detectHost and detects installed Hosts in canonical order", async () => {
+    for (const registration of HOST_REGISTRY) {
+      expect(typeof registration.adapter.detectHost).toBe("function");
+    }
+
+    const bin = temporaryDirectory("apkit-detect-all-bin-");
+    writeFileSync(join(bin, "agy"), "#!/bin/sh\necho 'Antigravity 1.1.13'\n");
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\necho 'codex-cli 0.145.0'\n");
+    writeFileSync(
+      join(bin, "grok"),
+      `#!/bin/sh\nif [ "$1" = "version" ]; then echo 'grok 0.2.111'; exit 0; fi\nexit 2\n`,
+    );
+    writeFileSync(join(bin, "opencode"), "#!/bin/sh\necho '1.18.23'\n");
+    writeFileSync(join(bin, "pi"), "#!/bin/sh\necho 'pi 0.82.1'\n");
+    for (const name of ["agy", "claude", "codex", "grok", "opencode", "pi"]) {
+      chmodSync(join(bin, name), 0o755);
+    }
+
+    const detected = await detectInstalledHosts({ env: { ...process.env, PATH: bin } });
+    expect(detected).toEqual([
+      "antigravity",
+      "claude",
+      "codex",
+      "grok",
+      "opencode",
+      "pi",
+    ]);
+
+    // Partial detection: only codex and pi
+    const partialBin = temporaryDirectory("apkit-detect-partial-bin-");
+    writeFileSync(join(partialBin, "codex"), "#!/bin/sh\necho 'codex-cli 0.145.0'\n");
+    writeFileSync(join(partialBin, "pi"), "#!/bin/sh\necho 'pi 0.82.1'\n");
+    chmodSync(join(partialBin, "codex"), 0o755);
+    chmodSync(join(partialBin, "pi"), 0o755);
+
+    const partialDetected = await detectInstalledHosts({
+      env: { ...process.env, PATH: partialBin },
+    });
+    expect(partialDetected).toEqual(["codex", "pi"]);
+
+    // Empty detection on empty PATH
+    const emptyBin = temporaryDirectory("apkit-detect-empty-bin-");
+    const emptyDetected = await detectInstalledHosts({
+      env: { ...process.env, PATH: emptyBin },
+    });
+    expect(emptyDetected).toEqual([]);
+
+    // Failed/unreadable probe does not throw and returns false
+    const brokenBin = temporaryDirectory("apkit-detect-broken-bin-");
+    writeFileSync(join(brokenBin, "codex"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(brokenBin, "codex"), 0o755);
+    const brokenDetected = await detectInstalledHosts({
+      env: { ...process.env, PATH: brokenBin },
+    });
+    expect(brokenDetected).toEqual([]);
+  });
 });
+

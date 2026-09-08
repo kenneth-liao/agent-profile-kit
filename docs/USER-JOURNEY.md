@@ -106,12 +106,13 @@ alongside either path.
 
 `status` is the single authoritative read-only Project lifecycle plan. It uses
 the same selected scope and normalized desired plan as `apply` and performs no
-Agent Host process execution (ADR-0025): Host capability probing happens only
-during `apply`, where a missing or outdated Host CLI produces one advisory
-warning per Host per invocation — naming the Host and the strictest version it
-requires, regardless of Project count or distinct requirement messages — and never blocks
-planning or writing. The
-former separate plan command was removed before 1.0.
+Agent Host process execution (ADR-0025): Host capability probing is advisory and
+happens during `apply` (and first-run `init` for machine-tailored guidance per
+DEC-022), where a missing or outdated Host CLI produces one advisory warning per
+Host per invocation — naming the Host and the strictest version it requires,
+regardless of Project count or distinct requirement messages — and never blocks
+planning, writing, or initialization. The former separate plan command was
+removed before 1.0.
 
 ---
 
@@ -195,14 +196,20 @@ lifecycle diagnostic.
 ```
 $ apkit init
 Initialized Agent Profile Kit Workspace and settings at
-<workspace>
-Next: from the project you want to try, run apkit bind example --host codex
+  <workspace>
+A Profile is a named selection of Context and Skills to adapt for your
+  projects.
+Detected Agent Hosts: <hosts>
+Next: from the project you want to try, run
+  apkit bind example --host <host>
 ```
 
 Scaffolds `workspace.yaml`, six artifact directories, a bindable `example`
 Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
 `schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
-removed example or overwrite any valid existing Workspace.
+removed example or overwrite any valid existing Workspace. When no supported
+Agent Hosts are detected on the machine, the receipt states so and suggests
+`apkit validate` instead.
 
 ### 3. Learn the format
 

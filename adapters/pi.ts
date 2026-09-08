@@ -1,8 +1,7 @@
-import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { lstat, readFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
-import { promisify } from "node:util";
+import { invokeExecutable } from "./services/executable.js";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { PI_ADAPTER_VERSION } from "./host-catalog.js";
@@ -33,7 +32,6 @@ import {
   type ProposedProjectOutput,
 } from "./project-plan.js";
 
-const execFileAsync = promisify(execFile);
 
 export const PI_HOST_VERSION = "native-project-append-system-v1";
 /** Capability Contracts for Pi's complete qualified shared Skill package. */
@@ -201,10 +199,9 @@ export function assertPiCliVersionSupported(
 async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string> {
   if (options.resolveVersion) return parsePiCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await execFileAsync("pi", ["--version"], {
-      env: options.env ?? process.env,
-      encoding: "utf8",
-      timeout: 10_000,
+    const { stdout, stderr } = await invokeExecutable("pi", ["--version"], {
+      ...(options.env === undefined ? {} : { env: options.env }),
+      timeoutMs: 10_000,
     });
     return parsePiCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
@@ -436,6 +433,16 @@ export async function planPiProject(
 
 export const piAdapter = {
   host: "pi",
+  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
+    try {
+      await resolvePiCliVersion(
+        options.env === undefined ? {} : { env: options.env },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireSkills = input.resolvedSkills.length > 0;

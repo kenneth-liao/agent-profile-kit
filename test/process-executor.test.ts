@@ -7,7 +7,7 @@ import {
   describeProcessResult,
   expectExitCode,
   runProcess,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 const shell = "sh";
 
@@ -300,5 +300,29 @@ describe("process diagnostics", () => {
 
     const timeout = await shFixture("sleep 30", { deadlineMs: 150 });
     expect(() => expectExitCode(timeout, 0, "fixture")).toThrow(/kind=timeout|timedOut/);
+  });
+
+  test("a child exceeding the per-stream output budget is terminated through the bounded lifecycle", async () => {
+    // Streams 2 MiB, twice the budget, then would exit 0 — termination must
+    // happen at the budget, not at the deadline or at natural completion.
+    const stdoutOverflow = await shFixture(
+      "head -c 2097152 /dev/zero | tr '\\0' 'x'",
+      { deadlineMs: 8000 },
+    );
+    expect(stdoutOverflow.kind).toBe("output-limit");
+    expect(stdoutOverflow.timedOut).toBe(false);
+    expect(stdoutOverflow.cancelled).toBe(false);
+    expect(stdoutOverflow.cleanupFailed).toBe(false);
+    expect(stdoutOverflow.exitCode).toBeNull();
+    expect(stdoutOverflow.stderr).toBe("");
+    expect(stdoutOverflow.durationMs).toBeLessThan(8000);
+
+    const stderrOverflow = await shFixture(
+      "head -c 2097152 /dev/zero | tr '\\0' 'x' >&2",
+      { deadlineMs: 8000 },
+    );
+    expect(stderrOverflow.kind).toBe("output-limit");
+    expect(stderrOverflow.cleanupFailed).toBe(false);
+    expect(stderrOverflow.stdout).toBe("");
   });
 });

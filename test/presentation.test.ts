@@ -8381,37 +8381,154 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const home = homedir();
   const projectPath = join(home, "projects", "demo");
 
-  test("the created receipt presents a success headline and the next command", () => {
+  test("the created receipt presents a success headline, Profile explanation, detected Hosts, and the next command", () => {
     const document = initReceiptDocument({
       outcome: "created",
-      path: `/test/workspace`,
+      path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: true,
+      detectedHosts: ["codex"],
     });
     // Selective shape: kinds, categories, order, and atomic values — the
     // carried wording is locked by the golden snapshots.
-    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "sentence",
+      "sentence",
+      "sentence(command)",
+    ]);
     expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
-    expect(document[1]).toMatchObject({ kind: "sentence", category: "command" });
+    expect(document[1]).toMatchObject({
+      kind: "sentence",
+      parts: ["A Profile is a named selection of Context and Skills to adapt for your projects."],
+    });
+    expect(document[2]).toMatchObject({
+      kind: "sentence",
+      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "codex" }],
+    });
+    expect(document[3]).toMatchObject({
+      kind: "sentence",
+      category: "command",
+      parts: [
+        "Next: from the project you want to try, run ",
+        {
+          kind: "command",
+          program: "apkit",
+          args: [
+            { kind: "text", value: "bind" },
+            { kind: "text", value: "example" },
+            { kind: "text", value: "--host" },
+            { kind: "text", value: "codex" },
+          ],
+        },
+      ],
+    });
+
+    // When multiple Hosts are detected, the first detected Host is selected for the suggested bind
+    const multiHostDocument = initReceiptDocument({
+      outcome: "created",
+      path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      workspaceScaffolded: true,
+      detectedHosts: ["antigravity", "claude", "codex"],
+    });
+    expect(multiHostDocument[2]).toMatchObject({
+      kind: "sentence",
+      parts: [
+        "Detected Agent Hosts: ",
+        { kind: "identifier", value: "antigravity, claude, codex" },
+      ],
+    });
+    expect(multiHostDocument[3]).toMatchObject({
+      kind: "sentence",
+      category: "command",
+      parts: [
+        "Next: from the project you want to try, run ",
+        {
+          kind: "command",
+          program: "apkit",
+          args: [
+            { kind: "text", value: "bind" },
+            { kind: "text", value: "example" },
+            { kind: "text", value: "--host" },
+            { kind: "text", value: "antigravity" },
+          ],
+        },
+      ],
+    });
+  });
+
+  test("the created receipt with no detected Hosts states so and suggests validate without inventing an absent Host", () => {
+    const document = initReceiptDocument({
+      outcome: "created",
+      path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      workspaceScaffolded: true,
+      detectedHosts: [],
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "sentence",
+      "sentence",
+      "sentence(command)",
+    ]);
+    expect(document[2]).toMatchObject({
+      kind: "sentence",
+      parts: ["Detected Agent Hosts: none"],
+    });
+    expect(document[3]).toMatchObject({
+      kind: "sentence",
+      category: "command",
+      parts: [
+        "Next: run ",
+        {
+          kind: "command",
+          program: "apkit",
+          args: [{ kind: "text", value: "validate" }],
+        },
+      ],
+    });
   });
 
   test("the created receipt without scaffolding points at validate", () => {
     const document = initReceiptDocument({
       outcome: "created",
-      path: `/test/workspace`,
+      path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: false,
+      detectedHosts: ["codex"],
     });
-    expect(shapes(document)).toEqual(["sentence(success)", "sentence(command)"]);
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "sentence",
+      "sentence",
+      "sentence(command)",
+    ]);
+    expect(document[3]).toMatchObject({
+      kind: "sentence",
+      category: "command",
+      parts: [
+        "Next: run ",
+        {
+          kind: "command",
+          program: "apkit",
+          args: [{ kind: "text", value: "validate" }],
+        },
+      ],
+    });
   });
 
   test("the migrated and unchanged receipts carry their severities and values", () => {
     const migrated = initReceiptDocument({
       outcome: "migrated",
       path: `/test/workspace`,
+      authoredPath: `/test/workspace`,
     });
     expect(shapes(migrated)).toEqual(["sentence(success)", "sentence(command)"]);
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
+      authoredPath: `/test/workspace`,
     });
     expect(shapes(unchanged)).toEqual(["sentence"]);
   });

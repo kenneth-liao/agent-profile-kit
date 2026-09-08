@@ -459,6 +459,16 @@ export async function planOpenCodeProject(
 
 export const opencodeAdapter = {
   host: "opencode",
+  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
+    try {
+      await resolveOpenCodeCliVersion(
+        options.env === undefined ? {} : { env: options.env },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  },
   async planProject(input, services) {
     // Profile-policy refusals throw: an Adapter that cannot plan valid output
     // must fail the invocation rather than return a partial plan.

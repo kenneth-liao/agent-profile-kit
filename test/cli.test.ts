@@ -53,7 +53,7 @@ import {
   expectExitCode,
   runProcess,
   type ProcessResult,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
@@ -603,7 +603,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(init, 0);
     expect(help.stdout).toContain(`Next: Run ${firstRunCommand}.`);
     expect(init.stdout).toContain(
-      `Next: from the project you want to try, run ${firstRunCommand}`,
+      `Next: from the project you want to try, run`,
+    );
+    expect(init.stdout).toContain(
+      `apkit bind ${AUTHORING_EXAMPLES.profile.id} --host`,
     );
     const bind = await runCliAt(
       home,
@@ -950,7 +953,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "init", custom);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(custom);
+    expect(result.stdout).toContain("~/custom-workspace");
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
       workspace: custom,
@@ -982,7 +985,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const rendered of [narrow.stdout, wide.stdout]) {
       const receiptLine = rendered.split("\n").find((line) => line.includes("My Workspaces"));
       expect(receiptLine).toBeDefined();
-      expect(receiptLine!.includes(custom)).toBe(true);
+      expect(receiptLine!.includes("~/My Workspaces")).toBe(true);
     }
   });
 
@@ -1125,7 +1128,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "init", custom);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(custom);
+    expect(result.stdout).toContain("~/existing-workspace");
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
       workspace: custom,
@@ -1200,7 +1203,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "init", alias);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain(realWorkspace);
+    expect(result.stdout).toContain("~/workspace-alias");
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
       workspace: alias,

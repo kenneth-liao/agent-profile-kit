@@ -24,12 +24,13 @@ import {
   collectSpellings,
 } from "./support/rendered-atomicity.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
+import { installControlledHosts } from "./support/fleet-fixture.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
   type ProcessResult,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
@@ -153,21 +154,8 @@ function expectGolden(
   expect(snapshotBody(result, home)).toMatchSnapshot(name);
 }
 
-function installFakeCodex(home: string, version = "0.145.0"): string {
-  const bin = join(home, "bin");
-  mkdirSync(bin, { recursive: true });
-  writeFileSync(
-    join(bin, "codex"),
-    `#!/bin/sh
-echo "codex-cli ${version}"
-`,
-  );
-  chmodSync(join(bin, "codex"), 0o755);
-  return bin;
-}
-
 function defaultPath(home: string): string {
-  return `${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
+  return installControlledHosts(home);
 }
 
 function redirectedEnvironment(home: string): NodeJS.ProcessEnv {
