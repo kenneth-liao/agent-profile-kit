@@ -6,7 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Add `apkit new skill <name>`: scaffold one valid Skill into the configured Workspace and print the absolute path of the created `SKILL.md` without prompting or opening an editor, enforcing the Artifact ID schema, the existing duplicate-Artifact-ID ingestion check, and exclusive creation that refuses occupied or symlinked destinations with typed diagnostics (US-042, US-046 Skill clause, US-055 new-Skill non-interaction clause, DEC-026, [#445](https://github.com/kenneth-liao/agent-profile-kit/issues/445)).
+
 ### Fixed
+
+- Give the occupied-Skill-destination diagnostic a structured runnable `apkit new skill` recovery command after its explanation (DEC-014, US-022, INT-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)); make Skill-creation failure recovery safe against user-content deletion with the exclusive open as the sole ownership boundary so a pre-open failure never removes any file; treat only confirmed ENOENT absence as no residue, retaining uninspectable directories as typed residue with conservative access/review guidance instead of claiming foreign contents (PROD-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)); and report a failed post-write close as failed creation through the same recovery instead of a success receipt while preserving the original write error when closing during error cleanup (RE-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)).
 
 - Bound all Adapter CLI probes through the shared bounded process executor (extracted to `process/process-executor.ts`, ADR-0027) so a Host executable ignoring SIGTERM can no longer hang `init` after Workspace publication, terminate a probe whose stdout or stderr exceeds a 1 MiB per-stream output budget through that same lifecycle, surface an unclean bounded termination as `cleanupFailed` with no captured output so a parseable version line can never turn a cleanup failure into a detected Host, and carry the effective authored Workspace spelling from Local Configuration through every initialization outcome so bare `init` after adopting an external aliased Workspace renders the authored home-relative alias ([#472](https://github.com/kenneth-liao/agent-profile-kit/pull/472), [#444](https://github.com/kenneth-liao/agent-profile-kit/issues/444)).
 

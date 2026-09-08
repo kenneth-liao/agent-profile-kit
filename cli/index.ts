@@ -22,6 +22,7 @@ import {
 import {
   bindReceiptDocument,
   initReceiptDocument,
+  newSkillReceiptDocument,
   unbindReceiptDocument,
 } from "./receipts.js";
 import {
@@ -78,6 +79,7 @@ import {
   unbindProject,
 } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
+import { createSkill } from "../installer/create-skill.js";
 import { detectInstalledHosts } from "../adapters/registry.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
@@ -616,6 +618,31 @@ function parseGuideArguments(arguments_: readonly string[]):
   throw new Error(`guide does not accept argument '${route}'`);
 }
 
+/**
+ * Parse `new skill <name>` (DEC-026). Only the Skill kind exists; sibling
+ * artifact kinds own their own additions. Never prompts and never opens an
+ * editor, on any input stream (US-055).
+ */
+function parseNewArguments(
+  arguments_: readonly string[],
+): { readonly kind: "skill"; readonly name: string } {
+  if (arguments_.length === 0) {
+    throw new Error("new requires an artifact kind; supported kinds: skill");
+  }
+  const kind = arguments_[0]!;
+  if (kind !== "skill") {
+    throw new Error(`new does not support kind '${sanitizeCommandToken(kind)}'; supported kinds: skill`);
+  }
+  if (arguments_.length < 2) {
+    throw new Error("new skill requires a Skill name");
+  }
+  if (arguments_.length > 2) {
+    throw new Error(`new skill does not accept argument '${arguments_[2]}'`);
+  }
+  const name = positionalArgument("new skill", "a Skill name", arguments_[1]!);
+  return { kind: "skill", name };
+}
+
 function parseNoArguments(command: string, arguments_: readonly string[]): { readonly valid: true } {
   if (arguments_.length > 0) {
     throw new Error(`${command} does not accept argument '${arguments_[0]}'`);
@@ -847,6 +874,26 @@ async function main(): Promise<void> {
       }),
       stdoutPresentationContext,
     );
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "new") {
+    const parsed = parseOrExit("new", () => parseNewArguments(arguments_.slice(1)));
+    if (parsed === undefined) return;
+    try {
+      const result = await createSkill({ home, name: parsed.name });
+      writeHumanDocument(
+        process.stdout,
+        newSkillReceiptDocument(result),
+        stdoutPresentationContext,
+      );
+    } catch (error) {
+      writeHumanDocument(
+        process.stderr,
+        errorDiagnosticDocument(error),
+        stderrPresentationContext,
+      );
+      process.exitCode = 1;
+    }
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "bind") {

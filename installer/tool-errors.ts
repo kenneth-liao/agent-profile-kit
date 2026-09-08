@@ -147,6 +147,23 @@ export type InstallerToolErrorFact =
       readonly configuredPath: string;
     }
   | { readonly kind: "foreign-diagnostic"; readonly detail: string }
+  | {
+      readonly kind: "skill-path-occupied";
+      readonly id: string;
+      readonly path: string;
+    }
+  | {
+      readonly kind: "skill-creation-residue";
+      readonly id: string;
+      readonly path: string;
+      /**
+       * What survives at `path`: material entirely created by the failed
+       * Skill invocation ("own"), a directory containing entries Agent
+       * Profile Kit did not create ("foreign"), or a directory whose
+       * contents could not be inspected ("uninspectable").
+       */
+      readonly contents: "own" | "foreign" | "uninspectable";
+    }
   | ConfiguredPathErrorFact
   | WorkspaceIngestionErrorFact;
 

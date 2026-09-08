@@ -410,6 +410,25 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "foreign-diagnostic":
       return [fact.detail];
+    case "skill-path-occupied":
+      return [`Skill '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
+    case "skill-creation-residue":
+      if (fact.contents === "own") {
+        return [
+          `Skill creation left incomplete Agent Profile Kit material at ${fact.path}; remove it and run `,
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+        ];
+      }
+      if (fact.contents === "foreign") {
+        return [
+          `Skill creation left ${fact.path} containing material Agent Profile Kit did not create; review it before removing anything, then run `,
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+        ];
+      }
+      return [
+        `Skill creation left ${fact.path} and its contents could not be inspected; restore access or review it before removing anything, then run `,
+        commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+      ];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -510,6 +529,44 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
+    case "skill-path-occupied":
+      return {
+        happened: [`Skill '${fact.id}' already has material at ${fact.path}`],
+        whatToType: [[
+          "Choose a different Skill name or remove the existing material first, then run ",
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg("<different-name>")]),
+          ".",
+        ]],
+      };
+    case "skill-creation-residue":
+      if (fact.contents === "own") {
+        return {
+          happened: [`Skill creation left incomplete Agent Profile Kit material at ${fact.path}`],
+          whatToType: [[
+            "Remove it, then run ",
+            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+            " to retry.",
+          ]],
+        };
+      }
+      if (fact.contents === "foreign") {
+        return {
+          happened: [`Skill creation left ${fact.path} containing material Agent Profile Kit did not create`],
+          whatToType: [[
+            "Review the material, remove only what you determine is unwanted together with the directory, then run ",
+            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+            " to retry.",
+          ]],
+        };
+      }
+      return {
+        happened: [`Skill creation left ${fact.path}; its contents could not be inspected`],
+        whatToType: [[
+          "Restore access to the directory or review its contents before removing anything, then run ",
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          " to retry.",
+        ]],
+      };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":

@@ -507,6 +507,15 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     prepare: async () => ({ home: isolatedHome(), args: ["init"] }),
   },
   {
+    test: "new skill",
+    snapshot: "new-skill",
+    commandId: "new",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["new", "skill", "review-pr"] };
+    },
+  },
+  {
     test: "bind success",
     snapshot: "bind-success",
     commandId: "bind",
