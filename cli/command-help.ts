@@ -80,6 +80,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: ["Add the Skill to a Profile with ", invocation("guide"), ", then run ", invocation("validate"), "."],
   },
   {
+    name: "open",
+    group: "common",
+    syntax: "open",
+    summary: "Open the configured Workspace in your system file manager",
+    examples: COMMAND_EXAMPLES.open,
+    writes: "Nothing; this command is read-only.",
+    next: ["Edit your Workspace files, then run ", invocation("validate"), "."],
+  },
+  {
     name: "bind",
     group: "common",
     syntax: "bind <profile> [project] --host <host> [--host <host> ...] [--replace]",

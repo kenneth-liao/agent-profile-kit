@@ -10,6 +10,7 @@ export const COMMAND_EXAMPLES = {
   init: ["init", `init ${workspace}`],
   guide: ["guide", "guide profile", "guide context", "guide skill", "guide --full", "guide --agent"],
   new: [`new skill review-pr`],
+  open: ["open"],
   bind: [
     `bind ${profile} --host codex`,
     `bind ${profile} ${project} --host codex --host claude`,

@@ -80,6 +80,7 @@ import {
 } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { createSkill } from "../installer/create-skill.js";
+import { openWorkspace } from "../installer/open-workspace.js";
 import { detectInstalledHosts } from "../adapters/registry.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
@@ -886,6 +887,21 @@ async function main(): Promise<void> {
         newSkillReceiptDocument(result),
         stdoutPresentationContext,
       );
+    } catch (error) {
+      writeHumanDocument(
+        process.stderr,
+        errorDiagnosticDocument(error),
+        stderrPresentationContext,
+      );
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "open") {
+    const parsed = parseOrExit("open", () => parseNoArguments("open", arguments_.slice(1)));
+    if (parsed === undefined) return;
+    try {
+      await openWorkspace({ home });
     } catch (error) {
       writeHumanDocument(
         process.stderr,
