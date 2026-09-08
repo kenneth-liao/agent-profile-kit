@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -115,13 +116,23 @@ describe("createSkill", () => {
       if (fact.kind === "skill-path-occupied") {
         expect(fact.path).toBe(realpathSync(skillRoot));
       }
-      // Presentation owns the sentence and the structured diagnostic (DEC-014).
+      // Presentation owns the sentence and the structured diagnostic (DEC-014);
+      // the diagnostic must carry a runnable recovery command after the
+      // explanation (INT-1, US-022).
       const sentence = flatInlineText(formatInstallerToolError(fact));
       expect(sentence).toContain("review-pr");
       expect(sentence).toContain(skillRoot);
       const diagnostic = formatInstallerToolErrorDiagnostic(fact);
       expect(flatInlineText(diagnostic.happened)).toContain(skillRoot);
       expect(diagnostic.whatToType).toBeDefined();
+      const recovery = flatInlineText(diagnostic.whatToType!.flat());
+      expect(recovery).toContain("apkit new skill <different-name>");
+      // The command follows the failure explanation as one structured part.
+      expect(
+        diagnostic.whatToType!.flat().some(
+          (part) => typeof part !== "string" && part.kind === "command",
+        ),
+      ).toBe(true);
 
       expect(readFileSync(join(skillRoot, "scripts", "run.sh"), "utf8")).toBe("#!/bin/sh\necho owned\n");
       expect(existsSync(join(skillRoot, "SKILL.md"))).toBe(false);
@@ -240,6 +251,118 @@ describe("createSkill", () => {
       expect(boundary.length).toBe(64);
       const accepted = await createSkill({ home, name: boundary });
       expect(accepted.id).toBe(boundary);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("cleans up an invocation-created partial write so retry and ingestion recover (PROD-1)", async () => {
+    const home = await initializedHome();
+    try {
+      // A pre-existing sibling Skill must survive the failed creation untouched.
+      await createSkill({ home, name: "keep-me" });
+      const keepFile = join(workspacePath(home), "skills", "keep-me", "SKILL.md");
+      const keepBefore = readFileSync(keepFile, "utf8");
+
+      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+      const failure = await rejection(
+        () =>
+          createSkill({
+            home,
+            name: "review-pr",
+            writeSkillFile: async () => {
+              throw enospc;
+            },
+          }),
+      );
+      // No residual fact: cleanup removed everything this invocation created.
+      expect(failure).toBe(enospc);
+      expect(existsSync(join(workspacePath(home), "skills", "review-pr"))).toBe(false);
+
+      // Capacity restored: the same name retries and the Workspace stays valid.
+      const retried = await createSkill({ home, name: "review-pr" });
+      expect(retried.id).toBe("review-pr");
+      const workspace = await ingestSelectedWorkspace(home);
+      expect(workspace.skills.has("review-pr")).toBe(true);
+      expect(readFileSync(keepFile, "utf8")).toBe(keepBefore);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("reports typed residual-path evidence when cleanup fails and preserves existing content (PROD-1)", async () => {
+    const home = await initializedHome();
+    try {
+      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+      const skillRoot = join(realpathSync(workspacePath(home)), "skills", "review-pr");
+      // Injected write creates the truncated file before failing, then the
+      // read-only directory makes cleanup of that file fail.
+      chmodSync(join(workspacePath(home), "skills"), 0o755);
+      const failure = await rejection(() =>
+        createSkill({
+          home,
+          name: "review-pr",
+          writeSkillFile: async (path, contents) => {
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, contents.slice(0, 10));
+            chmodSync(dirname(path), 0o555);
+            throw enospc;
+          },
+        }),
+      );
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("skill-creation-residue");
+      if (fact.kind === "skill-creation-residue") {
+        expect(fact.path).toBe(join(skillRoot, "SKILL.md"));
+        expect(fact.id).toBe("review-pr");
+      }
+      // Presentation owns the recovery sentence and command.
+      const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+      expect(flatInlineText(diagnostic.happened)).toContain(join(skillRoot, "SKILL.md"));
+      expect(diagnostic.whatToType).toBeDefined();
+
+      // Restore access, remove the residue, and retry recovers cleanly.
+      chmodSync(skillRoot, 0o755);
+      rmSync(join(skillRoot, "SKILL.md"));
+      rmdirSync(skillRoot);
+      const retried = await createSkill({ home, name: "review-pr" });
+      expect(retried.id).toBe("review-pr");
+      await ingestSelectedWorkspace(home);
+    } finally {
+      chmodSync(join(workspacePath(home), "skills"), 0o755);
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("preserves a foreign file left beside a failed write instead of deleting it (PROD-1)", async () => {
+    const home = await initializedHome();
+    try {
+      const enospc = Object.assign(new Error("No space left on device"), { code: "ENOSPC" });
+      const failure = await rejection(() =>
+        createSkill({
+          home,
+          name: "review-pr",
+          writeSkillFile: async (path, contents) => {
+            const directory = dirname(path);
+            mkdirSync(directory, { recursive: true });
+            writeFileSync(path, contents.slice(0, 5));
+            // A concurrent writer lands a foreign entry before our failure.
+            writeFileSync(join(directory, "notes.md"), "foreign\n");
+            throw enospc;
+          },
+        }),
+      );
+      // Cleanup removes the proven-created SKILL.md, refuses the non-empty
+      // directory, and reports the residual directory as typed evidence.
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("skill-creation-residue");
+      if (fact.kind === "skill-creation-residue") {
+        expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
+      }
+      expect(readFileSync(join(workspacePath(home), "skills", "review-pr", "notes.md"), "utf8")).toBe("foreign\n");
+      expect(existsSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

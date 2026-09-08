@@ -412,6 +412,11 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [fact.detail];
     case "skill-path-occupied":
       return [`Skill '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
+    case "skill-creation-residue":
+      return [
+        `Skill creation left incomplete material at ${fact.path}; remove it and run `,
+        commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+      ];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -515,7 +520,20 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "skill-path-occupied":
       return {
         happened: [`Skill '${fact.id}' already has material at ${fact.path}`],
-        whatToType: [["Choose a different Skill name, or remove the existing material first."]],
+        whatToType: [[
+          "Choose a different Skill name or remove the existing material first, then run ",
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg("<different-name>")]),
+          ".",
+        ]],
+      };
+    case "skill-creation-residue":
+      return {
+        happened: [`Skill creation left incomplete material at ${fact.path}`],
+        whatToType: [[
+          "Remove the incomplete material, then run ",
+          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          " to retry.",
+        ]],
       };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":

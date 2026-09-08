@@ -13077,6 +13077,8 @@ describe("packed CLI new skill", () => {
     const occupied = await runCli(home, "new", "skill", "taken");
     expectExitCode(occupied, 1);
     expect(occupied.stderr).toContain("already has material");
+    // The structured diagnostic carries a runnable recovery command (INT-1).
+    expect(occupied.stderr).toMatch(/apkit new skill/);
     expect(existsSync(join(workspacePath(home), "skills", "taken", "SKILL.md"))).toBe(false);
 
     // Invalid Artifact IDs are refused without creating anything.

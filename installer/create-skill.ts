@@ -1,4 +1,4 @@
-import { lstat, mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Stats } from "node:fs";
 
@@ -16,6 +16,8 @@ export interface CreateSkillOptions {
   readonly home: string;
   /** Authored Skill name; becomes the Skill's Artifact ID and directory name. */
   readonly name: string;
+  /** Test-only exclusive leaf-write override for injected failure proofs. */
+  readonly writeSkillFile?: (path: string, contents: string) => Promise<void>;
 }
 
 export interface CreateSkillResult {
@@ -30,6 +32,27 @@ async function lstatEntry(path: string): Promise<Stats | undefined> {
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return undefined;
     throw error;
+  }
+}
+
+/**
+ * Remove only material proven created by this invocation: the exclusive `wx`
+ * open guarantees that after any non-EEXIST write failure, a SKILL.md at this
+ * path was created by this invocation. Refuses the directory when it is no
+ * longer empty (foreign material) and reports the deepest surviving residue.
+ */
+async function removeInvocationResidue(
+  skillDirectory: string,
+  skillFile: string,
+): Promise<string | undefined> {
+  try {
+    await rm(skillFile, { force: true });
+    await rmdir(skillDirectory);
+    return undefined;
+  } catch {
+    if ((await lstatEntry(skillFile)) !== undefined) return skillFile;
+    if ((await lstatEntry(skillDirectory)) !== undefined) return skillDirectory;
+    return undefined;
   }
 }
 
@@ -121,6 +144,31 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
   }
 
   const skillFile = join(skillDirectory, "SKILL.md");
-  await writeFile(skillFile, scaffold, { flag: "wx" });
+  const writeSkillFile = options.writeSkillFile ??
+    ((path: string, contents: string) => writeFile(path, contents, { flag: "wx" }));
+  try {
+    await writeSkillFile(skillFile, scaffold);
+  } catch (error) {
+    if (hasErrorCode(error, "EEXIST")) {
+      // A concurrent writer created the file; it is not proven ours, so it is
+      // kept and the destination is reported as occupied.
+      throw new InstallerToolError({
+        kind: "skill-path-occupied",
+        id,
+        path: skillDirectory,
+      });
+    }
+    // Partial or failed write: clean up what this invocation created so a
+    // later ingestion or retry is never blocked by incomplete material.
+    const residual = await removeInvocationResidue(skillDirectory, skillFile);
+    if (residual !== undefined) {
+      throw new InstallerToolError({
+        kind: "skill-creation-residue",
+        id,
+        path: residual,
+      });
+    }
+    throw error;
+  }
   return { id, path: skillFile };
 }

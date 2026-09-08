@@ -152,6 +152,11 @@ export type InstallerToolErrorFact =
       readonly id: string;
       readonly path: string;
     }
+  | {
+      readonly kind: "skill-creation-residue";
+      readonly id: string;
+      readonly path: string;
+    }
   | ConfiguredPathErrorFact
   | WorkspaceIngestionErrorFact;
 
