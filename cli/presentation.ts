@@ -353,6 +353,7 @@ function outputSourceChanged(output: Omit<OutputReconciliationItem, "project">):
 
 export function hasSourceChanged(project: ReconciliationProjectRecord): boolean {
   return (
+    project.sourceInputChanged === true ||
     project.state.kind === "stale source" ||
     project.state.kind === "update" ||
     project.outputs.some(outputSourceChanged)
@@ -3544,6 +3545,23 @@ function verboseLifecycleSections(
   return nodes;
 }
 
+/** The receipt-proven Project input change renders once at Project scope
+ * only when no changed output projection truthfully owns the cause and the
+ * state kind does not already name it; otherwise the existing evidence stands
+ * alone (fact-once, DEC-007). */
+function projectSourceChangeSuffix(
+  item: ReconciliationItem,
+  records: readonly ReconciliationProjectRecord[],
+): string {
+  if (item.kind === "stale source") return "";
+  const record = records.find((candidate) =>
+    candidate.project === item.project || candidate.canonicalProject === item.project
+  );
+  if (record?.sourceInputChanged !== true) return "";
+  if (record.outputs.some(outputSourceChanged)) return "";
+  return " (source changed)";
+}
+
 function verboseDetailNodes(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
@@ -3563,7 +3581,9 @@ function verboseDetailNodes(
         kind: "prose" as const,
         parts: [
           identifierPart(shorten(item.project)),
-          `: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}`,
+          `: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}${
+            projectSourceChangeSuffix(item, report.projects)
+          }`,
         ],
       }))),
   ];

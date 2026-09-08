@@ -10188,6 +10188,97 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
         .toBe(false);
     }
   });
+
+  test("digest-only source-input change renders once at Project scope without per-output attribution", () => {
+    // A redundant Skill dependency edge changes the receipt's desired-input
+    // digest while every generated projection stays identical; with concurrent
+    // drift no output carries a sourceChanged fact, so the Project record owns
+    // the cause and verbose renders it once at Project scope.
+    const inputChangeProject = machineProject("/workspace/dep-change", {
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: ".agents/skills/base-skill",
+        },
+      ],
+      state: { kind: "drifted output", reason: ".agents/skills/base-skill" },
+      sourceInputChanged: true,
+    });
+    const report: ReconciliationReport = { globalBlockers: [], projects: [inputChangeProject] };
+
+    const verboseDoc = lifecycleStatusDocument(report, { verbose: true });
+    const nodes = flattenPresentationNodes(verboseDoc);
+    const line = (value: string, label: string) => nodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value },
+        `: ${label}`,
+      ]));
+
+    // The unattributable source change renders beside the Project state:
+    expect(line(
+      "/workspace/dep-change",
+      "drifted output (.agents/skills/base-skill) (source changed)",
+    )).toBe(true);
+    // The drifted output stays bare — no projection change owns a per-output
+    // claim, and the cause renders exactly once (fact-once, DEC-007):
+    expect(line("/workspace/dep-change/.agents/skills/base-skill", "missing")).toBe(true);
+    expect(line("/workspace/dep-change/.agents/skills/base-skill", "missing (source changed)")).toBe(false);
+    expect(presentationTexts(verboseDoc).filter((text) => text.includes("source changed")))
+      .toHaveLength(1);
+
+    // The stale-source state already names the cause; no duplicate suffix:
+    const staleProject = machineProject("/workspace/dep-stale", {
+      state: { kind: "stale source" },
+      sourceInputChanged: true,
+    });
+    const staleDoc = lifecycleStatusDocument(
+      { globalBlockers: [], projects: [staleProject] },
+      { verbose: true },
+    );
+    const staleLine = (value: string, label: string) => flattenPresentationNodes(staleDoc).some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value },
+        `: ${label}`,
+      ]));
+    expect(staleLine("/workspace/dep-stale", "stale source")).toBe(true);
+    expect(staleLine("/workspace/dep-stale", "stale source (source changed)")).toBe(false);
+
+    // When a changed projection truthfully owns the cause, it stays at the
+    // affected path and the Project scope does not repeat it:
+    const attributedProject = machineProject("/workspace/dep-attributed", {
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: ".agent-profile-kit/codex/context.md",
+          sourceChanged: true,
+        },
+      ],
+      state: { kind: "drifted output" },
+      sourceInputChanged: true,
+    });
+    const attributedDoc = lifecycleStatusDocument(
+      { globalBlockers: [], projects: [attributedProject] },
+      { verbose: true },
+    );
+    const attributedLine = (value: string, label: string) =>
+      flattenPresentationNodes(attributedDoc).some((node) =>
+        node.kind === "prose" &&
+        JSON.stringify(node.parts) === JSON.stringify([
+          { kind: "identifier", value },
+          `: ${label}`,
+        ]));
+    expect(attributedLine("/workspace/dep-attributed", "drifted output (source changed)")).toBe(false);
+    expect(attributedLine(
+      "/workspace/dep-attributed/.agent-profile-kit/codex/context.md",
+      "missing (source changed)",
+    )).toBe(true);
+  });
 });
 
 

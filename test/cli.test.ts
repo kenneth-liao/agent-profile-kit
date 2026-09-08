@@ -5850,6 +5850,88 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(hooksPath, "utf8")).toContain("hooks");
   });
 
+  test("verbose keeps the digest-only source change when redundant Skill dependency edges meet drift", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "base-skill"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "base-skill", "SKILL.md"),
+      "---\nname: base-skill\ndescription: Shared base skill.\n---\n\nBase.\n",
+    );
+    mkdirSync(join(workspace, "skills", "mid-skill"));
+    writeFileSync(
+      join(workspace, "skills", "mid-skill", "SKILL.md"),
+      "---\nname: mid-skill\ndescription: Mid skill.\n---\n\nMid.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "mid-skill", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: base-skill\n",
+    );
+    mkdirSync(join(workspace, "skills", "review-pr"));
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: mid-skill\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+    );
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    // Concurrent causes: a redundant direct dependency edge changes the
+    // receipt's desired-input digest while every generated projection stays
+    // byte-identical, and an owned generated file drifts on disk.
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: mid-skill\n  - type: skill\n    id: base-skill\n",
+    );
+    rmSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"));
+
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
+    // The unattributable source change renders once at Project scope; the
+    // drifted output stays bare because its bytes match the receipt.
+    expect(humanText(status.stdout)).toContain(humanText(
+      `${projectPath}: drifted output (.agents/skills/base-skill) (source changed)`,
+    ));
+    expect(humanText(status.stdout)).toContain(
+      humanText(`${projectPath}/.agents/skills/base-skill: changed`),
+    );
+    expect(humanText(status.stdout)).not.toContain(
+      humanText(`${projectPath}/.agents/skills/base-skill: changed (source changed)`),
+    );
+    // Fact-once: exactly one source-change evidence occurrence in the view.
+    expect(humanText(status.stdout).split("(source changed)").length - 1).toBe(1);
+
+    // Machine JSON keeps its canonical v14 shape.
+    const payload = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
+      readonly projects: readonly {
+        readonly outputs: readonly {
+          readonly consumingHosts: readonly string[];
+          readonly kind: string;
+          readonly path: string;
+        }[];
+      }[];
+    };
+    for (const output of payload.projects[0]!.outputs) {
+      expect(Object.keys(output).sort()).toEqual(["consumingHosts", "kind", "path"]);
+    }
+
+    // Apply consumes both causes: restores the drifted output from current
+    // Workspace source and records the refreshed input digest.
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
+  });
+
   test("apply restores a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
     const home = isolatedHome();
     await initialize(home);

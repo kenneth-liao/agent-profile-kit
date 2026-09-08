@@ -189,6 +189,12 @@ export interface ReconciliationProjectRecord {
     readonly resolvedArtifacts: readonly DesiredResolvedArtifactPreview[];
   };
   readonly state: Omit<ReconciliationItem, "project">;
+  /** The receipt's desired-input digest differs from current Workspace input
+   * (normalized dependency or inclusion-reason change) even when no generated
+   * projection changed, so no per-output fact can own the source change.
+   * Recorded only when proven by the receipt comparison at the reconciliation
+   * boundary; presentation renders it once at Project scope. */
+  readonly sourceInputChanged?: true;
   readonly outputs: readonly ReconciliationProjectOutput[];
   readonly blockers: readonly ReconciliationBlocker[];
   readonly warnings: readonly ReconciliationWarning[];
@@ -224,6 +230,7 @@ interface ReconciliationAccumulator {
   readonly outputConsumers: readonly OutputConsumerEvidence[];
   readonly exclusionWarnings: readonly RepositoryExclusionWarning[];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
+  readonly sourceInputChangedProjects: readonly string[];
   readonly diagnosticValues: readonly string[];
 }
 
@@ -695,6 +702,9 @@ function nestedReconciliationReport(
     canonicalByProject.set(installation.canonicalProject, installation.canonicalProject);
   }
   const canonicalProject = (project: string): string => canonicalByProject.get(project) ?? project;
+  const sourceInputChangedProjects = new Set(
+    flat.sourceInputChangedProjects.map((project) => canonicalProject(project)),
+  );
   const desiredByCanonical = new Map(flat.desired.map((entry) => [entry.canonicalProject, entry]));
   const stateByCanonical = new Map(
     flat.items.map((item) => [canonicalProject(item.project), item]),
@@ -812,6 +822,7 @@ function nestedReconciliationReport(
           kind: state.kind,
           ...(state.reason === undefined ? {} : { reason: state.reason }),
         },
+        ...(sourceInputChangedProjects.has(key) ? { sourceInputChanged: true as const } : {}),
         outputs: outputsByCanonical.get(key) ?? [],
         blockers: projectBlockers.get(key) ?? [],
         warnings: warningsByCanonical.get(key) ?? [],
@@ -904,6 +915,12 @@ export async function previewReconciliation(
   const desiredResults = await scheduler.run(desired.map((installation) => async () => {
     const previous = previousFor(installation, byProject);
     const id = previous?.installationId ?? newInstallationId();
+    // Receipt-proven Project input change: the digest covers normalized
+    // dependency and inclusion-reason semantics that may leave every generated
+    // projection byte-identical, so it is recorded independently of the
+    // primary-state branch and never inferred from output evidence.
+    const sourceInputChanged = previous !== undefined &&
+      previous.desiredInputDigest !== installation.sourceHash ? true : undefined;
     const projectedManifest = manifestFor(installation, id);
     const proposedOutputs: OwnershipOutputReceipt[] = installation.outputs.map(ownedOutputFromDesired);
     const previousOutputs = new Map(previous === undefined ? [] : [
@@ -1039,6 +1056,7 @@ export async function previewReconciliation(
       outputItems: projectOutputItems,
       outputs: projectedManifest.outputs,
       receipt: projectedManifest,
+      ...(sourceInputChanged === undefined ? {} : { sourceInputChanged }),
     };
   }));
   // Desired receipts replace prior records; exclusion entries are derived
@@ -1054,6 +1072,9 @@ export async function previewReconciliation(
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
+  const sourceInputChangedProjects = desiredResults.flatMap((result, index) =>
+    result.sourceInputChanged === true ? [desired[index]!.binding.project] : [],
+  );
   // Exclusion inspection runs over the projected state after per-Project
   // planning: published entries derive from the receipts that will exist after
   // this operation. It is advisory only — no exclusion condition can block.
@@ -1151,6 +1172,7 @@ export async function previewReconciliation(
     outputConsumers,
     exclusionWarnings: exclusionInspection.warnings,
     repositoryExclusions: exclusionInspection.changes,
+    sourceInputChangedProjects,
     diagnosticValues: [...new Set(
       desired.flatMap((installation) =>
         installation.warnings.flatMap((warning) => warning.copyableValues)
