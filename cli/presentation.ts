@@ -1307,6 +1307,8 @@ function outputPathLine(
 
 function outputPathLines(
   outputs: readonly Pick<OutputReconciliationItem, "kind" | "path">[],
+  /** Undefined renders every path; a number caps the list with an overflow pointer. */
+  limit: number = DEFAULT_OUTPUT_PATH_LIMIT,
 ): readonly string[] {
   const paths = [...outputs]
     // Protect attention and destructive changes from the concise-view cap, then
@@ -1320,10 +1322,10 @@ function outputPathLines(
       const line = outputPathLine(output);
       return line === undefined ? [] : [line];
     });
-  const overflow = paths.length - DEFAULT_OUTPUT_PATH_LIMIT;
+  const overflow = paths.length - limit;
   return overflow > 0
     ? [
-        ...paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT),
+        ...paths.slice(0, limit),
         overflowPointer(overflow, "file"),
       ]
     : paths;
@@ -2686,7 +2688,9 @@ function applyReceiptNodes(
   }
   const grouped = groupProjects(receipt);
   const entries: PresentationNode[] = grouped.groups.flatMap((group) => {
-    const paths = outputPathLines(group.outputs);
+    // The receipt names every committed file operation; the concise cap
+    // belongs to pending resulting-state views, not committed evidence.
+    const paths = outputPathLines(group.outputs, Infinity);
     if (paths.length > 0) {
       return [
         {

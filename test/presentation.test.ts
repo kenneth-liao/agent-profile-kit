@@ -2896,6 +2896,59 @@ describe("status concise terminology", () => {
     expect(texts.some((text) => text.includes("more Project") || text.includes("see all Projects"))).toBe(false);
   });
 
+  test("the concise single-Project apply receipt names every committed file without the former path cap", () => {
+    const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: paths.map((path) => ({ kind: "addition" as const, path, project: "/project-a" })),
+    });
+
+    const texts = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())))
+      .map(nodeText);
+    for (const path of paths) {
+      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
+    }
+    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+  });
+
+  test("the partial-failure apply receipt retains every committed operation above the former path cap", () => {
+    const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: paths.map((path) => ({ kind: "addition" as const, path, project: "/project-a" })),
+    });
+
+    const document = applyExecutionFailureDocument({
+      detail: "the write failed",
+      failedProject: executionProject("/project-b"),
+      message: "Apply failed at /project-b: the write failed",
+      pendingProjects: [executionProject("/project-b")],
+      receipt,
+      resultingState: undefined,
+    });
+    const texts = flattenPresentationNodes(document).map(nodeText);
+    for (const path of paths) {
+      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
+    }
+    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+  });
+
   test("labels remaining and committed apply work distinctly", () => {
     const receipt = identityReport("/project-a");
     const resultingState = emptyReport({
