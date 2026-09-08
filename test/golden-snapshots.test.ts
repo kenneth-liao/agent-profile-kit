@@ -586,7 +586,7 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     commandId: "status",
     prepare: async () => {
       const { home, project } = await trackedSkillsHome(paths);
-      return { home, args: ["status", project, "--blockers-only"] };
+      return { home, args: ["status", project] };
     },
   })),
   {
@@ -599,12 +599,12 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
-    test: "status blockers-only",
-    snapshot: "status-blockers-only",
+    test: "status blocked filter",
+    snapshot: "status-blocked-filter",
     commandId: "status",
     prepare: async () => {
       const { home, project } = await blockedHome();
-      return { home, args: ["status", project, "--blockers-only"] };
+      return { home, args: ["status", project, "--blocked"] };
     },
   },
   {

@@ -144,7 +144,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "status",
     group: "common",
-    syntax: "status [project | --here | --all] [--verbose] [--blockers-only] [--json]",
+    syntax: "status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
     summary: "Show the complete read-only apply plan for the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
@@ -153,7 +153,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "apply",
     group: "common",
-    syntax: "apply [project | --here | --all] [--verbose] [--blockers-only] [--json]",
+    syntax: "apply [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
     summary: "Sync the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",

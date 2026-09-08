@@ -304,14 +304,18 @@ export class ProjectTargetError extends Error {
   }
 }
 
+/** The narrowing Project-selection filters shared by human and machine surfaces (DEC-006). */
+export type ProjectSelectionFilter = "stale" | "blocked";
+
 /** One normalized lifecycle selection boundary for Project Bindings. */
 export type ProjectBindingSelection =
-  | { readonly kind: "all" }
+  | { readonly kind: "all"; readonly filter?: ProjectSelectionFilter }
   | {
       readonly command: "apply" | "status";
       readonly kind: "project";
       readonly match: "containing" | "exact";
       readonly target: string;
+      readonly filter?: ProjectSelectionFilter;
     };
 
 async function selectParsedProjectBindings(

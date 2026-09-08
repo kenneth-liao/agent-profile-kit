@@ -1,5 +1,6 @@
 import {
   applyReconciliation,
+  filterSelectedProjects,
   previewReconciliation,
   reconciliationReportWithProjects,
   unreadableInstallationStateReport,
@@ -132,6 +133,7 @@ export async function applyApplication(
   return applyReconciliation(home, desired.installations, {
     scheduler,
     scope: reconciliationScope(options.selection),
+    ...(options.selection?.filter === undefined ? {} : { filter: options.selection.filter }),
     createGitInspection: () => createLifecycleGitInspectionContext(instrumentation?.git),
     createOwnershipInspection: () =>
       createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
@@ -179,9 +181,12 @@ export async function statusApplication(
     scheduler,
     scope: reconciliationScope(options.selection),
   });
+  // One selected-Project contract: narrowing membership is trimmed once here,
+  // so the human view, machine JSON, and write scope share it (DEC-006).
+  const selected = filterSelectedProjects(report, options.selection?.filter);
   return reconciliationReportWithProjects(
-    report,
-    report.projects.map((project) => {
+    selected,
+    selected.projects.map((project) => {
       // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
       // already diagnose the problem and must keep their precise status labels.
       if (

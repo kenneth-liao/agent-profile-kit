@@ -349,7 +349,7 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
         ["Run ", commandPart("apkit", [arg("first-recovery")]), " to recover."],
         ["Run ", commandPart("apkit", [arg("second-recovery")]), " as an alternative."],
       ],
-      usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
+      usage: "status [project | --all] [--stale | --blocked] [--verbose] [--json]",
     }),
     { color: false, interactive: false, width: 80 , rows: undefined },
   );
@@ -359,7 +359,7 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
   expect(lines[0]).toBe("apkit: something failed");
   expect(lines[1]).toBe("Run apkit first-recovery to recover.");
   expect(lines[2]).toBe("Run apkit second-recovery as an alternative.");
-  expect(lines[3]).toBe("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
+  expect(lines[3]).toBe("Usage: apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]");
 });
 
 test("renders diagnostic cause lines after what happened and before what to type", () => {
