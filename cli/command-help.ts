@@ -8,6 +8,7 @@ import { inventoryCommandSyntax, machineInventoryCommandSyntax } from "./invento
 export const HELP_COMMAND = "help" as const;
 export const ROOT_HELP_ALIASES = ["--help", "-h", HELP_COMMAND] as const;
 export const COMMAND_HELP_ALIASES = ["-h", "--help"] as const;
+export const VERSION_ALIASES = ["--version", "-v"] as const;
 
 /**
  * Single canonical source for every command's syntax and purpose. Root help,

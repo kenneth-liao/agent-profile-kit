@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Support the `-v` short flag to report the packaged engine version identically to `--version` without introducing a short alias for `--verbose` (US-057, DEC-037, [#443](https://github.com/kenneth-liao/agent-profile-kit/issues/443)).
+
 ### Changed
 
 - List human commands in root help without command flag inventories or flag explanations in summaries, omit machine-facing commands from the default listing while keeping them accessible via `apkit machine`, and preserve per-command help as the authoritative flag reference (US-034, US-035, DEC-020, DEC-021, [#442](https://github.com/kenneth-liao/agent-profile-kit/issues/442)).

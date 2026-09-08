@@ -126,6 +126,7 @@ import {
   HELP_COMMAND,
   machineCommands,
   ROOT_HELP_ALIASES,
+  VERSION_ALIASES,
   type CommandHelp,
 } from "./command-help.js";
 import {
@@ -260,7 +261,10 @@ function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest |
   const first = arguments_[0]!;
   const second = arguments_[1]!;
   if (first === HELP_COMMAND) {
-    if (ROOT_HELP_ALIASES.some((alias) => alias === second) || second === "--version") {
+    if (
+      ROOT_HELP_ALIASES.some((alias) => alias === second) ||
+      VERSION_ALIASES.some((alias) => alias === second)
+    ) {
       return { kind: "root" };
     }
     if (second === MACHINE_NAMESPACE) {
@@ -765,7 +769,7 @@ async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const home = homedir();
 
-  if (arguments_.length === 1 && arguments_[0] === "--version") {
+  if (arguments_.length === 1 && VERSION_ALIASES.some((alias) => alias === arguments_[0])) {
     process.stdout.write(`${ENGINE_VERSION}\n`);
     return;
   }
