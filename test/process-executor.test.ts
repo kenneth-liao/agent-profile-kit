@@ -7,7 +7,7 @@ import {
   describeProcessResult,
   expectExitCode,
   runProcess,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 const shell = "sh";
 

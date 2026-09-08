@@ -843,7 +843,6 @@ async function main(): Promise<void> {
       process.stdout,
       initReceiptDocument({
         ...result,
-        ...(parsed.workspace !== undefined ? { authoredPath: parsed.workspace } : {}),
         ...(detectedHosts !== undefined ? { detectedHosts } : {}),
       }),
       stdoutPresentationContext,

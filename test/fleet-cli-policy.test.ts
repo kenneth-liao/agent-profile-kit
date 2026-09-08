@@ -10,7 +10,7 @@ import {
   TEST_CHILD_DEADLINE_MS,
   type ExecutorOptions,
   type ProcessResult,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 /** Executor stub that records the launch policy without spawning a child. */
 function recordingExecutor(records: ExecutorOptions[]) {

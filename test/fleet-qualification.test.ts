@@ -70,7 +70,7 @@ import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 import {
   reportBlockers,
   reportItems,

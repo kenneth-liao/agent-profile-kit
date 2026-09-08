@@ -5,7 +5,7 @@ import {
   runProcess,
   type ExecutorOptions,
   type ProcessResult,
-} from "./process-executor.js";
+} from "../../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 

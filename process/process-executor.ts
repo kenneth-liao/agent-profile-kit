@@ -2,12 +2,13 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { Readable, Writable } from "node:stream";
 
 /**
- * One bounded, diagnostic process-execution boundary for test-runtime child
- * processes (packed CLI runs, PTY launches, and intentionally concurrent
- * children). Every child is spawned as a process-group leader with a finite
- * deadline; on timeout or cancellation the whole group is terminated within a
- * short cleanup grace period and escalated to SIGKILL when needed, so no
- * descendant is left behind.
+ * One bounded, diagnostic process-execution boundary for every child process
+ * the repository spawns: packed CLI runs, PTY launches, supervised test
+ * runners, and production Adapter CLI probes. Every child is spawned as a
+ * process-group leader with a finite deadline; on timeout or cancellation the
+ * whole group is terminated within a short cleanup grace period and escalated
+ * to SIGKILL when needed, and the result settles only once a group-empty probe
+ * passes, so no descendant is left behind.
  */
 
 export interface ExecutorOptions {

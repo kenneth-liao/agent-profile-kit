@@ -9,10 +9,11 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
@@ -25,7 +26,7 @@ import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
@@ -198,7 +199,7 @@ function withFleetScope(arguments_: readonly string[]): readonly string[] {
 async function runCli(
   home: string,
   arguments_: readonly string[],
-  options: { readonly path?: string } = {},
+  options: { readonly path?: string; readonly deadlineMs?: number } = {},
 ) {
   return runProcess({
     executable: nodeBinary,
@@ -208,7 +209,7 @@ async function runCli(
       HOME: home,
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
+    deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
 }
@@ -216,6 +217,45 @@ async function runCli(
 function enableCodexHooks(home: string): void {
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+}
+
+/**
+ * Allowlisted executable directory for controlled-Host CLI runs: the only
+ * non-stub executable exposed is the single resolved `git`, so no real
+ * installed Host CLI can satisfy a probe and detection is exact machine
+ * evidence (TEST-016). Spawned by absolute path, the packed CLI itself needs
+ * nothing from this directory.
+ */
+function allowlistBin(home: string): string {
+  const bin = join(home, "allow-bin");
+  mkdirSync(bin, { recursive: true });
+  symlinkSync(
+    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
+    join(bin, "git"),
+  );
+  return bin;
+}
+
+/**
+ * All six controlled Host CLI stubs under one bin directory, returned as a
+ * bare directory (compose it with {@link allowlistBin} for a hermetic PATH).
+ */
+function installAllHostStubs(home: string): string {
+  const bin = join(home, "bin");
+  mkdirSync(bin, { recursive: true });
+  const stubs: Readonly<Record<string, string>> = {
+    agy: 'echo "Antigravity 1.1.13"',
+    claude: 'echo "2.1.0 (Claude Code)"',
+    codex: 'echo "codex-cli 0.145.0"',
+    grok: 'echo "grok 0.2.111 (fake) [stable]"',
+    opencode: 'echo "1.18.23"',
+    pi: 'echo "pi 0.82.1"',
+  };
+  for (const [name, body] of Object.entries(stubs)) {
+    writeFileSync(join(bin, name), `#!/bin/sh\n${body}\n`);
+    execFileSync("chmod", ["+x", join(bin, name)]);
+  }
+  return bin;
 }
 
 /**
@@ -1593,9 +1633,13 @@ describe("project-bound release candidate", () => {
   }, 30_000);
 
   test("Agent Host detection is proven with controlled executables present and absent (TEST-016)", async () => {
+    // Every case composes stub bins with an allowlisted bin so no real Host
+    // executable on the runner can satisfy a probe; detection is exact.
+
     // 1. All controlled hosts present: selects first detected host (antigravity)
     const allHome = isolatedHome();
-    const allPath = installControlledHosts(allHome);
+    const allBin = installAllHostStubs(allHome);
+    const allPath = `${allBin}:${allowlistBin(allHome)}`;
     const allInit = await runCli(allHome, ["init"], { path: allPath });
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
@@ -1612,9 +1656,7 @@ describe("project-bound release candidate", () => {
       '#!/bin/sh\necho "codex-cli 0.145.0"\n',
     );
     execFileSync("chmod", ["+x", join(codexBin, "codex")]);
-    const gitDir = dirname(realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()));
-    const nodeDir = dirname(nodeBinary);
-    const codexPath = `${codexBin}:${gitDir}:${nodeDir}`;
+    const codexPath = `${codexBin}:${allowlistBin(codexHome)}`;
     const codexInit = await runCli(codexHome, ["init"], { path: codexPath });
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
@@ -1631,7 +1673,7 @@ describe("project-bound release candidate", () => {
       '#!/bin/sh\necho "2.1.0 (Claude Code)"\n',
     );
     execFileSync("chmod", ["+x", join(claudeBin, "claude")]);
-    const claudePath = `${claudeBin}:${gitDir}:${nodeDir}`;
+    const claudePath = `${claudeBin}:${allowlistBin(claudeHome)}`;
     const claudeInit = await runCli(claudeHome, ["init"], { path: claudePath });
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
@@ -1643,12 +1685,77 @@ describe("project-bound release candidate", () => {
     const noHostsHome = isolatedHome();
     const emptyBin = join(noHostsHome, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
-    const emptyPath = `${emptyBin}:${gitDir}:${nodeDir}`;
+    const emptyPath = `${emptyBin}:${allowlistBin(noHostsHome)}`;
     const noHostsInit = await runCli(noHostsHome, ["init"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
     expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
     expect(noHostsInit.stdout).toContain("Next: run apkit validate");
     expect(noHostsInit.stdout).not.toContain("--host");
+  }, 30_000);
+
+  test("initialization completes without hanging when a Host probe ignores SIGTERM (TEST-016, PROD-001)", async () => {
+    const home = isolatedHome();
+    const stubBin = join(home, "bin");
+    mkdirSync(stubBin, { recursive: true });
+    const pidFile = join(home, "stub.pid");
+    writeFileSync(
+      join(stubBin, "codex"),
+      `#!/bin/sh\necho $$ > '${pidFile}'\ntrap '' TERM\n/bin/sleep 30\n`,
+    );
+    execFileSync("chmod", ["+x", join(stubBin, "codex")]);
+
+    // The probe's own 10s deadline and SIGKILL escalation bound the stub, so
+    // init must still complete successfully, on the tolerant absent path.
+    const init = await runCli(home, ["init"], {
+      path: `${stubBin}:${allowlistBin(home)}`,
+      deadlineMs: 20_000,
+    });
+    expectExitCode(init, 0);
+    expect(init.stdout).toContain("Detected Agent Hosts: none");
+    expect(init.stdout).toContain("Next: run apkit validate");
+    expect(init.stdout).not.toContain("--host");
+
+    // No hanging processes: the SIGTERM-resistant stub group is gone.
+    const pid = Number(readFileSync(pidFile, "utf8").trim());
+    expect(pid).toBeGreaterThan(0);
+    let deadline = Date.now() + 2_000;
+    let alive = true;
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+      } catch {
+        alive = false;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(alive, "SIGTERM-resistant stub pid must be gone after init completes").toBe(false);
+  }, 30_000);
+
+  test("bare init after adopting an external aliased Workspace renders the authored alias (TEST-016)", async () => {
+    // Adopt a valid Workspace whose symlink target lives outside HOME, so the
+    // canonical physical path cannot be home-relative.
+    const home = isolatedHome();
+    const physical = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-external-ws-"));
+    temporaryDirectories.push(physical);
+    const alias = join(home, "workspace-alias");
+    symlinkSync(physical, alias);
+    writeFileSync(join(physical, "workspace.yaml"), "schema_version: 1\n");
+    for (const directory of ["profiles", "context", "skills"]) {
+      mkdirSync(join(physical, directory));
+    }
+    const allowBin = allowlistBin(home);
+
+    const adopt = await runCli(home, ["init", alias], { path: allowBin });
+    expectExitCode(adopt, 0);
+    expect(adopt.stdout).toContain("~/workspace-alias");
+
+    // Bare unchanged init must carry the effective authored selection from
+    // Local Configuration, not the physical target outside HOME.
+    const bare = await runCli(home, ["init"], { path: allowBin });
+    expectExitCode(bare, 0);
+    expect(bare.stdout).toContain("~/workspace-alias");
+    expect(bare.stdout).not.toContain(physical);
   }, 30_000);
 });
 

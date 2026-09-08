@@ -30,7 +30,7 @@ const projectBindingCapitalized = capitalize(projectBindingSingular);
 export interface InitReceiptInput {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
-  readonly authoredPath?: string;
+  readonly authoredPath: string;
   readonly workspaceScaffolded?: boolean;
   readonly detectedHosts?: readonly SupportedHost[];
 }
@@ -40,7 +40,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   const workspace = pathPart(
     input.path,
     "fleet",
-    displayPath(input.path, input.authoredPath ?? input.path, "fleet"),
+    displayPath(input.path, input.authoredPath, "fleet"),
   );
   if (input.outcome === "unchanged") {
     return [{

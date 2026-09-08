@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
-import { runProcess } from "./support/process-executor.js";
+import { runProcess } from "../process/process-executor.js";
 import {
   PER_TEST_TIMEOUT_MS,
   formatSuiteSummary,

@@ -30,7 +30,7 @@ import {
   expectExitCode,
   runProcess,
   type ProcessResult,
-} from "./support/process-executor.js";
+} from "../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];

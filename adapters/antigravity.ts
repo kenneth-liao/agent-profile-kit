@@ -1,7 +1,6 @@
-import { execFile } from "node:child_process";
 import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
-import { promisify } from "node:util";
+import { invokeExecutable } from "./services/executable.js";
 
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
@@ -35,7 +34,6 @@ import {
   type ProposedProjectOutput,
 } from "./project-plan.js";
 
-const execFileAsync = promisify(execFile);
 
 /** Capability Contract for complete always-on project Context rules. */
 export const ANTIGRAVITY_HOST_VERSION = "native-project-always-on-rules-v1";
@@ -147,10 +145,9 @@ async function resolveAntigravityCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return parseAntigravityCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await execFileAsync("agy", ["--version"], {
-      env: options.env ?? process.env,
-      encoding: "utf8",
-      timeout: 10_000,
+    const { stdout, stderr } = await invokeExecutable("agy", ["--version"], {
+      ...(options.env === undefined ? {} : { env: options.env }),
+      timeoutMs: 10_000,
     });
     return parseAntigravityCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {

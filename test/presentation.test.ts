@@ -8385,6 +8385,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: true,
       detectedHosts: ["codex"],
     });
@@ -8427,6 +8428,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     const multiHostDocument = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: true,
       detectedHosts: ["antigravity", "claude", "codex"],
     });
@@ -8460,6 +8462,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: true,
       detectedHosts: [],
     });
@@ -8491,6 +8494,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
       workspaceScaffolded: false,
       detectedHosts: ["codex"],
     });
@@ -8518,11 +8522,13 @@ describe("authoring and teardown receipt documents (#390)", () => {
     const migrated = initReceiptDocument({
       outcome: "migrated",
       path: `/test/workspace`,
+      authoredPath: `/test/workspace`,
     });
     expect(shapes(migrated)).toEqual(["sentence(success)", "sentence(command)"]);
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
+      authoredPath: `/test/workspace`,
     });
     expect(shapes(unchanged)).toEqual(["sentence"]);
   });

@@ -70,6 +70,8 @@ export { workspacePath } from "./workspace.js";
 export interface InitializationResult {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
+  /** The effective authored Workspace spelling this outcome rendered. */
+  readonly authoredPath: string;
   readonly workspaceScaffolded: boolean;
   readonly warnings: readonly string[];
 }
@@ -175,6 +177,7 @@ async function initializeConfiguredWorkspace(
   return {
     outcome: "unchanged",
     path: resolved.path,
+    authoredPath: resolved.authored,
     workspaceScaffolded: false,
     warnings: [],
   };
@@ -197,6 +200,7 @@ async function initializeExplicitWorkspaceSelection(
   return {
     outcome: "unchanged",
     path: requestedWorkspace.path,
+    authoredPath: requested,
     workspaceScaffolded: false,
     warnings: [],
   };
@@ -246,6 +250,7 @@ async function initializeWorkspaceAt(
       return {
         outcome: configurationCreated ? "created" : "unchanged",
         path: await realpath(destination),
+        authoredPath: authored,
         workspaceScaffolded: false,
         warnings: [],
       };
@@ -253,6 +258,7 @@ async function initializeWorkspaceAt(
     return {
       outcome: "unchanged",
       path: await realpath(destination),
+      authoredPath: authored,
       workspaceScaffolded: false,
       warnings: [],
     };
@@ -304,6 +310,7 @@ async function initializeWorkspaceAt(
           return {
             outcome: configurationCreated ? "created" : "unchanged",
             path: await realpath(destination),
+            authoredPath: authored,
             workspaceScaffolded: false,
             warnings: cleanupWarnings,
           };
@@ -328,6 +335,7 @@ async function initializeWorkspaceAt(
   return {
     outcome: "created",
     path: await realpath(destination),
+    authoredPath: authored,
     workspaceScaffolded: true,
     warnings: [],
   };
@@ -443,6 +451,7 @@ async function migrateLegacyConfiguration(
       return {
         outcome: "migrated",
         path: workspaceResult.path,
+        authoredPath: workspaceResult.authoredPath,
         workspaceScaffolded: workspaceResult.workspaceScaffolded,
         warnings: workspaceResult.warnings,
       };
