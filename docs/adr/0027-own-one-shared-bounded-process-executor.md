@@ -47,7 +47,10 @@ SIGKILL escalation, group-empty probe, explicit `cleanupFailed` surfacing).
 
 - Any child process a Host executable starts is bounded: a stalled probe can
   delay a command by at most its deadline plus the cleanup grace, never
-  indefinitely, and leaves no descendants.
+  indefinitely, and leaves no descendants. A child whose stdout or stderr
+  exceeds the executor's 1 MiB per-stream output budget is terminated through
+  the same lifecycle (`output-limit` result), restoring `execFile`'s maxBuffer
+  contract at the shared boundary.
 - Test and production children share one cleanup discipline, so cleanup
   regressions surface once for both axes.
 - `TEST_CHILD_DEADLINE_MS` remains exported from the executor as a shared

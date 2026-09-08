@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { invokeExecutable } from "../adapters/services/executable.js";
+import { invokeExecutable, mapProcessResult, type ExecutableInvocationError } from "../adapters/services/executable.js";
+import { MAX_OUTPUT_BYTES_PER_STREAM, type ProcessOutputLimitResult, type ProcessTimeoutResult } from "../process/process-executor.js";
 import { classifyFileSystemEntry } from "../adapters/services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -88,6 +89,97 @@ describe("shared Adapter services", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     expect(alive, "stub leader pid must be gone shortly after invokeExecutable rejects").toBe(false);
+  });
+
+  test("maps an unclean timeout without captured output, so it cannot become a detected Host", () => {
+    // Direct mapping coverage: the executor reported timeout with
+    // cleanupFailed and parseable captured output; the Adapter boundary must
+    // surface the cleanup failure and expose no output fields to recover.
+    const uncleanTimeout: ProcessTimeoutResult = {
+      kind: "timeout",
+      exitCode: null,
+      signal: null,
+      error: null,
+      timedOut: true,
+      cancelled: false,
+      cleanupFailed: true,
+      stdout: "codex-cli 9.9.9",
+      stderr: "partial error",
+      durationMs: 10_000,
+      commandLabel: "codex --version",
+    };
+    const rejection = mapProcessResult(uncleanTimeout, 10_000);
+    expect(rejection).toBeInstanceOf(Error);
+    const error = rejection as ExecutableInvocationError;
+    expect(error.code).toBe("ETIMEDOUT");
+    expect(error.cleanupFailed).toBe(true);
+    expect(error.message).toContain("cleanup failed");
+    expect("stdout" in error).toBe(false);
+    expect("stderr" in error).toBe(false);
+
+    // A clean timeout keeps its captured output for the existing recovery.
+    const cleanTimeout: ProcessTimeoutResult = { ...uncleanTimeout, cleanupFailed: false };
+    const cleanRejection = mapProcessResult(cleanTimeout, 10_000) as ExecutableInvocationError;
+    expect(cleanRejection.cleanupFailed).toBe(false);
+    expect(cleanRejection.stdout).toBe("codex-cli 9.9.9");
+    expect(cleanRejection.stderr).toBe("partial error");
+  });
+
+  test("maps an output-limit termination to a budget error with the captured prefix", () => {
+    const overflow: ProcessOutputLimitResult = {
+      kind: "output-limit",
+      exitCode: null,
+      signal: null,
+      error: null,
+      timedOut: false,
+      cancelled: false,
+      cleanupFailed: false,
+      stdout: "x".repeat(MAX_OUTPUT_BYTES_PER_STREAM),
+      stderr: "",
+      durationMs: 120,
+      commandLabel: "codex --version",
+    };
+    const rejection = mapProcessResult(overflow, 10_000) as ExecutableInvocationError;
+    expect(rejection.code).toBe("ENOBUFS");
+    expect(rejection.cleanupFailed).toBe(false);
+    expect(rejection.stdout?.length).toBe(MAX_OUTPUT_BYTES_PER_STREAM);
+
+    const unclean: ProcessOutputLimitResult = { ...overflow, cleanupFailed: true };
+    const uncleanRejection = mapProcessResult(unclean, 10_000) as ExecutableInvocationError;
+    expect(uncleanRejection.code).toBe("ENOBUFS");
+    expect(uncleanRejection.cleanupFailed).toBe(true);
+    expect("stdout" in uncleanRejection).toBe(false);
+  });
+
+  test("terminates a child that floods stdout or stderr past the per-stream budget", async () => {
+    const flood = "head -c 2097152 /dev/zero | tr '\\0' 'x'; /bin/sleep 30";
+    const stdoutRejection: ExecutableInvocationError = await invokeExecutable(
+      "sh",
+      ["-c", flood],
+      { env: process.env, timeoutMs: 10_000 },
+    ).then(
+      () => {
+        throw new Error("expected the stdout flood to be rejected");
+      },
+      (error) => error,
+    );
+    expect(stdoutRejection.code).toBe("ENOBUFS");
+    expect(stdoutRejection.cleanupFailed).toBe(false);
+    expect(stdoutRejection.stdout?.length).toBe(MAX_OUTPUT_BYTES_PER_STREAM);
+
+    const stderrRejection: ExecutableInvocationError = await invokeExecutable(
+      "sh",
+      ["-c", "head -c 2097152 /dev/zero | tr '\\0' 'x' >&2; /bin/sleep 30"],
+      { env: process.env, timeoutMs: 10_000 },
+    ).then(
+      () => {
+        throw new Error("expected the stderr flood to be rejected");
+      },
+      (error) => error,
+    );
+    expect(stderrRejection.code).toBe("ENOBUFS");
+    expect(stderrRejection.stdout).toBe("");
+    expect(stderrRejection.stderr?.length).toBe(MAX_OUTPUT_BYTES_PER_STREAM);
   });
 
   test("rejects with captured output on nonzero exit and on missing executables", async () => {

@@ -280,6 +280,8 @@ function describeOutcome(result: ProcessResult): string {
       return `signal ${result.signal}`;
     case "timeout":
       return "timeout";
+    case "output-limit":
+      return "output limit";
     case "spawn-error":
       return `spawn error (${result.error.message})`;
     case "cancelled":

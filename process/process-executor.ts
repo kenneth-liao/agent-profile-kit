@@ -46,6 +46,7 @@ export type ProcessResultKind =
   | "signal"
   | "spawn-error"
   | "timeout"
+  | "output-limit"
   | "cancelled";
 
 export interface ProcessExitResult extends ProcessResultBase {
@@ -83,7 +84,14 @@ export interface ProcessTimeoutResult extends ProcessResultBase {
   readonly timedOut: true;
   readonly cancelled: false;
   readonly error: null;
-}export interface ProcessCancelledResult extends ProcessResultBase {
+}
+export interface ProcessOutputLimitResult extends ProcessResultBase {
+  readonly kind: "output-limit";
+  readonly timedOut: false;
+  readonly cancelled: false;
+  readonly error: null;
+}
+export interface ProcessCancelledResult extends ProcessResultBase {
   readonly kind: "cancelled";
   readonly timedOut: false;
   readonly cancelled: true;
@@ -95,6 +103,7 @@ export type ProcessResult =
   | ProcessSignalResult
   | ProcessSpawnErrorResult
   | ProcessTimeoutResult
+  | ProcessOutputLimitResult
   | ProcessCancelledResult;
 
 type ChildProcessByStdio<TStdout, TStdin, TStderr> = ChildProcess & {
@@ -135,6 +144,14 @@ function spawnChild(options: {
 
 const DEFAULT_CLEANUP_GRACE_MS = 500;
 const MAX_EVIDENCE_CHARS = 400;
+
+/**
+ * Per-stream output budget. A child streaming more is terminated through the
+ * bounded cleanup lifecycle with kind "output-limit", so a runaway Host or
+ * wrapper cannot exhaust memory before its deadline (the restored `execFile`
+ * maxBuffer contract).
+ */
+export const MAX_OUTPUT_BYTES_PER_STREAM = 1024 * 1024;
 
 /**
  * Default per-child deadline for packed-CLI and PTY test launches. Must stay
@@ -186,12 +203,6 @@ export async function runProcess(
 
   let stdout = "";
   let stderr = "";
-  child.stdout.on("data", (chunk: Buffer) => {
-    stdout += chunk.toString();
-  });
-  child.stderr.on("data", (chunk: Buffer) => {
-    stderr += chunk.toString();
-  });
   if (options.input !== undefined && child.stdin !== null) {
     // A closed stdin pipe may surface EPIPE; the child's own error is reported
     // through the 'error'/'close' events, so swallow stream-level noise here.
@@ -202,10 +213,10 @@ export async function runProcess(
 
   return new Promise<ProcessResult>((resolve) => {
     let settled = false;
-    // One immutable terminal cause: whichever of timeout/cancellation first
-    // wins owns the result label; the competing trigger becomes a no-op, so
-    // the result never depends on cleanup timing.
-    let terminalCause: "timeout" | "cancelled" | null = null;
+    // One immutable terminal cause: whichever of timeout/output-limit/
+    // cancellation first wins owns the result label; the competing trigger
+    // becomes a no-op, so the result never depends on cleanup timing.
+    let terminalCause: "timeout" | "output-limit" | "cancelled" | null = null;
     let observedCode: number | null = null;
     let observedSignal: string | null = null;
     let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
@@ -237,6 +248,20 @@ export async function runProcess(
             durationMs: elapsed(),
             commandLabel,
           }
+        : terminalCause === "output-limit"
+        ? {
+            kind: "output-limit",
+            exitCode: observedCode,
+            signal: observedSignal,
+            error: null,
+            timedOut: false,
+            cancelled: false,
+            cleanupFailed,
+            stdout,
+            stderr,
+            durationMs: elapsed(),
+            commandLabel,
+          }
         : {
             kind: "cancelled",
             exitCode: observedCode,
@@ -260,6 +285,30 @@ export async function runProcess(
         return true;
       }
     };
+
+    // Per-stream output budget: retain at most the first budget bytes per
+    // stream and terminate an exceeding child through the bounded cleanup
+    // lifecycle, so memory stays finite even before the deadline.
+    const capture = (stream: "stdout" | "stderr") => {
+      let bytes = 0;
+      return (chunk: Buffer) => {
+        if (bytes >= MAX_OUTPUT_BYTES_PER_STREAM) return;
+        const nextLength = bytes + chunk.length;
+        if (nextLength > MAX_OUTPUT_BYTES_PER_STREAM) {
+          chunk = chunk.subarray(0, MAX_OUTPUT_BYTES_PER_STREAM - bytes);
+          bytes = MAX_OUTPUT_BYTES_PER_STREAM;
+        } else {
+          bytes = nextLength;
+        }
+        if (stream === "stdout") stdout += chunk.toString();
+        else stderr += chunk.toString();
+        if (bytes >= MAX_OUTPUT_BYTES_PER_STREAM && terminalCause === null) {
+          beginCleanup("output-limit");
+        }
+      };
+    };
+    child.stdout.on("data", capture("stdout"));
+    child.stderr.on("data", capture("stderr"));
 
     child.on("error", (error) => {
       if (terminalCause !== null) return;
@@ -375,7 +424,7 @@ export async function runProcess(
       }, grace);
     };
 
-    const beginCleanup = (cause: "timeout" | "cancelled") => {
+    const beginCleanup = (cause: "timeout" | "output-limit" | "cancelled") => {
       if (settled || terminalCause !== null) return;
       terminalCause = cause;
       terminateGroup();
