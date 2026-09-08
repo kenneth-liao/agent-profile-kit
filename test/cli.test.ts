@@ -3725,7 +3725,38 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status", "--blocked");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).not.toContain(humanText(projectPath));
+    // An empty selection is a valid empty result, not an unconfigured fleet:
+    // the unconfigured copy and its bind guidance must never appear (INT-1).
+    expect(result.stdout).not.toContain("No Projects are configured");
+    expect(result.stdout).not.toContain("apkit list projects");
+    expect(result.stdout).not.toContain("apkit bind");
+    expect(result.stdout).toContain("No Blocked Projects.");
+
+    // --verbose composes and carries the same honest outcome.
+    const verbose = await runCli(home, "status", "--blocked", "--verbose");
+
+    expectExitCode(verbose, 0);
+    expect(verbose.stdout).not.toContain("No Projects are configured");
+    expect(verbose.stdout).not.toContain("Profile Installations are configured");
+    expect(verbose.stdout).toContain("No Blocked Projects.");
+  });
+
+  test("status --stale with no stale Projects renders an empty selection (#455)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    const projectPath = homeGitRepository(home, "settled-project");
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const result = await runCli(home, "status", "--stale");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).not.toContain("No Projects are configured");
+    expect(result.stdout).not.toContain("apkit list projects");
+    expect(result.stdout).not.toContain("apkit bind");
+    expect(result.stdout).toContain("No stale Projects.");
   });
 
   test("packed regression groups many tracked generated paths into one explained blocker with zero writes", async () => {

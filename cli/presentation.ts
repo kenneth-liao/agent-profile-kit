@@ -1678,6 +1678,7 @@ function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
   applyCompleted = false,
+  selection?: ProjectBindingSelection,
 ): string {
   if (command === "apply") {
     if (reportBlockers(report).length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
@@ -1686,6 +1687,11 @@ function outcomeLine(
   }
   const currentProjects = fullyCurrentProjectCount(report);
   if (reportBlockers(report).length > 0) return "Cannot apply";
+  // An empty filtered selection is a valid empty result, not an unconfigured
+  // fleet: the outcome names the filter, never unconfigured-fleet copy (DEC-006).
+  if (selection?.filter !== undefined && report.projects.length === 0) {
+    return selection.filter === "stale" ? "No stale Projects." : "No Blocked Projects.";
+  }
   if (currentProjects !== undefined) {
     if (reportHasHostAttention(report)) return "Host attention required";
     const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
@@ -3284,7 +3290,10 @@ function readyStatusGuidanceNodes(
 }
 
 /** The status outcome notice: severity derives from report facts, never copy. */
-function statusOutcomeNotice(report: ReconciliationReport): PresentationNode {
+function statusOutcomeNotice(
+  report: ReconciliationReport,
+  selection?: ProjectBindingSelection,
+): PresentationNode {
   let severity: NoticeSeverity = "success";
   if (reportBlockers(report).length > 0) severity = "error";
   else if (
@@ -3293,7 +3302,7 @@ function statusOutcomeNotice(report: ReconciliationReport): PresentationNode {
   return {
     kind: "notice",
     severity,
-    nodes: [{ kind: "prose", parts: [outcomeLine("status", report)] }],
+    nodes: [{ kind: "prose", parts: [outcomeLine("status", report, false, selection)] }],
   };
 }
 
@@ -3525,6 +3534,12 @@ function conciseStatusDocument(
   const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
 
   if (emptyStatus) {
+    // A configured fleet with an empty filtered selection is not an
+    // unconfigured fleet: render the filter's empty outcome without bind or
+    // inventory guidance (DEC-006).
+    if (options.selection.filter !== undefined) {
+      return [statusOutcomeNotice(report, options.selection)];
+    }
     return [
       {
         kind: "notice",
@@ -3546,7 +3561,7 @@ function conciseStatusDocument(
   }
 
   const nodes: PresentationNode[] = [
-    statusOutcomeNotice(report),
+    statusOutcomeNotice(report, options.selection),
     ...warningNodes(report, groups, scope),
   ];
   if (fullyCurrentStatus) {
@@ -3602,7 +3617,7 @@ function verboseStatusDocument(
   const scope = locationDisplayScope(options, report);
   const groups = groupProjects(report).groups;
   return [
-    statusOutcomeNotice(report),
+    statusOutcomeNotice(report, options.selection),
     ...verboseWarningNodes(report, groups, scope),
     ...verboseLifecycleSections(report, { scope }),
     ...verboseHostSetupNodes("status", report, scope),
