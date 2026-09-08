@@ -60,9 +60,21 @@ function parsePagerArgv(value: string): PagerCommand {
       while (index < value.length) {
         const inner = value[index]!;
         if (inner === "\\") {
-          if (index + 1 >= value.length) return { kind: "malformed", value };
-          current += value[index + 1]!;
-          index += 2;
+          const next = value[index + 1];
+          if (next === undefined) return { kind: "malformed", value };
+          // POSIX double-quote contract: backslash is special only before
+          // $, `, ", \, and newline; before any other character it is a
+          // literal backslash. No expansion is performed either way.
+          if (next === "$" || next === "`" || next === '"' || next === "\\") {
+            current += next;
+            index += 2;
+          } else if (next === "\n") {
+            // Backslash-newline inside double quotes is elided.
+            index += 2;
+          } else {
+            current += "\\";
+            index += 1;
+          }
         } else if (inner === '"') {
           closed = true;
           index += 1;
@@ -211,7 +223,9 @@ export async function pageGuidanceDocument(input: PageGuidanceInput): Promise<nu
         executable: pager.executable,
         arguments_: [...pager.args],
         stdin: input.text,
-        environment: environment.LESS
+        // Explicit LESS authority: any value present — including empty — is
+        // preserved; the FRX default applies only when LESS is unset.
+        environment: environment.LESS !== undefined
           ? environment
           : { ...environment, LESS: "FRX" },
         commandLabel: `pager ${pager.executable}`,

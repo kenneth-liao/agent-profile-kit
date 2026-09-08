@@ -479,7 +479,7 @@ describe("pager child environment (#448, CRAFT-1)", () => {
     expect(calls[0]!.environment?.LESS).toBe("M");
   });
 
-  test("an empty LESS is treated as unset and defaults to FRX", async () => {
+  test("an explicitly empty LESS is preserved (PROD-1): it may mean no defaults", async () => {
     const { calls, execute } = executorRecordingEnvironment();
     await pageGuidanceDocument({
       text: "colored guidance\n",
@@ -490,6 +490,147 @@ describe("pager child environment (#448, CRAFT-1)", () => {
       shouldPage: true,
       environment: { LESS: "" },
     });
-    expect(calls[0]!.environment?.LESS).toBe("FRX");
+    expect(calls[0]!.environment?.LESS).toBe("");
+  });
+});
+
+describe("PR #476 review cycle 1", () => {
+  test("INT-1: double-quoted backslash before an ordinary character stays literal", () => {
+    // PAGER value carries two backslashes; POSIX double-quote rules reduce
+    // "\\" to one literal backslash, and `.agents` follows untouched.
+    expect(parsePagerCommand({ PAGER: 'less -p "\\\\.agents"' })).toEqual({
+      kind: "configured",
+      executable: "less",
+      args: ["-p", "\\.agents"],
+    });
+    // Backslash before n inside double quotes is literal backslash-n.
+    expect(parsePagerCommand({ PAGER: 'pg "-D\\n"' })).toEqual({
+      kind: "configured",
+      executable: "pg",
+      args: ["-D\\n"],
+    });
+    // Backslash-dollar stays escaped (dollar never expands either way).
+    expect(parsePagerCommand({ PAGER: 'pg "a\\$b"' })).toEqual({
+      kind: "configured",
+      executable: "pg",
+      args: ["a$b"],
+    });
+  });
+
+  test("INT-2: real signal propagation — single abort, exit mapping, unregister", async () => {
+    const out = new OutputCapture();
+    const err = new OutputCapture();
+    let registered: ((signal: "SIGINT" | "SIGTERM") => void) | undefined;
+    let unregisterCalls = 0;
+    let abortEvents = 0;
+    const execute: InteractiveExecution = async (options, signal) => {
+      signal?.addEventListener("abort", () => {
+        abortEvents += 1;
+      });
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return {
+        kind: "cancelled",
+        exitCode: null,
+        signal: null,
+        error: null,
+        cleanupFailed: false,
+        durationMs: 1,
+        commandLabel: "signal fixture",
+      };
+    };
+    const pending = pageGuidanceDocument({
+      text: "long guidance\n",
+      stream: out,
+      writeAdvisory: (document) => err.write(`advisory:${document.length}`),
+      execute,
+      pager: { kind: "configured", executable: "fake-pager", args: [] },
+      shouldPage: true,
+      registerSignals: (onSignal) => {
+        registered = onSignal;
+        return () => {
+          unregisterCalls += 1;
+        };
+      },
+    });
+    registered!("SIGINT");
+    registered!("SIGINT");
+    registered!("SIGTERM");
+    const exitCode = await pending;
+    // Repeated signals are no-ops: the executor observed exactly one abort.
+    expect(abortEvents).toBe(1);
+    // The first delivered signal owns the exit mapping (SIGINT → 130).
+    expect(exitCode).toBe(130);
+    // No reprint on cancellation; handlers unregistered exactly once.
+    expect(out.text).toBe("");
+    expect(err.text).toBe("");
+    expect(unregisterCalls).toBe(1);
+  });
+
+  test("INT-2: SIGTERM as the first delivered signal maps to 143", async () => {
+    const out = new OutputCapture();
+    let registered: ((signal: "SIGINT" | "SIGTERM") => void) | undefined;
+    let unregisterCalls = 0;
+    const execute: InteractiveExecution = async (options, signal) => {
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) return resolve();
+        signal?.addEventListener("abort", () => resolve(), { once: true });
+      });
+      return {
+        kind: "cancelled",
+        exitCode: null,
+        signal: null,
+        error: null,
+        cleanupFailed: false,
+        durationMs: 1,
+        commandLabel: "signal fixture",
+      };
+    };
+    const pending = pageGuidanceDocument({
+      text: "long guidance\n",
+      stream: out,
+      writeAdvisory: () => {},
+      execute,
+      pager: { kind: "configured", executable: "fake-pager", args: [] },
+      shouldPage: true,
+      registerSignals: (onSignal) => {
+        registered = onSignal;
+        return () => {
+          unregisterCalls += 1;
+        };
+      },
+    });
+    registered!("SIGTERM");
+    expect(await pending).toBe(143);
+    expect(out.text).toBe("");
+    expect(unregisterCalls).toBe(1);
+  });
+
+  test("PROD-1: an explicitly empty LESS is preserved as operator authority", async () => {
+    const calls: { environment: NodeJS.ProcessEnv | undefined }[] = [];
+    const execute: InteractiveExecution = async (options) => {
+      calls.push({ environment: options.environment });
+      return {
+        kind: "exit",
+        exitCode: 0,
+        signal: null,
+        error: null,
+        cleanupFailed: false,
+        durationMs: 1,
+        commandLabel: "fake pager",
+      };
+    };
+    await pageGuidanceDocument({
+      text: "long guidance\n",
+      stream: new OutputCapture(),
+      writeAdvisory: () => {},
+      execute,
+      pager: { kind: "configured", executable: "less", args: [] },
+      shouldPage: true,
+      environment: { LESS: "" },
+    });
+    expect(calls[0]!.environment?.LESS).toBe("");
   });
 });
