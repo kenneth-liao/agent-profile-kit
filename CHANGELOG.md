@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Added
 
+- Render complete Apply Receipts that name every committed file operation with its Project attribution and every affected Project, without the former concise path cap or affected-Project name cap, in every invocation mode; a partial apply failure retains the complete committed-operation evidence under `Applied:` distinct from the `Failed Project:`, `Still pending:`, and `Freshly current:` resulting-state lines; a replaced changed generated file is named without wording that infers who changed its contents; machine JSON keys are unchanged (US-027, US-028, DEC-018, TEST-001, TEST-002, TEST-007, TEST-013, [#451](https://github.com/kenneth-liao/agent-profile-kit/issues/451)).
+
 - Explain invalid Workspace references at validation: the offending authoring file, the invalid referenced value, and the available names are carried from Workspace ingestion into the typed facts and rendered through the existing happened/why/what-to-type structure, with a nearest-name suggestion using the shared selection algorithm when one exists and the full evidence kept visible when none does; machine error payloads keep their keys and meanings, publishing only the enriched carried sentence (US-025, US-026, DEC-014, DEC-017, TEST-001, TEST-002, [#450](https://github.com/kenneth-liao/agent-profile-kit/issues/450)).
 
 ### Fixed

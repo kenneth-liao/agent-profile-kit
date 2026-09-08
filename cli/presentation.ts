@@ -1307,6 +1307,8 @@ function outputPathLine(
 
 function outputPathLines(
   outputs: readonly Pick<OutputReconciliationItem, "kind" | "path">[],
+  /** Infinity renders every path; a finite number caps the list with an overflow pointer. */
+  limit: number = DEFAULT_OUTPUT_PATH_LIMIT,
 ): readonly string[] {
   const paths = [...outputs]
     // Protect attention and destructive changes from the concise-view cap, then
@@ -1320,10 +1322,10 @@ function outputPathLines(
       const line = outputPathLine(output);
       return line === undefined ? [] : [line];
     });
-  const overflow = paths.length - DEFAULT_OUTPUT_PATH_LIMIT;
+  const overflow = paths.length - limit;
   return overflow > 0
     ? [
-        ...paths.slice(0, DEFAULT_OUTPUT_PATH_LIMIT),
+        ...paths.slice(0, limit),
         overflowPointer(overflow, "file"),
       ]
     : paths;
@@ -2376,6 +2378,8 @@ function operationScopeClause(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  /** Undefined renders every affected Project; a number caps the list. */
+  projectLimit?: number,
 ): string {
   const allProjects = reportProjects(report);
   if (
@@ -2384,13 +2388,14 @@ function operationScopeClause(
   ) {
     return `in ${plural(group.projects.length, "project")}`;
   }
-  if (group.projects.length <= PROJECT_SCOPE_LIMIT) {
+  const limit = projectLimit ?? group.projects.length;
+  if (group.projects.length <= limit) {
     return `in ${group.projects.map((project) => presentProject(project, scope)).join(", ")}`;
   }
   const visible = group.projects
-    .slice(0, PROJECT_SCOPE_LIMIT)
+    .slice(0, limit)
     .map((project) => presentProject(project, scope));
-  return `in ${visible.join(", ")}, … ${plural(group.projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; ` +
+  return `in ${visible.join(", ")}, … ${plural(group.projects.length - limit, "more Project")}; ` +
     "use --verbose to see all Projects";
 }
 
@@ -2398,10 +2403,11 @@ function operationGroupLine(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  projectLimit?: number,
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} generated file ${operation} ` +
-    operationScopeClause(group, report, scope);
+    operationScopeClause(group, report, scope, projectLimit);
 }
 
 
@@ -2416,7 +2422,9 @@ function operationSummaryNodes(
     { kind: "heading", text: "Project changes:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
-      parts: [`  ${operationGroupLine(group, report, scope)}`],
+      // Status keeps the concise affected-Project cap; only Apply Receipts
+      // render every affected Project (US-027, DEC-018).
+      parts: [`  ${operationGroupLine(group, report, scope, PROJECT_SCOPE_LIMIT)}`],
     })),
     ...operationAttentionNodes(report, scope),
   ];
@@ -2492,7 +2500,8 @@ function conciseStatusOperationLine(
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} file ${operation} ` +
-    operationScopeClause(group, report, displayScope);
+    // Status keeps the concise affected-Project cap (see operationSummaryNodes).
+    operationScopeClause(group, report, displayScope, PROJECT_SCOPE_LIMIT);
 }
 
 function statusAffectedProjects(report: ReconciliationReport): readonly string[] {
@@ -2573,13 +2582,13 @@ function locationDisplayScope(
 /**
  * One named path line per affected generated file in the Apply Receipt, with
  * its Project attribution, ordered by operation, Project, then path, and
- * capped at the shared concise path limit with one overflow pointer.
+ * never capped: the receipt names every write it committed (DEC-018).
  */
 function operationReceiptPathLines(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
 ): readonly string[] {
-  const lines = receipt.projects
+  return receipt.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
     .flatMap((project) =>
@@ -2599,10 +2608,6 @@ function operationReceiptPathLines(
       left.operation - right.operation || compareCanonicalStrings(left.line, right.line)
     )
     .map((entry) => entry.line);
-  const overflow = lines.length - DEFAULT_OUTPUT_PATH_LIMIT;
-  return overflow > 0
-    ? [...lines.slice(0, DEFAULT_OUTPUT_PATH_LIMIT), overflowPointer(overflow, "file")]
-    : lines;
 }
 
 
@@ -2686,7 +2691,9 @@ function applyReceiptNodes(
   }
   const grouped = groupProjects(receipt);
   const entries: PresentationNode[] = grouped.groups.flatMap((group) => {
-    const paths = outputPathLines(group.outputs);
+    // The receipt names every committed file operation; the concise cap
+    // belongs to pending resulting-state views, not committed evidence.
+    const paths = outputPathLines(group.outputs, Infinity);
     if (paths.length > 0) {
       return [
         {

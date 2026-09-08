@@ -2831,6 +2831,124 @@ describe("status concise terminology", () => {
     expect(identityStateLine("~/receipt-project/a.md", "addition (source changed)")).toBe(true);
   });
 
+  test("the concise fleet apply receipt names every operation and affected Project above the former caps", () => {
+    const additionProjects = ["/project-alpha", "/project-beta", "/project-gamma", "/project-delta", "/project-epsilon"];
+    const updateProject = "/project-zeta";
+    const receipt = emptyReport({
+      desired: [
+        ...additionProjects.map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["one.md", "two.md", "three.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        {
+          canonicalProject: updateProject,
+          context: "composed",
+          outputs: ["single.md"],
+          profile: "coding",
+          project: updateProject,
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        ...additionProjects.map((project) => ({ kind: "addition" as const, project })),
+        { kind: "update" as const, project: updateProject },
+      ],
+      outputs: [
+        ...additionProjects.flatMap((project) =>
+          ["one.md", "two.md", "three.md"].map((path) => ({
+            kind: "addition" as const,
+            path,
+            project,
+          }))),
+        { kind: "update" as const, path: "single.md", project: updateProject },
+      ],
+    });
+
+    const nodes = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())));
+    const texts = nodes.map(nodeText);
+
+    // Every committed file operation is named with its Project attribution —
+    // no concise path cap, no overflow pointer (US-027, DEC-018).
+    const operationLines = texts.filter((text) => /^[+~-] /.test(text.trim()));
+    for (const project of additionProjects) {
+      for (const path of ["one.md", "two.md", "three.md"]) {
+        expect(operationLines.some((line) =>
+          line.trim().startsWith("+ ") && line.includes(path) && line.includes(project)
+        )).toBe(true);
+      }
+    }
+    expect(operationLines.some((line) =>
+      line.trim().startsWith("~ ") && line.includes("single.md") && line.includes(updateProject)
+    )).toBe(true);
+    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+
+    // The affected-Project clause of the operation summary names every affected
+    // Project without the former name cap or an overflow pointer.
+    const additionGroup = texts.find((text) => text.includes("generated file additions in"));
+    expect(additionGroup).toBeDefined();
+    for (const project of additionProjects) {
+      expect(additionGroup).toContain(project);
+    }
+    expect(texts.some((text) => text.includes("more Project") || text.includes("see all Projects"))).toBe(false);
+  });
+
+  test("the concise single-Project apply receipt names every committed file without the former path cap", () => {
+    const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: paths.map((path) => ({ kind: "addition" as const, path, project: "/project-a" })),
+    });
+
+    const texts = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())))
+      .map(nodeText);
+    for (const path of paths) {
+      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
+    }
+    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+  });
+
+  test("the partial-failure apply receipt retains every committed operation above the former path cap", () => {
+    const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: paths,
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: paths.map((path) => ({ kind: "addition" as const, path, project: "/project-a" })),
+    });
+
+    const document = applyExecutionFailureDocument({
+      detail: "the write failed",
+      failedProject: executionProject("/project-b"),
+      message: "Apply failed at /project-b: the write failed",
+      pendingProjects: [executionProject("/project-b")],
+      receipt,
+      resultingState: undefined,
+    });
+    const texts = flattenPresentationNodes(document).map(nodeText);
+    for (const path of paths) {
+      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
+    }
+    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+  });
+
   test("labels remaining and committed apply work distinctly", () => {
     const receipt = identityReport("/project-a");
     const resultingState = emptyReport({

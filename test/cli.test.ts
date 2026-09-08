@@ -4988,6 +4988,122 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(current.stdout).not.toContain("Next:");
   });
 
+  test("the fleet apply receipt names a replaced changed generated file in every invocation mode", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectAlpha = project("agent-profile-kit-drift-alpha-");
+    const projectBeta = project("agent-profile-kit-drift-beta-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${projectAlpha}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${projectBeta}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    const driftedPath = (projectRoot: string): string => join(projectRoot, ".codex", "hooks.json");
+
+    // Concise fleet: the replacement is named with its Project attribution,
+    // and the receipt does not infer who changed the file (US-028, DEC-018).
+    writeFileSync(driftedPath(projectAlpha), "hand edit\n");
+    const concise = await runCli(home, "apply", "--all");
+    expectExitCode(concise, 0);
+    const appliedSection = concise.stdout.slice(
+      concise.stdout.indexOf("Applied:"),
+      concise.stdout.indexOf("First use:") === -1 ? undefined : concise.stdout.indexOf("First use:"),
+    );
+    const appliedText = humanText(appliedSection);
+    expect(appliedText).toContain(`~ .codex/hooks.json (${projectAlpha})`);
+    expect(appliedText).not.toMatch(/\b(you|your|someone|author|owner)\b/i);
+
+    // Verbose: the drifted replacement is distinguishable as changed bytes.
+    writeFileSync(driftedPath(projectAlpha), "hand edit again\n");
+    const verbose = await runCli(home, "apply", "--all", "--verbose");
+    expectExitCode(verbose, 0);
+    const verboseText = humanText(verbose.stdout);
+    expect(verboseText).toContain(
+      `${projectAlpha}/.codex/hooks.json: changed`,
+    );
+
+    // Machine JSON: the applied snapshot carries every operation, including
+    // the named replacement, without key changes. Drift classification stays
+    // presentation-side; the machine receipt names the operation and file.
+    writeFileSync(driftedPath(projectAlpha), "hand edit once more\n");
+    const json = await runCli(home, "apply", "--all", "--json");
+    expectExitCode(json, 0);
+    const payload = JSON.parse(json.stdout) as {
+      readonly applied?: {
+        readonly projects: readonly {
+          readonly canonicalProject: string;
+          readonly outputs: readonly {
+            readonly kind: string;
+            readonly path: string;
+            readonly driftKind?: string;
+            readonly consumingHosts?: readonly string[];
+          }[];
+        }[];
+      };
+    };
+    const appliedAlpha = payload.applied?.projects.find(
+      (entry) => entry.canonicalProject === realpathSync(projectAlpha),
+    );
+    expect(appliedAlpha?.outputs).toContainEqual({
+      kind: "update",
+      path: ".codex/hooks.json",
+      consumingHosts: ["codex"],
+    });
+    expect(readFileSync(driftedPath(projectAlpha), "utf8")).not.toContain("hand edit");
+  });
+
+  test("a partial apply failure retains complete committed-operation evidence distinct from pending state", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectAlpha = project("agent-profile-kit-partial-alpha-");
+    const projectBeta = project("agent-profile-kit-partial-beta-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${projectAlpha}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${projectBeta}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    expectExitCode(await runCli(home, "apply", "--all"), 0);
+
+    // Project Alpha drifts (its replacement must be named in the committed
+    // evidence); both Projects gain pending work from a Workspace source
+    // change, and Project Beta becomes unwritable so apply fails after
+    // committing Alpha's work.
+    const drifted = join(projectAlpha, ".codex", "hooks.json");
+    writeFileSync(drifted, "hand edit\n");
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared Context.\n",
+    );
+    chmodSync(projectBeta, 0o555);
+
+    try {
+      const failed = await runCli(home, "apply", "--all");
+      expectExitCode(failed, 1);
+      const evidence = humanText(failed.stderr);
+      // Complete committed-operation evidence, including the replaced changed
+      // generated file, under the Applied heading.
+      expect(evidence).toContain("Applied:");
+      expect(evidence).toContain(
+        `- ${projectAlpha}: ~ .agent-profile-kit/codex/context.md ~ .codex/hooks.json`,
+      );
+      // Failed and pending resulting state stay distinct from committed work.
+      expect(evidence).toContain(`Failed Project: ${projectBeta}`);
+      expect(evidence).toContain("Still pending: none");
+      expect(evidence).toContain(`Freshly current: ${projectAlpha}`);
+      expect(readFileSync(drifted, "utf8")).not.toContain("hand edit");
+    } finally {
+      chmodSync(projectBeta, 0o755);
+    }
+  });
+
   test("status reports a malformed machine-local Installation Manifest without writing", async () => {
     const home = isolatedHome();
     await initialize(home);
