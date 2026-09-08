@@ -18,6 +18,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
+- Preserve selected legacy Workspace paths as atomic path tokens in focused authoring guides so space-containing paths do not split across lines under narrow terminal rendering (ADR-0016, INT-1 review finding on [#475](https://github.com/kenneth-liao/agent-profile-kit/pull/475)).
+
 - Preserve `cleanupFailed` evidence in `workspace-open-failed` tool errors and presentation diagnostics, and provide a structured runnable `cd <workspace>` recovery command instead of prose-only recovery (DEC-014, ADR-0027, review findings INT-1 and INT-2 on [#474](https://github.com/kenneth-liao/agent-profile-kit/pull/474)).
 
 - Give the occupied-Skill-destination diagnostic a structured runnable `apkit new skill` recovery command after its explanation (DEC-014, US-022, INT-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)); make Skill-creation failure recovery safe against user-content deletion with the exclusive open as the sole ownership boundary so a pre-open failure never removes any file; treat only confirmed ENOENT absence as no residue, retaining uninspectable directories as typed residue with conservative access/review guidance instead of claiming foreign contents (PROD-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)); and report a failed post-write close as failed creation through the same recovery instead of a success receipt while preserving the original write error when closing during error cleanup (RE-1 review finding on [#473](https://github.com/kenneth-liao/agent-profile-kit/pull/473)).

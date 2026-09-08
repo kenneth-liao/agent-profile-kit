@@ -163,7 +163,9 @@ function focusedGuideWorkspaceNode(input?: FocusedGuideWorkspaceInput): Presenta
       parts: [
         "Workspace: Legacy configuration; run ",
         commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
-        ` (selected: ${input.workspace.authored})`,
+        " (selected: ",
+        pathPart(input.workspace.canonical, "fleet", input.workspace.authored),
+        ")",
       ],
     };
   }

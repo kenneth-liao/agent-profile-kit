@@ -95,6 +95,29 @@ Project Bindings, comments, line endings, and file mode; it never moves or
 rewrites Workspace source. If validation fails, the configuration remains
 unchanged.
 
+Before migrating, make and retain a copy of the version-1 Local Configuration:
+
+```sh
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml" "$config_dir/config.yaml.before-schema-v2"
+```
+
+Keep this backup until the current CLI has been validated in normal use.
+To roll back to an older binary that understands only version-1 configuration,
+stop using the current CLI, restore the copy, and run that older binary:
+
+<!-- historical-command-excerpts:start -->
+```sh
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
+agent-profile-kit validate
+```
+<!-- historical-command-excerpts:end -->
+
+The restored file preserves the pre-migration Workspace selection and Project
+Bindings. This reverses only the Local Configuration schema transition; it does
+not undo later Workspace content changes.
+
 ### Required structure vs initialization scaffolding
 
 A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the
@@ -521,6 +544,12 @@ Active ordinary and temporary installations use one minimal receipt shape;
 removed temporary identities retain only the compact ID needed for idempotent
 retry. Directory receipts retain one aggregate root hash, not complete member
 trees.
+
+The pre-1.0 YAML migration window is closed. If `state/manifest.yaml` remains,
+install the shipped Agent Profile Kit 0.95.0 release, run a successful
+state-writing lifecycle command to publish `manifest.json`, and then retry with
+the current release. Current commands reject the YAML file without parsing,
+changing, or removing it.
 
 Back up current `manifest.json` with ordinary machine backup tooling. If the
 current state is missing or malformed, restore a known-good backup and retry.

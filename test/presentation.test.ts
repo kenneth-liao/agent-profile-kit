@@ -9050,9 +9050,31 @@ describe("guide documents (#390)", () => {
       parts: [
         "Workspace: Legacy configuration; run ",
         { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
-        " (selected: ~/legacy-ws)",
+        " (selected: ",
+        {
+          kind: "path",
+          canonicalPath: "/tmp/legacy-ws",
+          authoredPath: "~/legacy-ws",
+          scope: "fleet",
+        },
+        ")",
       ],
     });
+  });
+
+  test("focused guide preserves legacy space-containing Workspace path as atomic token under narrow rendering (INT-1)", () => {
+    const document = focusedGuideDocument("profile", {
+      configurationState: "legacy",
+      workspace: {
+        canonical: "/tmp/My long shared authoring workspace",
+        authored: "~/My long shared authoring workspace",
+      },
+    });
+    const rendered = renderBoundary(document, { color: false, interactive: true, width: 40 });
+    const lines = rendered.split("\n");
+    // Ensure the path itself is not broken across lines by the sentence wrapping policy
+    expect(lines.some((l) => l.includes("~/My long shared authoring workspace)"))).toBe(true);
+    expect(lines.some((l) => l.includes("~/My long shared\n"))).toBe(false);
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
