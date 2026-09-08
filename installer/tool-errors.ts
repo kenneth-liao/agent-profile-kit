@@ -68,9 +68,33 @@ export type WorkspaceIngestionErrorFact =
   | WorkspaceStructureErrorFact
   | { readonly kind: "duplicate-artifact-name"; readonly artifactType: string; readonly id: string }
   | { readonly kind: "profile-without-artifacts"; readonly profile: string }
-  | { readonly kind: "missing-context-reference"; readonly profile: string; readonly contextId: string }
-  | { readonly kind: "missing-skill-reference"; readonly profile: string; readonly skillId: string }
-  | { readonly kind: "missing-dependency-reference"; readonly label: string; readonly id: string }
+  | {
+      readonly kind: "missing-context-reference";
+      readonly profile: string;
+      readonly contextId: string;
+      /** Workspace-relative file that authored the invalid reference. */
+      readonly file: string;
+      /** Sorted available Context Module names in the Workspace. */
+      readonly available: readonly string[];
+    }
+  | {
+      readonly kind: "missing-skill-reference";
+      readonly profile: string;
+      readonly skillId: string;
+      /** Workspace-relative file that authored the invalid reference. */
+      readonly file: string;
+      /** Sorted available Skill names in the Workspace. */
+      readonly available: readonly string[];
+    }
+  | {
+      readonly kind: "missing-dependency-reference";
+      readonly label: string;
+      readonly id: string;
+      /** Workspace-relative file that authored the invalid dependency reference. */
+      readonly file: string;
+      /** Sorted available names of the referenced artifact type. */
+      readonly available: readonly string[];
+    }
   | { readonly kind: "dependency-cycle"; readonly cycle: string };
 
 /** Workspace ingestion plus the manifest rejections it composes. */

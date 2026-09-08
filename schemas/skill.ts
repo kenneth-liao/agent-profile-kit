@@ -19,6 +19,8 @@ export interface Skill {
   /** Normalized model-invocation policy; absence of metadata defaults to allowed. */
   readonly modelInvocation: ModelInvocationPolicy;
   readonly path: string;
+  /** Workspace-relative sidecar file that authored the dependencies, when present. */
+  readonly sidecarPath?: string;
   readonly sidecar?: Record<string, unknown>;
 }
 
@@ -124,6 +126,7 @@ export function parseSkill(
   path: string,
   sourcePath: string,
   sidecar?: string,
+  sidecarPath?: string,
 ): Skill {
   const header = frontmatter(source, path);
   const unknown = Object.keys(header).filter(
@@ -182,6 +185,7 @@ export function parseSkill(
     id,
     modelInvocation,
     path: sourcePath,
+    ...(sidecarPath !== undefined ? { sidecarPath } : {}),
     ...(parsedSidecar !== undefined
       ? { sidecar: parsedSidecar }
       : {}),
