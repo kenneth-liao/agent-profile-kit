@@ -1020,7 +1020,7 @@ export async function previewReconciliation(
             .sort(compareCanonicalStrings)
             .join(", "),
         });
-      } else if (previous.desiredInputDigest !== installation.sourceHash) {
+      } else if (sourceInputChanged === true) {
         projectItems.push({
           kind: "stale source",
           project: installation.binding.project,
