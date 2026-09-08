@@ -19,9 +19,11 @@ import {
 export {
   applyNewcomerSubstitutions,
   describeStateReadFailure,
+} from "./blocker-wording.js";
+export {
   formatProjectTargetError,
   formatProjectTargetErrorForHuman,
-} from "./blocker-wording.js";
+} from "./error-wording.js";
 import {
   commandPart,
   flatInlineText,

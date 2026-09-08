@@ -15,9 +15,13 @@ import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
+  errorDiagnosticDocument,
+  errorDiagnosticParts,
   formatInstallerToolError,
+  formatInstallerToolErrorDiagnostic,
   formatLocalConfigurationError,
   formatMissingProfileError,
+  formatMissingProfileErrorDiagnostic,
   formatSchemaRejection,
 } from "../cli/error-wording.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
@@ -88,10 +92,19 @@ describe("typed Installer tool errors", () => {
       expect((failure as InstallerToolError).message).toBe(
         "installer tool error: missing-local-configuration",
       );
-      // Presentation owns the carried sentence on both surfaces, verbatim.
-      expect(flatInlineText(formatInstallerToolError(fact))).toBe(
-        `Local Configuration is missing at ${configPath(home)}; run apkit init`,
-      );
+      // Presentation owns the carried sentence and structured diagnostic (DEC-014, DEC-015).
+      const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+      expect(flatInlineText(diagnostic.happened)).toBe("Agent Profile Kit is not set up on this machine");
+      expect(diagnostic.whatToType).toBeDefined();
+      expect(diagnostic.whatToType!).toHaveLength(1);
+      expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init to set it up.");
+      // The error diagnostic does not leak the internal configuration path.
+      expect(flatInlineText(diagnostic.happened)).not.toContain(configPath(home));
+      // No internal-only domain terms in the newcomer diagnostic.
+      for (const pattern of INTERNAL_ONLY_DEFAULT_TERMS) {
+        expect(flatInlineText(diagnostic.happened)).not.toMatch(pattern);
+        expect(flatInlineText(diagnostic.whatToType![0]!)).not.toMatch(pattern);
+      }
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -378,14 +391,18 @@ describe("typed Installer tool errors", () => {
     }
   });
 
-  test("tool-error wording renders verbatim on human surfaces", () => {
+  test("tool-error wording provides structured diagnostic for unconfigured machine (DEC-014, DEC-015)", () => {
     const fact: InstallerToolErrorFact = {
       kind: "missing-local-configuration",
       path: "/home/.agents/agent-profile-kit/config.yaml",
     };
+    const error = new InstallerToolError(fact);
+    const diagnostic = errorDiagnosticParts(error);
+    expect(flatInlineText(diagnostic.happened)).toBe("Agent Profile Kit is not set up on this machine");
+    expect(diagnostic.whatToType).toBeDefined();
+    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init to set it up.");
+    // Machine flattened projection still publishes the carried sentence.
     const machine = flatInlineText(formatInstallerToolError(fact));
-    // The machine and human projections publish the same carried sentence.
-    expect(flatInlineText(installerErrorSentence(new InstallerToolError(fact)) ?? [])).toBe(machine);
     expect(machine).toContain("run apkit init");
   });
 

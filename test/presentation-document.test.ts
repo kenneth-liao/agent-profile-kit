@@ -339,24 +339,22 @@ test("carries a sentence's category across every wrapped line", () => {
 test("renders a diagnostic document as what happened, why, and what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: [
-        "apkit status Project target '/projects/demo' is not a bound Project; " +
-          "run apkit list projects or apkit bind",
+      happened: ["directory '/projects/demo' is not configured as a Project"],
+      whatToType: [
+        ["Run ", commandPart("apkit", [arg("bind")]), " to configure this directory as a Project."],
+        ["Run ", commandPart("apkit", [arg("list"), arg("projects")]), " to list configured Projects."],
       ],
       usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
     }),
     { color: false, interactive: false, width: 80 },
   );
   const lines = text.split("\n");
-  // Structural shape, not wording: the label prefixes the first line only,
-  // the sentence flows with a hanging indent, and usage renders last as one
-  // whole command line (the writer appends the final line terminator).
-  expect(lines.at(-1)).toBe("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
-  const sentence = lines.slice(0, -1).map((line) => line.trimStart()).join(" ");
-  expect(sentence.startsWith("apkit: ")).toBe(true);
-  expect(lines.slice(1, -1).every((line) => line.startsWith("  "))).toBe(true);
-  expect(lines).not.toContain("apkit:");
-  expect(lines.at(-1)!.startsWith("Usage: apkit status")).toBe(true);
+  // Structural shape, not unstructured string: happened in notice, then
+  // whatToType lines, and usage last as one whole command line.
+  expect(lines[0]).toBe("apkit: directory '/projects/demo' is not configured as a Project");
+  expect(lines[1]).toBe("Run apkit bind to configure this directory as a Project.");
+  expect(lines[2]).toBe("Run apkit list projects to list configured Projects.");
+  expect(lines[3]).toBe("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
 });
 
 test("renders diagnostic cause lines after what happened and before what to type", () => {
