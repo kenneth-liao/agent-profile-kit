@@ -2376,6 +2376,8 @@ function operationScopeClause(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  /** Undefined renders every affected Project; a number caps the list. */
+  projectLimit?: number,
 ): string {
   const allProjects = reportProjects(report);
   if (
@@ -2384,13 +2386,14 @@ function operationScopeClause(
   ) {
     return `in ${plural(group.projects.length, "project")}`;
   }
-  if (group.projects.length <= PROJECT_SCOPE_LIMIT) {
+  const limit = projectLimit ?? group.projects.length;
+  if (group.projects.length <= limit) {
     return `in ${group.projects.map((project) => presentProject(project, scope)).join(", ")}`;
   }
   const visible = group.projects
-    .slice(0, PROJECT_SCOPE_LIMIT)
+    .slice(0, limit)
     .map((project) => presentProject(project, scope));
-  return `in ${visible.join(", ")}, … ${plural(group.projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; ` +
+  return `in ${visible.join(", ")}, … ${plural(group.projects.length - limit, "more Project")}; ` +
     "use --verbose to see all Projects";
 }
 
@@ -2398,10 +2401,11 @@ function operationGroupLine(
   group: OperationPresentationGroup,
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  projectLimit?: number,
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} generated file ${operation} ` +
-    operationScopeClause(group, report, scope);
+    operationScopeClause(group, report, scope, projectLimit);
 }
 
 
@@ -2573,13 +2577,13 @@ function locationDisplayScope(
 /**
  * One named path line per affected generated file in the Apply Receipt, with
  * its Project attribution, ordered by operation, Project, then path, and
- * capped at the shared concise path limit with one overflow pointer.
+ * never capped: the receipt names every write it committed (DEC-018).
  */
 function operationReceiptPathLines(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
 ): readonly string[] {
-  const lines = receipt.projects
+  return receipt.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
     .flatMap((project) =>
@@ -2599,10 +2603,6 @@ function operationReceiptPathLines(
       left.operation - right.operation || compareCanonicalStrings(left.line, right.line)
     )
     .map((entry) => entry.line);
-  const overflow = lines.length - DEFAULT_OUTPUT_PATH_LIMIT;
-  return overflow > 0
-    ? [...lines.slice(0, DEFAULT_OUTPUT_PATH_LIMIT), overflowPointer(overflow, "file")]
-    : lines;
 }
 
 
