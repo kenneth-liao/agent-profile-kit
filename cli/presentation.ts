@@ -1307,7 +1307,7 @@ function outputPathLine(
 
 function outputPathLines(
   outputs: readonly Pick<OutputReconciliationItem, "kind" | "path">[],
-  /** Undefined renders every path; a number caps the list with an overflow pointer. */
+  /** Infinity renders every path; a finite number caps the list with an overflow pointer. */
   limit: number = DEFAULT_OUTPUT_PATH_LIMIT,
 ): readonly string[] {
   const paths = [...outputs]
@@ -2422,7 +2422,9 @@ function operationSummaryNodes(
     { kind: "heading", text: "Project changes:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
-      parts: [`  ${operationGroupLine(group, report, scope)}`],
+      // Status keeps the concise affected-Project cap; only Apply Receipts
+      // render every affected Project (US-027, DEC-018).
+      parts: [`  ${operationGroupLine(group, report, scope, PROJECT_SCOPE_LIMIT)}`],
     })),
     ...operationAttentionNodes(report, scope),
   ];
@@ -2498,7 +2500,8 @@ function conciseStatusOperationLine(
 ): string {
   const operation = group.fileCount === 1 ? group.operation : `${group.operation}s`;
   return `${PLANNED_OUTPUT_OPERATION_MARKER[group.operation]} ${group.fileCount} file ${operation} ` +
-    operationScopeClause(group, report, displayScope);
+    // Status keeps the concise affected-Project cap (see operationSummaryNodes).
+    operationScopeClause(group, report, displayScope, PROJECT_SCOPE_LIMIT);
 }
 
 function statusAffectedProjects(report: ReconciliationReport): readonly string[] {
