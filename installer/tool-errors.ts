@@ -147,6 +147,11 @@ export type InstallerToolErrorFact =
       readonly configuredPath: string;
     }
   | { readonly kind: "foreign-diagnostic"; readonly detail: string }
+  | {
+      readonly kind: "skill-path-occupied";
+      readonly id: string;
+      readonly path: string;
+    }
   | ConfiguredPathErrorFact
   | WorkspaceIngestionErrorFact;
 

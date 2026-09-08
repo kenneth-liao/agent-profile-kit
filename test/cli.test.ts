@@ -13020,3 +13020,81 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     }
   });
 });
+
+describe("packed CLI new skill", () => {
+  test("new skill creates a valid Skill, prints the absolute created path, and completes creation → Profile → validate → apply", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const created = await runCli(home, "new", "skill", "review-pr");
+    expectExitCode(created, 0);
+
+    const workspaceRoot = realpathSync(workspacePath(home));
+    const skillFile = join(workspaceRoot, "skills", "review-pr", "SKILL.md");
+    expect(created.stdout).toContain(skillFile);
+    expect(existsSync(skillFile)).toBe(true);
+
+    writeFileSync(
+      join(workspacePath(home), "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+    );
+    expectExitCode(await runCli(home, "validate"), 0);
+
+    const projectPath = gitRepository();
+    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
+    const apply = await runCli(home, "apply", projectPath);
+    expectExitCode(apply, 0);
+    const installed = readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8");
+    expect(installed).toBe(readFileSync(skillFile, "utf8"));
+  });
+
+  test("new skill never prompts on an interactive terminal and completes without input", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const result = await runCliInPty(home, 80, "new", "skill", "prompt-check");
+    expectExitCode(result, 0);
+    const skillFile = join(realpathSync(workspacePath(home)), "skills", "prompt-check", "SKILL.md");
+    expect(result.stdout).toContain(skillFile);
+    expect(existsSync(skillFile)).toBe(true);
+  });
+
+  test("new skill refuses a duplicated Artifact ID, an occupied destination, invalid names, and symlinks without writing", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
+
+    const skillFile = join(realpathSync(workspacePath(home)), "skills", "review-pr", "SKILL.md");
+    // Hand-edit the body so re-running must prove the file is never overwritten.
+    writeFileSync(skillFile, `${readFileSync(skillFile, "utf8")}\nHand-authored follow-up.\n`);
+    const duplicated = await runCli(home, "new", "skill", "review-pr");
+    expectExitCode(duplicated, 1);
+    expect(duplicated.stderr).toContain("review-pr");
+    expect(readFileSync(skillFile, "utf8")).toContain("Hand-authored follow-up.\n");
+
+    // Occupied by an existing directory with no Skill material: refused, untouched.
+    mkdirSync(join(workspacePath(home), "skills", "taken"));
+    const occupied = await runCli(home, "new", "skill", "taken");
+    expectExitCode(occupied, 1);
+    expect(occupied.stderr).toContain("already has material");
+    expect(existsSync(join(workspacePath(home), "skills", "taken", "SKILL.md"))).toBe(false);
+
+    // Invalid Artifact IDs are refused without creating anything.
+    for (const invalidName of ["Review_PR", "../escape"]) {
+      const invalid = await runCli(home, "new", "skill", invalidName);
+      expectExitCode(invalid, 1);
+      expect(invalid.stderr).toMatch(/kebab-case/i);
+    }
+    expect(existsSync(join(workspacePath(home), "skills", "Review_PR"))).toBe(false);
+    expect(existsSync(join(workspacePath(home), "skills", "..", "escape"))).toBe(false);
+
+    // A symlink destination is refused and never written through.
+    const outside = mkdtempSync(join(tmpdir(), "apkit-new-skill-outside-"));
+    temporaryDirectories.push(outside);
+    symlinkSync(outside, join(workspacePath(home), "skills", "link-skill"));
+    const linked = await runCli(home, "new", "skill", "link-skill");
+    expectExitCode(linked, 1);
+    expect(linked.stderr).toContain("already has material");
+    expect(Array.from(new Bun.Glob("*").scanSync({ cwd: outside }))).toEqual([]);
+  });
+});

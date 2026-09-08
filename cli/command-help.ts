@@ -71,6 +71,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: ["Run ", invocation("validate"), " after editing your Workspace."],
   },
   {
+    name: "new",
+    group: "common",
+    syntax: "new skill <name>",
+    summary: "Create a Skill scaffold in the configured Workspace",
+    examples: COMMAND_EXAMPLES.new,
+    writes: "Creates one new Skill directory and SKILL.md in the Workspace; never overwrites or edits existing material.",
+    next: ["Add the Skill to a Profile with ", invocation("guide"), ", then run ", invocation("validate"), "."],
+  },
+  {
     name: "bind",
     group: "common",
     syntax: "bind <profile> [project] --host <host> [--host <host> ...] [--replace]",

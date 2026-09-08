@@ -85,10 +85,10 @@ The first-run excerpts below were captured from that packed run.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `new skill <name>` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
-| 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
+| 4 | Author | `new skill <name>`; edit Workspace files | A valid Skill created at its printed path, plus a Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace` |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
 | 7 | Plan | `status [project \| --here \| --all] [--verbose] [--blockers-only] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing; `--blockers-only` shows a focused Blocker-only view (combines with `--verbose`, not `--json`) |
@@ -100,7 +100,8 @@ The first-run excerpts below were captured from that packed run.
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-019) |
 
 Stages 1–8 are the first-run path. Stages 10–12 are the returning-user path.
-Stage 4 is the only stage with no CLI surface at all, and stage 9 the only one
+Stage 4's Skill scaffolding runs through `new skill`; its remaining Profile and
+Context authoring has no CLI surface, and stage 9 is the only one
 the CLI never speaks to. Stage 13 is the receipt-owned temporary flow, usable
 alongside either path.
 
@@ -221,7 +222,11 @@ and copyable values remain intact.
 
 ### 4. Author
 
-No CLI surface. The user must produce structured content from memory:
+`new skill <name>` scaffolds one valid Skill into the configured Workspace and
+prints the absolute path of the created `SKILL.md` without prompting or opening
+an editor; a duplicate Artifact ID, an occupied or symlinked destination, or an
+invalid name is refused with a typed diagnostic before any write. Remaining
+structured content is authored from memory:
 
 ```
 context/standards.md        id in frontmatter

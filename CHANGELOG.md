@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Add `apkit new skill <name>`: scaffold one valid Skill into the configured Workspace and print the absolute path of the created `SKILL.md` without prompting or opening an editor, enforcing the Artifact ID schema, the existing duplicate-Artifact-ID ingestion check, and exclusive creation that refuses occupied or symlinked destinations with typed diagnostics (US-042, US-046 Skill clause, US-055 new-Skill non-interaction clause, DEC-026, [#445](https://github.com/kenneth-liao/agent-profile-kit/issues/445)).
+
 ### Fixed
 
 - Bound all Adapter CLI probes through the shared bounded process executor (extracted to `process/process-executor.ts`, ADR-0027) so a Host executable ignoring SIGTERM can no longer hang `init` after Workspace publication, terminate a probe whose stdout or stderr exceeds a 1 MiB per-stream output budget through that same lifecycle, surface an unclean bounded termination as `cleanupFailed` with no captured output so a parseable version line can never turn a cleanup failure into a detected Host, and carry the effective authored Workspace spelling from Local Configuration through every initialization outcome so bare `init` after adopting an external aliased Workspace renders the authored home-relative alias ([#472](https://github.com/kenneth-liao/agent-profile-kit/pull/472), [#444](https://github.com/kenneth-liao/agent-profile-kit/issues/444)).

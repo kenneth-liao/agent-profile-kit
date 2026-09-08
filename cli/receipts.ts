@@ -23,6 +23,37 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
  * atomic inline part the renderer never re-identifies (DEC-009).
  */
 
+/** The receipt input for one `new skill` invocation. */
+export interface NewSkillReceiptInput {
+  readonly id: string;
+  /** Absolute path of the SKILL.md file actually created. */
+  readonly path: string;
+}
+
+/** The receipt document for one `new skill` invocation (US-042, US-046). */
+export function newSkillReceiptDocument(input: NewSkillReceiptInput): PresentationDocument {
+  return [
+    {
+      kind: "sentence",
+      parts: [
+        "Created Skill ",
+        identifierPart(input.id),
+        " at ",
+        identifierPart(input.path),
+      ],
+      category: "success",
+    },
+    {
+      kind: "sentence",
+      parts: [
+        "Next: select the Skill from a Profile, then run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+      ],
+      category: "command",
+    },
+  ];
+}
+
 const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
 const projectBindingSingular = DEFAULT_VIEW_LEXICON.projectBinding.singular;
 const projectBindingCapitalized = capitalize(projectBindingSingular);

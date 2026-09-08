@@ -410,6 +410,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "foreign-diagnostic":
       return [fact.detail];
+    case "skill-path-occupied":
+      return [`Skill '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -510,6 +512,11 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
+    case "skill-path-occupied":
+      return {
+        happened: [`Skill '${fact.id}' already has material at ${fact.path}`],
+        whatToType: [["Choose a different Skill name, or remove the existing material first."]],
+      };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
