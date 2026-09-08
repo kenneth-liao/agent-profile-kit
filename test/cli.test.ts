@@ -9541,16 +9541,42 @@ describe("delayed interactive progress", () => {
 });
 
 describe("apkit root help", () => {
-  test("--version reports the packaged engine version", async () => {
+  test("--version and -v report the packaged engine version", async () => {
     const home = isolatedHome();
     const manifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
       readonly version: string;
     };
-    const result = await runCli(home, "--version");
+    const long = await runCli(home, "--version");
+    const short = await runCli(home, "-v");
 
-    expectExitCode(result, 0);
-    expect(result.stderr).toBe("");
-    expect(result.stdout).toBe(`${manifest.version}\n`);
+    for (const result of [long, short]) {
+      expectExitCode(result, 0);
+      expect(result.stderr).toBe("");
+      expect(result.stdout).toBe(`${manifest.version}\n`);
+    }
+  });
+
+  test("-v does not select verbose output or introduce a short alias for --verbose", async () => {
+    const home = isolatedHome();
+    const rootUpperV = await runCli(home, "-V");
+    expectExitCode(rootUpperV, 1);
+    expect(rootUpperV.stderr).toContain("unknown command '-V'");
+
+    const statusShort = await runCli(home, "status", "-v");
+    expectExitCode(statusShort, 1);
+    expect(statusShort.stderr).toContain("status does not accept argument '-v'");
+
+    const statusUpperV = await runCli(home, "status", "-V");
+    expectExitCode(statusUpperV, 1);
+    expect(statusUpperV.stderr).toContain("status does not accept argument '-V'");
+
+    const applyShort = await runCli(home, "apply", "-v");
+    expectExitCode(applyShort, 1);
+    expect(applyShort.stderr).toContain("apply does not accept argument '-v'");
+
+    const applyUpperV = await runCli(home, "apply", "-V");
+    expectExitCode(applyUpperV, 1);
+    expect(applyUpperV.stderr).toContain("apply does not accept argument '-V'");
   });
 
   test("bare invocation, --help, -h, and help print identical root help successfully", async () => {
@@ -9562,8 +9588,9 @@ describe("apkit root help", () => {
     const nestedLongHelp = await runCli(home, HELP_COMMAND, "--help");
     const nestedShortHelp = await runCli(home, HELP_COMMAND, "-h");
     const nestedVersion = await runCli(home, HELP_COMMAND, "--version");
+    const nestedShortVersion = await runCli(home, HELP_COMMAND, "-v");
 
-    for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion]) {
+    for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion, nestedShortVersion]) {
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
     }
@@ -9573,6 +9600,7 @@ describe("apkit root help", () => {
     expect(nestedLongHelp.stdout).toBe(help.stdout);
     expect(nestedShortHelp.stdout).toBe(help.stdout);
     expect(nestedVersion.stdout).toBe(help.stdout);
+    expect(nestedShortVersion.stdout).toBe(help.stdout);
     expect(bare.stdout.length).toBeGreaterThan(0);
   });
 
@@ -9977,6 +10005,7 @@ describe("apkit root help", () => {
     const invocations: readonly (readonly string[])[] = [
       [],
       ["--version"],
+      ["-v"],
       ["--help"],
       ["help", "status"],
       ["guide"],

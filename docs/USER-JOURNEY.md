@@ -85,7 +85,7 @@ The first-run excerpts below were captured from that packed run.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
+| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
 | 4 | Author | *(no CLI; edit Workspace files)* | A Profile that selects real artifacts |
@@ -160,7 +160,7 @@ deterministic 80-column measure. Color is used only for color-capable
 interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty
 `NO_COLOR` disable ANSI styling. The compact ASCII identity appears only in
 interactive bare/root help, while the agent guide, redirected output, and all
-JSON remain plain. `--version` prints the engine version. Every command has focused
+JSON remain plain. `--version` and `-v` print the engine version. Every command has focused
 `help <command>`, `<command> -h`, and `<command> --help`
 aliases with identical purpose, syntax, worked examples, write boundary, and
 next-action output; binding and temporary-installation help name Hosts from
