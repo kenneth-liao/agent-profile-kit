@@ -580,7 +580,7 @@ describe("project-bound release candidate", () => {
     const explicitPreview = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(explicitPreview, 0);
     expect(humanText(explicitPreview.stdout)).toContain(
-      humanText(`${existingWorktree}: Profile review`),
+      humanText(`${existingWorktree}: addition`),
     );
 
     const explicitApply = await runCli(home, ["apply"], { path: pathWithClaude });

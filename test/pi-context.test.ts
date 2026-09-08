@@ -615,12 +615,6 @@ describe("Pi Adapter", () => {
       consumingHosts: ["codex", "pi"],
       path: ".agents/skills/review-pr",
     }));
-    const verbose = lifecycleStatusDocument(report, { selection: { kind: "all" }, verbose: true });
-    const consumingEvidence = verbose.filter((node) => node.kind === "prose")
-      .filter((node) => flatInlineText(node.parts).includes(".agents/skills/review-pr"));
-    expect(consumingEvidence.some((node) =>
-      ["codex", "pi"].every((host) => flatInlineText(node.parts).includes(host))
-    )).toBe(true);
 
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),

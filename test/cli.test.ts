@@ -2181,8 +2181,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: addition`));
-    expect(result.stdout).toContain("Profile coding");
-    expect(result.stdout).toContain("Always preserve the project boundary.");
+    expect(result.stdout).not.toContain("Selected setup:");
+    expect(result.stdout).not.toContain("Always preserve the project boundary.");
     expect(result.stdout).not.toContain("<!-- Context Module:");
     expect(result.stdout).toContain(".codex/hooks.json");
     expect(humanText(result.stdout)).toContain(
@@ -2627,9 +2627,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["status", "apply"] as const) {
       const verbose = await runCli(home, command, "--verbose");
       expectExitCode(verbose, 0);
-      expect(verbose.stdout).toContain("Selected setup:");
-      expect(verbose.stdout).toContain("Resolved artifacts:");
-      expect(verbose.stdout).toContain("Context:");
+      expect(verbose.stdout).toContain("Projects:");
+      expect(verbose.stdout).not.toContain("Selected setup:");
+      expect(verbose.stdout).not.toContain("Resolved artifacts:");
+      expect(verbose.stdout).not.toContain("Context:");
 
       const duplicateVerbose = await runCli(home, command, "--verbose", "--verbose");
       expectExitCode(duplicateVerbose, 0);
@@ -3209,10 +3210,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(changed.stdout)).toContain(
       humanText(`${projectPath}/.agent-profile-kit/codex/context.md: update`),
     );
-    expect(humanText(changed.stdout)).toContain(
+    expect(humanText(changed.stdout)).not.toContain(
       humanText(`${projectPath}/.codex/hooks.json: unchanged`),
     );
     expect(readFileSync(contextPath, "utf8")).toBe(before);
+
+    const changedJson = await runCli(home, "status", "--json");
+    expectExitCode(changedJson, 0);
+    const changedPayload = JSON.parse(changedJson.stdout) as {
+      readonly projects: readonly {
+        readonly outputs: readonly { readonly kind: string; readonly path: string }[];
+      }[];
+    };
+    expect(changedPayload.projects[0]?.outputs.some((o) => o.kind === "unchanged" && o.path.includes("hooks.json"))).toBe(true);
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removed = await runCli(home, "status", "--verbose");
@@ -4332,8 +4342,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
 
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${repository}: Profile coding`));
-    expect(humanText(status.stdout)).toContain(humanText(`${worktree}: Profile review`));
+    expect(humanText(status.stdout)).toContain(humanText(`${repository}: addition`));
+    expect(humanText(status.stdout)).toContain(humanText(`${worktree}: addition`));
+    expect(status.stdout).not.toContain("Selected setup:");
 
     const apply = await runCliWithPath(home, pathWithClaude, "apply");
 
@@ -5766,7 +5777,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const result = await runCli(home, command, "--verbose");
       expectExitCode(result, 0);
       expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: drifted output`));
-      expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: update`));
+      expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: missing`));
       expect(existsSync(contextPath)).toBe(false);
     }
 
@@ -5778,6 +5789,147 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       receipts: readonly { installation_id: string }[];
     };
     expect(repaired.receipts[0]!.installation_id).toBe(installationId);
+  });
+
+  test("status ties a proven Workspace source change to its affected output paths", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    const hooksPath = join(projectPath, ".codex", "hooks.json");
+
+    // Mixed cause: the user edits an installed output while its Workspace
+    // source changes too (hooks.json stays intact as ownership evidence).
+    writeFileSync(contextPath, "---\nid: team-rules\ndependencies: []\n---\nUser-edited drift bytes.\n");
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nNewer Workspace source bytes.\n",
+    );
+
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
+    // The proven source change renders beside the affected path:
+    expect(humanText(status.stdout)).toContain(humanText(`${contextPath}: changed (source changed)`));
+
+    const payload = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
+      readonly projects: readonly {
+        readonly outputs: readonly {
+          readonly consumingHosts: readonly string[];
+          readonly kind: string;
+          readonly path: string;
+        }[];
+      }[];
+    };
+    const outputs = payload.projects[0]!.outputs;
+    // Machine JSON keeps its canonical v14 shape: the typed source-change fact
+    // is rendered in verbose human diagnostics, not added to JSON evidence.
+    expect(outputs.find((output) => output.path.endsWith("codex/context.md"))).toEqual({
+      consumingHosts: ["codex"],
+      kind: "update",
+      path: ".agent-profile-kit/codex/context.md",
+    });
+    for (const output of outputs) {
+      expect(Object.keys(output).sort()).toEqual(["consumingHosts", "kind", "path"]);
+    }
+
+    // Pure user drift after the source change is applied: no sourceChanged
+    // fact exists, so no source-change cause may be claimed.
+    expectExitCode(await runCli(home, "apply"), 0);
+    writeFileSync(hooksPath, "{\"user\":\"edited\"}\n");
+    const drifted = await runCli(home, "status", "--verbose");
+    expectExitCode(drifted, 0);
+    expect(humanText(drifted.stdout)).toContain(humanText(`${hooksPath}: changed`));
+    expect(humanText(drifted.stdout)).not.toContain(humanText(`${hooksPath}: changed (source changed)`));
+
+    // Apply performs the same pending update work from current source.
+    const applied = await runCli(home, "apply", "--verbose");
+    expectExitCode(applied, 0);
+    expect(readFileSync(hooksPath, "utf8")).toContain("hooks");
+  });
+
+  test("verbose keeps the digest-only source change when redundant Skill dependency edges meet drift", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "skills", "base-skill"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "base-skill", "SKILL.md"),
+      "---\nname: base-skill\ndescription: Shared base skill.\n---\n\nBase.\n",
+    );
+    mkdirSync(join(workspace, "skills", "mid-skill"));
+    writeFileSync(
+      join(workspace, "skills", "mid-skill", "SKILL.md"),
+      "---\nname: mid-skill\ndescription: Mid skill.\n---\n\nMid.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "mid-skill", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: base-skill\n",
+    );
+    mkdirSync(join(workspace, "skills", "review-pr"));
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: mid-skill\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+    );
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    // Concurrent causes: a redundant direct dependency edge changes the
+    // receipt's desired-input digest while every generated projection stays
+    // byte-identical, and an owned generated file drifts on disk.
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
+      "dependencies:\n  - type: skill\n    id: mid-skill\n  - type: skill\n    id: base-skill\n",
+    );
+    rmSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"));
+
+    const status = await runCli(home, "status", "--verbose");
+    expectExitCode(status, 0);
+    // The unattributable source change renders once at Project scope; the
+    // drifted output stays bare because its bytes match the receipt.
+    expect(humanText(status.stdout)).toContain(humanText(
+      `${projectPath}: drifted output (.agents/skills/base-skill) (source changed)`,
+    ));
+    expect(humanText(status.stdout)).toContain(
+      humanText(`${projectPath}/.agents/skills/base-skill: changed`),
+    );
+    expect(humanText(status.stdout)).not.toContain(
+      humanText(`${projectPath}/.agents/skills/base-skill: changed (source changed)`),
+    );
+    // Fact-once: exactly one source-change evidence occurrence in the view.
+    expect(humanText(status.stdout).split("(source changed)").length - 1).toBe(1);
+
+    // Machine JSON keeps its canonical v14 shape.
+    const payload = JSON.parse((await runCli(home, "status", "--json")).stdout) as {
+      readonly projects: readonly {
+        readonly outputs: readonly {
+          readonly consumingHosts: readonly string[];
+          readonly kind: string;
+          readonly path: string;
+        }[];
+      }[];
+    };
+    for (const output of payload.projects[0]!.outputs) {
+      expect(Object.keys(output).sort()).toEqual(["consumingHosts", "kind", "path"]);
+    }
+
+    // Apply consumes both causes: restores the drifted output from current
+    // Workspace source and records the refreshed input digest.
+    const applied = await runCli(home, "apply");
+    expectExitCode(applied, 0);
+    expect(existsSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
   });
 
   test("apply restores a wholly absent owned Skill directory with current Workspace bytes and modes", async () => {
@@ -5810,7 +5962,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${destination}: update`));
+    expect(humanText(status.stdout)).toContain(humanText(`${destination}: missing`));
     expect(status.stdout).not.toContain("missing member");
     expect(status.stdout).not.toContain("drift item");
     expect(existsSync(destination)).toBe(false);
@@ -6486,9 +6638,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(status.stdout).toContain(".agents/skills/review-pr");
     expect(status.stdout).toContain(".agents/skills/base-skill");
-    expect(status.stdout).toContain("skill:review-pr");
-    expect(status.stdout).toContain("skill:base-skill");
-    expect(status.stdout).toContain("via skill:review-pr");
+    expect(status.stdout).not.toContain("Resolved artifacts:");
+    expect(status.stdout).not.toContain("Selected setup:");
     expect(status.stdout).not.toContain("unselected-skill");
 
     const apply = await runCli(home, "apply");
@@ -6783,10 +6934,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
-    expect(status.stdout).toContain("Profile coding");
-    expect(status.stdout).toContain("Always preserve the project boundary.");
+    expect(status.stdout).not.toContain("Profile coding");
+    expect(status.stdout).not.toContain("Always preserve the project boundary.");
     expect(status.stdout).not.toContain("<!-- Context Module:");
-    expect(status.stdout).toContain("# Agent Profile Kit Context");
+    expect(status.stdout).not.toContain("# Agent Profile Kit Context");
     expect(status.stdout).toContain(".claude/rules/agent-profile-kit.md");
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
@@ -6852,7 +7003,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const boundaryBin = installFakeClaude(home, "2.0.64");
     const boundary = await runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "status", "--verbose");
     expectExitCode(boundary, 0);
-    expect(boundary.stdout).toContain(".claude/rules/agent-profile-kit.md");
+    expect(boundary.stdout).toContain("All Projects are current");
+    expect(humanText(boundary.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
   test("packed CLI Antigravity Context supports mixed lifecycle operations without touching project instructions", async () => {
@@ -7037,8 +7189,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const humanStatus = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expectExitCode(humanStatus, 0);
-    expect(humanStatus.stdout).toContain("Capability Contracts:");
-    expect(humanStatus.stdout).toContain("native-project-always-on-rules-shared-skills-invocation-v1");
+    expect(humanStatus.stdout).not.toContain("Capability Contracts:");
+    expect(humanStatus.stdout).toContain(".agents/skills/disabled-skill");
+    expect(humanStatus.stdout).toContain(".agents/skills/top-skill");
     expect(humanStatus.stdout).not.toContain("shared-path");
 
     const status = await runCliWithPath(home, pathWithHosts, "status", "--json");
@@ -7184,7 +7337,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "--verbose",
     );
     expectExitCode(supported, 0);
-    expect(supported.stdout).toContain(".agents/rules/agent-profile-kit-000-envelope.md");
+    expect(supported.stdout).toContain("All Projects are current");
+    expect(humanText(supported.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
   test("packed CLI Antigravity Skills checks only the required shared Skill surface", async () => {
@@ -7238,7 +7392,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
     expect(status.stdout).toContain(".grok/rules/agent-profile-kit.md");
-    expect(status.stdout).toContain("# Agent Profile Kit Context");
+    expect(status.stdout).not.toContain("# Agent Profile Kit Context");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const apply = await runCliWithPath(home, pathWithGrok, "apply");
@@ -7498,9 +7652,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stdout).toContain(".claude/skills/review-pr");
     expect(status.stdout).toContain(".claude/skills/base-skill");
     expect(status.stdout).toContain(".claude/rules/agent-profile-kit.md");
-    expect(status.stdout).toContain("skill:review-pr");
-    expect(status.stdout).toContain("skill:base-skill");
-    expect(status.stdout).toContain("via skill:review-pr");
+    expect(status.stdout).not.toContain("Resolved artifacts:");
+    expect(status.stdout).not.toContain("Selected setup:");
     expect(status.stdout).not.toContain("unselected-skill");
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
 
