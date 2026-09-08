@@ -184,7 +184,7 @@ function missingReferenceDiagnostic(evidence: {
     happened: [...evidence.happened],
     why,
     whatToType: [
-      [`${evidence.remedy}`],
+      [evidence.remedy],
       ["Correct ", identifierPart(evidence.file), ", then run ", commandPart(COMMAND_NAME, [arg("validate")]), "."],
     ],
   };

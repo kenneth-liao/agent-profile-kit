@@ -194,9 +194,9 @@ export function validateDependencyCatalog(
     const artifact = reference.type === "context"
       ? contexts.get(reference.id)!
       : skills.get(reference.id)!;
-    const declaringFile = "sidecarPath" in artifact && artifact.sidecarPath !== undefined
+    const authoringFile = "sidecarPath" in artifact && artifact.sidecarPath !== undefined
       ? artifact.sidecarPath
       : artifact.path;
-    resolveProfileDependencies(validationProfile(reference, declaringFile), contexts, skills);
+    resolveProfileDependencies(validationProfile(reference, authoringFile), contexts, skills);
   }
 }
