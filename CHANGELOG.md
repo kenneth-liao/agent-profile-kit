@@ -8,6 +8,8 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Changed
 
+- Structure CLI error documents with consistent recovery guidance (happened, why, whatToType, usage in order), present newcomer vocabulary for uninitialized machines ("Agent Profile Kit is not set up on this machine") and unbound Project targets without leaking internal configuration paths, and keep the flattened error string projection for machine JSON output (DEC-014, DEC-015, DEC-016, [#441](https://github.com/kenneth-liao/agent-profile-kit/issues/441)).
+
 - Author every Blocker's plain newcomer wording and an evidence-derived runnable recovery command at the presentation boundary as one source with atomic command parts: scoped `apply`/`unbind` with the Project argument, `git --literal-pathspecs` untracking with `--` and POSIX quoting, identity-derived `apkit machine remove-temp '<id>'`, explicit `apkit apply --all` for teardown retries, and honest manual-recovery inspect/editor commands (`ls -ld`, `ls -la`, `ls -lh`, `vi`) for externally damaged ownership evidence; retire the concise verbose-pointer redirect and the placeholder `install-temp` retry; require the temporary-removal installation identity and the Installation State record path as typed evidence at the normalization boundary, and stop embedding user-facing sentences in ownership evidence facts ([#440](https://github.com/kenneth-liao/agent-profile-kit/issues/440)).
 
 - Render warnings inline directly beside command outcomes across status, apply, teardown, and temporary views without separate titled sections or empty warning blocks ([#439](https://github.com/kenneth-liao/agent-profile-kit/issues/439)).

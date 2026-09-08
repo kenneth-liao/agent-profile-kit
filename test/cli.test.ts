@@ -1916,8 +1916,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["apply", "status"] as const) {
       const failed = await runCliAt(home, unbound, command, "--here");
       expectExitCode(failed, 1);
-      expect(failed.stderr).toContain("is not a bound Project");
-      expect(failed.stderr).toContain("run apkit list projects or apkit bind");
+      expect(failed.stderr).toContain("is not configured as a Project");
+      expect(failed.stderr).toContain("Run apkit bind");
+      expect(failed.stderr).toContain("Run apkit list projects");
       expect(failed.stderr).toContain(`Usage: apkit ${command}`);
     }
   });
@@ -2104,7 +2105,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     symlinkSync(bound, alias);
 
     const cases = [
-      { cwd: undefined, target: unbound, pattern: /not a bound Project/i },
+      { cwd: undefined, target: unbound, pattern: /not configured as a Project/i },
       { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
       { cwd: undefined, target: "relative/project", pattern: /absolute path or\s+home-relative/i },
       { cwd: undefined, target: "~/projects/*", pattern: /without\s+wildcards/i },
@@ -2132,6 +2133,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const ambiguousHuman = await runCliAt(home, nested, "apply", "--here");
     expectExitCode(ambiguousHuman, 1);
     expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
+
+    const unboundJson = await runCli(home, "apply", unbound, "--json");
+    expectExitCode(unboundJson, 1);
+    const unboundPayload = JSON.parse(unboundJson.stdout) as { readonly error: string };
+    expect(unboundPayload.error).toContain("is not a bound Project");
+
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
 
@@ -2541,11 +2548,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(unbound, { recursive: true });
     const failed = await runCli(home, "apply", unbound);
     expectExitCode(failed, 1);
-    expect(failed.stderr).toContain("is not a bound Project");
+    expect(failed.stderr).toContain("is not configured as a Project");
     expect(humanText(failed.stderr)).not.toMatch(INTERNAL_TERM_PATTERN);
   });
 
-  test("an unbound-target error renders as one readable sentence with usage as what to type", async () => {
+  test("an unbound-target error renders with structured recovery and usage", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -2557,15 +2564,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const failed = await runCli(home, "apply", unbound);
     expectExitCode(failed, 1);
     const lines = failed.stderr.split("\n");
-    // What happened: one labelled sentence, never an orphaned empty label.
-    expect(lines[0]).toMatch(/^apkit: apkit apply Project target/);
-    expect(lines.map((line) => line.trimStart()).slice(0, -2).join(" ")).toBe(
-      "apkit: apkit apply Project target '" + unbound +
-        "' is not a bound Project; run apkit list projects or apkit bind",
-    );
-    expect(lines.at(-3)!.trimStart()).toContain("run apkit list projects or apkit bind");
-    expect(lines.at(-3)!.endsWith("run apkit list projects or apkit bind")).toBe(true);
-    // What to type: the usage line as one whole command line.
+    // What happened: directory is not configured as a Project (DEC-016: does not name unmatched Project target)
+    expect(lines[0]).toMatch(/^apkit: directory/);
+    expect(failed.stderr).toContain("is not configured as a Project");
+    // What to type: recovery commands
+    expect(failed.stderr).toContain("Run apkit bind to configure this directory as a Project.");
+    expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
+    // Usage node as final guidance
     expect(lines.at(-2)).toBe("Usage: apkit apply [project | --here | --all] [--verbose] [--blockers-only] [--json]");
     expect(lines.at(-1)).toBe("");
   });
@@ -9193,7 +9198,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const projectPath = project();
     const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
     expectExitCode(result, 1);
-    expect(result.stderr).toMatch(/Local Configuration is missing/);
+    expect(result.stderr).toMatch(/Agent Profile Kit is not set up/);
     expect(result.stderr).toMatch(/apkit init/);
     expect(result.stderr).not.toMatch(/config\.yaml\.lock/);
   });
@@ -10745,7 +10750,8 @@ describe("apkit list", () => {
 
     expectExitCode(missingHuman, 1);
     expect(missingHuman.stdout).toBe("");
-    expect(missingHuman.stderr).toContain("Local Configuration is missing");
+    expect(missingHuman.stderr).toContain("Agent Profile Kit is not set up");
+    expect(missingHuman.stderr).toContain("apkit init");
     expectExitCode(missingMachine, 1);
     expect(missingMachine.stderr).toBe("");
     expect(JSON.parse(missingMachine.stdout)).toMatchObject({
@@ -10753,6 +10759,7 @@ describe("apkit list", () => {
       command: "list",
       topic: "profiles",
       outcome: "error",
+      error: expect.stringContaining("Local Configuration is missing at"),
       engineVersion: ENGINE_VERSION,
       profiles: [],
     });
@@ -10841,8 +10848,8 @@ describe("apkit list", () => {
 
     expectExitCode(human, 1);
     expect(human.stdout).toBe("");
-    expect(human.stderr.replace(/\s+/g, " ")).toContain("Local Configuration is missing");
-    expect(human.stderr.replace(/\s+/g, " ")).toContain("run apkit init");
+    expect(human.stderr.replace(/\s+/g, " ")).toContain("Agent Profile Kit is not set up");
+    expect(human.stderr.replace(/\s+/g, " ")).toContain("Run apkit init");
     expectExitCode(machine, 1);
     expect(machine.stderr).toBe("");
     expect(JSON.parse(machine.stdout)).toMatchObject({
@@ -10850,6 +10857,7 @@ describe("apkit list", () => {
       command: "list",
       topic: "projects",
       outcome: "error",
+      error: expect.stringContaining("Local Configuration is missing at"),
       engineVersion: ENGINE_VERSION,
       projects: [],
     });

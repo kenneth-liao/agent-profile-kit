@@ -15,20 +15,40 @@ import type {
   WorkspaceManifestRejectionReason,
 } from "../schemas/schema-rejections.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
+import {
+  ProjectTargetError,
+  type ProjectTargetErrorReason,
+} from "../installer/local-configuration.js";
+import { StateReadFailureError } from "../installer/installation-state.js";
+import {
+  applyNewcomerSubstitutions,
+  describeStateReadFailure,
+  substituteInline,
+} from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
-import { commandPart, identifierPart, type CommandArg, type InlineContent } from "./inline-content.js";
+import { commandPart, flatInlineText, identifierPart, type CommandArg, type InlineContent } from "./inline-content.js";
+import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
+import type { PresentationDocument } from "./presentation-document.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
+export class CliArgumentError extends Error {
+  constructor(readonly parts: readonly InlineContent[]) {
+    super(flatInlineText(parts));
+    this.name = "CliArgumentError";
+  }
+}
+
+function capitalize(text: string): string {
+  return `${text[0]?.toUpperCase()}${text.slice(1)}`;
+}
+
 /**
  * Presentation-owned tool-error wording, keyed by the typed error facts the
- * Installer emits (DEC-020). The Installer authors no user-facing sentence:
- * every sentence below is carried over verbatim from the pre-relocation
- * Installer strings and is the single home of that wording. Machine surfaces
- * publish these values verbatim; per the #405 decision, human surfaces render
- * the same carried sentence unchanged — the newcomer lens is not applied to
- * tool-error sentences, so no on-screen wording changes.
+ * Installer emits (DEC-020). The Installer authors no user-facing sentence.
+ * Machine surfaces publish plain-text projections; human surfaces render
+ * structured diagnostic documents (DEC-014).
  */
 
 function configuredPathDescription(origin: ConfiguredPathOrigin): readonly InlineContent[] {
@@ -73,6 +93,31 @@ export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): readon
   }
 }
 
+/** The structured diagnostic parts for one typed configured-path failure. */
+export function formatConfiguredPathErrorDiagnostic(fact: ConfiguredPathErrorFact): DiagnosticDocumentParts {
+  const description = configuredPathDescription(fact.origin);
+  switch (fact.kind) {
+    case "wildcard-path":
+      return { happened: [...description, ` ${fact.field} must be an explicit directory path without wildcards`] };
+    case "relative-path":
+      return { happened: [...description, ` ${fact.field} must be an absolute path or home-relative path beginning with ~/`] };
+    case "missing-directory":
+      return { happened: [...description, ` ${fact.field} '${fact.authored}' must be an existing directory`] };
+    case "dangling-symlink":
+      return {
+        happened: [...description, ` ${fact.field} '${fact.authored}' is a dangling symlink`],
+        whatToType: [[capitalize(danglingSymlinkRecovery(fact.field)), "."]],
+      };
+    case "reserved-workspace":
+      return { happened: [...description, ` workspace '${fact.authored}' is reserved for ${fact.label} at ${fact.path}`] };
+    case "invalid-workspace":
+      return {
+        happened: [...description, ` workspace '${fact.authored}' is not a valid Agent Profile Kit Workspace`],
+        why: [[formatWorkspaceIngestionError(fact.cause)]],
+      };
+  }
+}
+
 /** The carried sentence for one typed Workspace ingestion failure. */
 export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string {
   if ("case" in fact) return formatWorkspaceManifestError(fact);
@@ -101,6 +146,41 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
   }
 }
 
+/** The structured diagnostic parts for one typed Workspace ingestion failure. */
+export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact): DiagnosticDocumentParts {
+  if ("case" in fact) {
+    return { happened: [formatWorkspaceManifestError(fact)] };
+  }
+  switch (fact.kind) {
+    case "workspace-missing-manifest":
+      return { happened: [`Workspace is incomplete at ${fact.workspace}: missing required file '${WORKSPACE_MANIFEST_FILE}'`] };
+    case "workspace-manifest-not-file":
+      return { happened: [`Workspace is invalid at ${fact.workspace}: '${WORKSPACE_MANIFEST_FILE}' must be a file`] };
+    case "workspace-dangling-category":
+      return {
+        happened: [`Workspace is invalid at ${fact.workspace}: '${fact.name}' is a dangling symlink`],
+        whatToType: [["Remove it or restore its target directory."]],
+      };
+    case "workspace-category-not-directory":
+      return { happened: [`Workspace is invalid at ${fact.workspace}: '${fact.name}' must be a directory`] };
+    case "duplicate-artifact-name":
+      return { happened: [`${fact.artifactType} name '${fact.id}' is duplicated`] };
+    case "profile-without-artifacts":
+      return { happened: [`Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`] };
+    case "missing-context-reference":
+      return {
+        happened: [`Profile '${fact.profile}' selects missing Context Module '${fact.contextId}'.`],
+        whatToType: [[`Restore the Context Module, or remove or update Profile '${fact.profile}'.`]],
+      };
+    case "missing-skill-reference":
+      return { happened: [`Profile '${fact.profile}' selects missing Skill '${fact.skillId}'`] };
+    case "missing-dependency-reference":
+      return { happened: [`Dependency references missing ${fact.label} '${fact.id}'`] };
+    case "dependency-cycle":
+      return { happened: [`Dependency cycle: ${fact.cycle}`] };
+  }
+}
+
 /** The carried sentence parts for one typed Local Configuration rejection. */
 export function formatLocalConfigurationError(
   reason: LocalConfigurationRejectionReason,
@@ -119,8 +199,6 @@ export function formatLocalConfigurationError(
     case "legacy-schema-version":
       return [
         `Local Configuration ${reason.path} uses legacy schema_version ${reason.schemaVersion}; run `,
-        // The carried migration command is a structurally supplied value: it
-        // stays one atomic token the renderer never splits (DEC-009).
         identifierPart(reason.migrationCommand),
         " to migrate it",
       ];
@@ -252,8 +330,7 @@ function missingProfileSentence(profile: string): string {
 
 /**
  * Presentation-owned Missing Profile wording, composed from the typed
- * {@link MissingProfileError} fields; the error's own message is opaque. This
- * module is the single home of that sentence.
+ * {@link MissingProfileError} fields; the error's own message is opaque.
  */
 export function formatMissingProfileError(error: MissingProfileError): readonly InlineContent[] {
   const heading = [`${missingProfileSentence(error.profile)}.`];
@@ -267,6 +344,25 @@ export function formatMissingProfileError(error: MissingProfileError): readonly 
     return [...heading, " No Profiles exist in the Workspace.", ...next];
   }
   return [...heading, ` Available Profiles: ${error.availableProfiles.join(", ")}.`, ...recovery];
+}
+
+/** Structured diagnostic for Missing Profile (DEC-014). */
+export function formatMissingProfileErrorDiagnostic(error: MissingProfileError): DiagnosticDocumentParts {
+  const heading = [`${missingProfileSentence(error.profile)}.`];
+  const why: (readonly InlineContent[])[] = error.availableProfiles.length === 0
+    ? [["No Profiles exist in the Workspace."]]
+    : [[`Available Profiles: ${error.availableProfiles.join(", ")}.`]];
+  const whatToType: (readonly InlineContent[])[] = [];
+  if (error.recoverByEditingLocalConfiguration) {
+    whatToType.push(["Edit Local Configuration directly if this stale binding must be removed."]);
+  } else if (error.availableProfiles.length === 0) {
+    whatToType.push(["Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."]);
+  }
+  return {
+    happened: heading,
+    why,
+    ...(whatToType.length > 0 ? { whatToType } : {}),
+  };
 }
 
 /** The carried sentence parts for one typed Installer tool-error fact. */
@@ -330,6 +426,219 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
   }
 }
 
+/** The structured diagnostic parts for one typed Installer tool-error fact (DEC-014, DEC-015). */
+export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact): DiagnosticDocumentParts {
+  switch (fact.kind) {
+    case "missing-local-configuration":
+      return {
+        happened: ["Agent Profile Kit is not set up on this machine"],
+        whatToType: [["Run ", commandPart(COMMAND_NAME, [arg("init")]), " to set it up."]],
+      };
+    case "bind-conflict":
+      return {
+        happened: [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]`],
+        whatToType: [["Pass --replace to restate its Profile and Hosts."]],
+      };
+    case "stale-binding-removal":
+      return {
+        happened: carriedCauseDetail(fact.cause),
+        whatToType: [["Edit Local Configuration directly if this stale or malformed binding must be removed."]],
+      };
+    case "duplicate-canonical-root":
+      return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };
+    case "duplicate-missing-project":
+      return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`] };
+    case "bind-host-required":
+      return {
+        happened: ["bind requires at least one --host flag"],
+        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+      };
+    case "unsupported-host":
+      return {
+        happened: [`unsupported Agent Host '${fact.host}'`],
+        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+      };
+    case "unsupported-temporary-host":
+      return {
+        happened: [`unsupported Agent Host '${fact.host}'`],
+        why: [[`temporary installation supports: ${fact.supportedHosts.join(", ")}`]],
+      };
+    case "temporary-host-unsupported":
+      return {
+        happened: [`temporary installation does not yet support Agent Host '${fact.host}'`],
+        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+      };
+    case "lifecycle-lock-busy":
+      return {
+        happened: [`Installation lifecycle is busy; another ${fact.operation} holds the lock`],
+        whatToType: [["Retry once the other operation completes."]],
+      };
+    case "configuration-lock-busy":
+      return {
+        happened: [`Local Configuration ${fact.configurationPath} is busy; another ${fact.operation} holds the lock`],
+        whatToType: [["Retry once the other operation completes."]],
+      };
+    case "configuration-changed-while-planning":
+      return {
+        happened: ["Local Configuration changed while apply was planning"],
+        whatToType: [["Retry apply."]],
+      };
+    case "configuration-changed-before-publication":
+      return {
+        happened: [`Local Configuration ${fact.configurationPath} changed before ${fact.operation} publication`],
+        whatToType: [["Retry after the other edit completes."]],
+      };
+    case "temporary-identity-required":
+      return { happened: ["remove-temp requires a temporary installation identity"] };
+    case "unknown-temporary-identity":
+      return { happened: [`unknown temporary installation identity '${fact.temporaryInstallationId}'`] };
+    case "init-symlink-target-missing":
+      return {
+        happened: [`Cannot initialize ${fact.path}: the Workspace symlink target does not exist`],
+        whatToType: [["Remove the symlink or restore its target before retrying."]],
+      };
+    case "init-path-not-directory":
+      return { happened: [`Cannot initialize ${fact.path}: the Workspace path exists and is not a directory`] };
+    case "init-empty-symlink-target":
+      return {
+        happened: [`Cannot initialize ${fact.path}: the Workspace symlink target is empty`],
+        whatToType: [["Remove the symlink and run init, or populate its target with a valid Workspace before retrying."]],
+      };
+    case "init-not-workspace-directory":
+      return { happened: [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`] };
+    case "init-workspace-selection-conflict":
+      return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
+    case "foreign-diagnostic":
+      return { happened: [fact.detail] };
+    case "workspace-missing-manifest":
+    case "workspace-manifest-not-file":
+    case "workspace-dangling-category":
+    case "workspace-category-not-directory":
+    case "duplicate-artifact-name":
+    case "profile-without-artifacts":
+    case "missing-context-reference":
+    case "missing-skill-reference":
+    case "missing-dependency-reference":
+    case "dependency-cycle":
+      return formatWorkspaceIngestionErrorDiagnostic(fact);
+    default:
+      return formatConfiguredPathErrorDiagnostic(fact);
+  }
+}
+
+/**
+ * Presentation-owned canonical sentence parts for the Installer's typed
+ * ProjectTargetError.
+ */
+export function formatProjectTargetError(
+  reason: ProjectTargetErrorReason,
+): readonly InlineContent[] {
+  switch (reason.case) {
+    case "ambiguous-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        ` Project target '${reason.target}' is ambiguous because it ` +
+          "matches multiple Project Bindings; pass one exact Project root or run ",
+        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+      ];
+    case "dangling-symlink-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        ` Project target project '${reason.target}' is a dangling ` +
+          "symlink; restore its target or choose an existing directory",
+      ];
+    case "missing-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        ` Project target project '${reason.target}' must be an ` +
+          "existing directory",
+      ];
+    case "relative-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        " Project target project must be an absolute path or " +
+          "home-relative path beginning with ~/",
+      ];
+    case "unbound-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        ` Project target '${reason.target}' is not a bound Project; ` +
+          "run ",
+        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+        " or ",
+        commandPart(COMMAND_NAME, [arg("bind")]),
+      ];
+    case "wildcard-target":
+      return [
+        commandPart(COMMAND_NAME, [arg(reason.command)]),
+        " Project target project must be an explicit directory " +
+          "path without wildcards",
+      ];
+  }
+}
+
+/** Human rendering of a ProjectTargetError: newcomer terms, guard-clean. */
+export function formatProjectTargetErrorForHuman(
+  reason: ProjectTargetErrorReason,
+): readonly InlineContent[] {
+  return substituteInline(formatProjectTargetError(reason));
+}
+
+/** Structured diagnostic for ProjectTargetError (DEC-014, DEC-016). */
+export function formatProjectTargetErrorDiagnostic(
+  reason: ProjectTargetErrorReason,
+): DiagnosticDocumentParts {
+  switch (reason.case) {
+    case "unbound-target":
+      return {
+        happened: [`directory '${reason.target}' is not configured as a Project`],
+        whatToType: [
+          ["Run ", commandPart(COMMAND_NAME, [arg("bind")]), " to configure this directory as a Project."],
+          ["Run ", commandPart(COMMAND_NAME, [arg("list"), arg("projects")]), " to list configured Projects."],
+        ],
+      };
+    case "ambiguous-target":
+      return {
+        happened: [
+          commandPart(COMMAND_NAME, [arg(reason.command)]),
+          ` Project target '${reason.target}' is ambiguous because it matches multiple configured Projects`,
+        ],
+        whatToType: [
+          ["Pass one exact Project root or run ", commandPart(COMMAND_NAME, [arg("list"), arg("projects")]), "."],
+        ],
+      };
+    case "dangling-symlink-target":
+      return {
+        happened: [
+          commandPart(COMMAND_NAME, [arg(reason.command)]),
+          ` Project target project '${reason.target}' is a dangling symlink`,
+        ],
+        whatToType: [["Restore its target or choose an existing directory."]],
+      };
+    case "missing-target":
+      return {
+        happened: [
+          commandPart(COMMAND_NAME, [arg(reason.command)]),
+          ` Project target project '${reason.target}' must be an existing directory`,
+        ],
+      };
+    case "relative-target":
+      return {
+        happened: [
+          commandPart(COMMAND_NAME, [arg(reason.command)]),
+          " Project target project must be an absolute path or home-relative path beginning with ~/",
+        ],
+      };
+    case "wildcard-target":
+      return {
+        happened: [
+          commandPart(COMMAND_NAME, [arg(reason.command)]),
+          " Project target project must be an explicit directory path without wildcards",
+        ],
+      };
+  }
+}
+
 /**
  * The presentation sentence parts for one typed Installer-authored error, or
  * undefined when the error was not Installer-authored and may still project
@@ -339,4 +648,99 @@ export function installerErrorSentence(error: unknown): readonly InlineContent[]
   if (error instanceof InstallerToolError) return formatInstallerToolError(error.fact);
   if (error instanceof SchemaRejectionError) return formatSchemaRejection(error.reason);
   return undefined;
+}
+
+/** Resolves any error into structured diagnostic parts (DEC-014). */
+export function errorDiagnosticParts(
+  error: unknown,
+  options?: { usage?: string },
+): DiagnosticDocumentParts {
+  const parts = resolveErrorDiagnosticParts(error);
+  if (options?.usage !== undefined) {
+    return { ...parts, usage: options.usage };
+  }
+  return parts;
+}
+
+function resolveErrorDiagnosticParts(error: unknown): DiagnosticDocumentParts {
+  if (error instanceof InstallerToolError) {
+    const diagnostic = formatInstallerToolErrorDiagnostic(error.fact);
+    return {
+      ...diagnostic,
+      happened: substituteInline(diagnostic.happened),
+      ...(diagnostic.why ? { why: diagnostic.why.map(substituteInline) } : {}),
+      ...(diagnostic.whatToType
+        ? { whatToType: diagnostic.whatToType.map(substituteInline) }
+        : {}),
+    };
+  }
+  if (error instanceof ProjectTargetError) {
+    const diagnostic = formatProjectTargetErrorDiagnostic(error.reason);
+    return {
+      ...diagnostic,
+      happened: substituteInline(diagnostic.happened),
+      ...(diagnostic.why ? { why: diagnostic.why.map(substituteInline) } : {}),
+      ...(diagnostic.whatToType
+        ? { whatToType: diagnostic.whatToType.map(substituteInline) }
+        : {}),
+    };
+  }
+  if (error instanceof MissingProfileError) {
+    const diagnostic = formatMissingProfileErrorDiagnostic(error);
+    return {
+      ...diagnostic,
+      happened: substituteInline(diagnostic.happened),
+      ...(diagnostic.why ? { why: diagnostic.why.map(substituteInline) } : {}),
+      ...(diagnostic.whatToType
+        ? { whatToType: diagnostic.whatToType.map(substituteInline) }
+        : {}),
+    };
+  }
+  if (error instanceof SchemaRejectionError) {
+    return { happened: substituteInline(formatSchemaRejection(error.reason)) };
+  }
+  if (error instanceof StateReadFailureError) {
+    return { happened: [applyNewcomerSubstitutions(describeStateReadFailure(error.failure))] };
+  }
+  if (error instanceof CliArgumentError) {
+    return { happened: substituteInline(error.parts) };
+  }
+  if (error instanceof AggregateError) {
+    const causes = Array.from(error.errors, (cause) => errorDiagnosticParts(cause).happened);
+    return {
+      happened: substituteInline([error.message]),
+      why: causes.map((cause) => substituteInline(["caused by: ", ...cause])),
+    };
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return { happened: substituteInline([message]) };
+}
+
+/** Formats any error as a complete presentation document (DEC-014). */
+export function errorDiagnosticDocument(
+  error: unknown,
+  options?: { usage?: string },
+): PresentationDocument {
+  return diagnosticDocument(errorDiagnosticParts(error, options));
+}
+
+/** The plain-text projection of an error for machine tool-error payloads. */
+export function formatErrorParts(error: unknown): readonly InlineContent[] {
+  const authored = installerErrorSentence(error);
+  if (authored !== undefined) return authored;
+  if (error instanceof CliArgumentError) return error.parts;
+  if (error instanceof MissingProfileError) return formatMissingProfileError(error);
+  if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
+  if (error instanceof StateReadFailureError) return [describeStateReadFailure(error.failure)];
+  if (error instanceof AggregateError) {
+    const causes = Array.from(error.errors, formatErrorParts);
+    return [error.message, ...causes.map((cause) => ["\ncaused by: ", ...cause]).flat()];
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return [message];
+}
+
+/** Machine projection: plain-text string representation. */
+export function formatError(error: unknown): string {
+  return flatInlineText(formatErrorParts(error));
 }

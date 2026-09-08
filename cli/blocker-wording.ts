@@ -1,5 +1,4 @@
 import { COMMAND_NAME } from "../installer/version.js";
-import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
 
 import {
   INSTALLATION_OWNERSHIP,
@@ -883,64 +882,4 @@ export function describeTemporaryRemovalFailure(failure: TemporaryRemovalFailure
     case "unsafe-parent":
       return describeOwnershipFailure(failure);
   }
-}
-
-/**
- * Presentation-owned canonical sentence parts for the Installer's typed
- * ProjectTargetError. Published verbatim in machine tool-error JSON (through
- * the plain-text projection); human rendering applies the newcomer
- * substitutions (`formatProjectTargetErrorForHuman`).
- */
-export function formatProjectTargetError(
-  reason: ProjectTargetErrorReason,
-): readonly InlineContent[] {
-  switch (reason.case) {
-    case "ambiguous-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        ` Project target '${reason.target}' is ambiguous because it ` +
-          "matches multiple Project Bindings; pass one exact Project root or run ",
-        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
-      ];
-    case "dangling-symlink-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        ` Project target project '${reason.target}' is a dangling ` +
-          "symlink; restore its target or choose an existing directory",
-      ];
-    case "missing-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        ` Project target project '${reason.target}' must be an ` +
-          "existing directory",
-      ];
-    case "relative-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        " Project target project must be an absolute path or " +
-          "home-relative path beginning with ~/",
-      ];
-    case "unbound-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        ` Project target '${reason.target}' is not a bound Project; ` +
-          "run ",
-        commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
-        " or ",
-        commandPart(COMMAND_NAME, [arg("bind")]),
-      ];
-    case "wildcard-target":
-      return [
-        commandPart("apkit", [arg(reason.command)]),
-        " Project target project must be an explicit directory " +
-          "path without wildcards",
-      ];
-  }
-}
-
-/** Human rendering of a ProjectTargetError: newcomer terms, guard-clean. */
-export function formatProjectTargetErrorForHuman(
-  reason: ProjectTargetErrorReason,
-): readonly InlineContent[] {
-  return substituteInline(formatProjectTargetError(reason));
 }

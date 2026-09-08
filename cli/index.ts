@@ -12,7 +12,6 @@ import {
   type GuideTopic,
 } from "./guides.js";
 import {
-  carriedErrorParts,
   diagnosticDocument,
 } from "./diagnostics.js";
 import {
@@ -50,11 +49,6 @@ import {
   hostInventoryDocument,
   infoDocument,
   inventoryIndexDocument,
-  describeStateReadFailure,
-  formatMissingProfileError,
-  formatProjectTargetError,
-  applyNewcomerSubstitutions,
-  formatProjectTargetErrorForHuman,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationJson,
   formatTemporaryInstallationToolErrorJson,
@@ -109,7 +103,12 @@ import {
   TemporaryInstallationRecoverableError,
 } from "../installer/temporary-installation.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
-import { installerErrorSentence } from "./error-wording.js";
+import {
+  CliArgumentError,
+  errorDiagnosticDocument,
+  errorDiagnosticParts,
+  formatError,
+} from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import {
   listHosts,
@@ -180,75 +179,23 @@ function writeHumanDocument(
   stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
 }
 
-/**
- * Human error projection: typed Installer errors render through presentation's
- * carried sentences verbatim (the #405 decision keeps tool-error wording
- * unchanged on screen); everything else matches the machine projection. Every
- * command invocation is authored as an atomic part, so wrapping never splits
- * one (DEC-009).
- */
-function formatErrorForHuman(error: unknown): readonly InlineContent[] {
-  const authored = installerErrorSentence(error);
-  if (authored !== undefined) return authored;
-  if (error instanceof ProjectTargetError) {
-    return formatProjectTargetErrorForHuman(error.reason);
-  }
-  if (error instanceof StateReadFailureError) {
-    return [applyNewcomerSubstitutions(describeStateReadFailure(error.failure))];
-  }
-  return formatErrorParts(error);
-}
-
-/**
- * Machine projection: typed Installer errors render through presentation's
- * owned sentences, flattened to their plain text; unrecognized errors keep
- * `error.message`.
- */
-function formatError(error: unknown): string {
-  return flatInlineText(formatErrorParts(error));
-}
-
-class CliArgumentError extends Error {
-  constructor(readonly parts: readonly InlineContent[]) {
-    super(flatInlineText(parts));
-    this.name = "CliArgumentError";
-  }
-}
-
-function formatErrorParts(error: unknown): readonly InlineContent[] {
-  const authored = installerErrorSentence(error);
-  if (authored !== undefined) return authored;
-  if (error instanceof CliArgumentError) return error.parts;
-  if (error instanceof MissingProfileError) return formatMissingProfileError(error);
-  if (error instanceof ProjectTargetError) return formatProjectTargetError(error.reason);
-  if (error instanceof StateReadFailureError) return [describeStateReadFailure(error.failure)];
-  if (error instanceof AggregateError) {
-    const causes = Array.from(error.errors, formatErrorParts);
-    return [error.message, ...causes.map((cause) => ["\ncaused by: ", ...cause]).flat()];
-  }
-  return [errorMessage(error)];
-}
-
 /** The carried syntax of one named command, for diagnostic usage nodes. */
 function commandSyntax(name: string): string {
   return findCommand(name).syntax;
 }
 
 /**
- * The human diagnostic for one lifecycle tool error: the carried sentence as
- * what happened, any carried cause lines as why, and usage guidance as what
- * to type when the error names a Project target.
+ * The human diagnostic for one lifecycle tool error: structured diagnostic
+ * with usage guidance when the error names a Project target (DEC-014).
  */
 function lifecycleToolErrorDiagnostic(
   command: LifecycleCommand,
   error: unknown,
 ): PresentationDocument {
-  const { happened, why } = carriedErrorParts(formatErrorForHuman(error));
-  return diagnosticDocument({
-    happened,
-    why,
-    ...(error instanceof ProjectTargetError ? { usage: commandSyntax(command) } : {}),
-  });
+  return errorDiagnosticDocument(
+    error,
+    error instanceof ProjectTargetError ? { usage: commandSyntax(command) } : undefined,
+  );
 }
 
 /**
@@ -464,10 +411,7 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
   } catch (error) {
     writeHumanDocument(
       process.stderr,
-      diagnosticDocument({
-        ...carriedErrorParts(formatErrorForHuman(error)),
-        usage: commandSyntax(command),
-      }),
+      errorDiagnosticDocument(error, { usage: commandSyntax(command) }),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -939,10 +883,10 @@ async function main(): Promise<void> {
         );
       } else {
         writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+          process.stderr,
+          errorDiagnosticDocument(error),
+          stderrPresentationContext,
+        );
       }
       process.exitCode = 1;
     }
@@ -973,10 +917,10 @@ async function main(): Promise<void> {
             process.stdout.write(formatProjectInventoryToolErrorJson(formatError(error)));
           } else {
             writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+              process.stderr,
+              errorDiagnosticDocument(error),
+              stderrPresentationContext,
+            );
           }
           process.exitCode = 1;
         }
@@ -998,10 +942,10 @@ async function main(): Promise<void> {
             process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
           } else {
             writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+              process.stderr,
+              errorDiagnosticDocument(error),
+              stderrPresentationContext,
+            );
           }
           process.exitCode = 1;
         }
@@ -1209,7 +1153,7 @@ async function main(): Promise<void> {
             writeHumanDocument(
               process.stderr,
               diagnosticDocument({
-                ...carriedErrorParts(formatErrorForHuman(error)),
+                ...errorDiagnosticParts(error),
                 whatToType: [[
                   "removal is required; run ",
                   commandPart(COMMAND_NAME, [
@@ -1231,10 +1175,10 @@ async function main(): Promise<void> {
           );
         } else {
           writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+            process.stderr,
+            errorDiagnosticDocument(error),
+            stderrPresentationContext,
+          );
         }
         process.exitCode = 1;
       }
@@ -1289,10 +1233,10 @@ async function main(): Promise<void> {
           );
         } else {
           writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+            process.stderr,
+            errorDiagnosticDocument(error),
+            stderrPresentationContext,
+          );
         }
         process.exitCode = 1;
       }
@@ -1326,7 +1270,7 @@ async function main(): Promise<void> {
         } else {
           writeHumanDocument(
             process.stderr,
-            diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
+            errorDiagnosticDocument(error),
             stderrPresentationContext,
           );
         }
@@ -1356,9 +1300,9 @@ async function main(): Promise<void> {
 
 main().catch((error: unknown) => {
   writeHumanDocument(
-  process.stderr,
-  diagnosticDocument(carriedErrorParts(formatErrorForHuman(error))),
-  stderrPresentationContext,
-);
+    process.stderr,
+    errorDiagnosticDocument(error),
+    stderrPresentationContext,
+  );
   process.exitCode = 1;
 });

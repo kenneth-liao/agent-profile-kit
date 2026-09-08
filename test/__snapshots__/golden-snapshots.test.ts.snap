@@ -1072,7 +1072,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.153.0
+Engine version: 0.154.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1611,9 +1611,10 @@ Remedy: Choose one. To let Agent Profile Kit manage these files, run
 exports[`golden snapshots of every human view unbound-directory error: unbound-directory-error 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit: apkit status Project target
-  '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a bound Project; run
-  apkit list projects or apkit bind
+apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
+  configured as a Project
+Run apkit bind to configure this directory as a Project.
+Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 "
 `;
@@ -1894,7 +1895,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.153.0
+Engine version: 0.154.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1904,7 +1905,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.153.0\x1B[0m
+\x1B[35mEngine version: 0.154.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1914,7 +1915,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.153.0
+Engine version: 0.154.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1924,7 +1925,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.153.0\x1B[0m
+\x1B[35mEngine version: 0.154.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2332,10 +2333,13 @@ Keep project-specific instructions in the project repository.
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-apkit: apkit status Project target
+apkit: directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
-  is not a bound Project; run
-  apkit list projects or apkit bind
+  is not configured as a Project
+Run apkit bind to configure this
+  directory as a Project.
+Run apkit list projects to list
+  configured Projects.
 Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
@@ -2343,10 +2347,13 @@ Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit: apkit status Project target\x1B[0m
+\x1B[31mapkit: directory\x1B[0m
 \x1B[31m  '/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
-\x1B[31m  is not a bound Project; run\x1B[0m
-\x1B[31m  apkit list projects or apkit bind\x1B[0m
+\x1B[31m  is not configured as a Project\x1B[0m
+Run apkit bind to configure this
+  directory as a Project.
+Run apkit list projects to list
+  configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
@@ -2354,8 +2361,9 @@ Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-o
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-apkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a
-  bound Project; run apkit list projects or apkit bind
+apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
+Run apkit bind to configure this directory as a Project.
+Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 --- stderr ---
 "
@@ -2363,8 +2371,9 @@ Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit: apkit status Project target '/private/tmp/apkit-golden-xxxx/projects/unbound' is not a\x1B[0m
-\x1B[31m  bound Project; run apkit list projects or apkit bind\x1B[0m
+\x1B[31mapkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
+Run apkit bind to configure this directory as a Project.
+Run apkit list projects to list configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
 --- stderr ---
 "
