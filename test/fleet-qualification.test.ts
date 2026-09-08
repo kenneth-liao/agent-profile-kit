@@ -690,7 +690,11 @@ describe("integrated fleet recovery qualification", () => {
     expectExitCode(focusedStatusGlobalBlocked, 2);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Global blockers:");
     expect(focusedStatusGlobalBlocked.stdout).toContain("Blockers:");
-    expect(focusedStatusGlobalBlocked.stdout).toContain("These generated paths are tracked by Git");
+    // Wrap-tolerant: the multi-path problem sentence wraps at the terminal width.
+    expect(focusedStatusGlobalBlocked.stdout).toContain("are tracked by Git");
+    expect(focusedStatusGlobalBlocked.stdout).toContain("Agent Profile Kit cannot write to them.");
+    // The evidence-derived untracking command is carried inline in every view (#440).
+    expect(focusedStatusGlobalBlocked.stdout).toContain("rm -r --cached --");
     expect(focusedStatusGlobalBlocked.stdout).toMatch(/Blockers:\s*1\s*·\s*Affected Projects:\s*1/);
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updates ready");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Applied:");
@@ -723,7 +727,7 @@ describe("integrated fleet recovery qualification", () => {
     const appliedIndex = partialApply.stdout.indexOf("Applied:");
     const freshlyCurrentIndex = partialApply.stdout.indexOf("Freshly current:");
     const projectSectionIndex = partialApply.stdout.indexOf("\n\nProject: ");
-    const blockerTextIndex = partialApply.stdout.indexOf("These generated paths are tracked by Git");
+    const blockerTextIndex = partialApply.stdout.indexOf("are tracked by Git");
     const blockersFooterIndex = partialApply.stdout.indexOf("Blockers: 1 · Affected Projects: 1");
 
     expect(appliedIndex).toBeGreaterThan(-1);
@@ -743,7 +747,7 @@ describe("integrated fleet recovery qualification", () => {
     // Blocker section after safety prefix contains blocked Project B evidence and footer
     const blockerSection = partialApply.stdout.slice(projectSectionIndex);
     expect(blockerSection).toContain(projectB.split("/").at(-1)!);
-    expect(blockerSection).toContain("These generated paths are tracked by Git");
+    expect(blockerSection).toContain("are tracked by Git");
     expect(blockerSection).toContain("Blockers: 1 · Affected Projects: 1");
 
     // projectA exclusion publication applied
@@ -782,19 +786,19 @@ describe("integrated fleet recovery qualification", () => {
     // 4. Focused verbose includes complete Blocker evidence and exact untracking command
     const focusedVerbose = await runCli(home, pathWithHosts, "status", "--all", "--blockers-only", "--verbose");
     expectExitCode(focusedVerbose, 2);
-    expect(focusedVerbose.stdout).toContain("These generated paths are tracked by Git");
+    expect(focusedVerbose.stdout).toContain("are tracked by Git");
     expect(focusedVerbose.stdout).toContain("Requirement:");
     expect(focusedVerbose.stdout).toContain("Remedy:");
     expect(focusedVerbose.stdout).toContain("Scope: Project");
     expect(focusedVerbose.stdout).toContain("Affected path:");
-    expect(focusedVerbose.stdout).toContain("git -C");
+    expect(focusedVerbose.stdout).toContain("git --literal-pathspecs -C");
     expect(focusedVerbose.stdout).toContain("rm -r --cached --");
     expect(focusedVerbose.stdout).toContain(".agents/skills/deploy-helper");
     expect(focusedVerbose.stdout).toContain(".agents/skills/review-pr");
     expect(focusedVerbose.stdout).toContain(".claude/rules/agent-profile-kit.md");
     expect(focusedVerbose.stdout).toContain(".claude/skills/deploy-helper");
     expect(focusedVerbose.stdout).toContain(".claude/skills/review-pr");
-    expect(focusedVerbose.stdout).toContain("working files are preserved");
+    expect(focusedVerbose.stdout).toContain("the files stay on disk");
 
     // Ordinary verbose retains the complete fleet report; equivalent duplicate
     // Skill candidates are Host Resolution and emit no Agent Profile Kit warning.
