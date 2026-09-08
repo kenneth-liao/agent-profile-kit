@@ -13,7 +13,7 @@ import {
 
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
-const redirected = { color: false, interactive: false, width: 80 } as const;
+const redirected = { color: false, interactive: false, width: 80 , rows: undefined } as const;
 
 test("renders a prose document to text for a terminal presentation context", () => {
   const text = renderPresentationDocument(
@@ -59,6 +59,7 @@ test("styles a notice by its severity rather than as a heading", () => {
     color: true,
     interactive: true,
     width: 80,
+    rows: undefined,
   });
   expect(colored).toContain("\u001b[1;34mProjects (1)\u001b[0m");
   expect(colored).toContain("\u001b[31m2 Blockers\u001b[0m");
@@ -68,6 +69,7 @@ test("styles a notice by its severity rather than as a heading", () => {
     color: false,
     interactive: true,
     width: 80,
+    rows: undefined,
   });
   expect(plain).toBe("Projects (1)\n2 Blockers");
   expect(plain).not.toMatch(/\u001b/);
@@ -78,7 +80,7 @@ test("wraps prose and carries its style across every wrapped line", () => {
     "Blocker: generated output is occupied by a foreign file that Agent Profile Kit does not own.";
   const colored = renderPresentationDocument(
     [{ kind: "prose", parts: [sentence], category: "error" }],
-    { color: true, interactive: true, width: 40 },
+    { color: true, interactive: true, width: 40 , rows: undefined },
   );
   const lines = colored.split("\n");
   expect(lines.length).toBeGreaterThan(1);
@@ -94,7 +96,7 @@ test("holds prose to the selected measure on a wide terminal", () => {
   const sentence = Array.from({ length: 20 }, (_, index) => `word${index}`).join(" ");
   const text = renderPresentationDocument(
     [{ kind: "prose", parts: [sentence] }],
-    { color: false, interactive: true, width: 100 },
+    { color: false, interactive: true, width: 100 , rows: undefined },
   );
   const lines = text.split("\n");
   expect(lines.length).toBeGreaterThan(1);
@@ -105,7 +107,7 @@ test("never splits a path and elides in the middle through displayPath", () => {
   const home = "/Users/kennethliao";
   const cwd = "/tmp";
   const project = `${home}/projects/deeply/nested/agent-profile-kit`;
-  const context = { color: false, interactive: false, width: 40 } as const;
+  const context = { color: false, interactive: false, width: 40 , rows: undefined } as const;
   const text = renderPresentationDocument(
     [{
       kind: "path",
@@ -128,7 +130,7 @@ test("renders a command on one line by shortening a path argument", () => {
   const home = "/Users/kennethliao";
   const cwd = "/tmp";
   const project = `${home}/projects/deeply/nested/workspaces/agent-profile-kit`;
-  const context = { color: false, interactive: false, width: 40 } as const;
+  const context = { color: false, interactive: false, width: 40 , rows: undefined } as const;
   const text = renderPresentationDocument(
     [{
       kind: "command",
@@ -173,7 +175,7 @@ test("aligns sibling rows into columns and right-aligns numeric cells", () => {
         ],
       },
     ],
-    { color: false, interactive: true, width: 80 },
+    { color: false, interactive: true, width: 80 , rows: undefined },
   );
   const lines = text.split("\n");
   expect(lines).toHaveLength(2);
@@ -207,6 +209,7 @@ test("degrades rows to stacked pairs when aligned columns will not fit", () => {
     color: false,
     interactive: true,
     width: 40,
+    rows: undefined,
   });
   expect(text).toBe([
     "project: agent-profile-kit",
@@ -237,7 +240,7 @@ test("elides a stacked path cell instead of splitting it", () => {
         },
       ],
     }],
-    { color: false, interactive: true, width: 20 },
+    { color: false, interactive: true, width: 20 , rows: undefined },
     { cwd: "/tmp", home },
   );
   const lines = text.split("\n");
@@ -259,7 +262,7 @@ test("lets rows use the full terminal width while prose stays at 80", () => {
         { column: "right", content: { kind: "identifier", value: right } },
       ],
     }],
-    { color: false, interactive: true, width: 100 },
+    { color: false, interactive: true, width: 100 , rows: undefined },
   );
   expect(wide.split("\n")).toHaveLength(1);
   expect(wide).toContain(left);
@@ -280,6 +283,7 @@ test("lays out a column group side by side and stacks when it will not fit", () 
     color: false,
     interactive: true,
     width: 80,
+    rows: undefined,
   });
   expect(wide.split("\n")).toHaveLength(1);
   expect(wide.indexOf("Left column")).toBeLessThan(wide.indexOf("Right column"));
@@ -288,6 +292,7 @@ test("lays out a column group side by side and stacks when it will not fit", () 
     color: false,
     interactive: true,
     width: 18,
+    rows: undefined,
   });
   expect(narrow).toBe("Left column\nRight column");
   expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(18);
@@ -299,7 +304,7 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
     "run apkit list projects or apkit bind";
   const text = renderPresentationDocument(
     [{ kind: "sentence", parts: [sentence] }],
-    { color: false, interactive: false, width: 40 },
+    { color: false, interactive: false, width: 40 , rows: undefined },
   );
   const lines = text.split("\n");
   // The sentence wraps to the measure…
@@ -326,7 +331,7 @@ test("carries a sentence's category across every wrapped line", () => {
   const sentence = "apkit: apkit status failed because the Project target is not bound.";
   const colored = renderPresentationDocument(
     [{ kind: "sentence", parts: [sentence], category: "error" }],
-    { color: true, interactive: false, width: 30 },
+    { color: true, interactive: false, width: 30 , rows: undefined },
   );
   const lines = colored.split("\n");
   expect(lines.length).toBeGreaterThan(1);
@@ -346,7 +351,7 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
       ],
       usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
     }),
-    { color: false, interactive: false, width: 80 },
+    { color: false, interactive: false, width: 80 , rows: undefined },
   );
   const lines = text.split("\n");
   // Structural shape, not unstructured string: happened in notice, then
@@ -368,7 +373,7 @@ test("renders diagnostic cause lines after what happened and before what to type
         " for available commands.",
       ]],
     }),
-    { color: false, interactive: false, width: 80 },
+    { color: false, interactive: false, width: 80 , rows: undefined },
   );
   const lines = text.split("\n").filter((line) => line.length > 0);
   // Order is the structural shape: happened, then why, then what to type.
@@ -383,7 +388,7 @@ test("reproduces verbatim content exactly, including fence escalation, without w
   const fenced = delimitedContext(authored);
   const colored = renderPresentationDocument(
     [{ kind: "verbatim", text: fenced }],
-    { color: true, interactive: true, width: 20 },
+    { color: true, interactive: true, width: 20 , rows: undefined },
   );
   expect(colored).toBe(fenced);
   expect(colored).toContain("---- begin Context ----");
@@ -444,6 +449,7 @@ test("atomic inline parts preserve their AST shape and are never split across li
     color: false,
     interactive: false,
     width: 60,
+    rows: undefined,
   });
 
   const lines = rendered.split("\n");

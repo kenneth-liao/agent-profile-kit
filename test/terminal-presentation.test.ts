@@ -11,42 +11,42 @@ test("terminal presentation enables color only for color-capable interactive str
       { isTTY: true, columns: 80 },
       { TERM: "xterm-256color" },
     ),
-  ).toEqual({ interactive: true, width: 80, color: true });
+  ).toEqual({ interactive: true, width: 80, color: true , rows: undefined });
 
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
       { TERM: "xterm-256color", NO_COLOR: "1" },
     ),
-  ).toEqual({ interactive: true, width: 80, color: false });
+  ).toEqual({ interactive: true, width: 80, color: false , rows: undefined });
 
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
       { TERM: "xterm-256color", NO_COLOR: "" },
     ),
-  ).toEqual({ interactive: true, width: 80, color: true });
+  ).toEqual({ interactive: true, width: 80, color: true , rows: undefined });
 
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
       { TERM: "dumb" },
     ),
-  ).toEqual({ interactive: true, width: 80, color: false });
+  ).toEqual({ interactive: true, width: 80, color: false , rows: undefined });
 
   expect(
     terminalPresentationContext(
       { isTTY: true, columns: 80 },
       {},
     ),
-  ).toEqual({ interactive: true, width: 80, color: false });
+  ).toEqual({ interactive: true, width: 80, color: false , rows: undefined });
 
   expect(
     terminalPresentationContext(
       { isTTY: false, columns: 0 },
       { TERM: "xterm-256color" },
     ),
-  ).toEqual({ interactive: false, width: 80, color: false });
+  ).toEqual({ interactive: false, width: 80, color: false , rows: undefined });
 });
 
 test("the Agent Profile Kit wordmark chooses a fitting ASCII form or omits itself", () => {

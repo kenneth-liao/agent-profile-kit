@@ -527,7 +527,7 @@ function shape(node: PresentationNode): string {
 const context = (width: number): TerminalPresentationContext => ({
   color: false,
   interactive: true,
-  width,
+  rows: undefined,  width,
 });
 
 /** The default render context the CLI-boundary string formatters used: the
@@ -537,6 +537,7 @@ const defaultRenderContext: TerminalPresentationContext = {
   color: false,
   interactive: false,
   width: 10_000,
+  rows: undefined,
 };
 
 /** One document rendered exactly as the CLI boundary renders it: the pure
@@ -799,7 +800,7 @@ describe("lifecycle status document", () => {
     // Severity drives the colour, not rendered copy (TEST-008).
     const rendered = renderBoundary(
       lifecycleStatusDocument(hostAttention),
-      { color: true, interactive: true, width: 80 },
+      { color: true, interactive: true, width: 80 , rows: undefined },
     );
     expect(rendered).toContain("\u001b[33mHost attention required\u001b[0m");
   });
@@ -842,7 +843,7 @@ describe("lifecycle status document", () => {
 
     const rendered = renderBoundary(
       lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
-      { color: false, interactive: true, width: 40 },
+      { color: false, interactive: true, width: 40 , rows: undefined },
     );
     for (const line of rendered.split("\n")) {
       if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
@@ -932,7 +933,7 @@ describe("lifecycle status document", () => {
     });
 
     const document = lifecycleStatusDocument(report);
-    const renderContext = { color: true, interactive: true, width: 80 } as const;
+    const renderContext = { color: true, interactive: true, width: 80 , rows: undefined } as const;
     const rendered = renderBoundary(document, renderContext);
     // Every line of a real error notice/Blocker inherits red, including wraps.
     // Expected line content comes from the document; no copy is maintained here.
@@ -1134,7 +1135,8 @@ describe("Host Setup Step provenance and presentation", () => {
       color: false,
       interactive: false,
       width: 80,
-    };
+    rows: undefined,
+  };
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     // Sections are authored headings; each step is a list item whose distinct
     // consequence follows as its own prose node.
@@ -2069,7 +2071,7 @@ describe("temporary-installation Project identity in documents", () => {
           process.cwd(),
           home,
         ),
-        { color: false, interactive: false, width: 10_000 },
+        { color: false, interactive: false, width: 10_000 , rows: undefined },
         { cwd: process.cwd(), home },
       );
       expect(rendered).not.toContain(project);
@@ -2260,7 +2262,7 @@ describe("status concise terminology", () => {
 
     const output = renderBoundary(
       lifecycleStatusDocument(report),
-      { color: false, interactive: true, width: 40 },
+      { color: false, interactive: true, width: 40 , rows: undefined },
     );
 
     expect(output).toContain("Use reconcile as authored;");
@@ -2656,7 +2658,7 @@ describe("status concise terminology", () => {
     const command = untrackCommandFor("/project-a", paths);
 
     // The atomic command node renders on one unsplit line at any width.
-    const rendered = renderBoundary(focusedVerbose, { color: false, interactive: true, width: 40 });
+    const rendered = renderBoundary(focusedVerbose, { color: false, interactive: true, width: 40 , rows: undefined });
     expect(rendered.split("\n").filter((line) => line.includes(command))).toHaveLength(1);
   });
 
@@ -4548,6 +4550,7 @@ describe("standalone view presentation documents (#389)", () => {
   const context = (width: number): TerminalPresentationContext => ({
     color: false,
     interactive: true,
+    rows: undefined,
     width,
   });
 
@@ -4774,7 +4777,8 @@ describe("standalone view presentation documents (#389)", () => {
       color: false,
       interactive: true,
       width: 120,
-    }, { home: "/home", cwd: "/home" });
+    rows: undefined,
+  }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
     // lines: [ "Projects (2):", "", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
@@ -4824,7 +4828,8 @@ describe("standalone view presentation documents (#389)", () => {
       color: false,
       interactive: true,
       width: 40,
-    }, { home: "/home", cwd: "/home" });
+    rows: undefined,
+  }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
     expect(rendered).toContain("Project: ~/projects/alpha");
@@ -8724,7 +8729,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
  * whole line (the structural replacement for the copyable-value list).
  */
 function renderedNodeLine(node: PresentationNode): string {
-  return renderPresentationDocument([node], { color: false, interactive: false, width: 40 });
+  return renderPresentationDocument([node], { color: false, interactive: false, width: 40 , rows: undefined });
 }
 
 /** The carried inline text of a wrapping node, flattened from its parts. */
@@ -9070,7 +9075,7 @@ describe("guide documents (#390)", () => {
         authored: "~/My long shared authoring workspace",
       },
     });
-    const rendered = renderBoundary(document, { color: false, interactive: true, width: 40 });
+    const rendered = renderBoundary(document, { color: false, interactive: true, width: 40 , rows: undefined });
     const lines = rendered.split("\n");
     // Ensure the path itself is not broken across lines by the sentence wrapping policy
     expect(lines.some((l) => l.includes("~/My long shared authoring workspace)"))).toBe(true);

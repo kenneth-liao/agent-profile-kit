@@ -49,6 +49,17 @@ export type ProcessResultKind =
   | "output-limit"
   | "cancelled";
 
+/**
+ * Explicit cleanup-target policy shared by every executor mode. `runProcess`
+ * owns a detached leader and therefore signals and probes its whole process
+ * group (`-pid`); `runInteractiveProcess` spawns in the caller's foreground
+ * process group and therefore signals and probes only its owned child pid.
+ * The escalation/wait logic below is shared; the target is never inferred.
+ */
+type CleanupTarget =
+  | { readonly policy: "process-group"; readonly pid: number }
+  | { readonly policy: "owned-process"; readonly pid: number };
+
 export interface ProcessExitResult extends ProcessResultBase {
   readonly kind: "exit";
   readonly exitCode: number;
@@ -166,6 +177,56 @@ function assertFiniteDeadline(deadlineMs: number): void {
   }
 }
 
+function signalTarget(target: CleanupTarget, signal: NodeJS.Signals | 0): boolean {
+  try {
+    process.kill(target.policy === "process-group" ? -target.pid : target.pid, signal);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function targetIsAlive(target: CleanupTarget): boolean {
+  return signalTarget(target, 0);
+}
+
+/**
+ * Shared bounded termination: SIGTERM, wait one grace period, probe, escalate
+ * to SIGKILL, then poll until the target is gone or the window expires. The
+ * returned boolean is the `cleanupFailed` evidence: true only when death could
+ * not be confirmed within the window. No result ever implies cleanup that did
+ * not happen.
+ */
+function terminateTarget(target: CleanupTarget, graceMs: number): Promise<boolean> {
+  return new Promise((settle) => {
+    const signalled = signalTarget(target, "SIGTERM");
+    if (!signalled && !targetIsAlive(target)) {
+      settle(false);
+      return;
+    }
+    setTimeout(() => {
+      if (!targetIsAlive(target)) {
+        settle(false);
+        return;
+      }
+      signalTarget(target, "SIGKILL");
+      const pollDeadline = Date.now() + graceMs;
+      const poll = () => {
+        if (!targetIsAlive(target)) {
+          settle(false);
+          return;
+        }
+        if (Date.now() >= pollDeadline) {
+          settle(true);
+          return;
+        }
+        setTimeout(poll, 25);
+      };
+      poll();
+    }, graceMs);
+  });
+}
+
 /**
  * Run one child as a process-group leader, capture its output, and resolve with
  * a typed result that distinguishes normal exit, signal termination, spawn
@@ -276,16 +337,6 @@ export async function runProcess(
             commandLabel,
           };
 
-    const groupIsGone = (): boolean => {
-      if (group === undefined) return true;
-      try {
-        process.kill(group, 0);
-        return false;
-      } catch {
-        return true;
-      }
-    };
-
     // Per-stream output budget: retain at most the first budget bytes per
     // stream and terminate an exceeding child through the bounded cleanup
     // lifecycle, so memory stays finite even before the deadline.
@@ -368,60 +419,22 @@ export async function runProcess(
 
     /**
      * Terminate the complete child process group within the cleanup grace,
-     * escalating to SIGKILL, and settle only after a group-empty probe passes.
-     * If the bounded window expires with the group still present, settle with
-     * `cleanupFailed` so the result never implies cleanup that did not happen.
+     * escalating to SIGKILL, and settle only after the group-empty probe
+     * passes. If the bounded window expires with the group still present,
+     * settle with `cleanupFailed` so the result never implies cleanup that
+     * did not happen. The detached leader makes the whole process group the
+     * cleanup target (explicit policy, shared escalation in `terminateTarget`).
      */
     const terminateGroup = () => {
       if (settled || terminalCause === null) return;
-      const grace = options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS;
       if (group === undefined) {
         finish(outcome(false));
         return;
       }
-      const settle = (cleanupFailed: boolean) => {
-        if (!settled) finish(outcome(cleanupFailed));
-      };
-      let termSent = false;
-      try {
-        process.kill(group, "SIGTERM");
-        termSent = true;
-      } catch {
-        // Group already gone; the probe below confirms and settles.
-        termSent = false;
-      }
-      if (!termSent && groupIsGone()) {
-        settle(false);
-        return;
-      }
-      setTimeout(() => {
-        if (settled) return;
-        if (groupIsGone()) {
-          settle(false);
-          return;
-        }
-        try {
-          process.kill(group, "SIGKILL");
-        } catch {
-          // Group already gone; the poll below confirms and settles.
-        }
-        // Final bounded phase: poll the group-empty probe until it passes, or
-        // the window expires and cleanup is surfaced as an explicit failure.
-        const pollDeadline = Date.now() + grace;
-        const pollGroup = () => {
-          if (settled) return;
-          if (groupIsGone()) {
-            settle(false);
-            return;
-          }
-          if (Date.now() >= pollDeadline) {
-            settle(true);
-            return;
-          }
-          setTimeout(pollGroup, 25);
-        };
-        pollGroup();
-      }, grace);
+      void terminateTarget({ policy: "process-group", pid: child.pid! }, options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS)
+        .then((cleanupFailed) => {
+          if (!settled) finish(outcome(cleanupFailed));
+        });
     };
 
     const beginCleanup = (cause: "timeout" | "output-limit" | "cancelled") => {
@@ -442,6 +455,200 @@ export async function runProcess(
     }
 
     deadlineTimer = setTimeout(() => beginCleanup("timeout"), options.deadlineMs);
+  });
+}
+
+export interface InteractiveExecutorOptions {
+  readonly executable: string;
+  readonly arguments_: readonly string[];
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly cwd?: string;
+  /** Content written to the child's stdin, then closed (EOF). */
+  readonly stdin: string;
+  /** Defaults to "inherit": screen output belongs on the terminal, uncaptured. */
+  readonly stdoutMode?: "inherit" | "pipe" | "ignore";
+  readonly stderrMode?: "inherit" | "pipe" | "ignore";
+  /** Grace period after SIGTERM before escalating to SIGKILL (default 500ms). */
+  readonly cleanupGraceMs?: number;
+  /** Label used in diagnostics to identify the command category. */
+  readonly commandLabel?: string;
+}
+
+export type InteractiveProcessResultKind =
+  | "exit"
+  | "signal"
+  | "spawn-error"
+  | "stdin-error"
+  | "cancelled";
+
+/**
+ * Typed result of one interactive child. There is no timeout kind: an
+ * interactive child (a pager a user is reading) has no deadline by design;
+ * the only bounded lifecycle is cleanup after cancellation or a delivery
+ * failure. `cleanupFailed` preserves evidence of termination that could not
+ * be confirmed — it is never swallowed and never implies success.
+ */
+export interface InteractiveProcessResult {
+  readonly kind: InteractiveProcessResultKind;
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly error: Error | null;
+  readonly cleanupFailed: boolean;
+  readonly durationMs: number;
+  readonly commandLabel: string;
+}
+
+/**
+ * Run one interactive child (a pager) in the caller's foreground process
+ * group so it can read the terminal directly (no detached spawn, no SIGTTIN),
+ * with stdout/stderr inherited by default and the supplied content piped to
+ * its stdin. No deadline: the child runs until it exits or the caller aborts.
+ * Cancellation terminates the owned child pid through the shared escalation
+ * logic (`terminateTarget`, explicit "owned-process" policy) and preserves
+ * `cleanupFailed` evidence. EPIPE from a child quitting before draining stdin
+ * is an ordinary early quit; any other stdin error is a distinct typed
+ * failure, never swallowed.
+ */
+export async function runInteractiveProcess(
+  options: InteractiveExecutorOptions,
+  abortSignal?: AbortSignal,
+): Promise<InteractiveProcessResult> {
+  const commandLabel = options.commandLabel ?? options.executable;
+  const startedAt = Date.now();
+  const elapsed = () => Date.now() - startedAt;
+
+  let child: ChildProcess;
+  try {
+    child = spawn(options.executable, [...options.arguments_], {
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+      ...(options.environment === undefined ? {} : { env: options.environment }),
+      stdio: [
+        "pipe",
+        options.stdoutMode ?? "inherit",
+        options.stderrMode ?? "inherit",
+      ],
+    });
+  } catch (error) {
+    return {
+      kind: "spawn-error",
+      exitCode: null,
+      signal: null,
+      error: error as Error,
+      cleanupFailed: false,
+      durationMs: elapsed(),
+      commandLabel,
+    };
+  }
+
+  return new Promise<InteractiveProcessResult>((resolve) => {
+    let settled = false;
+    let terminalCause: "stdin-error" | "cancelled" | null = null;
+    let observedCode: number | null = null;
+    let observedSignal: string | null = null;
+    let stdinError: Error | null = null;
+    let onAbort: (() => void) | undefined;
+
+    const finish = (result: InteractiveProcessResult) => {
+      if (settled) return;
+      settled = true;
+      if (onAbort !== undefined) abortSignal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const base = (cleanupFailed: boolean) => ({
+      exitCode: observedCode,
+      signal: observedSignal,
+      cleanupFailed,
+      durationMs: elapsed(),
+      commandLabel,
+    });
+
+    // EPIPE is the child quitting before draining stdin — expected. Any other
+    // stdin error is content-delivery failure: stop the child through the
+    // bounded lifecycle and report it as its own typed kind.
+    child.stdin?.on("error", (error: NodeJS.ErrnoException) => {
+      if (error.code === "EPIPE" || terminalCause !== null) return;
+      stdinError = error;
+      beginCleanup("stdin-error");
+    });
+
+    child.on("error", (error) => {
+      if (terminalCause !== null) return;
+      finish({
+        kind: "spawn-error",
+        exitCode: null,
+        signal: null,
+        error,
+        cleanupFailed: false,
+        durationMs: elapsed(),
+        commandLabel,
+      });
+    });
+
+    child.on("close", (code, signal) => {
+      observedCode = code;
+      observedSignal = signal ?? null;
+      if (terminalCause !== null) {
+        // Cleanup owns resolution: terminateCleanup settles below.
+        return;
+      }
+      if (code !== null) {
+        finish({ kind: "exit", error: null, ...base(false) });
+      } else {
+        finish({ kind: "signal", error: null, ...base(false) });
+      }
+    });
+
+    const terminateCleanupSettled = (cleanupFailed: boolean) => {
+      if (settled) return;
+      if (terminalCause === "stdin-error") {
+        finish({
+          kind: "stdin-error",
+          exitCode: observedCode,
+          signal: observedSignal,
+          error: stdinError,
+          cleanupFailed,
+          durationMs: elapsed(),
+          commandLabel,
+        });
+        return;
+      }
+      finish({
+        kind: "cancelled",
+        exitCode: observedCode,
+        signal: observedSignal,
+        error: null,
+        cleanupFailed,
+        durationMs: elapsed(),
+        commandLabel,
+      });
+    };
+
+    const beginCleanup = (cause: "stdin-error" | "cancelled") => {
+      if (terminalCause !== null) return;
+      terminalCause = cause;
+      if (child.pid === undefined) {
+        terminateCleanupSettled(false);
+        return;
+      }
+      terminateTarget(
+        { policy: "owned-process", pid: child.pid },
+        options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS,
+      ).then(terminateCleanupSettled);
+    };
+
+    const handleAbort = () => beginCleanup("cancelled");
+    onAbort = handleAbort;
+    if (abortSignal !== undefined) {
+      if (abortSignal.aborted) {
+        beginCleanup("cancelled");
+      } else {
+        abortSignal.addEventListener("abort", handleAbort);
+      }
+    }
+
+    child.stdin?.write(options.stdin);
+    child.stdin?.end();
   });
 }
 

@@ -6,7 +6,13 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Follow the POSIX double-quote contract exactly when normalizing `PAGER` at the pager boundary: a backslash inside double quotes is special only before `$`, backtick, `"`, `\\`, and newline, and stays a literal backslash before ordinary characters (e.g. `less -p "\\.agents"` passes a backslash-dot argument); treat an explicitly empty `LESS` as operator authority and preserve it, applying the `LESS=FRX` readable-ANSI default only when `LESS` is unset; and cover real signal propagation at the paging boundary (single abort on repeated SIGINT/SIGTERM, 130/143 exit mapping, no reprint, handler unregister) (review INT-1–3 on [#476](https://github.com/kenneth-liao/agent-profile-kit/pull/476)).
+
 ### Changed
+
+- Page long interactive guidance (all `apkit guide` routes) through the configured `PAGER` on an interactive terminal whose height is known, while redirected output stays byte-identical and never invokes a pager; the configured command is normalized once as argv syntax (POSIX quoting, no shell interpretation) with a `less` fallback and readable ANSI defaults (`LESS=FRX` set for the pager child only when `LESS` is unset), ordinary user quit exits cleanly, any pager failure prints the unchanged guidance plus one structured advisory without changing the exit code, and interruption terminates the owned child through the shared bounded executor lifecycle with `cleanupFailed` evidence preserved (US-050, DEC-029, [#448](https://github.com/kenneth-liao/agent-profile-kit/issues/448)).
 
 - Make authoring guides actionable by identifying the configured Workspace location before example creation instructions across all focused authoring topics (`profile`, `context`, `skill`), with structured diagnostic presentation on corrupted configuration, and remove maintainer-only internal commentary while preserving all user-facing authoring information and the authoring-first guide index (US-048, DEC-028, DEC-029, [#447](https://github.com/kenneth-liao/agent-profile-kit/issues/447)).
 

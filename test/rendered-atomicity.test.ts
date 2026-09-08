@@ -254,6 +254,7 @@ describe("complete spellings from real command and path forms", () => {
       color: false,
       interactive: false,
       width: 40,
+      rows: undefined,
     });
     expect(collectSpellings(rendered, {})).toContain(
       "git -C 'my project' rm -r --cached -- 'a b.md'",
@@ -288,7 +289,7 @@ describe("INT-1 exact follow-up regressions", () => {
 
 
 test("INT-1 renderer-produced command and spaced path spellings reject every fold boundary", () => {
-  const context = { color: false, interactive: false, width: 80 } as const;
+  const context = { color: false, interactive: false, width: 80 , rows: undefined } as const;
   const commands = [
     ["status", ".", "--verbose"],
     ["status", "..", "--verbose"],
