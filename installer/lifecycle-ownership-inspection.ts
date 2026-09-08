@@ -195,7 +195,9 @@ async function inspectFileOutput(
  * Prove path-safety evidence for one project-relative output path: every parent
  * and the path itself must be real directories, never symlinks. A missing
  * parent chain is safe (the Installer may create it); a non-directory or
- * symlink parent is not.
+ * symlink parent is not. The returned fact is the offending parent path only:
+ * typed evidence carries no user-facing sentence, and the recovery command is
+ * derived from the bare path (#440).
  */
 export async function unsafeOutputParent(
   project: string,
@@ -209,11 +211,11 @@ export async function unsafeOutputParent(
       stats = await lstat(parent);
     } catch (error) {
       if (hasErrorCode(error, "ENOENT")) return undefined;
-      if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
+      if (hasErrorCode(error, "ENOTDIR")) return parent;
       throw error;
     }
-    if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
-    if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
+    if (stats.isSymbolicLink()) return parent;
+    if (!stats.isDirectory()) return parent;
     parent = join(parent, part);
   }
   let stats;
@@ -221,11 +223,11 @@ export async function unsafeOutputParent(
     stats = await lstat(parent);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) return undefined;
-    if (hasErrorCode(error, "ENOTDIR")) return `${parent} is a non-directory parent`;
+    if (hasErrorCode(error, "ENOTDIR")) return parent;
     throw error;
   }
-  if (stats.isSymbolicLink()) return `${parent} is a symlink parent`;
-  if (!stats.isDirectory()) return `${parent} is a non-directory parent`;
+  if (stats.isSymbolicLink()) return parent;
+  if (!stats.isDirectory()) return parent;
   return undefined;
 }
 

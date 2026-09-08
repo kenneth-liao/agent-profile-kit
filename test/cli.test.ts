@@ -2421,7 +2421,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout.match(/SessionStart hooks are not enabled/g)).toHaveLength(2);
-    expect(humanText(result.stdout)).toContain(".codex/hooks.json is occupied by unowned or drifted output");
+    expect(humanText(result.stdout)).toContain(
+      ".codex/hooks.json already contains a file Agent Profile Kit did not install.",
+    );
     expect(existsSync(join(first, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(second, ".agent-profile-kit"))).toBe(false);
   });
@@ -2514,7 +2516,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
 
     const result = await runCli(home, "apply");
-    const blocker = ".codex/hooks.json is occupied by unowned or drifted output";
+    const blocker = ".codex/hooks.json already contains a file Agent Profile Kit did not install.";
 
     expectExitCode(result, 2);
     expect(result.stdout.startsWith("Apply blocked\n")).toBe(true);
@@ -2581,8 +2583,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Project: .");
-    expect(result.stdout).not.toContain(projectPath);
-    expect(result.stdout).not.toContain(realpathSync(projectPath));
+    // Prose identity never repeats the canonical root; the remedy's scoped
+    // command arguments quote it as their runnable value (#440).
+    const outsideCommands = result.stdout.replaceAll(/'[^']*'/g, "");
+    expect(outsideCommands).not.toContain(projectPath);
+    expect(outsideCommands).not.toContain(realpathSync(projectPath));
   });
 
   test("status and apply accept --verbose and --json while rejecting other presentation arguments", async () => {
@@ -3099,10 +3104,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     const output = humanText(result.stdout);
     expect(output).toContain("migration window is closed");
-    expect(output).toContain("Agent Profile Kit 0.95.0");
-    // The foreign diagnostic rides as a fact; human rendering substitutes the
-    // internal "generated output" term with newcomer vocabulary (TEST-012).
-    expect(output).toContain("never reconstructs ownership from generated file");
+    // The documented 0.95.0 migration guidance stays in the remedy; the tool
+    // will not rename, delete, or migrate the record itself (decision 2).
+    expect(output).toContain("Agent Profile Kit 0.95.0 as documented");
+    expect(output).toContain("will not rename, delete, or migrate it itself");
     expect(existsSync(join(stateDirectory(home), "manifest.yaml"))).toBe(true);
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -3119,7 +3124,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Human output is newcomer-worded presentation composition, not the typed
     // error summary or the canonical internal wording.
     expect(humanText_).toContain("Legacy YAML installation record");
-    expect(humanText_).toContain("never reconstructs ownership from generated file");
+    expect(humanText_).toContain("migration window is closed");
     expect(humanText_).not.toContain("installation state read failed");
     expect(humanText_).not.toContain("Legacy YAML Installation State");
 
@@ -3313,14 +3318,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(authoredProject));
     expect((result.stdout.match(new RegExp(authoredProject, "g")) || []).length).toBe(1);
     expect(result.stdout).not.toContain("Scope: Project");
-    expect(result.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(result.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(result.stdout).toContain("Requirement:");
     expect(result.stdout).toContain("Remedy:");
     expect(result.stdout).toContain("Affected paths (1):");
     expect(result.stdout).toContain("- .codex/hooks.json");
-    expect(result.stdout).not.toContain("rm -r --cached");
+    // The evidence-derived untracking command is carried inline (#440).
+    expect(result.stdout).toContain("rm -r --cached");
     expect(humanText(result.stdout)).toContain(
-      humanText("Generated files must be exclusively managed by Agent Profile Kit"),
+      humanText("Agent Profile Kit must exclusively manage its generated files"),
     );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
@@ -3328,7 +3334,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 2);
     expect(apply.stdout).toContain("Apply blocked");
     expect(humanText(apply.stdout)).toContain(
-      humanText("Generated files must be exclusively managed by Agent Profile Kit"),
+      humanText("Agent Profile Kit must exclusively manage its generated files"),
     );
   });
 
@@ -3353,7 +3359,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(focused, 2);
     expect(focused.stdout).toStartWith("Cannot apply");
-    expect(focused.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focused.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(focused.stdout).toContain("Blockers: 1 · Affected Projects: 1");
     expect(focused.stdout).toContain("Resolve the reported blocker");
     expect(focused.stdout).not.toContain("Warnings:");
@@ -3363,7 +3369,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const focusedProjectScope = await runCliAt(home, projectPath, "status", "--blockers-only");
 
     expectExitCode(focusedProjectScope, 2);
-    expect(focusedProjectScope.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focusedProjectScope.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(focusedProjectScope.stdout).toContain("Blockers: 1 · Affected Projects: 1");
 
     // Under the focused filter a globally blocked apply reports focused
@@ -3372,7 +3378,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(focusedApply, 2);
     expect(focusedApply.stderr).toBe("");
     expect(focusedApply.stdout).toStartWith("Apply blocked");
-    expect(focusedApply.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(focusedApply.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(focusedApply.stdout).toContain("Blockers: 1 · Affected Projects: 1");
     expect(focusedApply.stdout).not.toContain("Warnings:");
     expect(focusedApply.stdout).not.toContain("Files:");
@@ -3380,7 +3386,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const focusedApplyVerbose = await runCli(home, "apply", "--blockers-only", "--verbose");
     expectExitCode(focusedApplyVerbose, 2);
-    expect(focusedApplyVerbose.stdout).toContain("- These generated paths are tracked by Git");
+    expect(focusedApplyVerbose.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(focusedApplyVerbose.stdout).toContain("Affected path:");
     expect(focusedApplyVerbose.stdout).not.toContain("Selected setup:");
     expect(focusedApplyVerbose.stdout).not.toContain("Warnings:");
@@ -3389,7 +3395,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
 
     expectExitCode(focusedVerbose, 2);
-    expect(focusedVerbose.stdout).toContain("- These generated paths are tracked by Git");
+    expect(focusedVerbose.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(focusedVerbose.stdout).toContain("Affected path:");
     expect(focusedVerbose.stdout).toContain(".codex/hooks.json");
     expect(focusedVerbose.stdout).not.toContain("Selected setup:");
@@ -3473,18 +3479,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 2);
     expect(status.stdout).toContain("Cannot apply");
     expect(status.stdout.match(/Blocker:/g)).toHaveLength(1);
-    expect(status.stdout).toContain("Blocker: These generated paths are tracked by Git");
+    expect(status.stdout).toContain("13 more files are tracked");
+    expect(status.stdout).toContain("Agent Profile Kit cannot write to them.");
     expect(status.stdout).toContain("Requirement:");
     expect(status.stdout).toContain("Remedy:");
-    expect(status.stdout).toContain("keep repository ownership");
-    expect(status.stdout).toContain("intentionally remove");
+    expect(status.stdout).toContain("To keep Git ownership instead");
+    expect(status.stdout).toContain("commit afterwards to keep the change");
     expect(status.stdout).toContain("Affected paths (14):");
     expect(status.stdout).toContain("- .agent-profile-kit/codex/context.md");
     expect(status.stdout).toContain("- .agents/skills/ (12 paths)");
     expect(status.stdout).toContain("- .codex/hooks.json");
-    expect(status.stdout).not.toContain("rm -r --cached");
-    expect(status.stdout).toContain("Recovery command:");
-    expect(status.stdout).toContain("apkit status --blockers-only --verbose");
+    // The evidence-derived untracking command is carried inline (#440); the
+    // verbose pointer redirect is retired.
+    expect(status.stdout).toContain("rm -r --cached");
+    expect(status.stdout).not.toContain("Recovery command:");
+    expect(status.stdout).not.toContain("apkit status --blockers-only --verbose");
 
     const verbose = await runCli(home, "status", "--verbose");
 
@@ -3501,7 +3510,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
     expect(verbose.stdout.match(/Requirement:/g)).toHaveLength(1);
     expect(verbose.stdout).not.toContain("more paths");
-    expect(verbose.stdout).not.toContain("rm -r --cached");
+    // The verbose diagnostic carries the same inline command (#440).
+    expect(verbose.stdout).toContain("rm -r --cached");
 
     const focusedVerbose = await runCli(home, "status", "--blockers-only", "--verbose");
 
@@ -3509,15 +3519,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(
       focusedVerbose.stdout.split("\n").filter((line) => line.includes("rm -r --cached")),
     ).toHaveLength(1);
-    expect(focusedVerbose.stdout).toContain("git -C ");
+    expect(focusedVerbose.stdout).toContain("git --literal-pathspecs -C ");
     expect(focusedVerbose.stdout).toContain(
       "rm -r --cached -- '.agent-profile-kit/codex/context.md'",
     );
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s01'");
     expect(focusedVerbose.stdout).toContain("'.agents/skills/s12'");
     expect(focusedVerbose.stdout).toContain("'.codex/hooks.json'");
-    expect(focusedVerbose.stdout).toContain("working files are preserved");
-    expect(focusedVerbose.stdout).toContain("change or remove the configured Project.");
+    expect(focusedVerbose.stdout).toContain("the files stay on disk");
+    expect(focusedVerbose.stdout).toContain("To keep Git ownership instead");
 
     // The extended vocabulary guard covers Blocker and error surfaces: no
     // internal term may reach the blocked human view (TEST-012, DEC-021).
@@ -3576,7 +3586,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .find((line) => line.includes("rm -r --cached"));
     expect(commandLine).toBeDefined();
     const command = (commandLine ?? "").trim();
-    expect(command).toStartWith(`git -C '${realpathSync(projectPath)}' rm -r --cached -- `);
+    expect(command).toStartWith(
+      `git --literal-pathspecs -C '${realpathSync(projectPath)}' rm -r --cached -- `,
+    );
     expect(command).toContain("'.agents/skills/s01'");
 
     // Executed from a different repository's working directory: the Project
@@ -4442,7 +4454,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Tracked-output protection stays fail-closed under unprovable topology.
     expectExitCode(applied, 2);
-    expect(applied.stdout).toContain("These generated paths are tracked by Git");
+    expect(applied.stdout).toContain("is tracked by Git");
+    expect(applied.stdout).toContain("cannot write to it.");
     expect(readFileSync(generated).equals(installed)).toBe(true);
 
     const uninstall = await runCli(home, "uninstall");
@@ -5104,7 +5117,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("State:");
-    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "already contains a file Agent Profile Kit did not install.",
+    );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
 
@@ -5254,7 +5269,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
-    expect(result.stdout).toContain("symlink parent");
+    // The unsafe-parent fact carries the bare parent path (#440); the kept
+    // reason renders from the Installer-failure sentence surface (ticket #441).
+    expect(result.stdout).toContain("has unsafe parent:");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5691,7 +5708,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "apply");
 
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("symlink parent");
+    expect(result.stdout).toContain("not a regular directory inside the Project");
     expect(result.stderr).toBe("");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
   });
@@ -5799,7 +5816,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applied = await runCli(home, "apply");
 
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("ownership continuity");
+    expect(status.stdout).toContain("proves ownership.");
     expectExitCode(applied, 2);
     expect(readFileSync(drifted, "utf8")).toBe("drifted surviving output\n");
     expect(existsSync(missing)).toBe(false);
@@ -5825,7 +5842,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // instead of gaining destructive authority over the foreign bytes.
     const status = await runCli(home, "status");
     expectExitCode(status, 2);
-    expect(status.stdout).toContain("ownership continuity");
+    expect(status.stdout).toContain("proves ownership.");
 
     const applied = await runCli(home, "apply");
     expectExitCode(applied, 2);
@@ -6304,7 +6321,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // There is no identity proof at the new root, so the post-move edit is
     // unowned occupied material that is never overwritten.
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "already contains a file Agent Profile Kit did not install.",
+    );
     expect(readFileSync(edited, "utf8")).toBe("user edit after move\n");
   });
 
@@ -6341,7 +6360,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // its bytes differ from the desired output at the nested destination and
     // apply fails closed instead of overwriting it.
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "already contains a file Agent Profile Kit did not install.",
+    );
 
     // Deleting the moved Project's generated files makes the re-bound root
     // apply cleanly next to the destination repository's own contribution.
@@ -6383,7 +6404,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // the carried output is unowned drifted material, so apply fails closed
     // instead of overwriting it.
     expectExitCode(result, 2);
-    expect(result.stdout).toContain("occupied by unowned or drifted output");
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "already contains a file Agent Profile Kit did not install.",
+    );
 
     // Deleting the moved Project's generated files — the obvious way to start
     // over — makes the re-bound root apply cleanly and transfers exclusions.
@@ -7163,7 +7186,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // The obstructed shared Skill surface is unowned material, so the write
     // stays blocked by occupied-output ownership, not by capability probing.
     expectExitCode(result, 2);
-    expect(`${result.stdout}${result.stderr}`).toContain(".agents/skills is an occupied file parent path");
+    expect(`${result.stdout}${result.stderr}`.replace(/\s+/g, " ")).toContain(
+      ".agents/skills cannot be used because its parent path is already occupied by a file.",
+    );
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
   });
 
@@ -7246,7 +7271,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const surfaceBin = installFakeGrok(home);
     const surface = await runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "apply");
     expectExitCode(surface, 2);
-    expect(`${surface.stdout}${surface.stderr}`).toMatch(/has unsafe parent/);
+    expect(`${surface.stdout}${surface.stderr}`).toMatch(/not a regular directory inside the Project/);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     rmSync(join(projectPath, ".grok"), { force: true });
@@ -9409,19 +9434,19 @@ describe("shared presentation boundary", () => {
     expectExitCode(blockedTemp, 2);
     const blockedTempOutput = `${blockedTemp.stdout}${blockedTemp.stderr}`;
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
-      "Generated files are already managed through a configured Project",
+      "Generated files in this Project are already managed through a configured Project installation.",
     );
-    // The blocked view renders the remedy with its runnable command (US-027).
-    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain(
-      "Remedy: Remove the existing configured Project-managed files or the active temporary Profile, " +
-        "then retry apkit machine install-temp",
-    );
+    // The blocked view renders the remedy with its runnable command (US-027);
+    // the placeholder install-temp retry is retired (#440, decision 6).
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain("Remedy: Run apkit unbind");
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain("then retry your original command.");
     // Blocked temporary-installation output stays free of internal terms (TEST-012).
     expect(humanText(blockedTempOutput)).not.toMatch(INTERNAL_TERM_PATTERN);
     for (const line of blockedTempOutput.split("\n")) {
       // Occupied-output lines carry project-relative path tokens that are
-      // unbreakable by design (DEC-003).
-      if (line.includes("blocked-temp/")) continue;
+      // unbreakable by design (DEC-003); atomic command lines render unsplit
+      // by design and may exceed the width (#440).
+      if (line.includes("blocked-temp/") || /^\s*(ls|vi|git|apkit)\s/.test(line)) continue;
       expect(
         line.length,
         `blocked temporary line exceeds TTY width: ${line}`,
@@ -11659,7 +11684,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     };
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.schemaVersion).toBe(9);
-    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(String(blocker.message)))).toBe(true);
+    expect(blocked.blockers.some((blocker) => /is tracked by Git/i.test(String(blocker.message)))).toBe(true);
     expect(blocked.blockers.some((blocker) => blocker.kind === "output-ownership-conflict" && blocker.scope === "project")).toBe(true);
   });
 
@@ -11804,7 +11829,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     };
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.schemaVersion).toBe(9);
-    expect(blocked.blockers.some((blocker) => /tracked project path/i.test(String(blocker.message)))).toBe(true);
+    expect(blocked.blockers.some((blocker) => /is tracked by Git/i.test(String(blocker.message)))).toBe(true);
     expect(blocked.blockers.some((blocker) => blocker.kind === "output-ownership-conflict" && blocker.scope === "project")).toBe(true);
     expect(blocked.blockers.some((blocker) => (
       (blocker.affectedItems as readonly { kind: string }[]).some((item) => item.kind === "path")
@@ -11984,8 +12009,9 @@ describe("apkit temporary Profile installation (Codex)", () => {
     };
     expect(blocked.outcome).toBe("blocked");
     expect(blocked.schemaVersion).toBe(9);
-    expect(blocked.blockers.some((blocker) => /active Temporary Profile Installation/i.test(String(blocker.message))))
-      .toBe(true);
+    expect(blocked.blockers.some((blocker) =>
+      /temporary Profile already owns generated files/i.test(String(blocker.message))
+    )).toBe(true);
     expect(blocked.blockers.some((blocker) => blocker.kind === "temporary-installation-conflict" && blocker.scope === "project"))
       .toBe(true);
   });
@@ -12005,9 +12031,12 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expectExitCode(result, 2);
     expect(result.stdout).toBe("");
     expect(humanText(result.stderr)).toContain(
-      "Generated files are already managed through a configured Project",
+      "Generated files in this Project are already managed through a configured Project installation.",
     );
-    expect(result.stderr).not.toContain(projectPath);
+    // Identity prose never carries the canonical root; the remedy's scoped
+    // command arguments quote it as their runnable value (#440).
+    const proseOutsideCommands = humanText(result.stderr).replaceAll(/'[^']*'/g, "");
+    expect(proseOutsideCommands).not.toContain(projectPath);
   });
 
   test("one Project keeps one shortest identity across bind, inventory, lifecycle, teardown, and temporary installation", async () => {

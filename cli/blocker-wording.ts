@@ -1,25 +1,34 @@
-import { join } from "node:path";
-
 import { COMMAND_NAME } from "../installer/version.js";
 import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
 
 import {
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
+  normalizeBlocker,
   OCCUPIED_OUTPUT,
   OUTPUT_OWNERSHIP_CONFLICT,
   TEMPORARY_INSTALLATION_CONFLICT,
   TEMPORARY_INSTALLATION_REMOVAL,
   type BlockerKind,
   type OccupiedOutputFact,
+  type OutputOccupation,
   type OwnershipBlockerAction,
   type OwnershipFailureFact,
   type ReconciliationBlocker,
   type StateReadFailureFact,
   type TemporaryRemovalFailureFact,
 } from "../installer/blockers.js";
+import { occupiedOutputBlocker } from "../installer/blockers.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
-import { commandPart, flatInlineText, type CommandArg, type CommandPart, type InlineContent } from "./inline-content.js";
+import {
+  commandPart,
+  flatInlineText,
+  safeShellQuoted,
+  shellSingleQuoted,
+  type CommandArg,
+  type CommandPart,
+  type InlineContent,
+} from "./inline-content.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -28,16 +37,18 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
  * Presentation-owned blocker wording, keyed by typed {@link BlockerKind}.
  *
  * The Installer emits blockers as typed facts only; this module is the single
- * home of every problem, requirement, and remedy sentence. Wording is carried
- * over verbatim from the pre-relocation Installer strings. Two projections
- * exist:
+ * home of every problem, requirement, and remedy sentence (#440). Each sentence
+ * is authored once, in plain newcomer language, as inline content whose
+ * recovery commands are atomic {@link CommandPart} atoms derived from the
+ * carried evidence. Two projections exist:
  *
- * - {@link blockerWording} — the verbatim stored sentences. The machine JSON
- *   publishes these values unchanged.
- * - {@link humanBlockerWording} — the human rendering: internal terms become
- *   newcomer terms via {@link DEFAULT_BLOCKER_SUBSTITUTIONS}, machine-namespace
- *   command references reflect the published command surface, and a runnable
- *   command is appended where the carried remedy names none.
+ * - {@link blockerWording} — the plain-text projection. The machine JSON
+ *   publishes these values unchanged (same shape, same verbatim contract).
+ * - {@link humanBlockerWording} — the same authored parts as-is; the renderer
+ *   keeps command atoms whole and copyable.
+ *
+ * There is no second human variant and no regex substitution for blocker
+ * prose: the sentences are written in the default-view lexicon directly.
  */
 
 export interface BlockerWording {
@@ -47,9 +58,138 @@ export interface BlockerWording {
   readonly requirement: string;
 }
 
-export const OPENCODE_CONFIG_OCCUPIED_REMEDY =
-  "move authored OpenCode configuration to opencode.json or .opencode/opencode.json, " +
-  "or change the Project Binding or Host selection so Agent Profile Kit does not plan output at that path, then retry";
+/** The authored inline content for one blocker: the single wording source. */
+export interface BlockerWordingParts {
+  readonly message: readonly InlineContent[];
+  readonly problem: readonly InlineContent[];
+  readonly remedy: readonly InlineContent[];
+  readonly requirement: readonly InlineContent[];
+}
+
+export interface HumanBlockerWording {
+  readonly message: readonly InlineContent[];
+  readonly problem: readonly InlineContent[];
+  readonly remedy: readonly InlineContent[];
+  readonly requirement: readonly InlineContent[];
+}
+
+/** One scoped apkit command part with pre-rendered argument strings. */
+function apkit(...args: readonly string[]): CommandPart {
+  return commandPart(COMMAND_NAME, args.map(arg));
+}
+
+/**
+ * One scoped non-apkit command part: flags stay bare, every path-like value is
+ * POSIX-quoted, and any value that cannot be quoted safely fails closed to
+ * `undefined` (#440).
+ */
+function externalCommand(
+  program: string,
+  flags: readonly string[],
+  values: readonly string[],
+): CommandPart | undefined {
+  const quotedValues = values.map((value) => safeShellQuoted(value));
+  if (quotedValues.some((value) => value === undefined)) return undefined;
+  return commandPart(program, [
+    ...flags.map(arg),
+    ...quotedValues.map((value) => arg(value!)),
+  ]);
+}
+
+/**
+ * A single-quoted file-system path argument for an `apkit` command. POSIX
+ * quoting preserves every byte — even control characters inside single quotes
+ * survive copy-paste — so the command always carries the true evidence path;
+ * the stricter refusal in {@link safeShellQuoted} is reserved for authoring
+ * that reinterprets argument content, like Git pathspecs.
+ */
+function quoted(value: string): string {
+  return shellSingleQuoted(value);
+}
+
+/** The project-relative path of one recorded output inside its Project. */
+function projectPath(project: string, relative: string): string {
+  return `${project}/${relative}`;
+}
+
+/** The user-owned Git untracking command for proven tracked paths (#440). */
+function gitUntrackCommand(
+  project: string,
+  paths: readonly string[],
+): CommandPart | undefined {
+  const projectArg = safeShellQuoted(project);
+  if (projectArg === undefined) return undefined;
+  const ordered = [...paths].sort(compareCanonicalStrings);
+  const pathArgs = ordered.map((path) => safeShellQuoted(path));
+  if (pathArgs.length === 0 || pathArgs.some((path) => path === undefined)) {
+    return undefined;
+  }
+  return commandPart("git", [
+    arg("--literal-pathspecs"),
+    arg("-C"),
+    arg(projectArg),
+    arg("rm"),
+    arg("-r"),
+    arg("--cached"),
+    arg("--"),
+    ...pathArgs.map((path) => arg(path!)),
+  ]);
+}
+
+/** Git-tracked material is repository-owned; Agent Profile Kit never touches it. */
+const GIT_OWNED_CLAUSE =
+  "Agent Profile Kit will not delete or untrack repository-owned material";
+
+/** List recorded paths the way the Git fact carries them (sorted, quoted). */
+function pathList(paths: readonly string[]): string {
+  return [...paths]
+    .sort(compareCanonicalStrings)
+    .map((path) => `'${path}'`)
+    .join(", ");
+}
+
+/** The subject-verb agreement for a recorded-path list. */
+function pathListVerb(paths: readonly string[]): string {
+  return paths.length === 1 ? "is" : "are";
+}
+
+/** The carried fact sentence for one typed ownership-failure failure. */
+function ownershipFailureSentence(failure: OwnershipFailureFact): string {
+  switch (failure.case) {
+    case "git-tracked-output":
+      return `the generated file ${pathList(failure.outputs)} ` +
+        `${pathListVerb(failure.outputs)} tracked by Git, and ${GIT_OWNED_CLAUSE}.`;
+    case "no-ownership-continuity":
+      return `the recorded generated file '${failure.output}' does not match the ` +
+        "installation record and no other recorded file proves ownership.";
+    case "type-mismatch":
+      return `the recorded generated file '${failure.output}' is not a ${failure.expected}.`;
+    case "unsafe-parent":
+      return `the recorded generated file '${failure.output}' has a parent path ` +
+        `'${failure.parent}' that is not a regular directory inside the Project.`;
+    case "unreadable-output":
+      return `the recorded generated file '${failure.output}' could not be read.`;
+    case "unproven":
+      return "ownership could not be proven from the installation record.";
+    case "unsupported-entry":
+      return `the recorded directory '${failure.output}' contains an unsupported ` +
+        `file system entry at '${projectPath(failure.output, failure.member)}'.`;
+  }
+}
+
+/** The carried fact sentence for one typed temporary-removal failure. */
+function temporaryRemovalFailureSentence(failure: TemporaryRemovalFailureFact): string {
+  switch (failure.case) {
+    case "git-tracked-output":
+      return `the temporary Profile's generated file ${pathList(failure.outputs)} ` +
+        `${pathListVerb(failure.outputs)} tracked by Git, and ${GIT_OWNED_CLAUSE}.`;
+    case "symlink-output":
+      return `the recorded generated file '${failure.output}' is a symlink.`;
+    case "unsafe-parent":
+      return `the recorded generated file '${failure.output}' has a parent path ` +
+        `'${failure.parent}' that is not a regular directory inside the Project.`;
+  }
+}
 
 function blockerDetail(blocker: ReconciliationBlocker): string {
   if (blocker.detail === undefined) {
@@ -88,6 +228,610 @@ function blockerAction(blocker: ReconciliationBlocker): OwnershipBlockerAction {
     throw new TypeError(`Blocker kind ${blocker.kind} requires an ownership action`);
   }
   return blocker.action;
+}
+
+function blockerRemovalIdentity(blocker: ReconciliationBlocker): string {
+  const identity = blocker.affectedItems.find((item) => item.kind === "installation-id")?.value;
+  if (identity === undefined) {
+    throw new TypeError(`Blocker kind ${blocker.kind} requires an installation identity`);
+  }
+  return identity;
+}
+
+/** The English indefinite article for one occupation noun. */
+function article(noun: string): string {
+  return /^[aeiou]/.test(noun) ? "an" : "a";
+}
+
+/** The plain noun for one typed occupation fact. */
+function occupationNoun(occupation: OutputOccupation): string {
+  switch (occupation) {
+    case "file":
+      return "file";
+    case "directory":
+      return "directory";
+    case "symlink":
+      return "symlink";
+    case "other":
+      return "file system entry of an unknown kind";
+  }
+}
+
+function occupiedOutputProblem(blocker: ReconciliationBlocker): string {
+  if (blocker.kind !== OCCUPIED_OUTPUT) {
+    throw new TypeError("occupiedOutputProblem requires an occupied-output blocker");
+  }
+  const path = blocker.affectedItems.find((item) => item.kind === "path")?.value ?? "";
+  const occupied = blockerOccupied(blocker);
+  switch (occupied.case) {
+    case "occupied-parent":
+      return `${path} cannot be used because its parent path is already occupied by ` +
+        `${article(occupationNoun(occupied.occupation))} ${occupationNoun(occupied.occupation)}.`;
+    case "occupied-destination":
+      return `${path} is already occupied by ${article(occupationNoun(occupied.occupation))} ` +
+        `${occupationNoun(occupied.occupation)}.`;
+    case "drifted-output":
+      return `${path} already contains a file Agent Profile Kit did not install.`;
+    case "unowned-artifact-directory":
+      return `${path} is an occupied directory Agent Profile Kit did not install.`;
+  }
+}
+
+/** The remedial choice between Agent Profile Kit management and Git ownership. */
+function untrackChoiceRemedy(
+  project: string,
+  paths: readonly string[],
+  applyArgs: readonly string[],
+): readonly InlineContent[] {
+  const untrack = gitUntrackCommand(project, paths);
+  if (untrack === undefined) {
+    return [
+      "Manual recovery is required: Agent Profile Kit could not derive a safe " +
+        `untracking command from the recorded paths (${pathList(paths)}). Untrack them ` +
+        "in Git yourself without reinterpreting special characters, then run ",
+      apkit(...applyArgs),
+      "; or run ",
+      apkit("unbind", quoted(project)),
+      " to keep Git ownership.",
+    ];
+  }
+  return [
+    "Choose one. To let Agent Profile Kit manage these files, run ",
+    untrack,
+    " — it stages their removal from the Git index while the files stay on " +
+      "disk; commit afterwards to keep the change — then run ",
+    apkit(...applyArgs),
+    ". To keep Git ownership instead, run ",
+    apkit("unbind", quoted(project)),
+    ".",
+  ];
+}
+
+/** The scoped unbind alternative with its honest consequence. */
+function unbindAlternative(project: string): readonly InlineContent[] {
+  return [
+    "; or run ",
+    apkit("unbind", quoted(project)),
+    " to stop managing this Project (its generated files stay on disk).",
+  ];
+}
+
+/** A non-following inspection command for one recorded path, when derivable. */
+function inspectCommand(path: string): CommandPart | undefined {
+  return externalCommand("ls", ["-ld"], [path]);
+}
+
+/** A non-recursive listing command for one occupied path, when derivable. */
+function listCommand(path: string): CommandPart | undefined {
+  return externalCommand("ls", ["-la"], [path]);
+}
+
+/** A size listing command for one machine-internal record, when derivable. */
+function sizeCommand(path: string): CommandPart | undefined {
+  return externalCommand("ls", ["-lh"], [path]);
+}
+
+/** An editor command for one machine-internal record, when derivable. */
+function editorCommand(path: string): CommandPart | undefined {
+  return externalCommand("vi", [], [path]);
+}
+
+/** The plain-text projection of inline content. */
+function flat(parts: readonly InlineContent[]): string {
+  return flatInlineText(parts);
+}
+
+/** Drop the `undefined` entries a fail-closed command authoring produced. */
+function compact(parts: readonly (InlineContent | undefined)[]): readonly InlineContent[] {
+  return parts.filter((part): part is InlineContent => part !== undefined);
+}
+
+/**
+ * Manual recovery for one machine-internal record: the rich phrasing carries
+ * the inspect and editor commands; when the recorded path cannot be quoted
+ * safely, the remedy degrades to honest prose naming the raw path — it never
+ * emits an unusable command and never hides the manual requirement (#440).
+ */
+function recordRecovery(
+  path: string,
+  rich: readonly (InlineContent | undefined)[],
+  fallbackLead: string,
+  fallbackBody = "Inspect and repair",
+): readonly InlineContent[] {
+  const hasCommands = rich.some((part) => typeof part !== "string" && part !== undefined);
+  if (hasCommands) return compact(rich);
+  return [
+    `${fallbackLead} ${fallbackBody} '${path}' yourself, then run `,
+    apkit("status"),
+    " to verify.",
+  ];
+}
+
+/**
+ * The single authored wording source for one blocker (#440): plain newcomer
+ * sentences whose recovery commands are derived from the carried evidence.
+ * Scope identity is never duplicated in the sentences — presentation owns the
+ * Project identity line; commands carry the explicit project argument.
+ */
+function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
+  switch (blocker.kind) {
+    case INSTALLATION_STATE_UNREADABLE: {
+      const statePath = blocker.affectedItems.find((item) => item.kind === "path")?.value ?? "";
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit lifecycle commands require a readable installation record.",
+      ];
+      if (blocker.stateFailure?.case === "legacy-yaml-state-expired") {
+        const retiredPath = blocker.stateFailure.retiredPath;
+        const problem: readonly InlineContent[] = [
+          `The retired legacy record at ${blocker.stateFailure.retiredPath} is unsupported ` +
+            "because the migration window is closed.",
+        ];
+        return {
+          message: problem,
+          problem,
+          remedy: recordRecovery(retiredPath, [
+            "Manual recovery is required: Agent Profile Kit cannot read this record " +
+              "and will not rename, delete, or migrate it itself. Inspect ",
+            inspectCommand(retiredPath),
+            " and ",
+            editorCommand(retiredPath),
+            `, migrate it to ${statePath} with Agent Profile Kit 0.95.0 as documented, ` +
+              "then run ",
+            apkit("status"),
+            " to verify.",
+          ],
+            "Manual recovery is required: Agent Profile Kit cannot read this record " +
+              "and will not rename, delete, or migrate it itself; migrate it with " +
+              "Agent Profile Kit 0.95.0 as documented",
+            "Inspect and migrate",
+          ),
+          requirement,
+        };
+      }
+      if (blocker.stateFailure?.case === "oversize-state") {
+        const problem: readonly InlineContent[] = [
+          `The installation record at ${statePath} exceeds the ` +
+            `${blocker.stateFailure.limitBytes} byte limit.`,
+        ];
+        return {
+          message: problem,
+          problem,
+          remedy: recordRecovery(statePath, [
+            "Manual recovery is required: Agent Profile Kit cannot read or repair its " +
+              "own record. Inspect ",
+            sizeCommand(statePath),
+            ", edit it with ",
+            editorCommand(statePath),
+            ` to bring it under ${blocker.stateFailure.limitBytes} bytes, then run `,
+            apkit("status"),
+            " to verify.",
+          ], "Manual recovery is required: Agent Profile Kit cannot read or repair its own record."),
+          requirement,
+        };
+      }
+      if (blocker.stateFailure?.case === "receipt-records-no-outputs") {
+        const problem: readonly InlineContent[] = [
+          `The installation record at ${statePath} records no generated files for the ` +
+            `installation at ${blocker.stateFailure.project}.`,
+        ];
+        return {
+          message: problem,
+          problem,
+          remedy: recordRecovery(statePath, [
+            "Manual recovery is required: Agent Profile Kit cannot repair its own " +
+              "record. Inspect ",
+            sizeCommand(statePath),
+            ", edit it with ",
+            editorCommand(statePath),
+            ` to restore the recorded generated files for ` +
+              `${blocker.stateFailure.project}, then run `,
+            apkit("status"),
+            " to verify.",
+          ], "Manual recovery is required: Agent Profile Kit cannot repair its own record."),
+          requirement,
+        };
+      }
+      const detail = blockerDetail(blocker);
+      const problem: readonly InlineContent[] = [
+        `Cannot read the installation record at ${statePath}: ${detail}`,
+      ];
+      return {
+        message: problem,
+        problem,
+        remedy: recordRecovery(statePath, [
+          "Manual recovery is required: Agent Profile Kit cannot read this record. " +
+            "Inspect ",
+          inspectCommand(statePath),
+          ", restore access or repair the file with ",
+          editorCommand(statePath),
+          ", then run ",
+          apkit("status"),
+          " to verify.",
+        ], "Manual recovery is required: Agent Profile Kit cannot read this record."),
+        requirement,
+      };
+    }
+    case OCCUPIED_OUTPUT: {
+      const path = blocker.affectedItems.find((item) => item.kind === "path")?.value ?? "";
+      const problem: readonly InlineContent[] = [occupiedOutputProblem(blocker)];
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit installs generated files only at new or managed " +
+          "destinations; it never overwrites files it did not install.",
+      ];
+      if (blocker.remedyKey === "opencode-config-occupied") {
+        const remedy = compact([
+          "Move your OpenCode configuration to opencode.json or .opencode/opencode.json " +
+            "yourself, then run ",
+          apkit("apply", quoted(blocker.project!)),
+          ...unbindAlternative(blocker.project!),
+        ]);
+        return { message: problem, problem, remedy, requirement };
+      }
+      const inspectParent = blocker.occupied?.case === "occupied-parent";
+      const inspected = inspectParent ? path.replace(/\/?[^/]+$/, "") : path;
+      const remedy = compact([
+        "Manual recovery is required: Agent Profile Kit will not remove or overwrite " +
+          "these files. Inspect ",
+        inspectParent
+          ? inspectCommand(projectPath(blocker.project!, inspected))
+          : listCommand(projectPath(blocker.project!, inspected)),
+        ", move or remove it yourself only if you do not need it, then run ",
+        apkit("apply", quoted(blocker.project!)),
+        ...unbindAlternative(blocker.project!),
+      ]);
+      return { message: problem, problem, remedy, requirement };
+    }
+    case INSTALLATION_OWNERSHIP: {
+      const failure = blockerOwnershipFailure(blocker);
+      const verify = blockerAction(blocker) === "verify";
+      const problem: readonly InlineContent[] = [
+        verify
+          ? "Cannot verify ownership of generated files: "
+          : "Cannot remove stale generated files: ",
+        ownershipFailureSentence(failure),
+      ];
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit changes or removes generated files only when ownership " +
+          "is proven by the installation record at safe paths.",
+      ];
+      if (failure.case === "git-tracked-output") {
+        if (verify) {
+          const remedy = untrackChoiceRemedy(
+            blocker.project!,
+            failure.outputs,
+            ["apply", quoted(blocker.project!)],
+          );
+          return { message: problem, problem, remedy, requirement };
+        }
+        const untrack = gitUntrackCommand(blocker.project!, failure.outputs);
+        const remedy = compact(untrack === undefined
+          ? [
+              "Manual recovery is required: Agent Profile Kit could not derive a safe " +
+                `untracking command from the recorded paths (${pathList(failure.outputs)}). ` +
+                "Untrack them in Git yourself without reinterpreting special characters, " +
+                "then run ",
+              apkit("apply", "--all"),
+              " — it applies every pending Project, not only this one.",
+            ]
+          : [
+              "These stale generated files are tracked by Git; " + GIT_OWNED_CLAUSE +
+                ". Run ",
+              untrack,
+              " to stage their removal from the Git index while the files stay on " +
+                "disk (commit afterwards to keep the change), then run ",
+              apkit("apply", "--all"),
+              " — it applies every pending Project, not only this one.",
+            ]);
+        return { message: problem, problem, remedy, requirement };
+      }
+      if (failure.case === "unproven") {
+        if (verify) {
+          const remedy = compact([
+            "No specific file is recorded, so manual inspection of the Project is " +
+              "required. Run ",
+            apkit("unbind", quoted(blocker.project!)),
+            " to stop managing this Project — nothing is repaired or removed, and " +
+              "its generated files stay on disk — or inspect the Project's generated " +
+              "files yourself, restore what matches the installation record, then run ",
+            apkit("apply", quoted(blocker.project!)),
+            ".",
+          ]);
+          return { message: problem, problem, remedy, requirement };
+        }
+        const remedy = compact([
+          "Manual recovery is required: no specific file is recorded. Remove or " +
+            "restore the stale generated files yourself, then run ",
+          apkit("apply", "--all"),
+          " — it applies every pending Project, not only this one.",
+        ]);
+        return { message: problem, problem, remedy, requirement };
+      }
+      const inspected = failure.case === "unsupported-entry"
+        ? projectPath(failure.output, failure.member)
+        : failure.output;
+      const inspectTarget = failure.case === "unsafe-parent"
+        ? failure.parent
+        : projectPath(blocker.project!, inspected);
+      const restoreClause = failure.case === "unsafe-parent"
+        ? ", restore it to a regular directory inside the Project yourself, then run "
+        : ", remove or restore it yourself, then run ";
+      const remedy = compact(verify
+        ? [
+            "Manual recovery is required: Agent Profile Kit will not adopt or delete " +
+              "files it cannot prove. Inspect ",
+            inspectCommand(inspectTarget),
+            restoreClause,
+            apkit("apply", quoted(blocker.project!)),
+            ...unbindAlternative(blocker.project!),
+          ]
+        : [
+            "Manual recovery is required: Agent Profile Kit will not delete files it " +
+              "cannot prove. Inspect ",
+            inspectCommand(inspectTarget),
+            restoreClause,
+            apkit("apply", "--all"),
+            " — it applies every pending Project, not only this one.",
+          ]);
+      return { message: problem, problem, remedy, requirement };
+    }
+    case OUTPUT_OWNERSHIP_CONFLICT: {
+      const paths = blocker.affectedItems
+        .filter((item) => item.kind === "path")
+        .map((item) => item.value)
+        .sort(compareCanonicalStrings);
+      const problem: readonly InlineContent[] = paths.length === 1
+        ? [`${paths[0]} is tracked by Git, so Agent Profile Kit cannot write to it.`]
+        : [
+            `${paths[0]} and ${paths.length - 1} more files are tracked by Git, so ` +
+              "Agent Profile Kit cannot write to them.",
+          ];
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit must exclusively manage its generated files; Git-tracked " +
+          "paths cannot be replaced.",
+      ];
+      const remedy = untrackChoiceRemedy(blocker.project!, paths, [
+        "apply",
+        quoted(blocker.project!),
+      ]);
+      return { message: problem, problem, remedy, requirement };
+    }
+    case TEMPORARY_INSTALLATION_CONFLICT: {
+      const identity = blocker.affectedItems.find((item) => item.kind === "installation-id")?.value;
+      const requirement: readonly InlineContent[] = [
+        "A Project hosts at most one managed installation at a time.",
+      ];
+      if (identity !== undefined) {
+        const problem: readonly InlineContent[] = [
+          `A temporary Profile already owns generated files in this Project ` +
+            `(installation identity ${identity}).`,
+        ];
+        return {
+          message: problem,
+          problem,
+          remedy: compact([
+            "Run ",
+            apkit("machine", "remove-temp", quoted(identity)),
+            " to remove the temporary Profile, then retry your original command.",
+          ]),
+          requirement,
+        };
+      }
+      const problem: readonly InlineContent[] = [
+        "Generated files in this Project are already managed through a configured " +
+          "Project installation.",
+      ];
+      return {
+        message: problem,
+        problem,
+        remedy: compact([
+          "Run ",
+          apkit("unbind", quoted(blocker.project!)),
+          " to stop managing this Project — nothing is removed automatically and " +
+            "its generated files stay on disk; remove the generated files yourself, " +
+            "then retry your original command.",
+        ]),
+        requirement,
+      };
+    }
+    case TEMPORARY_INSTALLATION_REMOVAL: {
+      const identity = blockerRemovalIdentity(blocker);
+      const failure = blockerRemovalFailure(blocker);
+      const problem: readonly InlineContent[] = [
+        `Cannot remove the temporary Profile (installation identity ${identity}): `,
+        temporaryRemovalFailureSentence(failure),
+      ];
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit removes temporary Profiles only from recorded paths that " +
+          "are proven safe.",
+      ];
+      const removeTemp = apkit("machine", "remove-temp", quoted(identity));
+      if (failure.case === "git-tracked-output") {
+        const untrack = gitUntrackCommand(blocker.project!, failure.outputs);
+        const remedy = compact(untrack === undefined
+          ? [
+              "Manual recovery is required: Agent Profile Kit could not derive a safe " +
+                `untracking command from the recorded paths (${pathList(failure.outputs)}). ` +
+                "Untrack them in Git yourself without reinterpreting special characters, " +
+                "then run ",
+              removeTemp,
+              ".",
+            ]
+          : [
+              "Run ",
+              untrack,
+              " to stage their removal from the Git index while the files stay on " +
+                "disk (commit afterwards to keep the change), then run ",
+              removeTemp,
+              " — it deletes the generated files from disk.",
+            ]);
+        return { message: problem, problem, remedy, requirement };
+      }
+      if (failure.case === "symlink-output") {
+        return {
+          message: problem,
+          problem,
+          remedy: compact([
+            "Manual recovery is required: Agent Profile Kit will not follow or remove " +
+              "the symlink. Inspect ",
+            inspectCommand(projectPath(blocker.project!, failure.output)),
+            ", preserve or remove the symlink yourself, then run ",
+            removeTemp,
+            ".",
+          ]),
+          requirement,
+        };
+      }
+      return {
+        message: problem,
+        problem,
+        remedy: compact([
+          "Manual recovery is required: Agent Profile Kit will not traverse outside " +
+            "the Project. Inspect ",
+          inspectCommand(failure.parent),
+          ", restore it to a regular directory inside the Project yourself, then run ",
+          removeTemp,
+          ".",
+        ]),
+        requirement,
+      };
+    }
+  }
+}
+
+/** The verbatim stored wording for one blocker; machine JSON publishes these values. */
+export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
+  const parts = wordingParts(blocker);
+  return {
+    message: flat(parts.message),
+    problem: flat(parts.problem),
+    remedy: flat(parts.remedy),
+    requirement: flat(parts.requirement),
+  };
+}
+
+/** The human parts rendering of one blocker: the same authored plain sentences. */
+export function humanBlockerWording(blocker: ReconciliationBlocker): HumanBlockerWording {
+  const parts = wordingParts(blocker);
+  return {
+    message: parts.message,
+    problem: parts.problem,
+    remedy: parts.remedy,
+    requirement: parts.requirement,
+  };
+}
+
+/**
+ * The remedy wording for an occupied OpenCode configuration destination, as a
+ * plain-text projection of the authored remedy for the named Project.
+ */
+export function opencodeConfigOccupiedRemedy(project: string): string {
+  const occupied = normalizeBlocker(occupiedOutputBlocker({
+    occupied: { case: "occupied-destination", occupation: "file" },
+    path: ".opencode/opencode.json",
+    project,
+    remedyKey: "opencode-config-occupied",
+  }));
+  return blockerWording(occupied).remedy;
+}
+
+/**
+ * Newcomer substitutions applied when rendering Installer-error wording for
+ * humans outside the blocker lexicon; keeps every human error surface inside
+ * the vocabulary guard. Blocker wording is authored plain at the source and
+ * does not pass through substitutions.
+ */
+export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
+  readonly replacement: string | CommandPart;
+  readonly term: RegExp;
+}[] = [
+  { replacement: "configured Projects", term: /Project Bindings/g },
+  { replacement: "configured Project", term: /Project Binding/g },
+  { replacement: "temporary Profiles", term: /Temporary Profile Installations/g },
+  { replacement: "temporary Profile", term: /Temporary Profile Installation/g },
+  { replacement: "installation record", term: /Installation State/g },
+  { replacement: "generated files", term: /\bgenerated outputs\b/gi },
+  { replacement: "generated file", term: /\bgenerated output\b/gi },
+  {
+    replacement: commandPart("apkit", [arg("machine"), arg("install-temp")]),
+    term: /\binstall-temp\b/g,
+  },
+  {
+    replacement: commandPart("apkit", [arg("machine"), arg("remove-temp")]),
+    term: /\bremove-temp\b/g,
+  },
+];
+
+/**
+ * Apply the newcomer substitutions to inline content: string spans split at
+ * term matches and the replacement is authored in place — a command
+ * replacement becomes an atomic command part (DEC-009). Atomic parts pass
+ * through untouched: a carried value is never rewritten.
+ */
+export function substituteInline(
+  content: readonly InlineContent[],
+): readonly InlineContent[] {
+  return content.flatMap((part) => {
+    if (typeof part !== "string") return [part];
+    let spans: readonly InlineContent[] = [part];
+    for (const substitution of DEFAULT_BLOCKER_SUBSTITUTIONS) {
+      spans = spans.flatMap((span) => {
+        if (typeof span !== "string") return [span];
+        const pieces: InlineContent[] = [];
+        let cursor = 0;
+        for (const match of span.matchAll(substitution.term)) {
+          const start = match.index;
+          if (start === undefined || match[0].length === 0) continue;
+          if (start > cursor) pieces.push(span.slice(cursor, start));
+          pieces.push(substitution.replacement);
+          cursor = start + match[0].length;
+        }
+        if (pieces.length === 0) return [span];
+        if (cursor < span.length) pieces.push(span.slice(cursor));
+        return pieces;
+      });
+    }
+    return spans;
+  });
+}
+
+/**
+ * Newcomer substitution for presentation-owned error text rendered outside the
+ * blocker lexicon; keeps every human error surface inside the vocabulary guard.
+ */
+export function applyNewcomerSubstitutions(text: string): string {
+  return substitute(text);
+}
+
+function substitute(text: string): string {
+  return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
+    (rendered, substitution) => {
+      const replacement = typeof substitution.replacement === "string"
+        ? substitution.replacement
+        : flatInlineText([substitution.replacement]);
+      return rendered.replaceAll(substitution.term, replacement);
+    },
+    text,
+  );
 }
 
 /** The carried sentence for one typed Installation State read-failure fact. */
@@ -139,264 +883,6 @@ export function describeTemporaryRemovalFailure(failure: TemporaryRemovalFailure
     case "unsafe-parent":
       return describeOwnershipFailure(failure);
   }
-}
-
-function occupiedOutputProblem(blocker: ReconciliationBlocker): string {
-  if (blocker.kind !== OCCUPIED_OUTPUT) {
-    throw new TypeError("occupiedOutputProblem requires an occupied-output blocker");
-  }
-  const path = blocker.affectedItems.find((item) => item.kind === "path")?.value ?? "";
-  const occupied = blockerOccupied(blocker);
-  switch (occupied.case) {
-    case "occupied-parent":
-      return `${path} is an occupied ${occupied.occupation} parent path`;
-    case "occupied-destination":
-      return `${path} is an occupied ${occupied.occupation} path`;
-    case "drifted-output":
-      return `${path} is occupied by unowned or drifted output`;
-    case "unowned-artifact-directory":
-      return `${path} is an occupied unowned artifact directory`;
-  }
-}
-
-/** The verbatim stored wording for one blocker; machine JSON publishes these values. */
-export function blockerWording(blocker: ReconciliationBlocker): BlockerWording {
-  switch (blocker.kind) {
-    case INSTALLATION_STATE_UNREADABLE: {
-      const problem = blocker.stateFailure === undefined
-        ? blockerDetail(blocker)
-        : describeStateReadFailure(blocker.stateFailure);
-      return {
-        message: problem,
-        problem,
-        remedy: "Restore or repair the Installation State file, then retry",
-        requirement: "Lifecycle commands require readable Installation State",
-      };
-    }
-    case OCCUPIED_OUTPUT: {
-      const problem = occupiedOutputProblem(blocker);
-      return {
-        message: problem,
-        problem,
-        remedy: blocker.remedyKey === "opencode-config-occupied"
-          ? OPENCODE_CONFIG_OCCUPIED_REMEDY
-          : "Remove, move, or adopt the occupying material yourself, or change the Project " +
-            "Binding or Host selection so Agent Profile Kit does not plan output at that path, " +
-            "then retry",
-        requirement:
-          "Generated files are installed only at new or Agent Profile Kit-managed destinations; " +
-          "occupied unowned material is never overwritten or adopted",
-      };
-    }
-    case INSTALLATION_OWNERSHIP: {
-      const problem = blockerAction(blocker) === "verify"
-        ? `Cannot verify generated-file ownership: ${describeOwnershipFailure(blockerOwnershipFailure(blocker))}`
-        : `Cannot remove stale generated files: ${describeOwnershipFailure(blockerOwnershipFailure(blocker))}`;
-      return {
-        message: problem,
-        problem,
-        remedy:
-          "Remove the conflicting generated files yourself after verifying the paths, then retry",
-        requirement:
-          "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-          "active installation record at safe paths",
-      };
-    }
-    case OUTPUT_OWNERSHIP_CONFLICT: {
-      const paths = blocker.affectedItems
-        .filter((item) => item.kind === "path")
-        .map((item) => item.value)
-        .sort(compareCanonicalStrings);
-      const message = paths.length > 0
-        ? (() => {
-          const first = join(blocker.project!, paths[0]!);
-          return paths.length === 1
-            ? `${first} is a tracked project path`
-            : `${first} and ${paths.length - 1} more tracked project ` +
-              `${paths.length === 2 ? "path" : "paths"}`;
-        })()
-        : "These generated paths are tracked by Git";
-      return {
-        message,
-        problem:
-          "These generated paths are tracked by Git, so Agent Profile Kit cannot write to them " +
-          "without conflicting with repository ownership.",
-        remedy:
-          "Choose one: keep repository ownership and change the Project Binding or its Host " +
-          "selection so Agent Profile Kit does not plan output at these paths, or intentionally " +
-          "remove the conflicting paths from repository ownership yourself before retrying. " +
-          "Agent Profile Kit will not delete, untrack, adopt, or overwrite repository-owned material.",
-        requirement:
-          "Generated files must be exclusively managed by Agent Profile Kit; repository-owned " +
-          "paths cannot be replaced.",
-      };
-    }
-    case TEMPORARY_INSTALLATION_CONFLICT: {
-      const installationId = blocker.affectedItems.find(
-        (item) => item.kind === "installation-id",
-      )?.value;
-      const problem = installationId === undefined
-        ? "Generated files are already managed through a Project Binding; remove them " +
-          "before installing a temporary Profile"
-        : `An active Temporary Profile Installation already owns generated files ` +
-          `(${installationId})`;
-      return {
-        message: problem,
-        problem,
-        remedy:
-          "Remove the existing Project Binding-managed files or the active Temporary Profile " +
-          "Installation, then retry install-temp",
-        requirement:
-          "A Project hosts at most one managed installation at a time; temporary lifetime is " +
-          "receipt-owned under ADR-0015",
-      };
-    }
-    case TEMPORARY_INSTALLATION_REMOVAL: {
-      const problem =
-        `Cannot remove Temporary Profile Installation: ${describeTemporaryRemovalFailure(blockerRemovalFailure(blocker))}`;
-      return {
-        message: problem,
-        problem,
-        remedy:
-          "Remove the owned output yourself after verifying the paths, then retry remove-temp",
-        requirement:
-          "remove-temp removes only ownership-proven temporary-owned roots and never " +
-          "traverses outside recorded project-relative roots",
-      };
-    }
-  }
-}
-
-/**
- * Newcomer substitutions applied when rendering blocker wording for humans.
- * Internal domain terms become their default-view lexicon equivalents, and
- * machine-namespace command references become atomic command parts: the
- * substitution authors the invocation rather than leaving it to be
- * re-identified in rendered text (DEC-009). Ordered: plural forms before
- * singular, longest first.
- */
-export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
-  readonly replacement: string | CommandPart;
-  readonly term: RegExp;
-}[] = [
-  { replacement: "configured Projects", term: /Project Bindings/g },
-  { replacement: "configured Project", term: /Project Binding/g },
-  { replacement: "temporary Profiles", term: /Temporary Profile Installations/g },
-  { replacement: "temporary Profile", term: /Temporary Profile Installation/g },
-  { replacement: "installation record", term: /Installation State/g },
-  { replacement: "generated files", term: /\bgenerated outputs\b/gi },
-  { replacement: "generated file", term: /\bgenerated output\b/gi },
-  {
-    replacement: commandPart("apkit", [arg("machine"), arg("install-temp")]),
-    term: /\binstall-temp\b/g,
-  },
-  {
-    replacement: commandPart("apkit", [arg("machine"), arg("remove-temp")]),
-    term: /\bremove-temp\b/g,
-  },
-];
-
-/**
- * Newcomer substitution for presentation-owned error text rendered outside the
- * blocker lexicon; keeps every human error surface inside the vocabulary guard.
- */
-export function applyNewcomerSubstitutions(text: string): string {
-  return substitute(text);
-}
-
-function substitute(text: string): string {
-  return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
-    (rendered, substitution) => {
-      const replacement = typeof substitution.replacement === "string"
-        ? substitution.replacement
-        : flatInlineText([substitution.replacement]);
-      return rendered.replaceAll(substitution.term, replacement);
-    },
-    text,
-  );
-}
-
-/**
- * Apply the newcomer substitutions to inline content: string spans split at
- * term matches and the replacement is authored in place — a command
- * replacement becomes an atomic command part (DEC-009). Atomic parts pass
- * through untouched: a carried value is never rewritten.
- */
-export function substituteInline(
-  content: readonly InlineContent[],
-): readonly InlineContent[] {
-  return content.flatMap((part) => {
-    if (typeof part !== "string") return [part];
-    let spans: readonly InlineContent[] = [part];
-    for (const substitution of DEFAULT_BLOCKER_SUBSTITUTIONS) {
-      spans = spans.flatMap((span) => {
-        if (typeof span !== "string") return [span];
-        const pieces: InlineContent[] = [];
-        let cursor = 0;
-        for (const match of span.matchAll(substitution.term)) {
-          const start = match.index;
-          if (start === undefined || match[0].length === 0) continue;
-          if (start > cursor) pieces.push(span.slice(cursor, start));
-          pieces.push(substitution.replacement);
-          cursor = start + match[0].length;
-        }
-        if (pieces.length === 0) return [span];
-        if (cursor < span.length) pieces.push(span.slice(cursor));
-        return pieces;
-      });
-    }
-    return spans;
-  });
-}
-
-/**
- * The runnable command appended to a rendered remedy where the carried remedy
- * names none. Kinds whose carried remedy already names a command after
- * substitution (temporary installation) or whose rendering includes dedicated
- * recovery command lines (tracked-output conflicts) need no addition.
- */
-function remedyCommand(blocker: ReconciliationBlocker): readonly InlineContent[] | undefined {
-  switch (blocker.kind) {
-    case INSTALLATION_STATE_UNREADABLE:
-      return ["Run ", commandPart("apkit", [arg("status")]), " to retry."];
-    case OCCUPIED_OUTPUT:
-      return [
-        "Run ",
-        commandPart("apkit", [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
-        " to change the configured Project, or ",
-        commandPart("apkit", [arg("apply")]),
-        " to retry.",
-      ];
-    case INSTALLATION_OWNERSHIP:
-      return blockerAction(blocker) === "verify"
-        ? ["Run ", commandPart("apkit", [arg("apply")]), " to retry."]
-        : ["Run ", commandPart("apkit", [arg("uninstall")]), " to retry."];
-    case OUTPUT_OWNERSHIP_CONFLICT:
-    case TEMPORARY_INSTALLATION_CONFLICT:
-    case TEMPORARY_INSTALLATION_REMOVAL:
-      return undefined;
-  }
-}
-
-/** The human parts rendering of one blocker: newcomer terms plus a runnable command where needed. */
-export interface HumanBlockerWording {
-  readonly message: readonly InlineContent[];
-  readonly problem: readonly InlineContent[];
-  readonly remedy: readonly InlineContent[];
-  readonly requirement: readonly InlineContent[];
-}
-
-export function humanBlockerWording(blocker: ReconciliationBlocker): HumanBlockerWording {
-  const wording = blockerWording(blocker);
-  const command = remedyCommand(blocker);
-  return {
-    message: substituteInline([wording.message]),
-    problem: substituteInline([wording.problem]),
-    remedy: command === undefined
-      ? substituteInline([wording.remedy])
-      : [...substituteInline([`${wording.remedy}. `]), ...command],
-    requirement: substituteInline([wording.requirement]),
-  };
 }
 
 /**

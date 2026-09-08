@@ -17,6 +17,7 @@ import {
   normalizeBlocker,
   OUTPUT_OWNERSHIP_CONFLICT,
   type ReconciliationBlocker,
+  temporaryInstallationRemovalBlocker,
 } from "../installer/blockers.js";
 import {
   applyNewcomerSubstitutions,
@@ -93,12 +94,21 @@ describe("shared blocker contract", () => {
     expect("remedy" in blocker).toBe(false);
     expect("message" in blocker).toBe(false);
     expect(blockerWording(blocker)).toEqual({
-      message: "Cannot verify generated-file ownership: ownership could not be proven",
-      problem: "Cannot verify generated-file ownership: ownership could not be proven",
-      remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+      message:
+        "Cannot verify ownership of generated files: ownership could not be proven " +
+          "from the installation record.",
+      problem:
+        "Cannot verify ownership of generated files: ownership could not be proven " +
+          "from the installation record.",
+      remedy:
+        "No specific file is recorded, so manual inspection of the Project is " +
+          "required. Run apkit unbind '/project-a' to stop managing this Project — " +
+          "nothing is repaired or removed, and its generated files stay on disk — or " +
+          "inspect the Project's generated files yourself, restore what matches the " +
+          "installation record, then run apkit apply '/project-a'.",
       requirement:
-        "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-        "active installation record at safe paths",
+        "Agent Profile Kit changes or removes generated files only when ownership " +
+          "is proven by the installation record at safe paths.",
     });
     expect(() =>
       normalizeBlocker({ ...OWNERSHIP_BLOCKER_INPUT, project: "/project-b" }, "/project-a"),
@@ -231,12 +241,21 @@ describe("shared blocker contract", () => {
         kind: "installation-ownership",
         scope: "project",
         project: "/project-a",
-        message: "Cannot verify generated-file ownership: ownership could not be proven",
-        problem: "Cannot verify generated-file ownership: ownership could not be proven",
+        message:
+          "Cannot verify ownership of generated files: ownership could not be proven " +
+            "from the installation record.",
+        problem:
+          "Cannot verify ownership of generated files: ownership could not be proven " +
+            "from the installation record.",
         requirement:
-          "Agent Profile Kit syncs or removes only files whose ownership is proven by the " +
-          "active installation record at safe paths",
-        remedy: "Remove the conflicting generated files yourself after verifying the paths, then retry",
+          "Agent Profile Kit changes or removes generated files only when ownership " +
+            "is proven by the installation record at safe paths.",
+        remedy:
+          "No specific file is recorded, so manual inspection of the Project is " +
+            "required. Run apkit unbind '/project-a' to stop managing this Project — " +
+            "nothing is repaired or removed, and its generated files stay on disk — or " +
+            "inspect the Project's generated files yourself, restore what matches the " +
+            "installation record, then run apkit apply '/project-a'.",
         affectedItems: [{ kind: "host", value: "codex" }],
       }],
     });
@@ -392,15 +411,26 @@ describe("shared blocker contract", () => {
       "Installation State receipts record no generated outputs for the installation at /project-a",
     ]);
 
+    // Blocker problems are presentation-owned plain sentences keyed by the
+    // typed fact; the tool-error sentences above serve the Installer-error
+    // surface (ticket #441) and stay unchanged.
+    const plainProblems: readonly [string, string, string] = [
+      "The retired legacy record at /home/.agents/agent-profile-kit/state/manifest.yaml " +
+        "is unsupported because the migration window is closed.",
+      "The installation record at /home/state/manifest.json exceeds the 8388608 byte limit.",
+      "The installation record at /home/state/manifest.json records no generated files " +
+        "for the installation at /project-a.",
+    ];
+
     // Exactly one cause per blocker; both together are rejected.
-    for (const failure of facts) {
+    for (const [index, failure] of facts.entries()) {
       const blocker = normalizeBlocker(installationStateUnreadableBlocker({
         stateFailure: failure,
         statePath: "/home/state/manifest.json",
       }));
       expect(blocker.stateFailure).toEqual(failure);
       expect(blocker.detail).toBeUndefined();
-      expect(blockerWording(blocker).problem).toBe(describeStateReadFailure(failure));
+      expect(blockerWording(blocker).problem).toBe(plainProblems[index]!);
     }
     expect(() => normalizeBlocker({
       ...STATE_UNREADABLE_INPUT,
@@ -493,9 +523,44 @@ describe("shared blocker contract", () => {
       kind: "temporary-installation-removal",
       project: "/p",
       scope: "project",
+      temporaryInstallationId: "temp-1",
     } as never)).toThrow(
       "Structured blocker temporary-removal failure requires a non-empty output",
     );
+  });
+
+  test("temporary-installation-removal requires exactly one installation identity (#440)", () => {
+    const base = {
+      failure: { case: "symlink-output", output: ".codex/hooks.json" },
+      kind: "temporary-installation-removal",
+      project: "/p",
+      scope: "project",
+    } as const;
+    expect(() => normalizeBlocker({
+      ...base,
+      affectedItems: [{ kind: "path", value: ".codex/hooks.json" }],
+    } as never)).toThrow(
+      "Structured blocker temporary-installation-removal requires exactly one installation-id affected item",
+    );
+    expect(() => normalizeBlocker({
+      ...base,
+      affectedItems: [
+        { kind: "installation-id", value: "temp-1" },
+        { kind: "installation-id", value: "temp-2" },
+      ],
+    } as never)).toThrow(
+      "Structured blocker temporary-installation-removal requires exactly one installation-id affected item",
+    );
+    const removal = normalizeBlocker(temporaryInstallationRemovalBlocker({
+      failure: { case: "symlink-output", output: ".codex/hooks.json" },
+      outputs: [".codex/hooks.json"],
+      project: "/p",
+      temporaryInstallationId: "temp-1",
+    }));
+    expect(removal.affectedItems).toEqual([
+      { kind: "path", value: ".codex/hooks.json" },
+      { kind: "installation-id", value: "temp-1" },
+    ]);
   });
 
   test("TemporaryInstallationBlockedError carries one canonical structured collection", () => {
@@ -512,14 +577,11 @@ describe("shared blocker contract", () => {
     expect(error.structured).toEqual([structured, conflict]);
     expect(error.canonicalProject).toBe("/project-a");
     expect(error.message).toBe("temporary installation blocked: /project-a");
-    expect(blockerWording(conflict).problem).toBe(
-      "Generated files are already managed through a Project Binding; remove them " +
-      "before installing a temporary Profile",
-    );
-    expect(flatInlineText(humanBlockerWording(conflict).problem)).toBe(
-      "Generated files are already managed through a configured Project; remove them " +
-      "before installing a temporary Profile",
-    );
+    const conflictProblem =
+      "Generated files in this Project are already managed through a configured " +
+        "Project installation.";
+    expect(blockerWording(conflict).problem).toBe(conflictProblem);
+    expect(flatInlineText(humanBlockerWording(conflict).problem)).toBe(conflictProblem);
   });
 });
 
@@ -594,8 +656,8 @@ describe("tracked-output ownership conflicts", () => {
       { kind: "path", value: ".codex/hooks.json" },
     ]);
     expect(blockerWording(blocker).message).toBe(
-      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
-      "and 4 more tracked project paths",
+      ".agent-profile-kit/codex/context.md and 4 more files are tracked by Git, " +
+        "so Agent Profile Kit cannot write to them.",
     );
     expect(lifecycleExitCode(report)).toBe(2);
 
@@ -609,8 +671,8 @@ describe("tracked-output ownership conflicts", () => {
     );
     expect(conflicts).toHaveLength(1);
     expect(blockerWording(normalizeBlocker(conflicts[0]!)).message).toBe(
-      `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
-      "and 4 more tracked project paths",
+      ".agent-profile-kit/codex/context.md and 4 more files are tracked by Git, " +
+        "so Agent Profile Kit cannot write to them.",
     );
     const machineBlockers = JSON.parse(
       formatTemporaryInstallationBlockedJson(
@@ -623,11 +685,11 @@ describe("tracked-output ownership conflicts", () => {
       scope: "project",
       project: desired.installations[0]!.binding.canonicalProject,
       message:
-        `${desired.installations[0]!.binding.canonicalProject}/.agent-profile-kit/codex/context.md ` +
-        "and 4 more tracked project paths",
+        ".agent-profile-kit/codex/context.md and 4 more files are tracked by Git, " +
+          "so Agent Profile Kit cannot write to them.",
       problem: expect.stringContaining("tracked by Git"),
-      requirement: expect.stringContaining("Generated files must be exclusively managed"),
-      remedy: expect.stringContaining("keep repository ownership"),
+      requirement: expect.stringContaining("Git-tracked paths cannot be replaced"),
+      remedy: expect.stringContaining("To keep Git ownership instead"),
       affectedItems: [
         { kind: "path", value: ".agent-profile-kit/codex/context.md" },
         { kind: "path", value: ".agents/skills/s01" },

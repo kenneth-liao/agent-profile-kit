@@ -330,7 +330,7 @@ describe("Grok project Skill packages", () => {
     });
     expect(reportBlockers(preview).some((blocker) =>
       blockerWording(blocker).message.includes(".grok/skills/review-pr") &&
-      blockerWording(blocker).message.toLowerCase().includes("unowned")
+      blockerWording(blocker).message.includes("Agent Profile Kit did not install")
     )).toBe(true);
     expect(readFileSync(join(project, ".grok", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
       "foreign skill\n",

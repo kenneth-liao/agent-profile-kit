@@ -690,7 +690,7 @@ describe("Pi Adapter", () => {
       reportBlockers(preview).some(
         (blocker) =>
           blockerWording(blocker).message.includes(".agents/skills/review-pr") &&
-          blockerWording(blocker).message.toLowerCase().includes("unowned"),
+          blockerWording(blocker).message.includes("Agent Profile Kit did not install"),
       ),
     ).toBe(true);
     expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("foreign skill\n");

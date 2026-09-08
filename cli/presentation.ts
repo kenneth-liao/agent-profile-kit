@@ -430,7 +430,6 @@ function needsAttentionCauseNodes(
   projects: readonly ReconciliationProjectRecord[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
-  untrackRecovery: UntrackRecovery,
 ): PresentationNode[] {
   const nodes: PresentationNode[] = [{
     kind: "list-item",
@@ -448,7 +447,6 @@ function needsAttentionCauseNodes(
         displayProject,
         groups,
         "    ",
-        untrackRecovery,
         scope,
       ));
     }
@@ -1570,29 +1568,6 @@ function trackedPathGroupLines(
     );
 }
 
-function shellSingleQuoted(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-/**
- * The exact user-owned untracking command for proven tracked paths only
- * (#353): bound to the Blocker's own Project root so the caller's working
- * directory never selects the wrong repository, recursive so directory
- * evidence works, canonical order, safe option termination, POSIX
- * single-quoting. Guidance only — Agent Profile Kit never executes it.
- */
-function trackedPathUntrackCommand(
-  project: string,
-  paths: readonly string[],
-): string {
-  return `git -C ${shellSingleQuoted(project)} rm -r --cached -- ${paths.map(shellSingleQuoted).join(" ")}`;
-}
-
-/** How one ownership-conflict Blocker presents its user-owned recovery. */
-type UntrackRecovery =
-  | { readonly kind: "full" }
-  | { readonly kind: "pointer"; readonly command: LifecycleCommand };
-
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
   const groups = report.projects.map((record): ProjectGroup => ({
@@ -2628,7 +2603,6 @@ interface VerboseSectionOptions {
   readonly includeStateExplanations?: boolean;
   readonly scope: LocationDisplayScope;
   readonly stateExplanationItems?: readonly ReconciliationItem[];
-  readonly untrackRecovery: UntrackRecovery;
 }
 
 export function delimitedContext(context: string): string {
@@ -2847,7 +2821,6 @@ function conciseApplyDocument(
             displayProjectPath(group.canonicalProject, group.project, scope),
             groups,
             "  ",
-            { kind: "pointer", command: "apply" },
             scope,
           ),
         ));
@@ -2874,7 +2847,6 @@ function conciseApplyDocument(
           displayProjectPath(group.canonicalProject, group.project, scope),
           groups,
           "  ",
-          { kind: "pointer", command: "apply" },
           scope,
         ));
       }
@@ -2891,10 +2863,7 @@ function conciseApplyDocument(
     nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
   }
 
-  const globalBlockers = globalBlockerNodes(report, groups, {
-    kind: "pointer",
-    command: "apply",
-  }, scope);
+  const globalBlockers = globalBlockerNodes(report, groups, scope);
   if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
 
   const blockedSummary = blocked ? aggregateLine("apply", report, groups) : undefined;
@@ -2937,7 +2906,6 @@ function verboseApplyDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, result.resultingState);
-  const untrackRecovery: UntrackRecovery = { kind: "pointer", command: "apply" };
   const groups = groupProjects(result.resultingState).groups;
   const nodes: PresentationNode[] = [
     applyOutcomeNotice(result.resultingState, true),
@@ -2949,13 +2917,11 @@ function verboseApplyDocument(
         ...reportItems(result.resultingState),
         ...reportItems(result.receipt),
       ],
-      untrackRecovery,
     }),
     { kind: "heading", text: "Applied:" },
     ...verboseLifecycleSections(result.receipt, {
       includeStateExplanations: false,
       scope,
-      untrackRecovery,
     }),
     ...verboseHostSetupNodes("apply", result.resultingState, scope),
   ];
@@ -3033,7 +2999,6 @@ export function blockedApplyReportDocument(
       ...verboseWarningNodes(report, groups, scope),
       ...verboseLifecycleSections(report, {
         scope,
-        untrackRecovery: { kind: "pointer", command: "apply" },
       }),
       ...verboseHostSetupNodes("apply", report, scope),
     ];
@@ -3142,11 +3107,6 @@ export function applyVerificationFailureDocument(
       { kind: "heading", text: "Applied:" },
       ...verboseLifecycleSections(receipt, {
         scope,
-        // Focused verbose verification failure carries the exact command
-        // (#353 Decision 3); ordinary verbose points to the focused view.
-        untrackRecovery: options.blockersOnly === true
-          ? { kind: "full" }
-          : { kind: "pointer", command: "apply" },
       }),
       ...verboseHostSetupNodes("apply", receipt, scope),
     ];
@@ -3220,24 +3180,19 @@ function focusedConciseBlockerNodes(
           displayProjectPath(group.canonicalProject, group.project, scope),
           grouped.groups,
           "  ",
-          { kind: "pointer", command },
           scope,
         ),
       ),
     );
   }
-  const globalBlockers = globalBlockerNodes(report, grouped.groups, {
-    kind: "pointer",
-    command,
-  }, scope);
+  const globalBlockers = globalBlockerNodes(report, grouped.groups, scope);
   if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
   nodes.push(spacerNode(), blockersOnlyFooterNode(report));
   return nodes;
 }
 
 /** The typed verbose focused Blocker section: complete Blocker fields with
- * every affected item, then the footer. This is the only view that prints the
- * exact user-owned untracking command (#353, spec #345 Decision 8). */
+ * every affected item, then the footer. */
 function focusedVerboseBlockerNodes(
   report: ReconciliationReport,
   scope: LocationDisplayScope,
@@ -3248,7 +3203,7 @@ function focusedVerboseBlockerNodes(
     spacerNode(),
     { kind: "heading", text: "Blockers:", category: "error" },
     ...reportBlockers(report).flatMap((blocker) =>
-      verboseBlockerNodes(blocker, groups, shorten, { kind: "full" }, scope)
+      verboseBlockerNodes(blocker, groups, shorten, scope)
     ),
     spacerNode(),
     blockersOnlyFooterNode(report),
@@ -3256,53 +3211,6 @@ function focusedVerboseBlockerNodes(
 }
 
 /** The typed untracking recovery for one ownership-conflict Blocker. */
-function untrackRecoveryNodes(
-  project: string,
-  paths: readonly string[],
-  indent: string,
-  recovery: UntrackRecovery,
-): PresentationNode[] {
-  if (paths.length === 0) return [];
-  if (recovery.kind === "pointer") {
-    return [
-      {
-        kind: "prose",
-        parts: [
-          `${indent}  Recovery command: run `,
-          commandPart("apkit", [
-            arg(recovery.command),
-            arg("--blockers-only"),
-            arg("--verbose"),
-          ]),
-          " to see the exact untracking command.",
-        ],
-      },
-    ];
-  }
-  return [
-    {
-      kind: "prose",
-      parts: [`${indent}  Recovery: run the command below yourself; Agent Profile Kit never executes it. ` +
-        "It stages removal of these paths from Git ownership (the Git index) while the working files are preserved:"],
-    },
-    {
-      kind: "command",
-      program: "git",
-      args: [
-        { kind: "text", value: "-C" },
-        { kind: "text", value: shellSingleQuoted(project) },
-        { kind: "text", value: "rm" },
-        { kind: "text", value: "-r" },
-        { kind: "text", value: "--cached" },
-        { kind: "text", value: "--" },
-        ...paths.map((path) => ({ kind: "text" as const, value: shellSingleQuoted(path) })),
-      ],
-      category: "command",
-    },
-    { kind: "prose", parts: [`${indent}  Alternatively, change or remove the configured Project.`] },
-  ];
-}
-
 function shortenInlinePart(
   part: InlineContent,
   groups: readonly ProjectGroup[],
@@ -3345,7 +3253,6 @@ function conciseBlockerNodes(
   displayProject: string | undefined,
   groups: readonly ProjectGroup[],
   indent: string,
-  untrackRecovery: UntrackRecovery,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
   if (isOutputOwnershipConflict(blocker)) {
@@ -3369,7 +3276,6 @@ function conciseBlockerNodes(
           parts: [line],
         })),
       ]),
-      ...untrackRecoveryNodes(blocker.project!, paths, indent, untrackRecovery),
     ];
   }
   const wording = humanBlockerWording(blocker);
@@ -3393,7 +3299,6 @@ function verboseBlockerNodes(
   blocker: ReconciliationBlocker,
   groups: readonly ProjectGroup[],
   shorten: (text: string) => string,
-  untrackRecovery: UntrackRecovery,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
   const project = blocker.scope === "project"
@@ -3412,14 +3317,6 @@ function verboseBlockerNodes(
       : item.value;
     nodes.push({ kind: "prose", parts: [`  ${affectedItemLabel({ ...item, value })}`] });
   }
-  if (isOutputOwnershipConflict(blocker)) {
-    nodes.push(...untrackRecoveryNodes(
-      blocker.project!,
-      outputOwnershipConflictPaths(blocker),
-      "",
-      untrackRecovery,
-    ));
-  }
   return nodes;
 }
 
@@ -3427,7 +3324,6 @@ function verboseBlockerNodes(
 function globalBlockerNodes(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
-  untrackRecovery: UntrackRecovery,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
@@ -3435,7 +3331,7 @@ function globalBlockerNodes(
   return [
     { kind: "heading", text: "Global blockers:", category: "error" },
     ...globalBlockers.flatMap((blocker) =>
-      conciseBlockerNodes(blocker, undefined, groups, "  ", untrackRecovery, scope)
+      conciseBlockerNodes(blocker, undefined, groups, "  ", scope)
     ),
   ];
 }
@@ -3615,7 +3511,7 @@ function verboseLifecycleSections(
   if (blockers.length > 0) {
     nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
     for (const blocker of blockers) {
-      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, options.untrackRecovery, options.scope));
+      nodes.push(...verboseBlockerNodes(blocker, groups, shorten, options.scope));
     }
   }
   nodes.push(...verboseDetailNodes(
@@ -3840,7 +3736,6 @@ function conciseStatusDocument(
         causeProjects,
         groups,
         scope,
-        { kind: "pointer", command: "status" },
       ));
       continue;
     }
@@ -3851,10 +3746,7 @@ function conciseStatusDocument(
   }
 
   if (blocked) {
-    const globalBlockers = globalBlockerNodes(report, groups, {
-      kind: "pointer",
-      command: "status",
-    }, scope);
+    const globalBlockers = globalBlockerNodes(report, groups, scope);
     if (globalBlockers.length > 0) {
       nodes.push(spacerNode(), ...globalBlockers);
     }
@@ -3886,7 +3778,7 @@ function verboseStatusDocument(
   return [
     statusOutcomeNotice(report),
     ...verboseWarningNodes(report, groups, scope),
-    ...verboseLifecycleSections(report, { scope, untrackRecovery: { kind: "pointer", command: "status" } }),
+    ...verboseLifecycleSections(report, { scope }),
     ...verboseHostSetupNodes("status", report, scope),
   ];
 }

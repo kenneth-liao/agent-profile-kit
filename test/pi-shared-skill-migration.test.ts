@@ -221,7 +221,7 @@ describe("Pi shared Skill migration", () => {
     }
     expect(blocked).toBeInstanceOf(ApplyBlockedError);
     expect(blockerWording(reportBlockers((blocked as ApplyBlockedError).report)[0]!).message)
-      .toContain("ownership continuity");
+      .toContain("proves ownership.");
     expect(readFileSync(join(project, oldPath, "SKILL.md"), "utf8")).toBe("user edit\n");
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(statePath, "utf8")).toBe(beforeState);

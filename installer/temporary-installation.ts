@@ -530,6 +530,7 @@ export async function removeTemporaryProfile(options: {
               failure: error.failure,
               outputs: existing.outputs.map((output) => output.path),
               project: existing.project,
+              temporaryInstallationId: existing.installationId,
             }),
           ], existing.project);
         }
