@@ -223,7 +223,7 @@ Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
 `skill`) and its stable `id`. Dependencies are resolved transitively and every resolved reason remains
-available in live planning and verbose status. Inclusion reasons are not
+available in live planning. Inclusion reasons are not
 persisted in Installation State.
 
 A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
@@ -383,8 +383,7 @@ probing is advisory and happens only during `apply`: a missing or outdated Host
 CLI produces a warning and the planned output is written regardless; capability
 problems never block application and do not mark generated files as drifted.
 
-For complete per-output and desired-state diagnostics, including resolved
-artifact inclusion reasons and composed Context, append `--verbose` to `status` or `apply`. Warnings, blockers, drift reasons, and removal
+For focused per-output and state diagnostics, append `--verbose` to `status` or `apply`. Warnings, blockers, drift reasons, and removal
 intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.

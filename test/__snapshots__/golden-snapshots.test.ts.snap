@@ -459,7 +459,7 @@ Artifacts may declare required Dependencies with explicit typed references. Put
 Context Module Dependencies in their frontmatter and Skill Dependencies in each
 Skill's Agent Profile Kit sidecar. Each reference contains \`type\` (\`context\` or
 \`skill\`) and its stable \`id\`. Dependencies are resolved transitively and every resolved reason remains
-available in live planning and verbose status. Inclusion reasons are not
+available in live planning. Inclusion reasons are not
 persisted in Installation State.
 
 A Profile is a YAML file under \`profiles/\` with exactly an \`id\`, a \`context\`
@@ -619,8 +619,7 @@ probing is advisory and happens only during \`apply\`: a missing or outdated Hos
 CLI produces a warning and the planned output is written regardless; capability
 problems never block application and do not mark generated files as drifted.
 
-For complete per-output and desired-state diagnostics, including resolved
-artifact inclusion reasons and composed Context, append \`--verbose\` to \`status\` or \`apply\`. Warnings, blockers, drift reasons, and removal
+For focused per-output and state diagnostics, append \`--verbose\` to \`status\` or \`apply\`. Warnings, blockers, drift reasons, and removal
 intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.
@@ -996,7 +995,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.161.1
+Engine version: 0.162.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1356,32 +1355,6 @@ exports[`golden snapshots of every human view status verbose: status-verbose 1`]
 All Projects are current (1 Project)
 Projects:
 ~/projects/demo: current
-Outputs:
-~/projects/demo/.agent-profile-kit/codex/context.md: unchanged
-~/projects/demo/.codex/hooks.json: unchanged
-Git exclusions:
-(none)
-Selected setup:
-~/projects/demo: Profile example
-  Hosts: codex
-  Capability Contracts:
-    - codex: native-project-sessionstart-complete-context-v1
-  Outputs: .agent-profile-kit/codex/context.md, .codex/hooks.json
-  Consuming Hosts:
-    - .agent-profile-kit/codex/context.md: codex
-    - .codex/hooks.json: codex
-  Resolved artifacts:
-    - context:example-context (example: selected by profile)
-  Context:
---- begin Context ---
-# Agent Profile Kit Context — Profile: example
-Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.
-
-Keep project-specific instructions in the project repository.
---- end Context ---
-Blockers:
-(none)
-Host Setup:
 Host setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
@@ -1828,7 +1801,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.161.1
+Engine version: 0.162.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1838,7 +1811,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.161.1\x1B[0m
+\x1B[35mEngine version: 0.162.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1848,7 +1821,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.161.1
+Engine version: 0.162.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1858,7 +1831,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.161.1\x1B[0m
+\x1B[35mEngine version: 0.162.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2067,39 +2040,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 All Projects are current (1 Project)
 Projects:
 ~/projects/demo: current
-Outputs:
-~/projects/demo/.agent-profile-kit/codex/context.md:
-  unchanged
-~/projects/demo/.codex/hooks.json:
-  unchanged
-Git exclusions:
-(none)
-Selected setup:
-~/projects/demo: Profile example
-  Hosts: codex
-  Capability Contracts:
-    - codex:
-      native-project-sessionstart-complete-context-v1
-  Outputs:
-    .agent-profile-kit/codex/context.md,
-    .codex/hooks.json
-  Consuming Hosts:
-    - .agent-profile-kit/codex/context.md:
-      codex
-    - .codex/hooks.json: codex
-  Resolved artifacts:
-    - context:example-context (example:
-      selected by profile)
-  Context:
---- begin Context ---
-# Agent Profile Kit Context — Profile: example
-Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.
-
-Keep project-specific instructions in the project repository.
---- end Context ---
-Blockers:
-(none)
-Host Setup:
 Host setup:
 - Review and approve the generated
   SessionStart hook when Codex asks.
@@ -2125,39 +2065,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32mAll Projects are current (1 Project)\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
 ~/projects/demo: current
-\x1B[1;34mOutputs:\x1B[0m
-~/projects/demo/.agent-profile-kit/codex/context.md:
-  unchanged
-~/projects/demo/.codex/hooks.json:
-  unchanged
-\x1B[1;34mGit exclusions:\x1B[0m
-(none)
-\x1B[1;34mSelected setup:\x1B[0m
-~/projects/demo: Profile example
-  Hosts: codex
-  Capability Contracts:
-    - codex:
-      native-project-sessionstart-complete-context-v1
-  Outputs:
-    .agent-profile-kit/codex/context.md,
-    .codex/hooks.json
-  Consuming Hosts:
-    - .agent-profile-kit/codex/context.md:
-      codex
-    - .codex/hooks.json: codex
-  Resolved artifacts:
-    - context:example-context (example:
-      selected by profile)
-  Context:
---- begin Context ---
-# Agent Profile Kit Context — Profile: example
-Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.
-
-Keep project-specific instructions in the project repository.
---- end Context ---
-\x1B[31mBlockers:\x1B[0m
-(none)
-\x1B[1;34mHost Setup:\x1B[0m
 \x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
@@ -2183,32 +2090,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 All Projects are current (1 Project)
 Projects:
 ~/projects/demo: current
-Outputs:
-~/projects/demo/.agent-profile-kit/codex/context.md: unchanged
-~/projects/demo/.codex/hooks.json: unchanged
-Git exclusions:
-(none)
-Selected setup:
-~/projects/demo: Profile example
-  Hosts: codex
-  Capability Contracts:
-    - codex: native-project-sessionstart-complete-context-v1
-  Outputs: .agent-profile-kit/codex/context.md, .codex/hooks.json
-  Consuming Hosts:
-    - .agent-profile-kit/codex/context.md: codex
-    - .codex/hooks.json: codex
-  Resolved artifacts:
-    - context:example-context (example: selected by profile)
-  Context:
---- begin Context ---
-# Agent Profile Kit Context — Profile: example
-Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.
-
-Keep project-specific instructions in the project repository.
---- end Context ---
-Blockers:
-(none)
-Host Setup:
 Host setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
@@ -2226,32 +2107,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32mAll Projects are current (1 Project)\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
 ~/projects/demo: current
-\x1B[1;34mOutputs:\x1B[0m
-~/projects/demo/.agent-profile-kit/codex/context.md: unchanged
-~/projects/demo/.codex/hooks.json: unchanged
-\x1B[1;34mGit exclusions:\x1B[0m
-(none)
-\x1B[1;34mSelected setup:\x1B[0m
-~/projects/demo: Profile example
-  Hosts: codex
-  Capability Contracts:
-    - codex: native-project-sessionstart-complete-context-v1
-  Outputs: .agent-profile-kit/codex/context.md, .codex/hooks.json
-  Consuming Hosts:
-    - .agent-profile-kit/codex/context.md: codex
-    - .codex/hooks.json: codex
-  Resolved artifacts:
-    - context:example-context (example: selected by profile)
-  Context:
---- begin Context ---
-# Agent Profile Kit Context — Profile: example
-Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.
-
-Keep project-specific instructions in the project repository.
---- end Context ---
-\x1B[31mBlockers:\x1B[0m
-(none)
-\x1B[1;34mHost Setup:\x1B[0m
 \x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.

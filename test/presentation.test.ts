@@ -653,7 +653,7 @@ describe("lifecycle status document", () => {
     )).toBe(false);
   });
 
-  test("verbose status orders detail sections with Context as the only verbatim content", () => {
+  test("verbose status presents focused diagnostics without composed Context bodies or setup provenance", () => {
     const authored = "First module\n--- begin Context ---\nNested module\n";
     const report = emptyReport({
       desired: [{
@@ -685,41 +685,21 @@ describe("lifecycle status document", () => {
       "heading",
       "prose",
       "heading",
-      "prose",
-      "heading",
-      "prose",
-      "prose",
-      "prose",
-      "prose",
-      "prose",
-      "prose",
-      "prose",
-      "verbatim",
-      "heading:error",
-      "prose",
-      "heading",
-      "heading",
       "list-item",
     ]);
     const verbatim = document.filter((node) => node.kind === "verbatim");
-    expect(verbatim).toHaveLength(1);
-    const contextText = verbatim[0]!.kind === "verbatim" ? verbatim[0]!.text : "";
-    expect(contextText).toContain(authored);
-    expect(contextText).toContain("---- begin Context ----");
-    expect(contextText).toContain("---- end Context ----");
-    expect(contextText.startsWith("---- begin Context ----")).toBe(true);
+    expect(verbatim).toHaveLength(0);
     const headings = document.filter((node) => node.kind === "heading")
       .map((node) => node.kind === "heading" ? nodeText(node) : "");
     expect(headings).toEqual([
       "Projects:",
       "State explanations:",
       "Outputs:",
-      "Git exclusions:",
-      "Selected setup:",
-      "Blockers:",
-      "Host Setup:",
       "Standing Host setup:",
     ]);
+    expect(headings).not.toContain("Selected setup:");
+    expect(headings).not.toContain("Blockers:");
+    expect(headings).not.toContain("Git exclusions:");
   });
 
   test("blocked verbose status renders the Blockers section exactly once, leading the details", () => {
@@ -1797,7 +1777,7 @@ describe("responsive lifecycle presentation", () => {
     // and pinned by the presentation-document equivalence tests.
   });
 
-  test("keeps diagnostic paths and authored Context payloads intact", () => {
+  test("keeps diagnostic paths and warning values intact under responsive wrapping", () => {
     const prefixedPath = "/tmp/project with spaces/config.toml";
     const warningPath = "/tmp/agent profile home/config.toml";
     const arbitraryPath = "/tmp/project with spaces/.grok/skills/foo";
@@ -1860,9 +1840,7 @@ describe("responsive lifecycle presentation", () => {
     expect(output.split("\n").some((line) => line.includes(pathWithConjunction))).toBe(true);
     expect(output).toContain("\u0001\u0002");
     expect(output).toContain(repairTarget);
-    expect(output).toContain(
-      `---- begin Context ----\n${authoredContext}---- end Context ----\n`,
-    );
+    expect(output).not.toContain("begin Context");
   });
 
   test("keeps structurally supplied diagnostic values intact without parsing warning prose", () => {
@@ -2850,7 +2828,7 @@ describe("status concise terminology", () => {
         `: ${kind}`,
       ]));
     expect(identityStateLine("~/receipt-project", "addition")).toBe(true);
-    expect(identityStateLine("~/receipt-project/a.md", "addition")).toBe(true);
+    expect(identityStateLine("~/receipt-project/a.md", "addition (source changed)")).toBe(true);
   });
 
   test("labels remaining and committed apply work distinctly", () => {
@@ -2886,18 +2864,22 @@ describe("status concise terminology", () => {
     )).toBe(false);
   });
 
-  test("names the Hosts recorded by each Project Binding", () => {
+  test("names the Hosts recorded by each Project Binding in project inventory", () => {
     const project = join(homedir(), "multi-host-project");
     const report = identityReport(project, ["claude", "codex"]);
 
     const verbose = lifecycleStatusDocument(report, { verbose: true });
-    const nodes = flattenPresentationNodes(verbose);
-    // The Selected-setup block binds the fixture identity to the fixture
-    // Profile and Hosts; the composed glue is golden-covered.
-    const hostsIndex = indexWhere(nodes, (node) =>
-      node.kind === "prose" && nodeText(node).includes("claude") && nodeText(node).includes("codex"));
-    expect(hostsIndex).toBeGreaterThan(-1);
-    expect(nodeText(nodes[hostsIndex - 1]!)).toContain("~/multi-host-project");
+    expect(headingsIn(verbose)).not.toContain("Selected setup:");
+
+    const inventory = projectInventoryDocument([{
+      canonicalProject: project,
+      hosts: ["claude", "codex"],
+      problem: null,
+      profile: "coding",
+      project,
+    }], homedir(), homedir());
+    const inventoryNodes = flattenPresentationNodes(inventory);
+    expect(inventoryNodes.some((node) => nodeText(node).includes("claude, codex"))).toBe(true);
   });
 
   test("keeps displayed identities distinct for projects with the same basename", () => {
@@ -3172,7 +3154,9 @@ describe("status concise terminology", () => {
 
     const verbose = applyVerificationFailureDocument(receipt, message, { verbose: true });
     expect(noticesIn(verbose)).toEqual(conciseNotices);
-    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Applied:", "Git exclusions:", "Selected setup:"]));
+    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Applied:", "Outputs:"]));
+    expect(headingsIn(verbose)).not.toContain("Selected setup:");
+    expect(headingsIn(verbose)).not.toContain("Git exclusions:");
   });
 
   test("concise status names drifted refresh work and destructive removals", () => {
@@ -3275,7 +3259,7 @@ describe("status concise terminology", () => {
       node.kind === "prose" &&
       JSON.stringify(node.parts) === JSON.stringify([
         { kind: "identifier", value: path },
-        ": addition",
+        ": addition (source changed)",
       ]));
     expect(outputLine("/project-a/file-11.md")).toBe(true);
     expect(outputLine("/project-a/file-12.md")).toBe(true);
@@ -3337,8 +3321,8 @@ describe("status concise terminology", () => {
         { kind: "identifier", value: path },
         `: ${kind}`,
       ]));
-    expect(outputLine("/project-a/skill", "update")).toBe(true);
-    expect(outputLine("/project-a/context.md", "unchanged")).toBe(true);
+    expect(outputLine("/project-a/skill", "update (source changed)")).toBe(true);
+    expect(outputLine("/project-a/context.md", "unchanged")).toBe(false);
   });
 
   test("keeps every present non-current state definition available in verbose output", () => {
@@ -3618,9 +3602,10 @@ describe("status concise terminology", () => {
     expect(noticesIn(verbose)[0]).toMatchObject({ kind: "notice", severity: "error" });
     const sectionAt = (text: string) => indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === text);
-    for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Selected setup:", "Blockers:", "State explanations:"]) {
+    for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Blockers:", "State explanations:"]) {
       expect(sectionAt(section)).toBeGreaterThan(-1);
     }
+    expect(headingsIn(verbose)).not.toContain("Selected setup:");
     expect(headingsIn(verbose)).not.toContain("Warnings:");
     expect(projectStateLines(verbose)).toContain("/project-a");
     const outputLine = (path: string, kind: string) => nodes.some((node) =>
@@ -3629,29 +3614,12 @@ describe("status concise terminology", () => {
         { kind: "identifier", value: path },
         `: ${kind}`,
       ]));
-    expect(outputLine("/project-a/.agent-profile-kit/codex/context.md", "update")).toBe(true);
-    expect(outputLine("/project-a/.codex/hooks.json", "unchanged")).toBe(true);
+    expect(outputLine("/project-a/.agent-profile-kit/codex/context.md", "update (source changed)")).toBe(true);
+    expect(outputLine("/project-a/.codex/hooks.json", "unchanged")).toBe(false);
     const exclusionLine = nodes.find((node) =>
       node.kind === "list-item" && inlineIdentifiers([node])[0] === "/project-a/.git/info/exclude");
     expect(inlineIdentifiers([exclusionLine!])).toEqual(["/project-a/.git/info/exclude", "/.agent-profile-kit/codex/context.md"]);
-    expect(texts.some((text) =>
-      text.includes("/project-a") && text.includes("coding")
-    )).toBe(true);
-    expect(texts.some((text) => text.includes("claude") && text.includes("codex"))).toBe(true);
-    expect(texts.some((text) => text.includes("context:team-rules") && text.includes("coding"))).toBe(true);
-    // Composed Context is verbatim content reproduced exactly (DEC-008).
-    const verbatim = nodes.find((node) =>
-      node.kind === "verbatim" && nodeText(node).includes("First Context Module"));
-    // The verbatim node reproduces the authored Context byte-for-byte,
-    // delimiters and fence escalation included (DEC-008).
-    expect(verbatim).toEqual({
-      kind: "verbatim",
-      text: "---- begin Context ----\n" +
-        "First Context Module\n" +
-        "--- end Context ---\n" +
-        "Second Context Module\n" +
-        "---- end Context ----",
-    });
+    expect(nodes.some((node) => node.kind === "verbatim")).toBe(false);
     expect(listItemsIn(verbose)).toContain("example warning (/project-a)");
     expect(nodes.filter((node) => node.kind === "list-item").some((node) => nodeText(node).includes("example blocker"))).toBe(true);
     expect(texts.some((text) => text.includes("/project-a"))).toBe(true);
@@ -5768,9 +5736,9 @@ describe("operation-first multi-Project presentation", () => {
         { kind: "identifier", value: path },
         `: ${kind}`,
       ]));
-    expect(outputLine("/project-a/.agents/skills/review-pr", "update")).toBe(true);
-    expect(outputLine("/project-b/.agents/skills/review-pr", "update")).toBe(true);
-    expect(outputLine("/project-c/.agents/skills/review-pr", "update")).toBe(true);
+    expect(outputLine("/project-a/.agents/skills/review-pr", "update (source changed)")).toBe(true);
+    expect(outputLine("/project-b/.agents/skills/review-pr", "update (source changed)")).toBe(true);
+    expect(outputLine("/project-c/.agents/skills/review-pr", "update (source changed)")).toBe(true);
   });
 });
 
@@ -6376,16 +6344,18 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const nodes = flattenPresentationNodes(verbose);
     const sectionAt = (text: string) => indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === text);
-    for (const section of ["Projects:", "Outputs:", "Selected setup:", "Blockers:"]) {
+    for (const section of ["Projects:", "State explanations:", "Outputs:"]) {
       expect(sectionAt(section)).toBeGreaterThan(-1);
     }
+    expect(headingsIn(verbose)).not.toContain("Selected setup:");
+    expect(headingsIn(verbose)).not.toContain("Blockers:");
     expect(projectStateLines(verbose)).toContain("/project-a");
     const nodes2 = flattenPresentationNodes(verbose);
     expect(nodes2.some((node) =>
       node.kind === "prose" &&
       JSON.stringify(node.parts) === JSON.stringify([
         { kind: "identifier", value: "/project-a/a.md" },
-        ": addition",
+        ": addition (source changed)",
       ])
     )).toBe(true);
     expect(keyValuesIn(verbose, "Next")).toEqual([]);
@@ -6659,7 +6629,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const verbose = lifecycleStatusDocument(report, { verbose: true });
-    expect(headingsIn(verbose)).toContain("Host Setup:");
+    expect(headingsIn(verbose)).toContain("Host setup:");
 
     const missingProfile = flatInlineText(formatMissingProfileError({
       availableProfiles: ["coding"],
@@ -7160,7 +7130,7 @@ describe("apply presentation documents", () => {
     expect(commandsIn(document)).toEqual([]);
   });
 
-  test("verbose apply keeps composed Context as the only verbatim content", () => {
+  test("verbose apply separates Pending and Applied sections without composed Context bodies", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -7182,17 +7152,14 @@ describe("apply presentation documents", () => {
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
     const verbatim = nodes.flatMap((node) => node.kind === "verbatim" && nodeText(node) !== "" ? [nodeText(node)] : []);
-    expect(verbatim).toHaveLength(2);
-    for (const context of verbatim) {
-      expect(context).toMatch(/begin Context/);
-      expect(context).toMatch(/end Context/);
-    }
+    expect(verbatim).toHaveLength(0);
     const texts = headingsIn(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
     expect(texts).toContain("Pending:");
     expect(texts).toContain("Applied:");
-    expect(texts).toContain("Host Setup:");
+    expect(texts).not.toContain("Selected setup:");
+    expect(texts).not.toContain("Host Setup:");
   });
 
   test("blocked apply presents an error notice, Blocker evidence, and the committed receipt", () => {
@@ -9847,4 +9814,380 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
     });
   });
 });
+
+describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, DEC-007, TEST-001, TEST-002, TEST-008)", () => {
+  test("multi-cause Project retains every underlying cause in verbose diagnostics", () => {
+    const multiCauseProject = machineProject("/workspace/multi-cause", {
+      blockers: [
+        fixtureBlocker("Output conflict detected", "/workspace/multi-cause"),
+      ],
+      desired: {
+        capabilityContracts: { codex: "v2" },
+        context: "Sensitive composed context body\nRule 1\nRule 2\n",
+        hosts: ["codex", "claude"],
+        outputs: [
+          ".agent-profile-kit/codex/context.md",
+          ".claude/rules/agent-profile-kit.md",
+          ".codex/hooks.json",
+          ".agent-profile-kit/unchanged.txt",
+        ],
+        profile: "full-stack",
+        resolvedArtifacts: [
+          {
+            id: "full-stack-rules",
+            inclusionReasons: [{ path: ["base-rules"], profile: "full-stack" }],
+            type: "context",
+          },
+        ],
+      },
+      repositoryExclusions: [
+        {
+          current: [],
+          installed: false,
+          next: ["/.agent-profile-kit/codex/context.md"],
+          target: "/workspace/multi-cause/.git/info/exclude",
+        },
+      ],
+      setupSteps: [
+        {
+          consequence: "Hook approval needed",
+          host: "codex",
+          kind: "approval-required",
+          message: "Approve hook",
+          output: ".codex/hooks.json",
+          provenance: "transition",
+        },
+        {
+          consequence: "Trust needed",
+          host: "claude",
+          kind: "trust-required",
+          message: "Trust the project in Claude",
+          provenance: "standing",
+        },
+      ],
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: ".agent-profile-kit/codex/context.md",
+        },
+        {
+          consumingHosts: ["claude"],
+          driftKind: "changed",
+          kind: "update",
+          path: ".claude/rules/agent-profile-kit.md",
+        },
+        {
+          consumingHosts: ["codex"],
+          kind: "addition",
+          path: ".codex/hooks.json",
+        },
+        {
+          consumingHosts: [],
+          kind: "unchanged",
+          path: ".agent-profile-kit/unchanged.txt",
+        },
+      ],
+      state: { kind: "drifted output", reason: "missing" },
+    });
+
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [multiCauseProject],
+    };
+
+    // Concise status groups under single primary cause (needs attention due to blocker).
+    const conciseDoc = lifecycleStatusDocument(report);
+    const conciseTexts = presentationTexts(conciseDoc);
+    expect(conciseTexts.some((t) => t.includes("needs attention"))).toBe(true);
+    expect(conciseTexts.some((t) => t.includes("generated files missing"))).toBe(false);
+    expect(conciseTexts.some((t) => t.includes("generated files changed"))).toBe(false);
+
+    // Verbose diagnostics retain EVERY underlying cause across the focused diagnostic sections.
+    const verboseDoc = lifecycleStatusDocument(report, { verbose: true });
+    const headings = headingsIn(verboseDoc);
+    expect(headings).toContain("Blockers:");
+    expect(headings).toContain("Projects:");
+    expect(headings).toContain("State explanations:");
+    expect(headings).toContain("Outputs:");
+    expect(headings).toContain("Git exclusions:");
+    expect(headings).toContain("Host setup:");
+    expect(headings).toContain("Standing Host setup:");
+
+    // Proves underlying causes are all present in the diagnostic evidence:
+    const verboseNodes = flattenPresentationNodes(verboseDoc);
+    const verboseTexts = presentationTexts(verboseDoc);
+
+    // 1. Blocker cause is retained in Blockers section:
+    expect(verboseTexts.some((t) => t.includes("Output conflict detected"))).toBe(true);
+
+    // 2. Project state is retained in Projects section:
+    expect(verboseTexts.some((t) => t.includes("/workspace/multi-cause") && t.includes("drifted output"))).toBe(true);
+
+    // 3. Changed, missing, and added individual outputs are retained with distinct diagnostic kinds:
+    const outputLine = (path: string, kind: string) => verboseNodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        `: ${kind}`,
+      ]));
+    expect(outputLine("/workspace/multi-cause/.agent-profile-kit/codex/context.md", "missing")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.claude/rules/agent-profile-kit.md", "changed")).toBe(true);
+    // The typed addition output carries its source-change cause beside the
+    // missing/changed generated files (canonical hasSourceChanged policy):
+    expect(outputLine("/workspace/multi-cause/.codex/hooks.json", "addition (source changed)")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.codex/hooks.json", "addition")).toBe(false);
+
+    // Unchanged outputs are omitted from verbose diagnostics:
+    expect(outputLine("/workspace/multi-cause/.agent-profile-kit/unchanged.txt", "unchanged")).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("unchanged.txt"))).toBe(false);
+
+    // 4. State explanations cover present non-current kinds:
+    expect(verboseTexts.some((t) => t.includes("drifted output:"))).toBe(true);
+
+    // 5. Git exclusions are retained:
+    expect(verboseTexts.some((t) => t.includes(".git/info/exclude"))).toBe(true);
+
+    // 5. Host setup steps are retained:
+    expect(verboseTexts.some((t) => t.includes("Approve hook"))).toBe(true);
+    expect(verboseTexts.some((t) => t.includes("Trust the project in Claude"))).toBe(true);
+
+    // 6. Composed context bodies, capability contracts, and per-project setup provenance are omitted:
+    expect(headings).not.toContain("Selected setup:");
+    expect(verboseNodes.some((node) => node.kind === "verbatim")).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("Sensitive composed context body"))).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("Capability Contracts"))).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("Resolved artifacts"))).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("inclusionReasons"))).toBe(false);
+  });
+
+  test("omits empty diagnostic sections without emitting (none) placeholders", () => {
+    const cleanProject = machineProject("/workspace/clean", {
+      desired: {
+        context: "Clean context",
+        hosts: ["codex"],
+        outputs: [".codex/rules.md"],
+        profile: "default",
+        resolvedArtifacts: [],
+      },
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          kind: "unchanged",
+          path: ".codex/rules.md",
+        },
+      ],
+      state: { kind: "current" },
+    });
+
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [cleanProject],
+    };
+
+    const verboseDoc = lifecycleStatusDocument(report, { verbose: true });
+    const headings = headingsIn(verboseDoc);
+    const verboseTexts = presentationTexts(verboseDoc);
+
+    // Empty sections are omitted entirely:
+    expect(headings).not.toContain("Outputs:");
+    expect(headings).not.toContain("Git exclusions:");
+    expect(headings).not.toContain("Blockers:");
+    expect(headings).not.toContain("Host setup:");
+    expect(headings).not.toContain("Standing Host setup:");
+    expect(headings).not.toContain("Selected setup:");
+
+    // No (none) placeholders emitted for omitted sections:
+    expect(verboseTexts.some((t) => t.includes("(none)"))).toBe(false);
+  });
+
+  test("fleet-scale diagnostic cases retain actionable evidence and natural wrapping without arbitrary line budgets", () => {
+    const projects = Array.from({ length: 15 }, (_, i) => {
+      const path = `/workspace/project-${String(i).padStart(2, "0")}`;
+      if (i % 3 === 0) {
+        return machineProject(path, {
+          desired: { context: "ctx", hosts: ["codex"], outputs: ["out.md"], profile: "p", resolvedArtifacts: [] },
+          outputs: [{ consumingHosts: ["codex"], kind: "addition", path: "out.md" }],
+          state: { kind: "addition" },
+        });
+      } else if (i % 3 === 1) {
+        return machineProject(path, {
+          desired: { context: "ctx", hosts: ["codex"], outputs: ["out.md"], profile: "p", resolvedArtifacts: [] },
+          outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "out.md" }],
+          state: { kind: "drifted output", reason: "drift" },
+        });
+      } else {
+        return machineProject(path, {
+          desired: { context: "ctx", hosts: ["codex"], outputs: ["out.md"], profile: "p", resolvedArtifacts: [] },
+          outputs: [{ consumingHosts: ["codex"], kind: "unchanged", path: "out.md" }],
+          state: { kind: "current" },
+        });
+      }
+    });
+
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects,
+    };
+
+    const verboseDoc = lifecycleStatusDocument(report, { selection: { kind: "all" }, verbose: true });
+    for (const width of [40, 80, 120]) {
+      const rendered = renderBoundary(verboseDoc, { ...defaultRenderContext, width });
+      expect(rendered.length).toBeGreaterThan(0);
+      for (let i = 0; i < 15; i++) {
+        const path = `/workspace/project-${String(i).padStart(2, "0")}`;
+        expect(rendered.includes(path)).toBe(true);
+      }
+    }
+  });
+
+  test("verbose apply document renders focused diagnostics with distinct output kinds", () => {
+    const multiCauseProject = machineProject("/workspace/multi-cause", {
+      desired: {
+        context: "Sensitive composed context body",
+        hosts: ["codex", "claude"],
+        outputs: [
+          ".agent-profile-kit/codex/context.md",
+          ".claude/rules/agent-profile-kit.md",
+          ".codex/hooks.json",
+          ".agent-profile-kit/unchanged.txt",
+        ],
+        profile: "example",
+        resolvedArtifacts: [],
+      },
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          driftKind: "missing",
+          kind: "update",
+          path: ".agent-profile-kit/codex/context.md",
+        },
+        {
+          consumingHosts: ["claude"],
+          driftKind: "changed",
+          kind: "update",
+          path: ".claude/rules/agent-profile-kit.md",
+        },
+        {
+          consumingHosts: ["codex"],
+          kind: "addition",
+          path: ".codex/hooks.json",
+        },
+        {
+          consumingHosts: [],
+          kind: "unchanged",
+          path: ".agent-profile-kit/unchanged.txt",
+        },
+      ],
+      state: { kind: "drifted output", reason: "missing" },
+    });
+
+    const receiptProject = machineProject("/workspace/multi-cause", {
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          kind: "update",
+          path: ".agent-profile-kit/codex/context.md",
+        },
+        {
+          consumingHosts: ["claude"],
+          kind: "update",
+          path: ".claude/rules/agent-profile-kit.md",
+        },
+        {
+          consumingHosts: ["codex"],
+          kind: "addition",
+          path: ".codex/hooks.json",
+        },
+      ],
+      state: { kind: "update" },
+    });
+
+    const receiptReport: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [receiptProject],
+    };
+
+    const resultingStateReport: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [multiCauseProject],
+    };
+
+    const verboseDoc = applyReportDocument(applyResult(receiptReport, resultingStateReport), { verbose: true });
+    const headings = headingsIn(verboseDoc);
+    const verboseNodes = flattenPresentationNodes(verboseDoc);
+    const verboseTexts = presentationTexts(verboseDoc);
+
+    expect(headings).toContain("Pending:");
+    expect(headings).toContain("Applied:");
+    expect(headings).not.toContain("Selected setup:");
+
+    const outputLine = (path: string, kind: string) => verboseNodes.some((node) =>
+      node.kind === "prose" &&
+      JSON.stringify(node.parts) === JSON.stringify([
+        { kind: "identifier", value: path },
+        `: ${kind}`,
+      ]));
+
+    // Pending section renders distinct drift kinds, and source-change causes
+    // stay tied to their affected paths:
+    expect(outputLine("/workspace/multi-cause/.agent-profile-kit/codex/context.md", "missing")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.claude/rules/agent-profile-kit.md", "changed")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.codex/hooks.json", "addition (source changed)")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.agent-profile-kit/codex/context.md", "update (source changed)")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.claude/rules/agent-profile-kit.md", "update (source changed)")).toBe(true);
+    expect(outputLine("/workspace/multi-cause/.agent-profile-kit/unchanged.txt", "unchanged")).toBe(false);
+
+    // No composed context bodies or provenance:
+    expect(verboseNodes.some((node) => node.kind === "verbatim")).toBe(false);
+    expect(verboseTexts.some((t) => t.includes("Sensitive composed context body"))).toBe(false);
+  });
+
+  test("source-change evidence is recorded and tied to affected paths without unsafe inference", () => {
+    // Reconciliation proves the source change with receipt evidence (typed
+    // sourceChanged fact); presentation renders it beside the affected path.
+    const mixedProject = machineProject("/workspace/mixed-cause", {
+      outputs: [
+        {
+          consumingHosts: ["codex"],
+          driftKind: "changed",
+          kind: "update",
+          path: ".agent-profile-kit/codex/context.md",
+          sourceChanged: true,
+        },
+        {
+          // User edit only: no sourceChanged fact, so no source-change claim.
+          consumingHosts: ["claude"],
+          driftKind: "changed",
+          kind: "update",
+          path: ".claude/rules/agent-profile-kit.md",
+        },
+      ],
+      state: { kind: "drifted output" },
+    });
+    const report: ReconciliationReport = { globalBlockers: [], projects: [mixedProject] };
+
+    for (const document of [
+      lifecycleStatusDocument(report, { verbose: true }),
+      applyReportDocument(applyResult(report, report), { verbose: true }),
+    ]) {
+      const nodes = flattenPresentationNodes(document);
+      const line = (path: string, label: string) => nodes.some((node) =>
+        node.kind === "prose" &&
+        JSON.stringify(node.parts) === JSON.stringify([
+          { kind: "identifier", value: path },
+          `: ${label}`,
+        ]));
+
+      // Proven source change renders beside the drifted path:
+      expect(line("/workspace/mixed-cause/.agent-profile-kit/codex/context.md", "changed (source changed)")).toBe(true);
+      // Pure user drift stays bare — no inferred source-change cause:
+      expect(line("/workspace/mixed-cause/.claude/rules/agent-profile-kit.md", "changed")).toBe(true);
+      expect(line("/workspace/mixed-cause/.claude/rules/agent-profile-kit.md", "changed (source changed)"))
+        .toBe(false);
+    }
+  });
+});
+
 

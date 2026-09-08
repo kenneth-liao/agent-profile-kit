@@ -140,6 +140,11 @@ export interface OutputReconciliationItem {
   readonly kind: OutputReconciliationKind;
   readonly path: string;
   readonly project: string;
+  /** The desired projection for this recorded output differs from its receipt
+   * evidence (hash, mode, or type), so Workspace source owns part of the
+   * pending update alongside any on-disk drift. Recorded only when proven by
+   * the receipt comparison at the reconciliation boundary; never inferred. */
+  readonly sourceChanged?: true;
 }
 
 /** Complete consuming-Host evidence for one desired generated output path. */
@@ -719,6 +724,7 @@ function nestedReconciliationReport(
     records.push({
       consumingHosts: consumers.get(`${key}\0${output.path}`) ?? [],
       ...(output.driftKind === undefined ? {} : { driftKind: output.driftKind }),
+      ...(output.sourceChanged === undefined ? {} : { sourceChanged: output.sourceChanged }),
       kind: output.kind,
       path: output.path,
     });
@@ -913,6 +919,7 @@ export async function previewReconciliation(
       const previousOutput = previousOutputs.get(output.path);
       let kind: OutputReconciliationKind;
       let driftKind: "changed" | "missing" | undefined;
+      let sourceChanged: true | undefined;
       if (previousOutput === undefined) {
         kind = "addition";
       } else {
@@ -924,10 +931,14 @@ export async function previewReconciliation(
           diskMismatchedOutputs.add(output.path);
           driftKind = disk.kind === "missing" ? "missing" : "changed";
         }
-        kind = diskMismatched ||
-            previousOutput.hash !== output.hash ||
+        // The desired projection differing from the receipt is the typed
+        // source-change fact; recorded so presentation never has to infer it.
+        sourceChanged = previousOutput.hash !== output.hash ||
             previousOutput.mode !== output.mode ||
             previousOutput.type !== output.type
+          ? true
+          : undefined;
+        kind = diskMismatched || sourceChanged === true
           ? "update"
           : "unchanged";
       }
@@ -936,6 +947,7 @@ export async function previewReconciliation(
         kind,
         path: output.path,
         project: installation.binding.project,
+        ...(sourceChanged === undefined ? {} : { sourceChanged }),
       });
       previousOutputs.delete(output.path);
     }

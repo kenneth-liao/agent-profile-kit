@@ -82,6 +82,8 @@ function reportItems(report: ReconciliationReport): readonly ReconciliationItem[
 
 function reportOutputs(report: ReconciliationReport): readonly OutputReconciliationItem[] {
   return report.projects.flatMap((project) => project.outputs.map((output) => ({
+    ...(output.driftKind === undefined ? {} : { driftKind: output.driftKind }),
+    ...(output.sourceChanged === undefined ? {} : { sourceChanged: output.sourceChanged }),
     kind: output.kind,
     path: output.path,
     project: project.project,
@@ -334,16 +336,26 @@ export function hasNotInstalledYet(project: ReconciliationProjectRecord): boolea
   return project.state.kind === "addition";
 }
 
+/** Canonical per-output source-change evidence: only outputs whose desired
+ * projection provably differs from the recorded receipt (typed sourceChanged
+ * fact from the reconciliation boundary), or whose operation itself implies
+ * desired-state change since the last apply (addition, removal, a source-only
+ * update). Drifted outputs without the typed fact never claim a source
+ * change — that would infer a cause the evidence does not own. */
+function outputSourceChanged(output: Omit<OutputReconciliationItem, "project">): boolean {
+  return (
+    output.sourceChanged === true ||
+    output.kind === "addition" ||
+    output.kind === "removal" ||
+    (output.kind === "update" && output.driftKind === undefined)
+  );
+}
+
 export function hasSourceChanged(project: ReconciliationProjectRecord): boolean {
   return (
     project.state.kind === "stale source" ||
     project.state.kind === "update" ||
-    project.outputs.some(
-      (output) =>
-        output.kind === "addition" ||
-        output.kind === "removal" ||
-        (output.kind === "update" && output.driftKind === undefined),
-    )
+    project.outputs.some(outputSourceChanged)
   );
 }
 
@@ -3499,9 +3511,14 @@ function verboseWarningNodes(
   });
 }
 
-/** The verbose lifecycle detail sections and Blocker section as typed nodes.
- * Composed Context is the only verbatim content: it is user-authored
- * material reproduced byte-for-byte (INT-1). */
+function renderVerboseOutputKind(output: OutputReconciliationItem): string {
+  if (output.driftKind !== undefined) {
+    return output.driftKind;
+  }
+  return output.kind;
+}
+
+/** The verbose lifecycle detail sections and Blocker section as typed nodes. */
 function verboseLifecycleSections(
   report: ReconciliationReport,
   options: VerboseSectionOptions,
@@ -3524,12 +3541,6 @@ function verboseLifecycleSections(
     options.includeStateExplanations ?? true,
     options.stateExplanationItems ?? reportItems(report),
   ));
-  // The populated Blockers section leads the verbose view; the trailing
-  // heading exists only to report the empty outcome.
-  if (blockers.length === 0) {
-    nodes.push({ kind: "heading", text: "Blockers:", category: "error" });
-    nodes.push({ kind: "prose", parts: ["(none)"] });
-  }
   return nodes;
 }
 
@@ -3542,7 +3553,7 @@ function verboseDetailNodes(
   stateExplanationItems: readonly ReconciliationItem[] = reportItems(report),
 ): PresentationNode[] {
   const items = reportItems(report);
-  const outputs = reportOutputs(report);
+  const outputs = reportOutputs(report).filter((output) => output.kind !== "unchanged");
   const exclusions = changedRepositoryExclusions(report);
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Projects:" },
@@ -3559,21 +3570,24 @@ function verboseDetailNodes(
   if (includeStateExplanations) {
     nodes.push(...stateExplanationNodes(stateExplanationItems));
   }
-  nodes.push(
-    { kind: "heading", text: "Outputs:" },
-    ...(outputs.length === 0
-      ? [{ kind: "prose" as const, parts: ["(none)"] }]
-      : outputs.map((output) => ({
+  if (outputs.length > 0) {
+    nodes.push(
+      { kind: "heading", text: "Outputs:" },
+      ...outputs.map((output) => ({
         kind: "prose" as const,
         parts: [
           identifierPart(shorten(`${output.project}/${output.path}`)),
-          `: ${output.kind}`,
+          `: ${renderVerboseOutputKind(output)}${
+            outputSourceChanged(output) ? " (source changed)" : ""
+          }`,
         ],
-      }))),
-    { kind: "heading", text: "Git exclusions:" },
-    ...(exclusions.length === 0
-      ? [{ kind: "prose" as const, parts: ["(none)"] }]
-      : exclusions.map((change) => {
+      })),
+    );
+  }
+  if (exclusions.length > 0) {
+    nodes.push(
+      { kind: "heading", text: "Git exclusions:" },
+      ...exclusions.map((change) => {
         const delta = exclusionDelta(change);
         const parts: InlineContent[] = [identifierPart(shorten(change.target)), ": "];
         const deltaClauses: InlineContent[] = [];
@@ -3588,66 +3602,9 @@ function verboseDetailNodes(
           kind: "list-item" as const,
           parts: [...parts, ...deltaClauses],
         };
-      })),
-    { kind: "heading", text: "Selected setup:" },
-  );
-  const desired = reportDesired(report);
-  if (desired.length === 0) nodes.push({ kind: "prose", parts: ["(none)"] });
-  for (const installation of desired) {
-    nodes.push(...verboseInstallationNodes(installation, report.projects, scope));
+      }),
+    );
   }
-  return nodes;
-}
-
-/** One verbose Selected-setup installation block; Context stays verbatim. */
-function verboseInstallationNodes(
-  installation: PresentedDesired,
-  records: readonly ReconciliationProjectRecord[],
-  scope: LocationDisplayScope,
-): PresentationNode[] {
-  const project = displayProjectPath(installation.canonicalProject, installation.project, scope);
-  const record = records.find((candidate) =>
-    candidate.canonicalProject === installation.canonicalProject
-  );
-  const nodes: PresentationNode[] = [
-    { kind: "prose", parts: [`${project}: Profile ${installation.profile}`] },
-    { kind: "prose", parts: [`  Hosts: ${installation.hosts.join(", ")}`] },
-  ];
-  if (installation.capabilityContracts !== undefined) {
-    nodes.push({ kind: "prose", parts: ["  Capability Contracts:"] });
-    for (const [host, contract] of Object.entries(installation.capabilityContracts)
-      .sort(([left], [right]) => left.localeCompare(right))) {
-      nodes.push({ kind: "prose", parts: [`    - ${host}: ${contract}`] });
-    }
-  }
-  nodes.push({ kind: "prose", parts: [`  Outputs: ${installation.outputs.join(", ")}`] });
-  const consumers = (record?.outputs ?? [])
-    .filter((output) => output.consumingHosts.length > 0);
-  if (consumers.length > 0) {
-    nodes.push({ kind: "prose", parts: ["  Consuming Hosts:"] });
-    for (const output of consumers) {
-      nodes.push({
-        kind: "prose",
-        parts: [`    - ${output.path}: ${output.consumingHosts.join(", ")}`],
-      });
-    }
-  }
-  if (installation.resolvedArtifacts.length === 0) {
-    nodes.push({ kind: "prose", parts: ["  Resolved artifacts: (none)"] });
-  } else {
-    nodes.push({ kind: "prose", parts: ["  Resolved artifacts:"] });
-    for (const artifact of installation.resolvedArtifacts) {
-      const reasons = artifact.inclusionReasons.map((reason) => {
-        const path = reason.path.length === 0
-          ? "selected by profile"
-          : `via ${reason.path.join(" -> ")}`;
-        return `${reason.profile}: ${path}`;
-      }).join("; ");
-      nodes.push({ kind: "prose", parts: [`    - ${artifact.type}:${artifact.id} (${reasons})`] });
-    }
-  }
-  nodes.push({ kind: "prose", parts: ["  Context:"] });
-  nodes.push({ kind: "verbatim", text: delimitedContext(installation.context) });
   return nodes;
 }
 
@@ -3658,17 +3615,14 @@ function verboseHostSetupNodes(
   scope: LocationDisplayScope,
 ): PresentationNode[] {
   const presented = presentedSetupSteps(command, report, undefined, true, scope);
-  const nodes: PresentationNode[] = [{ kind: "heading", text: "Host Setup:" }];
-  if (presented.length === 0) {
-    nodes.push({ kind: "prose", parts: ["(none)"] });
-    return nodes;
-  }
+  if (presented.length === 0) return [];
   const transition = groupSetupSteps(
     presented.filter((item) => item.step.provenance === "transition"),
   );
   const standing = groupSetupSteps(
     presented.filter((item) => item.step.provenance === "standing"),
   );
+  const nodes: PresentationNode[] = [];
   for (const [heading, sectionGroups] of [
     ["Host setup:", transition],
     ["Standing Host setup:", standing],
