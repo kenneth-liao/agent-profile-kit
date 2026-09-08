@@ -369,7 +369,7 @@ export function formatMissingProfileErrorDiagnostic(error: MissingProfileError):
 export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly InlineContent[] {
   switch (fact.kind) {
     case "missing-local-configuration":
-      return [`Agent Profile Kit is not set up on this machine; run `, commandPart(COMMAND_NAME, [arg("init")])];
+      return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init")])];
     case "bind-conflict":
       return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`];
     case "stale-binding-removal":
@@ -562,10 +562,11 @@ export function formatProjectTargetError(
     case "unbound-target":
       return [
         commandPart(COMMAND_NAME, [arg(reason.command)]),
-        ` directory '${reason.target}' is not configured as a Project; run `,
-        commandPart(COMMAND_NAME, [arg("bind")]),
-        " or ",
+        ` Project target '${reason.target}' is not a bound Project; ` +
+          "run ",
         commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+        " or ",
+        commandPart(COMMAND_NAME, [arg("bind")]),
       ];
     case "wildcard-target":
       return [

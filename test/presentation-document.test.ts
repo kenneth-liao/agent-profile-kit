@@ -339,10 +339,10 @@ test("carries a sentence's category across every wrapped line", () => {
 test("renders a diagnostic document as what happened, why, and what to type", () => {
   const text = renderPresentationDocument(
     diagnosticDocument({
-      happened: ["directory '/projects/demo' is not configured as a Project"],
+      happened: ["something failed"],
       whatToType: [
-        ["Run ", commandPart("apkit", [arg("bind")]), " to configure this directory as a Project."],
-        ["Run ", commandPart("apkit", [arg("list"), arg("projects")]), " to list configured Projects."],
+        ["Run ", commandPart("apkit", [arg("first-recovery")]), " to recover."],
+        ["Run ", commandPart("apkit", [arg("second-recovery")]), " as an alternative."],
       ],
       usage: "status [project | --all] [--verbose] [--blockers-only] [--json]",
     }),
@@ -351,9 +351,9 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
   const lines = text.split("\n");
   // Structural shape, not unstructured string: happened in notice, then
   // whatToType lines, and usage last as one whole command line.
-  expect(lines[0]).toBe("apkit: directory '/projects/demo' is not configured as a Project");
-  expect(lines[1]).toBe("Run apkit bind to configure this directory as a Project.");
-  expect(lines[2]).toBe("Run apkit list projects to list configured Projects.");
+  expect(lines[0]).toBe("apkit: something failed");
+  expect(lines[1]).toBe("Run apkit first-recovery to recover.");
+  expect(lines[2]).toBe("Run apkit second-recovery as an alternative.");
   expect(lines[3]).toBe("Usage: apkit status [project | --all] [--verbose] [--blockers-only] [--json]");
 });
 

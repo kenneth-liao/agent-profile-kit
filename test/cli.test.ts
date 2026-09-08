@@ -2133,6 +2133,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const ambiguousHuman = await runCliAt(home, nested, "apply", "--here");
     expectExitCode(ambiguousHuman, 1);
     expect(humanText(ambiguousHuman.stderr)).toContain("matches multiple configured Projects");
+
+    const unboundJson = await runCli(home, "apply", unbound, "--json");
+    expectExitCode(unboundJson, 1);
+    const unboundPayload = JSON.parse(unboundJson.stdout) as { readonly error: string };
+    expect(unboundPayload.error).toContain("is not a bound Project");
+
     expect(existsSync(join(bound, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(nested, ".agent-profile-kit"))).toBe(false);
 
@@ -10753,6 +10759,7 @@ describe("apkit list", () => {
       command: "list",
       topic: "profiles",
       outcome: "error",
+      error: expect.stringContaining("Local Configuration is missing at"),
       engineVersion: ENGINE_VERSION,
       profiles: [],
     });
@@ -10850,6 +10857,7 @@ describe("apkit list", () => {
       command: "list",
       topic: "projects",
       outcome: "error",
+      error: expect.stringContaining("Local Configuration is missing at"),
       engineVersion: ENGINE_VERSION,
       projects: [],
     });

@@ -15,16 +15,12 @@ import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
-  errorDiagnosticDocument,
   errorDiagnosticParts,
   formatInstallerToolError,
   formatInstallerToolErrorDiagnostic,
-  formatLocalConfigurationError,
   formatMissingProfileError,
-  formatMissingProfileErrorDiagnostic,
   formatSchemaRejection,
 } from "../cli/error-wording.js";
-import { installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import { INTERNAL_ONLY_DEFAULT_TERMS } from "../cli/presentation.js";
 
@@ -403,7 +399,7 @@ describe("typed Installer tool errors", () => {
     expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init to set it up.");
     // Machine flattened projection still publishes the carried sentence.
     const machine = flatInlineText(formatInstallerToolError(fact));
-    expect(machine).toContain("run apkit init");
+    expect(machine).toBe("Local Configuration is missing at /home/.agents/agent-profile-kit/config.yaml; run apkit init");
   });
 
   test("foreign runtime causes keep the hand-edit recovery through typed evidence", async () => {
