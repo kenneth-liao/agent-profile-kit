@@ -122,7 +122,7 @@ former separate plan command was removed before 1.0.
 
 A bare invocation, `--help`, `-h`, and `help` print root help: description, a
 four-step first run, common commands, then secondary inventory, teardown,
-machine-detail, and temporary-installation commands under `More commands`:
+and machine-detail commands under `More commands`:
 
 ```
 $ apkit --help
@@ -140,21 +140,21 @@ First run:
   Host values.
 
 Common commands:
-  init [workspace]
+  init
     Initialize or adopt the canonical Workspace and settings
 …
 More commands:
   Inventory:
-  list [projects|profiles|hosts [--json]]
+  list
     List read-only inventory for Projects, Profiles, or Hosts
 …
 ```
 
-Each catalog command retains its syntax and wrapped description. The first run points
+Each catalog command lists its name and wrapped description without flag inventories (US-034, DEC-020). Per-command help remains the authoritative reference for flags and their interactions. The first run points
 to `guide profile` for a valid Profile example and `bind --help` for supported
 Host values. Machine-facing commands (temporary installation and its inventory)
 appear nowhere in this default list; they are documented in stage 13 and
-listed by `apkit machine --help` (DEC-019). Interactive output selects the tty width (falling back to `COLUMNS`)
+listed by `apkit machine --help` (DEC-021). Interactive output selects the tty width (falling back to `COLUMNS`)
 and clamps readable prose to 40–100 columns; redirected output uses a
 deterministic 80-column measure. Color is used only for color-capable
 interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty

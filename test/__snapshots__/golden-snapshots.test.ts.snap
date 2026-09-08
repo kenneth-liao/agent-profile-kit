@@ -16,40 +16,34 @@ First run:
     supported Host values.
 
 Common commands:
-  init [workspace]
+  init
     Initialize or adopt the canonical Workspace and settings
-  guide [profile|context|skill|--full|--agent]
+  guide
     Show a topic index, full Workspace guidance, or one focused authoring
       example
-  bind <profile> [project] --host <host> [--host <host> ...] [--replace]
+  bind
     Configure a Project with a Profile and Agent Hosts, or replace an existing
       binding
   validate
     Check Workspace and settings validity
-  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+  status
     Show the complete read-only apply plan for the complete fleet, the
-      containing Project, or one explicit Project; --blockers-only shows a
-      focused Blocker-only view (combines with --verbose, not --json)
-  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
-    Sync the complete fleet, the containing Project, or one explicit Project;
-      --blockers-only shows a focused Blocker-only view that always keeps the
-      Applied receipt and failed or pending Projects visible (combines with
-      --verbose, not --json); with no Blockers the ordinary receipt view renders
-      unchanged
+      containing Project, or one explicit Project
+  apply
+    Sync the complete fleet, the containing Project, or one explicit Project
 
 More commands:
   Inventory:
-  list [projects|profiles|hosts [--json]]
-    List read-only inventory for Projects, Profiles, Hosts, or temporary
-      Profiles
+  list
+    List read-only inventory for Projects, Profiles, or Hosts
   Teardown:
-  unbind [project]
+  unbind
     Remove a configured Project
   uninstall
     Remove proven Agent Profile Kit-owned output from all ordinary Project
       installations
   Machine details:
-  info [--json]
+  info
     Show the engine version and selected application locations
 
 For deeper Workspace authoring guidance (Context Modules, Skills, Profiles,
@@ -79,8 +73,7 @@ Usage: apkit machine <command> [arguments]
 exports[`golden snapshots of every human view focused command help: focused-command-help 1`] = `
 "--- stdout ---
 Purpose: Show the complete read-only apply plan for the complete fleet, the
-  containing Project, or one explicit Project; --blockers-only shows a focused
-  Blocker-only view (combines with --verbose, not --json)
+  containing Project, or one explicit Project
 
 Usage: apkit status [project | --here | --all] [--verbose] [--blockers-only] [--json]
 
@@ -1072,7 +1065,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.154.0
+Engine version: 0.155.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1641,55 +1634,44 @@ First run:
     supported Host values.
 
 Common commands:
-  init [workspace]
+  init
     Initialize or adopt the canonical
       Workspace and settings
-  guide [profile|context|skill|--full|--agent]
+  guide
     Show a topic index, full Workspace
       guidance, or one focused authoring
       example
-  bind <profile> [project] --host <host> [--host <host> ...] [--replace]
+  bind
     Configure a Project with a Profile
       and Agent Hosts, or replace an
       existing binding
   validate
     Check Workspace and settings
       validity
-  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+  status
     Show the complete read-only apply
       plan for the complete fleet, the
       containing Project, or one
-      explicit Project; --blockers-only
-      shows a focused Blocker-only view
-      (combines with --verbose, not
-      --json)
-  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
+      explicit Project
+  apply
     Sync the complete fleet, the
       containing Project, or one
-      explicit Project; --blockers-only
-      shows a focused Blocker-only view
-      that always keeps the Applied
-      receipt and failed or pending
-      Projects visible (combines with
-      --verbose, not --json); with no
-      Blockers the ordinary receipt view
-      renders unchanged
+      explicit Project
 
 More commands:
   Inventory:
-  list [projects|profiles|hosts [--json]]
+  list
     List read-only inventory for
-      Projects, Profiles, Hosts, or
-      temporary Profiles
+      Projects, Profiles, or Hosts
   Teardown:
-  unbind [project]
+  unbind
     Remove a configured Project
   uninstall
     Remove proven Agent Profile
       Kit-owned output from all ordinary
       Project installations
   Machine details:
-  info [--json]
+  info
     Show the engine version and
       selected application locations
 
@@ -1723,55 +1705,44 @@ Agent Profile Kit composes reusable
     supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
-\x1B[36m  init [workspace]\x1B[0m
+\x1B[36m  init\x1B[0m
     Initialize or adopt the canonical
       Workspace and settings
-\x1B[36m  guide [profile|context|skill|--full|--agent]\x1B[0m
+\x1B[36m  guide\x1B[0m
     Show a topic index, full Workspace
       guidance, or one focused authoring
       example
-\x1B[36m  bind <profile> [project] --host <host> [--host <host> ...] [--replace]\x1B[0m
+\x1B[36m  bind\x1B[0m
     Configure a Project with a Profile
       and Agent Hosts, or replace an
       existing binding
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings
       validity
-\x1B[36m  status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+\x1B[36m  status\x1B[0m
     Show the complete read-only apply
       plan for the complete fleet, the
       containing Project, or one
-      explicit Project; --blockers-only
-      shows a focused Blocker-only view
-      (combines with --verbose, not
-      --json)
-\x1B[36m  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+      explicit Project
+\x1B[36m  apply\x1B[0m
     Sync the complete fleet, the
       containing Project, or one
-      explicit Project; --blockers-only
-      shows a focused Blocker-only view
-      that always keeps the Applied
-      receipt and failed or pending
-      Projects visible (combines with
-      --verbose, not --json); with no
-      Blockers the ordinary receipt view
-      renders unchanged
+      explicit Project
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
-\x1B[36m  list [projects|profiles|hosts [--json]]\x1B[0m
+\x1B[36m  list\x1B[0m
     List read-only inventory for
-      Projects, Profiles, Hosts, or
-      temporary Profiles
+      Projects, Profiles, or Hosts
 \x1B[1;34m  Teardown:\x1B[0m
-\x1B[36m  unbind [project]\x1B[0m
+\x1B[36m  unbind\x1B[0m
     Remove a configured Project
 \x1B[36m  uninstall\x1B[0m
     Remove proven Agent Profile
       Kit-owned output from all ordinary
       Project installations
 \x1B[1;34m  Machine details:\x1B[0m
-\x1B[36m  info [--json]\x1B[0m
+\x1B[36m  info\x1B[0m
     Show the engine version and
       selected application locations
 
@@ -1801,35 +1772,31 @@ First run:
   Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
 
 Common commands:
-  init [workspace]
+  init
     Initialize or adopt the canonical Workspace and settings
-  guide [profile|context|skill|--full|--agent]
+  guide
     Show a topic index, full Workspace guidance, or one focused authoring example
-  bind <profile> [project] --host <host> [--host <host> ...] [--replace]
+  bind
     Configure a Project with a Profile and Agent Hosts, or replace an existing binding
   validate
     Check Workspace and settings validity
-  status [project | --here | --all] [--verbose] [--blockers-only] [--json]
+  status
     Show the complete read-only apply plan for the complete fleet, the containing Project, or one
-      explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose,
-      not --json)
-  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]
-    Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only
-      shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending
-      Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt
-      view renders unchanged
+      explicit Project
+  apply
+    Sync the complete fleet, the containing Project, or one explicit Project
 
 More commands:
   Inventory:
-  list [projects|profiles|hosts [--json]]
-    List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles
+  list
+    List read-only inventory for Projects, Profiles, or Hosts
   Teardown:
-  unbind [project]
+  unbind
     Remove a configured Project
   uninstall
     Remove proven Agent Profile Kit-owned output from all ordinary Project installations
   Machine details:
-  info [--json]
+  info
     Show the engine version and selected application locations
 
 For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run
@@ -1856,35 +1823,31 @@ Agent Profile Kit composes reusable agent material into host-native projects.
   Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
-\x1B[36m  init [workspace]\x1B[0m
+\x1B[36m  init\x1B[0m
     Initialize or adopt the canonical Workspace and settings
-\x1B[36m  guide [profile|context|skill|--full|--agent]\x1B[0m
+\x1B[36m  guide\x1B[0m
     Show a topic index, full Workspace guidance, or one focused authoring example
-\x1B[36m  bind <profile> [project] --host <host> [--host <host> ...] [--replace]\x1B[0m
+\x1B[36m  bind\x1B[0m
     Configure a Project with a Profile and Agent Hosts, or replace an existing binding
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings validity
-\x1B[36m  status [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
+\x1B[36m  status\x1B[0m
     Show the complete read-only apply plan for the complete fleet, the containing Project, or one
-      explicit Project; --blockers-only shows a focused Blocker-only view (combines with --verbose,
-      not --json)
-\x1B[36m  apply [project | --here | --all] [--verbose] [--blockers-only] [--json]\x1B[0m
-    Sync the complete fleet, the containing Project, or one explicit Project; --blockers-only
-      shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending
-      Projects visible (combines with --verbose, not --json); with no Blockers the ordinary receipt
-      view renders unchanged
+      explicit Project
+\x1B[36m  apply\x1B[0m
+    Sync the complete fleet, the containing Project, or one explicit Project
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
-\x1B[36m  list [projects|profiles|hosts [--json]]\x1B[0m
-    List read-only inventory for Projects, Profiles, Hosts, or temporary Profiles
+\x1B[36m  list\x1B[0m
+    List read-only inventory for Projects, Profiles, or Hosts
 \x1B[1;34m  Teardown:\x1B[0m
-\x1B[36m  unbind [project]\x1B[0m
+\x1B[36m  unbind\x1B[0m
     Remove a configured Project
 \x1B[36m  uninstall\x1B[0m
     Remove proven Agent Profile Kit-owned output from all ordinary Project installations
 \x1B[1;34m  Machine details:\x1B[0m
-\x1B[36m  info [--json]\x1B[0m
+\x1B[36m  info\x1B[0m
     Show the engine version and selected application locations
 
 \x1B[2mFor deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run\x1B[0m
@@ -1895,7 +1858,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.154.0
+Engine version: 0.155.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1905,7 +1868,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.154.0\x1B[0m
+\x1B[35mEngine version: 0.155.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1915,7 +1878,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.154.0
+Engine version: 0.155.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1925,7 +1888,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.154.0\x1B[0m
+\x1B[35mEngine version: 0.155.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

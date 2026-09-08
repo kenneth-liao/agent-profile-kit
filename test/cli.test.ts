@@ -9599,7 +9599,7 @@ describe("apkit root help", () => {
     expect(root.stdout).not.toMatch(/\bpreview\b/);
   });
 
-  test("root help lists all supported commands with usable syntax and concise purposes", async () => {
+  test("root help lists all supported commands without flag inventories and with concise purposes", async () => {
     const home = isolatedHome();
     const result = await runCli(home, "--help");
     expectExitCode(result, 0);
@@ -9608,17 +9608,23 @@ describe("apkit root help", () => {
     expect(commandsSection).toBeDefined();
     const menuLines = commandsSection!.split("\n");
     const commandLines = menuLines.filter((line) =>
-      defaultCommands().some((command) => line.trimStart().startsWith(command.syntax)),
+      defaultCommands().some((command) => line.trim() === command.name),
     );
     expect(commandLines).toHaveLength(defaultCommands().length);
     for (const command of defaultCommands()) {
-      const line = commandLines.find((candidate) => new RegExp(`^\\s*${command.name}\\b`).test(candidate));
+      const line = commandLines.find((candidate) => candidate.trim() === command.name);
       expect(line).toBeDefined();
-      expect(line).toContain(command.syntax);
+      expect(line).toBe(`  ${command.name}`);
       const description = menuLines
         .slice(menuLines.indexOf(line!) + 1)
         .find((candidate) => candidate.startsWith("    "));
       expect(description?.trim().length).toBeGreaterThan(0);
+    }
+    // Root help command lines must not contain flag inventories (US-034, DEC-020).
+    for (const line of commandLines) {
+      expect(line).not.toMatch(/\[--\w+/);
+      expect(line).not.toMatch(/--host\b/);
+      expect(line).not.toMatch(/--replace\b/);
     }
   });
 
@@ -9637,10 +9643,10 @@ describe("apkit root help", () => {
       expect(groupIndex).toBeGreaterThan(previousIndex);
       previousIndex = groupIndex;
       for (const command of commands) {
-        const syntaxIndex = result.stdout.indexOf(`  ${command.syntax}\n`, previousIndex);
-        expect(syntaxIndex).toBeGreaterThan(previousIndex);
-        expect(result.stdout.slice(syntaxIndex).split("\n")[1]).toMatch(/^    \S/);
-        previousIndex = syntaxIndex;
+        const commandIndex = result.stdout.indexOf(`  ${command.name}\n`, previousIndex);
+        expect(commandIndex).toBeGreaterThan(previousIndex);
+        expect(result.stdout.slice(commandIndex).split("\n")[1]).toMatch(/^    \S/);
+        previousIndex = commandIndex;
       }
     }
 

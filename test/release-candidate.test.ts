@@ -1453,7 +1453,7 @@ describe("project-bound release candidate", () => {
     const help = await runCli(home, ["--help"], { path: pathWithHosts });
     expectExitCode(help, 0);
     expect(help.stdout).toContain("First run:\n  apkit init\n  apkit bind <profile> --host <host>\n  apkit status\n  apkit apply");
-    expect(help.stdout).toContain("Common commands:\n  init [workspace]");
+    expect(help.stdout).toContain("Common commands:\n  init");
     expect(help.stdout).toContain("More commands:\n  Inventory:");
 
     // 2. Initialize: scaffold default Workspace and settings.
