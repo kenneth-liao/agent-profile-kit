@@ -27,6 +27,7 @@ import {
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
 import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
+import { nearestName } from "./nearest-match.js";
 import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
 import type { PresentationDocument } from "./presentation-document.js";
 
@@ -135,15 +136,58 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
     case "profile-without-artifacts":
       return `Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`;
     case "missing-context-reference":
-      return `Profile '${fact.profile}' selects missing Context Module '${fact.contextId}'. ` +
-        `Restore the Context Module, or remove or update Profile '${fact.profile}'`;
+      return `Profile '${fact.profile}' in ${fact.file} selects missing Context Module '${fact.contextId}'. ` +
+        `Restore the Context Module, or remove or update Profile '${fact.profile}'. ` +
+        (fact.available.length === 0
+          ? "No Context Modules exist in the Workspace"
+          : `Available Context Modules: ${fact.available.join(", ")}`);
     case "missing-skill-reference":
-      return `Profile '${fact.profile}' selects missing Skill '${fact.skillId}'`;
+      return `Profile '${fact.profile}' in ${fact.file} selects missing Skill '${fact.skillId}'. ` +
+        (fact.available.length === 0
+          ? "No Skills exist in the Workspace"
+          : `Available Skills: ${fact.available.join(", ")}`);
     case "missing-dependency-reference":
-      return `Dependency references missing ${fact.label} '${fact.id}'`;
+      return `${fact.file} references missing ${fact.label} '${fact.id}'. ` +
+        (fact.available.length === 0
+          ? `No ${fact.label}s exist in the Workspace`
+          : `Available ${fact.label}s: ${fact.available.join(", ")}`);
     case "dependency-cycle":
       return `Dependency cycle: ${fact.cycle}`;
   }
+}
+
+/**
+ * The shared invalid-reference diagnostic (US-025/026, DEC-017): what happened
+ * names the offending file and invalid value, why suggests the nearest name
+ * through the shared nearest-name selection and lists the available names, and
+ * what to type offers the runnable recovery command.
+ */
+function missingReferenceDiagnostic(evidence: {
+  readonly happened: readonly string[];
+  readonly invalid: string;
+  readonly label: string;
+  readonly available: readonly string[];
+  readonly file: string;
+  /** Restore-or-remove remedy preserved from the predecessor wording. */
+  readonly remedy: string;
+}): DiagnosticDocumentParts {
+  const why: (readonly InlineContent[])[] = [
+    [evidence.available.length === 0
+      ? `No ${evidence.label}s exist in the Workspace.`
+      : `Available ${evidence.label}s: ${evidence.available.join(", ")}.`],
+  ];
+  const suggestion = nearestName(evidence.invalid, evidence.available);
+  if (suggestion !== undefined) {
+    why.push([`Did you mean '${suggestion}'?`]);
+  }
+  return {
+    happened: [...evidence.happened],
+    why,
+    whatToType: [
+      [`${evidence.remedy}`],
+      ["Correct ", identifierPart(evidence.file), ", then run ", commandPart(COMMAND_NAME, [arg("validate")]), "."],
+    ],
+  };
 }
 
 /** The structured diagnostic parts for one typed Workspace ingestion failure. */
@@ -168,14 +212,36 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
     case "profile-without-artifacts":
       return { happened: [`Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`] };
     case "missing-context-reference":
-      return {
-        happened: [`Profile '${fact.profile}' selects missing Context Module '${fact.contextId}'.`],
-        whatToType: [[`Restore the Context Module, or remove or update Profile '${fact.profile}'.`]],
-      };
+      return missingReferenceDiagnostic({
+        happened: [
+          `Profile '${fact.profile}' in ${fact.file} selects missing Context Module '${fact.contextId}'.`,
+        ],
+        invalid: fact.contextId,
+        label: "Context Module",
+        available: fact.available,
+        file: fact.file,
+        remedy: `Restore the Context Module, or remove or update Profile '${fact.profile}'.`,
+      });
     case "missing-skill-reference":
-      return { happened: [`Profile '${fact.profile}' selects missing Skill '${fact.skillId}'`] };
+      return missingReferenceDiagnostic({
+        happened: [
+          `Profile '${fact.profile}' in ${fact.file} selects missing Skill '${fact.skillId}'.`,
+        ],
+        invalid: fact.skillId,
+        label: "Skill",
+        available: fact.available,
+        file: fact.file,
+        remedy: `Restore the Skill, or remove or update Profile '${fact.profile}'.`,
+      });
     case "missing-dependency-reference":
-      return { happened: [`Dependency references missing ${fact.label} '${fact.id}'`] };
+      return missingReferenceDiagnostic({
+        happened: [`${fact.file} references missing ${fact.label} '${fact.id}'.`],
+        invalid: fact.id,
+        label: fact.label,
+        available: fact.available,
+        file: fact.file,
+        remedy: `Restore the missing ${fact.label}, or remove the dependency reference.`,
+      });
     case "dependency-cycle":
       return { happened: [`Dependency cycle: ${fact.cycle}`] };
   }
