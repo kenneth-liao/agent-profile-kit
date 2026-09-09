@@ -29,6 +29,7 @@ import {
   TOPIC_GUIDES,
 } from "../cli/guides.js";
 import {
+  bareInvocationDocument,
   applyExecutionFailureDocument as rawApplyExecutionFailureDocument,
   applyReportDocument as rawApplyReportDocument,
   applyVerificationFailureDocument as rawApplyVerificationFailureDocument,
@@ -9768,3 +9769,137 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
 });
 
 
+
+describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC-021, TEST-015, TEST-020)", () => {
+  const wordmark = ["Agent Profile Kit"];
+
+  function bareInfo(overrides: Partial<ApplicationInfo> = {}): ApplicationInfo {
+    return {
+      configurationState: "current",
+      engineVersion: "0.67.0",
+      installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
+      localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      workspace: {
+        authored: "/home/.agents/agent-profile-kit/workspace",
+        canonical: "/home/.agents/agent-profile-kit/workspace",
+      },
+      ...overrides,
+    };
+  }
+
+  const renderedText = (document: PresentationDocument): string =>
+    renderBoundary(document).replace(/\s+/g, " ");
+
+  test("a not-configured machine sees that setup is missing and the init command, not the manual (US-032, TEST-015)", () => {
+    const document = bareInvocationDocument({
+      info: bareInfo({ configurationState: "not-configured", workspace: null }),
+      wordmark,
+    });
+    const text = renderedText(document);
+    expect(text).toContain("Agent Profile Kit is not set up");
+    expect(text).toContain("apkit init");
+    // State screen, not the full manual: no command-listing headings, no
+    // usage line, no flag inventory.
+    expect(text).not.toContain("First run:");
+    expect(text).not.toContain("Common commands:");
+    expect(text).not.toContain("More commands:");
+    expect(text).not.toContain("Usage:");
+    expect(text).not.toContain("apkit bind <profile>");
+    // The full surface is reachable, by pointer only.
+    expect(text).toContain("apkit --help");
+    expect(text).toContain("full command list");
+  });
+
+  test("a legacy configuration is told to run init", () => {
+    const document = bareInvocationDocument({
+      info: bareInfo({ configurationState: "legacy" }),
+      wordmark,
+    });
+    const text = renderedText(document);
+    expect(text).toContain("Legacy configuration");
+    expect(text).toContain("apkit init");
+    expect(text).not.toContain("apkit status");
+    expect(text).not.toContain("apkit apply");
+  });
+
+  test("a configured machine sees its setup state and task commands, not the manual (US-032)", () => {
+    const document = bareInvocationDocument({
+      info: bareInfo(),
+      report: emptyReport({
+        desired: [
+          { canonicalProject: "/project-a", project: "/project-a", context: "c", outputs: [], profile: "p", resolvedArtifacts: [] },
+        ],
+        items: [{ kind: "addition", project: "/project-a" }],
+      }),
+      wordmark,
+    });
+    const text = renderedText(document);
+    // Fleet state from the delivered default scope (issue #436): one never
+    // installed Project is pending, summarised by its primary cause.
+    expect(text).toContain("not installed yet (1)");
+    // Task-relevant human commands only.
+    for (const command of ["apkit status", "apkit apply", "apkit bind", "apkit guide"]) {
+      expect(text).toContain(command);
+    }
+    // Not the full manual.
+    expect(text).not.toContain("First run:");
+    expect(text).not.toContain("Common commands:");
+    expect(text).not.toContain("More commands:");
+    expect(text).not.toContain("Usage:");
+    expect(text).not.toContain("apkit bind <profile>");
+    expect(text).toContain("full command list");
+  });
+
+  test("a settled fleet says so and still offers the task commands (US-032)", () => {
+    const document = bareInvocationDocument({
+      info: bareInfo(),
+      report: emptyReport({
+        desired: [
+          { canonicalProject: "/project-a", project: "/project-a", context: "c", outputs: [], profile: "p", resolvedArtifacts: [] },
+        ],
+        items: [{ kind: "current", project: "/project-a" }],
+      }),
+      wordmark,
+    });
+    const text = renderedText(document);
+    expect(text).toContain("up to date");
+    expect(text).toContain("apkit status");
+    expect(text).toContain("apkit apply");
+  });
+
+  test("an empty configured fleet points at binding a Project (US-032)", () => {
+    const document = bareInvocationDocument({
+      info: bareInfo(),
+      report: emptyReport(),
+      wordmark,
+    });
+    const text = renderedText(document);
+    expect(text).toContain("No Projects are configured");
+    expect(text).toContain("apkit bind");
+  });
+
+  test("the entry screen never lists machine-facing commands (US-035, DEC-021, TEST-020)", () => {
+    const cases: PresentationDocument[] = [
+      bareInvocationDocument({
+        info: bareInfo({ configurationState: "not-configured", workspace: null }),
+        wordmark,
+      }),
+      bareInvocationDocument({ info: bareInfo(), report: emptyReport(), wordmark }),
+      bareInvocationDocument({
+        info: bareInfo(),
+        report: emptyReport({
+          desired: [
+            { canonicalProject: "/project-a", project: "/project-a", context: "c", outputs: [], profile: "p", resolvedArtifacts: [] },
+          ],
+        }),
+        wordmark,
+      }),
+    ];
+    for (const document of cases) {
+      const text = renderedText(document);
+      expect(text).not.toContain("machine ");
+      expect(text).not.toContain("install-temp");
+      expect(text).not.toContain("remove-temp");
+    }
+  });
+});

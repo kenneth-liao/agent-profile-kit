@@ -10250,9 +10250,54 @@ describe("apkit root help", () => {
     expect(applyUpperV.stderr).toContain("apply does not accept argument '-V'");
   });
 
-  test("bare invocation, --help, -h, and help print identical root help successfully", async () => {
+  test("bare invocation presents setup state and task commands instead of the manual (US-032, US-035, DEC-020, DEC-021, TEST-015, TEST-020)", async () => {
     const home = isolatedHome();
     const bare = await runCli(home);
+    const help = await runCli(home, "--help");
+
+    expectExitCode(bare, 0);
+    expect(bare.stderr).toBe("");
+    expect(bare.stdout.length).toBeGreaterThan(0);
+    // The entry screen is state, not the full manual (issue #452).
+    expect(bare.stdout).not.toBe(help.stdout);
+    expect(bare.stdout).toContain("Agent Profile Kit is not set up");
+    expect(bare.stdout).toContain("apkit init");
+    expect(bare.stdout).not.toContain("First run:");
+    expect(bare.stdout).not.toContain("Common commands:");
+    expect(bare.stdout).not.toContain("More commands:");
+    expect(bare.stdout).not.toContain("apkit bind <profile>");
+    // Machine-facing commands are omitted from the entry screen (US-035).
+    expect(bare.stdout).not.toContain("apkit machine");
+    for (const machineCommand of machineCommands()) {
+      expect(bare.stdout).not.toContain(`machine ${machineCommand.name}`);
+    }
+  });
+
+  test("bare invocation on a configured machine consumes fleet state and default scope without mutating anything (US-032, TEST-020)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const boundProject = gitRepository("agent-profile-kit-452-bare-");
+    bind(home, boundProject, "example");
+    const readMachineDigest = (): string =>
+      treeDigest([boundProject, configPath(home), statePath(home)]);
+    const before = readMachineDigest();
+
+    const bare = await runCli(home);
+
+    expectExitCode(bare, 0);
+    expect(bare.stderr).toBe("");
+    // Fleet state from the delivered default scope (#435, #436): the bound
+    // never-installed Project is named by its primary cause count.
+    expect(bare.stdout).toContain("not installed yet (1)");
+    expect(bare.stdout).toContain("apkit status");
+    expect(bare.stdout).toContain("apkit apply");
+    expect(bare.stdout).not.toContain("apkit machine");
+    // The entry screen is read-only: nothing on the machine changed.
+    expect(readMachineDigest()).toBe(before);
+  });
+
+  test("--help, -h, and help print identical root help successfully", async () => {
+    const home = isolatedHome();
     const help = await runCli(home, "--help");
     const shortHelp = await runCli(home, "-h");
     const helpCommand = await runCli(home, "help");
@@ -10261,19 +10306,43 @@ describe("apkit root help", () => {
     const nestedVersion = await runCli(home, HELP_COMMAND, "--version");
     const nestedShortVersion = await runCli(home, HELP_COMMAND, "-v");
 
-    for (const result of [bare, help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion, nestedShortVersion]) {
+    for (const result of [help, shortHelp, helpCommand, nestedLongHelp, nestedShortHelp, nestedVersion, nestedShortVersion]) {
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
     }
-    expect(bare.stdout).toBe(help.stdout);
     expect(shortHelp.stdout).toBe(help.stdout);
     expect(helpCommand.stdout).toBe(help.stdout);
     expect(nestedLongHelp.stdout).toBe(help.stdout);
     expect(nestedShortHelp.stdout).toBe(help.stdout);
     expect(nestedVersion.stdout).toBe(help.stdout);
     expect(nestedShortVersion.stdout).toBe(help.stdout);
-    expect(bare.stdout.length).toBeGreaterThan(0);
   });
+
+/** A digest of every file under the given trees (no .git), so tests can prove nothing changed. */
+function treeDigest(roots: readonly string[]): string {
+  const hash = createHash("sha256");
+  const walk = (path: string, prefix: string): void => {
+    // A path absent before the invocation must stay absent; missing files
+    // contribute nothing rather than failing the digest.
+    if (!existsSync(path)) return;
+    if (statSync(path).isFile()) {
+      hash.update(prefix);
+      hash.update(readFileSync(path));
+      return;
+    }
+    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === ".git") continue;
+      const relative = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) walk(join(path, entry.name), relative);
+      else {
+        hash.update(relative);
+        hash.update(readFileSync(join(path, entry.name)));
+      }
+    }
+  };
+  for (const root of roots) walk(root, root);
+  return hash.digest("hex");
+}
 
   test("removed preview invocations receive ordinary unknown-command handling without a compatibility execution path", async () => {
     const home = isolatedHome();

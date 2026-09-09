@@ -41,6 +41,7 @@ import {
   formatTemporaryInventoryToolErrorJson,
   hostInventoryDocument,
   infoDocument,
+  bareInvocationDocument,
   inventoryIndexDocument,
   formatTemporaryInstallationBlockedJson,
   formatTemporaryInstallationJson,
@@ -799,6 +800,33 @@ function interactiveProgress(
     : undefined;
 }
 
+/**
+ * The bare-invocation entry screen (US-032, DEC-020): current setup state and
+ * a short task-relevant command list instead of the full manual. Strictly
+ * read-only — the fleet facts come from the status plan (default fleet scope,
+ * issue #436); nothing on the machine is written.
+ */
+async function runBareInvocation(home: string): Promise<void> {
+  try {
+    const info = await readApplicationInfo(home);
+    const report = info.configurationState === "current"
+      ? await statusApplication(home)
+      : undefined;
+    writeHumanDocument(
+      process.stdout,
+      bareInvocationDocument({
+        info,
+        ...(report === undefined ? {} : { report }),
+        wordmark: rootWordmark(stdoutPresentationContext),
+      }),
+      stdoutPresentationContext,
+    );
+  } catch (error) {
+    writeHumanDocument(process.stderr, errorDiagnosticDocument(error), stderrPresentationContext);
+    process.exitCode = 1;
+  }
+}
+
 async function main(): Promise<void> {
   const arguments_ = process.argv.slice(2);
   const home = homedir();
@@ -807,10 +835,11 @@ async function main(): Promise<void> {
     process.stdout.write(`${ENGINE_VERSION}\n`);
     return;
   }
-  if (
-    arguments_.length === 0 ||
-    (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0]))
-  ) {
+  if (arguments_.length === 0) {
+    await runBareInvocation(home);
+    return;
+  }
+  if (arguments_.length === 1 && ROOT_HELP_ALIASES.some((alias) => alias === arguments_[0])) {
     const context = stdoutPresentationContext;
     writeHumanDocument(process.stdout, rootHelpDocument(rootWordmark(context)), stdoutPresentationContext);
     return;
