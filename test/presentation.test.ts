@@ -2172,8 +2172,9 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
   });
 
   test("the check names every configured Host and asks for a session of each", () => {
-    // Canonical Host order (SUPPORTED_HOSTS) as the binding normalizes it.
-    const document = applyReportDocument(changedApply("coding", ["claude", "codex"]));
+    // Fixture order is deliberately non-canonical: the instruction renders the
+    // Hosts in canonical order regardless of Binding order.
+    const document = applyReportDocument(changedApply("coding", ["codex", "claude"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toContain("To check that claude and codex loaded Profile coding");
     expect(instruction).toContain("start a new session of each configured Host");

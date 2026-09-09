@@ -2780,6 +2780,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         state: { kind: "current" },
       }],
     });
+    // US-060/US-041: machine JSON is untouched by the post-apply verification
+    // instruction; it stays on the human surface only.
+    expect(apply.stdout).not.toContain("To check that ");
     expect(
       readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Always preserve the project boundary.");

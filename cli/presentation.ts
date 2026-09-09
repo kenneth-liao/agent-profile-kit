@@ -2288,17 +2288,30 @@ function hostSetupSections(
  * Emit one invocation-wide next-launch readiness statement for successful changed apply
  * (#292 DEC-011–DEC-013, US-011–US-013).
  */
-function readinessLines(
+/**
+ * The Profiles whose desired installations one apply's committed work touched:
+ * the single canonical home shared by the readiness statement and the
+ * Host-loading verification instruction, so both fire on exactly the same
+ * evidence.
+ */
+function appliedProfiles(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
 ): readonly string[] {
   const changedProjects = new Set(statusAffectedProjects(receipt));
-  const profiles = [...new Set(
+  return [...new Set(
     report.projects
       .filter((record) => changedProjects.has(record.canonicalProject))
       .map((record) => record.desired?.profile)
       .filter((profile): profile is string => profile !== undefined),
   )].sort(compareCanonicalStrings);
+}
+
+function readinessLines(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+): readonly string[] {
+  const profiles = appliedProfiles(report, receipt);
 
   if (profiles.length === 0) return [];
   const subject = profiles.length === 1
@@ -2932,19 +2945,17 @@ function hostLoadingVerificationNodes(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
+  const profiles = appliedProfiles(report, receipt);
+  if (profiles.length === 0) return [];
   const changedProjects = new Set(statusAffectedProjects(receipt));
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
-  const profiles = [...new Set(
-    changed
-      .map((record) => record.desired?.profile)
-      .filter((profile): profile is string => profile !== undefined),
-  )].sort(compareCanonicalStrings);
-  if (profiles.length === 0) return [];
+  // Canonical Host order, matching the sorted Profiles line and every other
+  // canonical Host rendering.
   const hosts = [...new Set(
     changed.flatMap((record) => record.desired?.hosts ?? []),
-  )];
+  )].sort(compareCanonicalStrings);
   if (hosts.length === 0) return [];
   const subject = profiles.length === 1
     ? `Profile ${profiles[0]}`
@@ -2955,11 +2966,9 @@ function hostLoadingVerificationNodes(
   const session = hosts.length === 1
     ? `start a new ${hosts[0]} session`
     : "start a new session of each configured Host";
-  const displayedProjects = changed
-    .map((record) => displayProjectPath(record.canonicalProject, record.project, scope))
-    .sort(compareCanonicalStrings);
-  const projectPhrase = displayedProjects.length === 1
-    ? displayedProjects[0]
+  const [firstChanged] = changed;
+  const projectPhrase = changed.length === 1 && firstChanged !== undefined
+    ? displayProjectPath(firstChanged.canonicalProject, firstChanged.project, scope)
     : "each updated Project";
   return [{
     kind: "prose",
@@ -3108,8 +3117,12 @@ function conciseApplyDocument(
   }
   if (!blocked && !noOpApply && receipt !== undefined) {
     const readiness = readinessNodes(report, receipt);
-    if (readiness.length > 0) nodes.push(spacerNode(), ...readiness);
-    nodes.push(...hostLoadingVerificationNodes(report, receipt, scope));
+    if (readiness.length > 0) {
+      nodes.push(spacerNode(), ...readiness);
+      // The check fires exactly where the readiness statement fires: both
+      // key off the same applied evidence, and the check follows it.
+      nodes.push(...hostLoadingVerificationNodes(report, receipt, scope));
+    }
   }
   return nodes;
 }
@@ -3140,8 +3153,11 @@ function verboseApplyDocument(
     ...verboseHostSetupNodes("apply", result.resultingState, scope),
   ];
   if (reportBlockers(result.resultingState).length === 0) {
-    nodes.push(...readinessNodes(result.resultingState, result.receipt));
-    nodes.push(...hostLoadingVerificationNodes(result.resultingState, result.receipt, scope));
+    const readiness = readinessNodes(result.resultingState, result.receipt);
+    if (readiness.length > 0) {
+      nodes.push(...readiness);
+      nodes.push(...hostLoadingVerificationNodes(result.resultingState, result.receipt, scope));
+    }
   }
   return nodes;
 }
