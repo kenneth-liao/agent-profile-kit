@@ -20,8 +20,6 @@ import {
   rootHelpDocument,
 } from "./command-help.js";
 import {
-  bindReceiptDocument,
-  initReceiptDocument,
   newArtifactReceiptDocument,
   type NewArtifactReceiptInput,
   unbindReceiptDocument,
@@ -60,6 +58,7 @@ import {
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
 import { runBindCommand } from "./bind-command.js";
+import { runInitCommand } from "./init-command.js";
 import {
   renderPresentationDocument,
   writeHumanDocument,
@@ -76,12 +75,10 @@ import { bindProject } from "../installer/bind-project.js";
 import {
   unbindProject,
 } from "../installer/unbind-project.js";
-import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { createSkill } from "../installer/create-skill.js";
 import { createContextModule } from "../installer/create-context-module.js";
 import { createProfile } from "../installer/create-profile.js";
 import { openWorkspace } from "../installer/open-workspace.js";
-import { detectInstalledHosts } from "../adapters/registry.js";
 import {
   ProjectTargetError,
   type ProjectBindingSelection,
@@ -406,15 +403,6 @@ function positionalArgument(command: string, description: string, value: string)
     throw new Error(`${command} does not accept flag '${value}' as ${description}`);
   }
   return value;
-}
-
-function parseInitArguments(arguments_: readonly string[]): { readonly workspace?: string } {
-  if (arguments_.length > 1) {
-    throw new Error("init accepts at most one Workspace path");
-  }
-  return arguments_.length === 0
-    ? {}
-    : { workspace: positionalArgument("init", "a Workspace path", arguments_[0]!) };
 }
 
 /**
@@ -911,30 +899,14 @@ async function main(): Promise<void> {
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "init") {
-    const parsed = parseOrExit("init", () => parseInitArguments(arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const result = await initializeWorkspace(home, parsed);
-    for (const warning of result.warnings) {
-      writeHumanDocument(
-        process.stderr,
-        diagnosticDocument({
-          happened: [`warning: ${warning}`],
-          severity: "attention",
-        }),
-        stderrPresentationContext,
-      );
-    }
-    const detectedHosts = result.outcome === "created"
-      ? await detectInstalledHosts({ env: process.env })
-      : undefined;
-    writeHumanDocument(
-      process.stdout,
-      initReceiptDocument({
-        ...result,
-        ...(detectedHosts !== undefined ? { detectedHosts } : {}),
-      }),
-      stdoutPresentationContext,
-    );
+    const outcome = await runInitCommand({
+      home,
+      arguments: arguments_.slice(1),
+      stdout: process.stdout,
+      stderr: process.stderr,
+      input: process.stdin,
+    });
+    process.exitCode = outcome.exitCode;
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "new") {

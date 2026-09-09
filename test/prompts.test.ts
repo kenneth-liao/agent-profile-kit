@@ -5,6 +5,8 @@ import {
   createConfirmPrompt,
   createMultiSelectPrompt,
   createSelectPrompt,
+  createTextPrompt,
+  createYesNoPrompt,
   isInteractiveInput,
 } from "../cli/prompts.js";
 
@@ -219,6 +221,58 @@ describe("multiselect prompt seam", () => {
     const input = fakeInteractiveInput();
     const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
     const pending = multi("Which Agent Hosts?", [{ title: "codex", value: "codex" }]);
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+  });
+});
+
+describe("yes/no prompt seam", () => {
+  test("accepts an explicit yes", async () => {
+    const input = fakeInteractiveInput();
+    const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
+    const pending = yesNo("Set up your first Profile now?");
+    input.write("y");
+    expect(await pending).toBe("accepted");
+  });
+
+  test("declines an explicit no", async () => {
+    const input = fakeInteractiveInput();
+    const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
+    const pending = yesNo("Set up your first Profile now?");
+    input.write("n");
+    expect(await pending).toBe("declined");
+  });
+
+  test("takes the default answer — no — on enter", async () => {
+    const input = fakeInteractiveInput();
+    const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
+    const pending = yesNo("Set up your first Profile now?");
+    input.write("\r");
+    expect(await pending).toBe("declined");
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
+    const pending = yesNo("Set up your first Profile now?");
+    input.end();
+    expect(await pending).toBe("cancelled");
+  });
+});
+
+describe("text prompt seam", () => {
+  test("answers with the submitted line", async () => {
+    const input = fakeInteractiveInput();
+    const text = createTextPrompt({ input, output: new PassThrough() });
+    const pending = text("What should the Profile be named?");
+    input.write("my-profile\r");
+    expect(await pending).toEqual({ kind: "answered", value: "my-profile" });
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const text = createTextPrompt({ input, output: new PassThrough() });
+    const pending = text("What should the Profile be named?");
     input.end();
     expect(await pending).toEqual({ kind: "cancelled" });
   });

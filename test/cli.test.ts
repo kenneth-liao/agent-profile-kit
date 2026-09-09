@@ -199,6 +199,43 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+/** A PTY run with paced typed answers: each answer is written to `script`'s
+ * stdin after a short delay, so the packed CLI reads it from the PTY when the
+ * next prompt asks for it. An immediate feed would race the first prompt
+ * against `script`'s EOF forwarding. */
+async function runCliInPtyWithInput(
+  home: string,
+  columns: number,
+  answers: readonly string[],
+  ...arguments_: string[]
+) {
+  const inner = [
+    `stty cols ${columns};`,
+    "exec",
+    ...[
+      process.env.NODE_BINARY ?? "node",
+      cliPath,
+      ...withHistoricalFleetScope(arguments_),
+    ].map(shellQuote),
+  ].join(" ");
+  const feed = answers.map((answer) => `printf ${shellQuote(answer)}; sleep 0.3;`).join(" ");
+  return cleanPtyResult(
+    await runProcess({
+      executable: "sh",
+      arguments_: ["-c", `{ ${feed} } | script -q /dev/null sh -c ${shellQuote(inner)}`],
+      environment: {
+        ...process.env,
+        NO_COLOR: "1",
+        COLUMNS: String(columns),
+        HOME: home,
+        PATH: defaultCliPath(home),
+      },
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "packed CLI PTY",
+    }),
+  );
+}
+
 async function runCliInPty(home: string, columns: number, ...arguments_: string[]) {
   return await runCliInPtyWithEnvironment(home, columns, { NO_COLOR: "1" }, ...arguments_);
 }
@@ -1046,8 +1083,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const home = isolatedHome();
     const custom = join(home, "My Workspaces");
 
-    const narrow = await runCliInPty(home, 40, "init", custom);
-    const wide = await runCliInPty(home, 100, "init", custom);
+    // The guided-init offer is declined ('n'), so the run still captures the
+    // created-init receipt rendering with the guided questions asked first.
+    const narrow = await runCliInPtyWithInput(home, 40, ["n"], "init", custom);
+    const wide = await runCliInPtyWithInput(home, 100, ["n"], "init", custom);
 
     expectExitCode(narrow, 0);
     expectExitCode(wide, 0);
@@ -13970,6 +14009,25 @@ describe("packed CLI new profile", () => {
     const profileFile = join(realpathSync(workspacePath(home)), "profiles", "pty-profile.yaml");
     expect(result.stdout).toContain(profileFile);
     expect(existsSync(profileFile)).toBe(true);
+  });
+
+  test("guided init accepts the offer and creates the first Profile through the packed CLI", async () => {
+    const home = isolatedHome();
+
+    const result = await runCliInPtyWithInput(
+      home,
+      80,
+      ["y", "my-profile\r", " \r"],
+      "init",
+    );
+    expectExitCode(result, 0);
+    const profileFile = join(realpathSync(workspacePath(home)), "profiles", "my-profile.yaml");
+    expect(existsSync(profileFile)).toBe(true);
+    expect(readFileSync(profileFile, "utf8")).toContain('"example-context"');
+    expect(result.stdout).toContain(profileFile);
+    expect(result.stdout).toContain("apkit new profile my-profile --context example-context");
+    // The guided Profile is valid, bindable Workspace material (TEST-017).
+    expectExitCode(await runCli(home, "validate"), 0);
   });
 
   test("new profile refuses unknown selections with available names and the nearest match", async () => {
