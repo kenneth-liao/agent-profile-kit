@@ -101,6 +101,13 @@ export type WorkspaceIngestionErrorFact =
 export type WorkspaceErrorFact = WorkspaceIngestionErrorFact | WorkspaceManifestRejectionReason;
 
 /**
+ * The artifact kinds an authoring command can create, named by their display
+ * nouns. One home so the typed creation facts and their presentation wording
+ * cannot disagree about which artifact a fact describes.
+ */
+export type CreationArtifactType = "Skill" | "Context Module";
+
+/**
  * Every Installer-authored tool error, as a typed fact: a kind plus the
  * non-prose evidence the error needs — path, Project, Host, Host list, or a
  * nested typed fact. No user-facing sentence is authored here; presentation
@@ -172,18 +179,22 @@ export type InstallerToolErrorFact =
     }
   | { readonly kind: "foreign-diagnostic"; readonly detail: string }
   | {
-      readonly kind: "skill-path-occupied";
+      readonly kind: "artifact-path-occupied";
+      /** The display noun of the artifact kind being created. */
+      readonly artifactType: CreationArtifactType;
       readonly id: string;
       readonly path: string;
     }
   | {
-      readonly kind: "skill-creation-residue";
+      readonly kind: "artifact-creation-residue";
+      /** The display noun of the artifact kind being created. */
+      readonly artifactType: CreationArtifactType;
       readonly id: string;
       readonly path: string;
       /**
        * What survives at `path`: material entirely created by the failed
-       * Skill invocation ("own"), a directory containing entries Agent
-       * Profile Kit did not create ("foreign"), or a directory whose
+       * creation invocation ("own"), a destination containing entries Agent
+       * Profile Kit did not create ("foreign"), or a destination whose
        * contents could not be inspected ("uninspectable").
        */
       readonly contents: "own" | "foreign" | "uninspectable";

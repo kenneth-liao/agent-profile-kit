@@ -9,7 +9,7 @@ const profile = AUTHORING_EXAMPLES.profile.id;
 export const COMMAND_EXAMPLES = {
   init: ["init", `init ${workspace}`],
   guide: ["guide", "guide profile", "guide context", "guide skill", "guide --full", "guide --agent"],
-  new: [`new skill review-pr`],
+  new: ["new skill review-pr", "new context review-standards"],
   open: ["open"],
   bind: [
     `bind ${profile} --host codex`,

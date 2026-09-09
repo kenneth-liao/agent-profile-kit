@@ -22,7 +22,7 @@ import {
 import {
   bindReceiptDocument,
   initReceiptDocument,
-  newSkillReceiptDocument,
+  newArtifactReceiptDocument,
   unbindReceiptDocument,
 } from "./receipts.js";
 import {
@@ -76,6 +76,7 @@ import {
 } from "../installer/unbind-project.js";
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { createSkill } from "../installer/create-skill.js";
+import { createContextModule } from "../installer/create-context-module.js";
 import { openWorkspace } from "../installer/open-workspace.js";
 import { detectInstalledHosts } from "../adapters/registry.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
@@ -592,28 +593,29 @@ function parseGuideArguments(arguments_: readonly string[]):
 }
 
 /**
- * Parse `new skill <name>` (DEC-026). Only the Skill kind exists; sibling
- * artifact kinds own their own additions. Never prompts and never opens an
- * editor, on any input stream (US-055).
+ * Parse `apkit new` (DEC-026): one artifact kind plus a name. Never prompts
+ * and never opens an editor, on any input stream (US-055).
  */
 function parseNewArguments(
   arguments_: readonly string[],
-): { readonly kind: "skill"; readonly name: string } {
+): { readonly kind: "skill"; readonly name: string } | { readonly kind: "context"; readonly name: string } {
   if (arguments_.length === 0) {
-    throw new Error("new requires an artifact kind; supported kinds: skill");
+    throw new Error("new requires an artifact kind; supported kinds: skill, context");
   }
   const kind = arguments_[0]!;
-  if (kind !== "skill") {
-    throw new Error(`new does not support kind '${sanitizeCommandToken(kind)}'; supported kinds: skill`);
+  if (kind !== "skill" && kind !== "context") {
+    throw new Error(`new does not support kind '${sanitizeCommandToken(kind)}'; supported kinds: skill, context`);
   }
   if (arguments_.length < 2) {
-    throw new Error("new skill requires a Skill name");
+    throw new Error(
+      kind === "context" ? "new context requires a Context Module name" : "new skill requires a Skill name",
+    );
   }
   if (arguments_.length > 2) {
-    throw new Error(`new skill does not accept argument '${arguments_[2]}'`);
+    throw new Error(`new ${kind} does not accept argument '${arguments_[2]}'`);
   }
-  const name = positionalArgument("new skill", "a Skill name", arguments_[1]!);
-  return { kind: "skill", name };
+  const name = positionalArgument(`new ${kind}`, kind === "context" ? "a Context Module name" : "a Skill name", arguments_[1]!);
+  return { kind, name };
 }
 
 function parseNoArguments(command: string, arguments_: readonly string[]): { readonly valid: true } {
@@ -932,10 +934,16 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("new", () => parseNewArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     try {
-      const result = await createSkill({ home, name: parsed.name });
+      const result = parsed.kind === "skill"
+        ? await createSkill({ home, name: parsed.name })
+        : await createContextModule({ home, name: parsed.name });
       writeHumanDocument(
         process.stdout,
-        newSkillReceiptDocument(result),
+        newArtifactReceiptDocument({
+          artifactType: parsed.kind === "skill" ? "Skill" : "Context Module",
+          id: result.id,
+          path: result.path,
+        }),
         stdoutPresentationContext,
       );
     } catch (error) {

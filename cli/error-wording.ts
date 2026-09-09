@@ -4,6 +4,7 @@ import { LOCAL_CONFIGURATION_SCHEMA_VERSION } from "../schemas/local-configurati
 import type {
   ConfiguredPathErrorFact,
   ConfiguredPathOrigin,
+  CreationArtifactType,
   InstallerToolErrorFact,
   InstallerAuthoredError,
   WorkspaceErrorFact,
@@ -27,6 +28,16 @@ import {
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
 import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
+
+/**
+ * The `apkit new` kind token for each creatable artifact type, with the noun
+ * a residue fact's destination is referred to by. One home so every recovery
+ * command names the kind that can actually retry the failed creation.
+ */
+const CREATION_ARTIFACT_PRESENTATION = {
+  "Skill": { kindToken: "skill", residueNoun: "directory" },
+  "Context Module": { kindToken: "context", residueNoun: "file" },
+} as const satisfies Record<CreationArtifactType, { kindToken: string; residueNoun: string }>;
 import { nearestName } from "./nearest-match.js";
 import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
 import type { PresentationDocument } from "./presentation-document.js";
@@ -476,25 +487,31 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "foreign-diagnostic":
       return [fact.detail];
-    case "skill-path-occupied":
-      return [`Skill '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
-    case "skill-creation-residue":
+    case "artifact-path-occupied":
+      return [`${fact.artifactType} '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
+    case "artifact-creation-residue": {
+      const retry = commandPart(COMMAND_NAME, [
+        arg("new"),
+        arg(CREATION_ARTIFACT_PRESENTATION[fact.artifactType].kindToken),
+        arg(fact.id),
+      ]);
       if (fact.contents === "own") {
         return [
-          `Skill creation left incomplete Agent Profile Kit material at ${fact.path}; remove it and run `,
-          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          `${fact.artifactType} creation left incomplete Agent Profile Kit material at ${fact.path}; remove it and run `,
+          retry,
         ];
       }
       if (fact.contents === "foreign") {
         return [
-          `Skill creation left ${fact.path} containing material Agent Profile Kit did not create; review it before removing anything, then run `,
-          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          `${fact.artifactType} creation left ${fact.path} containing material Agent Profile Kit did not create; review it before removing anything, then run `,
+          retry,
         ];
       }
       return [
-        `Skill creation left ${fact.path} and its contents could not be inspected; restore access or review it before removing anything, then run `,
-        commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+        `${fact.artifactType} creation left ${fact.path} and its contents could not be inspected; restore access or review it before removing anything, then run `,
+        retry,
       ];
+    }
     case "workspace-open-failed": {
       const extra = fact.cleanupFailed ? "; opener cleanup failed" : "";
       return [`Could not open Workspace at ${fact.path}: ${fact.detail}${extra}`];
@@ -599,44 +616,50 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
-    case "skill-path-occupied":
+    case "artifact-path-occupied":
       return {
-        happened: [`Skill '${fact.id}' already has material at ${fact.path}`],
+        happened: [`${fact.artifactType} '${fact.id}' already has material at ${fact.path}`],
         whatToType: [[
-          "Choose a different Skill name or remove the existing material first, then run ",
-          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg("<different-name>")]),
+          `Choose a different ${fact.artifactType} name or remove the existing material first, then run `,
+          commandPart(COMMAND_NAME, [arg("new"), arg(CREATION_ARTIFACT_PRESENTATION[fact.artifactType].kindToken), arg("<different-name>")]),
           ".",
         ]],
       };
-    case "skill-creation-residue":
+    case "artifact-creation-residue": {
+      const retry = commandPart(COMMAND_NAME, [
+        arg("new"),
+        arg(CREATION_ARTIFACT_PRESENTATION[fact.artifactType].kindToken),
+        arg(fact.id),
+      ]);
       if (fact.contents === "own") {
         return {
-          happened: [`Skill creation left incomplete Agent Profile Kit material at ${fact.path}`],
+          happened: [`${fact.artifactType} creation left incomplete Agent Profile Kit material at ${fact.path}`],
           whatToType: [[
             "Remove it, then run ",
-            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+            retry,
             " to retry.",
           ]],
         };
       }
       if (fact.contents === "foreign") {
         return {
-          happened: [`Skill creation left ${fact.path} containing material Agent Profile Kit did not create`],
+          happened: [`${fact.artifactType} creation left ${fact.path} containing material Agent Profile Kit did not create`],
           whatToType: [[
-            "Review the material, remove only what you determine is unwanted together with the directory, then run ",
-            commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+            `Review the material, remove only what you determine is unwanted together with the ${CREATION_ARTIFACT_PRESENTATION[fact.artifactType].residueNoun}, then run `,
+            retry,
             " to retry.",
           ]],
         };
       }
       return {
-        happened: [`Skill creation left ${fact.path}; its contents could not be inspected`],
+        happened: [`${fact.artifactType} creation left ${fact.path}; its contents could not be inspected`],
         whatToType: [[
-          "Restore access to the directory or review its contents before removing anything, then run ",
-          commandPart(COMMAND_NAME, [arg("new"), arg("skill"), arg(fact.id)]),
+          `Restore access to the ${CREATION_ARTIFACT_PRESENTATION[fact.artifactType].residueNoun} or review its contents before removing anything, then run `,
+          retry,
           " to retry.",
         ]],
       };
+    }
     case "workspace-open-failed": {
       const whyLines: (readonly InlineContent[])[] = [[fact.detail]];
       if (fact.cleanupFailed) {

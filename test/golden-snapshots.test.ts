@@ -533,6 +533,15 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
+    test: "new context",
+    snapshot: "new-context",
+    commandId: "new",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["new", "context", "review-standards"] };
+    },
+  },
+  {
     test: "bind success",
     snapshot: "bind-success",
     commandId: "bind",

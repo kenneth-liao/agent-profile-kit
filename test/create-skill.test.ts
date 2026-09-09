@@ -114,8 +114,9 @@ describe("createSkill", () => {
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("skill-path-occupied");
-      if (fact.kind === "skill-path-occupied") {
+      expect(fact.kind).toBe("artifact-path-occupied");
+      if (fact.kind === "artifact-path-occupied") {
+        expect(fact.artifactType).toBe("Skill");
         expect(fact.path).toBe(realpathSync(skillRoot));
       }
       // Presentation owns the sentence and the structured diagnostic (DEC-014);
@@ -151,7 +152,7 @@ describe("createSkill", () => {
 
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("skill-path-occupied");
+      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
       expect(readFileSync(occupied, "utf8")).toBe("not a directory\n");
       expect(existsSync(join(occupied, "SKILL.md"))).toBe(false);
     } finally {
@@ -168,7 +169,7 @@ describe("createSkill", () => {
 
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("skill-path-occupied");
+      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
 
       const outsideEntries = Array.from(new Bun.Glob("*").scanSync({ cwd: outside }));
       expect(outsideEntries).toEqual([]);
@@ -319,8 +320,9 @@ describe("createSkill", () => {
       expect(readFileSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"), "utf8")).toBe(foreignBytes);
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("skill-creation-residue");
-      if (fact.kind === "skill-creation-residue") {
+      expect(fact.kind).toBe("artifact-creation-residue");
+      if (fact.kind === "artifact-creation-residue") {
+        expect(fact.artifactType).toBe("Skill");
         expect(fact.contents).toBe("foreign");
         expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
       }
@@ -354,8 +356,8 @@ describe("createSkill", () => {
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("skill-creation-residue");
-      if (fact.kind === "skill-creation-residue") {
+      expect(fact.kind).toBe("artifact-creation-residue");
+      if (fact.kind === "artifact-creation-residue") {
         // The residue path is the directory: removing it clears the retry
         // blocker; the surviving material is all Agent Profile Kit-created.
         expect(fact.path).toBe(skillRoot);
@@ -402,8 +404,8 @@ describe("createSkill", () => {
       // directory, and classifies the residue as containing foreign material.
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("skill-creation-residue");
-      if (fact.kind === "skill-creation-residue") {
+      expect(fact.kind).toBe("artifact-creation-residue");
+      if (fact.kind === "artifact-creation-residue") {
         expect(fact.contents).toBe("foreign");
         expect(fact.path).toBe(join(realpathSync(workspacePath(home)), "skills", "review-pr"));
       }
@@ -436,8 +438,8 @@ describe("createSkill", () => {
       // directory is reported as unknown residue with its path retained.
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("skill-creation-residue");
-      if (fact.kind === "skill-creation-residue") {
+      expect(fact.kind).toBe("artifact-creation-residue");
+      if (fact.kind === "artifact-creation-residue") {
         expect(fact.contents).toBe("uninspectable");
         expect(fact.path).toBe(skillRoot);
       }
