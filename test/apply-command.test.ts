@@ -93,7 +93,7 @@ function parsedSelection(arguments_: readonly string[], fleet: DriftedFleetFixtu
     kind: "project" as const,
     command: "apply" as const,
     match: "exact" as const,
-    target: scopeArgument === "." ? fleet.driftedProject : scopeArgument,
+    target: scopeArgument,
     ...(filter === undefined ? {} : { filter }),
   };
 }

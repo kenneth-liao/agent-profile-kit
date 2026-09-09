@@ -27,13 +27,6 @@ export interface PromptClock {
   setTimeout(callback: () => void, delayMs: number): () => void;
 }
 
-const defaultClock: PromptClock = {
-  setTimeout: (callback, delayMs) => {
-    const handle = globalThis.setTimeout(callback, delayMs);
-    return () => globalThis.clearTimeout(handle);
-  },
-};
-
 export interface ConfirmPromptOptions {
   /** Injectable interactive input stream; TTY evidence is read here. */
   readonly input: Readable;
@@ -63,34 +56,34 @@ export function isInteractiveInput(input: Readable): boolean {
 }
 
 /**
- * One confirm prompt bound to the given streams. Cancellation is safe from
- * any cause: the answer resolves and both streams are released, so no
- * pending prompt can outlive the interaction.
+ * One confirm prompt bound to the given streams. Every question owns its own
+ * carriage and release, so one prompt object can ask several questions and
+ * cancellation is safe from any cause: the answer resolves and the streams
+ * are released, so no pending prompt can outlive the interaction.
  */
 export function createConfirmPrompt(options: ConfirmPromptOptions): ConfirmPrompt {
-  const clock = options.clock ?? defaultClock;
-  void clock;
   const input = options.input as RawModeInput;
   const output = options.output;
-
-  // The prompt dependency listens for keypresses and probes raw mode on its
-  // input. A private carriage stream carries keystrokes from the injected
-  // input, forwarding TTY evidence and raw-mode control, so the injected
-  // stream itself is never mutated and cancellation can be synthesized when
-  // the input ends (the dependency's own EOF path never resolves).
-  const carriage = new PassThrough() as CarriageStream;
-  if (input.isTTY === true) {
-    carriage.isTTY = true;
-    carriage.setRawMode = (mode: boolean) => input.setRawMode?.(mode);
-  }
-  // end: false — the answer path ends the carriage itself, so an ended input
-  // can still deliver the synthesized abort keystroke.
-  input.pipe(carriage, { end: false });
 
   return (question) => {
     // An input that ended before the question was asked can never answer: the
     // prompt dependency's own EOF path never resolves, so cancel immediately.
     if (input.readableEnded || input.destroyed) return Promise.resolve("cancelled");
+
+    // The prompt dependency listens for keypresses and probes raw mode on its
+    // input. A private carriage stream carries keystrokes from the injected
+    // input, forwarding TTY evidence and raw-mode control, so the injected
+    // stream itself is never mutated and cancellation can be synthesized when
+    // the input ends (the dependency's own EOF path never resolves).
+    const carriage = new PassThrough() as CarriageStream;
+    if (input.isTTY === true) {
+      carriage.isTTY = true;
+      carriage.setRawMode = (mode: boolean) => input.setRawMode?.(mode);
+    }
+    // end: false — the answer path ends the carriage itself, so an ended input
+    // can still deliver the synthesized abort keystroke.
+    input.pipe(carriage, { end: false });
+
     const pending = promptsPackage({
       type: "text",
       name: "answer",

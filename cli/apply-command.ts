@@ -11,7 +11,6 @@
  * or global Blockers.
  */
 import type { Readable, Writable } from "node:stream";
-import type { WriteStream } from "node:tty";
 
 import {
   applyExecutionFailureDocument,
@@ -31,12 +30,12 @@ import {
   type LifecycleHumanOptions,
 } from "./presentation.js";
 import {
-  renderPresentationDocument,
+  writeHumanDocument,
   type PresentationDocument,
 } from "./presentation-document.js";
 import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
-import { terminalPresentationContext, type TerminalPresentationContext } from "./terminal-presentation.js";
+import { terminalPresentationContext, type TerminalPresentationContext, type TerminalStream } from "./terminal-presentation.js";
 import {
   createConfirmPrompt,
   isInteractiveInput,
@@ -62,9 +61,9 @@ export interface ApplyCommandRequest {
   readonly replaceChanged: boolean;
   readonly verbose: boolean;
   /** Injectable output stream for the human report and the prompt question. */
-  readonly stdout: Writable;
+  readonly stdout: Writable & TerminalStream;
   /** Injectable diagnostic stream. */
-  readonly stderr: Writable;
+  readonly stderr: Writable & TerminalStream;
   /** Injectable prompt input stream; TTY evidence is read here (DEC-035). */
   readonly input: Readable;
   readonly clock?: PromptClock;
@@ -78,18 +77,10 @@ export interface ApplyCommandOutcome {
 const applyCommandSyntax = COMMANDS.find((command) => command.name === "apply")!.syntax;
 
 /** One trusted terminal-presentation context per injected stream. */
-function presentationContext(stream: Writable): TerminalPresentationContext {
-  return terminalPresentationContext(stream as unknown as WriteStream);
+function presentationContext(stream: Writable & TerminalStream): TerminalPresentationContext {
+  return terminalPresentationContext(stream);
 }
 
-function writeHumanDocument(
-  stream: Writable,
-  document: PresentationDocument,
-  context: TerminalPresentationContext,
-): void {
-  const rendered = renderPresentationDocument(document, context, {});
-  stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
-}
 
 /**
  * The equivalent fully specified command arguments (DEC-032): every scope

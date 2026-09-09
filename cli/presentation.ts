@@ -3078,7 +3078,7 @@ export function applyReplacementConfirmationDocument(
         .sort(compareCanonicalStrings)
         .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`));
   return [
-    { kind: "heading", text: "Changed generated files:" },
+    { kind: "heading", text: `Changed ${DEFAULT_VIEW_LEXICON.generatedOutput.plural}:` },
     ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
     { kind: "prose", parts: ["Replacing overwrites these files with current Workspace content."] },
   ];

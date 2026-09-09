@@ -59,6 +59,7 @@ import {
 import { runApplyCommand } from "./apply-command.js";
 import {
   renderPresentationDocument,
+  writeHumanDocument,
   type PresentationDocument,
   type PresentationRenderOptions,
 } from "./presentation-document.js";
@@ -167,16 +168,6 @@ function rootWordmark(context: TerminalPresentationContext): readonly string[] {
  * in a blank line is never doubled. Render environment is needed by views whose
  * location display scope resolves against the CLI's home.
  */
-function writeHumanDocument(
-  stream: WriteStream,
-  document: PresentationDocument,
-  context: TerminalPresentationContext,
-  environment: PresentationRenderOptions = {},
-): void {
-  const rendered = renderPresentationDocument(document, context, environment);
-  stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
-}
-
 /**
  * Guidance output (US-050, DEC-029): identical to writeHumanDocument when the
  * output is redirected or short; on an interactive terminal whose height is
