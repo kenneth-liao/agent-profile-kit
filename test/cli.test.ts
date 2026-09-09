@@ -2644,7 +2644,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed.stderr).toContain("Run apkit bind to configure this directory as a Project.");
     expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
     // Usage node as final guidance
-    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --here | --all] [--stale | --blocked] [--verbose] [--json]");
+    expect(lines.at(-2)).toBe("Usage: apkit apply [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]");
     expect(lines.at(-1)).toBe("");
   });
 
@@ -6718,7 +6718,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const help = await runCli(isolatedHome(), "help", "apply");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
-      "Usage: apkit apply [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
+      "Usage: apkit apply [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
     );
     expect(help.stdout).toContain("apkit apply --stale");
     expect(help.stdout).toContain("apkit apply --blocked");
@@ -13988,4 +13988,50 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
     expect(pty.stdout).toMatch(/guidance could not be opened/);
     expect(pty.stdout).toMatch(/PAGER/);
   }, 20000);
+});
+
+describe("packed CLI changed-output replacement confirmation (#458, US-029-031, DEC-019)", () => {
+  test("non-interactive apply never prompts and completes a drifted replacement", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(contextPath, "hand-edited\n");
+
+    // Piped stdin: if a prompt fired it could only cancel, so completion
+    // itself proves the invocation never waited for input.
+    const result = await runCli(home, "apply", "--all");
+    expectExitCode(result, 0);
+    expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
+    expect(humanText(result.stdout)).toContain(contextPath.replace(/.*\//, ""));
+  });
+
+  test("the answering flag replaces changed generated files without a prompt", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(contextPath, "hand-edited\n");
+
+    const result = await runCli(home, "apply", projectPath, "--replace-changed");
+    expectExitCode(result, 0);
+    expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
+    // The receipt names the replacement without inferring who changed the bytes.
+    expect(humanText(result.stdout)).toContain("~ .agent-profile-kit/codex/context.md");
+    expect(humanText(result.stdout)).toContain(projectPath);
+  });
+
+  test("status rejects the apply-only answering flag", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const result = await runCli(home, "status", "--replace-changed");
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("status does not accept argument '--replace-changed'");
+  });
 });

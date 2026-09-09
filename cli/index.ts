@@ -27,14 +27,6 @@ import {
 } from "./receipts.js";
 import {
   DEFAULT_VIEW_LEXICON,
-  applyExecutionFailureDocument,
-  applyReportDocument,
-  applyVerificationFailureDocument,
-  blockedApplyReportDocument,
-  formatApplyJson,
-  formatApplyExecutionFailureJson,
-  formatApplyVerificationFailureJson,
-  formatBlockedApplyJson,
   formatLifecycleJson,
   formatLifecycleToolErrorJson,
   lifecycleStatusDocument,
@@ -64,6 +56,7 @@ import {
   type LifecycleCommand,
   validationResultDocument,
 } from "./presentation.js";
+import { runApplyCommand } from "./apply-command.js";
 import {
   renderPresentationDocument,
   type PresentationDocument,
@@ -91,16 +84,10 @@ import {
 } from "../installer/local-configuration.js";
 import { StateReadFailureError } from "../installer/installation-state.js";
 import {
-  applyApplication,
   statusApplication,
   uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
-import {
-  ApplyBlockedError,
-  ApplyExecutionError,
-  ApplyVerificationError,
-} from "../installer/reconcile.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -701,6 +688,8 @@ interface ParsedLifecycleArguments {
   readonly json: boolean;
   readonly selection: ProjectBindingSelection;
   readonly verbose: boolean;
+  /** The apply replacement-answering flag (US-031); always false for status. */
+  readonly replaceChanged: boolean;
 }
 
 function parseLifecycleArguments(
@@ -714,6 +703,10 @@ function parseLifecycleArguments(
   let project: string | undefined;
   let stale = false;
   let verbose = false;
+  // The replacement-answering flag exists only on apply (US-031); status
+  // rejects it through the shared unknown-argument error below.
+  const replaceChangedAllowed = command === "apply";
+  let replaceChanged = false;
   for (const argument of arguments_) {
     if (argument === "--json") {
       json = true;
@@ -721,6 +714,10 @@ function parseLifecycleArguments(
     }
     if (argument === "--verbose") {
       verbose = true;
+      continue;
+    }
+    if (replaceChangedAllowed && argument === "--replace-changed") {
+      replaceChanged = true;
       continue;
     }
     if (argument === "--blockers-only") {
@@ -792,6 +789,7 @@ function parseLifecycleArguments(
     json,
     selection,
     verbose,
+    replaceChanged,
   };
 }
 
@@ -1078,66 +1076,17 @@ async function main(): Promise<void> {
   if (arguments_.length >= 1 && arguments_[0] === "apply") {
     const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));
     if (parsed === undefined) return;
-    const context = stdoutPresentationContext;
-    try {
-      const applied = await applyApplication(home, {
-        selection: parsed.selection,
-      });
-      if (parsed.json) {
-        process.stdout.write(formatApplyJson(applied));
-      } else {
-        writeHumanDocument(process.stdout, applyReportDocument(applied, parsed), context);
-      }
-      // Exit 0 whenever apply completed without blockers, including remaining
-      // non-current work (outcome "attention"). Gate on blockers only — DEC-024.
-      process.exitCode = lifecycleExitCode(applied.resultingState);
-    } catch (error) {
-      if (error instanceof ApplyBlockedError) {
-        if (parsed.json) {
-          process.stdout.write(formatBlockedApplyJson(error.report));
-        } else {
-          writeHumanDocument(process.stdout, blockedApplyReportDocument(error.report, parsed), context);
-        }
-        process.exitCode = lifecycleExitCode(error.report);
-        return;
-      }
-      if (error instanceof ApplyExecutionError) {
-        if (parsed.json) {
-          process.stdout.write(formatApplyExecutionFailureJson(error));
-        } else {
-          writeHumanDocument(
-            process.stderr,
-            applyExecutionFailureDocument(error, parsed),
-            stderrPresentationContext,
-          );
-        }
-        process.exitCode = 1;
-        return;
-      }
-      if (error instanceof ApplyVerificationError) {
-        if (parsed.json) {
-          process.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
-        } else {
-          writeHumanDocument(
-            process.stdout,
-            applyVerificationFailureDocument(error.receipt, error.message, parsed),
-            context,
-          );
-        }
-        process.exitCode = 1;
-        return;
-      }
-      if (parsed.json) {
-        process.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
-      } else {
-        writeHumanDocument(
-          process.stderr,
-          lifecycleToolErrorDiagnostic("apply", error),
-          stderrPresentationContext,
-        );
-      }
-      process.exitCode = 1;
-    }
+    const outcome = await runApplyCommand({
+      home,
+      selection: parsed.selection,
+      json: parsed.json,
+      replaceChanged: parsed.replaceChanged,
+      verbose: parsed.verbose,
+      stdout: process.stdout,
+      stderr: process.stderr,
+      input: process.stdin,
+    });
+    process.exitCode = outcome.exitCode;
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "status") {

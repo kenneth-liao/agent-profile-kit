@@ -10,6 +10,7 @@ import {
   humanBlockerWording,
 } from "./blocker-wording.js";
 import { formatInstallerToolError } from "./error-wording.js";
+import { diagnosticDocument } from "./diagnostics.js";
 import type { InstallerToolErrorFact } from "../installer/tool-errors.js";
 import {
   STATE_READ_FAILURE_CASES,
@@ -44,6 +45,7 @@ import type { ProjectBindingSelection } from "../installer/local-configuration.j
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
+  type ChangedOutputConsentRequest,
   type ProjectIdentity,
   type BlockedReconciliationReport,
   type OutputReconciliationItem,
@@ -3052,6 +3054,67 @@ export function applyExecutionFailureDocument(
     }
   }
   return nodes;
+}
+
+/** The interactive changed-output replacement question (DEC-019); the
+ * capitalized N marks the default no answer. */
+export const APPLY_REPLACEMENT_QUESTION =
+  "Replace these generated files with current Workspace content? (y/N)";
+
+/** The interactive changed-output replacement confirmation (DEC-019): names
+ * every affected changed generated file with its Project attribution before
+ * any write, without inferring who changed the bytes (US-028). */
+export function applyReplacementConfirmationDocument(
+  request: ChangedOutputConsentRequest,
+  options: LifecycleHumanOptions,
+): PresentationDocument {
+  const scope: LocationDisplayScope = options.selection.kind === "all" ? "fleet" : "project";
+  const lines = request.projects
+    .slice()
+    .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
+    .flatMap((project) =>
+      project.changedOutputs
+        .slice()
+        .sort(compareCanonicalStrings)
+        .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`));
+  return [
+    { kind: "heading", text: "Changed generated files:" },
+    ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
+    { kind: "prose", parts: ["Replacing overwrites these files with current Workspace content."] },
+  ];
+}
+
+/** The equivalent fully specified command for a completed prompt flow (DEC-032):
+ * the same operation with every scope argument and the replacement-answering
+ * flag explicit, so re-running it needs no second answer (US-052). */
+export function applyReplacementCommandDocument(
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return [{
+    kind: "prose",
+    parts: [
+      "Run the same apply without the prompt: ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ],
+  }];
+}
+
+/** The declined-or-cancelled replacement diagnostic (DEC-019, DEC-033): what
+ * happened, why, and the command that answers the prompt explicitly. */
+export function applyReplacementDeclinedDocument(
+  reason: "declined" | "cancelled",
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [reason === "cancelled"
+      ? "apply was cancelled before any write"
+      : "apply kept the changed generated files; nothing was written"],
+    why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
+    whatToType: [[
+      "To replace changed generated files without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ]],
+  });
 }
 
 /** The apply verification-failure view as a presentation document. */
