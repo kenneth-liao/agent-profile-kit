@@ -18,6 +18,10 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+import {
+  cleanupTemporaryDirectories,
+  prepareDriftedFleet,
+} from "./support/apply-confirmation-fixture.js";
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
@@ -26,8 +30,10 @@ import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
+  type ProcessResult,
 } from "../process/process-executor.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
+import { applyReconciliation, ApplyDeclinedError } from "../installer/reconcile.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
 import { createProjectReadScheduler } from "../installer/project-scheduler.js";
@@ -384,6 +390,40 @@ function filesUnder(root: string): readonly string[] {
 
   visit(root);
   return files.sort();
+}
+
+/** Count non-overlapping occurrences of one exact substring. */
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+/**
+ * Reconstruct the runnable Git remedy command printed inside a tracked-output
+ * Blocker row: the remedy wraps its command across indented lines, and the
+ * wrapped tokens are each single-quoted so collapsing whitespace restores the
+ * exact command (US-021, TEST-010).
+ */
+function remedyCommand(view: string): string {
+  const start = view.indexOf("run\n");
+  const end = view.indexOf("— it stages", start);
+  if (start === -1 || end === -1) {
+    throw new Error(`no wrapped Git remedy command found in:\n${view}`);
+  }
+  return view
+    .slice(start + "run\n".length, end)
+    .split("\n")
+    .map((line) => line.trim())
+    .join(" ");
+}
+
+/** Apply through the in-process seam and keep the delivered abort errors typed. */
+async function abortedApply(apply: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await apply();
+  } catch (error) {
+    if (error instanceof ApplyDeclinedError) return error;
+    throw error;
+  }
 }
 
 describe("project-bound release candidate", () => {
@@ -1527,6 +1567,403 @@ describe("project-bound release candidate", () => {
     expect(statusJson.projects).toHaveLength(12);
     expect(statusJson.projects.every((project) => project.state.kind === "current")).toBe(true);
   }, 60_000);
+
+  test("the packed integrated daily-loop journey reconciles a mixed multi-cause fleet with narrowing, receipts, cancellation, and non-interactive completion (US-007–008, TEST-003–TEST-014, TEST-021, #461)", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+
+    // Six Projects, one per primary cause plus one multi-cause Project: the
+    // mixed fleet from TEST-003 with multi-cause and Blocked members (TEST-004).
+    const settled = gitRepository("agent-profile-kit-rc-loop-settled-");
+    const changed = gitRepository("agent-profile-kit-rc-loop-changed-");
+    const missing = project("agent-profile-kit-rc-loop-missing-");
+    const source = gitRepository("agent-profile-kit-rc-loop-source-");
+    const multi = project("agent-profile-kit-rc-loop-multi-");
+    const blocked = gitRepository("agent-profile-kit-rc-loop-blocked-");
+    for (const [target, host] of [
+      [settled, "codex"],
+      [changed, "codex"],
+      [missing, "claude"],
+      [source, "codex"],
+      [multi, "codex"],
+      [blocked, "codex"],
+    ] as const) {
+      expectExitCode(await runCli(home, ["bind", "example", target, "--host", host]), 0);
+    }
+    // Install the whole fleet first; the causes are induced afterwards so the
+    // fleet simultaneously carries every state.
+    expectExitCode(await runCli(home, ["apply"]), 0);
+
+    // Induce each cause (DEC-002's five states plus one Blocked Project):
+    // tracked generated files create the ownership Blocker, a hand-edited
+    // generated file with a surviving recorded anchor is ordinary drift, a
+    // deleted generated file is missing output, a Host rebinding is a source
+    // change, and the multi-cause Project carries drifted output AND a source
+    // change at once.
+    execFileSync("git", ["-C", blocked, "add", "-f", ".agent-profile-kit/codex/context.md", ".codex/hooks.json"]);
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "tracked"]);
+    writeFileSync(join(changed, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
+    rmSync(join(missing, ".claude/rules/agent-profile-kit.md"));
+    expectExitCode(await runCli(home, ["bind", "example", source, "--host", "codex", "--host", "grok", "--replace"]), 0);
+    expectExitCode(await runCli(home, ["bind", "example", multi, "--host", "codex", "--host", "grok", "--replace"]), 0);
+    writeFileSync(join(multi, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
+    const neverInstalled = gitRepository("agent-profile-kit-rc-loop-never-");
+    expectExitCode(await runCli(home, ["bind", "example", neverInstalled, "--host", "codex"]), 0);
+    // One Git-only PATH for every lifecycle run: no real Host CLI can satisfy
+    // a probe, so detection is exact and no advisory warning interferes.
+    const gitOnlyPath = allowlistBin(home);
+
+    // The settled Project's generated bytes are the baseline for proving that
+    // narrowing never writes an unselected Project (TEST-007).
+    const settledBaseline = readFileSync(
+      join(settled, ".agent-profile-kit/codex/context.md"),
+      "utf8",
+    );
+
+    // 1. The default fleet view names every actionable Project exactly once,
+    // grouped by primary cause, with the settled Project counted only
+    // (US-001–003, US-006, US-016, TEST-003, TEST-004).
+    const status = await runCli(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(status, 2);
+    for (const group of [
+      "needs attention (1):",
+      "generated files changed (2):",
+      "generated files missing (1):",
+      "not installed yet (1):",
+      "source changed (1):",
+      "settled (1)",
+    ]) {
+      expect(status.stdout).toContain(group);
+    }
+    // One appearance per Project: group counts plus the settled count account
+    // for all seven Projects exactly once, and the settled Project is not
+    // listed (TEST-004).
+    for (const listed of [changed, multi, missing, source, neverInstalled]) {
+      expect(countOccurrences(status.stdout, listed)).toBe(1);
+    }
+    expect(status.stdout).not.toContain(settled);
+    expect(status.stdout).toContain("Projects: 7 · Blockers: 1");
+
+    // Fact-once (US-008, TEST-012): the multi-cause Project appears once in
+    // the default view under its primary cause, never twice.
+    expect(countOccurrences(status.stdout, multi)).toBe(1);
+    expect(countOccurrences(status.stdout, "drifted output")).toBe(0);
+
+    // US-007: the actionable composed view offers exactly one primary next
+    // action, carrying one runnable command; the Blocker remedy keeps its
+    // separate source contract inside the Blocker row, before the Next block.
+    const nextBlock = status.stdout.slice(status.stdout.indexOf("Next:"));
+    expect(nextBlock).toContain("Resolve the reported blocker");
+    expect(countOccurrences(status.stdout, "Next:")).toBe(1);
+    expect(nextBlock.split("apkit ").length - 1).toBe(1);
+    const remedyIndex = status.stdout.indexOf("Remedy:");
+    expect(remedyIndex).toBeGreaterThan(-1);
+    expect(remedyIndex).toBeLessThan(status.stdout.indexOf("Next:"));
+    expect(remedyCommand(status.stdout)).toContain("git --literal-pathspecs");
+
+    // Verbose diagnostics retain every underlying cause of the multi-cause
+    // Project: drifted output beside its affected path plus the source-change
+    // cause, each stated once (TEST-008, fact-once).
+    const verbose = await runCli(home, ["status", "--verbose"], { path: gitOnlyPath });
+    expectExitCode(verbose, 2);
+    expect(verbose.stdout).toMatch(
+      new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+drifted output`),
+    );
+    expect(verbose.stdout).toContain("addition (source changed)");
+    expect(countOccurrences(verbose.stdout, "(source changed)")).toBeGreaterThan(0);
+
+    // 2. Narrowing selects exactly the DEC-006 memberships, and human and
+    // machine selections agree (US-011, US-061, TEST-007, TEST-021).
+    const stale = await runCli(home, ["status", "--stale"], { path: gitOnlyPath });
+    expectExitCode(stale, 0);
+    for (const selected of [changed, multi, missing, source]) {
+      expect(stale.stdout).toContain(selected);
+    }
+    for (const excluded of [blocked, neverInstalled, settled]) {
+      expect(stale.stdout).not.toContain(excluded);
+    }
+    expect(countOccurrences(stale.stdout, "Next:")).toBe(1);
+    expect(stale.stdout).toContain("Next: apkit apply --stale");
+
+    const blockedView = await runCli(home, ["status", "--blocked"], { path: gitOnlyPath });
+    expectExitCode(blockedView, 2);
+    expect(blockedView.stdout).toContain(blocked);
+    for (const excluded of [changed, multi, missing, source, neverInstalled, settled]) {
+      expect(blockedView.stdout).not.toContain(excluded);
+    }
+
+    const staleJson = JSON.parse(
+      (await runCli(home, ["status", "--stale", "--json"], { path: gitOnlyPath })).stdout,
+    ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
+    const blockedJson = JSON.parse(
+      (await runCli(home, ["status", "--blocked", "--json"], { path: gitOnlyPath })).stdout,
+    ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
+    expect(staleJson.projects.map((entry) => entry.canonicalProject).sort()).toEqual(
+      [changed, missing, multi, source].map((entry) => realpathSync(entry)).sort(),
+    );
+    expect(blockedJson.projects.map((entry) => entry.canonicalProject)).toEqual([realpathSync(blocked)]);
+
+    // 3. Narrowed apply writes exactly the selected Projects (TEST-007):
+    // non-interactive completion replaces the changed generated files, names
+    // every operation with its Project attribution, and prompts nothing
+    // (US-030, TEST-014).
+    const staleApply = await runCli(home, ["apply", "--stale"], { path: gitOnlyPath });
+    expectExitCode(staleApply, 0);
+    expect(staleApply.stdout).toContain("Apply complete");
+    for (const committed of [changed, multi, missing, source]) {
+      expect(staleApply.stdout).toContain(committed);
+    }
+    // The receipt names the replaced changed generated file without wording
+    // that infers who changed it (US-028, TEST-013).
+    expect(staleApply.stdout).toContain(".agent-profile-kit/codex/context.md");
+    expect(staleApply.stdout).not.toContain("you edited");
+    expect(staleApply.stdout).not.toContain("hand-edited");
+    expect(staleApply.stdout).not.toContain("Replace changed generated files");
+    expect(staleApply.stdout).not.toContain("(y/n)");
+    // The narrowed write left every unselected Project unchanged.
+    expect(readFileSync(join(settled, ".agent-profile-kit/codex/context.md"), "utf8"))
+      .toBe(settledBaseline);
+    expect(existsSync(join(neverInstalled, ".agent-profile-kit"))).toBe(false);
+
+    // Resulting state is reported separately from the committed receipt: the
+    // four reconciled Projects are current while the excluded ones are not.
+    const afterStaleApply = await runCli(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(afterStaleApply, 2);
+    expect(afterStaleApply.stdout).toContain("needs attention (1):");
+    expect(afterStaleApply.stdout).toContain("not installed yet (1):");
+    expect(countOccurrences(afterStaleApply.stdout, "settled (5)")).toBe(1);
+
+    // 4. Full-fleet non-interactive apply commits the never-installed Project,
+    // leaves the Blocked Project untouched, and still exits 2 (TEST-021).
+    const fleetApply = await runCli(home, ["apply"], { path: gitOnlyPath });
+    expectExitCode(fleetApply, 2);
+    expect(fleetApply.stdout).toContain("Apply complete");
+    expect(fleetApply.stdout).toContain(neverInstalled);
+    expect(existsSync(join(neverInstalled, ".agent-profile-kit/codex/context.md"))).toBe(true);
+    // The Blocked Project was left untouched: its tracked generated files are
+    // still on disk and its Installation State stays machine-local.
+    expect(existsSync(join(blocked, ".agent-profile-kit/codex/context.md"))).toBe(true);
+    expect(existsSync(join(blocked, ".codex/hooks.json"))).toBe(true);
+
+    // 5. The printed Blocker remedy is runnable (US-021, TEST-010): execute
+    // the exact untracking command, commit, and the Blocker clears.
+    const blockedRemedy = await runCli(home, ["status", "--blocked"], { path: gitOnlyPath });
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "remedy", "--allow-empty"]);
+    execFileSync("sh", ["-c", remedyCommand(blockedRemedy.stdout)]);
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack generated files"]);
+    expectExitCode(await runCli(home, ["apply", blocked], { path: gitOnlyPath }), 0);
+
+    // 6. The wholly settled fleet renders one line and invents no next action
+    // (US-004, US-007, TEST-004).
+    const settledStatus = await runCli(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(settledStatus, 0);
+    expect(settledStatus.stdout).toBe("All Projects are current (7 Projects)\n");
+    expect(settledStatus.stdout).not.toContain("Next:");
+
+    // 7. Whole-invocation cancellation: a cancelled changed-output
+    // confirmation aborts before any write, including the healthy pending
+    // Project of the same invocation (US-029, US-056, TEST-014) — the
+    // predecessor apply-confirmation fixture and seam, consumed as a journey
+    // phase rather than reimplemented.
+    const driftedFleet = await prepareDriftedFleet("agent-profile-kit-rc-loop-cancel");
+    const interactiveReplacement = await runCli(driftedFleet.home, ["apply", driftedFleet.driftedProject]);
+    expectExitCode(interactiveReplacement, 0);
+    expect(interactiveReplacement.stdout).toContain(".agent-profile-kit/codex/context.md");
+    writeFileSync(driftedFleet.driftedOutputPath, driftedFleet.driftedBytes);
+    const cancelled = await abortedApply(() =>
+      applyReconciliation(driftedFleet.home, driftedFleet.desired, {
+        confirmChangedOutputReplacement: () => Promise.resolve("cancelled" as const),
+      }));
+    expect(cancelled).toBeInstanceOf(ApplyDeclinedError);
+    expect(readFileSync(driftedFleet.driftedOutputPath, "utf8")).toBe(driftedFleet.driftedBytes);
+    expect(existsSync(join(driftedFleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+    cleanupTemporaryDirectories();
+  }, 60_000);
+
+  test("the packed newcomer journey completes real material authoring, binding, and apply by following only printed actions with present and absent controlled Hosts (US-032–041, US-053, TEST-015, TEST-016, #461)", async () => {
+    const home = isolatedHome();
+    const firstProject = gitRepository("agent-profile-kit-rc-newcomer2-first-");
+    const realProject = gitRepository("agent-profile-kit-rc-newcomer2-real-");
+    const absentProject = gitRepository("agent-profile-kit-rc-newcomer2-absent-");
+    // Present: claude, codex, opencode. Deliberately absent: antigravity,
+    // grok, pi — the allowlist exposes only git, so detection is exact
+    // machine evidence (TEST-016).
+    const stubBin = join(home, "bin");
+    mkdirSync(stubBin, { recursive: true });
+    for (const [name, version] of [
+      ["codex", "codex-cli 0.145.0"],
+      ["claude", "2.1.0 (Claude Code)"],
+      ["opencode", "1.18.23"],
+    ] as const) {
+      writeFileSync(join(stubBin, name), `#!/bin/sh\necho "${version}"\n`);
+      execFileSync("chmod", ["+x", join(stubBin, name)]);
+    }
+    const journeyPath = `${stubBin}:${allowlistBin(home)}`;
+
+    /** The commands the view printed as copyable `apkit …` actions. */
+    const printedApkitCommands = (stdout: string): readonly string[] => stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("apkit "));
+
+    // 1. Bare invocation on an uninitialized machine: setup state and one
+    // printed next command, not a manual (US-023, US-032, US-035).
+    const bare = await runCli(home, [], { path: journeyPath });
+    expectExitCode(bare, 0);
+    expect(bare.stdout).toContain("Agent Profile Kit is not set up on this machine.");
+    expect(bare.stdout).toContain("Next: Run apkit init to set it up.");
+
+    // 2. Follow the printed command: initialization matches the machine.
+    const init = await runCli(home, ["init"], { path: journeyPath });
+    expectExitCode(init, 0);
+    expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
+    expect(init.stdout).toContain(
+      "A Profile is a named selection of Context and Skills to adapt for your",
+    );
+    // Present and absent Hosts: detection names exactly what is installed
+    // (US-037) and never invents an absent Host (US-038, TEST-016).
+    expect(init.stdout).toContain("Detected Agent Hosts: claude, codex, opencode");
+    for (const absentHost of ["antigravity", "grok", "pi"]) {
+      expect(init.stdout).not.toContain(`--host ${absentHost}`);
+      expect(init.stdout).not.toContain(`${absentHost}, `);
+    }
+    // The suggested first bind names a detected Host and is the one printed
+    // command the newcomer needs (US-039).
+    expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
+      "run apkit bind example --host claude",
+    );
+
+    // 3. Follow the printed bind form, made project-specific the way the
+    // printed sentence says ("from the project you want to try").
+    const bindExample = await runCli(
+      home,
+      ["bind", "example", firstProject, "--host", "claude"],
+      { path: journeyPath },
+    );
+    expectExitCode(bindExample, 0);
+    expect(bindExample.stdout).toContain("Recorded configured Project for");
+    expect(bindExample.stdout).toContain("Hosts: claude");
+    expect(bindExample.stdout).toContain("Next: apkit status");
+
+    // 4. Follow the printed status: its next action is the exact apply for
+    // this Project, and the newcomer runs that printed command.
+    const readyStatus = await runCli(
+      home,
+      ["status", firstProject],
+      { path: journeyPath },
+    );
+    expectExitCode(readyStatus, 0);
+    expect(readyStatus.stdout).toContain("Ready to apply");
+    expect(readyStatus.stdout).toContain("- not installed yet (1):");
+    const printedApply = readyStatus.stdout
+      .split("\n")
+      .find((line) => line.startsWith("Next: apkit apply "))!
+      .replace("Next: ", "");
+    // The typed Project path renders as the shared short identity, elided in
+    // the middle and keeping the tail visible (DEC-004, INT-2): the printed
+    // command is the real apply for this Project, run with its real root.
+    expect(printedApply.startsWith("apkit apply ")).toBe(true);
+    expect(printedApply.endsWith(firstProject.split("/").at(-1)!)).toBe(true);
+    const exampleApply = await runCli(
+      home,
+      ["apply", firstProject],
+      { path: journeyPath },
+    );
+    expectExitCode(exampleApply, 0);
+    expect(exampleApply.stdout).toContain("Apply complete");
+    // Concrete user verification guidance names the applied Profile, the
+    // configured Host, and the Project, without claiming Agent Profile Kit
+    // observed the loading (US-041, DEC-025, OOS-009).
+    const exampleHuman = humanText(exampleApply.stdout);
+    expect(exampleHuman).toContain(
+      `To check that claude loaded Profile example, start a new claude session in`,
+    );
+    expect(exampleHuman).toContain(firstProject);
+    expect(exampleHuman).toContain("ask claude what Profile material it loaded");
+    expect(exampleHuman).not.toContain("Agent Profile Kit verified");
+
+    // 5. The authoring handoff prints three atomic copyable commands; the
+    // newcomer runs exactly those to author real material (US-040, DEC-024).
+    const handoff = printedApkitCommands(exampleApply.stdout).filter((command) =>
+      command.startsWith("apkit new "));
+    expect(handoff).toHaveLength(3);
+    expect(handoff).toEqual([
+      "apkit new skill <skill>",
+      "apkit new context <context>",
+      "apkit new profile <profile> --context <context> --skill <skill>",
+    ]);
+    const creationCommands = handoff
+      .map((command) => command
+        .replace("<skill>", "summarize-pr")
+        .replace("<context>", "project-rules")
+        .replace("<profile>", "real-profile"));
+    const creations: ProcessResult[] = [];
+    for (const command of creationCommands) {
+      const creation = await runCli(home, command.split(" ").slice(1), { path: journeyPath });
+      expectExitCode(creation, 0);
+      creations.push(creation);
+    }
+    expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
+    // The final handoff receipt's next action is followable in print:
+    // validate, then bind the Profile to a Project.
+    expect(creations[2]!.stdout.replace(/\n\s+/g, " ")).toContain(
+      "Next: run apkit validate, then bind the Profile to a Project",
+    );
+
+    // 6. Author the real Profile's content, then follow the printed chain:
+    // validate, then bind the real Profile (US-044, TEST-017 chain).
+    const validate = await runCli(home, ["validate"], { path: journeyPath });
+    expectExitCode(validate, 0);
+    expect(validate.stdout).toContain("real-profile");
+    expect(validate.stdout).toContain("Next: apkit status");
+    const bindReal = await runCli(
+      home,
+      ["bind", "real-profile", realProject, "--host", "claude"],
+      { path: journeyPath },
+    );
+    expectExitCode(bindReal, 0);
+    expect(bindReal.stdout).toContain("Profile: real-profile");
+    const realApply = await runCli(
+      home,
+      ["apply", realProject],
+      { path: journeyPath },
+    );
+    expectExitCode(realApply, 0);
+    expect(existsSync(join(realProject, ".claude", "skills", "summarize-pr", "SKILL.md"))).toBe(true);
+    const realHuman = humanText(realApply.stdout);
+    expect(realHuman).toContain("Profile real-profile will load the next time");
+    expect(realHuman).toContain("To check that claude loaded Profile real-profile");
+    // Routine applies never repeat the first-run teaching (US-040).
+    expect(realHuman).not.toContain("Now author your own");
+
+    // 7. An absent Host stays advisory: binding and applying a Project to a
+    // Host that is not installed warns inline, writes the material, and never
+    // changes the exit code (US-017–019, TEST-009, TEST-021).
+    expectExitCode(
+      await runCli(home, ["bind", "real-profile", absentProject, "--host", "grok"], { path: journeyPath }),
+      0,
+    );
+    const absentApply = await runCli(home, ["apply", absentProject], { path: journeyPath });
+    expectExitCode(absentApply, 0);
+    expect(absentApply.stdout).toContain("Grok");
+    expect(absentApply.stdout).not.toContain("Warnings:");
+    expect(existsSync(join(absentProject, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
+
+    // 8. The journey ends where the user is heading: every touched Project is
+    // current, and the bare invocation summarizes the settled fleet.
+    const finalStatus = await runCli(home, ["status"], { path: journeyPath });
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toBe("All Projects are current (3 Projects)\n");
+    const bareConfigured = await runCli(home, [], { path: journeyPath });
+    expectExitCode(bareConfigured, 0);
+    expect(bareConfigured.stdout).toContain("3 Projects up to date.");
+    expect(bareConfigured.stdout).toContain("Common next steps:");
+    expect(bareConfigured.stdout).not.toContain("machine");
+  }, 30_000);
 
   test("one packed newcomer journey proves bare help, init, validate, bind, ready status, changed apply, current status, temporary install, the exact printed remove command, and successful removal (TEST-017)", async () => {
     const home = isolatedHome();

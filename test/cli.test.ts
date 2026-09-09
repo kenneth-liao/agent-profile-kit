@@ -13847,6 +13847,32 @@ describe("packed CLI new skill", () => {
     expect(existsSync(skillFile)).toBe(true);
   });
 
+  test("teardown commands never prompt on an interactive terminal and keep their delivered receipts (US-055 teardown clause, DEC-030, #461)", async () => {
+    // DEC-030 allows prompts on exactly bind, init, and the apply confirmation.
+    // The PTY here makes every input stream a terminal, so a prompt would
+    // either wait on input or cancel at EOF and change the receipt — either
+    // way the delivered receipts below would not render.
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectPath = gitRepository();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const uninstall = await runCliInPty(home, 80, "uninstall");
+    expectExitCode(uninstall, 0);
+    expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
+    expect(uninstall.stdout).not.toContain("?");
+    expect(uninstall.stdout).not.toContain("cancel");
+
+    const unbind = await runCliInPty(home, 80, "unbind", projectPath);
+    expectExitCode(unbind, 0);
+    expect(unbind.stdout).toContain("Removed configured Project for");
+    expect(unbind.stdout).not.toContain("?");
+    expect(unbind.stdout).not.toContain("cancel");
+  });
+
   test("new skill refuses a duplicated Artifact ID, an occupied destination, invalid names, and symlinks without writing", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);

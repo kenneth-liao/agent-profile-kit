@@ -2,82 +2,61 @@
 
 The living map of what a person does with the CLI and what each stage owes
 them. See ADR-0013 for why this map exists here, ADR-0014 for the original
-presentation decisions accepted against it, and ADR-0020 for the current quiet,
-task-first default-view boundary.
+presentation decisions accepted against it, ADR-0020 for the quiet, task-first
+default-view boundary, and ADR-0026 for the task-sufficient default lifecycle
+view delivered by spec #373.
 
 **Scope.** This document owns user-facing CLI surface behavior: the stages and
 the outcome each stage owes. It does not own authoring formats
 (`docs/guides/workspace.md`), system structure (`docs/ARCHITECTURE.md`),
 vocabulary (`CONTEXT.md`), or settled decisions (`docs/adr/`).
 
-**Maintenance.** Every registered gap has shipped; the closed gap register was
-removed from this document, and git history is its provenance. New gaps
-graduate directly to tracker issues. Output excerpts elide project paths as
-`<project>` so they do not drift.
+**Maintenance — gap register.** Every registered gap has shipped. The closed
+gap register was removed from this document; git history is its provenance.
+Spec #373 recaptured this map against the delivered task-sufficient surface
+(fleet-default lifecycle commands, cause-grouped default views, `--stale` and
+`--blocked` narrowing, focused `--verbose` diagnostics, complete apply
+receipts, bare-invocation setup state, `apkit new`/`apkit open` authoring
+commands, changed-output confirmation, and the first-run authoring handoff),
+and ticket #461 re-proved the recaptured journey end to end: the integrated
+daily-loop journey and the integrated newcomer journey below were executed
+against the packed CLI at v0.173.0 and pinned by
+`test/release-candidate.test.ts`. The register therefore records no open gaps;
+new gaps graduate directly to tracker issues.
 
 **Observation basis.** Every excerpt below was captured from a built CLI run
-against sandbox `HOME`s, not derived from source. Coverage: cold start; authoring;
-bind; validate; preview; apply; stale source; hand-edited drift; deleted output;
-uninstall; unbind; missing and outdated Host CLIs; and a three-project,
-four-Host installation (Claude, Codex, Grok, Pi) including a Skills-only Profile,
-a non-Git project, and a disabled-model-invocation Skill. First-run excerpts in stages 1, 2, and 5–8, plus the temporary install and
-remove receipts in stage 13, were recaptured from the packed newcomer journey
-([#307](https://github.com/kenneth-liao/agent-profile-kit/issues/307)).
-Older recovery and teardown excerpts remain historical and preserve the
-executable spelling that produced them. The presentation-gap evidence pass behind spec #154 measured root
-help at 129 columns, focused help at 167, focused guides at 154, and blocked
-lifecycle output at 201; a real 12-Project `status` took about 4.9 seconds,
-`preview` about 9.2 seconds, and a blocked run carried 42 blockers (41 per-path
-instances of one tracked-output class). Those observations are the basis for
-the shipped width fixes
-([#156](https://github.com/kenneth-liao/agent-profile-kit/issues/156),
-[#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159),
-[#166](https://github.com/kenneth-liao/agent-profile-kit/issues/166), and
-[#173](https://github.com/kenneth-liao/agent-profile-kit/issues/173)),
-blocker grouping
-([#167](https://github.com/kenneth-liao/agent-profile-kit/issues/167),
-[#168](https://github.com/kenneth-liao/agent-profile-kit/issues/168),
-[#169](https://github.com/kenneth-liao/agent-profile-kit/issues/169), and
-[#172](https://github.com/kenneth-liao/agent-profile-kit/issues/172)), progress
-indication ([#170](https://github.com/kenneth-liao/agent-profile-kit/issues/170)),
-read-only inventory and orientation
-([#157](https://github.com/kenneth-liao/agent-profile-kit/issues/157),
-[#160](https://github.com/kenneth-liao/agent-profile-kit/issues/160),
-[#161](https://github.com/kenneth-liao/agent-profile-kit/issues/161),
-[#162](https://github.com/kenneth-liao/agent-profile-kit/issues/162), and
-[#163](https://github.com/kenneth-liao/agent-profile-kit/issues/163)), visual
-hierarchy ([#164](https://github.com/kenneth-liao/agent-profile-kit/issues/164)),
-command wording and Project identity
-([#165](https://github.com/kenneth-liao/agent-profile-kit/issues/165) and
-[#171](https://github.com/kenneth-liao/agent-profile-kit/issues/171)), and the
-compact guide index ([#159](https://github.com/kenneth-liao/agent-profile-kit/issues/159)).
+against sandbox `HOME`s, not derived from source. Coverage: the integrated
+daily-loop journey (a seven-Project fleet carrying all five primary causes plus
+one multi-cause Project and one Git-tracked Blocker, default-view grouping and
+fact-once checks, `--stale`/`--blocked` narrowing with human/machine
+agreement, narrowed and full non-interactive applies with complete receipts,
+the executed tracked-output Blocker remedy, wholly settled status, and
+whole-invocation cancellation through the delivered confirmation gate); and
+the integrated newcomer journey (isolated machine, present and absent
+controlled Hosts, only printed actions from bare invocation through example
+apply, real material authoring via the printed handoff commands, binding and
+applying the real Profile, advisory absent-Host warnings, and the concrete
+Host-loading verification guidance). First-run excerpts in stages 1–5, 8, and
+10–12, the interactive confirmation in stage 8, and the teardown receipts in
+stage 12 were captured from those integrated runs.
 
-Fleet-scale qualification (spec #193, ticket #205): the same 12-Project
-workload — one shared Profile across mixed Host sets, alternating Git and plain
-roots — is now an isolated, packed qualification fixture (`test/support/
-fleet-fixture.ts`) proven end to end for a shared Skill update plus a Host
-addition. The compact lifecycle groups observable additions, updates, repairs,
-and removals with generated-file and affected-Project counts, without inferring
-Workspace Artifact or Project Binding causality. Member-level attention stays
-visible as Project exceptions, and one collapsed next action closes the run. Comparable packed-CLI qualification used the same
-isolated 12-Project HOME, Workspace, Local Configuration, Project roots,
-controlled Host executables, and v0.63.0 Apply Receipt for both versions after
-one shared Skill update and one Pi Host addition. After one unmeasured warm-up per command, five runs on the same
-machine measured: v0.63.0 `validate` 0.107s, `status --json` 0.640s, and
-`preview --json` 0.710s mean; v0.79.0 measured 0.064s, 0.101s, and 0.110s
-respectively. Min/max ranges were 0.105–0.109s, 0.629–0.644s, and
-0.693–0.737s before versus 0.062–0.067s, 0.100–0.104s, and 0.107–0.113s
-after. These are release evidence, not CI timing gates; repeatable in-process
-samples remain available through `installer/benchmark.ts`, while operation
-budgets are enforced structurally (see ADR-0017).
+Earlier qualification evidence remains recorded for provenance. Fleet-scale
+qualification (spec #193, ticket #205): the 12-Project workload — one shared
+Profile across mixed Host sets, alternating Git and plain roots — is an
+isolated, packed qualification fixture (`test/support/fleet-fixture.ts`)
+proven end to end for a shared Skill update plus a Host addition. Comparable
+packed-CLI timing measured v0.63.0 `validate` 0.107s, `status --json` 0.640s,
+and `preview --json` 0.710s mean versus 0.064s, 0.101s, and 0.110s after the
+quiet-output redesign. These are release evidence, not CI timing gates;
+repeatable in-process samples remain available through
+`installer/benchmark.ts`, while operation budgets are enforced structurally
+(see ADR-0017).
 
-Newcomer journey qualification (spec #292, ticket #307): the complete quiet,
-task-first newcomer flow — bare help → init → validate → bind → ready status →
-changed apply → current status, followed by temporary install → exact printed
-remove command → removal — is qualified end-to-end through the packed CLI
-boundary (`test/release-candidate.test.ts`) against isolated settings, Workspace,
-Git and non-Git Projects, controlled Host executables, and ownership receipts.
-The first-run excerpts below were captured from that packed run.
+Newcomer journey qualification (spec #292, ticket #307) established the
+complete quiet, task-first newcomer flow through the packed CLI boundary
+(`test/release-candidate.test.ts`); spec #373 ticket #461 recaptured that
+coverage against the new surface with the two integrated journeys above rather
+than duplicating it.
 
 ---
 
@@ -85,158 +64,264 @@ The first-run excerpts below were captured from that packed run.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit`, `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `new skill <name>`, `open` | Understand the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-019) |
-| 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, and a clear next move |
-| 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile |
-| 4 | Author | `new skill <name>`; `open`; edit Workspace files | A valid Skill created at its printed path, an explicit command to open the configured Workspace, plus a Profile that selects real artifacts |
-| 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace` |
-| 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed |
-| 7 | Plan | `status [project \| --here \| --all] [--verbose] [--blockers-only] [--json]` | See current state, pending work, predictable blockers, warnings, Host guidance, and exactly what `apply` would attempt without writing; `--blockers-only` shows a focused Blocker-only view (combines with `--verbose`, not `--json`) |
-| 8 | Apply | `apply [project \| --here \| --all] [--verbose] [--blockers-only] [--json]` | Generated output for the complete fleet, the containing Project (`--here`), or one explicit Project, and proof of what changed; `--blockers-only` shows a focused Blocker-only view that always keeps the Applied receipt and failed or pending Projects visible, and with no Blockers the ordinary receipt view renders unchanged |
-| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/Pi)* | Material loads through native Host discovery |
-| 10 | Re-sync | `status [project \| --here \| --all] [--blockers-only] [--json]` → `apply [project \| --here \| --all]` | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope |
-| 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or malformed state |
-| 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state, with the boundary made clear |
-| 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-019) |
+| 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
+| 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed |
+| 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
+| 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
+| 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace`; missing arguments are asked for on an interactive terminal |
+| 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
+| 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only apply plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
+| 8 | Apply | `apply [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the apply receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
+| 10 | Re-sync | `status` → `apply` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
+| 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies |
+| 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state without prompting, with the boundary made clear |
+| 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-021) |
 
-Stages 1–8 are the first-run path. Stages 10–12 are the returning-user path.
-Stage 4's Skill scaffolding runs through `new skill`; its remaining Profile and
-Context authoring has no CLI surface, and stage 9 is the only one
-the CLI never speaks to. Stage 13 is the receipt-owned temporary flow, usable
-alongside either path.
+Stages 1–8 are the first-run path; an apply that installed the scaffolded
+example Profile hands off to stage 4's authoring commands so the first run ends
+where the user was heading (DEC-024). Stages 10–12 are the returning-user
+path. Stage 9 is the only stage the CLI never speaks to: the receipt states
+how to check Host loading, it never claims Agent Profile Kit observed the
+loading (OOS-009). Stage 13 is the receipt-owned temporary flow, usable
+alongside either path. `new` never prompts; the teardown commands never
+prompt (DEC-030, DEC-031).
 
-`status` is the single authoritative read-only Project lifecycle plan. It uses
-the same selected scope and normalized desired plan as `apply` and performs no
-Agent Host process execution (ADR-0025): Host capability probing is advisory and
-happens during `apply` (and first-run `init` for machine-tailored guidance per
-DEC-022), where a missing or outdated Host CLI produces one advisory warning per
+`status` is the single authoritative read-only Project lifecycle plan. It
+defaults to the complete fleet and uses the same selected scope and normalized
+desired plan as `apply` (DEC-001); `--stale` and `--blocked` select the same
+Projects for reports and writes (DEC-006). It performs no Agent Host process
+execution (ADR-0025): Host capability probing is advisory and happens during
+`apply` (and first-run `init` for machine-tailored guidance per DEC-022),
+where a missing or outdated Host CLI produces one advisory inline warning per
 Host per invocation — naming the Host and the strictest version it requires,
-regardless of Project count or distinct requirement messages — and never blocks
-planning, writing, or initialization. The former separate plan command was
+regardless of Project count or distinct requirement messages — and never
+blocks planning, writing, or initialization or changes the exit code. The
+former separate plan command, and the former `--blockers-only` view, were
 removed before 1.0.
 
 ---
 
 ## Stage detail
 
-<!-- historical-command-excerpts:start -->
+<!-- recaptured-journey-excerpts:start -->
 ### 1. Discover
 
-A bare invocation, `--help`, `-h`, and `help` print root help: description, a
-four-step first run, common commands, then secondary inventory, teardown,
-and machine-detail commands under `More commands`:
+An uninitialized machine answers a bare invocation with setup state and the
+one command that changes it:
 
 ```
-$ apkit --help
-Agent Profile Kit composes reusable agent material into host-native projects.
+$ apkit
+Agent Profile Kit is not set up on this machine.
+Next: Run apkit init to set it up.
 
-Usage: apkit <command> [arguments]
+Run apkit --help for the full command list.
+```
 
-First run:
-  apkit init
-  apkit bind <profile> --host <host>
+A configured machine sees its fleet summarized by primary-cause counts plus
+the settled count, followed by a short task-relevant command list:
+
+```
+$ apkit
+- needs attention (1)
+- not installed yet (1)
+- settled (4)
+
+Common next steps:
   apkit status
+    Show the complete read-only apply plan for the complete fleet, the
+      containing Project, or one explicit Project
   apkit apply
+    Sync the complete fleet, the containing Project, or one explicit Project
+  apkit bind
+    Configure a Project with a Profile and Agent Hosts, or replace an existing
+      binding
+  apkit guide
+    Show a topic index, full Workspace guidance, or one focused authoring
+      example
 
-  Choose a Profile with apkit guide profile; see apkit bind --help for supported
-  Host values.
-
-Common commands:
-  init
-    Initialize or adopt the canonical Workspace and settings
-…
-More commands:
-  Inventory:
-  list
-    List read-only inventory for Projects, Profiles, or Hosts
-…
+Run apkit --help for the full command list.
 ```
 
-Each catalog command lists its name and wrapped description without flag inventories (US-034, DEC-020). Per-command help remains the authoritative reference for flags and their interactions. The first run points
-to `guide profile` for a valid Profile example and `bind --help` for supported
-Host values. Machine-facing commands (temporary installation and its inventory)
-appear nowhere in this default list; they are documented in stage 13 and
-listed by `apkit machine --help` (DEC-021). Interactive output selects the tty width (falling back to `COLUMNS`)
-and clamps readable prose to 40–100 columns; redirected output uses a
-deterministic 80-column measure. Color is used only for color-capable
-interactive human output; `TERM=dumb`, an unset `TERM`, and a non-empty
-`NO_COLOR` disable ANSI styling. The compact ASCII identity appears only in
-interactive bare/root help, while the agent guide, redirected output, and all
-JSON remain plain. `--version` and `-v` print the engine version. Every command has focused
-`help <command>`, `<command> -h`, and `<command> --help`
-aliases with identical purpose, syntax, worked examples, write boundary, and
-next-action output; binding and temporary-installation help name Hosts from
-their canonical capability sets. Unknown commands produce one deterministic
-close-match suggestion when available, otherwise only point to `apkit --help`.
-Root and per-command help derive from one `COMMANDS` table in
-`cli/command-help.ts`, while worked commands derive from the reusable example
-set in `cli/examples.ts`.
+A wholly settled fleet renders as one count line (`3 Projects up to date.`).
+`--help` keeps the full command list without flag inventories (US-034, DEC-020), and per-command help remains the authoritative flag
+reference. Machine-facing commands (temporary installation and its inventory)
+appear nowhere in the default list; they are documented in stage 13 and listed
+by `apkit machine --help` (DEC-021). Interactive output selects the tty width
+(falling back to `COLUMNS`) and clamps readable prose to 40–100 columns;
+redirected output uses a deterministic 80-column measure. Color is used only
+for color-capable interactive human output; `TERM=dumb`, an unset `TERM`, and
+a non-empty `NO_COLOR` disable ANSI styling. `--version` and `-v` print the
+engine version. Every command has focused `help <command>`, `<command> -h`,
+and `<command> --help` aliases with identical purpose, syntax, worked
+examples, write boundary, and next-action output. Unknown commands produce one
+deterministic close-match suggestion when available, otherwise only point to
+`apkit --help`. Root and per-command help derive from one `COMMANDS` table in
+`cli/command-help.ts`.
 
 `list` is the read-only inventory entrypoint: without a topic it names each
-available inventory topic once with one human description, while focused `list`
-help retains JSON syntax and examples. `list projects` reads Project Bindings from
-normalized Local Configuration and presents one aligned row per Project with its
-short identity, Profile, Hosts, and configuration state, followed by a summary footer. `list profiles` reads Profile selections from
-the selected Workspace, and `list hosts` leads with the canonical Hosts supported
-for configured Projects without probing the machine. Temporary-install eligibility
-remains available in focused `machine install-temp` help and Host inventory JSON.
-`machine list temporary` reads active Temporary Profile Installations from Installation
-State, preserving each durable identity alongside its Project, Profile, and Host
-so `machine remove-temp` can target the correct receipt; it does not enter ordinary
-Project lifecycle reconciliation. Focused human inventory uses instructional
-`Use …` guidance instead of presenting an optional or redundant command as
-`Next:`; Host inventory explains that `apkit bind` selects a listed Host for a
-configured Project. `info [--json]` reports the engine version and
-the selected Workspace, Local Configuration, and Installation State locations
-without reading bindings, artifacts, credentials, or Installation State
-contents. It is distinct from `status`, which remains the ordinary Project
-lifecycle diagnostic.
+available inventory topic once with one human description. `list projects`
+presents one aligned row per Project with its short identity, Profile, Hosts,
+and configuration state, followed by a summary footer:
+
+```
+$ apkit list projects
+Projects (2):
+
+<project>  example  codex   configured
+<project>  example  claude  configured
+
+2 Projects configured.
+Use apkit status to inspect Project lifecycle diagnostics.
+```
+
+`list profiles` reads Profile selections from the selected Workspace, and
+`list hosts` leads with the canonical Hosts supported for configured Projects
+without probing the machine:
+
+```
+$ apkit list hosts
+Supported Hosts:
+  antigravity
+  claude
+  codex
+  grok
+  opencode
+  pi
+
+Use <host> with apkit bind to select it for a configured Project.
+```
+
+Temporary-install eligibility remains available in focused `machine
+install-temp` help and Host inventory JSON. `machine list temporary` reads
+active Temporary Profile Installations from Installation State, preserving
+each durable identity alongside its Project, Profile, and Host so `machine
+remove-temp` can target the correct receipt; it does not enter ordinary
+Project lifecycle reconciliation. `info [--json]` reports the engine version
+and the selected Workspace, Local Configuration, and Installation State
+locations without reading bindings, artifacts, credentials, or Installation
+State contents. It is distinct from `status`, which remains the ordinary
+Project lifecycle diagnostic.
 
 ### 2. Initialize
 
 ```
 $ apkit init
 Initialized Agent Profile Kit Workspace and settings at
-  <workspace>
+  ~/.agents/agent-profile-kit/workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
-Detected Agent Hosts: <hosts>
-Next: from the project you want to try, run
-  apkit bind example --host <host>
+Detected Agent Hosts: claude, codex, opencode
+Next: from the project you want to try, run apkit bind example --host claude
 ```
 
 Scaffolds `workspace.yaml`, six artifact directories, a bindable `example`
 Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
 `schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
-removed example or overwrite any valid existing Workspace. When no supported
-Agent Hosts are detected on the machine, the receipt states so and suggests
-`apkit validate` instead.
+removed example or overwrite any valid existing Workspace. The Workspace
+location is stated in actionable home-relative form (US-036), the receipt
+explains what a Profile is in one sentence at the moment one is first needed
+(US-033), and detection is advisory: it names the supported Agent Hosts found
+on the machine (US-037) and never blocks. When no supported Agent Host is
+detected, the receipt says so plainly and does not suggest binding to an
+absent Host (US-038, DEC-023); the suggested first `bind` names a Host the
+machine actually has (US-039).
 
 ### 3. Learn the format
 
-`guide` prints a concise topic index with examples. `guide --full` and
-`guide --agent` retain the complete human- and agent-facing guides.
-`guide profile`, `guide context`, and `guide skill` each return focused,
-terminal-width-aware guidance with a complete copyable example; fenced examples
-and copyable values remain intact.
+`guide` prints a concise authoring-first topic index with examples
+(US-049, DEC-028):
+
+```
+$ apkit guide
+# Agent Profile Kit guide
+
+Choose a focused authoring topic, read the complete human guide, or open the
+  agent workflow reference.
+
+Topics:
+  apkit guide profile
+    Profile: A Profile selects reusable material for a kind of work through
+      its context and skills lists.
+  apkit guide context
+    Context Module: A Context Module is an independently reusable unit of
+      always-loaded guidance. Profiles select it by its frontmatter `id`.
+  apkit guide skill
+    Skill: A Skill is a reusable workflow package. Profiles select it by its
+      frontmatter `name`, and its description tells an Agent Host when the
+      workflow applies.
+
+Complete references:
+  apkit guide --full
+    Complete human Workspace guide
+  apkit guide --agent
+    Agent workflow reference
+
+Examples:
+  apkit init
+  apkit guide profile
+  apkit bind example --host codex
+```
+
+`guide --full` and `guide --agent` retain the complete human- and
+agent-facing guides. `guide profile`, `guide context`, and `guide skill` each
+return focused, terminal-width-aware guidance that states the configured
+Workspace location before asking the user to create anything there
+(US-048, DEC-028):
+
+```
+$ apkit guide profile
+# Profile
+
+A Profile selects reusable material for a kind of work through its context and
+  skills lists.
+
+Workspace: ~/.agents/agent-profile-kit/workspace
+
+Create `profiles/example.yaml`:
+…
+```
+
+Long interactive guidance is paged through the configured pager, while
+redirected output preserves its content and never invokes a pager
+(US-050, DEC-029).
 
 ### 4. Author
 
-`new skill <name>` scaffolds one valid Skill into the configured Workspace and
-prints the absolute path of the created `SKILL.md` without prompting or opening
-an editor; a duplicate Artifact ID, an occupied or symlinked destination, or an
-invalid name is refused with a typed diagnostic before any write. Remaining
-structured content is authored from memory:
+`apkit new` scaffolds one artifact of a named kind into the configured
+Workspace and prints the actual full path of the created file, without
+prompting or opening an editor (US-042–046, DEC-026):
 
 ```
-context/standards.md        id in frontmatter
-skills/<name>/SKILL.md      name (= Artifact ID) + description in frontmatter
-profiles/<id>.yaml          id, context[], skills[], and three mandatorily empty arrays
+$ apkit new skill deploy-helper
+Created Skill deploy-helper at
+  <workspace>/skills/deploy-helper/SKILL.md
+Next: select the Skill from a Profile, then run apkit validate
+
+$ apkit new context review-standards
+Created Context Module review-standards at
+  <workspace>/context/review-standards.md
+Next: select the Context Module from a Profile, then run apkit validate
+
+$ apkit new profile release --context review-standards --skill deploy-helper
+Created Profile release at
+  <workspace>/profiles/release.yaml
+  Context: review-standards
+  Skills: deploy-helper
+Available Context Modules: example-context, review-standards
+Available Skills: deploy-helper
+Next: run apkit validate, then bind the Profile to a Project
 ```
 
-The focused guide topics show that a Profile needs all five arrays with three
-empty, that a Context Module's identity is frontmatter `id`, and that a Skill's
-`name` is its Artifact ID without requiring the full guide.
+Profile creation resolves every selected name through the Workspace boundary:
+unknown selections are refused with the available names and a nearest-name
+suggestion, and zero selections are refused with the same guidance. The
+focused guide topics show that a Profile selects material through its context
+and skills lists, that a Context Module's identity is frontmatter `id`, and
+that a Skill's `name` is its Artifact ID without requiring the full guide.
+`apkit open` opens the configured Workspace in the system file manager as an
+explicit command (US-047, DEC-027); artifact creation never opens it as a
+side effect.
 
 ### 5. Bind
 
@@ -251,64 +336,153 @@ Next: apkit status
 ```
 $ apkit bind ops <project> --host codex --host opencode --replace
 Replaced configured Project for <project>
-  Profile: coding → ops
   Hosts: codex → codex, opencode
 Next: apkit status
 ```
 
 Correct and well scoped; additional `--host` values are recorded the same way,
 `unchanged` is distinguished from `Recorded`, the project defaults to the
-working directory, and `--host` is explicit with no default. Lifecycle project blocks now echo the selected Hosts, so that identity
-remains visible after `bind`. A conflicting bind without `--replace` fails and
-names the flag; passing `--replace` restates the existing binding's Profile and
-Host set in one command (shown old → new above) while reconciling generated
-output through the ordinary status → apply path.
+working directory, and `--host` is explicit with no default. A conflicting
+bind without `--replace` fails and names the flag; passing `--replace`
+restates the existing binding's Profile and Host set in one command (shown
+old → new above) while reconciling generated output through the ordinary
+status → apply path.
+
+On an interactive terminal, `bind` asks only for the missing required Profile
+and Host arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
+by a one-sentence explanation of what a Profile is, the Host choices carry
+advisory installed/absent detection evidence (US-053), a completed flow
+records the binding and prints the equivalent fully specified command with the
+Project path and every `--host` flag explicit (US-052, DEC-032), and
+cancellation exits before any configuration change (DEC-033). A fully
+specified bind never prompts.
 
 ### 6. Verify
 
 ```
 $ apkit validate
-Workspace and settings valid (1 Profile, 0 configured Projects)
-Profiles found: example
-Hosts bound: none
-Next: apkit bind <profile> --host <host>
+Workspace and settings valid (2 Profiles, 6 configured Projects)
+Profiles found: example, release
+Hosts bound: claude, codex, grok
+Next: apkit status
 ```
 
-Successful validation derives its next action from the configured Project count:
-zero points to `apkit bind`, while one or more points to `apkit status`. Warnings
-remain visible without changing that branch, and validation remains read-only.
+Successful validation derives its next action from the configured Project
+count: zero points to `apkit bind`, while one or more points to `apkit
+status`. Validation remains read-only. Invalid Workspace references are
+explained down to the offending file, the invalid value, and the available
+names, with a nearest-name suggestion when one exists (US-025, US-026,
+DEC-017):
+
+```
+$ apkit validate
+apkit: Profile 'broken' in profiles/broken.yaml selects missing Context Module
+  'team-rulez'.
+Available Context Modules: example-context, review-standards.
+Restore the Context Module, or remove or update Profile 'broken'.
+Correct profiles/broken.yaml, then run apkit validate.
+```
 
 ### 7. Plan
 
-Unblocked pending `status` now presents one compact decision at both single-
-Project and fleet scope. When every non-zero file operation affects the same
-Project scope, one outcome line carries all counts. Differing scopes use one
-compact line per operation without an aggregate that repeats those totals.
-Routine generated paths and successful Git exclusion bookkeeping move behind
-`--verbose`; drift, ownership, destructive-removal, warning, Blocker, and Git
-attention keep the identity needed to act. The selected invocation determines
-one apply command and, when detail is suppressed, one matching verbose route:
+`status` defaults to the complete fleet and groups every actionable Project
+under exactly one primary cause — needs attention, generated files changed,
+generated files missing, not installed yet, or source changed — naming every
+affected Project by short identity, while settled Projects are summarised as a
+count (US-001–003, US-006, US-016, DEC-002, ADR-0026). A Project with several
+causes at once appears once, under its highest-priority cause; verbose
+diagnostics retain every underlying cause. Group counts plus the settled count
+account for every Project exactly once (US-016):
 
 ```
-$ apkit status <project>
-Updates ready for 1 project (3 file additions).
-Next: apkit apply <project>
+$ apkit status
+Cannot apply
+- needs attention (1):
+  <project>
+    Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
+      by Git, so Agent Profile Kit cannot write to them.
+      Requirement: Agent Profile Kit must exclusively manage its generated
+        files; Git-tracked paths cannot be replaced.
+      Remedy: Choose one. To let Agent Profile Kit manage these files, run
+        git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
+        — it stages their removal from the Git index while the files stay on
+        disk; commit afterwards to keep the change — then run
+        apkit apply '<project>'.
+        To keep Git ownership instead, run
+        apkit unbind '<project>'.
+      Affected paths (2):
+        - .agent-profile-kit/codex/context.md
+        - .codex/hooks.json
+- generated files missing (1): <project>
+- not installed yet (1): <project>
+- source changed (1): <project>
+- settled (1)
 
-Details: apkit status <project> --verbose
+Projects: 7 · Blockers: 1
+
+Next:
+- Resolve the reported blocker, then run apkit status again.
 ```
 
-The same compact decision scales to a fleet:
+A Blocker never suppresses pending work for other Projects and never replaces
+the fleet summary (US-005, DEC-005); Blocker rows render inside the same frame
+with their runnable remedy (US-021, DEC-013). When nothing is blocked, the
+pending view presents one compact decision:
 
 ```
-Updates ready for 14 projects (96 file updates).
+$ apkit status
+Ready to apply
+- not installed yet (2): <project>, <project>
 Next: apkit apply
 
 Details: apkit status --verbose
 ```
 
-Verbose retains the full per-Project, per-path, Git, and Host Setup Step
-evidence, and versioned JSON remains unchanged. Concise pending `status` does
-not pre-announce post-apply setup.
+Narrowing replaces verbosity as the route to a smaller question (US-011,
+DEC-006): `--stale` selects existing installations needing updates or
+restoration, excluding never-installed and Blocked Projects; `--blocked`
+selects Projects with Project-scoped Blockers. The flags are mutually
+exclusive, compose with fleet, `--here`, and explicit Project scope, and
+select the same Projects for reports and apply writes (shown in stage 10).
+Each selected view states one primary next action naming the selected scope
+(US-007):
+
+```
+$ apkit status --stale
+Ready to apply
+- generated files missing (1): <project>
+- source changed (1): <project>
+Next: apkit apply --stale
+
+Details: apkit status --stale --verbose
+```
+
+`--verbose` is the focused diagnostic view (US-013): per-Project state,
+per-output causes, Blocker evidence with scope and affected paths, Git
+exclusion attention, and actionable Host Setup Steps — omitting the composed
+Context bodies, unchanged output paths, and Capability Contract identifiers
+that narrowing replaced. Machine JSON (`--json`, `schemaVersion: 15`) keeps
+its meanings and exit codes unchanged and agrees with the human selection
+(US-060, US-061, DEC-040).
+
+Scope errors remain forks in the road rather than walls (US-024, DEC-016):
+
+```
+$ apkit status --here
+apkit: directory '/private/tmp' is not configured as a Project
+Run apkit bind to configure this directory as a Project.
+Run apkit list projects to list configured Projects.
+Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+```
+
+An uninitialized machine is told plainly and given the initialization command;
+configuration paths do not lead the explanation (US-023, DEC-015):
+
+```
+$ apkit status
+apkit: Agent Profile Kit is not set up on this machine
+Run apkit init to set it up.
+```
 
 Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
@@ -316,34 +490,33 @@ report, and redirected output and JSON never carry progress bytes.
 
 ### 8. Apply
 
-`apply` defaults to the complete fleet, accepts `--here` for the bound Project
-containing the current working directory, accepts one explicit existing absolute
-or home-relative bound Project root, and retains `--all` as explicit fleet scope.
-Scoped apply does not plan, probe, inspect, report, or write unrelated Projects;
-it rewrites the owned section of a shared Git exclusion target from the receipts
-that will exist after the operation, preserving unrelated bytes (best-effort
-bookkeeping, ADR-0025). `apply` on fleet scope stops every write for a global
-Blocker, but leaves Project-scoped blocked Projects untouched while committing
-and freshly verifying healthy Projects sequentially. A partial blocker result
-exits `2`; a tool or verification failure exits `1` and identifies committed,
-failed, and still-pending Project work.
+`apply` shares `status`'s selection: the complete fleet by default, `--here`
+for the bound Project containing the current working directory, one explicit
+existing absolute or home-relative bound Project root, or `--stale`/`--blocked`
+for the narrowed selection. Scoped apply does not plan, probe, inspect,
+report, or write unrelated Projects; it rewrites the owned section of a shared
+Git exclusion target from the receipts that will exist after the operation,
+preserving unrelated bytes (best-effort bookkeeping, ADR-0025). `apply` on
+fleet scope stops every write for a global Blocker, but leaves Project-scoped
+blocked Projects untouched while committing and freshly verifying healthy
+Projects sequentially. A partial blocker result exits `2`; a tool or
+verification failure exits `1` and identifies committed, failed, and
+still-pending Project work.
 
-After an edit or when `status` reports changes, the user runs:
+The Apply Receipt is the authoritative record of what apply actually did,
+distinct from the resulting-state report (US-027, DEC-018): it names every
+committed file operation with its Project attribution, including replacement
+of a changed generated file, in every invocation mode (US-028):
 
 ```
 $ apkit apply
-```
-
-`apply` performs atomic reconciliation across all selected Projects: it writes
-Host configuration files, rewrites the Agent Profile Kit-owned Git exclusion
-section as a cache, and prints the summary:
-
-```
-$ apkit apply <project>
 Apply complete
 
 Applied:
-  + 3 generated file additions in 1 project
+  + 3 generated file additions in 2 projects
+  + .agent-profile-kit/codex/context.md (<project>)
+  + .claude/rules/agent-profile-kit.md (<project>)
+  + .codex/hooks.json (<project>)
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
@@ -352,61 +525,72 @@ First use:
 
 Profile example will load the next time you launch a configured Host from a
   bound Project root.
+To check that claude and codex loaded Profile example, start a new session of
+  each configured Host in each updated Project and ask each Host what Profile
+  material it loaded; the installed material should appear in the answers.
 ```
 
-A multi-Project apply shows:
+The first-run example apply closes with a concrete handoff to authoring real
+material (US-040, DEC-024); routine applies do not repeat it:
 
 ```
+Now author your own:
+  apkit new skill <skill>
+  apkit new context <context>
+  apkit new profile <profile> --context <context> --skill <skill>
+```
+
+A non-interactive apply that replaces a hand-edited generated file names the
+replacement and prompts nothing (US-030, TEST-014):
+
+```
+$ apkit apply <project>
 Apply complete
 
 Applied:
-  + 19 generated file additions across 3 projects
-
-First use:
-- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
-- Trust the bound project in Codex so the Profile can load.
-
-Profile coding will load the next time you launch a configured Host from a bound Project root.
+  ~ 1 generated file update in 1 project
+  ~ .agent-profile-kit/codex/context.md (<project>)
+…
 ```
 
-Verbose apply retains the full per-Project inventory:
+On an interactive terminal, apply asks before replacing changed generated
+files, even when all scope arguments are supplied (US-029, DEC-019). The
+confirmation names the affected files with Project attribution before any
+invocation write, and the default answer is no; declining, cancelling, or the
+default aborts the entire invocation without writes, including writes for
+other selected Projects. The explicit answering flag `--replace-changed`
+permits replacement without prompting (US-031) but never bypasses an ownership
+or path-safety Blocker:
 
 ```
-Apply complete
-
-Applied:
-Projects:
-<api>: addition
-<scratch>: addition
-<web>: addition
-Outputs:
-<api>/.codex/hooks.json: addition
-<api>/.claude/rules/agent-profile-kit.md: addition
-<scratch>/.claude/rules/agent-profile-kit.md: addition
-<web>/.claude/rules/agent-profile-kit.md: addition
-
-Host Setup:
-Host setup:
-- Review and approve the generated SessionStart hook when Codex asks. (<api>)
-  Consequence: Declining the hook prevents Profile Context from loading.
-Standing Host setup:
-- Trust the bound project in Codex. (<api>)
-  Consequence: Profile Context does not load until the project is trusted.
-
-Profile coding will load the next time you launch a configured Host from a bound Project root.
+$ apkit apply <project>
+Changed generated files:
+  ~ .agent-profile-kit/codex/context.md (<project>)
+Replacing overwrites these files with current Workspace content.
+? Replace these generated files with current Workspace content? (y/N)
+apkit: apply was cancelled before any write
+No Project or setting was changed; your edits to the named generated files are
+  preserved.
+To replace changed generated files without asking, run
+  apkit apply <project> --replace-changed
 ```
 
-Separating verified resulting state from the Apply Receipt is architecturally
-correct (`CONTEXT.md`, *Apply Receipt*), and the receipt is now grouped and
+Verbose apply retains the full per-Project inventory, and machine JSON keeps
+its keys and meanings (US-060). The receipt is grouped and
 preview-consistent: `Applied:` lists the same operation groups with the same
-symbols and counts as the preceding preview, never reprints verified-current
-Project blocks, and is followed by change-relevant first-use guidance and invocation-wide
-next-launch readiness (once per apply invocation, never split by Host or Project set). Conditional Host
-guidance carries this journey into Codex, Claude Code, Grok, Pi, and Antigravity.
+symbols and counts as the preceding preview, and is followed by
+change-relevant first-use guidance and the invocation-wide next-launch
+readiness (once per apply invocation, never split by Host or Project set).
 
 ### 9. Use
 
-Setup guidance is reported conditionally by Host *and* by what was installed:
+A successful apply states one concrete Project-local action that checks
+whether the Agent Host loaded the Profile (US-041, DEC-025): start a new
+session of the configured Host in the updated Project and ask it what Profile
+material it loaded — the installed material should appear in the answer.
+Agent Profile Kit never claims it observed that loading (OOS-009). Beyond
+that check, setup guidance is reported conditionally by Host *and* by what
+was installed:
 
 | Host | Requirement after `apply` |
 |------|---------------------------|
@@ -420,163 +604,157 @@ Setup guidance is reported conditionally by Host *and* by what was installed:
 **Codex Context floor (0.145.0+).** Context-bearing Codex plans probe
 `codex --version` during `apply`; a missing, unreadable, or older CLI produces
 one advisory warning for that requirement per invocation, naming Codex and the
-required floor, and the material is written regardless (ADR-0025). Skills-only Codex plans do not
-probe. `status`, `validate`, and `uninstall` do not probe, so a post-apply
-Codex downgrade is not reported there — Context stops loading until a supported
-CLI is restored, and the next `apply` warns again.
-
-Verified: a four-Host `api` project produced `.codex/hooks.json`, and its
-`.grok/` directory contained `skills/` **only** — no `rules/`. A Skills-only
-Codex project produced no hook at all, so Codex approval guidance must be
-conditional on installed Context, not on the Host alone.
+required floor, and the material is written regardless (ADR-0025).
+Skills-only Codex plans do not probe. `status`, `validate`, and `uninstall`
+do not probe, so a post-apply Codex downgrade is not reported there — Context
+stops loading until a supported CLI is restored, and the next `apply` warns
+again.
 
 ### 10. Re-sync after a Workspace edit
 
-`status` uses the same Project selection as `apply`: complete fleet by default,
-`--here` for the current Project, one explicit absolute or home-relative bound
-root, or `--all` for explicit fleet scope.
-Ambiguous, unbound, missing, relative, wildcard, and non-directory targets fail
-with command guidance before Project inspection. The tool's best-working loop:
-`stale source` is detected accurately, the gloss is useful the first time, and
-the next action is correct. A fully-current single Project states that fact once
+`status` and `apply` share one Project selection (US-009, DEC-001): the
+complete fleet by default, `--here` for the containing Project, one explicit
+absolute or home-relative bound root, `--stale`/`--blocked` for the narrowed
+selections, or `--all` for explicit fleet scope. Ambiguous, unbound, missing,
+relative, wildcard, and non-directory targets fail with command guidance
+before Project inspection. The tool's best-working loop: `stale source` is
+detected accurately, the cause group names the Project, and the next action is
+correct. A fully-current single Project states that fact once
 (`All Projects are current (1 Project)`); a fully-current fleet uses the same
-shape (`All Projects are current (12 Projects)`). Neither emits a Host setup
-reminder, Project list, or next action. Verbose status and JSON retain every Adapter-authored Host
-Setup Step and its typed provenance. Interactive status inspections that outlast
-a short anti-flicker threshold show delayed operation-level progress on the
-terminal line; the line is cleared before the report, and redirected output and
-JSON never carry progress bytes.
+shape (`All Projects are current (7 Projects)`). Neither emits a Host setup
+reminder, Project list, or next action (US-004). Verbose status and JSON
+retain the underlying causes; every fact is stated once per view (US-008,
+DEC-007). Interactive status inspections that outlast a short anti-flicker
+threshold show delayed operation-level progress on the terminal line; the line
+is cleared before the report, and redirected output and JSON never carry
+progress bytes.
 
 ### 11. Recover
 
 **Missing output** — a deleted generated file — is ordinary pending work:
-`status` names the missing paths and `apply` restores them.
+`status` names the missing paths under `generated files missing` and `apply`
+restores them.
 
-**Drifted output** — a generated file whose bytes, modes, or members differ from
-the recorded installation — is ordinary pending work: `status` reports it as
-non-blocking `drifted output` state and `apply` replaces the whole recorded root
-from current Workspace source, discarding unknown members such as host scratch
-directories. Removal paths (`uninstall`, stale removal, `machine remove-temp`) may
-remove drifted proven roots without a manual pre-clean. Identity or path-safety
-failures — changed extant roots with no continuity anchor, a symlinked root, an unsafe
-parent — remain Blockers, and their evidence states only what was proven, never
+**Drifted output** — a generated file whose bytes, modes, or members differ
+from the recorded installation — is ordinary pending work: `status` groups it
+under `generated files changed` and `apply` replaces the whole recorded root
+from current Workspace source, naming the replacement in the receipt and
+discarding unknown members such as host scratch directories. Removal paths
+(`uninstall`, stale removal, `machine remove-temp`) may remove drifted proven
+roots without a manual pre-clean. Identity or path-safety failures — changed
+extant roots with no continuity anchor, a symlinked root, an unsafe parent —
+remain Blockers, and their evidence states only what was proven, never
 asserting a user edit without provenance.
 
-**Host CLI missing or outdated** no longer blocks anything (ADR-0025): during
-`apply`, a missing or outdated Host CLI produces one advisory warning per Host
-per invocation, naming the Host and the strictest version it requires,
-regardless of how many Projects select it and how many distinct requirement messages it
-produced, and the
-Host's material is written regardless. `status`,
-`validate`, and `uninstall` never probe. The historical excerpt below showed
-these conditions as Blockers with problem/requirement/remedy prose; that
-gating and the Installer-authored prose no longer exist — presentation owns
-every Blocker and warning sentence, keyed by the typed kind:
+**Host CLI missing or outdated** no longer blocks anything (ADR-0025):
+during `apply`, a missing or outdated Host CLI produces one advisory warning
+per Host per invocation, rendered inline with the outcome — no warnings
+heading, no empty warning section — and never changes the exit code
+(US-017–019, DEC-010, DEC-011):
+
+```
+$ apkit apply <project>
+Apply complete
+- Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the
+  CLI before checking status or applying the Profile (1 Project)
+
+Applied:
+  + 1 generated file addition in <project>
+  …
+```
+
+The historical excerpt below showed these conditions as Blockers with
+problem/requirement/remedy prose; that gating and the Installer-authored prose
+no longer exist — presentation owns every Blocker and warning sentence, keyed
+by the typed kind:
 
 ```
 Blocker: Claude Code CLI was not found on PATH; install Claude Code and ensure
 `claude --version` works before previewing or applying the Profile
-
-Blocker: Claude CLI 1.0.0 does not support unscoped project rules (requires
-2.0.64+); upgrade Claude Code before previewing or applying the Profile
 ```
 
-**Mixed states across projects** now retain per-project guidance. With pending
-work for `api` and `web` blocked, the run preserves `api`'s next step after the
-all-project blocker is resolved and gives `web` its blocker remedy.
-
-**Focused Blocker Recovery (`--blockers-only`).** When diagnosing or resolving blockers across single projects or the entire fleet, `--blockers-only` strictly isolates displayed blockers and their direct next steps without leaking unblocked project inventories, setup steps, or warnings:
-
-```
-$ apkit status --all --blockers-only
-Cannot apply
-
-Project:
-  <project-b>
-  Blocker: .agents/skills/deploy-helper and 4 more files are tracked by Git,
-    so Agent Profile Kit cannot write to them.
-    Requirement: Agent Profile Kit must exclusively manage its generated
-      files; Git-tracked paths cannot be replaced.
-    Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
-      — it stages their removal from the Git index while the files stay on
-      disk; commit afterwards to keep the change — then run
-      apkit apply '<project-b>'.
-      To keep Git ownership instead, run
-      apkit unbind '<project-b>'.
-    Affected paths (5):
-      - .agents/skills/ (2 paths)
-      - .claude/rules/agent-profile-kit.md
-      - .claude/skills/ (2 paths)
-
-Blockers: 1 · Affected Projects: 1
-
-Next:
-- Resolve the reported blocker, then run apkit status again.
-```
-
-The evidence-derived recovery command is carried inline in every view — concise,
-verbose, focused, and the machine JSON remedy — so no view redirects to another
-view to see the exact untracking command. Under `--blockers-only --verbose`, the
-complete structured blocker evidence adds the Project scope and every affected
-path next to the same inline remedy:
+**Blockers render as rows with runnable remedies** (US-020–021, DEC-013).
+Every Blocker kind offers a command the user can run, derived from its
+evidence; the tracked-output remedy stages the removal from the Git index
+while the files stay on disk:
 
 ```
-$ apkit status --all --blockers-only --verbose
-Cannot apply
-
-Blockers:
-- .agents/skills/deploy-helper and 4 more files are tracked by Git, so
-  Agent Profile Kit cannot write to them.
-  Requirement: Agent Profile Kit must exclusively manage its generated files;
-    Git-tracked paths cannot be replaced.
+Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
+  by Git, so Agent Profile Kit cannot write to them.
+  Requirement: Agent Profile Kit must exclusively manage its generated
+    files; Git-tracked paths cannot be replaced.
   Remedy: Choose one. To let Agent Profile Kit manage these files, run
-    git --literal-pathspecs -C '<project-b>' rm -r --cached -- '.agents/skills/deploy-helper' '.agents/skills/review-pr' '.claude/rules/agent-profile-kit.md' '.claude/skills/deploy-helper' '.claude/skills/review-pr'
-    — it stages their removal from the Git index while the files stay on disk;
-    commit afterwards to keep the change — then run
-    apkit apply '<project-b>'.
+    git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
+    — it stages their removal from the Git index while the files stay on
+    disk; commit afterwards to keep the change — then run
+    apkit apply '<project>'.
     To keep Git ownership instead, run
-    apkit unbind '<project-b>'.
-  Scope: Project
-    <project-b>
-  Affected path:
-    <project-b>/.agents/skills/deploy-helper
-  Affected path:
-    <project-b>/.agents/skills/review-pr
-  Affected path:
-    <project-b>/.claude/rules/agent-profile-kit.md
-  Affected path:
-    <project-b>/.claude/skills/deploy-helper
-  Affected path:
-    <project-b>/.claude/skills/review-pr
-
-Blockers: 1 · Affected Projects: 1
+    apkit unbind '<project>'.
 ```
 
-During a focused partial apply (`apkit apply --all --blockers-only`), healthy projects and their pending restorations commit while blocked projects remain untouched. The resulting report retains the committed `Applied:` receipt prefix before remaining blockers, so writes are never hidden.
+The evidence-derived recovery command is carried inline in every view —
+concise, verbose, and the machine JSON remedy — so no view redirects to
+another view to see the exact command. When a remedy cannot name a runnable
+command, recovery states the manual action plainly rather than prose about
+hidden state. Errors follow one shape across every command: what happened,
+why, then one or more commands to run (US-022, DEC-014).
+
+During a narrowed or fleet apply, Project-scoped blocked Projects remain
+untouched while healthy Projects commit sequentially and freshly verify; a
+partial blocker result exits `2` and retains the committed `Applied:` receipt
+before remaining blockers, so writes are never hidden.
 
 ### 12. Tear down
 
 `uninstall` removes proven output and preserves bindings; `unbind` removes the
-binding and preserves output. The boundary is sound and documented in the guide,
-but neither command's output states it, and the follow-on state alarms:
+binding and retires the installation receipt ("Generated files remain until
+apply"). Neither command prompts — on any input stream, including an
+interactive terminal (US-055 teardown clause, DEC-030, DEC-031) — and
+re-binding and re-applying recovers both:
 
 ```
-$ agent-profile-kit uninstall
-Uninstalled 1 Profile Installation
+$ apkit unbind <project>
+Removed configured Project for <project>
+  Profile: release
+  Hosts: claude
+Generated files remain until apply
+Next: apkit status --all
 
-$ agent-profile-kit status
-Attention required
+$ apkit uninstall
+Removed proven Agent Profile Kit-owned output from 4 Projects.
+
+Project: <project>
+  Removed generated paths:
+  - .agent-profile-kit/codex/context.md
+  - .codex/hooks.json
+  Cleaned Git exclusions:
+  - /.agent-profile-kit/codex/context.md (<project>/.git/info/exclude)
+  - /.codex/hooks.json (<project>/.git/info/exclude)
 …
-  State: missing output (Profile Installation is missing)
-State explanations:
-- missing output: … this is not a safe automatic repair.
+Configured Projects preserved.
+Next: Run
+  apkit unbind
+  for configured Projects you no longer want, or
+  apkit apply
+  to reinstall.
 ```
 
-`unbind` then closes with `Next: agent-profile-kit preview && agent-profile-kit
-apply`, which reports zero installations and no changes.
+An output whose ownership cannot be proven is kept and reported, not deleted
+silently:
 
-<!-- historical-command-excerpts:end -->
+```
+Kept 1 Project whose owned output could not be fully removed:
+
+Project: <project>
+  - recorded output .claude/rules/agent-profile-kit.md does not match the
+    recorded installation and no other recorded root proves ownership
+    continuity; restore the recorded output or remove the generated files, then
+    retry
+```
+
+The follow-on `status` names the resulting state once in its cause group —
+the former duplicated `State:` plus attention-line pairing is gone
+(US-008, DEC-007).
 
 ### 13. Temporary Profile Installations
 
@@ -614,18 +792,19 @@ Removed temporary Profile
   Project: <project>
 ```
 
-The temporary identity survives on the receipt and in `machine list temporary`, so
-`machine remove-temp` stays discoverable without touching ordinary Project lifecycle
-state or Local Configuration. Width, styling, and wrapping behave exactly like
-the ordinary lifecycle surfaces through the shared presentation boundary
-(ADR-0016).
+The temporary identity survives on the receipt and in `machine list
+temporary`, so `machine remove-temp` stays discoverable without touching
+ordinary Project lifecycle state or Local Configuration. Width, styling, and
+wrapping behave exactly like the ordinary lifecycle surfaces through the
+shared presentation boundary (ADR-0016).
+<!-- recaptured-journey-excerpts:end -->
 
 ---
 
 ## Accepted presentation principles
 
-Accepted in ADR-0014 and refined by ADR-0020. Individual fixes are argued from
-these rather than from scratch.
+Accepted in ADR-0014 and refined by ADR-0020 and ADR-0026. Individual fixes
+are argued from these rather than from scratch.
 
 1. **One fact, one rendering per screen**, and one command run produces one
    report.
@@ -648,3 +827,7 @@ these rather than from scratch.
    journey into the Host without presenting unobserved Host state as unfinished
    setup.
 10. **Exit codes agree across commands** for the same state.
+11. **Prompts are predictable and teach by use.** Exactly bind, init, and the
+    apply confirmation interact; every completed prompt flow prints the
+    equivalent fully specified command, and everything else — including
+    teardown — never prompts (DEC-030–032).

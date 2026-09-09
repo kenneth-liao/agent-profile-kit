@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Prove the integrated daily-loop and newcomer journeys through the packed CLI — mixed multi-cause fleet with narrowing, complete receipts, whole-invocation cancellation, and non-interactive completion, and the printed-actions newcomer chain through real material authoring, binding, and apply with present and absent controlled Hosts — recapture the living user journey and its gap register against the delivered task-sufficient surface, mark the superseded presentation-only filter ADR, and audit the non-prompting teardown at the packed PTY seam ([#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).
+
 ### Added
 
 - Tell the user how to verify Host loading after apply: a successful apply that committed installation work follows its readiness statement with one concrete Project-local check — start a new session of each configured Agent Host in the updated Project and ask it what Profile material it loaded, with the installed material expected in its answer — naming the applied Profiles, the configured Hosts, and the updated Project from apkit-owned facts, with the Project identity carried as one atomic path part (ADR-0016); no-op, blocked, and failed applies and machine JSON omit it, the sentence never claims Agent Profile Kit observed the loading or completed Host-owned setup, and no Host-specific checking method is invented (Host-specific loading knowledge stays Adapter-owned) (US-041, DEC-025, OOS-009, TEST-001, TEST-002, TEST-015, [#457](https://github.com/kenneth-liao/agent-profile-kit/issues/457)).
