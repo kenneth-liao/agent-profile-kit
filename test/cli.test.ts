@@ -2780,6 +2780,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         state: { kind: "current" },
       }],
     });
+    // US-060/US-041: machine JSON is untouched by the post-apply verification
+    // instruction; it stays on the human surface only.
+    expect(apply.stdout).not.toContain("To check that ");
     expect(
       readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Always preserve the project boundary.");
@@ -3049,9 +3052,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(
       humanText(`Launch Codex from the exact bound project root so the Profile can load.`),
     );
-    expect(humanText(result.stdout)).toEndWith(
+    expect(humanText(result.stdout)).toContain(
       humanText(
         "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+      ),
+    );
+    // US-041 (DEC-025, OOS-009): the readiness promise is followed by the
+    // concrete Project-local check for Host loading.
+    expect(humanText(result.stdout)).toEndWith(
+      humanText(
+        `To check that codex loaded Profile coding, start a new codex session in ${projectPath} and ask codex what Profile material it loaded; the installed material should appear in its answer.`,
       ),
     );
     expect(result.stdout).not.toContain("Selected setup:");

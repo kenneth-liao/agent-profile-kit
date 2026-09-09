@@ -1627,6 +1627,15 @@ describe("project-bound release candidate", () => {
         "Profile example will load the next time you launch a configured Host from a bound Project root.",
       ),
     );
+    // US-041 (DEC-025, OOS-009): the apply also states the concrete
+    // Project-local action that checks whether the Host loaded the Profile,
+    // without claiming Agent Profile Kit observed that loading.
+    const humanApply = humanText(apply.stdout);
+    expect(humanApply).toContain(
+      "To check that codex loaded Profile example, start a new codex session in",
+    );
+    expect(humanApply).toContain("ask codex what Profile material it loaded");
+    expect(humanApply).toContain("the installed material should appear in its answer");
     expect(apply.stdout).not.toContain("already current");
     expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
@@ -1663,7 +1672,8 @@ describe("project-bound release candidate", () => {
     expect(authored.stdout).toContain("real-profile");
 
     // 6c. Routine apply: restoring a hand-edited generated file reports the
-    // replacement and carries no first-run handoff (US-040, DEC-024).
+    // replacement, carries the Host-loading check, and no first-run handoff
+    // (US-040, DEC-024, DEC-025).
     writeFileSync(
       join(boundProject, ".agent-profile-kit", "codex", "context.md"),
       "hand-edited bytes\n",
@@ -1671,6 +1681,7 @@ describe("project-bound release candidate", () => {
     const restore = await runCli(home, ["apply", boundProject], { path: pathWithHosts });
     expectExitCode(restore, 0);
     expect(restore.stdout).toContain("Applied:");
+    expect(restore.stdout).toContain("To check that codex loaded Profile example");
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
 
@@ -1687,6 +1698,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(maintenance, 0);
     expect(maintenance.stdout).toContain("Applied:");
     expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(maintenance.stdout).toContain("To check that claude and codex loaded Profile example");
     expect(maintenance.stdout).not.toContain("Now author your own:");
     expect(maintenance.stdout).not.toContain("apkit new ");
 

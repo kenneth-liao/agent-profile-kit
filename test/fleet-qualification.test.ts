@@ -248,11 +248,14 @@ describe("fleet-wide synchronization qualification", () => {
     expect(apply.stdout).toContain("  ~ 21 generated file updates in 12 projects");
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project Binding");
-    // Invocation-wide readiness appears once, never per Host scope or per Project.
+    // Invocation-wide readiness appears once, never per Host scope or per Project,
+    // followed by the single invocation-wide Host-loading check (US-041).
     expect(humanText(apply.stdout).match(/will load the next time you launch/g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain(
       humanText("Profile engineering will load the next time you launch a configured Host from a bound Project root."),
     );
+    expect(humanText(apply.stdout).match(/To check that /g)).toHaveLength(1);
+    expect(humanText(apply.stdout)).toContain("in each updated Project");
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);

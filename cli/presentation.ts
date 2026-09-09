@@ -2288,17 +2288,30 @@ function hostSetupSections(
  * Emit one invocation-wide next-launch readiness statement for successful changed apply
  * (#292 DEC-011–DEC-013, US-011–US-013).
  */
-function readinessLines(
+/**
+ * The Profiles whose desired installations one apply's committed work touched:
+ * the single canonical home shared by the readiness statement and the
+ * Host-loading verification instruction, so both fire on exactly the same
+ * evidence.
+ */
+function appliedProfiles(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
 ): readonly string[] {
   const changedProjects = new Set(statusAffectedProjects(receipt));
-  const profiles = [...new Set(
+  return [...new Set(
     report.projects
       .filter((record) => changedProjects.has(record.canonicalProject))
       .map((record) => record.desired?.profile)
       .filter((profile): profile is string => profile !== undefined),
   )].sort(compareCanonicalStrings);
+}
+
+function readinessLines(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+): readonly string[] {
+  const profiles = appliedProfiles(report, receipt);
 
   if (profiles.length === 0) return [];
   const subject = profiles.length === 1
@@ -2915,6 +2928,75 @@ function readinessNodes(
   }));
 }
 
+/**
+ * The post-apply Host-loading verification instruction (US-041, DEC-025): one
+ * concrete action the user can take inside the updated Project to check that
+ * the Agent Host loaded the Profile — start a new session of the configured
+ * Host and ask it what Profile material it loaded, looking for the installed
+ * material in its answer. The sentence is presentation-authored from facts
+ * Agent Profile Kit owns — the applied Profiles, the configured Hosts, and
+ * the updated Projects — and never claims that Agent Profile Kit observed the
+ * loading or completed Host-owned setup (OOS-009); no Host-specific checking
+ * method is authored here, and Host-specific loading knowledge stays
+ * Adapter-owned through the rendered Host Setup Steps. It fires exactly where
+ * the readiness statement fires: a successful apply that committed
+ * installation work, never a no-op, blocked, or failed one, and never machine
+ * JSON (US-060).
+ */
+function hostLoadingVerificationNodes(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const profiles = appliedProfiles(report, receipt);
+  if (profiles.length === 0) return [];
+  const changedProjects = new Set(statusAffectedProjects(receipt));
+  const changed = report.projects.filter((record) =>
+    changedProjects.has(record.canonicalProject)
+  );
+  // Canonical Host order, matching the sorted Profiles line and every other
+  // canonical Host rendering.
+  const hosts = [...new Set(
+    changed.flatMap((record) => record.desired?.hosts ?? []),
+  )].sort(compareCanonicalStrings);
+  if (hosts.length === 0) return [];
+  const subject = profiles.length === 1
+    ? `Profile ${profiles[0]}`
+    : `${plural(profiles.length, "Profile")}`;
+  const hostList = hosts.length === 1 ? hosts[0]
+    : hosts.length === 2 ? `${hosts[0]} and ${hosts[1]}`
+    : `${hosts.slice(0, -1).join(", ")}, and ${hosts.at(-1)}`;
+  const session = hosts.length === 1
+    ? `start a new ${hosts[0]} session`
+    : "start a new session of each configured Host";
+  const ask = hosts.length === 1
+    ? `ask ${hosts[0]} what Profile material it loaded`
+    : "ask each Host what Profile material it loaded";
+  const evidence = hosts.length === 1
+    ? "the installed material should appear in its answer"
+    : "the installed material should appear in the answers";
+  const [firstChanged] = changed;
+  if (changed.length === 1 && firstChanged !== undefined) {
+    // The Project identity is one atomic path part (ADR-0016): plain text is
+    // tokenized for wrapping, which would split whitespace-containing paths
+    // and normalize repeated spaces.
+    return [{
+      kind: "prose",
+      parts: [
+        `To check that ${hostList} loaded ${subject}, ${session} in `,
+        pathPart(firstChanged.canonicalProject, scope, firstChanged.project),
+        ` and ${ask}; ${evidence}.`,
+      ],
+    }];
+  }
+  return [{
+    kind: "prose",
+    parts: [
+      `To check that ${hostList} loaded ${subject}, ${session} in each updated Project and ${ask}; ${evidence}.`,
+    ],
+  }];
+}
+
 /** The concise apply view as a presentation document. */
 function conciseApplyDocument(
   report: ReconciliationReport,
@@ -3054,7 +3136,12 @@ function conciseApplyDocument(
   }
   if (!blocked && !noOpApply && receipt !== undefined) {
     const readiness = readinessNodes(report, receipt);
-    if (readiness.length > 0) nodes.push(spacerNode(), ...readiness);
+    if (readiness.length > 0) {
+      nodes.push(spacerNode(), ...readiness);
+      // The check fires exactly where the readiness statement fires: both
+      // key off the same applied evidence, and the check follows it.
+      nodes.push(...hostLoadingVerificationNodes(report, receipt, scope));
+    }
   }
   return nodes;
 }
@@ -3085,7 +3172,11 @@ function verboseApplyDocument(
     ...verboseHostSetupNodes("apply", result.resultingState, scope),
   ];
   if (reportBlockers(result.resultingState).length === 0) {
-    nodes.push(...readinessNodes(result.resultingState, result.receipt));
+    const readiness = readinessNodes(result.resultingState, result.receipt);
+    if (readiness.length > 0) {
+      nodes.push(...readiness);
+      nodes.push(...hostLoadingVerificationNodes(result.resultingState, result.receipt, scope));
+    }
   }
   return nodes;
 }
