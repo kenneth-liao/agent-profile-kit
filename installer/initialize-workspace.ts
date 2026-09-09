@@ -45,6 +45,7 @@ import {
   workspacePath,
 } from "./workspace.js";
 import { AUTHORING_EXAMPLES } from "./authoring-examples.js";
+import { ingestWorkspace } from "./ingest-workspace.js";
 import { COMMAND_NAME } from "./version.js";
 import { InstallerToolError } from "./tool-errors.js";
 
@@ -162,6 +163,102 @@ async function inspectWorkspace(
 
   await validateWorkspaceStructure(path);
   return "valid";
+}
+
+/**
+ * Read-only preview of the Workspace one `init` invocation will target, so
+ * guided initialization can offer material selections before committing any
+ * change (US-054, DEC-031). One home beside the resolution logic it mirrors:
+ * the destination is resolved the same way init resolves it, and the material
+ * is read through the canonical Workspace ingestion boundary. On a missing or
+ * empty destination, the preview reports the example material init is about
+ * to scaffold. Ambiguous targets (invalid Workspace, legacy migration, unread
+ * material) return undefined, meaning "do not offer guidance": init then
+ * behaves exactly as it does today and explains any problem itself.
+ */
+export interface InitTargetPreview {
+  /** Absolute destination path this init will target. */
+  readonly destinationPath: string;
+  /** True when init will scaffold the example material into the destination. */
+  readonly willScaffold: boolean;
+  /** Existing Profile IDs at the destination (after any scaffold). */
+  readonly profiles: readonly string[];
+  /** Existing Context Module IDs at the destination (after any scaffold). */
+  readonly contexts: readonly string[];
+  /** Existing Skill IDs at the destination (after any scaffold). */
+  readonly skills: readonly string[];
+}
+
+async function previewWorkspaceDestination(
+  destination: string,
+): Promise<InitTargetPreview | undefined> {
+  const state = await inspectWorkspace(destination).catch(() => undefined);
+  if (state === "missing" || state === "empty") {
+    return {
+      destinationPath: destination,
+      willScaffold: true,
+      profiles: [],
+      contexts: [AUTHORING_EXAMPLES.context.id],
+      skills: [],
+    };
+  }
+  if (state === undefined) return undefined;
+  try {
+    const workspace = await ingestWorkspace(await realpath(destination));
+    return {
+      destinationPath: destination,
+      willScaffold: false,
+      profiles: [...workspace.profiles.keys()].sort(),
+      contexts: [...workspace.contexts.keys()].sort(),
+      skills: [...workspace.skills.keys()].sort(),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Preview the init target for guided initialization without changing anything.
+ * Mirrors `initializeWorkspace`'s destination selection read-only; see
+ * `InitTargetPreview` for the undefined contract.
+ */
+export async function previewInitTarget(
+  home: string,
+  options: { readonly workspace?: string } = {},
+): Promise<InitTargetPreview | undefined> {
+  const configPath = localConfigurationPath(home);
+  let source: string;
+  try {
+    source = await readFile(configPath, "utf8");
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+    try {
+      const destination = await assertWorkspaceSelectionPath(
+        home,
+        options.workspace ?? workspacePath(home),
+      );
+      return await previewWorkspaceDestination(destination);
+    } catch {
+      return undefined;
+    }
+  }
+  let parsed;
+  try {
+    parsed = parseLocalConfiguration(source, configPath);
+  } catch {
+    return undefined;
+  }
+  if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+    return undefined;
+  }
+  const configured = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
+  const authored = options.workspace ?? configured;
+  try {
+    const resolved = await resolveWorkspaceRoot(home, authored, configPath);
+    return await previewWorkspaceDestination(resolved.path);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

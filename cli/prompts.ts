@@ -63,14 +63,17 @@ type RawModeInput = Readable & {
   readonly isTTY?: boolean;
   setRawMode?(mode: boolean): unknown;
   unref?(): unknown;
+  ref?(): unknown;
 };
 
 /** Raw carriage question handed to the prompt dependency. */
 interface CarriageQuestion {
-  readonly type: "text" | "select" | "multiselect";
+  readonly type: "text" | "confirm" | "select" | "multiselect";
   readonly message: string;
   readonly choices?: readonly PromptChoice<unknown>[];
   readonly min?: number;
+  /** Default answer for yes/no questions; the offer default is no. */
+  readonly initial?: boolean;
   /** Short inline hint; the dependency renders it unwrapped, so keep it narrow. */
   readonly hint?: string;
 }
@@ -106,6 +109,11 @@ async function askCarriageQuestion<T>(
   // input, forwarding TTY evidence and raw-mode control, so the injected
   // stream itself is never mutated and cancellation can be synthesized when
   // the input ends (the dependency's own EOF path never resolves).
+  // Re-reference the input for this question: release unreferences it so a
+  // finished interaction never blocks process exit, and a real TTY would
+  // otherwise leave the event loop empty while a later question of the same
+  // flow is pending (typed data is still buffered and delivered once ref'd).
+  input.ref?.();
   const carriage = new PassThrough() as CarriageStream;
   if (input.isTTY === true) {
     carriage.isTTY = true;
@@ -119,6 +127,7 @@ async function askCarriageQuestion<T>(
     type: question.type,
     name: "answer",
     message: question.message,
+    ...(question.initial === undefined ? {} : { initial: question.initial }),
     ...(question.choices === undefined ? {} : { choices: [...(question.choices as PromptChoice<unknown>[])] }),
     ...(question.min === undefined ? {} : { min: question.min }),
     ...(question.hint === undefined ? {} : { hint: question.hint }),
@@ -173,6 +182,54 @@ export function createConfirmPrompt(options: ConfirmPromptOptions): ConfirmPromp
     if (typeof answer !== "string") return "cancelled";
     const normalized = answer.trim().toLowerCase();
     return normalized === "y" || normalized === "yes" ? "accepted" : "declined";
+  };
+}
+
+/**
+ * One yes/no question bound to the given streams: y accepts, n declines, and
+ * enter takes the default answer. The default is no (an offer, not a
+ * requirement), so an unattended enter never commits optional work. The
+ * answer contract otherwise matches the confirm seam, including cancellation
+ * on abort, input error, or an ended input stream.
+ */
+export function createYesNoPrompt(options: ConfirmPromptOptions) {
+  const input = options.input as RawModeInput;
+  const output = options.output;
+
+  return async (questionText: string): Promise<PromptAnswer> => {
+    const answer = await askCarriageQuestion<boolean>(input, output, {
+      type: "confirm",
+      message: questionText,
+      initial: false,
+    });
+    if (typeof answer !== "boolean") return "cancelled";
+    return answer ? "accepted" : "declined";
+  };
+}
+
+/** One answered free-text question. */
+export type TextAnswer =
+  | { readonly kind: "answered"; readonly value: string }
+  | { readonly kind: "cancelled" };
+
+/**
+ * One free-text question bound to the given streams: the typed line is
+ * submitted with enter; cancellation follows the shared answer contract.
+ * Every question owns its own carriage and release, so one prompt object can
+ * ask several questions.
+ */
+export function createTextPrompt(options: ConfirmPromptOptions) {
+  const input = options.input as RawModeInput;
+  const output = options.output;
+
+  return async (questionText: string): Promise<TextAnswer> => {
+    const answer = await askCarriageQuestion<string>(input, output, {
+      type: "text",
+      message: questionText,
+    });
+    return typeof answer === "string"
+      ? { kind: "answered", value: answer }
+      : { kind: "cancelled" };
   };
 }
 
