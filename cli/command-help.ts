@@ -73,10 +73,10 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "new",
     group: "common",
-    syntax: "new skill|context <name>",
-    summary: "Create a Skill or Context Module scaffold in the configured Workspace",
+    syntax: "new skill|context <name> | new profile <name> [--context <id>]... [--skill <id>]...",
+    summary: "Create a Skill, Context Module, or Profile scaffold in the configured Workspace",
     examples: COMMAND_EXAMPLES.new,
-    writes: "Creates one new Skill directory with SKILL.md, or one Context Module file, in the Workspace; never overwrites or edits existing material.",
+    writes: "Creates one new Skill directory with SKILL.md, one Context Module file, or one Profile file selecting existing material, in the Workspace; never overwrites or edits existing material.",
     next: ["Add the created artifact to a Profile with ", invocation("guide"), ", then run ", invocation("validate"), "."],
   },
   {

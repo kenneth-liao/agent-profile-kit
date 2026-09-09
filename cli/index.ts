@@ -23,6 +23,7 @@ import {
   bindReceiptDocument,
   initReceiptDocument,
   newArtifactReceiptDocument,
+  type NewArtifactReceiptInput,
   unbindReceiptDocument,
 } from "./receipts.js";
 import {
@@ -77,6 +78,7 @@ import {
 import { errorMessage, initializeWorkspace } from "../installer/initialize-workspace.js";
 import { createSkill } from "../installer/create-skill.js";
 import { createContextModule } from "../installer/create-context-module.js";
+import { createProfile } from "../installer/create-profile.js";
 import { openWorkspace } from "../installer/open-workspace.js";
 import { detectInstalledHosts } from "../adapters/registry.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
@@ -593,29 +595,83 @@ function parseGuideArguments(arguments_: readonly string[]):
 }
 
 /**
- * Parse `apkit new` (DEC-026): one artifact kind plus a name. Never prompts
- * and never opens an editor, on any input stream (US-055).
+ * Parse `apkit new` (DEC-026): one artifact kind plus a name; Profile creation
+ * takes repeatable explicit `--context`/`--skill` selections of existing
+ * material. Never prompts and never opens an editor, on any input stream
+ * (US-055).
  */
 function parseNewArguments(
   arguments_: readonly string[],
-): { readonly kind: "skill"; readonly name: string } | { readonly kind: "context"; readonly name: string } {
+):
+  | { readonly kind: "skill"; readonly name: string }
+  | { readonly kind: "context"; readonly name: string }
+  | {
+      readonly kind: "profile";
+      readonly name: string;
+      readonly contexts: readonly string[];
+      readonly skills: readonly string[];
+    } {
   if (arguments_.length === 0) {
-    throw new Error("new requires an artifact kind; supported kinds: skill, context");
+    throw new Error("new requires an artifact kind; supported kinds: skill, context, profile");
   }
   const kind = arguments_[0]!;
-  if (kind !== "skill" && kind !== "context") {
-    throw new Error(`new does not support kind '${sanitizeCommandToken(kind)}'; supported kinds: skill, context`);
-  }
-  if (arguments_.length < 2) {
+  if (kind !== "skill" && kind !== "context" && kind !== "profile") {
     throw new Error(
-      kind === "context" ? "new context requires a Context Module name" : "new skill requires a Skill name",
+      `new does not support kind '${sanitizeCommandToken(kind)}'; supported kinds: skill, context, profile`,
     );
+  }
+  if (arguments_.length < 2 || arguments_[1]!.startsWith("--")) {
+    throw new Error(
+      kind === "context"
+        ? "new context requires a Context Module name"
+        : kind === "profile"
+          ? "new profile requires a Profile name"
+          : "new skill requires a Skill name",
+    );
+  }
+  if (kind === "profile") {
+    const name = positionalArgument("new profile", "a Profile name", arguments_[1]!);
+    const selections = parseNewProfileSelections(arguments_.slice(2));
+    return { kind, name, ...selections };
   }
   if (arguments_.length > 2) {
     throw new Error(`new ${kind} does not accept argument '${arguments_[2]}'`);
   }
   const name = positionalArgument(`new ${kind}`, kind === "context" ? "a Context Module name" : "a Skill name", arguments_[1]!);
   return { kind, name };
+}
+
+/**
+ * Parse the Profile creation selections: repeatable `--context <id>` and
+ * `--skill <id>` flags, each naming existing Workspace material. A name
+ * repeated within one category is an argument error; resolution against the
+ * Workspace boundary happens in the Installer creation path (US-045).
+ */
+function parseNewProfileSelections(
+  arguments_: readonly string[],
+): { readonly contexts: readonly string[]; readonly skills: readonly string[] } {
+  const contexts: string[] = [];
+  const skills: string[] = [];
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const flag = arguments_[index]!;
+    const selectsContext = flag === "--context";
+    if (!selectsContext && flag !== "--skill") {
+      throw new Error(`new profile does not accept argument '${flag}'`);
+    }
+    const value = arguments_[index + 1];
+    if (value === undefined) {
+      throw new Error(`new profile requires a value for '${flag}'`);
+    }
+    index += 1;
+    const selected = selectsContext ? contexts : skills;
+    if (selected.includes(value)) {
+      throw new Error(
+        `new profile selects ${selectsContext ? "Context Module" : "Skill"} '${sanitizeCommandToken(value)}' more than once`,
+      );
+    }
+    selected.push(value);
+  }
+  return { contexts, skills };
 }
 
 function parseNoArguments(command: string, arguments_: readonly string[]): { readonly valid: true } {
@@ -934,16 +990,33 @@ async function main(): Promise<void> {
     const parsed = parseOrExit("new", () => parseNewArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
     try {
-      const result = parsed.kind === "skill"
-        ? await createSkill({ home, name: parsed.name })
-        : await createContextModule({ home, name: parsed.name });
-      writeHumanDocument(
-        process.stdout,
-        newArtifactReceiptDocument({
-          artifactType: parsed.kind === "skill" ? "Skill" : "Context Module",
+      let receipt: NewArtifactReceiptInput;
+      if (parsed.kind === "skill") {
+        const result = await createSkill({ home, name: parsed.name });
+        receipt = { artifactType: "Skill", id: result.id, path: result.path };
+      } else if (parsed.kind === "context") {
+        const result = await createContextModule({ home, name: parsed.name });
+        receipt = { artifactType: "Context Module", id: result.id, path: result.path };
+      } else {
+        const result = await createProfile({
+          home,
+          name: parsed.name,
+          contexts: parsed.contexts,
+          skills: parsed.skills,
+        });
+        receipt = {
+          artifactType: "Profile",
           id: result.id,
           path: result.path,
-        }),
+          selectedContexts: parsed.contexts,
+          selectedSkills: parsed.skills,
+          availableContexts: result.availableContexts,
+          availableSkills: result.availableSkills,
+        };
+      }
+      writeHumanDocument(
+        process.stdout,
+        newArtifactReceiptDocument(receipt),
         stdoutPresentationContext,
       );
     } catch (error) {

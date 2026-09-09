@@ -67,7 +67,14 @@ export type WorkspaceStructureErrorFact =
 export type WorkspaceIngestionErrorFact =
   | WorkspaceStructureErrorFact
   | { readonly kind: "duplicate-artifact-name"; readonly artifactType: string; readonly id: string }
-  | { readonly kind: "profile-without-artifacts"; readonly profile: string }
+  | {
+      readonly kind: "profile-without-artifacts";
+      readonly profile: string;
+      /** Sorted available Context Module names, as selection guidance. */
+      readonly availableContexts?: readonly string[];
+      /** Sorted available Skill names, as selection guidance. */
+      readonly availableSkills?: readonly string[];
+    }
   | {
       readonly kind: "missing-context-reference";
       readonly profile: string;
@@ -105,7 +112,7 @@ export type WorkspaceErrorFact = WorkspaceIngestionErrorFact | WorkspaceManifest
  * nouns. One home so the typed creation facts and their presentation wording
  * cannot disagree about which artifact a fact describes.
  */
-export type CreationArtifactType = "Skill" | "Context Module";
+export type CreationArtifactType = "Skill" | "Context Module" | "Profile";
 
 /**
  * Every Installer-authored tool error, as a typed fact: a kind plus the

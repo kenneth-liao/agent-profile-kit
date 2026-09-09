@@ -31,30 +31,83 @@ export interface NewArtifactReceiptInput {
   readonly id: string;
   /** Absolute path of the file actually created. */
   readonly path: string;
+  /** Profile creation only: the explicitly selected existing material. */
+  readonly selectedContexts?: readonly string[];
+  readonly selectedSkills?: readonly string[];
+  /** Profile creation only: available names shown as selection guidance. */
+  readonly availableContexts?: readonly string[];
+  readonly availableSkills?: readonly string[];
+}
+
+/** One available-material guidance sentence; absence renders as `none`. */
+function availableMaterialNode(label: string, names: readonly string[] | undefined): PresentationNode {
+  return {
+    kind: "sentence",
+    parts: names !== undefined && names.length > 0
+      ? [`Available ${label}s: `, identifierPart(names.join(", "))]
+      : [`Available ${label}s: none`],
+  };
 }
 
 /** The receipt document for one `apkit new` invocation (US-042–US-046). */
 export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
-  return [
-    {
-      kind: "sentence",
-      parts: [
-        `Created ${input.artifactType} `,
-        identifierPart(input.id),
-        " at ",
-        identifierPart(input.path),
-      ],
-      category: "success",
-    },
-    {
-      kind: "sentence",
-      parts: [
-        `Next: select the ${input.artifactType} from a Profile, then run `,
-        commandPart(COMMAND_NAME, [arg("validate")]),
-      ],
-      category: "command",
-    },
-  ];
+  const created: PresentationNode = {
+    kind: "sentence",
+    parts: [
+      `Created ${input.artifactType} `,
+      identifierPart(input.id),
+      " at ",
+      identifierPart(input.path),
+    ],
+    category: "success",
+  };
+  if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
+    return [
+      created,
+      {
+        kind: "sentence",
+        parts: [
+          `Next: select the ${input.artifactType} from a Profile, then run `,
+          commandPart(COMMAND_NAME, [arg("validate")]),
+        ],
+        category: "command",
+      },
+    ];
+  }
+  const nodes: PresentationNode[] = [created];
+  const selectedContexts = input.selectedContexts ?? [];
+  const selectedSkills = input.selectedSkills ?? [];
+  if (selectedContexts.length > 0) {
+    nodes.push({
+      kind: "key-value",
+      key: "  Context",
+      value: { kind: "identifier", value: selectedContexts.join(", ") },
+      category: "path",
+    });
+  }
+  if (selectedSkills.length > 0) {
+    nodes.push({
+      kind: "key-value",
+      key: "  Skills",
+      value: { kind: "identifier", value: selectedSkills.join(", ") },
+    });
+  }
+  // Available names are shown as guidance (US-045), so the author can extend
+  // the Profile without hunting the Workspace.
+  nodes.push(
+    availableMaterialNode("Context Module", input.availableContexts),
+    availableMaterialNode("Skill", input.availableSkills),
+  );
+  nodes.push({
+    kind: "sentence",
+    parts: [
+      "Next: run ",
+      commandPart(COMMAND_NAME, [arg("validate")]),
+      ", then bind the Profile to a Project",
+    ],
+    category: "command",
+  });
+  return nodes;
 }
 
 const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
