@@ -59,6 +59,7 @@ import {
   validationResultDocument,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
+import { runBindCommand } from "./bind-command.js";
 import {
   renderPresentationDocument,
   writeHumanDocument,
@@ -81,7 +82,6 @@ import { createContextModule } from "../installer/create-context-module.js";
 import { createProfile } from "../installer/create-profile.js";
 import { openWorkspace } from "../installer/open-workspace.js";
 import { detectInstalledHosts } from "../adapters/registry.js";
-import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import {
   ProjectTargetError,
   type ProjectBindingSelection,
@@ -107,7 +107,6 @@ import {
   errorDiagnosticParts,
   formatError,
 } from "./error-wording.js";
-import { InstallerToolError } from "../installer/tool-errors.js";
 import {
   listHosts,
   listProfiles,
@@ -419,56 +418,8 @@ function parseInitArguments(arguments_: readonly string[]): { readonly workspace
 }
 
 /**
- * Parse `bind <profile> [project] --host <host> ... [--replace]`.
- * At least one --host is required. Host detection/defaults are intentionally absent.
+ * Parse `unbind [<project>]`.
  */
-function parseBindArguments(arguments_: readonly string[]): {
-  readonly profile: string;
-  readonly project?: string;
-  readonly hosts: readonly string[];
-  readonly replace: boolean;
-} {
-  if (arguments_.length === 0) {
-    throw new Error("bind requires a Profile name");
-  }
-  const profile = positionalArgument("bind", "a Profile", arguments_[0]!);
-  let index = 1;
-  let project: string | undefined;
-  if (index < arguments_.length && !arguments_[index]!.startsWith("-")) {
-    project = arguments_[index]!;
-    index += 1;
-  }
-
-  const hosts: string[] = [];
-  let replace = false;
-  while (index < arguments_.length) {
-    const flag = arguments_[index]!;
-    if (flag === "--host") {
-      const value = arguments_[index + 1];
-      if (value === undefined || value.startsWith("-")) {
-        throw new Error("bind --host requires an Agent Host name");
-      }
-      hosts.push(value);
-      index += 2;
-      continue;
-    }
-    if (flag === "--replace") {
-      replace = true;
-      index += 1;
-      continue;
-    }
-    throw new Error(`bind does not accept argument '${flag}'`);
-  }
-
-  if (hosts.length === 0) {
-    throw new InstallerToolError({
-      kind: "bind-host-required",
-      supportedHosts: SUPPORTED_HOSTS,
-    });
-  }
-  return project === undefined ? { profile, hosts, replace } : { profile, project, hosts, replace };
-}
-
 function parseUnbindArguments(arguments_: readonly string[]): { readonly project?: string } {
   if (arguments_.length > 1) {
     throw new Error("unbind accepts at most one project path");
@@ -1045,16 +996,14 @@ async function main(): Promise<void> {
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "bind") {
-    const parsed = parseOrExit("bind", () => parseBindArguments(arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const result = await bindProject({
+    const outcome = await runBindCommand({
       home,
-      profile: parsed.profile,
-      hosts: parsed.hosts,
-      ...(parsed.replace ? { replace: true } : {}),
-      ...(parsed.project === undefined ? {} : { project: parsed.project }),
+      arguments: arguments_.slice(1),
+      stdout: process.stdout,
+      stderr: process.stderr,
+      input: process.stdin,
     });
-    writeHumanDocument(process.stdout, bindReceiptDocument(result), stdoutPresentationContext);
+    process.exitCode = outcome.exitCode;
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "unbind") {

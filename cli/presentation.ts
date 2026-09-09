@@ -3214,13 +3214,43 @@ export function applyReplacementConfirmationDocument(
 export function applyReplacementCommandDocument(
   commandArguments: readonly string[],
 ): PresentationDocument {
+  return promptedEquivalentCommandDocument("apply", commandArguments);
+}
+
+/** The equivalent fully specified command for a completed interactive bind
+ * prompt flow (DEC-032): the chosen Profile, the Project path, and every Host
+ * flag explicit, so re-running it needs no answers again (US-052). */
+export function bindPromptedCommandDocument(
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return promptedEquivalentCommandDocument("bind", commandArguments);
+}
+
+/** The one shared equivalent-command rendering for completed prompt flows:
+ * the sentence names the command; the carried command part is canonical. */
+function promptedEquivalentCommandDocument(
+  command: "apply" | "bind",
+  commandArguments: readonly string[],
+): PresentationDocument {
   return [{
     kind: "prose",
     parts: [
-      "Run the same apply without the prompt: ",
+      `Run the same ${command} without the prompt: `,
       commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
     ],
   }];
+}
+
+/** The cancelled interactive bind diagnostic (DEC-033): what happened, and
+ * that nothing was recorded. */
+export function bindCancelledDocument(): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["bind was cancelled; no configuration was changed"],
+    whatToType: [[
+      "To bind with every argument explicit, run ",
+      commandPart(COMMAND_NAME, [arg("bind"), arg("--help")]),
+    ]],
+  });
 }
 
 /** The declined-or-cancelled replacement diagnostic (DEC-019, DEC-033): what

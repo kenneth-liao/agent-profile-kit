@@ -10046,7 +10046,9 @@ describe("shared presentation boundary", () => {
       { arguments_: ["unbind", projectPath], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["help", "status"], exclude: (line) => usageLine(line) || unbreakableApkit(line) || /^(?:Purpose|Writes|Next|Supported Hosts|Examples):/.test(line) },
       { arguments_: ["unknown-command"], exclude: usageLine, exitCode: 1 },
-      { arguments_: ["bind"], exclude: usageLine, exitCode: 1 },
+      // Bare bind prompts on a PTY (US-051). The prompt dependency renders its
+      // own ANSI UI, which does not wrap; the presentation views around it do.
+      { arguments_: ["bind"], exclude: (line) => usageLine(line) || line.includes("\u001b"), exitCode: 1 },
     ];
 
     for (const { arguments_, exclude = () => false, exitCode = 0 } of assertions) {
@@ -14362,5 +14364,43 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
     const result = await runCli(home, "status", "--replace-changed");
     expectExitCode(result, 1);
     expect(humanText(result.stderr)).toContain("status does not accept argument '--replace-changed'");
+  });
+});
+
+describe("packed CLI bind missing-argument prompts (#459, US-051, US-055, TEST-019)", () => {
+  test("non-interactive bind with missing arguments errors without waiting for input", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = homeGitRepository(home, "bind-noninteractive");
+
+    // Piped stdin: if a prompt fired it could only cancel, so completing with
+    // the delivered argument error proves the invocation never waited.
+    const result = await runCliAt(home, projectPath, "bind");
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("bind requires a Profile name");
+    expect(humanText(result.stderr)).toContain("Usage: apkit bind");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(
+      realpathSync(projectPath),
+    );
+
+    // A Profile argument alone keeps the delivered Host requirement error.
+    const missingHosts = await runCliAt(home, projectPath, "bind", "coding");
+    expectExitCode(missingHosts, 1);
+    expect(humanText(missingHosts.stderr)).toContain("bind requires at least one --host flag");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(
+      realpathSync(projectPath),
+    );
+  });
+
+  test("fully specified packed bind completes without prompting on piped input", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = homeGitRepository(home, "bind-fully-specified");
+
+    const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    expectExitCode(result, 0);
+    expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
   });
 });
