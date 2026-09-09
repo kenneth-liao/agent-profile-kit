@@ -2022,6 +2022,32 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     expect(handoffCommands(document)).toHaveLength(3);
   });
 
+  test("adding a Host to an installed example omits the handoff (INT-1)", () => {
+    // Routine maintenance of an already-installed example: the pre-apply state
+    // proves an existing installation (`update`) even though this apply adds
+    // the new Host's outputs. Adding a second Host to the installed example
+    // must not repeat the first-run teaching.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md", "b.md"],
+        profile: exampleProfile,
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-a" },
+      ],
+    });
+    for (const options of [{}, { verbose: true }] as const) {
+      const document = applyReportDocument(applyResult(receipt, emptyReport()), options);
+      expect(handoffCommands(document)).toEqual([]);
+    }
+  });
+
   test("a routine apply that refreshed the installed example omits the handoff", () => {
     for (const options of [{}, { verbose: true }] as const) {
       const document = applyReportDocument(

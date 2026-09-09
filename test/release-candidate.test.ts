@@ -1674,6 +1674,22 @@ describe("project-bound release candidate", () => {
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
 
+    // 6d. Routine maintenance: adding a Host to the installed example reports
+    // the new outputs and carries no first-run handoff (INT-1, US-040,
+    // DEC-024).
+    const addHost = await runCli(
+      home,
+      ["bind", "example", boundProject, "--host", "codex", "--host", "claude", "--replace"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(addHost, 0);
+    const maintenance = await runCli(home, ["apply", boundProject], { path: pathWithHosts });
+    expectExitCode(maintenance, 0);
+    expect(maintenance.stdout).toContain("Applied:");
+    expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(maintenance.stdout).not.toContain("Now author your own:");
+    expect(maintenance.stdout).not.toContain("apkit new ");
+
     // 7. Current status: clean status states that fact once with no next action.
     const cleanStatus = await runCli(
       home,

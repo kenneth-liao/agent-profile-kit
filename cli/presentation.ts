@@ -3092,16 +3092,18 @@ function verboseApplyDocument(
 
 /**
  * Whether this apply's committed evidence installed the scaffolded example
- * Profile (DEC-024, US-040): the receipt shows committed output additions for
- * a Project whose desired Profile is the canonical example. The condition is
- * pure apply/example evidence — a first install creates its outputs, while a
- * routine refresh (update) or no-op apply proves the example was already
- * installed — and no onboarding state is persisted anywhere.
+ * Profile for the first time (DEC-024, US-040): the receipt's pre-apply state
+ * proves the example's Profile Installation did not exist before this apply
+ * (`addition`). Maintenance of an already-installed example — a refresh, a
+ * no-op, or adding a Host, which reports `update`/`stale source`/`drifted
+ * output` even when the apply adds new outputs for the added Host — proves an
+ * existing installation and is routine. The condition is pure apply/example
+ * evidence; no onboarding state is persisted anywhere.
  */
 function applyInstalledExampleProfile(receipt: ReconciliationReport): boolean {
   return receipt.projects.some((project) =>
     project.desired?.profile === AUTHORING_EXAMPLES.profile.id &&
-    project.outputs.some((output) => output.kind === "addition")
+    project.state.kind === "addition"
   );
 }
 
