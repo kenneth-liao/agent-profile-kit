@@ -2165,7 +2165,8 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     // Agent Profile Kit observed the loading (OOS-009).
     expect(instruction).toContain("To check that codex loaded Profile coding");
     expect(instruction).toContain("start a new codex session in /project-a");
-    expect(instruction).toContain("confirm that the installed material is in effect");
+    expect(instruction).toContain("ask codex what Profile material it loaded");
+    expect(instruction).toContain("the installed material should appear in its answer");
     // The check states no Agent Profile Kit observation and no completed
     // Host-owned setup.
     expect(instruction).not.toContain("Agent Profile Kit");
@@ -2178,6 +2179,8 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     const instruction = verificationLines(document)[0];
     expect(instruction).toContain("To check that claude and codex loaded Profile coding");
     expect(instruction).toContain("start a new session of each configured Host");
+    expect(instruction).toContain("ask each Host what Profile material it loaded");
+    expect(instruction).toContain("the installed material should appear in the answers");
   });
 
   test("a multi-Project apply keeps the check Project-local without listing every Project", () => {
@@ -2225,6 +2228,37 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     const lines = verificationLines(document);
     expect(lines).toHaveLength(1);
     expect(flattenPresentationNodes(document).at(-1)).toMatchObject({ kind: "prose" });
+  });
+
+  test("the Project path is one atomic part, whole at narrow width (ADR-0016)", () => {
+    // A Project path containing whitespace must survive wrapping and keep its
+    // repeated spaces: the identity is an atomic path part, never plain text
+    // the renderer may split or normalize (INT-2, ADR-0016).
+    const spaced = "/projects/My Demo Space/project one  two";
+    const document = applyReportDocument(changedApply("coding", ["codex"], [spaced]));
+    const trailing = flattenPresentationNodes(document).at(-1);
+    expect(trailing).toMatchObject({ kind: "prose" });
+    const trailingParts = trailing?.kind === "prose" ? trailing.parts : [];
+    expect(trailingParts).toEqual([
+      expect.stringMatching(/^To check that codex loaded Profile coding/),
+      expect.objectContaining({ kind: "path", canonicalPath: spaced }),
+      expect.stringMatching(/ and ask codex what Profile material it loaded/),
+    ]);
+    for (const width of [40, 100]) {
+      // Render the check node in isolation: the Apply Receipt's Project
+      // attribution above may also mention the path, which is not this node.
+      const rendered = renderBoundary(
+        trailing === undefined ? [] : [trailing],
+        context(width),
+      );
+      // The whole path — including its repeated spaces — sits on one line;
+      // a split or normalized path would not match the full string. The
+      // atomic run may occupy its own continuation line.
+      const pathLines = rendered.split("\n").filter((line) =>
+        line.includes("My Demo Space/project one  two")
+      );
+      expect(pathLines).toHaveLength(1);
+    }
   });
 
   test("the check precedes the first-run authoring handoff, which still closes the view", () => {

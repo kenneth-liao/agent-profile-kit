@@ -1634,7 +1634,8 @@ describe("project-bound release candidate", () => {
     expect(humanApply).toContain(
       "To check that codex loaded Profile example, start a new codex session in",
     );
-    expect(humanApply).toContain("confirm that the installed material is in effect");
+    expect(humanApply).toContain("ask codex what Profile material it loaded");
+    expect(humanApply).toContain("the installed material should appear in its answer");
     expect(apply.stdout).not.toContain("already current");
     expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);

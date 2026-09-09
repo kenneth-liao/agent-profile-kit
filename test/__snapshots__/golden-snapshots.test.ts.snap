@@ -1425,7 +1425,8 @@ First use:
 Profile example will load the next time you launch a configured Host from a
   bound Project root.
 To check that codex loaded Profile example, start a new codex session in
-  ~/projects/demo and confirm that the installed material is in effect.
+  ~/projects/demo and ask codex what Profile material it loaded; the installed
+  material should appear in its answer.
 
 Now author your own:
   apkit new skill <skill>

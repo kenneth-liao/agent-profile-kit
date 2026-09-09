@@ -3061,7 +3061,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // concrete Project-local check for Host loading.
     expect(humanText(result.stdout)).toEndWith(
       humanText(
-        `To check that codex loaded Profile coding, start a new codex session in ${projectPath} and confirm that the installed material is in effect.`,
+        `To check that codex loaded Profile coding, start a new codex session in ${projectPath} and ask codex what Profile material it loaded; the installed material should appear in its answer.`,
       ),
     );
     expect(result.stdout).not.toContain("Selected setup:");

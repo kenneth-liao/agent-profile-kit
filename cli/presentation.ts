@@ -2931,14 +2931,17 @@ function readinessNodes(
 /**
  * The post-apply Host-loading verification instruction (US-041, DEC-025): one
  * concrete action the user can take inside the updated Project to check that
- * the Agent Host loaded the Profile. The sentence is presentation-authored
- * from facts Agent Profile Kit owns — the applied Profiles, the configured
- * Hosts, and the updated Projects — and never claims that Agent Profile Kit
- * observed the loading or completed Host-owned setup (OOS-009); Host-specific
- * loading knowledge stays Adapter-owned through the rendered Host Setup
- * Steps. It fires exactly where the readiness statement fires: a successful
- * apply that committed installation work, never a no-op, blocked, or failed
- * one, and never machine JSON (US-060).
+ * the Agent Host loaded the Profile — start a new session of the configured
+ * Host and ask it what Profile material it loaded, looking for the installed
+ * material in its answer. The sentence is presentation-authored from facts
+ * Agent Profile Kit owns — the applied Profiles, the configured Hosts, and
+ * the updated Projects — and never claims that Agent Profile Kit observed the
+ * loading or completed Host-owned setup (OOS-009); no Host-specific checking
+ * method is authored here, and Host-specific loading knowledge stays
+ * Adapter-owned through the rendered Host Setup Steps. It fires exactly where
+ * the readiness statement fires: a successful apply that committed
+ * installation work, never a no-op, blocked, or failed one, and never machine
+ * JSON (US-060).
  */
 function hostLoadingVerificationNodes(
   report: ReconciliationReport,
@@ -2966,14 +2969,30 @@ function hostLoadingVerificationNodes(
   const session = hosts.length === 1
     ? `start a new ${hosts[0]} session`
     : "start a new session of each configured Host";
+  const ask = hosts.length === 1
+    ? `ask ${hosts[0]} what Profile material it loaded`
+    : "ask each Host what Profile material it loaded";
+  const evidence = hosts.length === 1
+    ? "the installed material should appear in its answer"
+    : "the installed material should appear in the answers";
   const [firstChanged] = changed;
-  const projectPhrase = changed.length === 1 && firstChanged !== undefined
-    ? displayProjectPath(firstChanged.canonicalProject, firstChanged.project, scope)
-    : "each updated Project";
+  if (changed.length === 1 && firstChanged !== undefined) {
+    // The Project identity is one atomic path part (ADR-0016): plain text is
+    // tokenized for wrapping, which would split whitespace-containing paths
+    // and normalize repeated spaces.
+    return [{
+      kind: "prose",
+      parts: [
+        `To check that ${hostList} loaded ${subject}, ${session} in `,
+        pathPart(firstChanged.canonicalProject, scope, firstChanged.project),
+        ` and ${ask}; ${evidence}.`,
+      ],
+    }];
+  }
   return [{
     kind: "prose",
     parts: [
-      `To check that ${hostList} loaded ${subject}, ${session} in ${projectPhrase} and confirm that the installed material is in effect.`,
+      `To check that ${hostList} loaded ${subject}, ${session} in each updated Project and ${ask}; ${evidence}.`,
     ],
   }];
 }
