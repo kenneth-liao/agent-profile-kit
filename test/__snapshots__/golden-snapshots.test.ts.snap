@@ -22,7 +22,7 @@ Common commands:
     Show a topic index, full Workspace guidance, or one focused authoring
       example
   new
-    Create a Skill scaffold in the configured Workspace
+    Create a Skill or Context Module scaffold in the configured Workspace
   open
     Open the configured Workspace in your system file manager
   bind
@@ -995,7 +995,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.167.0
+Engine version: 0.168.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1098,6 +1098,15 @@ exports[`golden snapshots of every human view new skill: new-skill 1`] = `
 Created Skill review-pr at
   /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/skills/review-pr/SKILL.md
 Next: select the Skill from a Profile, then run apkit validate
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view new context: new-context 1`] = `
+"--- stdout ---
+Created Context Module review-standards at
+  /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/context/review-standards.md
+Next: select the Context Module from a Profile, then run apkit validate
 --- stderr ---
 "
 `;
@@ -1567,8 +1576,9 @@ Common commands:
       guidance, or one focused authoring
       example
   new
-    Create a Skill scaffold in the
-      configured Workspace
+    Create a Skill or Context Module
+      scaffold in the configured
+      Workspace
   open
     Open the configured Workspace in
       your system file manager
@@ -1644,8 +1654,9 @@ Agent Profile Kit composes reusable
       guidance, or one focused authoring
       example
 \x1B[36m  new\x1B[0m
-    Create a Skill scaffold in the
-      configured Workspace
+    Create a Skill or Context Module
+      scaffold in the configured
+      Workspace
 \x1B[36m  open\x1B[0m
     Open the configured Workspace in
       your system file manager
@@ -1714,7 +1725,7 @@ Common commands:
   guide
     Show a topic index, full Workspace guidance, or one focused authoring example
   new
-    Create a Skill scaffold in the configured Workspace
+    Create a Skill or Context Module scaffold in the configured Workspace
   open
     Open the configured Workspace in your system file manager
   bind
@@ -1769,7 +1780,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  guide\x1B[0m
     Show a topic index, full Workspace guidance, or one focused authoring example
 \x1B[36m  new\x1B[0m
-    Create a Skill scaffold in the configured Workspace
+    Create a Skill or Context Module scaffold in the configured Workspace
 \x1B[36m  open\x1B[0m
     Open the configured Workspace in your system file manager
 \x1B[36m  bind\x1B[0m
@@ -1803,7 +1814,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.167.0
+Engine version: 0.168.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1813,7 +1824,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.167.0\x1B[0m
+\x1B[35mEngine version: 0.168.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1823,7 +1834,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.167.0
+Engine version: 0.168.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1833,7 +1844,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.167.0\x1B[0m
+\x1B[35mEngine version: 0.168.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

@@ -36,6 +36,24 @@ export const AUTHORING_EXAMPLES = {
 } as const;
 
 /**
+ * The canonical scaffold for one newly created Context Module, shaped like
+ * AUTHORING_EXAMPLES.context so created and example material share one form.
+ */
+export function newContextModuleScaffold(id: string): string {
+  // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
+  // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
+  // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
+  return (
+    "---\n" +
+    `id: "${id}"\n` +
+    "dependencies: []\n" +
+    "---\n\n" +
+    `# ${id}\n\n` +
+    "Describe what this Context Module covers and when a Profile should include it.\n"
+  );
+}
+
+/**
  * The canonical scaffold for one newly created Skill, shaped like
  * AUTHORING_EXAMPLES.skill so created and example material share one form.
  */

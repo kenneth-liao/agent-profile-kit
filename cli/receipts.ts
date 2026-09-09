@@ -2,6 +2,7 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
+import type { CreationArtifactType } from "../installer/tool-errors.js";
 import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
 import { displayPath, displayProjectPath } from "./display-path.js";
 import {
@@ -23,20 +24,22 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
  * atomic inline part the renderer never re-identifies (DEC-009).
  */
 
-/** The receipt input for one `new skill` invocation. */
-export interface NewSkillReceiptInput {
+/** The receipt input for one `apkit new` invocation. */
+export interface NewArtifactReceiptInput {
+  /** The display noun of the created artifact kind. */
+  readonly artifactType: CreationArtifactType;
   readonly id: string;
-  /** Absolute path of the SKILL.md file actually created. */
+  /** Absolute path of the file actually created. */
   readonly path: string;
 }
 
-/** The receipt document for one `new skill` invocation (US-042, US-046). */
-export function newSkillReceiptDocument(input: NewSkillReceiptInput): PresentationDocument {
+/** The receipt document for one `apkit new` invocation (US-042–US-046). */
+export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
   return [
     {
       kind: "sentence",
       parts: [
-        "Created Skill ",
+        `Created ${input.artifactType} `,
         identifierPart(input.id),
         " at ",
         identifierPart(input.path),
@@ -46,7 +49,7 @@ export function newSkillReceiptDocument(input: NewSkillReceiptInput): Presentati
     {
       kind: "sentence",
       parts: [
-        "Next: select the Skill from a Profile, then run ",
+        `Next: select the ${input.artifactType} from a Profile, then run `,
         commandPart(COMMAND_NAME, [arg("validate")]),
       ],
       category: "command",

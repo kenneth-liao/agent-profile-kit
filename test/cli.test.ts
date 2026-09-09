@@ -13838,6 +13838,83 @@ describe("packed CLI new skill", () => {
   });
 });
 
+describe("packed CLI new context", () => {
+  test("new context creates a valid Context Module, prints the absolute created path, and completes creation → Profile → validate → apply", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const created = await runCli(home, "new", "context", "review-standards");
+    expectExitCode(created, 0);
+
+    const workspaceRoot = realpathSync(workspacePath(home));
+    const contextFile = join(workspaceRoot, "context", "review-standards.md");
+    expect(created.stdout).toContain(contextFile);
+    expect(existsSync(contextFile)).toBe(true);
+
+    writeFileSync(
+      join(workspacePath(home), "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: [review-standards]\nskills: []\n",
+    );
+    expectExitCode(await runCli(home, "validate"), 0);
+
+    const projectPath = gitRepository();
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
+    const apply = await runCli(home, "apply", projectPath);
+    expectExitCode(apply, 0);
+    const installed = readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8");
+    expect(installed).toContain("# review-standards");
+  });
+
+  test("new context never prompts on an interactive terminal and completes without input", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const result = await runCliInPty(home, 80, "new", "context", "prompt-check");
+    expectExitCode(result, 0);
+    const contextFile = join(realpathSync(workspacePath(home)), "context", "prompt-check.md");
+    expect(result.stdout).toContain(contextFile);
+    expect(existsSync(contextFile)).toBe(true);
+  });
+
+  test("new context refuses duplicates, occupied destinations, invalid names, and unknown kinds without writing", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "review-standards"), 0);
+
+    const contextFile = join(realpathSync(workspacePath(home)), "context", "review-standards.md");
+    // Hand-edit the body so re-running must prove the file is never overwritten.
+    writeFileSync(contextFile, `${readFileSync(contextFile, "utf8")}\nHand-authored follow-up.\n`);
+    const duplicated = await runCli(home, "new", "context", "review-standards");
+    expectExitCode(duplicated, 1);
+    expect(duplicated.stderr).toContain("review-standards");
+    expect(readFileSync(contextFile, "utf8")).toContain("Hand-authored follow-up.\n");
+
+    // Occupied by a directory at the destination: refused, untouched, with a
+    // runnable recovery command (INT-1).
+    const taken = join(workspacePath(home), "context", "taken.md");
+    mkdirSync(taken);
+    const occupied = await runCli(home, "new", "context", "taken");
+    expectExitCode(occupied, 1);
+    expect(occupied.stderr).toContain("already has material");
+    expect(occupied.stderr).toMatch(/apkit new context/);
+
+    // Invalid Artifact IDs are refused without creating anything.
+    for (const invalidName of ["Review_PR", "../escape"]) {
+      const invalid = await runCli(home, "new", "context", invalidName);
+      expectExitCode(invalid, 1);
+      expect(invalid.stderr).toMatch(/kebab-case/i);
+    }
+    expect(existsSync(join(workspacePath(home), "context", "Review_PR.md"))).toBe(false);
+
+    // An unknown artifact kind names the supported kinds.
+    const unknownKind = await runCli(home, "new", "profile", "engineering");
+    expectExitCode(unknownKind, 1);
+    expect(unknownKind.stderr).toContain("supported kinds: skill, context");
+  });
+});
+
 describe("packed CLI open workspace", () => {
   test("open opens the configured Workspace via the system opener", async () => {
     const home = isolatedHome();

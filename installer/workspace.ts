@@ -1,5 +1,6 @@
-import { lstat, stat, readFile } from "node:fs/promises";
+import { lstat, mkdir, stat, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { Stats } from "node:fs";
 
 import {
   parseWorkspaceManifest,
@@ -19,6 +20,45 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 export function workspacePath(home: string): string {
   return join(home, ".agents", "agent-profile-kit", "workspace");
+}
+
+/** Read one filesystem entry without following symlinks; absence is undefined. */
+export async function lstatEntry(path: string): Promise<Stats | undefined> {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return undefined;
+    throw error;
+  }
+}
+
+/**
+ * Require the named Workspace artifact category to be a real directory before
+ * any creation write (CRAFT-1): a symlinked category — even one resolving to
+ * a directory inside or outside the Workspace — must never receive writes, so
+ * identity is checked with lstat, never through the link. A missing category
+ * is a valid empty Workspace and is created exclusively.
+ */
+export async function requireRealCategory(workspacePath: string, name: string): Promise<void> {
+  const categoryDirectory = join(workspacePath, name);
+  let entry = await lstatEntry(categoryDirectory);
+  if (entry === undefined) {
+    try {
+      await mkdir(categoryDirectory);
+      return;
+    } catch (error) {
+      // Lost a creation race; re-validate whatever now occupies the category.
+      if (!hasErrorCode(error, "EEXIST")) throw error;
+      entry = await lstat(categoryDirectory);
+    }
+  }
+  if (entry!.isSymbolicLink() || !entry!.isDirectory()) {
+    throw new InstallerToolError({
+      kind: "workspace-category-not-directory",
+      workspace: workspacePath,
+      name,
+    });
+  }
 }
 
 /**

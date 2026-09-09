@@ -1,12 +1,12 @@
-import { lstat, mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
+import { mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
-import type { Stats } from "node:fs";
 
 import { parseSkill } from "../schemas/skill.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import { newSkillScaffold } from "./authoring-examples.js";
 import { ingestSelectedWorkspace } from "./local-configuration.js";
+import { lstatEntry, requireRealCategory } from "./workspace.js";
 import { InstallerToolError } from "./tool-errors.js";
 
 const SKILL_FILE_NAME = "SKILL.md";
@@ -33,15 +33,6 @@ export interface CreateSkillResult {
   readonly id: string;
   /** Absolute path of the SKILL.md file actually created. */
   readonly path: string;
-}
-
-async function lstatEntry(path: string): Promise<Stats | undefined> {
-  try {
-    return await lstat(path);
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) return undefined;
-    throw error;
-  }
 }
 
 async function closeQuietly(handle: FileHandle): Promise<void> {
@@ -99,47 +90,20 @@ async function reportInvocationResidue(
     // absence or foreign content: the directory stays reported residue with
     // conservative uninspectable guidance.
     return new InstallerToolError({
-      kind: "skill-creation-residue",
+      kind: "artifact-creation-residue",
+      artifactType: "Skill",
       id,
       path: skillDirectory,
       contents: "uninspectable",
     });
   }
   return new InstallerToolError({
-    kind: "skill-creation-residue",
+    kind: "artifact-creation-residue",
+    artifactType: "Skill",
     id,
     path: skillDirectory,
     contents: inspection,
   });
-}
-
-/**
- * Require the Workspace's `skills` category to be a real directory before any
- * creation write (CRAFT-1): a symlinked category — even one resolving to a
- * directory inside or outside the Workspace — must never receive writes, so
- * identity is checked with lstat, never through the link. A missing category
- * is a valid empty Workspace and is created exclusively.
- */
-async function requireRealSkillsCategory(workspacePath: string): Promise<void> {
-  const skillsDirectory = join(workspacePath, "skills");
-  let entry = await lstatEntry(skillsDirectory);
-  if (entry === undefined) {
-    try {
-      await mkdir(skillsDirectory);
-      return;
-    } catch (error) {
-      // Lost a creation race; re-validate whatever now occupies the category.
-      if (!hasErrorCode(error, "EEXIST")) throw error;
-      entry = await lstat(skillsDirectory);
-    }
-  }
-  if (entry!.isSymbolicLink() || !entry!.isDirectory()) {
-    throw new InstallerToolError({
-      kind: "workspace-category-not-directory",
-      workspace: workspacePath,
-      name: "skills",
-    });
-  }
 }
 
 /**
@@ -173,7 +137,7 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
   const scaffold = newSkillScaffold(id);
   parseSkill(scaffold, relativePath, sourcePath);
 
-  await requireRealSkillsCategory(workspace.path);
+  await requireRealCategory(workspace.path, "skills");
 
   const skillDirectory = join(workspace.path, "skills", id);
   // Occupancy check before creation: any existing entry — file, directory, or
@@ -181,7 +145,8 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
   const occupied = (await lstatEntry(skillDirectory)) !== undefined;
   if (occupied) {
     throw new InstallerToolError({
-      kind: "skill-path-occupied",
+      kind: "artifact-path-occupied",
+      artifactType: "Skill",
       id,
       path: skillDirectory,
     });
@@ -194,7 +159,8 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
   } catch (error) {
     if (hasErrorCode(error, "EEXIST")) {
       throw new InstallerToolError({
-        kind: "skill-path-occupied",
+        kind: "artifact-path-occupied",
+        artifactType: "Skill",
         id,
         path: skillDirectory,
       });
@@ -217,7 +183,8 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
     if (hasErrorCode(error, "EEXIST")) {
       // A foreign file occupies the destination; it is not ours and is kept.
       throw new InstallerToolError({
-        kind: "skill-path-occupied",
+        kind: "artifact-path-occupied",
+        artifactType: "Skill",
         id,
         path: skillDirectory,
       });
