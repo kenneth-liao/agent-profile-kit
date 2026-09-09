@@ -4,6 +4,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
+import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
@@ -2112,6 +2113,154 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     });
     const document = applyReportDocument(applyResult(receipt, emptyReport()));
     expect(handoffCommands(document)).toHaveLength(3);
+  });
+});
+
+describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS-009)", () => {
+  /** A changed apply receipt that installed or refreshed one Profile's outputs. */
+  const changedApply = (
+    profile: string,
+    hosts: readonly SupportedHost[] = ["codex"],
+    projects: readonly string[] = ["/project-a"],
+  ) => {
+    const receipt = emptyReport({
+      desired: projects.map((project) => ({
+        canonicalProject: project,
+        context: "composed",
+        hosts,
+        outputs: ["a.md"],
+        profile,
+        project,
+        resolvedArtifacts: [],
+      })),
+      items: projects.map((project) => ({ kind: "addition" as const, project })),
+      outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: projects.map((project) => ({ kind: "current" as const, project })),
+      outputs: projects.map((project) => ({ kind: "unchanged" as const, path: "a.md", project })),
+    });
+    return applyResult(receipt, resultingState);
+  };
+
+  /** Every prose line of the document that carries the verification instruction. */
+  const verificationLines = (document: PresentationDocument): readonly string[] =>
+    flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose" && nodeText(node).startsWith("To check that "))
+      .map((line) => nodeText(line));
+
+  test("a successful changed apply follows readiness with one concrete Project-local check", () => {
+    const document = applyReportDocument(changedApply("coding"));
+    const lines = verificationLines(document);
+    // Exactly one instruction, and it is the trailing node: the readiness
+    // statement is immediately followed by the way to confirm loading.
+    expect(lines).toHaveLength(1);
+    expect(flattenPresentationNodes(document).at(-1)).toMatchObject({
+      kind: "prose",
+    });
+    const instruction = lines[0];
+    // The check names the configured Host, the applied Profile, and the
+    // updated Project, and directs a user action rather than claiming that
+    // Agent Profile Kit observed the loading (OOS-009).
+    expect(instruction).toContain("To check that codex loaded Profile coding");
+    expect(instruction).toContain("start a new codex session in /project-a");
+    expect(instruction).toContain("confirm that the installed material is in effect");
+    // The check states no Agent Profile Kit observation and no completed
+    // Host-owned setup.
+    expect(instruction).not.toContain("Agent Profile Kit");
+  });
+
+  test("the check names every configured Host and asks for a session of each", () => {
+    // Canonical Host order (SUPPORTED_HOSTS) as the binding normalizes it.
+    const document = applyReportDocument(changedApply("coding", ["claude", "codex"]));
+    const instruction = verificationLines(document)[0];
+    expect(instruction).toContain("To check that claude and codex loaded Profile coding");
+    expect(instruction).toContain("start a new session of each configured Host");
+  });
+
+  test("a multi-Project apply keeps the check Project-local without listing every Project", () => {
+    const document = applyReportDocument(changedApply("coding", ["codex"], ["/project-a", "/project-b"]));
+    const instruction = verificationLines(document)[0];
+    expect(instruction).toContain("in each updated Project");
+    expect(instruction).not.toContain("/project-a");
+    expect(instruction).not.toContain("/project-b");
+  });
+
+  test("a no-op apply omits the check", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    expect(verificationLines(applyReportDocument(applyResult(receipt, receipt)))).toEqual([]);
+  });
+
+  test("a blocked apply omits the check", () => {
+    const report = emptyReport({
+      blockers: [fixtureBlocker("occupied output", "/project-a")],
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "blocked", project: "/project-a" }],
+    });
+    expect(verificationLines(blockedApplyReportDocument(asBlockedReport(report)))).toEqual([]);
+  });
+
+  test("the verbose apply view closes with the same check", () => {
+    const document = applyReportDocument(changedApply("coding"), { verbose: true });
+    const lines = verificationLines(document);
+    expect(lines).toHaveLength(1);
+    expect(flattenPresentationNodes(document).at(-1)).toMatchObject({ kind: "prose" });
+  });
+
+  test("the check precedes the first-run authoring handoff, which still closes the view", () => {
+    // Cross-ticket coherence with #456 (US-040): one closing frame — verify
+    // loading, then author real material — with no duplicated teaching.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: AUTHORING_EXAMPLES.profile.id,
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const document = applyReportDocument(
+      applyResult(
+        receipt,
+        emptyReport({
+          desired: reportDesired(receipt),
+          items: [{ kind: "current", project: "/project-a" }],
+        }),
+      ),
+    );
+    const nodes = flattenPresentationNodes(document);
+    const checkIndex = nodes.findIndex((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("To check that ")
+    );
+    const handoffIndex = nodes.findIndex((node) => node.kind === "heading" && nodeText(node) === "Now author your own:");
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(handoffIndex).toBeGreaterThan(checkIndex);
+    expect(nodes.at(-1)).toMatchObject({
+      kind: "sentence",
+      category: "command",
+    });
   });
 });
 
@@ -6387,11 +6536,12 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // with no per-Project attachment or activation copy.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
-    // Exactly one readiness statement, trailing the document; the composed
-    // readiness wording (and any Project list) is golden-covered.
+    // Exactly one readiness statement, followed by the Host-loading check as
+    // the trailing prose node; the composed readiness wording (and any
+    // Project list) is golden-covered.
     expect(concise.map(shape)).toEqual([
       "notice:success", "blank", "heading", "prose", "prose", "prose",
-      "blank", "heading", "list-item", "blank", "prose",
+      "blank", "heading", "list-item", "blank", "prose", "prose",
     ]);
   });
 
@@ -6452,7 +6602,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const nodes = flattenPresentationNodes(concise);
     expect(concise.map(shape)).toEqual([
       "notice:success", "blank", "heading", "prose", "prose", "prose", "prose",
-      "blank", "prose",
+      "blank", "prose", "prose",
     ]);
   });
 
@@ -6521,7 +6671,8 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     // The setup-dependent receipt shape: the setup section, then one prose
-    // summary, then the trailing readiness prose — no grouping section.
+    // summary, then the trailing readiness prose and the Host-loading check —
+    // no grouping section.
     expect(concise.map(shape)).toEqual([
       "notice:success",
       "blank",
@@ -6529,6 +6680,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       "prose",
       "prose",
       "blank",
+      "prose",
       "prose",
     ]);
     // The readiness statement trails the document; its wording is
