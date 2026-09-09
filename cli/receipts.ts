@@ -18,6 +18,14 @@ import {
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
+ * The one-sentence Profile explanation shown at the moment a user is asked to
+ * choose one (US-033): the initialization receipt and the interactive bind
+ * Profile prompt share this single home so the wording cannot drift.
+ */
+export const PROFILE_EXPLANATION_SENTENCE =
+  "A Profile is a named selection of Context and Skills to adapt for your projects.";
+
+/**
  * Authoring and teardown receipt views as presentation documents. Every node
  * carries its semantic category where the meaning is known (DEC-003); wording
  * is the view's carried text, and every structurally supplied value is an
@@ -189,9 +197,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     },
     {
       kind: "sentence",
-      parts: [
-        "A Profile is a named selection of Context and Skills to adapt for your projects.",
-      ],
+      parts: [PROFILE_EXPLANATION_SENTENCE],
     },
     {
       kind: "sentence",

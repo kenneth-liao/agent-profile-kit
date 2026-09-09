@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 
-import { createConfirmPrompt, isInteractiveInput } from "../cli/prompts.js";
+import {
+  createConfirmPrompt,
+  createMultiSelectPrompt,
+  createSelectPrompt,
+  isInteractiveInput,
+} from "../cli/prompts.js";
 
 /** A fake interactive input stream: the prompt seam reads TTY evidence from it. */
 function fakeInteractiveInput(): PassThrough & { isTTY: true } {
@@ -104,6 +109,118 @@ describe("confirm prompt seam", () => {
     input.write("y\n");
     expect(await pending).toBe("accepted");
     expect(scheduled).toBe(0);
+  });
+});
+
+describe("select prompt seam", () => {
+  test("selects the highlighted choice with enter", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [
+      { title: "coding", value: "coding" },
+      { title: "ops", value: "ops" },
+    ]);
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", value: "coding" });
+  });
+
+  test("selects a later choice after down arrows", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [
+      { title: "coding", value: "coding" },
+      { title: "ops", value: "ops" },
+    ]);
+    input.write("\x1b[B\r");
+    expect(await pending).toEqual({ kind: "selected", value: "ops" });
+  });
+
+  test("renders the question and choice titles on the injected output stream", async () => {
+    const input = fakeInteractiveInput();
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const select = createSelectPrompt({ input, output });
+    const pending = select("Which Profile?", [
+      { title: "coding", value: "coding" },
+      { title: "ops", value: "ops" },
+    ]);
+    input.write("\r");
+    await pending;
+    const written = Buffer.concat(chunks).toString();
+    expect(written).toContain("Which Profile?");
+    expect(written).toContain("coding");
+    expect(written).toContain("ops");
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [{ title: "coding", value: "coding" }]);
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+  });
+});
+
+describe("multiselect prompt seam", () => {
+  test("toggles choices with space and submits with enter", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi("Which Agent Hosts?", [
+      { title: "claude", value: "claude" },
+      { title: "codex", value: "codex" },
+    ]);
+    input.write(" \x1b[B \r");
+    expect(await pending).toEqual({ kind: "selected", values: ["claude", "codex"] });
+  });
+
+  test("rejects a submit with no selected choice when a minimum is set", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi(
+      "Which Agent Hosts?",
+      [{ title: "codex", value: "codex" }],
+      { min: 1 },
+    );
+    // An empty submit is refused (min 1); the later cancel still unwinds.
+    input.write("\r");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+  });
+
+  test("accepts no selection without a minimum", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi("Which Agent Hosts?", [{ title: "codex", value: "codex" }]);
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", values: [] });
+  });
+
+  test("renders the question and choice titles on the injected output stream", async () => {
+    const input = fakeInteractiveInput();
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const multi = createMultiSelectPrompt({ input, output });
+    const pending = multi("Which Agent Hosts?", [
+      { title: "claude", value: "claude" },
+      { title: "codex", value: "codex" },
+    ]);
+    input.write(" \r");
+    await pending;
+    const written = Buffer.concat(chunks).toString();
+    expect(written).toContain("Which Agent Hosts?");
+    expect(written).toContain("claude");
+    expect(written).toContain("codex");
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi("Which Agent Hosts?", [{ title: "codex", value: "codex" }]);
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
   });
 });
 
