@@ -8,7 +8,7 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ### Fixed
 
-- Make every printed lifecycle next-action command a runnable target: the explicit-Project `Next: apkit apply …` and `Details: apkit status …` arguments now render the Project's fleet identity (home-relative or absolute) instead of the cwd-relative alias the Project-target boundary rejects as a relative target, so following the printed action from inside the Project no longer exits with the invalid-path error (US-007, US-012, review INT-1 on [#489](https://github.com/kenneth-liao/agent-profile-kit/pull/489), [#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).
+- Make every printed lifecycle next-action command a runnable target: the explicit-Project `Next: apkit apply …` and `Details: apkit status …` arguments render the Project's fleet identity (home-relative or absolute) instead of the cwd-relative alias the Project-target boundary rejects as a relative target, the copyable command token is never middle-elided, and the identity is one shell-quoted POSIX token through the shared quoting boundary, so the printed action — including Project paths containing spaces — executes exactly as printed instead of exiting with the invalid-path error (US-007, US-012, review INT-1 and RE-1 on [#489](https://github.com/kenneth-liao/agent-profile-kit/pull/489), [#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).
 
 ### Changed
 

@@ -154,8 +154,10 @@ test("renders a command argument fully spelled, never middle-elided", () => {
   // A copyable command token is executable as printed: the identity renders
   // fully spelled — never middle-elided, however wide that renders (review
   // INT-1 cycle 2 on #489).
+  // Shell-quoted as one POSIX token through the shared quoting boundary
+  // (review RE-1 on #489).
   expect(text.slice(prefix.length)).toBe(
-    displayPath(project, project, "fleet", cwd, home),
+    `'${displayPath(project, project, "fleet", cwd, home)}'`,
   );
 });
 

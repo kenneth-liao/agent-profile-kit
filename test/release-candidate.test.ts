@@ -260,10 +260,28 @@ function enableCodexHooks(home: string): void {
 function allowlistBin(home: string): string {
   const bin = join(home, "allow-bin");
   mkdirSync(bin, { recursive: true });
-  symlinkSync(
-    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
-    join(bin, "git"),
-  );
+  const gitLink = join(bin, "git");
+  if (!existsSync(gitLink)) {
+    symlinkSync(
+      realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
+      gitLink,
+    );
+  }
+  return bin;
+}
+
+/**
+ * A bin directory whose `apkit` is the packed CLI under the supported Node
+ * runtime: printed `apkit …` commands execute verbatim through a shell, the
+ * way a user's terminal resolves them.
+ */
+function apkitBin(home: string): string {
+  const bin = allowlistBin(home);
+  const shim = join(bin, "apkit");
+  if (!existsSync(shim)) {
+    writeFileSync(shim, `#!/bin/sh\nexec '${nodeBinary}' '${cliPath}' "$@"\n`);
+    execFileSync("chmod", ["+x", shim]);
+  }
   return bin;
 }
 
@@ -1831,7 +1849,7 @@ describe("project-bound release candidate", () => {
       writeFileSync(join(stubBin, name), `#!/bin/sh\necho "${version}"\n`);
       execFileSync("chmod", ["+x", join(stubBin, name)]);
     }
-    const journeyPath = `${stubBin}:${allowlistBin(home)}`;
+    const journeyPath = `${stubBin}:${apkitBin(home)}`;
 
     /** The commands the view printed as copyable `apkit …` actions. */
     const printedApkitCommands = (stdout: string): readonly string[] => stdout
@@ -1899,14 +1917,24 @@ describe("project-bound release candidate", () => {
     // printed command, verbatim, from inside the Project.
     expect(printedApply.startsWith("apkit apply ")).toBe(true);
     const printedTarget = printedApply.slice("apkit apply ".length);
-    expect(printedTarget.startsWith("/") || printedTarget.startsWith("~")).toBe(true);
-    expect(printedTarget.endsWith(firstProject.split("/").at(-1)!)).toBe(true);
+    // The argument is one shell-quoted token around the fully spelled
+    // identity (no middle elision inside a copyable command token, review
+    // INT-1 cycle 2; one POSIX-quoted token per RE-1 on #489), so the
+    // newcomer runs exactly the printed command, verbatim, from inside the
+    // Project.
+    expect(printedTarget).toBe(`'${firstProject}'`);
     expect(printedTarget).not.toContain("…");
-    const exampleApply = await runCli(
-      home,
-      printedApply.split(" ").slice(1),
-      { path: journeyPath, cwd: firstProject },
-    );
+    // Executing the printed line verbatim through a shell: the shell strips
+    // the quotes, so apply receives the Project as exactly one argument —
+    // the way a user's terminal runs the copyable command.
+    const exampleApply = await runProcess({
+      executable: realpathSync("/bin/sh"),
+      arguments_: ["-c", printedApply],
+      environment: { ...process.env, HOME: home, PATH: journeyPath },
+      cwd: firstProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed newcomer apply command via shell",
+    });
     expectExitCode(exampleApply, 0);
     expect(exampleApply.stdout).toContain("Apply complete");
     // The printed command was executed verbatim from inside the Project, so
@@ -2346,6 +2374,57 @@ describe("project-bound release candidate", () => {
     expectExitCode(bare, 0);
     expect(bare.stdout).toContain("~/workspace-alias");
     expect(bare.stdout).not.toContain(physical);
+  }, 30_000);
+
+  test("printed lifecycle commands shell-escape space-containing Project paths and execute exactly as printed (US-007, review RE-1 on #489)", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+    // A Project whose path contains spaces: the copyable Next and Details
+    // command arguments must survive the shell that runs them.
+    const spacedProject = mkdtempSync(join(tmpdir(), "agent profile kit rc spaced-"));
+    temporaryDirectories.push(spacedProject);
+    execFileSync("git", ["init", "-q", spacedProject]);
+    expectExitCode(await runCli(home, ["bind", "example", spacedProject, "--host", "codex"]), 0);
+
+    // One PATH for the whole case: git for lifecycle inspection plus the
+    // packed `apkit` bin shim, so printed commands resolve as printed.
+    const gitOnlyPath = apkitBin(home);
+    const status = await runCli(home, ["status", spacedProject], { path: gitOnlyPath, cwd: spacedProject });
+    expectExitCode(status, 0);
+    const nextLine = status.stdout.split("\n").find((line) => line.startsWith("Next: apkit apply "))!;
+    const detailsLine = status.stdout.split("\n").find((line) => line.startsWith("Details: apkit status "))!;
+    // The path argument is one shell-quoted token around the full identity,
+    // so the shell hands the Project to apkit as exactly one argument.
+    expect(nextLine).toBe(`Next: apkit apply '${spacedProject}'`);
+    expect(detailsLine).toBe(`Details: apkit status '${spacedProject}' --verbose`);
+
+    // Executing the printed tokens verbatim through a shell: the quoted path
+    // survives tokenization and apply receives one argument.
+    const shell = realpathSync("/bin/sh");
+    const applied = await runProcess({
+      executable: shell,
+      arguments_: ["-c", nextLine.replace("Next: ", "")],
+      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      cwd: spacedProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed Next command via shell",
+    });
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("Apply complete");
+    expect(existsSync(join(spacedProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // The Details route executes as printed too.
+    const details = await runProcess({
+      executable: shell,
+      arguments_: ["-c", detailsLine.replace("Details: ", "")],
+      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      cwd: spacedProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed Details command via shell",
+    });
+    expectExitCode(details, 0);
   }, 30_000);
 });
 

@@ -1991,13 +1991,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // 3. Blocked status <secondProject> by explicit path
     const statusExact = await runCli(home, "status", secondProject);
     expectExitCode(statusExact, 2);
-    expect(humanText(statusExact.stdout)).toContain("Resolve the reported blocker, then run apkit status ~/projects/second again.");
+    // The copyable command argument is one shell-quoted token (review RE-1 on
+    // #489).
+    expect(humanText(statusExact.stdout)).toContain(
+      "Resolve the reported blocker, then run apkit status '~/projects/second' again.",
+    );
     expect(statusExact.stdout).not.toContain("then run apkit status again.");
 
     // 4. Blocked apply <secondProject> by explicit path
     const applyExact = await runCli(home, "apply", secondProject);
     expectExitCode(applyExact, 2);
-    expect(humanText(applyExact.stdout)).toContain("Resolve the reported blocker, then run apkit apply ~/projects/second again.");
+    expect(humanText(applyExact.stdout)).toContain(
+      "Resolve the reported blocker, then run apkit apply '~/projects/second' again.",
+    );
     expect(applyExact.stdout).not.toContain("then run apkit apply again.");
     // Prove firstProject was still NOT written
     expect(existsSync(join(firstProject, ".agent-profile-kit"))).toBe(false);
@@ -2012,7 +2018,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const globalBlockedApplyExact = await runCli(home, "apply", firstProject);
     expectExitCode(globalBlockedApplyExact, 2);
-    expect(humanText(globalBlockedApplyExact.stdout)).toContain("Resolve the reported global blocker, then run apkit apply ~/projects/first again.");
+    expect(humanText(globalBlockedApplyExact.stdout)).toContain(
+      "Resolve the reported global blocker, then run apkit apply '~/projects/first' again.",
+    );
   });
 
   test("--here in an unbound working directory fails with actionable guidance", async () => {
@@ -2052,12 +2060,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const explicitStatus = await runCli(home, "status", absolute);
     expectExitCode(explicitStatus, 0);
     // The selected Project is a typed path argument (INT-2): it renders the
-    // shared project-scope display identity instead of the raw argument.
+    // shared project-scope display identity as one shell-quoted token
+    // (review RE-1 on #489).
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Next: apkit apply ~/projects/absolute-project"),
+      humanText("Next: apkit apply '~/projects/absolute-project'"),
     );
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Details: apkit status ~/projects/absolute-project --verbose"),
+      humanText("Details: apkit status '~/projects/absolute-project' --verbose"),
     );
 
     expectExitCode(await runCli(home, "apply", absolute), 0);

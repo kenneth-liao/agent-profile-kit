@@ -802,8 +802,10 @@ describe("lifecycle status document", () => {
     // the leading directory segments are all present.
     const nextLine = rendered.split("\n").find((line) => line.startsWith("Next: apkit apply"));
     const detailsLine = rendered.split("\n").find((line) => line.startsWith("Details: apkit status"));
-    expect(nextLine).toContain(`apkit apply ${project}`);
-    expect(detailsLine).toContain(`apkit status ${project} --verbose`);
+    // The argument is one shell-quoted token around the full identity
+    // (review RE-1 on #489): the printed command executes as printed.
+    expect(nextLine).toContain(`apkit apply '${project}'`);
+    expect(detailsLine).toContain(`apkit status '${project}' --verbose`);
   });
 
   test("wraps clean, attention, blocked, and verbose status prose to the selected width", () => {
@@ -1725,10 +1727,10 @@ describe("responsive lifecycle presentation", () => {
       expect(line.split("\n")).toHaveLength(1);
       expect(line).not.toContain("…");
     }
-    expect(status).toContain(`apkit apply ${project}`);
-    expect(status).toContain(`apkit status ${project} --verbose`);
-    expect(wideStatus).toContain(`apkit apply ${project}`);
-    expect(wideStatus).toContain(`apkit status ${project} --verbose`);
+    expect(status).toContain(`apkit apply '${project}'`);
+    expect(status).toContain(`apkit status '${project}' --verbose`);
+    expect(wideStatus).toContain(`apkit apply '${project}'`);
+    expect(wideStatus).toContain(`apkit status '${project}' --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
 

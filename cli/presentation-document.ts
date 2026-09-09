@@ -7,6 +7,7 @@ import {
   flatInlineText,
   identifierPart,
   pathPart,
+  safeShellQuoted,
   splitInlineLines,
   textPart,
   type CommandArg,
@@ -411,21 +412,22 @@ function withWidth(
 function renderCommand(node: CommandNode, environment: RenderEnvironment): string {
   // A copyable command argument must be executable as printed: the identity
   // renders fully spelled — home-relative or absolute, never middle-elided —
-  // because an elided token is a path that does not exist. Long commands
-  // render past the width exactly like the remedy commands, whose quoted
-  // path tokens are already spelled out in full (US-007, review INT-1
-  // cycle 2 on #489).
-  return [node.program, ...node.args.map((arg) =>
-    arg.kind === "text"
-      ? arg.value
-      : displayPath(
-        arg.canonicalPath,
-        arg.authoredPath ?? arg.canonicalPath,
-        arg.scope,
-        environment.cwd,
-        environment.home,
-      ),
-  )].join(" ");
+  // and shell-quoted as one POSIX token through the shared quoting boundary,
+  // so a path containing spaces survives the shell that runs it. Long
+  // commands render past the width exactly like the remedy commands, whose
+  // quoted path tokens are already spelled out in full (US-007, review
+  // INT-1 cycle 2 and RE-1 on #489; ADR-0028's argv-only quoting precedent).
+  return [node.program, ...node.args.map((arg) => {
+    if (arg.kind === "text") return arg.value;
+    const display = displayPath(
+      arg.canonicalPath,
+      arg.authoredPath ?? arg.canonicalPath,
+      arg.scope,
+      environment.cwd,
+      environment.home,
+    );
+    return safeShellQuoted(display) ?? display;
+  })].join(" ");
 }
 
 function unstyled(environment: RenderEnvironment): RenderEnvironment {
