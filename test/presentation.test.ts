@@ -771,7 +771,10 @@ describe("lifecycle status document", () => {
         arg.kind === "path" &&
         arg.canonicalPath === project &&
         arg.authoredPath === project &&
-        arg.scope === "project"
+        // The command argument carries the runnable fleet identity (home-
+        // relative or absolute), not the cwd-relative project-scope alias the
+        // Project-target boundary rejects (US-007, review INT-1 on #489).
+        arg.scope === "fleet"
       )
     )).toBe(true);
     expect(commands.some((node) =>
@@ -6040,7 +6043,7 @@ describe("operation-first multi-Project presentation", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "apply" },
-        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
     const details = keyValuesIn(concise, "Details")[0]!.value;
@@ -6049,7 +6052,7 @@ describe("operation-first multi-Project presentation", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "status" },
-        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
         { kind: "text", value: "--verbose" },
       ],
     });
@@ -6182,13 +6185,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const status = lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: "/project-a" } });
     // The authored identity is the path argument; the canonical spelling stays
-    // out of the document.
+    // out of the document. The argument carries the runnable fleet identity so
+    // the printed command is always a valid target (US-007, INT-1 on #489).
     expect(keyValuesIn(status, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
       args: [
         { kind: "text", value: "apply" },
-        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
     expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
@@ -6196,7 +6200,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "status" },
-        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
         { kind: "text", value: "--verbose" },
       ],
     });
