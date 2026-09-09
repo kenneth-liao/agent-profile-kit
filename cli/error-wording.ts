@@ -28,6 +28,12 @@ import {
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
 import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
+import { nearestName } from "./nearest-match.js";
+import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
+import type { PresentationDocument } from "./presentation-document.js";
+
+/** One carried command argument. */
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * The `apkit new` kind token for each creatable artifact type, with the noun
@@ -38,12 +44,6 @@ const CREATION_ARTIFACT_PRESENTATION = {
   "Skill": { kindToken: "skill", residueNoun: "directory" },
   "Context Module": { kindToken: "context", residueNoun: "file" },
 } as const satisfies Record<CreationArtifactType, { kindToken: string; residueNoun: string }>;
-import { nearestName } from "./nearest-match.js";
-import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
-import type { PresentationDocument } from "./presentation-document.js";
-
-/** One carried command argument. */
-const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 export class CliArgumentError extends Error {
   constructor(readonly parts: readonly InlineContent[]) {
