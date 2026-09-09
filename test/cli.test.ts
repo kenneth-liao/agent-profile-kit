@@ -13908,10 +13908,193 @@ describe("packed CLI new context", () => {
     }
     expect(existsSync(join(workspacePath(home), "context", "Review_PR.md"))).toBe(false);
 
-    // An unknown artifact kind names the supported kinds.
-    const unknownKind = await runCli(home, "new", "profile", "engineering");
+    // An unknown artifact kind names the supported kinds (line wrapping may
+    // split the list; assert the fragments).
+    const unknownKind = await runCli(home, "new", "machine", "engineering");
     expectExitCode(unknownKind, 1);
-    expect(unknownKind.stderr).toContain("supported kinds: skill, context");
+    expect(unknownKind.stderr).toMatch(/supported kinds: skill, context,\s*profile/);
+  });
+});
+
+describe("packed CLI new profile", () => {
+  test("new profile creates a valid bindable Profile from explicit selections, prints the absolute created path, and completes creation → validate → bind → apply", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
+
+    const created = await runCli(
+      home,
+      "new",
+      "profile",
+      "engineering",
+      "--context",
+      "example-context",
+      "--skill",
+      "review-pr",
+    );
+    expectExitCode(created, 0);
+
+    const workspaceRoot = realpathSync(workspacePath(home));
+    const profileFile = join(workspaceRoot, "profiles", "engineering.yaml");
+    // The receipt prints the actual full path of the created file (US-046).
+    expect(created.stdout).toContain(profileFile);
+    expect(existsSync(profileFile)).toBe(true);
+    // The receipt names the selected material and the available names as
+    // guidance (US-045).
+    expect(created.stdout).toContain("example-context");
+    expect(created.stdout).toContain("review-pr");
+    expect(created.stdout).toContain("Available Context Modules: example-context");
+    expect(created.stdout).toContain("Available Skills: review-pr");
+
+    // The created Profile is valid and bindable end to end (TEST-017 chain).
+    expectExitCode(await runCli(home, "validate"), 0);
+    const projectPath = gitRepository();
+    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
+    const apply = await runCli(home, "apply", projectPath);
+    expectExitCode(apply, 0);
+    const installedSkill = readFileSync(
+      join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"),
+      "utf8",
+    );
+    expect(installedSkill).toContain("review-pr");
+  });
+
+  test("new profile never prompts on an interactive terminal and completes without input", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const result = await runCliInPty(home, 80, "new", "profile", "pty-profile", "--context", "example-context");
+    expectExitCode(result, 0);
+    const profileFile = join(realpathSync(workspacePath(home)), "profiles", "pty-profile.yaml");
+    expect(result.stdout).toContain(profileFile);
+    expect(existsSync(profileFile)).toBe(true);
+  });
+
+  test("new profile refuses unknown selections with available names and the nearest match", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
+
+    const unknownContext = await runCli(
+      home,
+      "new",
+      "profile",
+      "engineering",
+      "--context",
+      "review-standard",
+    );
+    expectExitCode(unknownContext, 1);
+    expect(unknownContext.stderr).toContain("review-standard");
+    expect(unknownContext.stderr).toContain("Available Context Modules: example-context");
+    expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
+
+    const unknownSkill = await runCli(
+      home,
+      "new",
+      "profile",
+      "engineering",
+      "--context",
+      "example-context",
+      "--skill",
+      "review-p",
+    );
+    expectExitCode(unknownSkill, 1);
+    expect(unknownSkill.stderr).toContain("review-p");
+    expect(unknownSkill.stderr).toContain("Available Skills: review-pr");
+    expect(unknownSkill.stderr).toContain("Did you mean 'review-pr'?");
+    expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
+  });
+
+  test("new profile refuses zero selections with available-names guidance and creates nothing", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
+
+    const empty = await runCli(home, "new", "profile", "engineering");
+    expectExitCode(empty, 1);
+    expect(empty.stderr).toContain("at least one supported artifact");
+    expect(empty.stderr).toContain("Available Context Modules: example-context");
+    expect(empty.stderr).toContain("Available Skills: review-pr");
+    expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
+  });
+
+  test("new profile refuses duplicate selections, invalid names, occupied destinations, and unknown flags without writing", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
+
+    // A selection repeated within one category is an argument error.
+    const duplicated = await runCli(
+      home,
+      "new",
+      "profile",
+      "engineering",
+      "--skill",
+      "review-pr",
+      "--skill",
+      "review-pr",
+    );
+    expectExitCode(duplicated, 1);
+    expect(duplicated.stderr).toContain("more than once");
+    expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
+
+    // An invalid Profile name is refused without creating anything.
+    for (const invalidName of ["Engineering_X", "../escape"]) {
+      const invalid = await runCli(
+        home,
+        "new",
+        "profile",
+        invalidName,
+        "--context",
+        "example-context",
+      );
+      expectExitCode(invalid, 1);
+      expect(invalid.stderr).toMatch(/kebab-case/i);
+    }
+    expect(existsSync(join(workspacePath(home), "profiles", "Engineering_X.yaml"))).toBe(false);
+
+    // An occupied destination holding foreign material is refused without
+    // overwriting; the foreign file keeps its own Profile ID so the refusal
+    // is the occupancy boundary, not the duplicate-Artifact-ID authority.
+    const profileFile = join(workspacePath(home), "profiles", "taken.yaml");
+    writeFileSync(profileFile, "id: mine\ncontext: [example-context]\nskills: []\n");
+    const occupied = await runCli(
+      home,
+      "new",
+      "profile",
+      "taken",
+      "--context",
+      "example-context",
+    );
+    expectExitCode(occupied, 1);
+    expect(occupied.stderr).toContain("already has material");
+    // The structured diagnostic carries a runnable recovery command (INT-1).
+    expect(occupied.stderr).toMatch(/apkit new profile/);
+    expect(readFileSync(profileFile, "utf8")).toContain("id: mine");
+
+    // Unknown flags are argument errors.
+    const unknownFlag = await runCli(
+      home,
+      "new",
+      "profile",
+      "engineering",
+      "--material",
+      "example-context",
+    );
+    expectExitCode(unknownFlag, 1);
+    expect(unknownFlag.stderr).toContain("--material");
+    expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
+  });
+
+  test("new profile command help describes the Profile kind", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const help = await runCli(home, "help", "new");
+    expectExitCode(help, 0);
+    expect(help.stdout).toContain("new profile");
+    expect(help.stdout).toContain("--context");
+    expect(help.stdout).toContain("--skill");
   });
 });
 

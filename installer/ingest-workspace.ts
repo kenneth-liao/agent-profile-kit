@@ -144,6 +144,8 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
       throw new InstallerToolError({
         kind: "profile-without-artifacts",
         profile: profile.id,
+        availableContexts: [...contexts.keys()].sort(),
+        availableSkills: [...skills.keys()].sort(),
       });
     }
     for (const contextId of profile.context) {

@@ -36,6 +36,26 @@ export const AUTHORING_EXAMPLES = {
 } as const;
 
 /**
+ * The canonical scaffold for one newly created Profile, shaped like
+ * AUTHORING_EXAMPLES.profile so created and example material share one form.
+ */
+export function newProfileScaffold(
+  id: string,
+  contexts: readonly string[],
+  skills: readonly string[],
+): string {
+  // requireArtifactId and the Workspace boundary run before scaffolding, so
+  // every name is [a-z0-9-] only and the double-quoted YAML scalars are safe;
+  // quoting keeps scalar-looking names (true, 123) strings rather than YAML
+  // booleans and numbers (CRAFT-2).
+  const field = (label: string, names: readonly string[]): string =>
+    names.length === 0
+      ? `${label}: []\n`
+      : `${label}:\n${names.map((name) => `  - "${name}"\n`).join("")}`;
+  return `id: "${id}"\n${field("context", contexts)}${field("skills", skills)}`;
+}
+
+/**
  * The canonical scaffold for one newly created Context Module, shaped like
  * AUTHORING_EXAMPLES.context so created and example material share one form.
  */

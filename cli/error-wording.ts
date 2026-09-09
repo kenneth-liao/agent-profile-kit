@@ -43,6 +43,7 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 const CREATION_ARTIFACT_PRESENTATION = {
   "Skill": { kindToken: "skill", residueNoun: "directory" },
   "Context Module": { kindToken: "context", residueNoun: "file" },
+  "Profile": { kindToken: "profile", residueNoun: "file" },
 } as const satisfies Record<CreationArtifactType, { kindToken: string; residueNoun: string }>;
 
 export class CliArgumentError extends Error {
@@ -220,8 +221,26 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
       return { happened: [`Workspace is invalid at ${fact.workspace}: '${fact.name}' must be a directory`] };
     case "duplicate-artifact-name":
       return { happened: [`${fact.artifactType} name '${fact.id}' is duplicated`] };
-    case "profile-without-artifacts":
-      return { happened: [`Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`] };
+    case "profile-without-artifacts": {
+      const contextGuidance = fact.availableContexts === undefined
+        ? ""
+        : (fact.availableContexts.length === 0
+          ? " No Context Modules exist in the Workspace."
+          : ` Available Context Modules: ${fact.availableContexts.join(", ")}.`);
+      const skillGuidance = fact.availableSkills === undefined
+        ? ""
+        : (fact.availableSkills.length === 0
+          ? " No Skills exist in the Workspace."
+          : ` Available Skills: ${fact.availableSkills.join(", ")}.`);
+      return {
+        happened: [`Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`],
+        ...(contextGuidance === "" && skillGuidance === "" ? {} : {
+          why: [
+            [`${contextGuidance}${skillGuidance}`.trim()],
+          ],
+        }),
+      };
+    }
     case "missing-context-reference":
       return missingReferenceDiagnostic({
         happened: [
