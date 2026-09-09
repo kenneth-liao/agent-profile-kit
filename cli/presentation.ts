@@ -621,6 +621,130 @@ export function formatInfoToolErrorJson(
   });
 }
 
+/**
+ * Task-relevant human commands on the bare-invocation entry screen (US-032,
+ * DEC-020). Names only — flags stay in per-command help. Every entry resolves
+ * against the canonical command table, so a machine-facing command
+ * (DEC-021) cannot appear here by construction.
+ */
+const BARE_TASK_COMMAND_NAMES = ["status", "apply", "bind", "guide"] as const;
+
+/** One muted pointer to the full surface; the entry screen is not the manual. */
+function bareHelpPointerNodes(): PresentationNode[] {
+  return [
+    { kind: "verbatim", text: "" },
+    {
+      kind: "prose",
+      category: "muted",
+      parts: [
+        "Run ",
+        commandPart(COMMAND_NAME, [arg("--help")]),
+        " for the full command list.",
+      ],
+    },
+  ];
+}
+
+/** One indented command invocation with the canonical summary under it. */
+function bareCommandNodes(names: readonly string[]): PresentationNode[] {
+  const nodes: PresentationNode[] = [];
+  for (const name of names) {
+    const command = COMMANDS.find((candidate) => candidate.name === name);
+    if (command === undefined) throw new Error(`no canonical help for command '${name}'`);
+    nodes.push(
+      {
+        kind: "prose",
+        category: "command",
+        parts: ["  ", commandPart(COMMAND_NAME, [arg(command.name)])],
+      },
+      { kind: "prose", parts: [`    ${command.summary}`] },
+    );
+  }
+  return nodes;
+}
+
+export interface BareInvocationOptions {
+  readonly info: ApplicationInfo;
+  /** The read-only fleet plan (default fleet scope) for a configured machine. */
+  readonly report?: ReconciliationReport;
+  /** Boundary-authored wordmark lines; empty when output is redirected. */
+  readonly wordmark?: readonly string[];
+}
+
+/**
+ * The bare-invocation entry screen (US-032, DEC-020): current setup state and
+ * a short task-relevant command list, never the full manual. Machine-facing
+ * commands are omitted (US-035, DEC-021); the screen is read-only — the fleet
+ * facts come from the status plan, not a write path.
+ */
+export function bareInvocationDocument(options: BareInvocationOptions): PresentationDocument {
+  const prefix: PresentationNode[] = [];
+  const wordmark = options.wordmark ?? [];
+  // The wordmark is pre-formatted ASCII art: reproduced exactly, unwrapped
+  // and unstyled (verbatim content, DEC-008).
+  for (const line of wordmark) prefix.push({ kind: "verbatim", text: line });
+  if (wordmark.length > 0) prefix.push({ kind: "verbatim", text: "" });
+
+  if (options.info.configurationState !== "current") {
+    // The setup-needed state is stated once; the init command is carried by
+    // the Next line (fact-once, US-008).
+    const happened: InlineContent[] = options.info.configurationState === "not-configured"
+      ? ["Agent Profile Kit is not set up on this machine."]
+      : ["Legacy configuration."];
+    return [
+      ...prefix,
+      {
+        kind: "notice",
+        severity: "attention",
+        nodes: [{ kind: "prose", parts: happened }],
+      },
+      {
+        kind: "prose",
+        category: "command",
+        parts: [
+          "Next: Run ",
+          commandPart(COMMAND_NAME, [arg("init")]),
+          " to set it up.",
+        ],
+      },
+      ...bareHelpPointerNodes(),
+    ];
+  }
+
+  const nodes: PresentationNode[] = [...prefix];
+  const partition = options.report === undefined ? undefined : partitionFleet(options.report);
+  if (partition === undefined || partition.totalFleetCount === 0) {
+    nodes.push({
+      kind: "notice",
+      severity: "success",
+      nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
+    });
+  } else if (partition.totalActionableCount === 0) {
+    nodes.push({
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        parts: [`${plural(partition.settledCount, "Project")} up to date.`],
+      }],
+    });
+  } else {
+    for (const cause of PRIMARY_CAUSE_ORDER) {
+      const count = partition.groups[cause].length;
+      if (count > 0) {
+        nodes.push({ kind: "list-item", parts: [`${PRIMARY_CAUSE_LABELS[cause]} (${count})`] });
+      }
+    }
+    if (partition.settledCount > 0) nodes.push(settledCountNode(partition.settledCount));
+  }
+  nodes.push(
+    { kind: "verbatim", text: "" },
+    { kind: "heading", text: "Common next steps:" },
+    ...bareCommandNodes(BARE_TASK_COMMAND_NAMES),
+  );
+  nodes.push(...bareHelpPointerNodes());
+  return nodes;
+}
 
 /** The inventory index view as a presentation document. */
 export function inventoryIndexDocument(): PresentationDocument {
