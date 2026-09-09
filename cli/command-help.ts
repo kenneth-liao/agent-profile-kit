@@ -153,7 +153,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "apply",
     group: "common",
-    syntax: "apply [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
+    syntax: "apply [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
     summary: "Sync the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.apply,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",

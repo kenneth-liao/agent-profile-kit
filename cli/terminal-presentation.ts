@@ -1,5 +1,3 @@
-import type { WriteStream } from "node:tty";
-
 /** The stable width used when human output is redirected or no terminal size exists. */
 export const DEFAULT_HUMAN_WIDTH = 80;
 
@@ -88,11 +86,15 @@ function clampWidth(width: number): number {
  * Read terminal state once at the CLI boundary. Renderers receive this trusted
  * context instead of independently consulting process streams or environment.
  */
+/** The minimal terminal-evidence shape every human stream carries. */
+export interface TerminalStream {
+  readonly isTTY?: boolean;
+  readonly columns?: number;
+  readonly rows?: number;
+}
+
 export function terminalPresentationContext(
-  stream: Pick<WriteStream, "isTTY"> & {
-    readonly columns?: number;
-    readonly rows?: number;
-  } = process.stdout,
+  stream: TerminalStream = process.stdout,
   environment: NodeJS.ProcessEnv = process.env,
 ): TerminalPresentationContext {
   const interactive = stream.isTTY === true;

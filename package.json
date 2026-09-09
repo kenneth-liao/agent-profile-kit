@@ -1,6 +1,6 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.165.0",
+  "version": "0.166.0",
   "private": true,
   "description": "Compose portable agent material into host-native profiles.",
   "type": "module",
@@ -31,6 +31,8 @@
   "devDependencies": {
     "@types/bun": "^1.4.0",
     "@types/node": "^26",
+    "@types/prompts": "^2.4.9",
+    "prompts": "^2.4.2",
     "smol-toml": "^1.8.0",
     "typescript": "^7.0.2",
     "yaml": "^2.9.0"

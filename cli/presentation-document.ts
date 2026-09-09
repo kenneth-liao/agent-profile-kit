@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import type { Writable } from "node:stream";
 
 import { displayPath, type LocationDisplayScope } from "./display-path.js";
 import {
@@ -608,3 +609,18 @@ function styleLines(
   return [styleSemanticText(text, category, color)];
 }
 
+
+/**
+ * The one boundary render for human output: the document receives exactly one
+ * terminating newline and a view ending in a blank line is never doubled.
+ * Every human-stream writer calls this instead of re-deriving the rule.
+ */
+export function writeHumanDocument(
+  stream: Writable,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+  options: PresentationRenderOptions = {},
+): void {
+  const rendered = renderPresentationDocument(document, context, options);
+  stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
+}

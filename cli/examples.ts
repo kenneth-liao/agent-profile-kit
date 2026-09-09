@@ -28,6 +28,7 @@ export const COMMAND_EXAMPLES = {
     "apply --stale",
     "apply --stale --json",
     "apply --blocked",
+    "apply --replace-changed",
     "apply --json",
   ],
   status: [

@@ -303,6 +303,37 @@ export class ApplyBlockedError extends Error {
   }
 }
 
+/** The Project-scoped facts one replacement confirmation names (DEC-019). */
+export interface ChangedOutputConsentProject {
+  readonly canonicalProject: string;
+  readonly project: string;
+  /** Recorded generated outputs whose on-disk bytes are proven changed. */
+  readonly changedOutputs: readonly string[];
+}
+
+export interface ChangedOutputConsentRequest {
+  readonly projects: readonly ChangedOutputConsentProject[];
+}
+
+export type ChangedOutputConsentAnswer = "accepted" | "declined" | "cancelled";
+
+/**
+ * Raised before any write when the invocation's changed-output replacement
+ * consent is declined or cancelled (DEC-019): the whole invocation aborts,
+ * including writes for other selected Projects and pending retirement work.
+ * Consent never bypasses ownership, path-safety, or global Blockers — this
+ * error can only be produced after every Blocker check has passed.
+ */
+export class ApplyDeclinedError extends Error {
+  readonly reason: "declined" | "cancelled";
+
+  constructor(reason: "declined" | "cancelled") {
+    super(reason === "cancelled" ? "Apply cancelled before writes" : "Apply declined before writes");
+    this.name = "ApplyDeclinedError";
+    this.reason = reason;
+  }
+}
+
 export interface ProjectIdentity {
   readonly canonicalProject: string;
   readonly project: string;
@@ -1419,6 +1450,14 @@ export async function applyReconciliation(
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
     readonly lockTimeoutMs?: number;
     /**
+     * Injectable changed-output replacement consent (DEC-019). Invoked after
+     * every Blocker check and before the first write, exactly when the
+     * selected, non-Blocked Projects hold proven changed generated outputs;
+     * any answer but "accepted" aborts the whole invocation without writes.
+     */
+    readonly confirmChangedOutputReplacement?:
+      (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
+    /**
      * Invocation-scoped bounded scheduler for independent Project reads. Apply
      * passes it to preflight and post-commit verification while all mutation,
      * publication, and rollback stay sequential.
@@ -1452,6 +1491,14 @@ async function applyReconciliationLocked(
      */
     readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
     readonly fileSystem?: Partial<ReconciliationFileSystem>;
+    /**
+     * Injectable changed-output replacement consent (DEC-019). Invoked after
+     * every Blocker check and before the first write, exactly when the
+     * selected, non-Blocked Projects hold proven changed generated outputs;
+     * any answer but "accepted" aborts the whole invocation without writes.
+     */
+    readonly confirmChangedOutputReplacement?:
+      (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
     /**
      * Invocation-scoped bounded scheduler for independent Project reads. Apply
      * passes it to preflight and post-commit verification while all mutation,
@@ -1562,6 +1609,30 @@ async function applyReconciliationLocked(
     (scope.kind === "project" || applicableProjects.length === 0)
   ) {
     throw new ApplyBlockedError(report);
+  }
+  // One invocation-wide consent gate (DEC-019): reached only after the global
+  // and Project Blocker checks above, so acceptance can never bypass an
+  // ownership, path-safety, or global Blocker; and placed before the first
+  // write, so a decline or cancellation leaves every selected Project — and
+  // all pending retirement work — untouched.
+  if (options.confirmChangedOutputReplacement !== undefined) {
+    const consentProjects = report.projects
+      .filter((project) => !blockedProjects.has(project.canonicalProject))
+      .flatMap((project) => {
+        const changedOutputs = project.outputs
+          .filter((output) => output.driftKind === "changed")
+          .map((output) => output.path);
+        return changedOutputs.length === 0 ? [] : [{
+          canonicalProject: project.canonicalProject,
+          project: project.project,
+          changedOutputs,
+        }];
+      });
+    if (consentProjects.length > 0) {
+      const answer =
+        await options.confirmChangedOutputReplacement({ projects: consentProjects });
+      if (answer !== "accepted") throw new ApplyDeclinedError(answer);
+    }
   }
   const currentProjects = new Set(
     report.projects

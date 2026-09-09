@@ -455,6 +455,7 @@ describe("project-bound release candidate", () => {
       os?: string[];
       files?: string[];
       bin?: Record<string, string>;
+      dependencies?: Record<string, string>;
     };
     expect(packedManifest.scripts?.postinstall).toBeUndefined();
     expect(packedManifest.scripts?.preinstall).toBeUndefined();
@@ -463,6 +464,9 @@ describe("project-bound release candidate", () => {
     expect(packedManifest.os).toEqual(["darwin"]);
     expect(packedManifest.files).toEqual(["dist/cli.js", "docs/guides", "README.md"]);
     expect(packedManifest.bin).toEqual({ apkit: "./dist/cli.js" });
+    // Prompt support is bundled into the single CLI file (DEC-036): the
+    // published package carries no runtime dependency to resolve.
+    expect(packedManifest.dependencies).toBeUndefined();
 
     // Install the packed tarball into a disposable prefix only — not the user HOME.
     const installPrefix = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-prefix-"));
@@ -496,6 +500,47 @@ describe("project-bound release candidate", () => {
     expect(
       execFileSync("git", ["-C", gitProject, "status", "--porcelain"], { encoding: "utf8" }),
     ).toBe(gitStatusBefore);
+  });
+
+  test("the installed packed CLI runs prompt support without external runtime dependency resolution", async () => {
+    // Install the packed tarball into a disposable prefix: node_modules then
+    // contains only this package, so the bundled prompt dependency (DEC-036)
+    // must resolve from the bundle itself, never from an external package.
+    const installPrefix = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-prompt-prefix-"));
+    temporaryDirectories.push(installPrefix);
+    execFileSync("npm", ["install", "--prefix", installPrefix, packageArchive], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: isolatedHome() },
+      stdio: "pipe",
+    });
+    expect(existsSync(join(installPrefix, "node_modules", "prompts"))).toBe(false);
+    const home = isolatedHome();
+    const installedCli = join(installPrefix, "node_modules", ".bin", "apkit");
+    const runInstalled = (arguments_: readonly string[]) =>
+      runProcess({
+        executable: installedCli,
+        arguments_: [...arguments_],
+        environment: { ...process.env, HOME: home, PATH: process.env.PATH },
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        commandLabel: "installed apkit",
+      });
+
+    expectExitCode(await runInstalled(["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+    const projectPath = project();
+    writeFileSync(
+      join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+    expectExitCode(await runInstalled(["apply"]), 0);
+    const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(contextPath, "hand-edited\n");
+
+    // The answering-flag apply executes the bundled prompt support end to end.
+    const apply = await runInstalled(["apply", "--replace-changed"]);
+    expectExitCode(apply, 0);
+    expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
   });
 
   test("packed distribution excludes credentials, runtime state, and removed commands", async () => {

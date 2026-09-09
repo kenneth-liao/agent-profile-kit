@@ -5,6 +5,8 @@ import {
   reconciliationReportWithProjects,
   unreadableInstallationStateReport,
   type ApplyReconciliationResult,
+  type ChangedOutputConsentAnswer,
+  type ChangedOutputConsentRequest,
   type ReconciliationReport,
   type ReconciliationScope,
 } from "./reconcile.js";
@@ -50,6 +52,9 @@ export interface ValidationResult {
 export interface LifecycleCommandOptions {
   /** Injectable process environment for Host capability probes. */
   readonly env?: NodeJS.ProcessEnv;
+  /** Injectable changed-output replacement consent for apply (DEC-019). */
+  readonly confirmChangedOutputReplacement?:
+    (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
   readonly instrumentation?: LifecycleInstrumentation;
   readonly selection?: ProjectBindingSelection;
 }
@@ -134,6 +139,9 @@ export async function applyApplication(
     scheduler,
     scope: reconciliationScope(options.selection),
     ...(options.selection?.filter === undefined ? {} : { filter: options.selection.filter }),
+    ...(options.confirmChangedOutputReplacement === undefined
+      ? {}
+      : { confirmChangedOutputReplacement: options.confirmChangedOutputReplacement }),
     createGitInspection: () => createLifecycleGitInspectionContext(instrumentation?.git),
     createOwnershipInspection: () =>
       createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
