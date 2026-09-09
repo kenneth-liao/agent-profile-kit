@@ -10,6 +10,7 @@ import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from 
 import {
   flatInlineText,
   identifierPart,
+  type CommandPart,
   type InlineContent,
   renderPresentationDocument,
 } from "../cli/presentation-document.js";
@@ -1950,6 +1951,167 @@ describe("responsive lifecycle presentation", () => {
       { kind: "identifier", value: agentsPath },
       " is a file, not a directory",
     ]);
+  });
+});
+
+describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015)", () => {
+  const exampleProfile = AUTHORING_EXAMPLES.profile.id;
+
+  /** An apply receipt whose committed work installs one Profile's outputs. */
+  const installedReceipt = (profile: string) => emptyReport({
+    desired: [{
+      canonicalProject: "/project-a",
+      context: "composed",
+      outputs: ["a.md"],
+      profile,
+      project: "/project-a",
+      resolvedArtifacts: [],
+    }],
+    items: [{ kind: "addition", project: "/project-a" }],
+    outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+  });
+
+  /** An apply receipt that refreshed already-installed outputs (routine). */
+  const refreshedReceipt = (profile: string) => emptyReport({
+    desired: [{
+      canonicalProject: "/project-a",
+      context: "composed",
+      outputs: ["a.md"],
+      profile,
+      project: "/project-a",
+      resolvedArtifacts: [],
+    }],
+    items: [{ kind: "update", project: "/project-a" }],
+    outputs: [{ kind: "update", driftKind: "changed", path: "a.md", project: "/project-a" }],
+  });
+
+  /** Every atomic `apkit new …` command part carried by the document, in order. */
+  const handoffCommands = (document: PresentationDocument): readonly string[] =>
+    flattenPresentationNodes(document)
+      .flatMap((node) => "parts" in node && Array.isArray(node.parts) ? node.parts : [])
+      .filter((part): part is CommandPart => typeof part === "object" && part.kind === "command")
+      .map((part) =>
+        [part.program, ...part.args.filter((arg) => arg.kind === "text").map((arg) => arg.value)].join(" ")
+      )
+      .filter((command) => command.startsWith("apkit new "));
+
+  test("an apply that installed the scaffolded example ends with the authoring handoff", () => {
+    const document = applyReportDocument(applyResult(installedReceipt(exampleProfile), emptyReport()));
+    const commands = handoffCommands(document);
+    // The handoff teaches the three predecessor authoring kinds: the Skill,
+    // the Context Module, and the Profile selecting them. Piece scaffolds
+    // precede the Profile that selects them.
+    expect(commands).toHaveLength(3);
+    expect(commands[0]).toBe("apkit new skill <skill>");
+    expect(commands[1]).toBe("apkit new context <context>");
+    expect(commands[2]).toBe("apkit new profile <profile> --context <context> --skill <skill>");
+    // The handoff is the closing section of the view.
+    const nodes = flattenPresentationNodes(document);
+    const lastHeading = nodes.map((node) => node.kind === "heading" ? nodeText(node) : "").filter(Boolean).at(-1);
+    expect(lastHeading).toContain("author");
+    // Each command is one atomic command part, so the renderer never splits it
+    // (copyable as printed): a fragmented command could not reconstruct the
+    // full spelling, so the three exact spellings above prove atomicity.
+  });
+
+  test("the handoff also closes the verbose apply view under the same condition", () => {
+    const document = applyReportDocument(
+      applyResult(installedReceipt(exampleProfile), emptyReport()),
+      { verbose: true },
+    );
+    expect(handoffCommands(document)).toHaveLength(3);
+  });
+
+  test("adding a Host to an installed example omits the handoff (INT-1)", () => {
+    // Routine maintenance of an already-installed example: the pre-apply state
+    // proves an existing installation (`update`) even though this apply adds
+    // the new Host's outputs. Adding a second Host to the installed example
+    // must not repeat the first-run teaching.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md", "b.md"],
+        profile: exampleProfile,
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-a" },
+      ],
+    });
+    for (const options of [{}, { verbose: true }] as const) {
+      const document = applyReportDocument(applyResult(receipt, emptyReport()), options);
+      expect(handoffCommands(document)).toEqual([]);
+    }
+  });
+
+  test("a routine apply that refreshed the installed example omits the handoff", () => {
+    for (const options of [{}, { verbose: true }] as const) {
+      const document = applyReportDocument(
+        applyResult(refreshedReceipt(exampleProfile), emptyReport()),
+        options,
+      );
+      expect(handoffCommands(document)).toEqual([]);
+    }
+  });
+
+  test("a no-op apply of the example omits the handoff", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: exampleProfile,
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const document = applyReportDocument(applyResult(receipt, receipt));
+    expect(handoffCommands(document)).toEqual([]);
+  });
+
+  test("an apply that installed a user-authored Profile omits the handoff", () => {
+    const document = applyReportDocument(applyResult(installedReceipt("coding"), emptyReport()));
+    expect(handoffCommands(document)).toEqual([]);
+  });
+
+  test("a mixed fleet handoff fires on the example addition and omits neither other evidence", () => {
+    // One Project installs the example; another installs authored material.
+    const receipt = emptyReport({
+      desired: [
+        {
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: exampleProfile,
+          project: "/project-a",
+          resolvedArtifacts: [],
+        },
+        {
+          canonicalProject: "/project-b",
+          context: "composed",
+          outputs: ["b.md"],
+          profile: "coding",
+          project: "/project-b",
+          resolvedArtifacts: [],
+        },
+      ],
+      items: [
+        { kind: "addition", project: "/project-a" },
+        { kind: "addition", project: "/project-b" },
+      ],
+      outputs: [
+        { kind: "addition", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-b" },
+      ],
+    });
+    const document = applyReportDocument(applyResult(receipt, emptyReport()));
+    expect(handoffCommands(document)).toHaveLength(3);
   });
 });
 

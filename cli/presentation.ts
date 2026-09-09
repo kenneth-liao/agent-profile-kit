@@ -42,6 +42,7 @@ import {
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import {
   type ApplyReconciliationResult,
@@ -3089,13 +3090,69 @@ function verboseApplyDocument(
   return nodes;
 }
 
+/**
+ * Whether this apply's committed evidence installed the scaffolded example
+ * Profile for the first time (DEC-024, US-040): the receipt's pre-apply state
+ * proves the example's Profile Installation did not exist before this apply
+ * (`addition`). Maintenance of an already-installed example — a refresh, a
+ * no-op, or adding a Host, which reports `update`/`stale source`/`drifted
+ * output` even when the apply adds new outputs for the added Host — proves an
+ * existing installation and is routine. The condition is pure apply/example
+ * evidence; no onboarding state is persisted anywhere.
+ */
+function applyInstalledExampleProfile(receipt: ReconciliationReport): boolean {
+  return receipt.projects.some((project) =>
+    project.desired?.profile === AUTHORING_EXAMPLES.profile.id &&
+    project.state.kind === "addition"
+  );
+}
+
+/**
+ * The first-run authoring handoff as typed nodes (DEC-024): a successful apply
+ * that installed the scaffolded example ends by showing how to author real
+ * material with the delivered `apkit new` commands. Piece scaffolds precede
+ * the Profile command that selects them, and every command is one atomic
+ * command part so it is copyable as printed. The argument sequences mirror the
+ * canonical `new` spellings in cli/command-help.ts; they are authored here
+ * because presentation owns wording, as with the bind equivalent-command
+ * precedent (DEC-032).
+ */
+function applyAuthoringHandoffNodes(): PresentationNode[] {
+  const authoringCommand = (args: readonly string[]): PresentationNode => ({
+    kind: "sentence",
+    parts: ["  ", commandPart(COMMAND_NAME, args.map((value) => arg(value)))],
+    category: "command",
+  });
+  return [
+    spacerNode(),
+    { kind: "heading", text: "Now author your own:" },
+    authoringCommand(["new", "skill", "<skill>"]),
+    authoringCommand(["new", "context", "<context>"]),
+    authoringCommand([
+      "new",
+      "profile",
+      "<profile>",
+      "--context",
+      "<context>",
+      "--skill",
+      "<skill>",
+    ]),
+  ];
+}
+
 /** The apply receipt view as a presentation document. */
 export function applyReportDocument(
   result: ApplyReconciliationResult,
   options: LifecycleHumanOptions,
 ): PresentationDocument {
-  if (options.verbose === true) return verboseApplyDocument(result, options);
-  return conciseApplyDocument(result.resultingState, result.receipt, options);
+  const document = options.verbose === true
+    ? verboseApplyDocument(result, options)
+    : conciseApplyDocument(result.resultingState, result.receipt, options);
+  // DEC-024: the first-run apply ends with the authoring handoff; routine
+  // applies never carry it. Machine JSON is untouched (US-060).
+  return applyInstalledExampleProfile(result.receipt)
+    ? [...document, ...applyAuthoringHandoffNodes()]
+    : document;
 }
 
 /** The blocked apply view as a presentation document. */

@@ -1633,6 +1633,63 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(statePath(home))).toBe(true);
 
+    // 6b. Authoring handoff: the apply that installed the scaffolded example
+    // ends with a concrete handoff whose printed authoring commands work
+    // (US-040, DEC-024, TEST-015).
+    const printedHandoff = apply.stdout.split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("apkit new "));
+    expect(printedHandoff).toHaveLength(3);
+    // The handoff closes the view: its final command is the last line.
+    expect(apply.stdout.trimEnd().endsWith(printedHandoff.at(-1)!)).toBe(true);
+    const handoffCommands = printedHandoff.map((command) => command
+      .replace("\u003cskill\u003e", "summarize-pr")
+      .replace("\u003ccontext\u003e", "project-rules")
+      .replace("\u003cprofile\u003e", "real-profile"));
+    expect(handoffCommands).toEqual([
+      "apkit new skill summarize-pr",
+      "apkit new context project-rules",
+      "apkit new profile real-profile --context project-rules --skill summarize-pr",
+    ]);
+    for (const printed of handoffCommands) {
+      const created = await runCli(home, printed.split(" ").slice(1), { path: pathWithHosts });
+      expectExitCode(created, 0);
+    }
+    expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
+    const authored = await runCli(home, ["validate"], { path: pathWithHosts });
+    expectExitCode(authored, 0);
+    expect(authored.stdout).toContain("real-profile");
+
+    // 6c. Routine apply: restoring a hand-edited generated file reports the
+    // replacement and carries no first-run handoff (US-040, DEC-024).
+    writeFileSync(
+      join(boundProject, ".agent-profile-kit", "codex", "context.md"),
+      "hand-edited bytes\n",
+    );
+    const restore = await runCli(home, ["apply", boundProject], { path: pathWithHosts });
+    expectExitCode(restore, 0);
+    expect(restore.stdout).toContain("Applied:");
+    expect(restore.stdout).not.toContain("Now author your own:");
+    expect(restore.stdout).not.toContain("apkit new ");
+
+    // 6d. Routine maintenance: adding a Host to the installed example reports
+    // the new outputs and carries no first-run handoff (INT-1, US-040,
+    // DEC-024).
+    const addHost = await runCli(
+      home,
+      ["bind", "example", boundProject, "--host", "codex", "--host", "claude", "--replace"],
+      { path: pathWithHosts },
+    );
+    expectExitCode(addHost, 0);
+    const maintenance = await runCli(home, ["apply", boundProject], { path: pathWithHosts });
+    expectExitCode(maintenance, 0);
+    expect(maintenance.stdout).toContain("Applied:");
+    expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    expect(maintenance.stdout).not.toContain("Now author your own:");
+    expect(maintenance.stdout).not.toContain("apkit new ");
+
     // 7. Current status: clean status states that fact once with no next action.
     const cleanStatus = await runCli(
       home,
