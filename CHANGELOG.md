@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Make every printed lifecycle next-action command a runnable target: the explicit-Project `Next: apkit apply …` and `Details: apkit status …` arguments now render the Project's fleet identity (home-relative or absolute) instead of the cwd-relative alias the Project-target boundary rejects as a relative target, so following the printed action from inside the Project no longer exits with the invalid-path error (US-007, US-012, review INT-1 on [#489](https://github.com/kenneth-liao/agent-profile-kit/pull/489), [#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).
+
 ### Changed
 
 - Prove the integrated daily-loop and newcomer journeys through the packed CLI — mixed multi-cause fleet with narrowing, complete receipts, whole-invocation cancellation, and non-interactive completion, and the printed-actions newcomer chain through real material authoring, binding, and apply with present and absent controlled Hosts — recapture the living user journey and its gap register against the delivered task-sufficient surface, mark the superseded presentation-only filter ADR, and audit the non-prompting teardown at the packed PTY seam ([#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).

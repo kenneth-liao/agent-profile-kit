@@ -205,7 +205,7 @@ function withFleetScope(arguments_: readonly string[]): readonly string[] {
 async function runCli(
   home: string,
   arguments_: readonly string[],
-  options: { readonly path?: string; readonly deadlineMs?: number } = {},
+  options: { readonly path?: string; readonly deadlineMs?: number; readonly cwd?: string } = {},
 ) {
   return runProcess({
     executable: nodeBinary,
@@ -215,8 +215,33 @@ async function runCli(
       HOME: home,
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
+  });
+}
+
+/**
+ * Run the packed CLI at its printed default scope: unlike {@link runCli}, no
+ * historical `--all` is injected, so a fleet invocation without a positional
+ * or filter exercises the delivered default (US-009, DEC-001).
+ */
+async function runCliDefaultScope(
+  home: string,
+  arguments_: readonly string[],
+  options: { readonly path?: string; readonly deadlineMs?: number; readonly cwd?: string } = {},
+) {
+  return runProcess({
+    executable: nodeBinary,
+    arguments_: [cliPath, ...arguments_],
+    environment: {
+      ...process.env,
+      HOME: home,
+      ...(options.path === undefined ? {} : { PATH: options.path }),
+    },
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
+    commandLabel: "packed CLI (default scope)",
   });
 }
 
@@ -1597,7 +1622,7 @@ describe("project-bound release candidate", () => {
     }
     // Install the whole fleet first; the causes are induced afterwards so the
     // fleet simultaneously carries every state.
-    expectExitCode(await runCli(home, ["apply"]), 0);
+    expectExitCode(await runCliDefaultScope(home, ["apply"]), 0);
 
     // Induce each cause (DEC-002's five states plus one Blocked Project):
     // tracked generated files create the ownership Blocker, a hand-edited
@@ -1628,7 +1653,7 @@ describe("project-bound release candidate", () => {
     // 1. The default fleet view names every actionable Project exactly once,
     // grouped by primary cause, with the settled Project counted only
     // (US-001–003, US-006, US-016, TEST-003, TEST-004).
-    const status = await runCli(home, ["status"], { path: gitOnlyPath });
+    const status = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(status, 2);
     for (const group of [
       "needs attention (1):",
@@ -1672,7 +1697,7 @@ describe("project-bound release candidate", () => {
     // exactly once — one each for the multi-cause, source-changed, and
     // never-installed Projects' two new outputs — never duplicated (TEST-008,
     // TEST-012).
-    const verbose = await runCli(home, ["status", "--verbose"], { path: gitOnlyPath });
+    const verbose = await runCliDefaultScope(home, ["status", "--verbose"], { path: gitOnlyPath });
     expectExitCode(verbose, 2);
     expect(verbose.stdout).toMatch(
       new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+drifted output`),
@@ -1682,7 +1707,7 @@ describe("project-bound release candidate", () => {
 
     // 2. Narrowing selects exactly the DEC-006 memberships, and human and
     // machine selections agree (US-011, US-061, TEST-007, TEST-021).
-    const stale = await runCli(home, ["status", "--stale"], { path: gitOnlyPath });
+    const stale = await runCliDefaultScope(home, ["status", "--stale"], { path: gitOnlyPath });
     expectExitCode(stale, 0);
     for (const selected of [changed, multi, missing, source]) {
       expect(stale.stdout).toContain(selected);
@@ -1693,7 +1718,7 @@ describe("project-bound release candidate", () => {
     expect(countOccurrences(stale.stdout, "Next:")).toBe(1);
     expect(stale.stdout).toContain("Next: apkit apply --stale");
 
-    const blockedView = await runCli(home, ["status", "--blocked"], { path: gitOnlyPath });
+    const blockedView = await runCliDefaultScope(home, ["status", "--blocked"], { path: gitOnlyPath });
     expectExitCode(blockedView, 2);
     expect(blockedView.stdout).toContain(blocked);
     for (const excluded of [changed, multi, missing, source, neverInstalled, settled]) {
@@ -1701,10 +1726,10 @@ describe("project-bound release candidate", () => {
     }
 
     const staleJson = JSON.parse(
-      (await runCli(home, ["status", "--stale", "--json"], { path: gitOnlyPath })).stdout,
+      (await runCliDefaultScope(home, ["status", "--stale", "--json"], { path: gitOnlyPath })).stdout,
     ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
     const blockedJson = JSON.parse(
-      (await runCli(home, ["status", "--blocked", "--json"], { path: gitOnlyPath })).stdout,
+      (await runCliDefaultScope(home, ["status", "--blocked", "--json"], { path: gitOnlyPath })).stdout,
     ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
     expect(staleJson.projects.map((entry) => entry.canonicalProject).sort()).toEqual(
       [changed, missing, multi, source].map((entry) => realpathSync(entry)).sort(),
@@ -1715,7 +1740,7 @@ describe("project-bound release candidate", () => {
     // non-interactive completion replaces the changed generated files, names
     // every operation with its Project attribution, and prompts nothing
     // (US-030, TEST-014).
-    const staleApply = await runCli(home, ["apply", "--stale"], { path: gitOnlyPath });
+    const staleApply = await runCliDefaultScope(home, ["apply", "--stale"], { path: gitOnlyPath });
     expectExitCode(staleApply, 0);
     expect(staleApply.stdout).toContain("Apply complete");
     for (const committed of [changed, multi, missing, source]) {
@@ -1735,7 +1760,7 @@ describe("project-bound release candidate", () => {
 
     // Resulting state is reported separately from the committed receipt: the
     // four reconciled Projects are current while the excluded ones are not.
-    const afterStaleApply = await runCli(home, ["status"], { path: gitOnlyPath });
+    const afterStaleApply = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(afterStaleApply, 2);
     expect(afterStaleApply.stdout).toContain("needs attention (1):");
     expect(afterStaleApply.stdout).toContain("not installed yet (1):");
@@ -1743,7 +1768,7 @@ describe("project-bound release candidate", () => {
 
     // 4. Full-fleet non-interactive apply commits the never-installed Project,
     // leaves the Blocked Project untouched, and still exits 2 (TEST-021).
-    const fleetApply = await runCli(home, ["apply"], { path: gitOnlyPath });
+    const fleetApply = await runCliDefaultScope(home, ["apply"], { path: gitOnlyPath });
     expectExitCode(fleetApply, 2);
     expect(fleetApply.stdout).toContain("Apply complete");
     expect(fleetApply.stdout).toContain(neverInstalled);
@@ -1755,7 +1780,7 @@ describe("project-bound release candidate", () => {
 
     // 5. The printed Blocker remedy is runnable (US-021, TEST-010): execute
     // the exact untracking command, commit, and the Blocker clears.
-    const blockedRemedy = await runCli(home, ["status", "--blocked"], { path: gitOnlyPath });
+    const blockedRemedy = await runCliDefaultScope(home, ["status", "--blocked"], { path: gitOnlyPath });
     execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "remedy", "--allow-empty"]);
     execFileSync("sh", ["-c", remedyCommand(blockedRemedy.stdout)]);
     execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack generated files"]);
@@ -1763,7 +1788,7 @@ describe("project-bound release candidate", () => {
 
     // 6. The wholly settled fleet renders one line and invents no next action
     // (US-004, US-007, TEST-004).
-    const settledStatus = await runCli(home, ["status"], { path: gitOnlyPath });
+    const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(settledStatus, 0);
     expect(settledStatus.stdout).toBe("All Projects are current (7 Projects)\n");
     expect(settledStatus.stdout).not.toContain("Next:");
@@ -1852,25 +1877,31 @@ describe("project-bound release candidate", () => {
     expect(bindExample.stdout).toContain("Hosts: claude");
     expect(bindExample.stdout).toContain("Next: apkit status");
 
-    // 4. Follow the printed status: its next action is the exact apply for
-    // this Project, and the newcomer runs that printed command.
+    // 4. The newcomer works from inside the Project (the way the printed bind
+    // sentence says): the status next action printed there must be the real
+    // apply for this Project — a runnable target, not the cwd-relative alias
+    // the Project-target boundary rejects (US-007, US-012, INT-1).
     const readyStatus = await runCli(
       home,
       ["status", firstProject],
-      { path: journeyPath },
+      { path: journeyPath, cwd: firstProject },
     );
     expectExitCode(readyStatus, 0);
     expect(readyStatus.stdout).toContain("Ready to apply");
-    expect(readyStatus.stdout).toContain("- not installed yet (1):");
+    expect(readyStatus.stdout).toContain("- not installed yet (1): .");
     const printedApply = readyStatus.stdout
       .split("\n")
       .find((line) => line.startsWith("Next: apkit apply "))!
       .replace("Next: ", "");
-    // The typed Project path renders as the shared short identity, elided in
-    // the middle and keeping the tail visible (DEC-004, INT-2): the printed
-    // command is the real apply for this Project, run with its real root.
+    // The printed command's Project argument is a runnable target spelling
+    // (absolute or home-relative, elided with the tail visible per DEC-004),
+    // never the cwd-relative alias that `apkit apply` rejects as a relative
+    // target; the newcomer runs exactly the printed command with its real
+    // root restored from the visible tail.
     expect(printedApply.startsWith("apkit apply ")).toBe(true);
-    expect(printedApply.endsWith(firstProject.split("/").at(-1)!)).toBe(true);
+    const printedTarget = printedApply.slice("apkit apply ".length);
+    expect(printedTarget.startsWith("/") || printedTarget.startsWith("~")).toBe(true);
+    expect(printedTarget.endsWith(firstProject.split("/").at(-1)!)).toBe(true);
     const exampleApply = await runCli(
       home,
       ["apply", firstProject],
@@ -1960,7 +1991,7 @@ describe("project-bound release candidate", () => {
 
     // 8. The journey ends where the user is heading: every touched Project is
     // current, and the bare invocation summarizes the settled fleet.
-    const finalStatus = await runCli(home, ["status"], { path: journeyPath });
+    const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
     expectExitCode(finalStatus, 0);
     expect(finalStatus.stdout).toBe("All Projects are current (3 Projects)\n");
     const bareConfigured = await runCli(home, [], { path: journeyPath });

@@ -416,6 +416,7 @@ Cannot apply
       Affected paths (2):
         - .agent-profile-kit/codex/context.md
         - .codex/hooks.json
+- generated files changed (2): <project>, <project>
 - generated files missing (1): <project>
 - not installed yet (1): <project>
 - source changed (1): <project>
