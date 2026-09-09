@@ -181,6 +181,8 @@ export interface InitTargetPreview {
   readonly destinationPath: string;
   /** True when init will scaffold the example material into the destination. */
   readonly willScaffold: boolean;
+  /** Profile IDs init will scaffold into a missing or empty destination. */
+  readonly plannedScaffoldProfiles: readonly string[];
   /** Existing Profile IDs at the destination (after any scaffold). */
   readonly profiles: readonly string[];
   /** Existing Context Module IDs at the destination (after any scaffold). */
@@ -197,6 +199,7 @@ async function previewWorkspaceDestination(
     return {
       destinationPath: destination,
       willScaffold: true,
+      plannedScaffoldProfiles: [AUTHORING_EXAMPLES.profile.id],
       profiles: [],
       contexts: [AUTHORING_EXAMPLES.context.id],
       skills: [],
@@ -208,6 +211,7 @@ async function previewWorkspaceDestination(
     return {
       destinationPath: destination,
       willScaffold: false,
+      plannedScaffoldProfiles: [],
       profiles: [...workspace.profiles.keys()].sort(),
       contexts: [...workspace.contexts.keys()].sort(),
       skills: [...workspace.skills.keys()].sort(),
@@ -252,10 +256,27 @@ export async function previewInitTarget(
     return undefined;
   }
   const configured = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
-  const authored = options.workspace ?? configured;
   try {
-    const resolved = await resolveWorkspaceRoot(home, authored, configPath);
-    return await previewWorkspaceDestination(resolved.path);
+    if (options.workspace !== undefined) {
+      // Share init's read-only explicit-selection eligibility check: the same
+      // resolution and canonical-match comparison initialization performs, so
+      // a selection init will refuse never enters guidance; init then explains
+      // the conflict itself.
+      const eligible = await initializeExplicitWorkspaceSelection(
+        home,
+        options.workspace,
+        configured,
+        configPath,
+      );
+      return await previewWorkspaceDestination(eligible.path);
+    }
+    // Mirror init's own no-argument branch selection: the conventional default
+    // selection initializes through the default path, anything else through
+    // the configured Workspace.
+    const destination = selectsConventionalDefaultWorkspace(home, configured)
+      ? await assertWorkspaceSelectionPath(home, workspacePath(home))
+      : (await resolveWorkspaceRoot(home, configured, configPath)).path;
+    return await previewWorkspaceDestination(destination);
   } catch {
     return undefined;
   }

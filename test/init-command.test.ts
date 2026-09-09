@@ -16,6 +16,8 @@ import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { runInitCommand } from "../cli/init-command.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { InstallerToolError } from "../installer/tool-errors.js";
+import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -315,5 +317,122 @@ describe("guided first-Profile init", () => {
     // The Workspace existed before this invocation; initialization did not run.
     expect(existsSync(join(workspacePath(home), "profiles", ".gitkeep"))).toBe(true);
     expect(plain(streams.errorText())).toContain("Profile");
+  }, 20_000);
+
+  test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
+    const home = isolatedHome();
+    await initializeWorkspace(home);
+    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
+    rmSync(join(workspacePath(home), "context", "example-context.md"));
+    mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "skills", "release-check", "SKILL.md"),
+      '---\nname: "release-check"\ndescription: Check the release state.\n---\n\n# release-check\n',
+    );
+    writeConfig(home, workspacePath(home));
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input);
+
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("y");
+    await waitForOutput(streams.humanText, "What should the Profile be named?");
+    input.write("my-profile\r");
+    await waitForOutput(streams.humanText, "Which Skills?");
+    input.write(" \r");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(plain(streams.humanText())).not.toContain("Which Context Modules?");
+    const profile = readFileSync(join(workspacePath(home), "profiles", "my-profile.yaml"), "utf8");
+    expect(profile).toContain("context: []");
+    expect(profile).toContain('- "release-check"');
+    expect(plain(streams.humanText())).toContain("apkit new profile my-profile --skill release-check");
+  }, 20_000);
+
+  test("a conflicting explicit Workspace selection never enters guidance", async () => {
+    const home = isolatedHome();
+    const a = join(home, "workspace-a");
+    const b = join(home, "workspace-b");
+    await initializeWorkspace(home, { workspace: a }); // Local Configuration selects A
+    writeMaterial(a, "team-rules");
+    // B is a distinct valid Workspace with selectable material.
+    mkdirSync(join(b, "context"), { recursive: true });
+    mkdirSync(join(b, "profiles"), { recursive: true });
+    writeFileSync(join(b, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(
+      join(b, "context", "other.md"),
+      "---\nid: other\ndependencies: []\n---\nContent for other.\n",
+    );
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [b], input);
+
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+
+    // Guidance never asked: the known-invalid selection keeps the delivered
+    // initialization error (parity with non-interactive behavior).
+    expect(failure).toBeInstanceOf(InstallerToolError);
+    expect((failure as InstallerToolError).fact.kind).toBe("init-workspace-selection-conflict");
+    expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
+    expect(existsSync(join(a, "profiles", "my-profile.yaml"))).toBe(false);
+  }, 20_000);
+
+  test("an explicit Workspace equivalent to the configured selection is eligible for guidance", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "configured");
+    await initializeWorkspace(home, { workspace }); // Local Configuration selects it
+    rmSync(join(workspace, "profiles", "example.yaml"));
+    writeMaterial(workspace, "team-rules");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [workspace], input);
+
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(plain(streams.humanText())).toContain("already initialized");
+  }, 20_000);
+
+  test("the scaffolded example Profile name is refused on a fresh destination before any write", async () => {
+    const home = isolatedHome();
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input);
+
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("y");
+    await waitForOutput(streams.humanText, "What should the Profile be named?");
+    input.write("example\r");
+    await waitForOutput(streams.errorText, "Profile name 'example' is duplicated");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(plain(streams.errorText())).toContain("Profile name 'example' is duplicated");
+  }, 20_000);
+
+  test("the scaffolded example Profile name is refused on an empty destination before any write", async () => {
+    const home = isolatedHome();
+    const empty = join(home, "empty-destination");
+    mkdirSync(empty, { recursive: true });
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [empty], input);
+
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("y");
+    await waitForOutput(streams.humanText, "What should the Profile be named?");
+    input.write("example\r");
+    await waitForOutput(streams.errorText, "Profile name 'example' is duplicated");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(join(empty, "workspace.yaml"))).toBe(false);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(plain(streams.errorText())).toContain("Profile name 'example' is duplicated");
   }, 20_000);
 });

@@ -222,18 +222,35 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     );
     return { exitCode: 1 };
   }
+  // A missing or empty destination still receives the scaffolded example
+  // Profile before creation runs; refuse the collision before any write with
+  // the delivered duplicate-name fact createProfile would raise.
+  if (preview.plannedScaffoldProfiles.includes(name)) {
+    writeHumanDocument(
+      request.stderr,
+      errorDiagnosticDocument(new InstallerToolError({
+        kind: "duplicate-artifact-name",
+        artifactType: "Profile",
+        id: name,
+      })),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
 
   // Each available category is offered when material exists (US-045); a
-  // category with no material is skipped. When both exist, either may stay
-  // empty and the total is checked afterwards; with one category left, that
-  // category must be selected, because a Profile requires at least one
-  // artifact.
+  // category with no material is skipped — a zero-choice question cannot be
+  // answered. When both exist, either may stay empty and the total is checked
+  // afterwards; with one category left, that category must be selected,
+  // because a Profile requires at least one artifact.
   const bothAvailable = preview.contexts.length > 0 && preview.skills.length > 0;
-  const contextAnswer = await guidedPrompts.multiSelect(
-    CONTEXT_QUESTION,
-    preview.contexts.map((id) => ({ title: id, value: id })),
-    { min: bothAvailable ? 0 : 1 },
-  );
+  const contextAnswer = preview.contexts.length > 0
+    ? await guidedPrompts.multiSelect(
+      CONTEXT_QUESTION,
+      preview.contexts.map((id) => ({ title: id, value: id })),
+      { min: bothAvailable ? 0 : 1 },
+    )
+    : { kind: "selected" as const, values: [] as readonly string[] };
   if (contextAnswer.kind === "cancelled") {
     writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
     return { exitCode: 1 };
