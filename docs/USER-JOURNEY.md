@@ -36,9 +36,12 @@ the integrated newcomer journey (isolated machine, present and absent
 controlled Hosts, only printed actions from bare invocation through example
 apply, real material authoring via the printed handoff commands, binding and
 applying the real Profile, advisory absent-Host warnings, and the concrete
-Host-loading verification guidance). First-run excerpts in stages 1–5, 8, and
-10–12, the interactive confirmation in stage 8, and the teardown receipts in
-stage 12 were captured from those integrated runs.
+Host-loading verification guidance). The interactive changed-output
+confirmation in stage 8 and the teardown receipts in stage 12 were captured
+from separate interactive PTY sessions of the same packed build (the
+confirmation's accept/decline behavior is pinned by the prompt-seam tests in
+`test/apply-confirmation.test.ts` and `test/apply-command.test.ts`, and the
+teardown non-prompting audit by `test/cli.test.ts`).
 
 Earlier qualification evidence remains recorded for provenance. Fleet-scale
 qualification (spec #193, ticket #205): the 12-Project workload — one shared

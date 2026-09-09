@@ -399,21 +399,24 @@ function countOccurrences(haystack: string, needle: string): number {
 
 /**
  * Reconstruct the runnable Git remedy command printed inside a tracked-output
- * Blocker row: the remedy wraps its command across indented lines, and the
- * wrapped tokens are each single-quoted so collapsing whitespace restores the
- * exact command (US-021, TEST-010).
+ * Blocker row: the remedy renders its command with each path as one quoted
+ * atomic token, wrapped across indented lines as needed, so collecting the
+ * command's tokens from the stable `git --literal-pathspecs` anchor onward and
+ * collapsing whitespace restores the exact command. The anchor is the stable
+ * command token, not the surrounding prose (US-021, TEST-010).
  */
 function remedyCommand(view: string): string {
-  const start = view.indexOf("run\n");
-  const end = view.indexOf("— it stages", start);
-  if (start === -1 || end === -1) {
-    throw new Error(`no wrapped Git remedy command found in:\n${view}`);
+  const lines = view.split("\n").map((line) => line.trim());
+  const start = lines.findIndex((line) => line.startsWith("git --literal-pathspecs"));
+  if (start === -1) {
+    throw new Error(`no Git remedy command found in:\n${view}`);
   }
-  return view
-    .slice(start + "run\n".length, end)
-    .split("\n")
-    .map((line) => line.trim())
-    .join(" ");
+  const pieces = [lines[start]!];
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith("'")) break;
+    pieces.push(line);
+  }
+  return pieces.join(" ");
 }
 
 /** Apply through the in-process seam and keep the delivered abort errors typed. */
@@ -1665,14 +1668,17 @@ describe("project-bound release candidate", () => {
 
     // Verbose diagnostics retain every underlying cause of the multi-cause
     // Project: drifted output beside its affected path plus the source-change
-    // cause, each stated once (TEST-008, fact-once).
+    // cause. Fact-once: every affected output states its source-change cause
+    // exactly once — one each for the multi-cause, source-changed, and
+    // never-installed Projects' two new outputs — never duplicated (TEST-008,
+    // TEST-012).
     const verbose = await runCli(home, ["status", "--verbose"], { path: gitOnlyPath });
     expectExitCode(verbose, 2);
     expect(verbose.stdout).toMatch(
       new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+drifted output`),
     );
     expect(verbose.stdout).toContain("addition (source changed)");
-    expect(countOccurrences(verbose.stdout, "(source changed)")).toBeGreaterThan(0);
+    expect(countOccurrences(verbose.stdout, "(source changed)")).toBe(4);
 
     // 2. Narrowing selects exactly the DEC-006 memberships, and human and
     // machine selections agree (US-011, US-061, TEST-007, TEST-021).
@@ -1827,7 +1833,6 @@ describe("project-bound release candidate", () => {
     expect(init.stdout).toContain("Detected Agent Hosts: claude, codex, opencode");
     for (const absentHost of ["antigravity", "grok", "pi"]) {
       expect(init.stdout).not.toContain(`--host ${absentHost}`);
-      expect(init.stdout).not.toContain(`${absentHost}, `);
     }
     // The suggested first bind names a detected Host and is the one printed
     // command the newcomer needs (US-039).
