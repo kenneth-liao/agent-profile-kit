@@ -1893,22 +1893,27 @@ describe("project-bound release candidate", () => {
       .split("\n")
       .find((line) => line.startsWith("Next: apkit apply "))!
       .replace("Next: ", "");
-    // The printed command's Project argument is a runnable target spelling
-    // (absolute or home-relative, elided with the tail visible per DEC-004),
-    // never the cwd-relative alias that `apkit apply` rejects as a relative
-    // target; the newcomer runs exactly the printed command with its real
-    // root restored from the visible tail.
+    // The printed command's Project argument is a runnable target spelling:
+    // fully spelled (no middle elision inside a copyable command token —
+    // US-007, review INT-1 cycle 2 on #489), so the newcomer runs exactly the
+    // printed command, verbatim, from inside the Project.
     expect(printedApply.startsWith("apkit apply ")).toBe(true);
     const printedTarget = printedApply.slice("apkit apply ".length);
     expect(printedTarget.startsWith("/") || printedTarget.startsWith("~")).toBe(true);
     expect(printedTarget.endsWith(firstProject.split("/").at(-1)!)).toBe(true);
+    expect(printedTarget).not.toContain("…");
     const exampleApply = await runCli(
       home,
-      ["apply", firstProject],
-      { path: journeyPath },
+      printedApply.split(" ").slice(1),
+      { path: journeyPath, cwd: firstProject },
     );
     expectExitCode(exampleApply, 0);
     expect(exampleApply.stdout).toContain("Apply complete");
+    // The printed command was executed verbatim from inside the Project, so
+    // the receipt narratively renders the containing Project at its
+    // cwd-relative identity (`.`) — the shared short-identity policy.
+    expect(exampleApply.stdout).toContain("(.)");
+    expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     // Concrete user verification guidance names the applied Profile, the
     // configured Host, and the Project, without claiming Agent Profile Kit
     // observed the loading (US-041, DEC-025, OOS-009).
@@ -1916,7 +1921,6 @@ describe("project-bound release candidate", () => {
     expect(exampleHuman).toContain(
       `To check that claude loaded Profile example, start a new claude session in`,
     );
-    expect(exampleHuman).toContain(firstProject);
     expect(exampleHuman).toContain("ask claude what Profile material it loaded");
     expect(exampleHuman).not.toContain("Agent Profile Kit verified");
 
@@ -2059,21 +2063,20 @@ describe("project-bound release candidate", () => {
     expectExitCode(readyStatus, 0);
     expect(readyStatus.stdout).toContain("Ready to apply");
     expect(readyStatus.stdout).toContain("- not installed yet (1):");
-    // INT-2: the selected Project is a typed path argument rendered through the
-    // shared project-scope identity, kept on one line by eliding to the width.
+    // INT-2 (corrected by review INT-1 cycle 2 on #489): the selected Project
+    // is a typed path argument rendered through the shared project-scope
+    // identity, and a copyable command token is never middle-elided — the
+    // full runnable identity is spelled out, however wide it renders.
     const nextLine = readyStatus.stdout.split("\n")
       .find((line) => line.startsWith("Next: apkit apply "));
     const detailsLine = readyStatus.stdout.split("\n")
       .find((line) => line.startsWith("Details: apkit status "));
-    for (const [line, tail] of [
-      [nextLine, boundProject.split("/").at(-1)!],
-      [detailsLine, "--verbose"],
-    ] as const) {
+    for (const line of [nextLine, detailsLine]) {
       expect(line).toBeDefined();
-      expect(line!.endsWith(tail)).toBe(true);
-      expect(line!.length).toBeLessThanOrEqual(80);
+      expect(line!.includes("…")).toBe(false);
+      expect(line!.includes(boundProject.split("/").at(-1)!)).toBe(true);
     }
-    expect(detailsLine!.includes(boundProject.split("/").at(-1)!)).toBe(true);
+    expect(detailsLine!.endsWith("--verbose")).toBe(true);
     expect(readyStatus.stdout).not.toContain("Standing Host setup:");
     expect(readyStatus.stdout).not.toContain("Host setup:");
 

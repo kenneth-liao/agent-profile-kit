@@ -449,7 +449,9 @@ selects Projects with Project-scoped Blockers. The flags are mutually
 exclusive, compose with fleet, `--here`, and explicit Project scope, and
 select the same Projects for reports and apply writes (shown in stage 10).
 Each selected view states one primary next action naming the selected scope
-(US-007):
+(US-007), and every copyable command argument is executable as printed: the
+Project identity renders home-relative or absolute, never the cwd-relative
+alias and never middle-elided, so the printed action never dead-ends.
 
 ```
 $ apkit status --stale

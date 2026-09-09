@@ -409,15 +409,13 @@ function withWidth(
 }
 
 function renderCommand(node: CommandNode, environment: RenderEnvironment): string {
-  const prefixParts = [node.program];
-  const pathArgs: CommandPathArg[] = [];
-  for (const arg of node.args) {
-    if (arg.kind === "text") prefixParts.push(arg.value);
-    else pathArgs.push(arg);
-  }
-  const prefix = pathArgs.length === 0 ? prefixParts.join(" ") : `${prefixParts.join(" ")} `;
-  const remaining = Math.max(1, environment.context.width - prefix.length);
-  const renderedArgs = node.args.map((arg) =>
+  // A copyable command argument must be executable as printed: the identity
+  // renders fully spelled — home-relative or absolute, never middle-elided —
+  // because an elided token is a path that does not exist. Long commands
+  // render past the width exactly like the remedy commands, whose quoted
+  // path tokens are already spelled out in full (US-007, review INT-1
+  // cycle 2 on #489).
+  return [node.program, ...node.args.map((arg) =>
     arg.kind === "text"
       ? arg.value
       : displayPath(
@@ -426,10 +424,8 @@ function renderCommand(node: CommandNode, environment: RenderEnvironment): strin
         arg.scope,
         environment.cwd,
         environment.home,
-        remaining,
       ),
-  );
-  return [node.program, ...renderedArgs].join(" ");
+  )].join(" ");
 }
 
 function unstyled(environment: RenderEnvironment): RenderEnvironment {
