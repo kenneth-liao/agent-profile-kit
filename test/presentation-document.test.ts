@@ -126,7 +126,7 @@ test("never splits a path and elides in the middle through displayPath", () => {
   expect(text.endsWith("agent-profile-kit")).toBe(true);
 });
 
-test("renders a command on one line by shortening a path argument", () => {
+test("renders a command argument fully spelled, never middle-elided", () => {
   const home = "/Users/kennethliao";
   const cwd = "/tmp";
   const project = `${home}/projects/deeply/nested/workspaces/agent-profile-kit`;
@@ -151,9 +151,13 @@ test("renders a command on one line by shortening a path argument", () => {
   const prefix = "apkit apply ";
   expect(text.split("\n")).toHaveLength(1);
   expect(text.startsWith(prefix)).toBe(true);
-  expect(text.length).toBeLessThanOrEqual(context.width);
+  // A copyable command token is executable as printed: the identity renders
+  // fully spelled — never middle-elided, however wide that renders (review
+  // INT-1 cycle 2 on #489).
+  // Shell-quoted as one POSIX token through the shared quoting boundary
+  // (review RE-1 on #489).
   expect(text.slice(prefix.length)).toBe(
-    displayPath(project, project, "fleet", cwd, home, context.width - prefix.length),
+    `'${displayPath(project, project, "fleet", cwd, home)}'`,
   );
 });
 

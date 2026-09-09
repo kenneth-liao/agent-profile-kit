@@ -2695,11 +2695,16 @@ function lifecycleCommandArgs(
     } else {
       if (report !== undefined && scope !== undefined) {
         const group = selectedProjectGroup(report, selection.target);
+        // A copyable command argument must be a runnable target: the fleet
+        // identity is home-relative or absolute, which the Project-target
+        // boundary accepts, while the project-scope identity can render the
+        // cwd-relative alias that every relative target is rejected as
+        // (US-007; the typed relative-target fact).
         args.push({
           kind: "path",
           canonicalPath: group.canonicalProject,
           authoredPath: group.project,
-          scope,
+          scope: "fleet",
         });
       } else {
         args.push({ kind: "text", value: selection.target });

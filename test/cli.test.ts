@@ -1991,13 +1991,19 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // 3. Blocked status <secondProject> by explicit path
     const statusExact = await runCli(home, "status", secondProject);
     expectExitCode(statusExact, 2);
-    expect(humanText(statusExact.stdout)).toContain("Resolve the reported blocker, then run apkit status ~/projects/second again.");
+    // The copyable command argument is one shell-quoted token (review RE-1 on
+    // #489).
+    expect(humanText(statusExact.stdout)).toContain(
+      "Resolve the reported blocker, then run apkit status '~/projects/second' again.",
+    );
     expect(statusExact.stdout).not.toContain("then run apkit status again.");
 
     // 4. Blocked apply <secondProject> by explicit path
     const applyExact = await runCli(home, "apply", secondProject);
     expectExitCode(applyExact, 2);
-    expect(humanText(applyExact.stdout)).toContain("Resolve the reported blocker, then run apkit apply ~/projects/second again.");
+    expect(humanText(applyExact.stdout)).toContain(
+      "Resolve the reported blocker, then run apkit apply '~/projects/second' again.",
+    );
     expect(applyExact.stdout).not.toContain("then run apkit apply again.");
     // Prove firstProject was still NOT written
     expect(existsSync(join(firstProject, ".agent-profile-kit"))).toBe(false);
@@ -2012,7 +2018,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const globalBlockedApplyExact = await runCli(home, "apply", firstProject);
     expectExitCode(globalBlockedApplyExact, 2);
-    expect(humanText(globalBlockedApplyExact.stdout)).toContain("Resolve the reported global blocker, then run apkit apply ~/projects/first again.");
+    expect(humanText(globalBlockedApplyExact.stdout)).toContain(
+      "Resolve the reported global blocker, then run apkit apply '~/projects/first' again.",
+    );
   });
 
   test("--here in an unbound working directory fails with actionable guidance", async () => {
@@ -2052,12 +2060,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const explicitStatus = await runCli(home, "status", absolute);
     expectExitCode(explicitStatus, 0);
     // The selected Project is a typed path argument (INT-2): it renders the
-    // shared project-scope display identity instead of the raw argument.
+    // shared project-scope display identity as one shell-quoted token
+    // (review RE-1 on #489).
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Next: apkit apply ~/projects/absolute-project"),
+      humanText("Next: apkit apply '~/projects/absolute-project'"),
     );
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Details: apkit status ~/projects/absolute-project --verbose"),
+      humanText("Details: apkit status '~/projects/absolute-project' --verbose"),
     );
 
     expectExitCode(await runCli(home, "apply", absolute), 0);
@@ -13845,6 +13854,32 @@ describe("packed CLI new skill", () => {
     const skillFile = join(realpathSync(workspacePath(home)), "skills", "prompt-check", "SKILL.md");
     expect(result.stdout).toContain(skillFile);
     expect(existsSync(skillFile)).toBe(true);
+  });
+
+  test("teardown commands never prompt on an interactive terminal and keep their delivered receipts (US-055 teardown clause, DEC-030, #461)", async () => {
+    // DEC-030 allows prompts on exactly bind, init, and the apply confirmation.
+    // The PTY here makes every input stream a terminal, so a prompt would
+    // either wait on input or cancel at EOF and change the receipt — either
+    // way the delivered receipts below would not render.
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const projectPath = gitRepository();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "apply"), 0);
+
+    const uninstall = await runCliInPty(home, 80, "uninstall");
+    expectExitCode(uninstall, 0);
+    expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
+    expect(uninstall.stdout).not.toContain("?");
+    expect(uninstall.stdout).not.toContain("cancel");
+
+    const unbind = await runCliInPty(home, 80, "unbind", projectPath);
+    expectExitCode(unbind, 0);
+    expect(unbind.stdout).toContain("Removed configured Project for");
+    expect(unbind.stdout).not.toContain("?");
+    expect(unbind.stdout).not.toContain("cancel");
   });
 
   test("new skill refuses a duplicated Artifact ID, an occupied destination, invalid names, and symlinks without writing", async () => {

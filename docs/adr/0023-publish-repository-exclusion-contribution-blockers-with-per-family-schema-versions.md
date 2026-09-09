@@ -12,7 +12,7 @@ The structured Blocker kind therefore becomes `repository-exclusion-contribution
 
 Every JSON payload that carries the exhaustive Blocker vocabulary publishes schema version 8. Version lines are per JSON command family, not global: the `status`/`apply` lifecycle payloads and the `install-temp`/`remove-temp` payloads (success receipt, blocked, tool error) each version as one family, so a version number identifies one command's whole JSON contract and a lifecycle-only change cannot re-version temporary output. Both families currently publish 8; that coincidence is not a coupling.
 
-*Superseded in place:* the "currently publish 8" statement no longer holds. The lifecycle family now publishes `schemaVersion: 14` and the temporary-installation family `schemaVersion: 9`, each carrying its family's whole JSON contract. The per-family versioning principle itself remains in force; only the current version numbers were superseded by later deliveries.
+*Superseded in place:* the "currently publish 8" statement no longer holds. The lifecycle family now publishes `schemaVersion: 15` — incremented from 14 by the narrowed Project-selection flags and warning cases of spec #373 (ticket #455, DEC-040) — and the temporary-installation family `schemaVersion: 9`, each carrying its family's whole JSON contract. The per-family versioning principle itself remains in force; only the current version numbers were superseded by later deliveries.
 
 The maintained glossary defines Safe Repair and the receipt-owned Repository Exclusion Contribution boundary.
 

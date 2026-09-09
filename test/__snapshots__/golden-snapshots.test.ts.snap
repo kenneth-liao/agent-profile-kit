@@ -996,7 +996,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.173.0
+Engine version: 0.173.3
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1143,9 +1143,9 @@ exports[`golden snapshots of every human view status pending: status-pending 1`]
 "--- stdout ---
 Ready to apply
 - not installed yet (1): ~/projects/demo
-Next: apkit apply ~/projects/demo
+Next: apkit apply '~/projects/demo'
 
-Details: apkit status ~/projects/demo --verbose
+Details: apkit status '~/projects/demo' --verbose
 --- stderr ---
 "
 `;
@@ -1172,7 +1172,9 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
+- Resolve the reported blocker, then run
+  apkit status '~/projects/blocked'
+  again.
 --- stderr ---
 "
 `;
@@ -1202,7 +1204,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1231,7 +1233,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1262,7 +1264,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1292,7 +1294,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1323,7 +1325,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1354,7 +1356,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/tracked-counts
+  apkit status '~/projects/tracked-counts'
   again.
 --- stderr ---
 "
@@ -1401,7 +1403,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/blocked --blocked
+  apkit status '~/projects/blocked' --blocked
   again.
 --- stderr ---
 "
@@ -1470,7 +1472,7 @@ Git exclusions: 2 entries to add.
 Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit apply ~/projects/blocked again.
+- Resolve the reported blocker, then run apkit apply '~/projects/blocked' again.
 --- stderr ---
 "
 `;
@@ -1823,7 +1825,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.173.0
+Engine version: 0.173.3
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1833,7 +1835,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.173.0\x1B[0m
+\x1B[35mEngine version: 0.173.3\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1843,7 +1845,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.173.0
+Engine version: 0.173.3
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1853,7 +1855,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.173.0\x1B[0m
+\x1B[35mEngine version: 0.173.3\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -1962,7 +1964,7 @@ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/projects/blocked
+  apkit status '~/projects/blocked'
   again.
 --- stderr ---
 "
@@ -1999,7 +2001,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 \x1B[1;34mNext:\x1B[0m
 - Resolve the reported blocker, then run
-  apkit status ~/projects/blocked
+  apkit status '~/projects/blocked'
   again.
 --- stderr ---
 "
@@ -2026,7 +2028,7 @@ Cannot apply
 Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
+- Resolve the reported blocker, then run apkit status '~/projects/blocked' again.
 --- stderr ---
 "
 `;
@@ -2052,7 +2054,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 \x1B[31mProjects: 1 · Blockers: 1\x1B[0m
 
 \x1B[1;34mNext:\x1B[0m
-- Resolve the reported blocker, then run apkit status ~/projects/blocked again.
+- Resolve the reported blocker, then run apkit status '~/projects/blocked' again.
 --- stderr ---
 "
 `;

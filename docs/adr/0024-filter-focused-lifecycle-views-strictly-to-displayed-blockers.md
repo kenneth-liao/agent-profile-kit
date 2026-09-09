@@ -1,8 +1,17 @@
 ---
-status: accepted
+status: superseded by ADR-0026
 ---
 
 # Filter focused lifecycle views strictly to displayed Blockers
+
+*Superseded in place (ADR-0026, spec #373 DEC-041):* the presentation-only
+`--blockers-only` contract this record accepted — including the prohibition on
+combining filters with `--json` — was removed by ticket #455. The replacement
+`--stale` and `--blocked` filters select the same Projects for human reports,
+machine JSON, and apply write scope, keep Global Blockers visible and
+effective, and retain complete write receipts; the default views this record
+constrained are replaced by the task-sufficient default lifecycle view. This
+record remains the historical account of the presentation-only filter era.
 
 An ordinary blocked `status` report interleaves Blocker evidence with the complete lifecycle inventory — output operations, selected setup, warnings, Host Setup Steps — so a fleet with two Blockers can produce thousands of lines before the user reaches the conditions that actually stop `apply` (spec #345, ticket #351; extended to `apply` by ticket #352). The accepted decision, implementing spec #345 Decision 5:
 

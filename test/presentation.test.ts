@@ -771,7 +771,10 @@ describe("lifecycle status document", () => {
         arg.kind === "path" &&
         arg.canonicalPath === project &&
         arg.authoredPath === project &&
-        arg.scope === "project"
+        // The command argument carries the runnable fleet identity (home-
+        // relative or absolute), not the cwd-relative project-scope alias the
+        // Project-target boundary rejects (US-007, review INT-1 on #489).
+        arg.scope === "fleet"
       )
     )).toBe(true);
     expect(commands.some((node) =>
@@ -788,21 +791,21 @@ describe("lifecycle status document", () => {
       if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
         continue;
       }
-      // The typed path argument shortens through the renderer's displayPath
-      // contract (INT-2): the complete command stays on one fitting line and
-      // the elision marker shows the shortened identity.
+      // A copyable command token is never middle-elided (review INT-1 cycle 2
+      // on #489): the identity renders fully spelled so the command executes
+      // as printed, exactly like the already-unelided remedy commands, even
+      // when that renders past the selected width.
       expect(line.split("\n")).toHaveLength(1);
-      expect(line.length, `command exceeds width: ${line}`).toBeLessThanOrEqual(40);
-      expect(line).toContain("…");
+      expect(line).not.toContain("…");
     }
-    // displayPath keeps whole trailing segments while they fit and only then
-    // elides, so the runnable command tail survives shortening.
+    // The full runnable identity survives at any width: the command tail and
+    // the leading directory segments are all present.
     const nextLine = rendered.split("\n").find((line) => line.startsWith("Next: apkit apply"));
     const detailsLine = rendered.split("\n").find((line) => line.startsWith("Details: apkit status"));
-    expect(nextLine).toMatch(/^Next: apkit apply \/…\//);
-    expect(nextLine!.endsWith("demo project")).toBe(true);
-    expect(detailsLine).toMatch(/^Details: apkit status \/…/);
-    expect(detailsLine!.endsWith("--verbose")).toBe(true);
+    // The argument is one shell-quoted token around the full identity
+    // (review RE-1 on #489): the printed command executes as printed.
+    expect(nextLine).toContain(`apkit apply '${project}'`);
+    expect(detailsLine).toContain(`apkit status '${project}' --verbose`);
   });
 
   test("wraps clean, attention, blocked, and verbose status prose to the selected width", () => {
@@ -1703,9 +1706,10 @@ describe("responsive lifecycle presentation", () => {
   test("keeps copyable Project paths and command invocations intact while wrapping prose", () => {
     const project = "/tmp/agent profile kit/project with a long name";
     const report = identityReport(project);
-    // At a narrow width the selected-Project command argument shortens through
-    // displayPath (INT-2) so each command stays on one fitting line; with room
-    // to spare the copyable Project path survives intact.
+    // A copyable command token is never middle-elided at any width (review
+    // INT-1 cycle 2 on #489): the identity renders fully spelled so each
+    // command executes as printed, exactly like the already-unelided remedy
+    // commands, even when that renders past the selected width.
     const status = renderBoundary(
       lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: project } }),
       context(40),
@@ -1721,12 +1725,12 @@ describe("responsive lifecycle presentation", () => {
         continue;
       }
       expect(line.split("\n")).toHaveLength(1);
-      expect(line.length, `command exceeds width: ${line}`).toBeLessThanOrEqual(40);
-      expect(line).toContain("…");
+      expect(line).not.toContain("…");
     }
-    expect(status).toContain("apkit apply");
-    expect(wideStatus).toContain(`apkit apply ${project}`);
-    expect(wideStatus).toContain(`apkit status ${project} --verbose`);
+    expect(status).toContain(`apkit apply '${project}'`);
+    expect(status).toContain(`apkit status '${project}' --verbose`);
+    expect(wideStatus).toContain(`apkit apply '${project}'`);
+    expect(wideStatus).toContain(`apkit status '${project}' --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
 
@@ -6040,7 +6044,7 @@ describe("operation-first multi-Project presentation", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "apply" },
-        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
     const details = keyValuesIn(concise, "Details")[0]!.value;
@@ -6049,7 +6053,7 @@ describe("operation-first multi-Project presentation", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "status" },
-        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
         { kind: "text", value: "--verbose" },
       ],
     });
@@ -6182,13 +6186,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const status = lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: "/project-a" } });
     // The authored identity is the path argument; the canonical spelling stays
-    // out of the document.
+    // out of the document. The argument carries the runnable fleet identity so
+    // the printed command is always a valid target (US-007, INT-1 on #489).
     expect(keyValuesIn(status, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
       args: [
         { kind: "text", value: "apply" },
-        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
     expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
@@ -6196,7 +6201,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       program: "apkit",
       args: [
         { kind: "text", value: "status" },
-        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "project" },
+        { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
         { kind: "text", value: "--verbose" },
       ],
     });

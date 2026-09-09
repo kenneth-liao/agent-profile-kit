@@ -18,6 +18,10 @@ import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
+import {
+  cleanupTemporaryDirectories,
+  prepareDriftedFleet,
+} from "./support/apply-confirmation-fixture.js";
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
@@ -26,8 +30,10 @@ import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
   runProcess,
+  type ProcessResult,
 } from "../process/process-executor.js";
 import { formatLifecycleJson } from "../cli/presentation.js";
+import { applyReconciliation, ApplyDeclinedError } from "../installer/reconcile.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { createLifecycleGitInspectionContext } from "../installer/lifecycle-git-inspection.js";
 import { createProjectReadScheduler } from "../installer/project-scheduler.js";
@@ -199,7 +205,7 @@ function withFleetScope(arguments_: readonly string[]): readonly string[] {
 async function runCli(
   home: string,
   arguments_: readonly string[],
-  options: { readonly path?: string; readonly deadlineMs?: number } = {},
+  options: { readonly path?: string; readonly deadlineMs?: number; readonly cwd?: string } = {},
 ) {
   return runProcess({
     executable: nodeBinary,
@@ -209,8 +215,33 @@ async function runCli(
       HOME: home,
       ...(options.path === undefined ? {} : { PATH: options.path }),
     },
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
+  });
+}
+
+/**
+ * Run the packed CLI at its printed default scope: unlike {@link runCli}, no
+ * historical `--all` is injected, so a fleet invocation without a positional
+ * or filter exercises the delivered default (US-009, DEC-001).
+ */
+async function runCliDefaultScope(
+  home: string,
+  arguments_: readonly string[],
+  options: { readonly path?: string; readonly deadlineMs?: number; readonly cwd?: string } = {},
+) {
+  return runProcess({
+    executable: nodeBinary,
+    arguments_: [cliPath, ...arguments_],
+    environment: {
+      ...process.env,
+      HOME: home,
+      ...(options.path === undefined ? {} : { PATH: options.path }),
+    },
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
+    commandLabel: "packed CLI (default scope)",
   });
 }
 
@@ -229,10 +260,28 @@ function enableCodexHooks(home: string): void {
 function allowlistBin(home: string): string {
   const bin = join(home, "allow-bin");
   mkdirSync(bin, { recursive: true });
-  symlinkSync(
-    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
-    join(bin, "git"),
-  );
+  const gitLink = join(bin, "git");
+  if (!existsSync(gitLink)) {
+    symlinkSync(
+      realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
+      gitLink,
+    );
+  }
+  return bin;
+}
+
+/**
+ * A bin directory whose `apkit` is the packed CLI under the supported Node
+ * runtime: printed `apkit …` commands execute verbatim through a shell, the
+ * way a user's terminal resolves them.
+ */
+function apkitBin(home: string): string {
+  const bin = allowlistBin(home);
+  const shim = join(bin, "apkit");
+  if (!existsSync(shim)) {
+    writeFileSync(shim, `#!/bin/sh\nexec '${nodeBinary}' '${cliPath}' "$@"\n`);
+    execFileSync("chmod", ["+x", shim]);
+  }
   return bin;
 }
 
@@ -384,6 +433,43 @@ function filesUnder(root: string): readonly string[] {
 
   visit(root);
   return files.sort();
+}
+
+/** Count non-overlapping occurrences of one exact substring. */
+function countOccurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1;
+}
+
+/**
+ * Reconstruct the runnable Git remedy command printed inside a tracked-output
+ * Blocker row: the remedy renders its command with each path as one quoted
+ * atomic token, wrapped across indented lines as needed, so collecting the
+ * command's tokens from the stable `git --literal-pathspecs` anchor onward and
+ * collapsing whitespace restores the exact command. The anchor is the stable
+ * command token, not the surrounding prose (US-021, TEST-010).
+ */
+function remedyCommand(view: string): string {
+  const lines = view.split("\n").map((line) => line.trim());
+  const start = lines.findIndex((line) => line.startsWith("git --literal-pathspecs"));
+  if (start === -1) {
+    throw new Error(`no Git remedy command found in:\n${view}`);
+  }
+  const pieces = [lines[start]!];
+  for (const line of lines.slice(start + 1)) {
+    if (!line.startsWith("'")) break;
+    pieces.push(line);
+  }
+  return pieces.join(" ");
+}
+
+/** Apply through the in-process seam and keep the delivered abort errors typed. */
+async function abortedApply(apply: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await apply();
+  } catch (error) {
+    if (error instanceof ApplyDeclinedError) return error;
+    throw error;
+  }
 }
 
 describe("project-bound release candidate", () => {
@@ -1528,6 +1614,425 @@ describe("project-bound release candidate", () => {
     expect(statusJson.projects.every((project) => project.state.kind === "current")).toBe(true);
   }, 60_000);
 
+  test("the packed integrated daily-loop journey reconciles a mixed multi-cause fleet with narrowing, receipts, cancellation, and non-interactive completion (US-007–008, TEST-003–TEST-014, TEST-021, #461)", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+
+    // Six Projects, one per primary cause plus one multi-cause Project: the
+    // mixed fleet from TEST-003 with multi-cause and Blocked members (TEST-004).
+    const settled = gitRepository("agent-profile-kit-rc-loop-settled-");
+    const changed = gitRepository("agent-profile-kit-rc-loop-changed-");
+    const missing = project("agent-profile-kit-rc-loop-missing-");
+    const source = gitRepository("agent-profile-kit-rc-loop-source-");
+    const multi = project("agent-profile-kit-rc-loop-multi-");
+    const blocked = gitRepository("agent-profile-kit-rc-loop-blocked-");
+    for (const [target, host] of [
+      [settled, "codex"],
+      [changed, "codex"],
+      [missing, "claude"],
+      [source, "codex"],
+      [multi, "codex"],
+      [blocked, "codex"],
+    ] as const) {
+      expectExitCode(await runCli(home, ["bind", "example", target, "--host", host]), 0);
+    }
+    // Install the whole fleet first; the causes are induced afterwards so the
+    // fleet simultaneously carries every state.
+    expectExitCode(await runCliDefaultScope(home, ["apply"]), 0);
+
+    // Induce each cause (DEC-002's five states plus one Blocked Project):
+    // tracked generated files create the ownership Blocker, a hand-edited
+    // generated file with a surviving recorded anchor is ordinary drift, a
+    // deleted generated file is missing output, a Host rebinding is a source
+    // change, and the multi-cause Project carries drifted output AND a source
+    // change at once.
+    execFileSync("git", ["-C", blocked, "add", "-f", ".agent-profile-kit/codex/context.md", ".codex/hooks.json"]);
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "tracked"]);
+    writeFileSync(join(changed, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
+    rmSync(join(missing, ".claude/rules/agent-profile-kit.md"));
+    expectExitCode(await runCli(home, ["bind", "example", source, "--host", "codex", "--host", "grok", "--replace"]), 0);
+    expectExitCode(await runCli(home, ["bind", "example", multi, "--host", "codex", "--host", "grok", "--replace"]), 0);
+    writeFileSync(join(multi, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
+    const neverInstalled = gitRepository("agent-profile-kit-rc-loop-never-");
+    expectExitCode(await runCli(home, ["bind", "example", neverInstalled, "--host", "codex"]), 0);
+    // One Git-only PATH for every lifecycle run: no real Host CLI can satisfy
+    // a probe, so detection is exact and no advisory warning interferes.
+    const gitOnlyPath = allowlistBin(home);
+
+    // The settled Project's generated bytes are the baseline for proving that
+    // narrowing never writes an unselected Project (TEST-007).
+    const settledBaseline = readFileSync(
+      join(settled, ".agent-profile-kit/codex/context.md"),
+      "utf8",
+    );
+
+    // 1. The default fleet view names every actionable Project exactly once,
+    // grouped by primary cause, with the settled Project counted only
+    // (US-001–003, US-006, US-016, TEST-003, TEST-004).
+    const status = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(status, 2);
+    for (const group of [
+      "needs attention (1):",
+      "generated files changed (2):",
+      "generated files missing (1):",
+      "not installed yet (1):",
+      "source changed (1):",
+      "settled (1)",
+    ]) {
+      expect(status.stdout).toContain(group);
+    }
+    // One appearance per Project: group counts plus the settled count account
+    // for all seven Projects exactly once, and the settled Project is not
+    // listed (TEST-004).
+    for (const listed of [changed, multi, missing, source, neverInstalled]) {
+      expect(countOccurrences(status.stdout, listed)).toBe(1);
+    }
+    expect(status.stdout).not.toContain(settled);
+    expect(status.stdout).toContain("Projects: 7 · Blockers: 1");
+
+    // Fact-once (US-008, TEST-012): the multi-cause Project appears once in
+    // the default view under its primary cause, never twice.
+    expect(countOccurrences(status.stdout, multi)).toBe(1);
+    expect(countOccurrences(status.stdout, "drifted output")).toBe(0);
+
+    // US-007: the actionable composed view offers exactly one primary next
+    // action, carrying one runnable command; the Blocker remedy keeps its
+    // separate source contract inside the Blocker row, before the Next block.
+    const nextBlock = status.stdout.slice(status.stdout.indexOf("Next:"));
+    expect(nextBlock).toContain("Resolve the reported blocker");
+    expect(countOccurrences(status.stdout, "Next:")).toBe(1);
+    expect(nextBlock.split("apkit ").length - 1).toBe(1);
+    const remedyIndex = status.stdout.indexOf("Remedy:");
+    expect(remedyIndex).toBeGreaterThan(-1);
+    expect(remedyIndex).toBeLessThan(status.stdout.indexOf("Next:"));
+    expect(remedyCommand(status.stdout)).toContain("git --literal-pathspecs");
+
+    // Verbose diagnostics retain every underlying cause of the multi-cause
+    // Project: drifted output beside its affected path plus the source-change
+    // cause. Fact-once: every affected output states its source-change cause
+    // exactly once — one each for the multi-cause, source-changed, and
+    // never-installed Projects' two new outputs — never duplicated (TEST-008,
+    // TEST-012).
+    const verbose = await runCliDefaultScope(home, ["status", "--verbose"], { path: gitOnlyPath });
+    expectExitCode(verbose, 2);
+    expect(verbose.stdout).toMatch(
+      new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+drifted output`),
+    );
+    expect(verbose.stdout).toContain("addition (source changed)");
+    expect(countOccurrences(verbose.stdout, "(source changed)")).toBe(4);
+
+    // 2. Narrowing selects exactly the DEC-006 memberships, and human and
+    // machine selections agree (US-011, US-061, TEST-007, TEST-021).
+    const stale = await runCliDefaultScope(home, ["status", "--stale"], { path: gitOnlyPath });
+    expectExitCode(stale, 0);
+    for (const selected of [changed, multi, missing, source]) {
+      expect(stale.stdout).toContain(selected);
+    }
+    for (const excluded of [blocked, neverInstalled, settled]) {
+      expect(stale.stdout).not.toContain(excluded);
+    }
+    expect(countOccurrences(stale.stdout, "Next:")).toBe(1);
+    expect(stale.stdout).toContain("Next: apkit apply --stale");
+
+    const blockedView = await runCliDefaultScope(home, ["status", "--blocked"], { path: gitOnlyPath });
+    expectExitCode(blockedView, 2);
+    expect(blockedView.stdout).toContain(blocked);
+    for (const excluded of [changed, multi, missing, source, neverInstalled, settled]) {
+      expect(blockedView.stdout).not.toContain(excluded);
+    }
+
+    const staleJson = JSON.parse(
+      (await runCliDefaultScope(home, ["status", "--stale", "--json"], { path: gitOnlyPath })).stdout,
+    ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
+    const blockedJson = JSON.parse(
+      (await runCliDefaultScope(home, ["status", "--blocked", "--json"], { path: gitOnlyPath })).stdout,
+    ) as { readonly projects: readonly { readonly canonicalProject: string }[] };
+    expect(staleJson.projects.map((entry) => entry.canonicalProject).sort()).toEqual(
+      [changed, missing, multi, source].map((entry) => realpathSync(entry)).sort(),
+    );
+    expect(blockedJson.projects.map((entry) => entry.canonicalProject)).toEqual([realpathSync(blocked)]);
+
+    // 3. Narrowed apply writes exactly the selected Projects (TEST-007):
+    // non-interactive completion replaces the changed generated files, names
+    // every operation with its Project attribution, and prompts nothing
+    // (US-030, TEST-014).
+    const staleApply = await runCliDefaultScope(home, ["apply", "--stale"], { path: gitOnlyPath });
+    expectExitCode(staleApply, 0);
+    expect(staleApply.stdout).toContain("Apply complete");
+    for (const committed of [changed, multi, missing, source]) {
+      expect(staleApply.stdout).toContain(committed);
+    }
+    // The receipt names the replaced changed generated file without wording
+    // that infers who changed it (US-028, TEST-013).
+    expect(staleApply.stdout).toContain(".agent-profile-kit/codex/context.md");
+    expect(staleApply.stdout).not.toContain("you edited");
+    expect(staleApply.stdout).not.toContain("hand-edited");
+    expect(staleApply.stdout).not.toContain("Replace changed generated files");
+    expect(staleApply.stdout).not.toContain("(y/n)");
+    // The narrowed write left every unselected Project unchanged.
+    expect(readFileSync(join(settled, ".agent-profile-kit/codex/context.md"), "utf8"))
+      .toBe(settledBaseline);
+    expect(existsSync(join(neverInstalled, ".agent-profile-kit"))).toBe(false);
+
+    // Resulting state is reported separately from the committed receipt: the
+    // four reconciled Projects are current while the excluded ones are not.
+    const afterStaleApply = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(afterStaleApply, 2);
+    expect(afterStaleApply.stdout).toContain("needs attention (1):");
+    expect(afterStaleApply.stdout).toContain("not installed yet (1):");
+    expect(countOccurrences(afterStaleApply.stdout, "settled (5)")).toBe(1);
+
+    // 4. Full-fleet non-interactive apply commits the never-installed Project,
+    // leaves the Blocked Project untouched, and still exits 2 (TEST-021).
+    const fleetApply = await runCliDefaultScope(home, ["apply"], { path: gitOnlyPath });
+    expectExitCode(fleetApply, 2);
+    expect(fleetApply.stdout).toContain("Apply complete");
+    expect(fleetApply.stdout).toContain(neverInstalled);
+    expect(existsSync(join(neverInstalled, ".agent-profile-kit/codex/context.md"))).toBe(true);
+    // The Blocked Project was left untouched: its tracked generated files are
+    // still on disk and its Installation State stays machine-local.
+    expect(existsSync(join(blocked, ".agent-profile-kit/codex/context.md"))).toBe(true);
+    expect(existsSync(join(blocked, ".codex/hooks.json"))).toBe(true);
+
+    // 5. The printed Blocker remedy is runnable (US-021, TEST-010): execute
+    // the exact untracking command, commit, and the Blocker clears.
+    const blockedRemedy = await runCliDefaultScope(home, ["status", "--blocked"], { path: gitOnlyPath });
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "remedy", "--allow-empty"]);
+    execFileSync("sh", ["-c", remedyCommand(blockedRemedy.stdout)]);
+    execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "untrack generated files"]);
+    expectExitCode(await runCli(home, ["apply", blocked], { path: gitOnlyPath }), 0);
+
+    // 6. The wholly settled fleet renders one line and invents no next action
+    // (US-004, US-007, TEST-004).
+    const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
+    expectExitCode(settledStatus, 0);
+    expect(settledStatus.stdout).toBe("All Projects are current (7 Projects)\n");
+    expect(settledStatus.stdout).not.toContain("Next:");
+
+    // 7. Whole-invocation cancellation: a cancelled changed-output
+    // confirmation aborts before any write, including the healthy pending
+    // Project of the same invocation (US-029, US-056, TEST-014) — the
+    // predecessor apply-confirmation fixture and seam, consumed as a journey
+    // phase rather than reimplemented.
+    const driftedFleet = await prepareDriftedFleet("agent-profile-kit-rc-loop-cancel");
+    const interactiveReplacement = await runCli(driftedFleet.home, ["apply", driftedFleet.driftedProject]);
+    expectExitCode(interactiveReplacement, 0);
+    expect(interactiveReplacement.stdout).toContain(".agent-profile-kit/codex/context.md");
+    writeFileSync(driftedFleet.driftedOutputPath, driftedFleet.driftedBytes);
+    const cancelled = await abortedApply(() =>
+      applyReconciliation(driftedFleet.home, driftedFleet.desired, {
+        confirmChangedOutputReplacement: () => Promise.resolve("cancelled" as const),
+      }));
+    expect(cancelled).toBeInstanceOf(ApplyDeclinedError);
+    expect(readFileSync(driftedFleet.driftedOutputPath, "utf8")).toBe(driftedFleet.driftedBytes);
+    expect(existsSync(join(driftedFleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+    cleanupTemporaryDirectories();
+  }, 60_000);
+
+  test("the packed newcomer journey completes real material authoring, binding, and apply by following only printed actions with present and absent controlled Hosts (US-032–041, US-053, TEST-015, TEST-016, #461)", async () => {
+    const home = isolatedHome();
+    const firstProject = gitRepository("agent-profile-kit-rc-newcomer2-first-");
+    const realProject = gitRepository("agent-profile-kit-rc-newcomer2-real-");
+    const absentProject = gitRepository("agent-profile-kit-rc-newcomer2-absent-");
+    // Present: claude, codex, opencode. Deliberately absent: antigravity,
+    // grok, pi — the allowlist exposes only git, so detection is exact
+    // machine evidence (TEST-016).
+    const stubBin = join(home, "bin");
+    mkdirSync(stubBin, { recursive: true });
+    for (const [name, version] of [
+      ["codex", "codex-cli 0.145.0"],
+      ["claude", "2.1.0 (Claude Code)"],
+      ["opencode", "1.18.23"],
+    ] as const) {
+      writeFileSync(join(stubBin, name), `#!/bin/sh\necho "${version}"\n`);
+      execFileSync("chmod", ["+x", join(stubBin, name)]);
+    }
+    const journeyPath = `${stubBin}:${apkitBin(home)}`;
+
+    /** The commands the view printed as copyable `apkit …` actions. */
+    const printedApkitCommands = (stdout: string): readonly string[] => stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("apkit "));
+
+    // 1. Bare invocation on an uninitialized machine: setup state and one
+    // printed next command, not a manual (US-023, US-032, US-035).
+    const bare = await runCli(home, [], { path: journeyPath });
+    expectExitCode(bare, 0);
+    expect(bare.stdout).toContain("Agent Profile Kit is not set up on this machine.");
+    expect(bare.stdout).toContain("Next: Run apkit init to set it up.");
+
+    // 2. Follow the printed command: initialization matches the machine.
+    const init = await runCli(home, ["init"], { path: journeyPath });
+    expectExitCode(init, 0);
+    expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
+    expect(init.stdout).toContain(
+      "A Profile is a named selection of Context and Skills to adapt for your",
+    );
+    // Present and absent Hosts: detection names exactly what is installed
+    // (US-037) and never invents an absent Host (US-038, TEST-016).
+    expect(init.stdout).toContain("Detected Agent Hosts: claude, codex, opencode");
+    for (const absentHost of ["antigravity", "grok", "pi"]) {
+      expect(init.stdout).not.toContain(`--host ${absentHost}`);
+    }
+    // The suggested first bind names a detected Host and is the one printed
+    // command the newcomer needs (US-039).
+    expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
+      "run apkit bind example --host claude",
+    );
+
+    // 3. Follow the printed bind form, made project-specific the way the
+    // printed sentence says ("from the project you want to try").
+    const bindExample = await runCli(
+      home,
+      ["bind", "example", firstProject, "--host", "claude"],
+      { path: journeyPath },
+    );
+    expectExitCode(bindExample, 0);
+    expect(bindExample.stdout).toContain("Recorded configured Project for");
+    expect(bindExample.stdout).toContain("Hosts: claude");
+    expect(bindExample.stdout).toContain("Next: apkit status");
+
+    // 4. The newcomer works from inside the Project (the way the printed bind
+    // sentence says): the status next action printed there must be the real
+    // apply for this Project — a runnable target, not the cwd-relative alias
+    // the Project-target boundary rejects (US-007, US-012, INT-1).
+    const readyStatus = await runCli(
+      home,
+      ["status", firstProject],
+      { path: journeyPath, cwd: firstProject },
+    );
+    expectExitCode(readyStatus, 0);
+    expect(readyStatus.stdout).toContain("Ready to apply");
+    expect(readyStatus.stdout).toContain("- not installed yet (1): .");
+    const printedApply = readyStatus.stdout
+      .split("\n")
+      .find((line) => line.startsWith("Next: apkit apply "))!
+      .replace("Next: ", "");
+    // The printed command's Project argument is a runnable target spelling:
+    // fully spelled (no middle elision inside a copyable command token —
+    // US-007, review INT-1 cycle 2 on #489), so the newcomer runs exactly the
+    // printed command, verbatim, from inside the Project.
+    expect(printedApply.startsWith("apkit apply ")).toBe(true);
+    const printedTarget = printedApply.slice("apkit apply ".length);
+    // The argument is one shell-quoted token around the fully spelled
+    // identity (no middle elision inside a copyable command token, review
+    // INT-1 cycle 2; one POSIX-quoted token per RE-1 on #489), so the
+    // newcomer runs exactly the printed command, verbatim, from inside the
+    // Project.
+    expect(printedTarget).toBe(`'${firstProject}'`);
+    expect(printedTarget).not.toContain("…");
+    // Executing the printed line verbatim through a shell: the shell strips
+    // the quotes, so apply receives the Project as exactly one argument —
+    // the way a user's terminal runs the copyable command.
+    const exampleApply = await runProcess({
+      executable: realpathSync("/bin/sh"),
+      arguments_: ["-c", printedApply],
+      environment: { ...process.env, HOME: home, PATH: journeyPath },
+      cwd: firstProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed newcomer apply command via shell",
+    });
+    expectExitCode(exampleApply, 0);
+    expect(exampleApply.stdout).toContain("Apply complete");
+    // The printed command was executed verbatim from inside the Project, so
+    // the receipt narratively renders the containing Project at its
+    // cwd-relative identity (`.`) — the shared short-identity policy.
+    expect(exampleApply.stdout).toContain("(.)");
+    expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    // Concrete user verification guidance names the applied Profile, the
+    // configured Host, and the Project, without claiming Agent Profile Kit
+    // observed the loading (US-041, DEC-025, OOS-009).
+    const exampleHuman = humanText(exampleApply.stdout);
+    expect(exampleHuman).toContain(
+      `To check that claude loaded Profile example, start a new claude session in`,
+    );
+    expect(exampleHuman).toContain("ask claude what Profile material it loaded");
+    expect(exampleHuman).not.toContain("Agent Profile Kit verified");
+
+    // 5. The authoring handoff prints three atomic copyable commands; the
+    // newcomer runs exactly those to author real material (US-040, DEC-024).
+    const handoff = printedApkitCommands(exampleApply.stdout).filter((command) =>
+      command.startsWith("apkit new "));
+    expect(handoff).toHaveLength(3);
+    expect(handoff).toEqual([
+      "apkit new skill <skill>",
+      "apkit new context <context>",
+      "apkit new profile <profile> --context <context> --skill <skill>",
+    ]);
+    const creationCommands = handoff
+      .map((command) => command
+        .replace("<skill>", "summarize-pr")
+        .replace("<context>", "project-rules")
+        .replace("<profile>", "real-profile"));
+    const creations: ProcessResult[] = [];
+    for (const command of creationCommands) {
+      const creation = await runCli(home, command.split(" ").slice(1), { path: journeyPath });
+      expectExitCode(creation, 0);
+      creations.push(creation);
+    }
+    expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
+    // The final handoff receipt's next action is followable in print:
+    // validate, then bind the Profile to a Project.
+    expect(creations[2]!.stdout.replace(/\n\s+/g, " ")).toContain(
+      "Next: run apkit validate, then bind the Profile to a Project",
+    );
+
+    // 6. Author the real Profile's content, then follow the printed chain:
+    // validate, then bind the real Profile (US-044, TEST-017 chain).
+    const validate = await runCli(home, ["validate"], { path: journeyPath });
+    expectExitCode(validate, 0);
+    expect(validate.stdout).toContain("real-profile");
+    expect(validate.stdout).toContain("Next: apkit status");
+    const bindReal = await runCli(
+      home,
+      ["bind", "real-profile", realProject, "--host", "claude"],
+      { path: journeyPath },
+    );
+    expectExitCode(bindReal, 0);
+    expect(bindReal.stdout).toContain("Profile: real-profile");
+    const realApply = await runCli(
+      home,
+      ["apply", realProject],
+      { path: journeyPath },
+    );
+    expectExitCode(realApply, 0);
+    expect(existsSync(join(realProject, ".claude", "skills", "summarize-pr", "SKILL.md"))).toBe(true);
+    const realHuman = humanText(realApply.stdout);
+    expect(realHuman).toContain("Profile real-profile will load the next time");
+    expect(realHuman).toContain("To check that claude loaded Profile real-profile");
+    // Routine applies never repeat the first-run teaching (US-040).
+    expect(realHuman).not.toContain("Now author your own");
+
+    // 7. An absent Host stays advisory: binding and applying a Project to a
+    // Host that is not installed warns inline, writes the material, and never
+    // changes the exit code (US-017–019, TEST-009, TEST-021).
+    expectExitCode(
+      await runCli(home, ["bind", "real-profile", absentProject, "--host", "grok"], { path: journeyPath }),
+      0,
+    );
+    const absentApply = await runCli(home, ["apply", absentProject], { path: journeyPath });
+    expectExitCode(absentApply, 0);
+    expect(absentApply.stdout).toContain("Grok");
+    expect(absentApply.stdout).not.toContain("Warnings:");
+    expect(existsSync(join(absentProject, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
+
+    // 8. The journey ends where the user is heading: every touched Project is
+    // current, and the bare invocation summarizes the settled fleet.
+    const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
+    expectExitCode(finalStatus, 0);
+    expect(finalStatus.stdout).toBe("All Projects are current (3 Projects)\n");
+    const bareConfigured = await runCli(home, [], { path: journeyPath });
+    expectExitCode(bareConfigured, 0);
+    expect(bareConfigured.stdout).toContain("3 Projects up to date.");
+    expect(bareConfigured.stdout).toContain("Common next steps:");
+    expect(bareConfigured.stdout).not.toContain("machine");
+  }, 30_000);
+
   test("one packed newcomer journey proves bare help, init, validate, bind, ready status, changed apply, current status, temporary install, the exact printed remove command, and successful removal (TEST-017)", async () => {
     const home = isolatedHome();
     const boundProject = gitRepository("agent-profile-kit-rc-newcomer-git-");
@@ -1586,21 +2091,20 @@ describe("project-bound release candidate", () => {
     expectExitCode(readyStatus, 0);
     expect(readyStatus.stdout).toContain("Ready to apply");
     expect(readyStatus.stdout).toContain("- not installed yet (1):");
-    // INT-2: the selected Project is a typed path argument rendered through the
-    // shared project-scope identity, kept on one line by eliding to the width.
+    // INT-2 (corrected by review INT-1 cycle 2 on #489): the selected Project
+    // is a typed path argument rendered through the shared project-scope
+    // identity, and a copyable command token is never middle-elided — the
+    // full runnable identity is spelled out, however wide it renders.
     const nextLine = readyStatus.stdout.split("\n")
       .find((line) => line.startsWith("Next: apkit apply "));
     const detailsLine = readyStatus.stdout.split("\n")
       .find((line) => line.startsWith("Details: apkit status "));
-    for (const [line, tail] of [
-      [nextLine, boundProject.split("/").at(-1)!],
-      [detailsLine, "--verbose"],
-    ] as const) {
+    for (const line of [nextLine, detailsLine]) {
       expect(line).toBeDefined();
-      expect(line!.endsWith(tail)).toBe(true);
-      expect(line!.length).toBeLessThanOrEqual(80);
+      expect(line!.includes("…")).toBe(false);
+      expect(line!.includes(boundProject.split("/").at(-1)!)).toBe(true);
     }
-    expect(detailsLine!.includes(boundProject.split("/").at(-1)!)).toBe(true);
+    expect(detailsLine!.endsWith("--verbose")).toBe(true);
     expect(readyStatus.stdout).not.toContain("Standing Host setup:");
     expect(readyStatus.stdout).not.toContain("Host setup:");
 
@@ -1870,6 +2374,57 @@ describe("project-bound release candidate", () => {
     expectExitCode(bare, 0);
     expect(bare.stdout).toContain("~/workspace-alias");
     expect(bare.stdout).not.toContain(physical);
+  }, 30_000);
+
+  test("printed lifecycle commands shell-escape space-containing Project paths and execute exactly as printed (US-007, review RE-1 on #489)", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, ["init"]), 0);
+    enableCodexHooks(home);
+    writeWorkspaceAuthoring(home);
+    // A Project whose path contains spaces: the copyable Next and Details
+    // command arguments must survive the shell that runs them.
+    const spacedProject = mkdtempSync(join(tmpdir(), "agent profile kit rc spaced-"));
+    temporaryDirectories.push(spacedProject);
+    execFileSync("git", ["init", "-q", spacedProject]);
+    expectExitCode(await runCli(home, ["bind", "example", spacedProject, "--host", "codex"]), 0);
+
+    // One PATH for the whole case: git for lifecycle inspection plus the
+    // packed `apkit` bin shim, so printed commands resolve as printed.
+    const gitOnlyPath = apkitBin(home);
+    const status = await runCli(home, ["status", spacedProject], { path: gitOnlyPath, cwd: spacedProject });
+    expectExitCode(status, 0);
+    const nextLine = status.stdout.split("\n").find((line) => line.startsWith("Next: apkit apply "))!;
+    const detailsLine = status.stdout.split("\n").find((line) => line.startsWith("Details: apkit status "))!;
+    // The path argument is one shell-quoted token around the full identity,
+    // so the shell hands the Project to apkit as exactly one argument.
+    expect(nextLine).toBe(`Next: apkit apply '${spacedProject}'`);
+    expect(detailsLine).toBe(`Details: apkit status '${spacedProject}' --verbose`);
+
+    // Executing the printed tokens verbatim through a shell: the quoted path
+    // survives tokenization and apply receives one argument.
+    const shell = realpathSync("/bin/sh");
+    const applied = await runProcess({
+      executable: shell,
+      arguments_: ["-c", nextLine.replace("Next: ", "")],
+      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      cwd: spacedProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed Next command via shell",
+    });
+    expectExitCode(applied, 0);
+    expect(applied.stdout).toContain("Apply complete");
+    expect(existsSync(join(spacedProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // The Details route executes as printed too.
+    const details = await runProcess({
+      executable: shell,
+      arguments_: ["-c", detailsLine.replace("Details: ", "")],
+      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      cwd: spacedProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed Details command via shell",
+    });
+    expectExitCode(details, 0);
   }, 30_000);
 });
 
