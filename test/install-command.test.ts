@@ -588,8 +588,46 @@ describe("install failures report truthfully", () => {
 
     expect(exitCode).not.toBe(0);
     expect(plain(streams.humanText())).toContain("install blocked before any write");
+    // The Blocker fired in the prospective review, before any publication:
+    // nothing was published, so there is no recovery to report.
+    expect(plain(streams.humanText())).not.toContain("previous selection");
     expect(readFileSync(outputPath, "utf8")).toBe("foreign bytes the user owns\n");
     expect(readFileSync(configPath(home), "utf8")).not.toContain("profile: coding");
+  });
+
+  test("a commit-time byte move stops as stale with the selection restored", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const installed = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(installed.exitCode).toBe(0);
+    const outputPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(outputPath, "hand-edited by the user\n");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInstall(
+      home,
+      ["coding", projectPath, "--host", "codex"],
+      input,
+    );
+
+    await waitForOutput(streams.humanText, "(y/N)");
+    input.write("y\n");
+    await waitForOutput(streams.humanText, "Changed generated files:");
+    // Move the reviewed bytes after the review but before the commit.
+    writeFileSync(outputPath, "moved again before commit\n");
+    input.write("y\n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    const error = plain(streams.errorText());
+    expect(error).toContain("changed during confirmation");
+    expect(error).toContain("previous selection was restored");
+    expect(error).toContain("apkit install");
+    expect(readFileSync(configPath(home), "utf8")).toContain("profile: coding");
+    expect(readFileSync(outputPath, "utf8")).toBe("moved again before commit\n");
   });
 
   test("an unknown Profile is refused before any write", async () => {

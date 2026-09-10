@@ -3698,15 +3698,66 @@ export function installBlockedDocument(
   return nodes;
 }
 
+/** Selection and output recovery evidence for one failed install (DEC-006).
+ * Selection and output restoration are independent outcomes: each renders
+ * from its own fact, never inferred from the other. */
+export interface InstallRecoveryEvidence {
+  readonly selectionRestored: boolean;
+  /** Stringified restoration failure, when restoring itself failed. */
+  readonly restoreError?: string;
+  /** True when generated output was committed (verification path or concurrent commit). */
+  readonly outputCommitted: boolean;
+  /** True when another writer owns the current selection, which was left untouched. */
+  readonly concurrentSelectionChange: boolean;
+}
+
+/** Recovery sentences shared by every install failure view: the dedicated
+ * execution/verification diagnostics and the addendum appended to the
+ * shared declined/consent/stale/blocked views. */
+export function installRecoverySentences(recovery: InstallRecoveryEvidence): readonly string[] {
+  if (recovery.restoreError !== undefined) {
+    return [
+      `The previous selection could not be restored: ${recovery.restoreError}.`,
+      recovery.outputCommitted
+        ? "Generated output may have been committed; review it before retrying."
+        : "The failed installation was not committed.",
+    ];
+  }
+  if (recovery.concurrentSelectionChange) {
+    return ["Another operation changed the selection during installation; it was left untouched."];
+  }
+  if (recovery.selectionRestored) {
+    return ["The previous selection was restored; the failed installation was not committed."];
+  }
+  if (recovery.outputCommitted) {
+    return ["The new selection was kept; generated output may not match the Workspace."];
+  }
+  return ["Nothing was written."];
+}
+
+/** Recovery evidence appended to the shared declined/consent/stale/blocked
+ * views. Empty when the shared view already states the outcome (an
+ * untouched invocation with nothing to restore). */
+export function installRecoveryAddendum(recovery: InstallRecoveryEvidence): PresentationDocument {
+  if (
+    recovery.restoreError === undefined &&
+    !recovery.concurrentSelectionChange &&
+    !recovery.selectionRestored
+  ) {
+    return [];
+  }
+  return installRecoverySentences(recovery).map((sentence): PresentationNode => ({
+    kind: "prose",
+    parts: [sentence],
+  }));
+}
+
 /** The install execution-failure diagnostic (US-008, DEC-006): what failed,
- * whether the previous selection was restored, and the concrete retry.
- * Completed output commits stay committed; only the failed Project's
- * selection is restored, where possible. */
+ * the selection/output recovery evidence, and the concrete retry. */
 export function installExecutionFailureDocument(input: {
   readonly detail: string;
   readonly failedProject?: ProjectIdentity;
-  readonly selectionRestored: boolean;
-  readonly restoreFailure?: unknown;
+  readonly recovery: InstallRecoveryEvidence;
   readonly retryArguments: readonly string[];
 }): PresentationDocument {
   const failed = input.failedProject === undefined
@@ -3716,18 +3767,11 @@ export function installExecutionFailureDocument(input: {
       input.failedProject.project,
       "project",
     );
-  const restore = input.restoreFailure !== undefined
-    ? `The previous selection could not be restored: ${
-      input.restoreFailure instanceof Error ? input.restoreFailure.message : String(input.restoreFailure)
-    }`
-    : input.selectionRestored
-      ? "The previous selection was restored; generated output was rolled back."
-      : "The previous selection was left unchanged.";
   return diagnosticDocument({
     happened: [failed === undefined
       ? `install failed: ${input.detail}`
       : `install failed at ${failed}: ${input.detail}`],
-    why: [[restore]],
+    why: installRecoverySentences(input.recovery).map((sentence): readonly InlineContent[] => [sentence]),
     whatToType: [[
       "To retry the same installation, run ",
       commandPart(COMMAND_NAME, input.retryArguments.map((value) => arg(value))),
@@ -4521,11 +4565,23 @@ function canonicalLifecycleMachinePayload(
   };
 }
 
+/** Selection/output recovery evidence in machine payloads (DEC-006). */
+export interface InstallRecoveryJson {
+  readonly selectionRestored: boolean;
+  readonly restoreError?: string;
+  readonly outputCommitted: boolean;
+  readonly concurrentSelectionChange: boolean;
+}
+
 export function formatLifecycleJson(
   command: Exclude<LifecycleCommand, "update">,
   report: ReconciliationReport,
+  recovery?: InstallRecoveryJson,
 ): string {
-  return serializeMachinePayload(canonicalLifecycleMachinePayload(command, report));
+  const payload = canonicalLifecycleMachinePayload(command, report) as Record<string, unknown>;
+  return serializeMachinePayload(
+    recovery === undefined ? payload : { ...payload, selectionRecovery: recovery },
+  );
 }
 
 export function formatApplyJson(result: ApplyReconciliationResult): string {
@@ -4553,6 +4609,7 @@ export function formatApplyExecutionFailureJson(failure: {
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport | undefined;
   readonly command?: LifecycleCommand;
+  readonly recovery?: InstallRecoveryJson;
 }): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
@@ -4567,6 +4624,7 @@ export function formatApplyExecutionFailureJson(failure: {
       ? {}
       : { failedProject: failure.failedProject.canonicalProject }),
     pendingProjects: failure.pendingProjects.map((project) => project.canonicalProject),
+    ...(failure.recovery === undefined ? {} : { selectionRecovery: failure.recovery }),
   });
 }
 
@@ -4574,6 +4632,7 @@ export function formatApplyVerificationFailureJson(
   receipt: ReconciliationReport,
   message: string,
   command: LifecycleCommand = "update",
+  recovery?: InstallRecoveryJson,
 ): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
@@ -4583,6 +4642,7 @@ export function formatApplyVerificationFailureJson(
     globalBlockers: [],
     projects: [],
     applied: canonicalMachineSnapshot(receipt),
+    ...(recovery === undefined ? {} : { selectionRecovery: recovery }),
   });
 }
 
@@ -4590,6 +4650,7 @@ export function formatApplyVerificationFailureJson(
 export function formatLifecycleToolErrorJson(
   command: LifecycleCommand,
   message: string,
+  recovery?: InstallRecoveryJson,
 ): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
@@ -4598,6 +4659,7 @@ export function formatLifecycleToolErrorJson(
     error: message,
     globalBlockers: [],
     projects: [],
+    ...(recovery === undefined ? {} : { selectionRecovery: recovery }),
   });
 }
 

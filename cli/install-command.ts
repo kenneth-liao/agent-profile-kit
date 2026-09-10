@@ -26,6 +26,7 @@ import {
   installConfirmationRequiredDocument,
   installDeclinedDocument,
   installExecutionFailureDocument,
+  installRecoveryAddendum,
   installReplacementCommandDocument,
   installVerificationFailureDocument,
   installWarningNodes,
@@ -37,6 +38,7 @@ import {
   lifecycleExitCode,
   INSTALL_CONFIRMATION_QUESTION,
   type ChangedFileAnsweringScope,
+  type InstallRecoveryEvidence,
 } from "./presentation.js";
 import {
   answeringScope,
@@ -241,12 +243,16 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     return { exitCode: 1 };
   }
 
+  // The effective working directory is captured once at the command boundary:
+  // retries and equivalent commands always name the resolved Project, even
+  // when the real entrypoint leaves cwd implicit (DEC-006).
+  const cwd = request.cwd ?? process.cwd();
   const interactive = isInteractiveInput(request.input);
   if (!parsed.autoConfirm && (!interactive || parsed.json)) {
     writeHumanDocument(
       request.stderr,
       installConfirmationRequiredDocument(
-        fullySpecifiedInstallArguments(parsed, request.cwd),
+        fullySpecifiedInstallArguments(parsed, cwd),
       ),
       stderrContext,
     );
@@ -261,7 +267,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
       profile: parsed.profile,
       hosts: [...(parsed.hosts ?? [])],
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
-      ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+      cwd,
     });
   } catch (error) {
     writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
@@ -283,7 +289,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, request.cwd)),
+        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd)),
         stderrContext,
       );
       return { exitCode: 1 };
@@ -294,7 +300,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         request.stderr,
         installDeclinedDocument(
           normalized === "" ? "default" : "declined",
-          fullySpecifiedInstallArguments(parsed, request.cwd),
+          fullySpecifiedInstallArguments(parsed, cwd),
         ),
         stderrContext,
       );
@@ -323,7 +329,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
       profile: parsed.profile,
       hosts: [...(parsed.hosts ?? [])],
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
-      ...(request.cwd === undefined ? {} : { cwd: request.cwd }),
+      cwd,
       ...(request.env === undefined ? {} : { env: request.env }),
       ...(parsed.replaceChanged ? { replaceChanged: true as const } : {}),
       ...(parsed.removeChanged ? { removeChanged: true as const } : {}),
@@ -349,7 +355,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         writeHumanDocument(
           request.stdout,
           installReplacementCommandDocument(
-            fullySpecifiedInstallArguments(parsed, request.cwd, answeringScope(parsed, acceptedScope, acceptedScope)),
+            fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope)),
           ),
           stdoutContext,
         );
@@ -363,6 +369,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         parsed,
         error,
         confirmer,
+        cwd,
         {
           canonicalProject: preview.canonicalProject,
           project: preview.authoredProject,
@@ -376,12 +383,24 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
   }
 }
 
+/** Append install recovery evidence to a shared view, writing nothing when
+ * the shared view already states the untouched outcome. */
+function writeRecoveryAddendum(
+  stream: Writable & TerminalStream,
+  recovery: InstallRecoveryEvidence,
+  context: TerminalPresentationContext,
+): void {
+  const addendum = installRecoveryAddendum(recovery);
+  if (addendum.length > 0) writeHumanDocument(stream, addendum, context);
+}
+
 /** Map one post-publication install failure to its truthful diagnostic. */
 function installReconcileFailureOutcome(
   request: InstallCommandRequest,
   parsed: ParsedInstallArguments,
   failure: InstallExecutionError,
   confirmer: ChangedOutputConfirmer,
+  cwd: string,
   failedProject: ProjectIdentity,
   stdoutContext: TerminalPresentationContext,
   stderrContext: TerminalPresentationContext,
@@ -389,21 +408,43 @@ function installReconcileFailureOutcome(
   const cause = failure.failure.cause;
   const answering = (prompted: ChangedFileAnsweringScope | undefined): ChangedFileAnsweringScope =>
     answeringScope(parsed, prompted, confirmer.requestedScope());
+  // Selection/output recovery evidence renders consistently in every branch:
+  // the dedicated execution/verification diagnostics carry it, and the shared
+  // declined/consent/stale/blocked views append the addendum below.
+  const recovery: InstallRecoveryEvidence = {
+    selectionRestored: failure.failure.selectionRestored,
+    ...(failure.failure.restoreFailure === undefined
+      ? {}
+      : {
+        restoreError: failure.failure.restoreFailure instanceof Error
+          ? failure.failure.restoreFailure.message
+          : String(failure.failure.restoreFailure),
+      }),
+    outputCommitted: failure.failure.outputCommitted,
+    concurrentSelectionChange: failure.failure.concurrentSelectionChange,
+  };
+  const recoveryJson = {
+    selectionRestored: recovery.selectionRestored,
+    ...(recovery.restoreError === undefined ? {} : { restoreError: recovery.restoreError }),
+    outputCommitted: recovery.outputCommitted,
+    concurrentSelectionChange: recovery.concurrentSelectionChange,
+  };
   if (cause instanceof ApplyDeclinedError) {
     if (parsed.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause)));
+      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
       const scope = answering(confirmer.promptedAcceptedScope());
       writeHumanDocument(
         request.stderr,
         applyReplacementDeclinedDocument(
           cause.reason === "cancelled" ? "cancelled" : confirmer.declinedAnswer(),
-          fullySpecifiedInstallArguments(parsed, request.cwd, scope),
+          fullySpecifiedInstallArguments(parsed, cwd, scope),
           scope,
           "install",
         ),
         stderrContext,
       );
+      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
@@ -415,53 +456,56 @@ function installReconcileFailureOutcome(
       replace: parsed.replaceChanged || cause.requiredOperations.includes("replace"),
     };
     if (parsed.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause)));
+      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
       writeHumanDocument(
         request.stderr,
         applyConsentRequiredDocument(
           cause,
-          fullySpecifiedInstallArguments(parsed, request.cwd, scope),
+          fullySpecifiedInstallArguments(parsed, cwd, scope),
           "install",
         ),
         stderrContext,
       );
+      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
   if (cause instanceof ApplyReviewStaleError) {
     if (parsed.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause)));
+      request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
       writeHumanDocument(
         request.stderr,
         applyReviewStaleDocument(
           cause,
-          fullySpecifiedInstallArguments(parsed, request.cwd, answering(confirmer.promptedAcceptedScope())),
+          fullySpecifiedInstallArguments(parsed, cwd, answering(confirmer.promptedAcceptedScope())),
           "install",
         ),
         stderrContext,
       );
+      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
   if (cause instanceof ApplyBlockedError) {
     if (parsed.json) {
-      request.stdout.write(formatLifecycleJson("install", cause.report));
+      request.stdout.write(formatLifecycleJson("install", cause.report, recoveryJson));
     } else {
       writeHumanDocument(
         request.stdout,
         installBlockedDocument(
           cause.report,
-          fullySpecifiedInstallArguments(parsed, request.cwd),
+          fullySpecifiedInstallArguments(parsed, cwd),
         ),
         stdoutContext,
       );
+      writeRecoveryAddendum(request.stdout, recovery, stdoutContext);
     }
     return { exitCode: lifecycleExitCode(cause.report) };
   }
   if (cause instanceof ApplyExecutionError) {
-    const retry = fullySpecifiedInstallArguments(parsed, request.cwd);
+    const retry = fullySpecifiedInstallArguments(parsed, cwd);
     if (parsed.json) {
       request.stdout.write(formatApplyExecutionFailureJson({
         failedProject: cause.failedProject,
@@ -470,6 +514,7 @@ function installReconcileFailureOutcome(
         receipt: cause.receipt,
         resultingState: cause.resultingState,
         command: "install",
+        recovery: recoveryJson,
       }));
     } else {
       writeHumanDocument(
@@ -477,10 +522,7 @@ function installReconcileFailureOutcome(
         installExecutionFailureDocument({
           detail: cause.detail,
           ...(cause.failedProject === undefined ? {} : { failedProject: cause.failedProject }),
-          selectionRestored: failure.failure.selectionRestored,
-          ...(failure.failure.restoreFailure === undefined
-            ? {}
-            : { restoreFailure: failure.failure.restoreFailure }),
+          recovery,
           retryArguments: retry,
         }),
         stderrContext,
@@ -489,9 +531,11 @@ function installReconcileFailureOutcome(
     return { exitCode: 1 };
   }
   if (cause instanceof ApplyVerificationError) {
-    const retry = fullySpecifiedInstallArguments(parsed, request.cwd);
+    const retry = fullySpecifiedInstallArguments(parsed, cwd);
     if (parsed.json) {
-      request.stdout.write(formatApplyVerificationFailureJson(cause.receipt, cause.message, "install"));
+      request.stdout.write(
+        formatApplyVerificationFailureJson(cause.receipt, cause.message, "install", recoveryJson),
+      );
     } else {
       writeHumanDocument(
         request.stderr,
@@ -504,20 +548,17 @@ function installReconcileFailureOutcome(
   // Publication and other pre-write failures carry no reconciliation cause:
   // nothing was published, so the previous selection stands — reported here
   // with the same concrete retry instead of a bare diagnostic.
-  const retry = fullySpecifiedInstallArguments(parsed, request.cwd);
+  const retry = fullySpecifiedInstallArguments(parsed, cwd);
   const detail = cause instanceof Error ? cause.message : String(cause);
   if (parsed.json) {
-    request.stdout.write(formatLifecycleToolErrorJson("install", detail));
+    request.stdout.write(formatLifecycleToolErrorJson("install", detail, recoveryJson));
   } else {
     writeHumanDocument(
       request.stderr,
       installExecutionFailureDocument({
         detail,
         failedProject,
-        selectionRestored: failure.failure.selectionRestored,
-        ...(failure.failure.restoreFailure === undefined
-          ? {}
-          : { restoreFailure: failure.failure.restoreFailure }),
+        recovery,
         retryArguments: retry,
       }),
       stderrContext,

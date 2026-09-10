@@ -34,17 +34,10 @@ is consumed here, not re-decided.
   flag, because the general confirmation (DEC-004) already authorizes the
   stated old → new scope, and changed-file consent (DEC-005) still guards
   every actual planned discard through the shared gate.
-- **One desired-state authority.** The plan is built from the just-published
-  Local Configuration and passed to the scoped reconciliation write loop;
-  no second planned-selection record exists. Serialization is lock-pair
-  sequencing: selection writers serialize on the Local Configuration lock,
-  output writers on the installation lifecycle lock, and the write loop
-  re-ingests Local Configuration under its lock and fails closed on drift,
-  so a concurrent selection edit retries instead of installing stale scope.
-- **One recoverable per-Project unit (DEC-006).** Every post-publication
-  failure before the output commit restores the previous selection where
+- **One desired-state authority.** The prospective plan is built from the requested selection overlaid in memory and reviewed by the consent gate before any write; the commit then publishes and freshly re-plans from Local Configuration. No second planned-selection record exists. The commit runs under one joint boundary: the Local Configuration lock is held across snapshot re-verification, selection publication, fresh planning, reconciliation, and recovery, with the installation lifecycle lock nested inside (the same lock order as unbind), so a cooperating selection writer queues instead of interleaving. Prompts stay outside the locks; the commit re-verifies the snapshot and the reviewed bytes and fails closed on any drift, and recovery restores only the snapshot the operation still owns.
+- **One recoverable per-Project unit (DEC-006).** Changed-file consent precedes selection publication, so refusal writes nothing. Every post-publication failure before the output commit restores the previous selection where
   possible (a newly added binding is removed; a replaced one is
-  re-published); a post-commit verification failure keeps the committed
+  re-published) after re-proving ownership under the held lock — a concurrent change is left untouched and reported, never blindly overwritten; a post-commit verification failure keeps the committed
   selection and reports truthfully. Restoration failures and completed work
   are reported explicitly with the concrete retry command, which never
   silently widens scope.
