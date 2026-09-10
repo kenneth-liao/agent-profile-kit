@@ -594,7 +594,7 @@ $ apkit update <project>
 Changed generated files:
   ~ .agent-profile-kit/codex/context.md (<project>)
 Replacing overwrites these files with current Workspace content.
-Type d to view the current on-disk versus planned diff before deciding.
+Type d to view the current on-disk versus planned diff before deciding (d again for more pages).
 ? Replace or delete these generated files as listed? (y/N)
 apkit: update was cancelled before any write
 No Project or setting was changed; your edits to the named generated files are

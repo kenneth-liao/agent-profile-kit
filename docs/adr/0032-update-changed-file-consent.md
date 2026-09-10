@@ -42,15 +42,26 @@ not decided here.
   replacement, deletion, and the user-added configuration-key loss case (for
   example, a hand-added `mcp` block that whole-file replacement would drop).
   Viewing or leaving the diff grants no consent and returns to the same
-  scope. File roots compare by line diff; generated directory roots review by
-  aggregate hash with the root named. The comparison is in-memory review
-  evidence only: history records carry the deterministic review identity and
-  paths, never file contents (DEC-014, OOS-006). Dependent install/uninstall
-  flows consume this contract rather than implementing their own comparison.
-- **Fresh safety at commit.** The reviewed byte identity is re-proved from
-  live disk reads immediately before each Project's first mutation; bytes
-  that moved since the review stop the invocation instead of silently
-  executing a change different from the reviewed one. Completed Projects stay
+  scope. File roots compare by contextual change hunks: only changed line
+  ranges with surrounding context become hunks, so display limits can never
+  bury every change, and repeated views page through the remaining hunks.
+  Generated directory roots carry member-level evidence from the same
+  contract — added/removed members by path, changed text members with bounded
+  hunks, binary/large/unreadable members marked without dumping bytes — so
+  dependent install/uninstall flows never need their own comparison policy.
+  Review identity binds exact byte digests (files) and aggregate hashes
+  (directories); decoded text is rendering only. The comparison is in-memory
+  review evidence only: history records carry the deterministic review
+  identity and paths, never file contents (DEC-014, OOS-006). Dependent
+  install/uninstall flows consume this contract rather than implementing
+  their own comparison.
+- **Fresh safety at commit.** Per Project, immediately before its first
+  mutation, update re-proves ownership and path safety for every output about
+  to be mutated (preflight evidence predates the consent window, so a
+  concurrently occupied new destination blocks its own Project) and
+  authorizes every drifted root against the review or the answering flags.
+  Reviewed bytes that moved stop the invocation (stale review); drift that
+  was never authorized refuses it (missing consent). Completed Projects stay
   committed (DEC-006); re-running reviews the current bytes anew. A full
   three-way historical reconstruction is not required, and no authorship is
   inferred from the difference (DEC-014). Whole-file ownership (ADR-0021) is

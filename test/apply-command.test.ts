@@ -319,6 +319,48 @@ describe("update replacement confirmation command", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
+  test("repeated diff views page through the remaining hunks", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff-pages");
+    writeFileSync(
+      fleet.driftedOutputPath,
+      Array.from({ length: 70 }, (_, index) => `user line ${index}`).join("\n") + "\n",
+    );
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection([fleet.driftedProject], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let step: "first" | "second" | "done" = "first";
+    const poll = setInterval(() => {
+      const text = humanText(stdout.text());
+      if (step === "first" && text.includes("(y/N)")) {
+        step = "second";
+        input.write("d\n");
+      } else if (step === "second" && text.includes("page 1/")) {
+        step = "done";
+        clearInterval(poll);
+        input.write("d\n");
+        setTimeout(() => input.write("y\n"), 50);
+      }
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(0);
+    const rendered = humanText(stdout.text());
+    expect(rendered).toContain("more changes remain (page 1/");
+    expect(rendered).toContain("last page");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
+  });
+
   test("leaving the diff without accepting leaves the whole invocation untouched", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff-leave");
     const stdout = new RecordingSink();

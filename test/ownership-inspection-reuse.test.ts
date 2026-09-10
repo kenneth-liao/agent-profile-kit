@@ -468,6 +468,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
         const inner = createLifecycleOwnershipInspectionContext();
         const wrapped: LifecycleOwnershipInspection = {
           unsafeParent: (project, relativePath) => inner.unsafeParent(project, relativePath),
+          listDirectoryMembers: (project, relativeRoot) =>
+            inner.listDirectoryMembers(project, relativeRoot),
+          readDirectoryMember: (project, relativeRoot, memberPath) =>
+            inner.readDirectoryMember(project, relativeRoot, memberPath),
           inspectOutput: async (project, output) => {
             if (
               index === 1 &&
@@ -491,5 +495,55 @@ describe("one shared ownership inspection per generated output per pass", () => 
     expect(existsSync(staleContextPath)).toBe(false);
     expect((await readInstallationState(home)).receipts.map((item) => item.project)).toEqual([keep]);
     expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
+  });
+});
+
+describe("review-grade directory reads share the inspection boundary", () => {
+  test("file inspection carries the exact bytes beside the decoded text", async () => {
+    const home = temporaryDirectory("apk-own-inspect-bytes-home-");
+    const project = temporaryDirectory("apk-own-inspect-bytes-project-");
+    const base = await contextInstallation(home, project);
+    await applyReconciliation(home, [base]);
+    const installed = join(project, ".agent-profile-kit", "codex", "context.md");
+    const { writeFileSync: writeBytes } = await import("node:fs");
+    writeBytes(installed, new Uint8Array([0xff]));
+    const inspection = createLifecycleOwnershipInspectionContext();
+    const state = await readInstallationState(home);
+    const receipt = state.receipts.flatMap((entry) => entry.outputs).find(
+      (output) => output.path === ".agent-profile-kit/codex/context.md",
+    )!;
+    const result = await inspection.inspectOutput(project, receipt);
+    expect(result.kind).toBe("file");
+    expect(result.contentBytes).toEqual(new Uint8Array([0xff]));
+  });
+
+  test("directory members list with types and read back exact member bytes", async () => {
+    const home = temporaryDirectory("apk-own-inspect-members-home-");
+    const project = temporaryDirectory("apk-own-inspect-members-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    void desired;
+    const root = ".agents/skills/demo-skill";
+    const inspection = createLifecycleOwnershipInspectionContext();
+    const members = await inspection.listDirectoryMembers(project, root);
+    expect(members.map((member) => member.path).sort()).toEqual(
+      ["SKILL.md", "scripts", "scripts/run.sh"],
+    );
+    const skill = await inspection.readDirectoryMember(project, root, "SKILL.md");
+    expect(skill).toEqual(Buffer.from("# Demo Skill\n"));
+    expect(await inspection.readDirectoryMember(project, root, "absent.md")).toBeUndefined();
+  });
+
+  test("member reads reject traversal outside the reviewed root", async () => {
+    const home = temporaryDirectory("apk-own-inspect-traversal-home-");
+    const project = temporaryDirectory("apk-own-inspect-traversal-project-");
+    const { desired } = await appliedDirectoryInstallation(home, project);
+    void desired;
+    const inspection = createLifecycleOwnershipInspectionContext();
+    await expect(
+      inspection.readDirectoryMember(project, ".agents/skills/demo-skill", "../escape.md"),
+    ).rejects.toThrow();
+    await expect(
+      inspection.listDirectoryMembers(project, "absent-root"),
+    ).rejects.toThrow();
   });
 });

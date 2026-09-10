@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -8,12 +8,15 @@ import {
   ApplyBlockedError,
   ApplyConsentRequiredError,
   ApplyDeclinedError,
+  ApplyExecutionError,
   ApplyReviewStaleError,
 } from "../installer/reconcile.js";
 import {
   cleanupTemporaryDirectories,
   prepareDriftedFleet,
+  temporaryDirectory,
 } from "./support/apply-confirmation-fixture.js";
+import { initializeWorkspace } from "../installer/initialize-workspace.js";
 
 afterAll(cleanupTemporaryDirectories);
 
@@ -131,6 +134,95 @@ describe("update changed-file authorization", () => {
     expect(outcome).toBeInstanceOf(ApplyReviewStaleError);
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe("concurrent edit\n");
     expect(existsSync(join(fleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("concurrently swapped invalid bytes fail the fresh proof instead of executing", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-consent-bytes");
+    const { writeFileSync: writeRaw } = await import("node:fs");
+    writeRaw(fleet.driftedOutputPath, new Uint8Array([0xff]));
+    const outcome = await outcomeOf(() =>
+      applyReconciliation(fleet.home, fleet.desired, {
+        confirmChangedOutputReplacement: async () => {
+          // Both byte sequences decode to U+FFFD: only an exact-byte review
+          // identity can tell them apart.
+          writeRaw(fleet.driftedOutputPath, new Uint8Array([0xfe]));
+          return "accepted";
+        },
+      }));
+    expect(outcome).toBeInstanceOf(ApplyReviewStaleError);
+    expect([...readFileSync(fleet.driftedOutputPath)]).toEqual([0xfe]);
+    expect(existsSync(join(fleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("a concurrently occupied new output is rejected before its Project writes", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-consent-occupy");
+    const outcome = await outcomeOf(() =>
+      applyReconciliation(fleet.home, fleet.desired, {
+        confirmChangedOutputReplacement: async () => {
+          // The review names only the drifted Project; this foreign file at
+          // the healthy Project's planned-addition path was never reviewed.
+          mkdirSync(join(fleet.healthyProject, ".agent-profile-kit", "codex"), { recursive: true });
+          writeFileSync(
+            join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md"),
+            "foreign bytes\n",
+          );
+          return "accepted";
+        },
+      }));
+    expect(outcome).toBeInstanceOf(ApplyExecutionError);
+    // The foreign bytes survive; no silent replacement happened.
+    expect(readFileSync(
+      join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md"),
+      "utf8",
+    )).toBe("foreign bytes\n");
+  });
+
+  test("directory replacement review names user-added members lost to the refresh", async () => {
+    const home = temporaryDirectory("agent-profile-kit-consent-dir-home-");
+    const project = temporaryDirectory("agent-profile-kit-consent-dir-project-");
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    const { mkdirSync: makeDir } = await import("node:fs");
+    makeDir(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nDirectory consent.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n` +
+        `  - project: ${project}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const first = await buildDesiredState(home, { checkHostCapability: false });
+    await applyReconciliation(home, first.installations);
+    // A user note inside the owned Skill root: the refresh deletes it, so
+    // the review must name it before authorization.
+    writeFileSync(join(project, ".agents", "skills", "review-pr", "notes.md"), "user note\n");
+    const desired = (await buildDesiredState(home, { checkHostCapability: false })).installations;
+    const requests: unknown[] = [];
+    await applyReconciliation(home, desired, {
+      confirmChangedOutputReplacement: async (request) => {
+        requests.push(request);
+        return "accepted";
+      },
+    });
+    expect(requests).toHaveLength(1);
+    const comparisons = (requests[0] as {
+      comparisons: { kind: string; path: string; hunks: { heading: string }[] }[];
+    }).comparisons;
+    const skill = comparisons.find((entry) => entry.path === ".agents/skills/review-pr");
+    expect(skill?.kind).toBe("directory");
+    expect(skill?.hunks.map((hunk) => hunk.heading).join("\n")).toContain("notes.md");
+    expect(existsSync(join(project, ".agents", "skills", "review-pr", "notes.md"))).toBe(false);
   });
 
   test("a declined answer still aborts the whole invocation before any write", async () => {

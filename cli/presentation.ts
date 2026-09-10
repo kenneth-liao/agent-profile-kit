@@ -3380,24 +3380,55 @@ export function applyReplacementConfirmationDocument(
   ];
 }
 
-/** The optional current-disk-versus-planned diff view (US-020): one bounded
- * comparison per reviewed file, rendered before authorization and before
- * writes. Viewing grants no consent; the caller returns to the same scope. */
+/** One page of the optional current-disk-versus-planned diff view (US-020,
+ * INT-3): hunks render in file order across every comparison, bounded per
+ * page so no single view can bury the changes; typing `d` again advances to
+ * the next page. Viewing grants no consent; the caller returns to the same
+ * scope. */
+export const CHANGED_OUTPUT_DIFF_PAGE_LINES = 60;
+
 export function changedOutputDiffDocument(
   comparisons: readonly ChangedOutputComparison[],
-): PresentationDocument {
-  const nodes: PresentationNode[] = [
-    { kind: "heading", text: "Current on-disk versus planned:" },
-  ];
+  pageIndex: number,
+): {
+  readonly document: PresentationDocument;
+  readonly pageIndex: number;
+  readonly pageCount: number;
+} {
+  const lines: string[] = [];
   for (const comparison of [...comparisons].sort((left, right) =>
     left.project.localeCompare(right.project) || left.path.localeCompare(right.path))) {
+    lines.push(
+      `${comparison.operation === "remove" ? "Delete" : "Replace"} ${comparison.path}`,
+      comparison.kind === "directory"
+        ? `--- current/${comparison.path}/`
+        : `--- current/${comparison.path}`,
+      comparison.operation === "remove"
+        ? "+++ /dev/null"
+        : comparison.kind === "directory"
+          ? `+++ planned/${comparison.path}/`
+          : `+++ planned/${comparison.path}`,
+    );
+    for (const hunk of comparison.hunks) {
+      lines.push(hunk.heading, ...hunk.lines);
+    }
+  }
+  const pageCount = Math.max(1, Math.ceil(lines.length / CHANGED_OUTPUT_DIFF_PAGE_LINES));
+  const page = Math.min(Math.max(0, pageIndex), pageCount - 1);
+  const window = lines.slice(page * CHANGED_OUTPUT_DIFF_PAGE_LINES, (page + 1) * CHANGED_OUTPUT_DIFF_PAGE_LINES);
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: "Current on-disk versus planned:" },
+    { kind: "verbatim", text: window.join("\n") },
+  ];
+  if (pageCount > 1) {
     nodes.push({
       kind: "prose",
-      parts: [`${comparison.operation === "remove" ? "Delete" : "Replace"} ${comparison.path}`],
+      parts: [page < pageCount - 1
+        ? `…more changes remain (page ${page + 1}/${pageCount}) — type d again to continue.`
+        : `(last page ${page + 1}/${pageCount}; type d again to review from the start.)`],
     });
-    nodes.push({ kind: "verbatim", text: comparison.diffLines.join("\n") });
   }
-  return nodes;
+  return { document: nodes, pageIndex: page, pageCount };
 }
 
 /** The equivalent fully specified command for a completed prompt flow (DEC-032):

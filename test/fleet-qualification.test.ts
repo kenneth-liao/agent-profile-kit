@@ -414,11 +414,13 @@ describe("fleet-wide synchronization qualification", () => {
 
     // Project writes never overlap while reads stay concurrent.
     expect(maxWriteInFlight).toBe(1);
-    // Post-commit verification re-proves every Project: the preflight and
-    // verification passes each inspect every owned file and directory.
+    // Three inspection passes prove every Project: preflight planning, the
+    // per-Project pre-transaction proof (fresh ownership/path-safety plus
+    // changed-file authorization), and post-commit verification — each
+    // inspects every owned file and directory.
     const expected = ownedOutputCounts(changed.installations);
-    expect(instrumentation.counts.inspectFile).toBe(2 * expected.files);
-    expect(instrumentation.counts.inspectDirectory).toBe(2 * expected.directories);
+    expect(instrumentation.counts.inspectFile).toBe(3 * expected.files);
+    expect(instrumentation.counts.inspectDirectory).toBe(3 * expected.directories);
     expect(reportBlockers(applied.resultingState)).toEqual([]);
     expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);

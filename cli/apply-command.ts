@@ -146,6 +146,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
   const confirmChangedOutputReplacement = prompt === undefined
     ? undefined
     : async (consentRequest: ChangedOutputConsentRequest): Promise<"accepted" | "declined" | "cancelled"> => {
+      let diffPage = 0;
       requestedScope = {
         remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
         replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
@@ -164,12 +165,11 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
         const normalized = answer.value.trim().toLowerCase();
         if (normalized === "d" || normalized === "diff") {
           // The optional diff is a consent view, not consent (US-020):
-          // viewing returns to the same scope with nothing authorized.
-          writeHumanDocument(
-            request.stdout,
-            changedOutputDiffDocument(consentRequest.comparisons),
-            stdoutContext,
-          );
+          // viewing returns to the same scope with nothing authorized, and
+          // repeated views page through the remaining hunks (INT-3).
+          const viewed = changedOutputDiffDocument(consentRequest.comparisons, diffPage);
+          diffPage = (viewed.pageIndex + 1) % viewed.pageCount;
+          writeHumanDocument(request.stdout, viewed.document, stdoutContext);
           continue;
         }
         if (normalized === "y" || normalized === "yes") {

@@ -35,6 +35,12 @@ export interface OwnedOutputInspection {
   readonly kind: "directory" | "file" | "missing" | "other" | "unreadable";
   /** Regular-file bytes when the output root is a regular file. */
   readonly content?: string;
+  /**
+   * Exact on-disk bytes when the output root is a regular file. Decoded
+   * `content` is rendering and continuity evidence only: review identity
+   * must bind these bytes, since distinct invalid sequences decode alike.
+   */
+  readonly contentBytes?: Uint8Array;
   /** Deterministic hash of `content` when the output root is a regular file. */
   readonly contentHash?: string;
   /** Deterministic aggregate hash when the output root is a readable safe directory. */
@@ -70,9 +76,41 @@ export function recordedOutputMatches(
  * pass; every consumer shares the same root result. Discarded when the
  * lifecycle command exits; never persisted or shared across commands.
  */
+/** One listed member of a generated directory root, relative to the root. */
+export type ListedDirectoryMember =
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "file";
+    }
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "directory";
+    }
+  | {
+      readonly path: string;
+      readonly type: "other";
+    };
+
 export interface LifecycleOwnershipInspection {
   inspectOutput(project: string, output: OwnershipOutputReceipt): Promise<OwnedOutputInspection>;
   unsafeParent(project: string, relativePath: string): Promise<string | undefined>;
+  /**
+   * Review-grade member listing for one project-relative directory root.
+   * Shares the walk boundary with directory ownership proof; throws when the
+   * root is absent or cannot be walked.
+   */
+  listDirectoryMembers(project: string, relativeRoot: string): Promise<readonly ListedDirectoryMember[]>;
+  /**
+   * Exact bytes of one member of a listed directory root, or undefined when
+   * absent. Rejects member paths that escape the root.
+   */
+  readDirectoryMember(
+    project: string,
+    relativeRoot: string,
+    memberPath: string,
+  ): Promise<Uint8Array | undefined>;
 }
 
 /** One on-disk entry recorded by a directory walk. */
@@ -177,14 +215,16 @@ async function inspectFileOutput(
     return { kind: hasErrorCode(error, "ENOENT") ? "missing" : "unreadable" };
   }
   if (stats.isSymbolicLink() || !stats.isFile()) return { kind: "other" };
-  let content: string;
+  let raw: Uint8Array;
   try {
-    content = await readFile(path, "utf8");
+    raw = await readFile(path);
   } catch {
     return { kind: "unreadable" };
   }
+  const content = Buffer.from(raw).toString("utf8");
   return {
     content,
+    contentBytes: raw,
     contentHash: hashBytes(content),
     kind: "file",
     mode: stats.mode & 0o7777,
@@ -273,6 +313,57 @@ export function createLifecycleOwnershipInspectionContext(
     });
   }
 
+  /** Fail fast on member paths that escape the reviewed root. */
+  function resolveMemberPath(relativeRoot: string, memberPath: string): string {
+    if (
+      memberPath.length === 0 ||
+      memberPath.startsWith("/") ||
+      memberPath.split("/").some((segment) => segment === ".." || segment.length === 0)
+    ) {
+      throw new Error(`Directory member path escapes its root: ${memberPath}`);
+    }
+    return join(relativeRoot, memberPath);
+  }
+
+  async function listDirectoryMembers(
+    project: string,
+    relativeRoot: string,
+  ): Promise<readonly ListedDirectoryMember[]> {
+    const root = join(project, relativeRoot);
+    let stats;
+    try {
+      stats = await lstat(root);
+    } catch (error) {
+      throw new Error(
+        `Cannot list directory members under ${relativeRoot}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error(`Cannot list directory members under ${relativeRoot}: not a directory`);
+    }
+    return walk(root);
+  }
+
+  async function readDirectoryMember(
+    project: string,
+    relativeRoot: string,
+    memberPath: string,
+  ): Promise<Uint8Array | undefined> {
+    const relative = resolveMemberPath(relativeRoot, memberPath);
+    const absolute = join(project, relative);
+    let stats;
+    try {
+      stats = await lstat(absolute);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT")) return undefined;
+      throw error;
+    }
+    if (stats.isSymbolicLink() || !stats.isFile()) return undefined;
+    return readFile(absolute);
+  }
+
   function unsafeParentEvidence(
     project: string,
     relativePath: string,
@@ -291,6 +382,8 @@ export function createLifecycleOwnershipInspectionContext(
 
   return {
     inspectOutput,
+    listDirectoryMembers,
+    readDirectoryMember,
     unsafeParent: unsafeParentEvidence,
   };
 }
