@@ -225,6 +225,41 @@ describe("update changed-file authorization", () => {
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "notes.md"))).toBe(false);
   });
 
+  test("a late authorization stop preserves completed/failed/pending evidence", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-consent-late");
+    await applyReconciliation(fleet.home, fleet.desired, {
+      confirmChangedOutputReplacement: accept,
+    });
+    // Both Projects need the Workspace change; only the first is drifted, so
+    // the gate reviews just the first scope.
+    writeFileSync(
+      join(fleet.workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared.\n",
+    );
+    const desired = (await buildDesiredState(fleet.home, { checkHostCapability: false })).installations;
+    writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
+    const healthyOutput = join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md");
+    const outcome = await outcomeOf(() =>
+      applyReconciliation(fleet.home, desired, {
+        confirmChangedOutputReplacement: async () => {
+          writeFileSync(healthyOutput, "concurrent edit\n");
+          return "accepted";
+        },
+      }));
+    expect(outcome).toBeInstanceOf(ApplyConsentRequiredError);
+    const refusal = outcome as ApplyConsentRequiredError;
+    expect(refusal.requiredOperations).toEqual(["replace"]);
+    expect(refusal.completedProjects).toEqual([fleet.driftedProject]);
+    expect(refusal.failedProject).toEqual({
+      canonicalProject: fleet.healthyProject,
+      project: fleet.healthyProject,
+    });
+    expect(refusal.pendingProjects).toEqual([]);
+    // The first Project committed the new content; the second is preserved.
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Updated shared.");
+    expect(readFileSync(healthyOutput, "utf8")).toBe("concurrent edit\n");
+  });
+
   test("a declined answer still aborts the whole invocation before any write", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-consent-decline");
     const outcome = await outcomeOf(() =>

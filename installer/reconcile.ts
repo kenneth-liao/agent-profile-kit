@@ -78,9 +78,9 @@ import {
 import {
   compareChangedDirectory,
   compareChangedFile,
+  compareDirectoryMembers,
   comparisonMatchesDigests,
   digestBytes,
-  hunksForBytes,
   type ChangedOutputComparison,
   type DirectoryMemberEvidence,
 } from "./changed-output-review.js";
@@ -367,10 +367,24 @@ export type ChangedOutputOperation = "replace" | "remove";
 export class ApplyConsentRequiredError extends Error {
   readonly requiredOperations: readonly ChangedOutputOperation[];
   readonly projects: readonly ChangedOutputConsentProject[];
+  /**
+   * Partial-outcome evidence for a late authorization stop (RE-1): set when
+   * the per-Project proof refuses after earlier Projects committed, so the
+   * outcome reports committed work instead of claiming no writes. Absent for
+   * the invocation-wide pre-write refusal, where nothing was written.
+   */
+  readonly completedProjects: readonly string[];
+  readonly failedProject?: ProjectIdentity | undefined;
+  readonly pendingProjects?: readonly ProjectIdentity[] | undefined;
 
   constructor(
     requiredOperations: readonly ChangedOutputOperation[],
     projects: readonly ChangedOutputConsentProject[],
+    evidence: {
+      readonly completedProjects?: readonly string[];
+      readonly failedProject?: ProjectIdentity;
+      readonly pendingProjects?: readonly ProjectIdentity[];
+    } = {},
   ) {
     const needs = requiredOperations.map((operation) =>
       operation === "replace" ? "--replace-changed" : "--remove-changed",
@@ -379,6 +393,9 @@ export class ApplyConsentRequiredError extends Error {
     this.name = "ApplyConsentRequiredError";
     this.requiredOperations = requiredOperations;
     this.projects = projects;
+    this.completedProjects = evidence.completedProjects ?? [];
+    this.failedProject = evidence.failedProject;
+    this.pendingProjects = evidence.pendingProjects;
   }
 }
 
@@ -1781,82 +1798,38 @@ async function applyReconciliationLocked(
       ? inspected.directoryHash
       : `unreadable:${inspected.kind}`;
   };
-  const isBinaryBytes = (value: Uint8Array): boolean => value.includes(0);
-  const LARGE_MEMBER_BYTES = 100_000;
-  // Member-level evidence for one generated directory root (INT-2): union
-  // the current listing with the planned members so added members (deleted
-  // by replacement) and removed members both render by path, while changed
-  // text members carry bounded hunks. History stays content-free: identity
-  // is the aggregate hash pair, never member bytes.
+  // Directory member evidence through the shared comparison policy: update
+  // supplies the inspection-backed listing and reader, while the union and
+  // classification rules live in the contract for install/uninstall reuse.
   const buildDirectoryEvidence = async (
     canonicalProject: string,
     rootPath: string,
     planned: DesiredProjectOutput | undefined,
   ): Promise<{ readonly members: readonly DirectoryMemberEvidence[]; readonly note?: string }> => {
-    const plannedMembers = new Map(
-      (planned !== undefined && planned.type === "directory" ? planned.members : [])
-        .map((member) => [member.path, member]),
-    );
-    let current: readonly ListedDirectoryMember[];
+    let listed: readonly ListedDirectoryMember[];
     try {
-      current = await preflightOwnershipInspection.listDirectoryMembers(canonicalProject, rootPath);
+      listed = await preflightOwnershipInspection.listDirectoryMembers(canonicalProject, rootPath);
     } catch {
       return { members: [], note: "(current directory cannot be listed; review on disk)" };
     }
-    const currentByPath = new Map(current.map((member) => [member.path, member]));
-    // Children under an added or removed directory are covered by the
-    // directory entry itself.
-    const coveredDirs = new Set([
-      ...current.filter((member) => member.type === "directory" && !plannedMembers.has(member.path)),
-      ...[...plannedMembers.values()].filter((member) =>
-        member.type === "directory" && !currentByPath.has(member.path)),
-    ].map((member) => member.path));
-    const underCovered = (path: string): boolean =>
-      [...coveredDirs].some((dir) => path !== dir && path.startsWith(`${dir}/`));
-    const names = [...new Set([...currentByPath.keys(), ...plannedMembers.keys()])]
-      .filter((name) => !underCovered(name))
-      .sort((left, right) => compareCanonicalStrings(left, right));
-    const members: DirectoryMemberEvidence[] = [];
-    for (const name of names) {
-      const live = currentByPath.get(name);
-      const want = plannedMembers.get(name);
-      if (live === undefined) {
-        members.push({ path: name, status: "added" });
-        continue;
-      }
-      if (want === undefined) {
-        members.push({ path: name, status: "removed" });
-        continue;
-      }
-      if (live.type !== "file" || want.type !== "file") {
-        if (live.type === "directory" && want.type === "directory") continue;
-        members.push({ path: name, status: "changed", note: "(type changed)" });
-        continue;
-      }
-      const liveBytes = await preflightOwnershipInspection.readDirectoryMember(
-        canonicalProject,
-        rootPath,
-        name,
-      );
-      if (liveBytes === undefined) {
-        members.push({ path: name, status: "changed", note: "(could not be read)" });
-        continue;
-      }
-      if (digestBytes(liveBytes) === digestBytes(want.bytes)) {
-        if (live.mode !== want.mode) {
-          members.push({ path: name, status: "changed", note: "(mode changed)" });
-        }
-        continue;
-      }
-      if (isBinaryBytes(liveBytes) || isBinaryBytes(Buffer.from(want.bytes))) {
-        members.push({ path: name, status: "changed", note: "(binary contents not shown)" });
-      } else if (liveBytes.byteLength > LARGE_MEMBER_BYTES) {
-        members.push({ path: name, status: "changed", note: "(large contents: review on disk)" });
-      } else {
-        members.push({ path: name, status: "changed", hunks: hunksForBytes(liveBytes, want.bytes) });
-      }
-    }
-    return { members };
+    return {
+      members: await compareDirectoryMembers(
+        listed.map((member) => ({
+          path: member.path,
+          type: member.type,
+          ...(member.type === "other" || member.mode === undefined ? {} : { mode: member.mode }),
+        })),
+        (planned !== undefined && planned.type === "directory" ? planned.members : []).map((member) =>
+          member.type === "file"
+            ? { bytes: member.bytes, mode: member.mode, path: member.path, type: "file" as const }
+            : { mode: member.mode, path: member.path, type: "directory" as const }),
+        (memberPath) => preflightOwnershipInspection.readDirectoryMember(
+          canonicalProject,
+          rootPath,
+          memberPath,
+        ),
+      ),
+    };
   };
   // Reviewed comparisons per consented path for the fresh pre-write proof
   // (US-020): the planned bytes cannot move mid-invocation, so the proof
@@ -2110,6 +2083,11 @@ async function applyReconciliationLocked(
           project,
           removedOutputs: newlyDrifted.removedOutputs.sort(compareCanonicalStrings),
         }],
+        {
+          completedProjects: [...completed],
+          failedProject: { canonicalProject, project },
+          pendingProjects,
+        },
       );
     }
   };

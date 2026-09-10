@@ -3557,6 +3557,30 @@ export function applyConsentRequiredDocument(
       ...[...project.changedOutputs].sort().map((path) => `  ~ ${path} (${project.project})`),
       ...[...project.removedOutputs].sort().map((path) => `  - ${path} (${project.project})`),
     ]);
+  // A late authorization stop reports the actual partial outcome (RE-1):
+  // the no-write claim below belongs only to the invocation-wide pre-write
+  // refusal, where completedProjects is empty.
+  if (error.completedProjects.length > 0) {
+    const pending = (error.pendingProjects ?? [])
+      .map((project) => project.canonicalProject)
+      .sort(compareCanonicalStrings);
+    return diagnosticDocument({
+      happened: [error.failedProject === undefined
+        ? "update stopped: newly changed files need explicit consent"
+        : `update stopped at ${error.failedProject.canonicalProject}: newly changed files need explicit consent`],
+      why: [
+        [`Completed Projects stay completed: ${[...error.completedProjects].sort(compareCanonicalStrings).join(", ")}.`],
+        ...lines.map((line): readonly InlineContent[] => [line]),
+        ...(pending.length === 0
+          ? []
+          : [[`Still pending: ${pending.join(", ")}.`] as readonly InlineContent[]]),
+      ],
+      whatToType: [[
+        "To review the current bytes and proceed, run ",
+        commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      ]],
+    });
+  }
   return diagnosticDocument({
     happened: ["update needs explicit changed-file consent before any write"],
     why: [

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { compareCanonicalStrings } from "../schemas/canonical.js";
+
 /**
  * Shared changed-output comparison contract (US-020): one pure
  * current-disk-versus-planned comparison consumed by update now and by
@@ -58,8 +60,7 @@ export interface DirectoryMemberEvidence {
 const HUNK_CONTEXT = 3;
 const MAX_LCS_LINES = 500;
 const MAX_HUNK_LINES = 100;
-const MAX_DIRECTORY_DIFF_MEMBERS = 25;
-const MAX_DIRECTORY_LISTED_MEMBERS = 200;
+const LARGE_MEMBER_BYTES = 100_000;
 
 function sha256Hex(value: string): string {
   return createHash("sha256").update(value, "utf8").digest("hex");
@@ -221,6 +222,97 @@ export function hunksForBytes(current: RawBytes, planned: RawBytes): ChangeHunk[
   return fileHunks(splitLines(decodeForRender(current)), splitLines(decodeForRender(planned)));
 }
 
+function isBinaryBytes(value: Uint8Array): boolean {
+  return value.includes(0);
+}
+
+/** One inspected member of a generated directory root. */
+export interface InspectedDirectoryMember {
+  readonly path: string;
+  readonly type: "file" | "directory" | "other";
+  readonly mode?: number;
+}
+
+/** One planned member of a generated directory root. */
+export type PlannedDirectoryMember =
+  | {
+      /** Exact planned bytes. */
+      readonly bytes: Uint8Array | string;
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "file";
+    }
+  | {
+      readonly mode: number;
+      readonly path: string;
+      readonly type: "directory";
+    };
+
+/**
+ * Shared directory comparison policy (INT-2): the live/planned union,
+ * type/mode decisions, binary/large rules, and text comparison. Pure
+ * except for the supplied member reader, which the caller binds to its own
+ * inspection boundary — install/uninstall reuse this policy instead of
+ * reimplementing it. Every non-unchanged member stays in the evidence so
+ * paging, not a count cap, bounds the view.
+ */
+export async function compareDirectoryMembers(
+  current: readonly InspectedDirectoryMember[],
+  planned: readonly PlannedDirectoryMember[],
+  readCurrentMember: (path: string) => Promise<Uint8Array | undefined>,
+): Promise<readonly DirectoryMemberEvidence[]> {
+  const plannedByPath = new Map(planned.map((member) => [member.path, member]));
+  const currentByPath = new Map(current.map((member) => [member.path, member]));
+  // Children under an added or removed directory are covered by the
+  // directory entry itself.
+  const coveredDirs = new Set([
+    ...current.filter((member) => member.type === "directory" && !plannedByPath.has(member.path)),
+    ...planned.filter((member) => member.type === "directory" && !currentByPath.has(member.path)),
+  ].map((member) => member.path));
+  const underCovered = (path: string): boolean =>
+    [...coveredDirs].some((dir) => path !== dir && path.startsWith(`${dir}/`));
+  const names = [...new Set([...currentByPath.keys(), ...plannedByPath.keys()])]
+    .filter((name) => !underCovered(name))
+    .sort((left, right) => compareCanonicalStrings(left, right));
+  const members: DirectoryMemberEvidence[] = [];
+  for (const name of names) {
+    const live = currentByPath.get(name);
+    const want = plannedByPath.get(name);
+    if (live === undefined) {
+      members.push({ path: name, status: "added" });
+      continue;
+    }
+    if (want === undefined) {
+      members.push({ path: name, status: "removed" });
+      continue;
+    }
+    if (live.type !== "file" || want.type !== "file") {
+      if (live.type === "directory" && want.type === "directory") continue;
+      members.push({ path: name, status: "changed", note: "(type changed)" });
+      continue;
+    }
+    const liveBytes = await readCurrentMember(name);
+    if (liveBytes === undefined) {
+      members.push({ path: name, status: "changed", note: "(could not be read)" });
+      continue;
+    }
+    if (digestBytes(liveBytes) === digestBytes(want.bytes)) {
+      if (live.mode !== undefined && live.mode !== want.mode) {
+        members.push({ path: name, status: "changed", note: "(mode changed)" });
+      }
+      continue;
+    }
+    if (isBinaryBytes(liveBytes) || isBinaryBytes(Buffer.from(want.bytes))) {
+      members.push({ path: name, status: "changed", note: "(binary contents not shown)" });
+    } else if (liveBytes.byteLength > LARGE_MEMBER_BYTES) {
+      members.push({ path: name, status: "changed", note: "(large contents: review on disk)" });
+    } else {
+      members.push({ path: name, status: "changed", hunks: hunksForBytes(liveBytes, want.bytes) });
+    }
+  }
+  return members;
+}
+
 function reviewIdFor(options: {
   readonly operation: ChangedOutputOperation;
   readonly path: string;
@@ -291,19 +383,11 @@ export function compareChangedDirectory(options: {
   if (options.note !== undefined) {
     hunks.push({ heading: "@@ changed @@", lines: [options.note] });
   }
+  // Every non-unchanged member stays in the evidence: the shared paging
+  // path bounds the view, so no count cap may permanently drop a path.
   const changed = options.members.filter((member) => member.status !== "unchanged");
-  const listed = changed.slice(0, MAX_DIRECTORY_LISTED_MEMBERS);
-  let diffed = 0;
-  for (const member of listed) {
+  for (const member of changed) {
     if (member.status === "changed" && member.hunks !== undefined && member.hunks.length > 0) {
-      if (diffed >= MAX_DIRECTORY_DIFF_MEMBERS) {
-        hunks.push({
-          heading: `member ${member.path} (${member.status})`,
-          lines: ["(content diff omitted: member diff budget reached)"],
-        });
-        continue;
-      }
-      diffed += 1;
       hunks.push({
         heading: `member ${member.path} (${member.status})`,
         lines: member.hunks.flatMap((hunk) => [hunk.heading, ...hunk.lines]),
@@ -314,12 +398,6 @@ export function compareChangedDirectory(options: {
         lines: member.note === undefined ? [] : [member.note],
       });
     }
-  }
-  if (changed.length > listed.length) {
-    hunks.push({
-      heading: "more members",
-      lines: [`(${changed.length - listed.length} more changed members not shown)`],
-    });
   }
   const unchanged = options.members.length - changed.length;
   if (unchanged > 0) {

@@ -45,10 +45,15 @@ not decided here.
   scope. File roots compare by contextual change hunks: only changed line
   ranges with surrounding context become hunks, so display limits can never
   bury every change, and repeated views page through the remaining hunks.
-  Generated directory roots carry member-level evidence from the same
-  contract — added/removed members by path, changed text members with bounded
-  hunks, binary/large/unreadable members marked without dumping bytes — so
-  dependent install/uninstall flows never need their own comparison policy.
+  Generated directory roots carry member-level evidence from the shared
+  member comparison policy (`compareDirectoryMembers`: live/planned union,
+  type/mode decisions, binary/large rules, text hunks), callable with any
+  inspection-backed reader — added/removed members by path, changed text
+  members with hunks, binary/large/unreadable members marked without dumping
+  bytes — so dependent install/uninstall flows reuse the policy instead of
+  reimplementing it. Every non-unchanged member stays in the evidence; the
+  shared paging path bounds the view, so no count cap permanently drops a
+  path.
   Review identity binds exact byte digests (files) and aggregate hashes
   (directories); decoded text is rendering only. The comparison is in-memory
   review evidence only: history records carry the deterministic review
@@ -61,8 +66,10 @@ not decided here.
   concurrently occupied new destination blocks its own Project) and
   authorizes every drifted root against the review or the answering flags.
   Reviewed bytes that moved stop the invocation (stale review); drift that
-  was never authorized refuses it (missing consent). Completed Projects stay
-  committed (DEC-006); re-running reviews the current bytes anew. A full
+  was never authorized refuses it (missing consent), carrying
+  completed/failed/pending evidence so a late stop reports committed work
+  instead of claiming no writes. Completed Projects stay committed (DEC-006);
+  re-running reviews the current bytes anew. A full
   three-way historical reconstruction is not required, and no authorship is
   inferred from the difference (DEC-014). Whole-file ownership (ADR-0021) is
   unchanged: no owned-key merge and no ownership marker are introduced here.

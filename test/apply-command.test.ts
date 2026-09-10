@@ -361,6 +361,51 @@ describe("update replacement confirmation command", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
+  test("a late refusal reports committed work instead of claiming no writes", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-late");
+    const seed = invoke(fleet, ["--all", "--replace-changed"], undefined, { interactive: false });
+    expect((await seed.outcome).exitCode).toBe(0);
+    writeFileSync(
+      join(fleet.workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared.\n",
+    );
+    writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
+    const healthyOutput = join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md");
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection(["--all"], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let answered = false;
+    const poll = setInterval(() => {
+      if (!humanText(stdout.text()).includes("(y/N)")) return;
+      if (answered) return;
+      answered = true;
+      clearInterval(poll);
+      writeFileSync(healthyOutput, "concurrent edit\n");
+      input.write("y\n");
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(1);
+    const rendered = humanText(stderr.text());
+    // The first Project's committed work is reported; the no-write claim
+    // that belongs to the invocation-wide refusal must not appear.
+    expect(rendered).toContain(fleet.driftedProject);
+    expect(rendered).not.toContain("No Project or setting was changed");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Updated shared.");
+    expect(readFileSync(healthyOutput, "utf8")).toBe("concurrent edit\n");
+  });
+
   test("leaving the diff without accepting leaves the whole invocation untouched", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff-leave");
     const stdout = new RecordingSink();
