@@ -709,13 +709,15 @@ function parseLifecycleArguments(
   let here = false;
   let json = false;
   let project: string | undefined;
+  let projectFlag = false;
   let stale = false;
   let verbose = false;
   // The replacement-answering flag exists only on update (US-031); status
   // rejects it through the shared unknown-argument error below.
   const replaceChangedAllowed = command === "update";
   let replaceChanged = false;
-  for (const argument of arguments_) {
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index]!;
     if (argument === "--json") {
       json = true;
       continue;
@@ -749,14 +751,37 @@ function parseLifecycleArguments(
       here = true;
       continue;
     }
+    if (argument === "--project") {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        throw new Error(`${command} --project requires a Project path`);
+      }
+      if (project !== undefined) {
+        throw new Error(`${command} --project cannot be combined with a Project path`);
+      }
+      project = value;
+      projectFlag = true;
+      index += 1;
+      continue;
+    }
     if (!argument.startsWith("-")) {
       if (project !== undefined) {
-        throw new Error(`${command} accepts at most one Project path`);
+        throw new Error(
+          projectFlag
+            ? `${command} --project cannot be combined with a Project path`
+            : `${command} accepts at most one Project path`,
+        );
       }
       project = argument;
       continue;
     }
     throw new Error(`${command} does not accept argument '${argument}'`);
+  }
+  if (projectFlag && here) {
+    throw new Error(`${command} --project cannot be combined with --here`);
+  }
+  if (projectFlag && all) {
+    throw new Error(`${command} --project cannot be combined with --all`);
   }
   if (all && project !== undefined) {
     throw new Error(`${command} --all cannot be combined with a Project path`);

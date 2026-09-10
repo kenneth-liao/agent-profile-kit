@@ -373,9 +373,10 @@ attention surface as the report body: actionable `status` points directly to the
 matching update command; a ready fleet `status --all` recommends `update --all`; a
 blocked result tells you to resolve the reported blocker and retry the same
 command you just ran; current status and completed or no-op `update` results omit
-a next step. `status` and `update` default to the bound Project containing the
-current working directory and accept one explicit existing absolute or
-home-relative bound Project root. Use `--all` as the only fleet scope. Scoped
+a next step. `status` and `update` target the complete fleet by default. Narrow
+the scope with `--here` for the bound Project containing the current working
+directory, one explicit existing absolute or home-relative bound Project root,
+or `--project <path>`; `--all` states the fleet scope explicitly. Scoped
 planning, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
 through the selected installation's contribution-aware union. Host capability

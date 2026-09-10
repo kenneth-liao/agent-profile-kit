@@ -2078,6 +2078,34 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
   });
 
+  test("update and status accept --project <path> narrowing while leaving unselected Projects untouched", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const selected = project("agent-profile-kit-narrow-first-");
+    const unselected = project("agent-profile-kit-narrow-second-");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${selected}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${unselected}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const narrowedStatus = await runCli(home, "status", "--project", selected, "--json");
+    expectExitCode(narrowedStatus, 0);
+    const payload = JSON.parse(narrowedStatus.stdout) as {
+      readonly projects: readonly { readonly canonicalProject: string }[];
+    };
+    expect(payload.projects.map((entry) => entry.canonicalProject)).toEqual([
+      realpathSync(selected),
+    ]);
+
+    expectExitCode(await runCli(home, "update", "--project", selected), 0);
+    expect(existsSync(join(selected, ".agent-profile-kit"))).toBe(true);
+    expect(existsSync(join(unselected, ".agent-profile-kit"))).toBe(false);
+  });
+
   test("--all explicitly selects the complete Project fleet", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -2126,6 +2154,30 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(hereWithPath, 1);
       expect(hereWithPath.stderr).toContain(`${command} --here cannot be combined with a Project path`);
       expect(hereWithPath.stderr).toContain(`Usage: apkit ${command}`);
+
+      const projectMissingValue = await runCli(home, command, "--project");
+      expectExitCode(projectMissingValue, 1);
+      expect(projectMissingValue.stderr).toContain(`${command} --project requires a Project path`);
+      expect(projectMissingValue.stderr).toContain(`Usage: apkit ${command}`);
+
+      const projectFlagValue = await runCli(home, command, "--project", "--here");
+      expectExitCode(projectFlagValue, 1);
+      expect(projectFlagValue.stderr).toContain(`${command} --project requires a Project path`);
+
+      const projectWithHere = await runCli(home, command, "--project", projectPath, "--here");
+      expectExitCode(projectWithHere, 1);
+      expect(projectWithHere.stderr).toContain(`${command} --project cannot be combined with --here`);
+      expect(projectWithHere.stderr).toContain(`Usage: apkit ${command}`);
+
+      const projectWithAll = await runCli(home, command, "--project", projectPath, "--all");
+      expectExitCode(projectWithAll, 1);
+      expect(projectWithAll.stderr).toContain(`${command} --project cannot be combined with --all`);
+      expect(projectWithAll.stderr).toContain(`Usage: apkit ${command}`);
+
+      const projectWithPath = await runCli(home, command, "--project", projectPath, projectPath);
+      expectExitCode(projectWithPath, 1);
+      expect(projectWithPath.stderr).toContain(`${command} --project cannot be combined with a Project path`);
+      expect(projectWithPath.stderr).toContain(`Usage: apkit ${command}`);
     }
     expect(existsSync(marker)).toBe(false);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -2692,7 +2744,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed.stderr).toContain("Run apkit bind to configure this directory as a Project.");
     expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
     // Usage node as final guidance
-    expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]");
+    expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--verbose] [--json]");
     expect(lines.at(-1)).toBe("");
   });
 
@@ -3766,7 +3818,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const help = await runCli(home, "help", "status");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
-      "Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
+      "Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]",
     );
     expect(help.stdout).toContain("apkit status --stale --json");
   });
@@ -6776,7 +6828,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const help = await runCli(isolatedHome(), "help", "update");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
-      "Usage: apkit update [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
+      "Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
     );
     expect(help.stdout).toContain("apkit update --stale");
     expect(help.stdout).toContain("apkit update --blocked");
@@ -11019,12 +11071,12 @@ function treeDigest(roots: readonly string[]): string {
     const badLifecycleFlag = await runCli(home, "status", "--yaml");
     expectExitCode(badLifecycleFlag, 1);
     expect(badLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]");
+    expect(badLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]");
 
     const badAfterValidLifecycleFlag = await runCli(home, "status", "--verbose", "--yaml");
     expectExitCode(badAfterValidLifecycleFlag, 1);
     expect(badAfterValidLifecycleFlag.stderr).toContain("status does not accept argument '--yaml'");
-    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]");
+    expect(badAfterValidLifecycleFlag.stderr).toContain("Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]");
 
     const badGuideFlag = await runCli(home, "guide", "--json");
     expectExitCode(badGuideFlag, 1);

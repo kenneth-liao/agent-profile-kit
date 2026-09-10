@@ -11,12 +11,15 @@ their own slices and are not decided here.
 
 ## Decision
 
-- **`apkit update` replaces `apkit apply` with identical scope and behavior.**
-  Fleet default, `--here`, one explicit Project path, `--all`,
-  `--stale`/`--blocked`, `--verbose`, `--json`, and `--replace-changed` keep
-  their selection, write, receipt, exit-code, and machine-payload semantics.
-  The only intentional machine change is the payload's `command` field, which
-  reports `"update"`.
+- **`apkit update` replaces `apkit apply` with identical scope and behavior,**
+  plus the ticket-required `--project <path>` narrowing. Fleet default,
+  `--here`, one explicit Project path, `--project <path>`, `--all`,
+  `--stale`/`--blocked`, `--verbose`, `--json`, and `--replace-changed` share
+  one argument-ingestion boundary with `status`, so the read-only plan and
+  the write path accept the same narrowing; missing values and conflicting
+  scopes (`--project` with `--here`/`--all`/a positional path) are rejected
+  before writes. The only intentional machine change is the payload's
+  `command` field, which reports `"update"`.
 - **Public `apply` is retired without a compatibility shim** (pre-1.0
   breaking-change policy, ADR-0014). Every `apply` form — bare, scoped, and
   `apply --help` / `help apply` — exits `1` with a replacement diagnostic
