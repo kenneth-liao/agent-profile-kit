@@ -111,7 +111,7 @@ export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): Pres
     parts: [
       "Next: run ",
       commandPart(COMMAND_NAME, [arg("validate")]),
-      ", then bind the Profile to a Project",
+      ", then install the Profile into a Project",
     ],
     category: "command",
   });
@@ -175,7 +175,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       ? [
         "Next: from the project you want to try, run ",
         commandPart(COMMAND_NAME, [
-          arg("bind"),
+          arg("install"),
           arg(AUTHORING_EXAMPLES.profile.id),
           arg("--host"),
           arg(firstDetectedHost),
@@ -214,25 +214,29 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   ];
 }
 
-export type BindReceiptInput = {
-  readonly outcome: "created" | "unchanged" | "replaced";
+export type InstallReceiptInput = {
+  readonly outcome: "created" | "unchanged";
   readonly canonicalProject: string;
   readonly project: string;
   readonly profile: string;
   readonly hosts: readonly SupportedHost[];
-} & (BindReceiptInputBase | {
+} | {
   readonly outcome: "replaced";
-  readonly previousProfile: string;
-  readonly previousHosts: readonly SupportedHost[];
-});
-
-type BindReceiptInputBase = {
-  readonly outcome: "created" | "unchanged";
+  readonly canonicalProject: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly hosts: readonly SupportedHost[];
+  /** The replaced selection; required exactly when outcome is "replaced". */
+  readonly previous: {
+    readonly profile: string;
+    readonly hosts: readonly SupportedHost[];
+  };
 };
 
-/** The receipt document for one `bind` invocation. */
-export function bindReceiptDocument(
-  input: BindReceiptInput,
+/** The receipt document for one `install` invocation: the installed
+ * selection and its verified outcome in one action (US-001). */
+export function installReceiptDocument(
+  input: InstallReceiptInput,
 ): PresentationDocument {
   const project = pathPart(
     input.canonicalProject,
@@ -243,20 +247,20 @@ export function bindReceiptDocument(
   if (input.outcome === "unchanged") {
     nodes.push({
       kind: "sentence",
-      parts: [`${projectBindingCapitalized} unchanged for `, project],
+      parts: ["Installation unchanged for ", project],
     });
   } else {
     nodes.push({
       kind: "sentence",
       parts: [
-        `${input.outcome === "replaced" ? "Replaced" : "Recorded"} ${projectBindingSingular} for `,
+        `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
         project,
       ],
       category: "success",
     });
   }
   if (input.outcome === "replaced") {
-    const { previousProfile, previousHosts } = input;
+    const { profile: previousProfile, hosts: previousHosts } = input.previous;
     if (previousProfile !== input.profile) {
       nodes.push({
         kind: "key-value",

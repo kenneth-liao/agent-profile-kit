@@ -59,7 +59,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize or adopt the canonical Workspace and settings",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and settings; never overwrites a valid Workspace.",
-    next: ["Run ", invocation("bind", AUTHORING_EXAMPLES.profile.id, "--host", "codex"), "."],
+    next: ["Run ", invocation("install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"), "."],
   },
   {
     name: "guide",
@@ -89,14 +89,14 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: ["Edit your Workspace files, then run ", invocation("validate"), "."],
   },
   {
-    name: "bind",
+    name: "install",
     group: "common",
-    syntax: "bind <profile> [project] --host <host> [--host <host> ...] [--replace]",
-    summary: "Configure a Project with a Profile and Agent Hosts, or replace an existing binding",
-    examples: COMMAND_EXAMPLES.bind,
+    syntax: "install <profile> [project] --host <host> [--host <host> ...] [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]",
+    summary: "Install a Profile with Agent Hosts into a Project and remember the selection",
+    examples: COMMAND_EXAMPLES.install,
     supportedHosts: SUPPORTED_HOSTS,
     writes:
-      "Records one configured Project in settings; --replace restates an existing binding's Profile and Hosts. Does not install project files.",
+      "Records the Project's Profile and Host choice and installs its verified files in one action.",
     next: ["Run ", invocation("status"), "."],
   },
   {
@@ -256,7 +256,7 @@ const ROOT_DISCOVERY_PARTS: readonly InlineContent[] = [
   "  Choose a Profile with ",
   invocation("guide"),
   " profile; see ",
-  invocation("bind", "--help"),
+  invocation("install", "--help"),
   " for supported Host values.",
 ];
 const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
@@ -267,7 +267,7 @@ const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
 
 const QUICK_START_COMMANDS = [
   "init",
-  "bind <profile> --host <host>",
+  "install <profile> --host <host>",
   "status",
   "update",
 ] as const;

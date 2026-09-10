@@ -57,7 +57,7 @@ import {
   validationResultDocument,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
-import { runBindCommand } from "./bind-command.js";
+import { runInstallCommand } from "./install-command.js";
 import { runInitCommand } from "./init-command.js";
 import {
   renderPresentationDocument,
@@ -252,7 +252,7 @@ const MACHINE_NAMESPACE = "machine" as const;
 const REMOVED_TEMPORARY_COMMANDS = ["install-temp", "remove-temp"] as const;
 
 /** Public commands replaced by a new name (DEC-001): retired without a compatibility shim. */
-const REMOVED_PUBLIC_COMMANDS = [{ from: "apply", to: "update" }] as const;
+const REMOVED_PUBLIC_COMMANDS = [{ from: "apply", to: "update" }, { from: "bind", to: "install" }] as const;
 
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
   if (
@@ -1030,8 +1030,8 @@ async function main(): Promise<void> {
     }
     return;
   }
-  if (arguments_.length >= 1 && arguments_[0] === "bind") {
-    const outcome = await runBindCommand({
+  if (arguments_.length >= 1 && arguments_[0] === "install") {
+    const outcome = await runInstallCommand({
       home,
       arguments: arguments_.slice(1),
       stdout: process.stdout,

@@ -71,7 +71,7 @@ than duplicating it.
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
-| 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace`; missing arguments are asked for on an interactive terminal |
+| 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
 | 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
@@ -136,9 +136,9 @@ Common next steps:
       containing Project, or one explicit Project
   apkit update
     Sync the complete fleet, the containing Project, or one explicit Project
-  apkit bind
-    Configure a Project with a Profile and Agent Hosts, or replace an existing
-      binding
+  apkit install
+    Install a Profile with Agent Hosts into a Project and remember the
+      selection
   apkit guide
     Show a topic index, full Workspace guidance, or one focused authoring
       example
@@ -192,7 +192,7 @@ Supported Hosts:
   opencode
   pi
 
-Use <host> with apkit bind to select it for a configured Project.
+Use <host> with apkit install to select it for a Project.
 ```
 
 Temporary-install eligibility remains available in focused `machine
@@ -215,10 +215,10 @@ Initialized Agent Profile Kit Workspace and settings at
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: claude, codex, opencode
-Next: from the project you want to try, run apkit bind example --host claude
+Next: from the project you want to try, run apkit install example --host claude
 ```
 
-Scaffolds `workspace.yaml`, six artifact directories, a bindable `example`
+Scaffolds `workspace.yaml`, six artifact directories, an installable `example`
 Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
 `schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
 removed example or overwrite any valid existing Workspace. The Workspace
@@ -263,7 +263,7 @@ Complete references:
 Examples:
   apkit init
   apkit guide profile
-  apkit bind example --host codex
+  apkit install example --host codex
 ```
 
 `guide --full` and `guide --agent` retain the complete human- and
@@ -326,22 +326,29 @@ that a Skill's `name` is its Artifact ID without requiring the full guide.
 explicit command (US-047, DEC-027); artifact creation never opens it as a
 side effect.
 
-### 5. Bind
+### 5. Install
 
 ```
-$ apkit bind example <project> --host codex
-Recorded configured Project for <project>
+$ apkit install example <project> --host codex --auto-confirm
+Installed example for <project>
   Profile: example
   Hosts: codex
 Next: apkit status
 ```
 
 ```
-$ apkit bind ops <project> --host codex --host opencode --replace
-Replaced configured Project for <project>
-  Hosts: codex → codex, opencode
+$ apkit install ops <project> --host codex --host claude --auto-confirm
+Replaced installation ops for <project>
+  Profile: example → ops
+  Hosts: codex → claude, codex
 Next: apkit status
 ```
+
+An interactive `install` shows the proposed scope and asks for confirmation
+before any write; `--auto-confirm` answers that confirmation. Replacing or
+deleting independently changed generated files additionally needs
+`--replace-changed`/`--remove-changed`. On failure the previous selection is
+restored where possible and the retry is printed.
 
 Correct and well scoped; additional `--host` values are recorded the same way,
 `unchanged` is distinguished from `Recorded`, the project defaults to the
@@ -371,7 +378,7 @@ Next: apkit status
 ```
 
 Successful validation derives its next action from the configured Project
-count: zero points to `apkit bind`, while one or more points to `apkit
+count: zero points to `apkit install`, while one or more points to `apkit
 status`. Validation remains read-only. Invalid Workspace references are
 explained down to the offending file, the invalid value, and the available
 names, with a nearest-name suggestion when one exists (US-025, US-026,
@@ -478,7 +485,7 @@ Scope errors remain forks in the road rather than walls (US-024, DEC-016):
 ```
 $ apkit status --here
 apkit: directory '/private/tmp' is not configured as a Project
-Run apkit bind to configure this directory as a Project.
+Run apkit install to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 ```

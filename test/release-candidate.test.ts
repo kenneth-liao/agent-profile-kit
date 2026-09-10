@@ -640,7 +640,7 @@ describe("project-bound release candidate", () => {
 
     expect(packageText).not.toMatch(/BEGIN (RSA |OPENSSH )?PRIVATE KEY|api[_-]?key\s*[:=]/i);
     expect(findFormerCommandInvocations(markdownDocuments)).toEqual([]);
-    expect(packageText).not.toMatch(/apkit (plan|install|run)\b/);
+    expect(packageText).not.toMatch(/apkit (plan|run)\b/);
     expect(packageText).not.toMatch(/per-session launcher|global Skill projection|process[- ]overlay/i);
     expect(existsSync(join(packageRoot, "node_modules"))).toBe(false);
     expect(existsSync(join(packageRoot, "test"))).toBe(false);
@@ -1413,25 +1413,14 @@ describe("project-bound release candidate", () => {
     expectExitCode(profiles, 0);
     expect(profiles.stdout).toContain("Profile: coding");
 
-    // Bind every supported Host, then inventory the Project Binding.
+    // Record every supported Host without installing, then inventory the
+    // Project Binding (pending setup preserved for the plan/apply below).
     const projectPath = gitRepository();
-    const bind = await runCli(home, [
-      "bind",
-      "coding",
-      projectPath,
-      "--host",
-      "antigravity",
-      "--host",
-      "claude",
-      "--host",
-      "codex",
-      "--host",
-      "grok",
-      "--host",
-      "pi",
-    ]);
-    expectExitCode(bind, 0);
-    expect(bind.stdout).toContain("Recorded configured Project");
+    writeBindings(home, [{
+      project: projectPath,
+      profile: "coding",
+      hosts: ["antigravity", "claude", "codex", "grok", "pi"],
+    }]);
 
     const projects = await runCli(home, ["list", "projects"]);
     expectExitCode(projects, 0);
@@ -1628,16 +1617,14 @@ describe("project-bound release candidate", () => {
     const source = gitRepository("agent-profile-kit-rc-loop-source-");
     const multi = project("agent-profile-kit-rc-loop-multi-");
     const blocked = gitRepository("agent-profile-kit-rc-loop-blocked-");
-    for (const [target, host] of [
-      [settled, "codex"],
-      [changed, "codex"],
-      [missing, "claude"],
-      [source, "codex"],
-      [multi, "codex"],
-      [blocked, "codex"],
-    ] as const) {
-      expectExitCode(await runCli(home, ["bind", "example", target, "--host", host]), 0);
-    }
+    writeBindings(home, [
+      { project: settled, profile: "example", hosts: ["codex"] },
+      { project: changed, profile: "example", hosts: ["codex"] },
+      { project: missing, profile: "example", hosts: ["claude"] },
+      { project: source, profile: "example", hosts: ["codex"] },
+      { project: multi, profile: "example", hosts: ["codex"] },
+      { project: blocked, profile: "example", hosts: ["codex"] },
+    ]);
     // Install the whole fleet first; the causes are induced afterwards so the
     // fleet simultaneously carries every state.
     expectExitCode(await runCliDefaultScope(home, ["update"]), 0);
@@ -1652,11 +1639,25 @@ describe("project-bound release candidate", () => {
     execFileSync("git", ["-C", blocked, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "tracked"]);
     writeFileSync(join(changed, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
     rmSync(join(missing, ".claude/rules/agent-profile-kit.md"));
-    expectExitCode(await runCli(home, ["bind", "example", source, "--host", "codex", "--host", "grok", "--replace"]), 0);
-    expectExitCode(await runCli(home, ["bind", "example", multi, "--host", "codex", "--host", "grok", "--replace"]), 0);
+    writeBindings(home, [
+      { project: settled, profile: "example", hosts: ["codex"] },
+      { project: changed, profile: "example", hosts: ["codex"] },
+      { project: missing, profile: "example", hosts: ["claude"] },
+      { project: source, profile: "example", hosts: ["codex", "grok"] },
+      { project: multi, profile: "example", hosts: ["codex", "grok"] },
+      { project: blocked, profile: "example", hosts: ["codex"] },
+    ]);
     writeFileSync(join(multi, ".agent-profile-kit/codex/context.md"), "hand-edited bytes\n");
     const neverInstalled = gitRepository("agent-profile-kit-rc-loop-never-");
-    expectExitCode(await runCli(home, ["bind", "example", neverInstalled, "--host", "codex"]), 0);
+    writeBindings(home, [
+      { project: settled, profile: "example", hosts: ["codex"] },
+      { project: changed, profile: "example", hosts: ["codex"] },
+      { project: missing, profile: "example", hosts: ["claude"] },
+      { project: source, profile: "example", hosts: ["codex", "grok"] },
+      { project: multi, profile: "example", hosts: ["codex", "grok"] },
+      { project: blocked, profile: "example", hosts: ["codex"] },
+      { project: neverInstalled, profile: "example", hosts: ["codex"] },
+    ]);
     // One Git-only PATH for every lifecycle run: no real Host CLI can satisfy
     // a probe, so detection is exact and no advisory warning interferes.
     const gitOnlyPath = allowlistBin(home);
@@ -1864,12 +1865,6 @@ describe("project-bound release candidate", () => {
     }
     const journeyPath = `${stubBin}:${apkitBin(home)}`;
 
-    /** The commands the view printed as copyable `apkit …` actions. */
-    const printedApkitCommands = (stdout: string): readonly string[] => stdout
-      .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("apkit "));
-
     // 1. Bare invocation on an uninitialized machine: setup state and one
     // printed next command, not a manual (US-023, US-032, US-035).
     const bare = await runCli(home, [], { path: journeyPath });
@@ -1893,93 +1888,46 @@ describe("project-bound release candidate", () => {
     // The suggested first bind names a detected Host and is the one printed
     // command the newcomer needs (US-039).
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
-      "run apkit bind example --host claude",
+      "run apkit install example --host claude",
     );
 
-    // 3. Follow the printed bind form, made project-specific the way the
-    // printed sentence says ("from the project you want to try").
-    const bindExample = await runCli(
+    // 3. Follow the printed install form, made project-specific the way the
+    // printed sentence says ("from the project you want to try"). Pipes add
+    // --auto-confirm for the interactive general confirmation.
+    const installExample = await runCli(
       home,
-      ["bind", "example", firstProject, "--host", "claude"],
+      ["install", "example", firstProject, "--host", "claude", "--auto-confirm"],
       { path: journeyPath },
     );
-    expectExitCode(bindExample, 0);
-    expect(bindExample.stdout).toContain("Recorded configured Project for");
-    expect(bindExample.stdout).toContain("Hosts: claude");
-    expect(bindExample.stdout).toContain("Next: apkit status");
+    expectExitCode(installExample, 0);
+    expect(installExample.stdout).toContain("Installed example for");
+    expect(installExample.stdout).toContain("Hosts: claude");
+    expect(installExample.stdout).toContain("Next: apkit status");
+    expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
 
-    // 4. The newcomer works from inside the Project (the way the printed bind
-    // sentence says): the status next action printed there must be the real
-    // apply for this Project — a runnable target, not the cwd-relative alias
-    // the Project-target boundary rejects (US-007, US-012, INT-1).
-    const readyStatus = await runCli(
+    // 4. The newcomer works from inside the Project: install already
+    // installed it, so status reports current there — no second command.
+    const currentStatus = await runCli(
       home,
       ["status", firstProject],
       { path: journeyPath, cwd: firstProject },
     );
-    expectExitCode(readyStatus, 0);
-    expect(readyStatus.stdout).toContain("Ready to update");
-    expect(readyStatus.stdout).toContain("- not installed yet (1): .");
-    const printedApply = readyStatus.stdout
-      .split("\n")
-      .find((line) => line.startsWith("Next: apkit update "))!
-      .replace("Next: ", "");
-    // The printed command's Project argument is a runnable target spelling:
-    // fully spelled (no middle elision inside a copyable command token —
-    // US-007, review INT-1 cycle 2 on #489), so the newcomer runs exactly the
-    // printed command, verbatim, from inside the Project.
-    expect(printedApply.startsWith("apkit update ")).toBe(true);
-    const printedTarget = printedApply.slice("apkit update ".length);
-    // The argument is one shell-quoted token around the fully spelled
-    // identity (no middle elision inside a copyable command token, review
-    // INT-1 cycle 2; one POSIX-quoted token per RE-1 on #489), so the
-    // newcomer runs exactly the printed command, verbatim, from inside the
-    // Project.
-    expect(printedTarget).toBe(`'${firstProject}'`);
-    expect(printedTarget).not.toContain("…");
-    // Executing the printed line verbatim through a shell: the shell strips
-    // the quotes, so apply receives the Project as exactly one argument —
-    // the way a user's terminal runs the copyable command.
-    const exampleApply = await runProcess({
-      executable: realpathSync("/bin/sh"),
-      arguments_: ["-c", printedApply],
-      environment: { ...process.env, HOME: home, PATH: journeyPath },
-      cwd: firstProject,
-      deadlineMs: TEST_CHILD_DEADLINE_MS,
-      commandLabel: "printed newcomer apply command via shell",
-    });
-    expectExitCode(exampleApply, 0);
-    expect(exampleApply.stdout).toContain("Update complete");
-    // The printed command was executed verbatim from inside the Project, so
-    // the receipt narratively renders the containing Project at its
-    // cwd-relative identity (`.`) — the shared short-identity policy.
-    expect(exampleApply.stdout).toContain("(.)");
+    expectExitCode(currentStatus, 0);
+    expect(currentStatus.stdout).toContain("All Projects are current (1 Project)");
     expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
-    // Concrete user verification guidance names the applied Profile, the
-    // configured Host, and the Project, without claiming Agent Profile Kit
-    // observed the loading (US-041, DEC-025, OOS-009).
-    const exampleHuman = humanText(exampleApply.stdout);
-    expect(exampleHuman).toContain(
-      `To check that claude loaded Profile example, start a new claude session in`,
-    );
-    expect(exampleHuman).toContain("ask claude what Profile material it loaded");
-    expect(exampleHuman).not.toContain("Agent Profile Kit verified");
+    // NOTE (#494): the first-run authoring handoff (US-040) and the
+    // Host-loading check (US-041) stay update-report views in this slice;
+    // install reports the installed selection compactly. First-installation
+    // teaching and loading guidance belong to #509/#515 and re-cover this
+    // journey in #517.
 
-    // 5. The authoring handoff prints three atomic copyable commands; the
-    // newcomer runs exactly those to author real material (US-040, DEC-024).
-    const handoff = printedApkitCommands(exampleApply.stdout).filter((command) =>
-      command.startsWith("apkit new "));
-    expect(handoff).toHaveLength(3);
-    expect(handoff).toEqual([
-      "apkit new skill <skill>",
-      "apkit new context <context>",
-      "apkit new profile <profile> --context <context> --skill <skill>",
-    ]);
-    const creationCommands = handoff
-      .map((command) => command
-        .replace("<skill>", "summarize-pr")
-        .replace("<context>", "project-rules")
-        .replace("<profile>", "real-profile"));
+    // 5. The newcomer authors real material with the explicit authoring
+    // commands (US-040, DEC-024).
+    const creationCommands = [
+      "apkit new skill summarize-pr",
+      "apkit new context project-rules",
+      "apkit new profile real-profile --context project-rules --skill summarize-pr",
+    ];
     const creations: ProcessResult[] = [];
     for (const command of creationCommands) {
       const creation = await runCli(home, command.split(" ").slice(1), { path: journeyPath });
@@ -1989,49 +1937,38 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
-    // The final handoff receipt's next action is followable in print:
-    // validate, then bind the Profile to a Project.
+    // The final creation receipt's next action is followable in print:
+    // validate, then install the Profile into a Project.
     expect(creations[2]!.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: run apkit validate, then bind the Profile to a Project",
+      "Next: run apkit validate, then install the Profile into a Project",
     );
 
     // 6. Author the real Profile's content, then follow the printed chain:
-    // validate, then bind the real Profile (US-044, TEST-017 chain).
+    // validate, then install the real Profile (US-044, TEST-017 chain).
     const validate = await runCli(home, ["validate"], { path: journeyPath });
     expectExitCode(validate, 0);
     expect(validate.stdout).toContain("real-profile");
     expect(validate.stdout).toContain("Next: apkit status");
-    const bindReal = await runCli(
+    const installReal = await runCli(
       home,
-      ["bind", "real-profile", realProject, "--host", "claude"],
+      ["install", "real-profile", realProject, "--host", "claude", "--auto-confirm"],
       { path: journeyPath },
     );
-    expectExitCode(bindReal, 0);
-    expect(bindReal.stdout).toContain("Profile: real-profile");
-    const realApply = await runCli(
-      home,
-      ["update", realProject],
-      { path: journeyPath },
-    );
-    expectExitCode(realApply, 0);
+    expectExitCode(installReal, 0);
+    expect(installReal.stdout).toContain("Profile: real-profile");
     expect(existsSync(join(realProject, ".claude", "skills", "summarize-pr", "SKILL.md"))).toBe(true);
-    const realHuman = humanText(realApply.stdout);
-    expect(realHuman).toContain("Profile real-profile will load the next time");
-    expect(realHuman).toContain("To check that claude loaded Profile real-profile");
-    // Routine applies never repeat the first-run teaching (US-040).
-    expect(realHuman).not.toContain("Now author your own");
 
-    // 7. An absent Host stays advisory: binding and updating a Project to a
-    // Host that is not installed warns inline, writes the material, and never
-    // changes the exit code (US-017–019, TEST-009, TEST-021).
-    expectExitCode(
-      await runCli(home, ["bind", "real-profile", absentProject, "--host", "grok"], { path: journeyPath }),
-      0,
+    // 7. An absent Host stays advisory: installing a Project on a Host that
+    // is not installed warns inline, writes the material, and never changes
+    // the exit code (US-017–019, TEST-009, TEST-021).
+    const absentInstall = await runCli(
+      home,
+      ["install", "real-profile", absentProject, "--host", "grok", "--auto-confirm"],
+      { path: journeyPath },
     );
-    const absentApply = await runCli(home, ["update", absentProject], { path: journeyPath });
-    expectExitCode(absentApply, 0);
-    expect(absentApply.stdout).toContain("Grok");
-    expect(absentApply.stdout).not.toContain("Warnings:");
+    expectExitCode(absentInstall, 0);
+    expect(absentInstall.stdout).toContain("Grok");
+    expect(absentInstall.stdout).not.toContain("Warnings:");
     expect(existsSync(join(absentProject, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
 
     // 8. The journey ends where the user is heading: every touched Project is
@@ -2055,7 +1992,7 @@ describe("project-bound release candidate", () => {
     // 1. Bare help: discover root command surface and first-run guidance.
     const help = await runCli(home, ["--help"], { path: pathWithHosts });
     expectExitCode(help, 0);
-    expect(help.stdout).toContain("First run:\n  apkit init\n  apkit bind <profile> --host <host>\n  apkit status\n  apkit update");
+    expect(help.stdout).toContain("First run:\n  apkit init\n  apkit install <profile> --host <host>\n  apkit status\n  apkit update");
     expect(help.stdout).toContain("Common commands:\n  init");
     expect(help.stdout).toContain("More commands:\n  Inventory:");
 
@@ -2067,7 +2004,7 @@ describe("project-bound release candidate", () => {
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain(
-      "Next: from the project you want to try, run\n  apkit bind example --host antigravity",
+      "Next: from the project you want to try, run\n  apkit install example --host antigravity",
     );
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
@@ -2081,36 +2018,57 @@ describe("project-bound release candidate", () => {
     );
     expect(validate.stdout).toContain("Profiles found: example");
     expect(validate.stdout).toContain("Hosts bound: none");
-    expect(validate.stdout).toContain("Next: apkit bind <profile> --host <host>");
+    expect(validate.stdout).toContain("Next: apkit install <profile> --host <host>");
 
-    // 4. Bind: bind scaffolded example Profile to a configured Git Project.
-    const bind = await runCli(
+    // 4. Install: install the scaffolded example Profile into the configured
+    // Git Project in one action (pipes add --auto-confirm for the interactive
+    // general confirmation).
+    const install = await runCli(
       home,
-      ["bind", "example", boundProject, "--host", "codex"],
+      ["install", "example", boundProject, "--host", "codex", "--auto-confirm"],
       { path: pathWithHosts },
     );
-    expectExitCode(bind, 0);
-    expect(bind.stdout).toContain("Recorded configured Project for");
-    expect(bind.stdout).toContain("Profile: example");
-    expect(bind.stdout).toContain("Hosts: codex");
-    expect(bind.stdout).toContain("Next: apkit status");
+    expectExitCode(install, 0);
+    expect(install.stdout).toContain("Installed example for");
+    expect(install.stdout).toContain("Profile: example");
+    expect(install.stdout).toContain("Hosts: codex");
+    expect(install.stdout).toContain("Next: apkit status");
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
+    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
+    expect(existsSync(statePath(home))).toBe(true);
 
-    // 5. Ready status: unblocked status presents one compact decision.
-    const readyStatus = await runCli(
+    // 5. Current status: install already installed, so status states that
+    // fact once with no next action.
+    const currentStatus = await runCli(
       home,
       ["status", boundProject],
       { path: pathWithHosts },
     );
-    expectExitCode(readyStatus, 0);
-    expect(readyStatus.stdout).toContain("Ready to update");
-    expect(readyStatus.stdout).toContain("- not installed yet (1):");
-    // INT-2 (corrected by review INT-1 cycle 2 on #489): the selected Project
-    // is a typed path argument rendered through the shared project-scope
-    // identity, and a copyable command token is never middle-elided — the
-    // full runnable identity is spelled out, however wide it renders.
-    const nextLine = readyStatus.stdout.split("\n")
+    expectExitCode(currentStatus, 0);
+    expect(currentStatus.stdout).toBe("All Projects are current (1 Project)\n");
+    expect(currentStatus.stdout).not.toContain("Next:");
+    expect(currentStatus.stdout).not.toContain("Standing Host setup:");
+    expect(currentStatus.stdout).not.toContain("Host setup:");
+
+    // 6. Changed update: drift the installed output, then follow the printed
+    // commands. The Details route executes verbatim through a shell (INT-1,
+    // RE-1 on #489): the selected Project is a typed path argument rendered
+    // through the shared project-scope identity, and a copyable command token
+    // is never middle-elided.
+    writeFileSync(
+      join(boundProject, ".agent-profile-kit", "codex", "context.md"),
+      "hand-edited bytes\n",
+    );
+    const pendingStatus = await runCli(
+      home,
+      ["status", boundProject],
+      { path: pathWithHosts },
+    );
+    expectExitCode(pendingStatus, 0);
+    const nextLine = pendingStatus.stdout.split("\n")
       .find((line) => line.startsWith("Next: apkit update "));
-    const detailsLine = readyStatus.stdout.split("\n")
+    const detailsLine = pendingStatus.stdout.split("\n")
       .find((line) => line.startsWith("Details: apkit status "));
     for (const line of [nextLine, detailsLine]) {
       expect(line).toBeDefined();
@@ -2118,35 +2076,29 @@ describe("project-bound release candidate", () => {
       expect(line!.includes(boundProject.split("/").at(-1)!)).toBe(true);
     }
     expect(detailsLine!.endsWith("--verbose")).toBe(true);
-    expect(readyStatus.stdout).not.toContain("Standing Host setup:");
-    expect(readyStatus.stdout).not.toContain("Host setup:");
-
-    // 6. Changed apply: leads from Apply Receipt, shows first use and invocation readiness.
+    const details = await runProcess({
+      executable: realpathSync("/bin/sh"),
+      arguments_: ["-c", detailsLine!.replace("Details: ", "")],
+      environment: { ...process.env, HOME: home, PATH: pathWithHosts },
+      cwd: boundProject,
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed Details command via shell",
+    });
+    expectExitCode(details, 0);
+    // US-041 (DEC-025, OOS-009): the drifted update states the concrete
+    // Project-local action that checks whether the Host loaded the Profile,
+    // without claiming Agent Profile Kit observed that loading.
+    const refusedDrift = await runCli(home, ["update", boundProject], { path: pathWithHosts });
+    expectExitCode(refusedDrift, 1);
+    expect(refusedDrift.stderr).toContain("--replace-changed");
     const apply = await runCli(
       home,
-      ["update", boundProject],
+      ["update", boundProject, "--replace-changed"],
       { path: pathWithHosts },
     );
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Update complete");
-    expect(apply.stdout).toContain("Updated:\n  + 2 generated file additions in 1 project");
-    expect(apply.stdout).toContain("First use:");
-    expect(humanText(apply.stdout)).toContain(
-      humanText(
-        "- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
-      ),
-    );
-    expect(humanText(apply.stdout)).toContain(
-      humanText("- Trust the bound project in Codex so the Profile can load."),
-    );
-    expect(humanText(apply.stdout)).toContain(
-      humanText(
-        "Profile example will load the next time you launch a configured Host from a bound Project root.",
-      ),
-    );
-    // US-041 (DEC-025, OOS-009): the apply also states the concrete
-    // Project-local action that checks whether the Host loaded the Profile,
-    // without claiming Agent Profile Kit observed that loading.
+    expect(apply.stdout).toContain("Updated:");
     const humanApply = humanText(apply.stdout);
     expect(humanApply).toContain(
       "To check that codex loaded Profile example, start a new codex session in",
@@ -2154,30 +2106,18 @@ describe("project-bound release candidate", () => {
     expect(humanApply).toContain("ask codex what Profile material it loaded");
     expect(humanApply).toContain("the installed material should appear in its answer");
     expect(apply.stdout).not.toContain("already current");
-    expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-    expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
-    expect(existsSync(join(boundProject, ".agent-profile-kit", "installation.json"))).toBe(false);
-    expect(existsSync(statePath(home))).toBe(true);
+    expect(apply.stdout).not.toContain("Now author your own:");
 
-    // 6b. Authoring handoff: the apply that installed the scaffolded example
-    // ends with a concrete handoff whose printed authoring commands work
-    // (US-040, DEC-024, TEST-015).
-    const printedHandoff = apply.stdout.split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.startsWith("apkit new "));
-    expect(printedHandoff).toHaveLength(3);
-    // The handoff closes the view: its final command is the last line.
-    expect(apply.stdout.trimEnd().endsWith(printedHandoff.at(-1)!)).toBe(true);
-    const handoffCommands = printedHandoff.map((command) => command
-      .replace("\u003cskill\u003e", "summarize-pr")
-      .replace("\u003ccontext\u003e", "project-rules")
-      .replace("\u003cprofile\u003e", "real-profile"));
-    expect(handoffCommands).toEqual([
+    // 6b. Authoring: the newcomer authors real material with the explicit
+    // authoring commands (US-040, DEC-024, TEST-015). NOTE (#494): the
+    // first-run authoring handoff stays an update-report view in this slice;
+    // install reports compactly, and first-installation teaching belongs to
+    // #509/#515 (re-covered in #517).
+    for (const printed of [
       "apkit new skill summarize-pr",
       "apkit new context project-rules",
       "apkit new profile real-profile --context project-rules --skill summarize-pr",
-    ]);
-    for (const printed of handoffCommands) {
+    ]) {
       const created = await runCli(home, printed.split(" ").slice(1), { path: pathWithHosts });
       expectExitCode(created, 0);
     }
@@ -2210,19 +2150,25 @@ describe("project-bound release candidate", () => {
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
 
-    // 6d. Routine maintenance: adding a Host to the installed example reports
-    // the new outputs and carries no first-run handoff (INT-1, US-040,
-    // DEC-024).
+    // 6d. Routine maintenance: adding a Host to the installed example
+    // installs the new outputs in the same action (INT-1, US-040, DEC-024).
     const addHost = await runCli(
       home,
-      ["bind", "example", boundProject, "--host", "codex", "--host", "claude", "--replace"],
+      ["install", "example", boundProject, "--host", "codex", "--host", "claude", "--auto-confirm"],
       { path: pathWithHosts },
     );
     expectExitCode(addHost, 0);
-    const maintenance = await runCli(home, ["update", boundProject], { path: pathWithHosts });
+    expect(humanText(addHost.stdout)).toContain("Hosts: codex → claude, codex");
+    expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
+    // A follow-up source change still reconciles both Hosts with one loading
+    // check and no first-run handoff.
+    writeFileSync(
+      join(boundProject, ".agent-profile-kit", "codex", "context.md"),
+      "hand-edited bytes\n",
+    );
+    const maintenance = await runCli(home, ["update", boundProject, "--replace-changed"], { path: pathWithHosts });
     expectExitCode(maintenance, 0);
     expect(maintenance.stdout).toContain("Updated:");
-    expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     expect(maintenance.stdout).toContain("To check that claude and codex loaded Profile example");
     expect(maintenance.stdout).not.toContain("Now author your own:");
     expect(maintenance.stdout).not.toContain("apkit new ");
@@ -2283,7 +2229,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(allInit.stdout).toContain(
-      "Next: from the project you want to try, run\n  apkit bind example --host antigravity",
+      "Next: from the project you want to try, run\n  apkit install example --host antigravity",
     );
 
     // 2. Single host present (only codex): selects codex
@@ -2300,7 +2246,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
     expect(codexInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit bind example --host codex",
+      "Next: from the project you want to try, run apkit install example --host codex",
     );
 
     // 3. Single host present (only claude): selects claude
@@ -2316,8 +2262,8 @@ describe("project-bound release candidate", () => {
     const claudeInit = await runCli(claudeHome, ["init"], { path: claudePath });
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
-    expect(claudeInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit bind example --host claude",
+    expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain(
+      "Next: from the project you want to try, run apkit install example --host claude",
     );
 
     // 4. No supported hosts present: names none and suggests validate (does not suggest an absent host)
@@ -2407,7 +2353,7 @@ describe("project-bound release candidate", () => {
     const spacedProject = mkdtempSync(join(tmpdir(), "agent profile kit rc spaced-"));
     temporaryDirectories.push(spacedProject);
     execFileSync("git", ["init", "-q", spacedProject]);
-    expectExitCode(await runCli(home, ["bind", "example", spacedProject, "--host", "codex"]), 0);
+    writeBindings(home, [{ project: spacedProject, profile: "example", hosts: ["codex"] }]);
 
     // One PATH for the whole case: git for lifecycle inspection plus the
     // packed `apkit` bin shim, so printed commands resolve as printed.

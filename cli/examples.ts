@@ -11,10 +11,9 @@ export const COMMAND_EXAMPLES = {
   guide: ["guide", "guide profile", "guide context", "guide skill", "guide --full", "guide --agent"],
   new: ["new skill review-pr", "new context review-standards", `new profile my-profile --context ${AUTHORING_EXAMPLES.context.id}`],
   open: ["open"],
-  bind: [
-    `bind ${profile} --host codex`,
-    `bind ${profile} ${project} --host codex --host claude`,
-    `bind ${profile} ${project} --host codex --host opencode --replace`,
+  install: [
+    `install ${profile} --host codex --auto-confirm`,
+    `install ${profile} ${project} --host codex --host claude --auto-confirm`,
   ],
   unbind: ["unbind", `unbind ${project}`],
   validate: ["validate"],

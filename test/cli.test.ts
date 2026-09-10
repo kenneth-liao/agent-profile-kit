@@ -617,9 +617,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "id: example-context\n",
     );
 
-    const bind = await runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expectExitCode(bind, 0);
-    expect(bind.stdout).toContain("Profile: example");
+    const install = await runCli(home, "install", "example", projectPath, "--host", "codex", "--auto-confirm");
+    expectExitCode(install, 0);
+    expect(install.stdout).toContain("Installed example for");
 
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -650,7 +650,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("init help and scaffold success recommend the same bindable example Profile", async () => {
     const home = isolatedHome();
     const projectPath = project();
-    const firstRunCommand = `apkit bind ${AUTHORING_EXAMPLES.profile.id} --host codex`;
+    const firstRunCommand = `apkit install ${AUTHORING_EXAMPLES.profile.id} --host codex`;
 
     const help = await runCli(home, "init", "--help");
     const init = await runCli(home, "init");
@@ -662,17 +662,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `Next: from the project you want to try, run`,
     );
     expect(init.stdout).toContain(
-      `apkit bind ${AUTHORING_EXAMPLES.profile.id} --host`,
+      `apkit install ${AUTHORING_EXAMPLES.profile.id} --host`,
     );
-    const bind = await runCliAt(
+    const install = await runCliAt(
       home,
       projectPath,
-      "bind",
+      "install",
       AUTHORING_EXAMPLES.profile.id,
       "--host",
       "codex",
+      "--auto-confirm",
     );
-    expectExitCode(bind, 0);
+    expectExitCode(install, 0);
   });
 
   test("init creates both canonical inputs and never overwrites either", async () => {
@@ -691,14 +692,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe("# authored\n");
   });
 
-  test("validate directs a Workspace with no configured Projects to bind one", async () => {
+  test("validate directs a Workspace with no configured Projects to install one", async () => {
     const home = isolatedHome();
     await initialize(home);
 
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Next: apkit bind <profile> --host <host>");
+    expect(result.stdout).toContain("Next: apkit install <profile> --host <host>");
     expect(result.stdout).not.toContain("Next: apkit status");
   });
 
@@ -1652,7 +1653,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       ["status"],
       ["update"],
       ["status"],
-      ["bind", "coding", projectPath, "--host", "codex"],
+      ["install", "coding", projectPath, "--host", "codex", "--auto-confirm"],
       ["unbind", projectPath],
     ];
     for (const arguments_ of commands) {
@@ -1809,7 +1810,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, `~/${projectPath.slice(home.length + 1)}`);
     const invoked = join(home, "codex-invoked");
     const bin = join(home, "bin");
-    // `bind` already stages a controlled Codex stub under home/bin; overwrite it
+    // A controlled Codex stub is already staged under home/bin; overwrite it
     // so validate must not call this trap (validate is capability-free).
     mkdirSync(bin, { recursive: true });
     writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf invoked > ${invoked}\nexit 1\n`);
@@ -2037,7 +2038,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const failed = await runCliAt(home, unbound, command, "--here");
       expectExitCode(failed, 1);
       expect(failed.stderr).toContain("is not configured as a Project");
-      expect(failed.stderr).toContain("Run apkit bind");
+      expect(failed.stderr).toContain("Run apkit install");
       expect(failed.stderr).toContain("Run apkit list projects");
       expect(failed.stderr).toContain(`Usage: apkit ${command}`);
     }
@@ -2412,13 +2413,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toBe(
       humanText(
         "No Projects are configured.\n" +
-        "Next: Run apkit list projects to inspect configured Projects, or apkit bind <profile> --host <host> to configure one.\n",
+        "Next: Run apkit list projects to inspect configured Projects, or apkit install <profile> --host <host> to install one.\n",
       ),
     );
     expect(result.stdout.match(/No Projects are configured/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Projects: 0");
     expect(result.stdout).toContain("apkit list projects");
-    expect(result.stdout).toContain("apkit bind <profile> --host <host>");
+    expect(result.stdout).toContain("apkit install <profile> --host <host>");
   });
 
   test("status reports only the exact bound repository while summarizing mixed changes", async () => {
@@ -2741,7 +2742,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(lines[0]).toMatch(/^apkit: directory/);
     expect(failed.stderr).toContain("is not configured as a Project");
     // What to type: recovery commands
-    expect(failed.stderr).toContain("Run apkit bind to configure this directory as a Project.");
+    expect(failed.stderr).toContain("Run apkit install to configure this directory as a Project.");
     expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
     // Usage node as final guidance
     expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]");
@@ -6025,7 +6026,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
 
-  test("a rebound Project remains not installed after uninstall", async () => {
+  test("a reinstalled Project is installed again after uninstall", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6034,14 +6035,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     expectExitCode(await runCli(home, "uninstall"), 0);
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
-    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const rebound = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(rebound, 0);
+    expect(rebound.stdout).toContain("Installed coding for");
 
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).not.toContain("State: addition");
-    expect(status.stdout).toContain("- not installed yet (1):");
+    expect(status.stdout).not.toContain("not installed yet");
     expect(status.stdout).not.toContain("intended teardown");
   });
 
@@ -6164,17 +6165,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     mkdirSync(projectPath);
 
-    const rebound = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const rebound = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
 
     expectExitCode(rebound, 0);
-    const applied = await runCli(home, "update");
-    expectExitCode(applied, 0);
     const restored = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { installation_id: string; project: string }[];
     };
     expect(restored.receipts).toHaveLength(1);
     expect(restored.receipts[0]?.project).toBe(realpathSync(projectPath));
     expect(restored.receipts[0]?.installation_id).not.toBe(initialId);
+    // The follow-up update is a no-op around the same receipt.
+    const applied = await runCli(home, "update");
+    expectExitCode(applied, 0);
+    const stillCurrent = parse(readFileSync(statePath(home), "utf8")) as {
+      receipts: readonly { installation_id: string }[];
+    };
+    expect(stillCurrent.receipts[0]?.installation_id).toBe(restored.receipts[0]?.installation_id);
   });
 
   test("update removes a no-longer-desired Adapter output whose recorded hash still proves ownership", async () => {
@@ -8300,9 +8306,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
   });
 
-  test("legacy plan, install, and run interfaces are removed", async () => {
+  test("legacy plan and run interfaces are removed", async () => {
     const home = isolatedHome();
-    for (const command of ["plan", "install", "run"]) {
+    for (const command of ["plan", "run"]) {
       const result = await runCli(home, command);
       expectExitCode(result, 1);
       expect(result.stderr).toContain(`apkit: unknown command '${command}'`);
@@ -8324,6 +8330,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(result, 1);
       expect(result.stderr).toContain("apkit: apply was replaced by update");
       expect(result.stderr).toContain("apkit update");
+    }
+  });
+
+  test("retired bind points at install without a compatibility execution path", async () => {
+    const home = isolatedHome();
+    for (const arguments_ of [["bind"], ["bind", "coding", "--host", "codex"], ["bind", "--help"]]) {
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
+      expect(result.stderr).toContain("apkit: bind was replaced by install");
+      expect(result.stderr).toContain("apkit install");
+    }
+    for (const arguments_ of [["help", "bind"]]) {
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
+      expect(result.stderr).toContain("apkit: bind was replaced by install");
+      expect(result.stderr).toContain("apkit install");
     }
   });
 
@@ -8357,7 +8379,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(result.stdout).toContain(`apkit ${command}`);
     }
     expect(result.stdout).toMatch(/unbind.*(?:desired|Project Binding).*uninstall|uninstall.*unbind/is);
-    expect(result.stdout).not.toMatch(/apkit (plan|install|run)\b/);
+    expect(result.stdout).not.toMatch(/apkit (plan|run)\b/);
 
     expect(result.stdout).toMatch(/project:\s*(~\/|\/)/);
     expect(result.stdout).toMatch(/profile:\s+\S+/);
@@ -8394,7 +8416,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(Math.abs(trustIndex - launchIndex)).toBeLessThan(120);
   });
 
-  test("guide profile supplies everything a minimal Workspace needs to bind its example", async () => {
+  test("guide profile supplies everything a minimal Workspace needs to install its example", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(join(workspace, "profiles"), { recursive: true });
@@ -8422,8 +8444,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(workspace, "profiles", "example.yaml"), profile!);
     writeFileSync(join(workspace, "context", "example-context.md"), context!);
 
-    const bind = await runCli(home, "bind", "example", project(), "--host", "codex");
-    expectExitCode(bind, 0);
+    const install = await runCli(home, "install", "example", project(), "--host", "codex", "--auto-confirm");
+    expectExitCode(install, 0);
   });
 
   test("guide context returns the short scaffolded Context Module example", async () => {
@@ -8541,7 +8563,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "guide", "--agent");
     expectExitCode(result, 0);
 
-    expect(result.stdout).not.toMatch(/apkit (plan|install|run)\b/);
+    expect(result.stdout).not.toMatch(/apkit (plan|run)\b/);
     expect(result.stdout).toMatch(/Local\s+Configuration/);
     expect(result.stdout).toMatch(/Agents, Hooks, or Tools|Agents, Hooks, and Tools/);
     expect(result.stdout).toMatch(/reject/i);
@@ -8642,7 +8664,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).toMatch(/Profile/i);
     expect(readme).toMatch(/bound project|Project Binding/i);
     expect(readme).toContain("apkit init");
-    expect(readme).toContain("apkit bind");
+    expect(readme).toContain("apkit install");
     expect(readme).toContain("apkit status");
     expect(readme).toContain("apkit update");
     expect(readme).toContain("apkit guide --full");
@@ -8960,7 +8982,7 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
     const initialId = initial.receipts[0]!.installation_id;
 
     expectExitCode(await runCli(home, "unbind", projectPath), 0);
-    expectExitCode(await runCli(home, "bind", "coding", projectPath, "--host", "codex"), 0);
+    expectExitCode(await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm"), 0);
     const rebound = await runCli(home, "update");
 
     expectExitCode(rebound, 0);
@@ -9248,19 +9270,27 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
   });
 });
 
-describe("agent-profile-kit bind (recording-only Project Binding authoring)", () => {
-  test("bind records the canonical cwd when no project argument is supplied", async () => {
+describe("agent-profile-kit install (selection and output in one action)", () => {
+  test("install records the canonical cwd and installs output when no project argument is supplied", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = homeGitRepository(home, "sample");
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    const result = await runCliAt(
+      home,
+      projectPath,
+      "install",
+      "coding",
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Recorded configured Project for ~/projects/sample\n");
-    expect(result.stdout).not.toContain("Recorded configured Project for .");
+    expect(result.stdout).toContain("Installed coding for ~/projects/sample\n");
+    expect(result.stdout).not.toContain("Installed coding for .");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -9268,11 +9298,13 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(result.stdout).toContain("apkit status");
     expect(readFileSync(configPath(home), "utf8")).not.toBe(before);
     expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(statePath(home))).toBe(false);
+    expect(readFileSync(
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      "utf8",
+    )).toContain("Always preserve the project boundary.");
   });
 
-  test("bind inside bound Project renders recognizable identity across created, unchanged, and replaced without error-shaped dot", async () => {
+  test("install inside bound Project renders recognizable identity across created, unchanged, and replaced", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home, "coding");
@@ -9282,10 +9314,18 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     mkdirSync(subDir, { recursive: true });
 
     // 1. Created from inside project root without project argument:
-    const bindCreated = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    const bindCreated = await runCliAt(
+      home,
+      projectPath,
+      "install",
+      "coding",
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(bindCreated, 0);
-    expect(humanText(bindCreated.stdout)).toContain("Recorded configured Project for ~/projects/my-app");
-    expect(bindCreated.stdout).not.toContain("Recorded configured Project for .");
+    expect(humanText(bindCreated.stdout)).toContain("Installed coding for ~/projects/my-app");
+    expect(bindCreated.stdout).not.toContain("Installed coding for .");
     expect(bindCreated.stdout).not.toContain(realpathSync(projectPath));
 
     // Stored project in config.yaml preserves canonical path
@@ -9293,38 +9333,55 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(storedConfig1).toContain(`project: ${realpathSync(projectPath)}`);
 
     // 2. Unchanged from inside project root:
-    const unchangedRoot = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    const unchangedRoot = await runCliAt(
+      home,
+      projectPath,
+      "install",
+      "coding",
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(unchangedRoot, 0);
-    expect(humanText(unchangedRoot.stdout)).toContain("Configured Project unchanged for ~/projects/my-app");
-    expect(unchangedRoot.stdout).not.toContain("Configured Project unchanged for .");
+    expect(humanText(unchangedRoot.stdout)).toContain("Installation unchanged for ~/projects/my-app");
+    expect(unchangedRoot.stdout).not.toContain("Installation unchanged for .");
 
     // 3. Unchanged from inside subdirectory with explicit path:
-    const unchangedSub = await runCliAt(home, subDir, "bind", "coding", "~/projects/my-app", "--host", "codex");
+    const unchangedSub = await runCliAt(
+      home,
+      subDir,
+      "install",
+      "coding",
+      "~/projects/my-app",
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(unchangedSub, 0);
-    expect(humanText(unchangedSub.stdout)).toContain("Configured Project unchanged for ~/projects/my-app");
-    expect(unchangedSub.stdout).not.toContain("Configured Project unchanged for .");
-    expect(unchangedSub.stdout).not.toContain("Configured Project unchanged for ..");
+    expect(humanText(unchangedSub.stdout)).toContain("Installation unchanged for ~/projects/my-app");
+    expect(unchangedSub.stdout).not.toContain("Installation unchanged for .");
+    expect(unchangedSub.stdout).not.toContain("Installation unchanged for ..");
 
     // 4. Replaced from inside project root without project argument:
     const replaced = await runCliAt(
       home,
       projectPath,
-      "bind",
+      "install",
       "ops",
       "--host",
       "codex",
       "--host",
       "claude",
-      "--replace",
+      "--auto-confirm",
     );
     expectExitCode(replaced, 0);
-    expect(humanText(replaced.stdout)).toContain("Replaced configured Project for ~/projects/my-app");
-    expect(replaced.stdout).not.toContain("Replaced configured Project for .");
+    expect(humanText(replaced.stdout)).toContain("Replaced installation ops for ~/projects/my-app");
+    expect(replaced.stdout).not.toContain("Replaced installation ops for .");
     expect(humanText(replaced.stdout)).toContain("Profile: coding → ops");
     expect(humanText(replaced.stdout)).toContain("Hosts: codex → claude, codex");
   });
 
-  test("bind accepts an explicit absolute project path and multi-Host set in canonical order", async () => {
+  test("install accepts an explicit absolute project path and multi-Host set in canonical order", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9332,7 +9389,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const result = await runCli(
       home,
-      "bind",
+      "install",
       "coding",
       projectPath,
       "--host",
@@ -9341,6 +9398,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       "claude",
       "--host",
       "pi",
+      "--auto-confirm",
     );
 
     expectExitCode(result, 0);
@@ -9355,7 +9413,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(validate.stdout).toContain("1 configured Project");
   });
 
-  test("bind accepts a home-relative project path and preserves authored spelling", async () => {
+  test("install accepts a home-relative project path and preserves authored spelling", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9363,29 +9421,53 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     mkdirSync(projectPath, { recursive: true });
     const relative = "~/projects/sample";
 
-    const result = await runCli(home, "bind", "coding", relative, "--host", "codex");
+    const result = await runCli(
+      home,
+      "install",
+      "coding",
+      relative,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
 
     expectExitCode(result, 0);
     expect(readFileSync(configPath(home), "utf8")).toContain(`project: ${relative}`);
   });
 
-  test("identical bind is idempotent and does not rewrite Local Configuration", async () => {
+  test("identical install is idempotent and does not rewrite Local Configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    const first = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const first = await runCli(
+      home,
+      "install",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(first, 0);
     const afterFirst = readFileSync(configPath(home), "utf8");
 
-    const second = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const second = await runCli(
+      home,
+      "install",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(second, 0);
     expect(second.stdout).toContain("unchanged");
     expect(second.stdout).not.toContain(configPath(home));
     expect(readFileSync(configPath(home), "utf8")).toBe(afterFirst);
   });
 
-  test("conflicting bind for an already-bound canonical root fails without mutation and points at --replace", async () => {
+  test("install over an existing binding replaces it in the same action without a --replace flag", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home, "coding");
@@ -9395,17 +9477,29 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       configPath(home),
       `schema_version: 2\n# keep comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
-    const before = readFileSync(configPath(home), "utf8");
 
-    const result = await runCli(home, "bind", "ops", projectPath, "--host", "codex");
+    const result = await runCli(
+      home,
+      "install",
+      "ops",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toContain("already binds canonical project");
-    expect(result.stderr).toContain("--replace");
-    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+    expectExitCode(result, 0);
+    expect(humanText(result.stdout)).toContain("Replaced installation ops");
+    expect(humanText(result.stdout)).toContain("Profile: coding → ops");
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("profile: ops");
+    expect(readFileSync(
+      join(projectPath, ".agent-profile-kit", "codex", "context.md"),
+      "utf8",
+    )).toContain("Always preserve the project boundary.");
   });
 
-  test("bind --replace restates Profile and Hosts of the existing binding with an old → new receipt", async () => {
+  test("install restates Profile and Hosts of the existing installation with an old → new receipt", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9415,18 +9509,18 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const result = await runCli(
       home,
-      "bind",
+      "install",
       "ops",
       projectPath,
       "--host",
       "codex",
       "--host",
       "claude",
-      "--replace",
+      "--auto-confirm",
     );
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced installation ops for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Profile: coding → ops");
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
@@ -9436,7 +9530,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex/);
   });
 
-  test("bind --replace changing only Hosts omits the Profile delta line", async () => {
+  test("install changing only Hosts omits the Profile delta line", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9445,23 +9539,23 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const result = await runCli(
       home,
-      "bind",
+      "install",
       "coding",
       projectPath,
       "--host",
       "codex",
       "--host",
       "claude",
-      "--replace",
+      "--auto-confirm",
     );
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(`Replaced configured Project for ${projectPath}`);
+    expect(humanText(result.stdout)).toContain(`Replaced installation coding for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(humanText(result.stdout)).not.toContain("Profile:");
   });
 
-  test("identical bind remains unchanged with --replace", async () => {
+  test("identical install remains unchanged", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9469,14 +9563,14 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     bind(home, projectPath);
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex", "--replace");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("unchanged");
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("bind without --host fails even for an already bound project", async () => {
+  test("install without --host fails even for an already bound project", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9484,7 +9578,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     bind(home, projectPath);
     const before = readFileSync(configPath(home), "utf8");
 
-    const result = await runCli(home, "bind", "coding", projectPath);
+    const result = await runCli(home, "install", "coding", projectPath, "--auto-confirm");
 
     expectExitCode(result, 1);
     expect(result.stderr).toMatch(/--host/i);
@@ -9505,14 +9599,14 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
 
     const result = await runCli(
       home,
-      "bind",
+      "install",
       "ops",
       target,
       "--host",
       "codex",
       "--host",
       "grok",
-      "--replace",
+      "--auto-confirm",
     );
 
     expectExitCode(result, 0);
@@ -9525,46 +9619,41 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(parsed.bindings[1]).toEqual({ project: target, profile: "ops", hosts: ["codex", "grok"] });
   });
 
-  test("after a replace, status reports stale source and update reconciles it", async () => {
+  test("install with changed Hosts installs the new output in the same action", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "status", "--verbose"), 0);
-
-    // This lifecycle adds Claude through the replace, so its probe must find it.
+    // This lifecycle exercises Claude after the Host change, so its probe must find it.
     const pathWithClaude = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+    expectExitCode(
+      await runCliWithPath(home, pathWithClaude, "install", "coding", projectPath, "--host", "codex", "--auto-confirm"),
+      0,
+    );
 
-    const replaced = await runCli(
+    const replaced = await runCliWithPath(
       home,
-      "bind",
+      pathWithClaude,
+      "install",
       "coding",
       projectPath,
       "--host",
       "codex",
       "--host",
       "claude",
-      "--replace",
+      "--auto-confirm",
     );
     expectExitCode(replaced, 0);
+    expect(humanText(replaced.stdout)).toContain("Hosts: codex → claude, codex");
 
-    const stale = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
-    // Host changes alter desired output, not Workspace source hashes, so the
-    // ordinary reconcile path classifies the pending work as an update (AC7's
-    // "ordinary path exactly like today's round-trip").
-    expect(humanText(stale.stdout)).toContain(
-      humanText(`${projectPath}: update (desired output changed)`),
-    );
-
-    const reconciled = await runCliWithPath(home, pathWithClaude, "update");
-    expectExitCode(reconciled, 0);
+    // No separate update: the changed Host output is already installed.
+    expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
+    expectExitCode(current, 0);
     expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
-  test("bind --replace shrinks the Host set and update removes dropped-Host output", async () => {
+  test("install with a smaller Host set removes dropped-Host output in the same action", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9579,16 +9668,19 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const claudeOutput = join(projectPath, ".claude", "rules", "agent-profile-kit.md");
     expect(existsSync(claudeOutput)).toBe(true);
 
-    const replaced = await runCli(home, "bind", "coding", projectPath, "--host", "codex", "--replace");
+    const replaced = await runCli(
+      home,
+      "install",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
     expectExitCode(replaced, 0);
     expect(humanText(replaced.stdout)).toContain("Hosts: claude, codex → codex");
 
-    const pending = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
-    expect(humanText(pending.stdout)).toContain(
-      humanText(`${projectPath}: update (desired output changed)`),
-    );
-
-    expectExitCode(await runCliWithPath(home, pathWithClaude, "update"), 0);
+    // No separate update: the dropped-Host output is already removed.
     expect(existsSync(claudeOutput)).toBe(false);
 
     const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
@@ -9596,7 +9688,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
   });
 
-  test("successful bind preserves unrelated configuration, comments, and bindings", async () => {
+  test("successful install preserves unrelated configuration, comments, and bindings", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9607,7 +9699,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
       `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${existing}\n    profile: coding\n    hosts:\n      - codex\n`,
     );
 
-    const result = await runCli(home, "bind", "coding", next, "--host", "claude");
+    const result = await runCli(home, "install", "coding", next, "--host", "claude", "--auto-confirm");
     expectExitCode(result, 0);
 
     const source = readFileSync(configPath(home), "utf8");
@@ -9618,7 +9710,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source).toMatch(/hosts:\n\s+- claude/);
   });
 
-  test("bind rejects unknown Profile, unsupported Host, missing project, and missing --host", async () => {
+  test("install rejects unknown Profile, unsupported Host, missing project, and missing --host", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9629,7 +9721,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const projectPath = project();
     const before = readFileSync(configPath(home), "utf8");
 
-    const unknownProfile = await runCli(home, "bind", "missing", projectPath, "--host", "codex");
+    const unknownProfile = await runCli(home, "install", "missing", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(unknownProfile, 1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
     expect(unknownProfile.stderr.replace(/\s+/g, " ")).toContain(
@@ -9638,40 +9730,41 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
 
-    const badHost = await runCli(home, "bind", "coding", projectPath, "--host", "gemini");
+    const badHost = await runCli(home, "install", "coding", projectPath, "--host", "gemini", "--auto-confirm");
     expectExitCode(badHost, 1);
     expect(badHost.stderr).toMatch(/unsupported Agent Host/i);
     expect(badHost.stderr).toContain("pi");
 
     const missingProject = await runCli(
       home,
-      "bind",
+      "install",
       "coding",
       join(home, "no-such-project"),
       "--host",
       "codex",
+      "--auto-confirm",
     );
     expectExitCode(missingProject, 1);
     expect(missingProject.stderr).toMatch(/existing directory/i);
 
-    const noHost = await runCli(home, "bind", "coding", projectPath);
+    const noHost = await runCli(home, "install", "coding", projectPath, "--auto-confirm");
     expectExitCode(noHost, 1);
     expect(noHost.stderr).toMatch(/--host/i);
 
-    const relative = await runCli(home, "bind", "coding", "relative/path", "--host", "codex");
+    const relative = await runCli(home, "install", "coding", "relative/path", "--host", "codex", "--auto-confirm");
     expectExitCode(relative, 1);
     expect(relative.stderr).toMatch(/absolute path or\s+home-relative/i);
 
     expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
-  test("bind turns an empty Workspace missing-Profile error into an authoring next step", async () => {
+  test("install turns an empty Workspace missing-Profile error into an authoring next step", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
     const projectPath = project();
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
 
     expectExitCode(result, 1);
     expect(result.stderr.replace(/\s+/g, " ")).toContain("No Profiles exist in the Workspace");
@@ -9684,7 +9777,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(result.stderr).not.toContain("Available Profiles:");
   });
 
-  test("bind never touches project output, Installation Manifests, or Host configuration", async () => {
+  test("install writes only its Project output and leaves Host configuration and the Workspace alone", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9693,12 +9786,11 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const hostBefore = readFileSync(hostConfig, "utf8");
     const workspaceBefore = readdirSync(workspacePath(home)).sort().join("\n");
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
 
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex"))).toBe(false);
-    expect(existsSync(statePath(home))).toBe(false);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
     expect(readFileSync(hostConfig, "utf8")).toBe(hostBefore);
     expect(readdirSync(workspacePath(home)).sort().join("\n")).toBe(workspaceBefore);
   });
@@ -9934,7 +10026,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(existsSync(heldPath)).toBe(false);
   });
 
-  test("bind does not steal a freshly empty lock while ownership is still initializing", async () => {
+  test("install publication does not steal a freshly empty lock while ownership is still initializing", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9985,7 +10077,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(validate.stdout).toContain("2 configured Projects");
   });
 
-  test("bind recovers from a stale lock left by a dead owner process", async () => {
+  test("install recovers from a stale lock left by a dead owner process", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9994,31 +10086,31 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     // PID 1 is not a reliable "dead" process on all systems; use a high unused pid.
     writeFileSync(lockPath, "2147483646\n");
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Recorded configured Project");
+    expect(result.stdout).toContain("Installed coding for");
     expect(existsSync(lockPath)).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
   });
 
-  test("bind reports missing Local Configuration before lock acquisition", async () => {
+  test("install reports missing Local Configuration before lock acquisition", async () => {
     const home = isolatedHome();
     const projectPath = project();
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 1);
     expect(result.stderr).toMatch(/Agent Profile Kit is not set up/);
     expect(result.stderr).toMatch(/apkit init/);
     expect(result.stderr).not.toMatch(/config\.yaml\.lock/);
   });
 
-  test("bind preserves CRLF line endings in Local Configuration", async () => {
+  test("install preserves CRLF line endings in Local Configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     writeFileSync(configPath(home), `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings: []\r\n`);
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
 
     const source = readFileSync(configPath(home), "utf8");
@@ -10027,7 +10119,7 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
   });
 
-  test("bind preserves a hardened Local Configuration file mode", async () => {
+  test("install preserves a hardened Local Configuration file mode", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -10035,15 +10127,16 @@ describe("agent-profile-kit bind (recording-only Project Binding authoring)", ()
     const configuration = configPath(home);
     chmodSync(configuration, 0o600);
 
-    const result = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
     expect(statSync(configuration).mode & 0o777).toBe(0o600);
   });
 
-  test("CLI help lists bind as a recording-only authoring command", async () => {
+  test("the retired bind command points at install", async () => {
     const home = isolatedHome();
     const result = await runCli(home, "bind");
     expectExitCode(result, 1);
+    expect(result.stderr).toContain("bind was replaced by install");
     // Missing profile still names the command-specific usage; unknown commands stay concise.
     const usage = await runCli(home, "unknown-command");
     expectExitCode(usage, 1);
@@ -10058,8 +10151,7 @@ describe("responsive lifecycle reports", () => {
     const projectPath = project();
     await initialize(home);
 
-    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expectExitCode(bindResult, 0);
+    bind(home, projectPath, "example");
 
     const narrow = await runCliInPty(home, 40, "status");
     const redirectedNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, "status");
@@ -10110,15 +10202,7 @@ describe("responsive lifecycle reports", () => {
     const blockedHome = isolatedHome();
     const blockedProject = project();
     await initialize(blockedHome);
-    const blockedBind = await runCli(
-      blockedHome,
-      "bind",
-      "example",
-      blockedProject,
-      "--host",
-      "codex",
-    );
-    expectExitCode(blockedBind, 0);
+    bind(blockedHome, blockedProject, "example");
     mkdirSync(join(blockedProject, ".agent-profile-kit", "codex"), { recursive: true });
     writeFileSync(
       join(blockedProject, ".agent-profile-kit", "codex", "context.md"),
@@ -10170,7 +10254,7 @@ describe("shared presentation boundary", () => {
       readonly exclude?: (line: string) => boolean;
       readonly exitCode?: number;
     }> = [
-      { arguments_: ["bind", "coding", projectPath, "--host", "codex"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) },
+      { arguments_: ["install", "coding", projectPath, "--host", "codex", "--auto-confirm"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) },
       { arguments_: ["list"], exclude: unbreakableApkit },
       { arguments_: ["list", "hosts"], exclude: (line) => unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["list", "profiles"], exclude: unbreakableApkit },
@@ -10183,8 +10267,7 @@ describe("shared presentation boundary", () => {
       { arguments_: ["unbind", projectPath], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["help", "status"], exclude: (line) => usageLine(line) || unbreakableApkit(line) || /^(?:Purpose|Writes|Next|Supported Hosts|Examples):/.test(line) },
       { arguments_: ["unknown-command"], exclude: usageLine, exitCode: 1 },
-      // Bare bind prompts on a PTY (US-051). The prompt dependency renders its
-      // own ANSI UI, which does not wrap; the presentation views around it do.
+      // Bare bind is retired: the replacement diagnostic wraps without prompting.
       { arguments_: ["bind"], exclude: (line) => usageLine(line) || line.includes("\u001b"), exitCode: 1 },
     ];
 
@@ -10233,10 +10316,9 @@ describe("shared presentation boundary", () => {
     const tempProject = join(tempHome, "projects", "blocked-temp");
     mkdirSync(tempProject, { recursive: true });
     expectExitCode(
-      await runCli(tempHome, "bind", "coding", tempProject, "--host", "codex"),
+      await runCli(tempHome, "install", "coding", tempProject, "--host", "codex", "--auto-confirm"),
       0,
     );
-    expectExitCode(await runCli(tempHome, "update"), 0);
     const blockedTemp = await runCliInPty(
       tempHome,
       40,
@@ -10293,8 +10375,7 @@ describe("delayed interactive progress", () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
-    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expectExitCode(bindResult, 0);
+    bind(home, projectPath, "example");
 
     const result = await runCliInPtyWithEnvironmentRaw(
       home,
@@ -10314,8 +10395,7 @@ describe("delayed interactive progress", () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
-    const bindResult = await runCli(home, "bind", "example", projectPath, "--host", "codex");
-    expectExitCode(bindResult, 0);
+    bind(home, projectPath, "example");
 
     const piped = await runCliWithEnvironment(home, { APKIT_TEST_CODEX_DELAY: "0.6" }, "status");
     expectExitCode(piped, 0);
@@ -10580,7 +10660,7 @@ function treeDigest(roots: readonly string[]): string {
     const firstRunIndex = result.stdout.indexOf("First run:");
     const commonCommandsIndex = result.stdout.indexOf("Common commands:");
     const initIndex = result.stdout.indexOf("apkit init", firstRunIndex);
-    const bindIndex = result.stdout.indexOf("apkit bind", initIndex + 1);
+    const bindIndex = result.stdout.indexOf("apkit install", initIndex + 1);
     const statusIndex = result.stdout.indexOf("apkit status", bindIndex + 1);
     const applyIndex = result.stdout.indexOf("apkit update", statusIndex + 1);
     expect(firstRunIndex).toBeGreaterThanOrEqual(0);
@@ -10606,7 +10686,7 @@ function treeDigest(roots: readonly string[]): string {
     expect(moreIndex).toBeGreaterThan(commonIndex);
 
     const common = result.stdout.slice(commonIndex, moreIndex);
-    for (const command of ["init", "guide", "bind", "validate", "status", "update"]) {
+    for (const command of ["init", "guide", "install", "validate", "status", "update"]) {
       expect(common).toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
     for (const command of ["list", "unbind", "uninstall", "info"]) {
@@ -10726,30 +10806,39 @@ function treeDigest(roots: readonly string[]): string {
 
   test("non-help trailing arguments do not self-suggest a known command", async () => {
     const home = isolatedHome();
-    const result = await runCli(home, HELP_COMMAND, "bind", "unexpected");
+    const result = await runCli(home, HELP_COMMAND, "status", "unexpected");
 
     expectExitCode(result, 1);
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("apkit: unknown command 'help'");
-    expect(result.stderr).not.toContain("Did you mean: apkit bind?");
+    expect(result.stderr).not.toContain("Did you mean: apkit status?");
   });
 
-  test("focused bind help documents --replace", async () => {
+  test("focused install help documents the one-action selection and output", async () => {
     const home = isolatedHome();
     const aliasHelp = await Promise.all(
-      ["-h", "--help"].map((alias) => runCli(home, "bind", alias)),
+      ["-h", "--help"].map((alias) => runCli(home, "install", alias)),
     );
 
     for (const result of [...aliasHelp]) {
       expectExitCode(result, 0);
-      expect(result.stdout).toContain("--replace");
-      expect(result.stdout.replace(/\s+/g, " ")).toMatch(/replaces? an existing/i);
+      expect(result.stdout).toContain("--auto-confirm");
+      expect(result.stdout).toContain("--replace-changed");
+    }
+  });
+
+  test("retired bind help points at install", async () => {
+    const home = isolatedHome();
+    for (const arguments_ of [["help", "bind"], ["bind", "--help"]] as const) {
+      const result = await runCli(home, ...arguments_);
+      expectExitCode(result, 1);
+      expect(result.stderr).toContain("bind was replaced by install");
     }
   });
 
   test("focused binding help names Hosts from each command's supported capability set", async () => {
     const home = isolatedHome();
-    const bindHelp = await runCli(home, "help", "bind");
+    const bindHelp = await runCli(home, "help", "install");
     const temporaryHelp = await runCli(home, "machine", "install-temp", "-h");
 
     expectExitCode(bindHelp, 0);
@@ -10766,8 +10855,8 @@ function treeDigest(roots: readonly string[]): string {
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("apkit guide profile");
-    expect(result.stdout).toContain("apkit bind --help");
-    expect(result.stdout).toContain("apkit bind <profile> --host <host>");
+    expect(result.stdout).toContain("apkit install --help");
+    expect(result.stdout).toContain("apkit install <profile> --host <host>");
   });
 
   test("interactive root help adapts to narrow terminals and caps wide prose", async () => {
@@ -11042,7 +11131,7 @@ function treeDigest(roots: readonly string[]): string {
     const home = isolatedHome();
     const cases = [
       { arguments: ["init", "--workspace"], message: "init does not accept flag '--workspace' as a Workspace path" },
-      { arguments: ["bind", "--profile"], message: "bind does not accept flag '--profile' as a Profile" },
+      { arguments: ["install", "--profile"], message: "install does not accept argument '--profile'" },
       { arguments: ["unbind", "--project"], message: "unbind does not accept flag '--project' as a project path" },
     ] as const;
 
@@ -11054,30 +11143,30 @@ function treeDigest(roots: readonly string[]): string {
       expect(result.stderr).toContain(`Usage: apkit ${example.arguments[0]}`);
     }
 
-    const hostValue = await runCli(home, "bind", "example", "--host", "--codex");
+    const hostValue = await runCli(home, "install", "example", "--host", "--codex");
     expectExitCode(hostValue, 1);
-    expect(hostValue.stderr).toContain("bind --host requires an Agent Host name");
+    expect(hostValue.stderr).toContain("install --host requires an Agent Host name");
   });
 
   test("representative invalid arguments exit nonzero, explain the error, and show the relevant command usage", async () => {
     const home = isolatedHome();
 
-    const missingProfile = await runCli(home, "bind");
+    const missingProfile = await runCli(home, "install");
     expectExitCode(missingProfile, 1);
-    expect(missingProfile.stderr).toContain("bind requires a Profile name");
-    expect(missingProfile.stderr).toContain("Usage: apkit bind <profile>");
+    expect(missingProfile.stderr).toContain("install requires a Profile name");
+    expect(missingProfile.stderr).toContain("Usage: apkit install <profile>");
 
-    const missingHost = await runCli(home, "bind", "coding");
+    const missingHost = await runCli(home, "install", "coding");
     expectExitCode(missingHost, 1);
-    expect(missingHost.stderr).toContain("bind requires at least one --host flag");
+    expect(missingHost.stderr).toContain("install requires at least one --host flag");
     expect(missingHost.stderr).toContain("supported Hosts: antigravity");
-    expect(missingHost.stderr).toContain("Usage: apkit bind <profile>");
+    expect(missingHost.stderr).toContain("Usage: apkit install <profile>");
 
     const tooManyInitPaths = await runCli(home, "init", "one", "two");
     expectExitCode(tooManyInitPaths, 1);
     expect(tooManyInitPaths.stderr).toContain("init accepts at most one Workspace path");
     expect(tooManyInitPaths.stderr).toContain("Usage: apkit init [workspace]");
-    expect(tooManyInitPaths.stderr).not.toContain("Usage: apkit bind");
+    expect(tooManyInitPaths.stderr).not.toContain("Usage: apkit install");
 
     const badLifecycleFlag = await runCli(home, "status", "--yaml");
     expectExitCode(badLifecycleFlag, 1);
@@ -11264,7 +11353,7 @@ describe("apkit list", () => {
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
         SUPPORTED_HOSTS.map((host) => `  ${host}\n`).join("") +
-        "\nUse <host> with apkit bind to select it for a configured Project.\n",
+        "\nUse <host> with apkit install to select it for a Project.\n",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("Temporary Profile Installation");
@@ -11419,10 +11508,8 @@ describe("apkit list", () => {
     mkdirSync(ordinaryProject, { recursive: true });
     mkdirSync(temporaryProject, { recursive: true });
 
-    const bindResult = await runCli(home, "bind", "coding", ordinaryProject, "--host", "codex");
+    const bindResult = await runCli(home, "install", "coding", ordinaryProject, "--host", "codex", "--auto-confirm");
     expectExitCode(bindResult, 0);
-    const applyResult = await runCli(home, "update");
-    expectExitCode(applyResult, 0);
     const install = await runCli(
       home,
       "machine", "install-temp",
@@ -11542,7 +11629,7 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Profile: beta");
     expect(result.stdout).toContain("Profile: zeta");
     expect(result.stdout).toContain(
-      "Use <profile> with apkit bind to select it for a configured Project.",
+      "Use <profile> with apkit install to select it for a Project.",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout.indexOf("Profile: alpha")).toBeLessThan(
@@ -11564,8 +11651,8 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Profiles are available.");
-    expect(result.stdout).toContain(
-      "Add a Profile to the selected Workspace, then use <profile> with apkit bind.",
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "Add a Profile to the selected Workspace, then use <profile> with apkit install.",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(existsSync(statePath(home))).toBe(false);
@@ -11747,7 +11834,7 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "No Projects are configured.\n" +
-        "Use apkit bind <profile> --host <host> to configure a Project.\n",
+        "Use apkit install <profile> --host <host> to install a Project.\n",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
@@ -12025,10 +12112,8 @@ describe("apkit list", () => {
     const projectPath = join(home, "projects", "current-project");
     mkdirSync(projectPath, { recursive: true });
 
-    const bindResult = await runCli(home, "bind", "coding", projectPath, "--host", "codex");
+    const bindResult = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(bindResult, 0);
-    const applyResult = await runCli(home, "update");
-    expectExitCode(applyResult, 0);
     const statusResult = await runCli(home, "status");
     expectExitCode(statusResult, 0);
     expect(statusResult.stdout).toContain("All Projects are current");
@@ -12988,10 +13073,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(remove.stdout).toContain(`Project: ${authored}\n`);
     expect(remove.stdout).not.toContain(canonical);
 
-    const bind = await runCli(home, "bind", "coding", authored, "--host", "codex");
-    expectExitCode(bind, 0);
-    expect(humanText(bind.stdout)).toContain(`Recorded configured Project for ${authored}`);
-    expect(bind.stdout).not.toContain(canonical);
+    bind(home, authored);
 
     const list = await runCli(home, "list", "projects");
     expectExitCode(list, 0);
@@ -13917,9 +13999,7 @@ describe("packed CLI new skill", () => {
     expectExitCode(await runCli(home, "validate"), 0);
 
     const projectPath = gitRepository();
-    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
-    const apply = await runCli(home, "update", projectPath);
-    expectExitCode(apply, 0);
+    expectExitCode(await runCli(home, "install", "engineering", projectPath, "--host", "codex", "--auto-confirm"), 0);
     const installed = readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8");
     expect(installed).toBe(readFileSync(skillFile, "utf8"));
   });
@@ -14025,9 +14105,7 @@ describe("packed CLI new context", () => {
     const projectPath = gitRepository();
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
-    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
-    const apply = await runCli(home, "update", projectPath);
-    expectExitCode(apply, 0);
+    expectExitCode(await runCli(home, "install", "engineering", projectPath, "--host", "codex", "--auto-confirm"), 0);
     const installed = readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8");
     expect(installed).toContain("# review-standards");
   });
@@ -14114,9 +14192,7 @@ describe("packed CLI new profile", () => {
     // The created Profile is valid and bindable end to end (TEST-017 chain).
     expectExitCode(await runCli(home, "validate"), 0);
     const projectPath = gitRepository();
-    expectExitCode(await runCli(home, "bind", "engineering", projectPath, "--host", "codex"), 0);
-    const apply = await runCli(home, "update", projectPath);
-    expectExitCode(apply, 0);
+    expectExitCode(await runCli(home, "install", "engineering", projectPath, "--host", "codex", "--auto-confirm"), 0);
     const installedSkill = readFileSync(
       join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"),
       "utf8",
@@ -14557,39 +14633,44 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
   });
 });
 
-describe("packed CLI bind missing-argument prompts (#459, US-051, US-055, TEST-019)", () => {
-  test("non-interactive bind with missing arguments errors without waiting for input", async () => {
+describe("packed CLI install missing-argument errors (#494, US-001, US-006)", () => {
+  test("non-interactive install with missing arguments errors without waiting for input", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
-    const projectPath = homeGitRepository(home, "bind-noninteractive");
+    const projectPath = homeGitRepository(home, "install-noninteractive");
 
-    // Piped stdin: if a prompt fired it could only cancel, so completing with
-    // the delivered argument error proves the invocation never waited.
-    const result = await runCliAt(home, projectPath, "bind");
+    // Piped stdin: missing choices stay missing (#495 owns the pickers), so the
+    // delivered argument error proves the invocation never waited.
+    const result = await runCliAt(home, projectPath, "install");
     expectExitCode(result, 1);
-    expect(humanText(result.stderr)).toContain("bind requires a Profile name");
-    expect(humanText(result.stderr)).toContain("Usage: apkit bind");
+    expect(humanText(result.stderr)).toContain("install requires a Profile name");
+    expect(humanText(result.stderr)).toContain("Usage: apkit install");
     expect(readFileSync(configPath(home), "utf8")).not.toContain(
       realpathSync(projectPath),
     );
 
     // A Profile argument alone keeps the delivered Host requirement error.
-    const missingHosts = await runCliAt(home, projectPath, "bind", "coding");
+    const missingHosts = await runCliAt(home, projectPath, "install", "coding");
     expectExitCode(missingHosts, 1);
-    expect(humanText(missingHosts.stderr)).toContain("bind requires at least one --host flag");
+    expect(humanText(missingHosts.stderr)).toContain("install requires at least one --host flag");
     expect(readFileSync(configPath(home), "utf8")).not.toContain(
       realpathSync(projectPath),
     );
   });
 
-  test("fully specified packed bind completes without prompting on piped input", async () => {
+  test("fully specified packed install refuses without --auto-confirm on piped input", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
-    const projectPath = homeGitRepository(home, "bind-fully-specified");
+    const projectPath = homeGitRepository(home, "install-fully-specified");
 
-    const result = await runCliAt(home, projectPath, "bind", "coding", "--host", "codex");
+    const refused = await runCliAt(home, projectPath, "install", "coding", "--host", "codex");
+    expectExitCode(refused, 1);
+    expect(humanText(refused.stderr)).toContain("--auto-confirm");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(realpathSync(projectPath));
+
+    const result = await runCliAt(home, projectPath, "install", "coding", "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
     expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
   });

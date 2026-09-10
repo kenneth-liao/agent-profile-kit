@@ -15,6 +15,7 @@ import { fileURLToPath } from "node:url";
 
 import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { bindProject } from "../installer/bind-project.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { humanGuide, agentGuide } from "../cli/guides.js";
 import { readSnapshotBodies } from "./support/snapshot-file.js";
@@ -260,9 +261,9 @@ async function initialize(home: string): Promise<void> {
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
-async function bindExample(home: string, projectPath: string): Promise<void> {
+async function installExample(home: string, projectPath: string): Promise<void> {
   expectExitCode(
-    await runCli(home, ["bind", AUTHORING_EXAMPLES.profile.id, projectPath, "--host", "codex"]),
+    await runCli(home, ["install", AUTHORING_EXAMPLES.profile.id, projectPath, "--host", "codex", "--auto-confirm"]),
     0,
   );
 }
@@ -283,7 +284,14 @@ async function initializedHome(): Promise<{ home: string; project: string }> {
 
 async function pendingHome(): Promise<{ home: string; project: string }> {
   const prepared = await initializedHome();
-  await bindExample(prepared.home, prepared.project);
+  // A never-installed binding: the recording-only primitive, not the
+  // install command, so pending views keep their pending subject.
+  await bindProject({
+    home: prepared.home,
+    profile: AUTHORING_EXAMPLES.profile.id,
+    hosts: ["codex"],
+    project: prepared.project,
+  });
   return prepared;
 }
 
@@ -467,7 +475,7 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     commandId: "list",
     prepare: async () => {
       const { home } = await pendingHome();
-      await bindExample(home, demoProject(home, "other"));
+      await installExample(home, demoProject(home, "other"));
       return { home, args: ["list", "projects"] };
     },
   },
@@ -542,14 +550,14 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
-    test: "bind success",
-    snapshot: "bind-success",
-    commandId: "bind",
+    test: "install success",
+    snapshot: "install-success",
+    commandId: "install",
     prepare: async () => {
       const { home, project } = await initializedHome();
       return {
         home,
-        args: ["bind", AUTHORING_EXAMPLES.profile.id, project, "--host", "codex"],
+        args: ["install", AUTHORING_EXAMPLES.profile.id, project, "--host", "codex", "--auto-confirm"],
       };
     },
   },
@@ -817,7 +825,7 @@ describe("rendering matrix for a representative subset", () => {
 
   test("list projects matrix", async () => {
     const { home } = await pendingHome();
-    await bindExample(home, demoProject(home, "other"));
+    await installExample(home, demoProject(home, "other"));
     await matrixSnapshot("list projects matrix", "list-projects", home, ["list", "projects"]);
   });
 
@@ -898,11 +906,11 @@ describe("rendered atomicity mutation evidence from real captures", () => {
   test("INT-1 original committed root-help syntax fold is rejected", () => {
     const key = "golden snapshots of every human view root help: root-help 1";
     const baseline = baselineStream(snapshotBodies.get(key)!, "stdout");
-    const syntax = "apkit bind <profile> --host <host>";
+    const syntax = "apkit install <profile> --host <host>";
     expect(baseline).toContain(syntax);
     checkAtomicRendering(baseline, baseline, goldenCorpus());
     expect(() => checkAtomicRendering(
-      baseline.replace(syntax, "apkit bind\n    <profile> --host <host>"), baseline, goldenCorpus(),
+      baseline.replace(syntax, "apkit install\n    <profile> --host <host>"), baseline, goldenCorpus(),
     )).toThrow(/fragmented/);
     expect(collectSpellings(baseline, goldenCorpus()).some((value) => value.startsWith(syntax))).toBe(true);
   });

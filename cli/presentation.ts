@@ -164,7 +164,7 @@ import {
 } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 
-export type LifecycleCommand = "update" | "status";
+export type LifecycleCommand = "update" | "status" | "install";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -631,7 +631,7 @@ export function formatInfoToolErrorJson(
  * against the canonical command table, so a machine-facing command
  * (DEC-021) cannot appear here by construction.
  */
-const BARE_TASK_COMMAND_NAMES = ["status", "update", "bind", "guide"] as const;
+const BARE_TASK_COMMAND_NAMES = ["status", "update", "install", "guide"] as const;
 
 /** One muted pointer to the full surface; the entry screen is not the manual. */
 function bareHelpPointerNodes(): PresentationNode[] {
@@ -820,8 +820,8 @@ export function projectInventoryDocument(
         kind: "prose",
         parts: [
           "Use ",
-          commandPart(COMMAND_NAME, [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
-          " to configure a Project.",
+          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          " to install a Project.",
         ],
       },
     ];
@@ -967,7 +967,7 @@ export function profileInventoryDocument(
         kind: "prose",
         parts: [
           "Add a Profile to the selected Workspace, then use <profile> with ",
-          commandPart(COMMAND_NAME, [arg("bind")]),
+          commandPart(COMMAND_NAME, [arg("install")]),
           ".",
         ],
       },
@@ -1002,8 +1002,8 @@ export function profileInventoryDocument(
       kind: "prose",
       parts: [
         "Use <profile> with ",
-        commandPart(COMMAND_NAME, [arg("bind")]),
-        " to select it for a configured Project.",
+        commandPart(COMMAND_NAME, [arg("install")]),
+        " to select it for a Project.",
       ],
     },
   );
@@ -1058,8 +1058,8 @@ export function hostInventoryDocument(
       kind: "prose",
       parts: [
         "Use <host> with ",
-        commandPart(COMMAND_NAME, [arg("bind")]),
-        " to select it for a configured Project.",
+        commandPart(COMMAND_NAME, [arg("install")]),
+        " to select it for a Project.",
       ],
     },
   ];
@@ -1270,7 +1270,7 @@ export function validationResultDocument(result: ValidationResult): Presentation
         program: COMMAND_NAME,
         args: [{
           kind: "text",
-          value: result.bindings === 0 ? "bind <profile> --host <host>" : "status",
+          value: result.bindings === 0 ? "install <profile> --host <host>" : "status",
         }],
       },
     },
@@ -3440,19 +3440,10 @@ export function applyReplacementCommandDocument(
   return promptedEquivalentCommandDocument("update", commandArguments);
 }
 
-/** The equivalent fully specified command for a completed interactive bind
- * prompt flow (DEC-032): the chosen Profile, the Project path, and every Host
- * flag explicit, so re-running it needs no answers again (US-052). */
-export function bindPromptedCommandDocument(
-  commandArguments: readonly string[],
-): PresentationDocument {
-  return promptedEquivalentCommandDocument("bind", commandArguments);
-}
-
 /** The one shared equivalent-command rendering for completed prompt flows:
  * the sentence names the command; the carried command part is canonical. */
 function promptedEquivalentCommandDocument(
-  command: "update" | "bind",
+  command: "update" | "install",
   commandArguments: readonly string[],
 ): PresentationDocument {
   return [{
@@ -3462,6 +3453,15 @@ function promptedEquivalentCommandDocument(
       commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
     ],
   }];
+}
+
+/** The equivalent fully specified command for a completed install consent
+ * flow: the same installation with the authorized changed-file scope
+ * explicit, so re-running it needs no second answer. */
+export function installReplacementCommandDocument(
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return promptedEquivalentCommandDocument("install", commandArguments);
 }
 
 /** The equivalent fully specified command for a completed guided-init Profile
@@ -3493,18 +3493,6 @@ export function initCancelledDocument(): PresentationDocument {
   });
 }
 
-/** The cancelled interactive bind diagnostic (DEC-033): what happened, and
- * that nothing was recorded. */
-export function bindCancelledDocument(): PresentationDocument {
-  return diagnosticDocument({
-    happened: ["bind was cancelled; no configuration was changed"],
-    whatToType: [[
-      "To bind with every argument explicit, run ",
-      commandPart(COMMAND_NAME, [arg("bind"), arg("--help")]),
-    ]],
-  });
-}
-
 /** How the declined answer was given: an explicit no, or the default no. */
 export type ApplyDeclinedAnswer = "cancelled" | "declined" | "default";
 
@@ -3522,6 +3510,7 @@ export function applyReplacementDeclinedDocument(
   reason: ApplyDeclinedAnswer,
   commandArguments: readonly string[],
   scope: ChangedFileAnsweringScope,
+  command: LifecycleCommand = "update",
 ): PresentationDocument {
   const remedy = scope.replace && scope.remove
     ? "To replace or delete changed generated files without asking, run "
@@ -3530,10 +3519,10 @@ export function applyReplacementDeclinedDocument(
       : "To replace changed generated files without asking, run ";
   return diagnosticDocument({
     happened: [reason === "cancelled"
-      ? "update was cancelled before any write"
+      ? `${command} was cancelled before any write`
       : reason === "default"
-        ? "update kept the changed generated files; nothing was written (default answer no)"
-        : "update kept the changed generated files; nothing was written (you answered no)"],
+        ? `${command} kept the changed generated files; nothing was written (default answer no)`
+        : `${command} kept the changed generated files; nothing was written (you answered no)`],
     why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
     whatToType: [[
       remedy,
@@ -3549,6 +3538,7 @@ export function applyReplacementDeclinedDocument(
 export function applyConsentRequiredDocument(
   error: ApplyConsentRequiredError,
   commandArguments: readonly string[],
+  command: LifecycleCommand = "update",
 ): PresentationDocument {
   const lines = error.projects
     .slice()
@@ -3566,8 +3556,8 @@ export function applyConsentRequiredDocument(
       .sort(compareCanonicalStrings);
     return diagnosticDocument({
       happened: [error.failedProject === undefined
-        ? "update stopped: newly changed files need explicit consent"
-        : `update stopped at ${error.failedProject.canonicalProject}: newly changed files need explicit consent`],
+        ? `${command} stopped: newly changed files need explicit consent`
+        : `${command} stopped at ${error.failedProject.canonicalProject}: newly changed files need explicit consent`],
       why: [
         [`Completed Projects stay completed: ${[...error.completedProjects].sort(compareCanonicalStrings).join(", ")}.`],
         ...lines.map((line): readonly InlineContent[] => [line]),
@@ -3582,7 +3572,7 @@ export function applyConsentRequiredDocument(
     });
   }
   return diagnosticDocument({
-    happened: ["update needs explicit changed-file consent before any write"],
+    happened: [`${command} needs explicit changed-file consent before any write`],
     why: [
       ...lines.map((line): readonly InlineContent[] => [line]),
       ["No Project or setting was changed."],
@@ -3594,15 +3584,184 @@ export function applyConsentRequiredDocument(
   });
 }
 
+export const INSTALL_CONFIRMATION_QUESTION = "Install as listed? (y/N)";
+
+/** The interactive general-confirmation review (DEC-004): the proposed
+ * scope — Project, previous-to-new Profile and Hosts — before any write. */
+export function installConfirmationDocument(preview: {
+  readonly canonicalProject: string;
+  readonly authoredProject: string;
+  readonly profile: string;
+  readonly hosts: readonly string[];
+  readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
+}): PresentationDocument {
+  const scope = "project" as const;
+  const lines = [
+    `  Project: ${displayProjectPath(preview.canonicalProject, preview.authoredProject, scope)}`,
+    preview.previous !== undefined && preview.previous.profile !== preview.profile
+      ? `  Profile: ${preview.previous.profile} → ${preview.profile}`
+      : `  Profile: ${preview.profile}`,
+    preview.previous !== undefined &&
+      preview.previous.hosts.join(", ") !== preview.hosts.join(", ")
+      ? `  Hosts: ${preview.previous.hosts.join(", ")} → ${preview.hosts.join(", ")}`
+      : `  Hosts: ${preview.hosts.join(", ")}`,
+  ];
+  return [
+    { kind: "heading", text: "Install:" },
+    ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
+    { kind: "prose", parts: ["Records the selection and installs the verified Project files."] },
+  ];
+}
+
+/** How the general-confirmation answer was given: an explicit no, the
+ * default no, or cancellation. Shared with the changed-output gate. */
+export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
+
+/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
+ * what happened and the command that answers it explicitly. Rendered with
+ * neutral styling: declining is a safe choice, not an error. */
+export function installDeclinedDocument(
+  reason: InstallDeclinedAnswer,
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [reason === "cancelled"
+      ? "install was cancelled before any write"
+      : reason === "default"
+        ? "install kept the current state; nothing was written (default answer no)"
+        : "install kept the current state; nothing was written (you answered no)"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ]],
+    severity: "info",
+  });
+}
+
+/** The missing general-confirmation refusal diagnostic (DEC-004): a
+ * non-interactive (or machine-JSON) install without `--auto-confirm` refuses
+ * before any configuration or generated-output write, with the runnable
+ * command that answers it. */
+export function installConfirmationRequiredDocument(
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["install needs explicit confirmation before any write"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ]],
+  });
+}
+
+/** The install follow-up warnings (Host capability and other advisory
+ * report warnings) for one installed Project: advisory only, never
+ * blocking, reusing the shared warning rendering. Empty when none. */
+export function installWarningNodes(report: ReconciliationReport): PresentationDocument {
+  return warningNodes(report, groupProjects(report).groups, "project");
+}
+
+/** The blocked-install diagnostic (DEC-005/DEC-006): ownership, path-safety,
+ * or global Blockers stop the install before any write, with each Blocker's
+ * own requirement and remedy plus the concrete retry. Single-Project scope
+ * keeps the view compact; machine JSON carries the complete report. */
+export function installBlockedDocument(
+  report: BlockedReconciliationReport,
+  commandArguments: readonly string[],
+): PresentationDocument {
+  const scope = "project" as const;
+  const groups = groupProjects(report).groups;
+  const nodes: PresentationNode[] = [{
+    kind: "notice",
+    severity: "error",
+    nodes: [{ kind: "prose", parts: ["install blocked before any write"] }],
+  }];
+  for (const blocker of report.globalBlockers) {
+    nodes.push(...conciseBlockerNodes(blocker, undefined, groups, "", scope));
+  }
+  for (const project of report.projects) {
+    if (project.blockers.length === 0) continue;
+    const displayProject = displayProjectPath(project.canonicalProject, project.project, scope);
+    for (const blocker of project.blockers) {
+      nodes.push(...conciseBlockerNodes(blocker, displayProject, groups, "", scope));
+    }
+  }
+  nodes.push({
+    kind: "prose",
+    parts: [
+      "To retry after resolving the cause, run ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ],
+  });
+  return nodes;
+}
+
+/** The install execution-failure diagnostic (US-008, DEC-006): what failed,
+ * whether the previous selection was restored, and the concrete retry.
+ * Completed output commits stay committed; only the failed Project's
+ * selection is restored, where possible. */
+export function installExecutionFailureDocument(input: {
+  readonly detail: string;
+  readonly failedProject?: ProjectIdentity;
+  readonly selectionRestored: boolean;
+  readonly restoreFailure?: unknown;
+  readonly retryArguments: readonly string[];
+}): PresentationDocument {
+  const failed = input.failedProject === undefined
+    ? undefined
+    : displayProjectPath(
+      input.failedProject.canonicalProject,
+      input.failedProject.project,
+      "project",
+    );
+  const restore = input.restoreFailure !== undefined
+    ? `The previous selection could not be restored: ${
+      input.restoreFailure instanceof Error ? input.restoreFailure.message : String(input.restoreFailure)
+    }`
+    : input.selectionRestored
+      ? "The previous selection was restored; generated output was rolled back."
+      : "The previous selection was left unchanged.";
+  return diagnosticDocument({
+    happened: [failed === undefined
+      ? `install failed: ${input.detail}`
+      : `install failed at ${failed}: ${input.detail}`],
+    why: [[restore]],
+    whatToType: [[
+      "To retry the same installation, run ",
+      commandPart(COMMAND_NAME, input.retryArguments.map((value) => arg(value))),
+    ]],
+  });
+}
+
+/** The install verification-failure diagnostic (US-008): the new output is
+ * committed but did not verify, so the new selection is kept and the
+ * failure reports truthfully with a concrete retry. */
+export function installVerificationFailureDocument(input: {
+  readonly message: string;
+  readonly retryArguments: readonly string[];
+}): PresentationDocument {
+  return diagnosticDocument({
+    happened: [`install verified nothing: ${input.message}`],
+    why: [["The new selection is kept; generated output may not match the Workspace."]],
+    whatToType: [[
+      "To retry verification of the same installation, run ",
+      commandPart(COMMAND_NAME, input.retryArguments.map((value) => arg(value))),
+    ]],
+  });
+}
+
 /** The stale-review safety refusal diagnostic (US-020): the reviewed bytes
  * moved before the write, so the invocation stopped instead of executing a
  * change different from the reviewed one. Completed work stays committed. */
 export function applyReviewStaleDocument(
   error: ApplyReviewStaleError,
   commandArguments: readonly string[],
+  command: LifecycleCommand = "update",
 ): PresentationDocument {
   return diagnosticDocument({
-    happened: [`update stopped at ${error.failedProject.canonicalProject}: the reviewed files changed during confirmation`],
+    happened: [`${command} stopped at ${error.failedProject.canonicalProject}: the reviewed files changed during confirmation`],
     why: [[
       error.completedProjects.length === 0
         ? "No Project was changed after the review."
@@ -4114,8 +4273,8 @@ function conciseStatusDocument(
           "Next: Run ",
           commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
           ` to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or `,
-          commandPart(COMMAND_NAME, [arg("bind"), arg("<profile>"), arg("--host"), arg("<host>")]),
-          " to configure one.",
+          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          " to install one.",
         ],
       },
     ];
@@ -4375,6 +4534,14 @@ export function formatApplyJson(result: ApplyReconciliationResult): string {
   );
 }
 
+/** The machine payload for one successful `install`: the same reconciliation
+ * evidence under the command actually run. */
+export function formatInstallJson(result: ApplyReconciliationResult): string {
+  return serializeMachinePayload(
+    canonicalLifecycleMachinePayload("install", result.resultingState, result.receipt),
+  );
+}
+
 export function formatBlockedApplyJson(report: BlockedReconciliationReport): string {
   return serializeMachinePayload(canonicalLifecycleMachinePayload("update", report));
 }
@@ -4385,10 +4552,11 @@ export function formatApplyExecutionFailureJson(failure: {
   readonly pendingProjects: readonly ProjectIdentity[];
   readonly receipt: ReconciliationReport;
   readonly resultingState: ReconciliationReport | undefined;
+  readonly command?: LifecycleCommand;
 }): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
-    command: "update",
+    command: failure.command ?? "update",
     outcome: "error",
     error: failure.message,
     ...(failure.resultingState === undefined
@@ -4405,10 +4573,11 @@ export function formatApplyExecutionFailureJson(failure: {
 export function formatApplyVerificationFailureJson(
   receipt: ReconciliationReport,
   message: string,
+  command: LifecycleCommand = "update",
 ): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
-    command: "update",
+    command,
     outcome: "error",
     error: message,
     globalBlockers: [],
