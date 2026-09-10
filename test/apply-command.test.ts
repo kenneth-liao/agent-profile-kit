@@ -91,15 +91,15 @@ function parsedSelection(arguments_: readonly string[], fleet: DriftedFleetFixtu
   }
   return {
     kind: "project" as const,
-    command: "apply" as const,
+    command: "update" as const,
     match: "exact" as const,
     target: scopeArgument,
     ...(filter === undefined ? {} : { filter }),
   };
 }
 
-describe("apply replacement confirmation command", () => {
-  test("interactive fully specified apply names the changed files and accepts a yes answer", async () => {
+describe("update replacement confirmation command", () => {
+  test("interactive fully specified update names the changed files and accepts a yes answer", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-accept");
     const invocation = invoke(
       fleet,
@@ -115,7 +115,7 @@ describe("apply replacement confirmation command", () => {
     expect(output).toContain(".agent-profile-kit/codex/context.md");
     expect(output).toContain("(y/N)");
     // The committed receipt names the replacement.
-    expect(output).toContain("Applied:");
+    expect(output).toContain("Updated:");
     expect(output).toContain(".agent-profile-kit/codex/context.md");
     // The completed flow prints the equivalent fully specified command.
     expect(output).toContain("--replace-changed");
@@ -136,7 +136,7 @@ describe("apply replacement confirmation command", () => {
     const stdout = humanText(invocation.stdout.text());
     const stderr = humanText(invocation.stderr.text());
     expect(stdout).toContain("Changed generated files:");
-    expect(stdout).not.toContain("Applied:");
+    expect(stdout).not.toContain("Updated:");
     // The happened/why/what-to-type diagnostic names the explicit command.
     expect(stderr).toContain("nothing was written");
     expect(stderr).toContain("--replace-changed");
@@ -193,11 +193,11 @@ describe("apply replacement confirmation command", () => {
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).toContain("Applied:");
+    expect(stdout).toContain("Updated:");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
-  test("non-interactive apply never prompts and completes with the replacement receipt", async () => {
+  test("non-interactive update never prompts and completes with the replacement receipt", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-noninteractive");
     // A plain pipe carries no TTY evidence; the invocation must not wait on it.
     const invocation = invoke(fleet, [fleet.driftedProject], undefined, { interactive: false });
@@ -205,7 +205,7 @@ describe("apply replacement confirmation command", () => {
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).toContain("Applied:");
+    expect(stdout).toContain("Updated:");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
@@ -252,19 +252,19 @@ describe("apply replacement confirmation command", () => {
   test("the equivalent command expresses every scope argument explicitly", () => {
     expect(fullySpecifiedApplyArguments({
       kind: "all",
-    })).toEqual(["apply", "--all", "--replace-changed"]);
+    })).toEqual(["update", "--all", "--replace-changed"]);
     expect(fullySpecifiedApplyArguments({
       kind: "project",
-      command: "apply",
+      command: "update",
       match: "containing",
       target: "/tmp/project",
       filter: "stale",
-    })).toEqual(["apply", "--here", "--stale", "--replace-changed"]);
+    })).toEqual(["update", "--here", "--stale", "--replace-changed"]);
     expect(fullySpecifiedApplyArguments({
       kind: "project",
-      command: "apply",
+      command: "update",
       match: "exact",
       target: "/tmp/project",
-    })).toEqual(["apply", "/tmp/project", "--replace-changed"]);
+    })).toEqual(["update", "/tmp/project", "--replace-changed"]);
   });
 });

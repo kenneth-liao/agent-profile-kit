@@ -162,7 +162,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
         parts: [
           "Next: run ",
           commandPart(COMMAND_NAME, [arg("validate")]),
-          ", then status and apply as needed",
+          ", then status and update as needed",
         ],
         category: "command",
       },
@@ -364,7 +364,7 @@ export function unbindReceiptDocument(
   );
   if (input.generatedOutputSurvives) {
     nodes.push(
-      { kind: "prose", parts: ["Generated files remain until apply"] },
+      { kind: "prose", parts: ["Generated files remain until update"] },
       nextCommandNode("status --all"),
     );
   }

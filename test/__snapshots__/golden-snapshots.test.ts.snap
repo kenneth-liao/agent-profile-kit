@@ -10,7 +10,7 @@ First run:
   apkit init
   apkit bind <profile> --host <host>
   apkit status
-  apkit apply
+  apkit update
 
   Choose a Profile with apkit guide profile; see apkit bind --help for
     supported Host values.
@@ -32,9 +32,9 @@ Common commands:
   validate
     Check Workspace and settings validity
   status
-    Show the complete read-only apply plan for the complete fleet, the
+    Show the complete read-only update plan for the complete fleet, the
       containing Project, or one explicit Project
-  apply
+  update
     Sync the complete fleet, the containing Project, or one explicit Project
 
 More commands:
@@ -77,10 +77,10 @@ Usage: apkit machine <command> [arguments]
 
 exports[`golden snapshots of every human view focused command help: focused-command-help 1`] = `
 "--- stdout ---
-Purpose: Show the complete read-only apply plan for the complete fleet, the
+Purpose: Show the complete read-only update plan for the complete fleet, the
   containing Project, or one explicit Project
 
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 
 Examples:
   apkit status
@@ -93,7 +93,7 @@ Examples:
 
 Writes: Nothing; this command is read-only.
 
-Next: Run apkit apply for pending work after resolving any blockers.
+Next: Run apkit update for pending work after resolving any blockers.
 --- stderr ---
 "
 `;
@@ -260,10 +260,10 @@ Source ownership and managed delivery are separate:
   Kit–managed project-bound delivery. A Project Binding selects a project root,
   one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
   that Profile enter Installation Receipts and the managed lifecycle
-  (\`status\`, \`apply\`, and \`uninstall\`).
+  (\`status\`, \`update\`, and \`uninstall\`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
-  outside Project Bindings and Installation Receipts, and \`apply\` / \`uninstall\`
+  outside Project Bindings and Installation Receipts, and \`update\` / \`uninstall\`
   never adopt, record as managed output, or mutate those paths. \`status\` does not
   treat global roots as managed output.
 - You may still manage native global delivery yourself—for example by symlinking
@@ -319,7 +319,7 @@ only \`schema_version: 1\`. Local Configuration schema version is 2 and its
 ### Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without \`workspace\` is supported only as migration
-input. Run \`apkit init\` to upgrade it before using \`validate\`, \`status\`, \`apply\`,
+input. Run \`apkit init\` to upgrade it before using \`validate\`, \`status\`, \`update\`,
 \`bind\`, or \`unbind\`. Those commands never migrate
 the file implicitly: they fail closed with actionable \`apkit init\`
 guidance while leaving migration to the explicit \`init\` command.
@@ -371,11 +371,11 @@ you can discover where material belongs:
 - short bootstrap \`README.md\` and \`AGENTS.md\` pointers to the current guides
 - a starter \`.gitignore\`
 
-The example gives a new user one complete \`bind\` → \`status\` → \`apply\` path.
+The example gives a new user one complete \`bind\` → \`status\` → \`update\` path.
 Delete both \`profiles/example.yaml\` and \`context/example-context.md\` together,
 unused empty directories, or bootstrap docs if you prefer a minimal tree;
 later \`init\` runs do not restore removed optional scaffolding; validation,
-status, apply, and uninstall keep working. Do not treat generated Host
+status, update, and uninstall keep working. Do not treat generated Host
 output as source material.
 
 ## Author the Workspace
@@ -422,7 +422,7 @@ This is the only portable spelling. Host-native top-level
 canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
 the namespaced metadata key above rather than relying on Host-specific
 frontmatter. The Installer never rewrites Workspace \`SKILL.md\` during
-validate, status, or apply.
+validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -436,7 +436,7 @@ invocation policy coalesces; malformed, wrong-type, or conflicting policy
 produces one structured project Blocker naming the Workspace and shared
 Host-policy authorities with a Workspace repair remedy before any project write. Generated
 policy fields carry short deterministic comments. When any selected Skill
-disables model invocation, apply-time capability probing checks each selected
+disables model invocation, update-time capability probing checks each selected
 Host's enforcement floor: Claude Code CLI
 \`2.0.64+\` (same floor as unscoped rules and native Skill discovery, which
 honors \`disable-model-invocation\`), Grok CLI \`0.2.0+\` (same floor as project
@@ -542,7 +542,7 @@ Omit the project argument to use the current working directory. At least one
 Profile or Host set for the same project fails instead of overwriting. Do not
 hand-edit \`config.yaml\` while \`bind\` is running: \`bind\` commands serialize with
 each other, but a text editor does not participate in that lock. After binding,
-run \`validate\`, then \`status\` and \`apply\` separately.
+run \`validate\`, then \`status\` and \`update\` separately.
 
 Remove desired state with the recording-only command:
 
@@ -556,7 +556,7 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, \`unbind\` can remove a binding only when the
 argument exactly matches its authored \`project\` spelling; it never guesses an
 alias. \`unbind\` edits Local Configuration only and leaves generated output for
-the next fleet \`status\` and \`apply --all\`. Cooperating \`bind\` and \`unbind\` commands
+the next fleet \`status\` and \`update --all\`. Cooperating \`bind\` and \`unbind\` commands
 serialize and publish atomically; do not hand-edit the file concurrently.
 
 \`\`\`yaml
@@ -573,21 +573,21 @@ bindings:
       - claude
 \`\`\`
 
-## Validate, status, and apply
+## Validate, status, and update
 
 For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
 newer so the generated SessionStart handler can deliver the complete Context
 envelope without Codex's default head-and-tail spill. Host capability probing is
-advisory: during \`apply\`, an older, missing, or unreadable Codex CLI produces a
+advisory: during \`update\`, an older, missing, or unreadable Codex CLI produces a
 warning while the planned project and Installation State writes proceed
 regardless. \`status\` performs no Agent Host process execution and no capability
-probing; a Project-scoped \`status\` or \`apply\` plans only its
-selected binding. \`apply --all\` writes every selected Project including any with
+probing; a Project-scoped \`status\` or \`update\` plans only its
+selected binding. \`update --all\` writes every selected Project including any with
 Host capability warnings; global Blockers still stop every fleet write.
 Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
-during apply and warns when hooks are explicitly disabled, when relevant
+during update and warns when hooks are explicitly disabled, when relevant
 configuration is malformed or unreadable, or when \`hooks\` or the deprecated
 \`codex_hooks\` alias is not a boolean. These warnings do not block installation,
 but generated Context may not load until the setting is corrected. Project configuration takes
@@ -607,25 +607,29 @@ installations). Pending Git exclusion work appears as one concise clause; exact
 targets and path changes are reserved for \`--verbose\`. When action is
 useful, concise results end with one next-action line derived from the same
 attention surface as the report body: actionable \`status\` points directly to the
-matching apply command; a ready fleet \`status --all\` recommends \`apply --all\`; a
+matching update command; a ready fleet \`status --all\` recommends \`update --all\`; a
 blocked result tells you to resolve the reported blocker and retry the same
-command you just ran; current status and completed or no-op \`apply\` results omit
-a next step. \`status\` and \`apply\` default to the bound Project containing the
-current working directory and accept one explicit existing absolute or
-home-relative bound Project root. Use \`--all\` as the only fleet scope. Scoped
+command you just ran; current status and completed or no-op \`update\` results omit
+a next step. \`status\` and \`update\` target the complete fleet by default. Narrow
+the scope with \`--here\` for the bound Project containing the current working
+directory, one explicit existing absolute or home-relative bound Project root,
+or \`--project <path>\`; \`--all\` states the fleet scope explicitly. Scoped
 planning, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
 through the selected installation's contribution-aware union. Host capability
-probing is advisory and happens only during \`apply\`: a missing or outdated Host
+probing is advisory and happens only during \`update\`: a missing or outdated Host
 CLI produces a warning and the planned output is written regardless; capability
 problems never block application and do not mark generated files as drifted.
 
-For focused per-output and state diagnostics, append \`--verbose\` to \`status\` or \`apply\`. Warnings, blockers, drift reasons, and removal
+\`apkit update\` refreshes the installed Context and Skills in your Projects from
+the Workspace; it does not upgrade the \`apkit\` executable itself.
+
+For focused per-output and state diagnostics, append \`--verbose\` to \`status\` or \`update\`. Warnings, blockers, drift reasons, and removal
 intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.
 
-Git is optional. For a Git binding, \`apply\` installs only into the exact bound
+Git is optional. For a Git binding, \`update\` installs only into the exact bound
 project directory. The Installer uses Git for tracked-path protection and local
 exclusions but does not inspect or report worktree topology. Bind any additional
 root explicitly only when Hosts must be launched directly from that root; it
@@ -635,16 +639,16 @@ For every bound project root, the ordinary removal order is:
 
 \`\`\`sh
 apkit unbind /path/to/project
-apkit apply --all
+apkit update --all
 # Now delete the project directory.
 \`\`\`
 
 If the project directory was deleted first, run \`unbind\` with its exact authored
 path. That explicit action confirms the deletion was intentional; the next
-\`apply --all\` retires its machine-local installation record without attempting
+\`update --all\` retires its machine-local installation record without attempting
 project filesystem deletion and cleans any separately surviving local Git
 exclusions whose ownership was recorded. Restoring the project later requires a
-new \`bind\` and \`apply\`.
+new \`bind\` and \`update\`.
 
 Generated output is owned whole: complete files and artifact directories whose
 Installation Receipt proves Agent Profile Kit ownership, with the receipt's
@@ -655,7 +659,7 @@ approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
 Git hook, or modify shared \`.gitignore\` files.
 
-For a currently bound installation, \`apply\` recreates a
+For a currently bound installation, \`update\` recreates a
 recorded output that is completely missing when normal path-conflict checks
 pass. Modified output is ordinary refresh work while at least one recorded root
 still matches its recorded hash; when no recorded root matches, ownership
@@ -664,7 +668,7 @@ generated files. Unexpected directory members are never overwritten.
 
 ## Use Hosts natively
 
-After \`apply\`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
+After \`update\`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
 bound project the way you normally would. Agent Profile Kit does not manage their
 authentication, trust, approvals, plugins, or sessions, and does not launch
 Hosts.
@@ -679,7 +683,7 @@ below 12,000 characters. If one Context Module is too large, status reports a
 structured blocker instead of truncating it.
 
 Antigravity discovers the rules from the current bound project; you do not need
-to create or select an Antigravity Project. Trust is Host-owned: after \`apply\`,
+to create or select an Antigravity Project. Trust is Host-owned: after \`update\`,
 trust the bound project in Antigravity if it asks. Agent Profile Kit does not
 read or change trust, settings, authentication, plugins, Project records,
 \`AGENTS.md\`, or \`GEMINI.md\`. A standing trust reminder appears for every
@@ -798,7 +802,7 @@ ownership you independently verify, including any
 \`.git/info/exclude\`, remove only the marked block between
 \`# BEGIN Agent Profile Kit generated paths\` and
 \`# END Agent Profile Kit generated paths\`; preserve every unrelated byte. Then
-recreate the desired Project Bindings and run \`apkit apply\` to establish fresh
+recreate the desired Project Bindings and run \`apkit update\` to establish fresh
 ownership receipts. This manual path is intentionally fail-closed.
 
 ### Host Resolution and project-bound Profiles
@@ -848,14 +852,14 @@ configuration warnings visible.
 
 Use \`apkit unbind [project]\` to remove desired Project Binding state.
 It does not delete generated output. When an installed receipt remains, its
-output recommends the fleet \`status --all\` and \`apply --all\` needed to review and
+output recommends the fleet \`status --all\` and \`update --all\` needed to review and
 reconcile the former installation; after \`uninstall\`, it omits that no-op step.
 
 To delete generated output directly, use \`apkit uninstall\`. It names each
 affected project, removed generated path, and cleaned Git exclusion entry. It
 removes only Installation Receipt-proven output and preserves the
 Workspace and Local Configuration, including Project Bindings. It writes no teardown provenance. Because the Project Binding remains, the next
-\`status\` reports the Project as not installed and eligible for \`apply\`, rather
+\`status\` reports the Project as not installed and eligible for \`update\`, rather
 than as unsafe unexplained missing output. \`unbind\` changes desired state;
 \`uninstall\` removes proven output. Neither command modifies
 personal/global Host configuration or repository-owned files.
@@ -923,7 +927,7 @@ Use this workflow when helping a person author their Workspace and bind projects
      Host preferences. User-managed native global Skill delivery (including
      Host-root symlinks into Workspace source) is Host configuration, not
      Agent Profile Kit–owned state: outside Project Bindings and Installation
-     Manifests; \`apply\` / \`uninstall\` never adopt or remove those paths. v1 does
+     Manifests; \`update\` / \`uninstall\` never adopt or remove those paths. v1 does
      not manage global Host delivery. Hosts own Skill discovery, precedence,
      deduplication, collision diagnostics, and resolution across project,
      personal, package, plugin, extension, and compatibility sources.
@@ -938,24 +942,24 @@ Use this workflow when helping a person author their Workspace and bind projects
    (cwd when project is omitted; at least one explicit \`--host\` required). Do not
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
-   per-session selection, and Profile version pins. \`bind\` never applies output;
-   after recording, continue with validate/status/apply. To remove desired
+   per-session selection, and Profile version pins. \`bind\` never writes output;
+   after recording, continue with validate/status/update. To remove desired
    state, use \`apkit unbind [project]\`; it defaults to cwd, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. \`unbind\` never removes generated output.
-6. Validate before applying. Context Modules use \`id\` frontmatter and flat
+6. Validate before updating. Context Modules use \`id\` frontmatter and flat
    Profiles contain \`id\`, \`context\`, and \`skills\` only. Dependencies use
    explicit \`{ type, id }\` references. Run \`apkit validate\`, review
-   the concise fleet outcome from \`apkit status --all\`, and ask before applying
-   all configured Project Bindings with \`apkit apply --all\`. Use Project-scoped
-   \`apply [project]\` only when the user intends one bound Project. Use
-   \`apkit status --verbose\` or \`apkit apply --verbose\` when complete
+   the concise fleet outcome from \`apkit status --all\`, and ask before updating
+   all configured Project Bindings with \`apkit update --all\`. Use Project-scoped
+   \`update [project]\` only when the user intends one bound Project. Use
+   \`apkit status --verbose\` or \`apkit update --verbose\` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
    needed. For automation, add \`--json\` on those two commands: exit \`0\` means
    no tool error and no blockers (JSON \`outcome\` may still be \`attention\`),
    exit \`1\` is a tool error, and exit \`2\` means blockers. The current Workspace
    schema version is 1.
-7. After apply, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
+7. After update, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
    natively in the bound project. Do not claim that Agent Profile Kit manages
    Host authentication, trust, approvals, plugins, or sessions. Antigravity
    bindings load deterministic always-on Context rules under \`.agents/rules/\`
@@ -973,15 +977,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    paths with \`+\`, \`~\`, \`-\`, or \`!\` markers, caps long lists with a pointer to
    \`--verbose\`, explains non-current states when they appear, preserves warnings
    and blockers, and ends with one next-action line when useful (run the matching
-   apply for pending work; resolve a blocker and retry status when blocked; omit
+   update for pending work; resolve a blocker and retry status when blocked; omit
    when already current). Pending Git exclusion work appears as one concise clause.
-   A ready fleet \`status --all\` recommends \`apply --all\`; blocked \`status\` or
-   \`apply\` retries that command after the blocker. Add
+   A ready fleet \`status --all\` recommends \`update --all\`; blocked \`status\` or
+   \`update\` retries that command after the blocker. Add
    \`--verbose\` to distinguish current, stale, drifted, missing, and blocked
    installations and inspect exact Git exclusion paths in the complete report.
    \`apkit unbind\` removes desired
    Project Binding state but leaves generated output for fleet \`status --all\` and
-   \`apply --all\`. \`apkit uninstall\` instead removes only output whose Installation Receipt
+   \`update --all\`. \`apkit uninstall\` instead removes only output whose Installation Receipt
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
    Local Configuration, global Host configuration, and repository-owned files.
    Never use \`uninstall\` as a substitute for removing a binding, or \`unbind\` as
@@ -996,7 +1000,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.173.3
+Engine version: 0.174.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1141,9 +1145,9 @@ All Projects are current (1 Project)
 
 exports[`golden snapshots of every human view status pending: status-pending 1`] = `
 "--- stdout ---
-Ready to apply
+Ready to update
 - not installed yet (1): ~/projects/demo
-Next: apkit apply '~/projects/demo'
+Next: apkit update '~/projects/demo'
 
 Details: apkit status '~/projects/demo' --verbose
 --- stderr ---
@@ -1152,7 +1156,7 @@ Details: apkit status '~/projects/demo' --verbose
 
 exports[`golden snapshots of every human view status blocked: status-blocked 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
@@ -1163,7 +1167,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       Affected paths (1):
@@ -1181,7 +1185,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts grouped-twelve: status-tracked-counts-grouped-twelve 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so
@@ -1192,7 +1196,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.claude/skills/single' '.grok/skills/single'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (14):
@@ -1212,7 +1216,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts eleven-no-cap: status-tracked-counts-eleven-no-cap 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so
@@ -1223,7 +1227,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (11):
@@ -1241,7 +1245,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts root-immediate-parent-equivalent: status-tracked-counts-root-immediate-parent-equivalent 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
@@ -1252,7 +1256,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/s001' '.claude/skills/s002' '.grok/skills/s001' '.grok/skills/s002'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (6):
@@ -1272,7 +1276,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts overlapping-parent-equivalent: status-tracked-counts-overlapping-parent-equivalent 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
@@ -1283,7 +1287,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/single'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (3):
@@ -1302,7 +1306,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts deterministic-order: status-tracked-counts-deterministic-order 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so
@@ -1313,7 +1317,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/alpha' '.claude/skills/beta' '.grok/skills/zeta'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (3):
@@ -1333,7 +1337,7 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts large-60-60-30: status-tracked-counts-large-60-60-30 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/tracked-counts
     Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so
@@ -1344,7 +1348,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.agents/skills/s013' '.agents/skills/s014' '.agents/skills/s015' '.agents/skills/s016' '.agents/skills/s017' '.agents/skills/s018' '.agents/skills/s019' '.agents/skills/s020' '.agents/skills/s021' '.agents/skills/s022' '.agents/skills/s023' '.agents/skills/s024' '.agents/skills/s025' '.agents/skills/s026' '.agents/skills/s027' '.agents/skills/s028' '.agents/skills/s029' '.agents/skills/s030' '.agents/skills/s031' '.agents/skills/s032' '.agents/skills/s033' '.agents/skills/s034' '.agents/skills/s035' '.agents/skills/s036' '.agents/skills/s037' '.agents/skills/s038' '.agents/skills/s039' '.agents/skills/s040' '.agents/skills/s041' '.agents/skills/s042' '.agents/skills/s043' '.agents/skills/s044' '.agents/skills/s045' '.agents/skills/s046' '.agents/skills/s047' '.agents/skills/s048' '.agents/skills/s049' '.agents/skills/s050' '.agents/skills/s051' '.agents/skills/s052' '.agents/skills/s053' '.agents/skills/s054' '.agents/skills/s055' '.agents/skills/s056' '.agents/skills/s057' '.agents/skills/s058' '.agents/skills/s059' '.agents/skills/s060' '.claude/skills/s001' '.claude/skills/s002' '.claude/skills/s003' '.claude/skills/s004' '.claude/skills/s005' '.claude/skills/s006' '.claude/skills/s007' '.claude/skills/s008' '.claude/skills/s009' '.claude/skills/s010' '.claude/skills/s011' '.claude/skills/s012' '.claude/skills/s013' '.claude/skills/s014' '.claude/skills/s015' '.claude/skills/s016' '.claude/skills/s017' '.claude/skills/s018' '.claude/skills/s019' '.claude/skills/s020' '.claude/skills/s021' '.claude/skills/s022' '.claude/skills/s023' '.claude/skills/s024' '.claude/skills/s025' '.claude/skills/s026' '.claude/skills/s027' '.claude/skills/s028' '.claude/skills/s029' '.claude/skills/s030' '.claude/skills/s031' '.claude/skills/s032' '.claude/skills/s033' '.claude/skills/s034' '.claude/skills/s035' '.claude/skills/s036' '.claude/skills/s037' '.claude/skills/s038' '.claude/skills/s039' '.claude/skills/s040' '.claude/skills/s041' '.claude/skills/s042' '.claude/skills/s043' '.claude/skills/s044' '.claude/skills/s045' '.claude/skills/s046' '.claude/skills/s047' '.claude/skills/s048' '.claude/skills/s049' '.claude/skills/s050' '.claude/skills/s051' '.claude/skills/s052' '.claude/skills/s053' '.claude/skills/s054' '.claude/skills/s055' '.claude/skills/s056' '.claude/skills/s057' '.claude/skills/s058' '.claude/skills/s059' '.claude/skills/s060' '.grok/skills/s001' '.grok/skills/s002' '.grok/skills/s003' '.grok/skills/s004' '.grok/skills/s005' '.grok/skills/s006' '.grok/skills/s007' '.grok/skills/s008' '.grok/skills/s009' '.grok/skills/s010' '.grok/skills/s011' '.grok/skills/s012' '.grok/skills/s013' '.grok/skills/s014' '.grok/skills/s015' '.grok/skills/s016' '.grok/skills/s017' '.grok/skills/s018' '.grok/skills/s019' '.grok/skills/s020' '.grok/skills/s021' '.grok/skills/s022' '.grok/skills/s023' '.grok/skills/s024' '.grok/skills/s025' '.grok/skills/s026' '.grok/skills/s027' '.grok/skills/s028' '.grok/skills/s029' '.grok/skills/s030'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'.
       Affected paths (150):
@@ -1382,7 +1386,7 @@ Standing Host setup:
 
 exports[`golden snapshots of every human view status blocked filter: status-blocked-filter 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
@@ -1393,7 +1397,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       Affected paths (1):
@@ -1409,11 +1413,11 @@ Next:
 "
 `;
 
-exports[`golden snapshots of every human view apply receipt: apply-receipt 1`] = `
+exports[`golden snapshots of every human view update receipt: update-receipt 1`] = `
 "--- stdout ---
-Apply complete
+Update complete
 
-Applied:
+Updated:
   + 2 generated file additions in 1 project
   + .agent-profile-kit/codex/context.md (~/projects/demo)
   + .codex/hooks.json (~/projects/demo)
@@ -1438,17 +1442,17 @@ Now author your own:
 "
 `;
 
-exports[`golden snapshots of every human view apply no-op: apply-noop 1`] = `
+exports[`golden snapshots of every human view update no-op: update-noop 1`] = `
 "--- stdout ---
-Apply complete
+Update complete
 All Projects were already current.
 --- stderr ---
 "
 `;
 
-exports[`golden snapshots of every human view apply blocked: apply-blocked 1`] = `
+exports[`golden snapshots of every human view update blocked: update-blocked 1`] = `
 "--- stdout ---
-Apply blocked
+Update blocked
 
 Project: ~/projects/blocked
   Profile: example
@@ -1461,7 +1465,7 @@ Project: ~/projects/blocked
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       To keep Git ownership instead, run
       apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
     Affected paths (1):
@@ -1472,7 +1476,9 @@ Git exclusions: 2 entries to add.
 Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run apkit apply '~/projects/blocked' again.
+- Resolve the reported blocker, then run
+  apkit update '~/projects/blocked'
+  again.
 --- stderr ---
 "
 `;
@@ -1499,7 +1505,7 @@ Configured Projects preserved.
 Next: Run
   apkit unbind
   for configured Projects you no longer want, or
-  apkit apply
+  apkit update
   to reinstall.
 --- stderr ---
 "
@@ -1540,7 +1546,7 @@ Remedy: Choose one. To let Agent Profile Kit manage these files, run
   git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked' rm -r --cached -- '.codex/hooks.json'
   — it stages their removal from the Git index while the files stay on disk;
   commit afterwards to keep the change — then run
-  apkit apply '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked'.
+  apkit update '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked'.
   To keep Git ownership instead, run
   apkit unbind '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked'.
 "
@@ -1553,7 +1559,7 @@ apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 "
 `;
 
@@ -1572,7 +1578,7 @@ First run:
   apkit init
   apkit bind <profile> --host <host>
   apkit status
-  apkit apply
+  apkit update
 
   Choose a Profile with apkit guide
     profile; see apkit bind --help for
@@ -1601,11 +1607,11 @@ Common commands:
     Check Workspace and settings
       validity
   status
-    Show the complete read-only apply
+    Show the complete read-only update
       plan for the complete fleet, the
       containing Project, or one
       explicit Project
-  apply
+  update
     Sync the complete fleet, the
       containing Project, or one
       explicit Project
@@ -1650,7 +1656,7 @@ Agent Profile Kit composes reusable
 \x1B[36m  apkit init\x1B[0m
 \x1B[36m  apkit bind <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
-\x1B[36m  apkit apply\x1B[0m
+\x1B[36m  apkit update\x1B[0m
 
   Choose a Profile with apkit guide
     profile; see apkit bind --help for
@@ -1679,11 +1685,11 @@ Agent Profile Kit composes reusable
     Check Workspace and settings
       validity
 \x1B[36m  status\x1B[0m
-    Show the complete read-only apply
+    Show the complete read-only update
       plan for the complete fleet, the
       containing Project, or one
       explicit Project
-\x1B[36m  apply\x1B[0m
+\x1B[36m  update\x1B[0m
     Sync the complete fleet, the
       containing Project, or one
       explicit Project
@@ -1726,7 +1732,7 @@ First run:
   apkit init
   apkit bind <profile> --host <host>
   apkit status
-  apkit apply
+  apkit update
 
   Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
 
@@ -1744,9 +1750,9 @@ Common commands:
   validate
     Check Workspace and settings validity
   status
-    Show the complete read-only apply plan for the complete fleet, the containing Project, or one
+    Show the complete read-only update plan for the complete fleet, the containing Project, or one
       explicit Project
-  apply
+  update
     Sync the complete fleet, the containing Project, or one explicit Project
 
 More commands:
@@ -1781,7 +1787,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  apkit init\x1B[0m
 \x1B[36m  apkit bind <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
-\x1B[36m  apkit apply\x1B[0m
+\x1B[36m  apkit update\x1B[0m
 
   Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
 
@@ -1799,9 +1805,9 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings validity
 \x1B[36m  status\x1B[0m
-    Show the complete read-only apply plan for the complete fleet, the containing Project, or one
+    Show the complete read-only update plan for the complete fleet, the containing Project, or one
       explicit Project
-\x1B[36m  apply\x1B[0m
+\x1B[36m  update\x1B[0m
     Sync the complete fleet, the containing Project, or one explicit Project
 
 \x1B[1;34mMore commands:\x1B[0m
@@ -1825,7 +1831,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.173.3
+Engine version: 0.174.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1835,7 +1841,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.173.3\x1B[0m
+\x1B[35mEngine version: 0.174.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1845,7 +1851,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.173.3
+Engine version: 0.174.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1855,7 +1861,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.173.3\x1B[0m
+\x1B[35mEngine version: 0.174.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -1935,7 +1941,7 @@ Use apkit status to inspect Project lifecycle diagnostics.
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/blocked
     Blocker: .codex/hooks.json is
@@ -1953,7 +1959,7 @@ Cannot apply
         the Git index while the files
         stay on disk; commit afterwards
         to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead,
         run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
@@ -1972,7 +1978,7 @@ Next:
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31mCannot apply\x1B[0m
+\x1B[31mCannot update\x1B[0m
 - needs attention (1):
   ~/projects/blocked
 \x1B[31m    Blocker: .codex/hooks.json is\x1B[0m
@@ -1990,7 +1996,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
         the Git index while the files
         stay on disk; commit afterwards
         to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead,
         run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
@@ -2009,7 +2015,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Cannot apply
+Cannot update
 - needs attention (1):
   ~/projects/blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.
@@ -2019,7 +2025,7 @@ Cannot apply
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
         — it stages their removal from the Git index while the files stay on disk; commit afterwards
         to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       Affected paths (1):
@@ -2035,7 +2041,7 @@ Next:
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31mCannot apply\x1B[0m
+\x1B[31mCannot update\x1B[0m
 - needs attention (1):
   ~/projects/blocked
 \x1B[31m    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.\x1B[0m
@@ -2045,7 +2051,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
         git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
         — it stages their removal from the Git index while the files stay on disk; commit afterwards
         to keep the change — then run
-        apkit apply '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
         To keep Git ownership instead, run
         apkit unbind '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       Affected paths (1):
@@ -2152,7 +2158,7 @@ Run apkit bind to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
 `;
@@ -2166,7 +2172,7 @@ Run apkit bind to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
-Usage: \x1B[36mapkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
 `;
@@ -2176,7 +2182,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
 `;
@@ -2186,7 +2192,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31mapkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
 Run apkit bind to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
-Usage: \x1B[36mapkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]\x1B[0m
+Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
 `;

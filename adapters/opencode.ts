@@ -111,7 +111,7 @@ export function parseOpenCodeCliVersion(source: string): string {
       "opencode",
       "host",
       `OpenCode version is unreadable from '${source.trim()}'`,
-      `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or applying the Profile`,
+      `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or updating the Profile`,
     );
   }
   return normalizeCoreSemanticVersion(match[1]!, match[2]!, match[3]!);
@@ -123,7 +123,7 @@ export function assertOpenCodeCliVersionSupported(version: string): void {
     throw versionFloorCapabilityFailure(
       "opencode",
       `OpenCode ${version} does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
-      "upgrade OpenCode before checking status or applying the Profile",
+      "upgrade OpenCode before checking status or updating the Profile",
       OPENCODE_MINIMUM_CLI_VERSION,
     );
   }
@@ -145,7 +145,7 @@ async function resolveOpenCodeCliVersion(
         "opencode",
         "host",
         "OpenCode was not found on PATH",
-        `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or applying the Profile`,
+        `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or updating the Profile`,
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -163,7 +163,7 @@ async function resolveOpenCodeCliVersion(
       "opencode",
       "host",
       `OpenCode version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
+      `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ before checking status or updating the Profile`,
     );
   }
 }

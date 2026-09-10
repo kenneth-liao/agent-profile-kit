@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Changed
+
+- Replace the public `apply` command with `update` (US-002, DEC-001, [#492](https://github.com/kenneth-liao/agent-profile-kit/issues/492)): `apkit update` keeps the fleet default, `--here`/explicit-Project/`--project <path>`/`--all` scope, `--stale`/`--blocked` filters, `--verbose`/`--json`, and `--replace-changed` behavior, sharing one argument-ingestion boundary with `status` so the read-only plan accepts the same narrowing, with the machine payload reporting `"update"`. Public `apply` is retired without a compatibility shim — every `apply` form exits `1` naming `apkit update` as the replacement. Human outcome lines, state explanations, retry/remedy copy, next-action commands, and the committed-work heading (`Updated:`) use update language, and `update` guidance distinguishes updating installed Context and Skills from upgrading the `apkit` executable. See ADR-0031 for the recorded command-surface decision.
+
 ### Fixed
 
 - Make every printed lifecycle next-action command a runnable target: the explicit-Project `Next: apkit apply …` and `Details: apkit status …` arguments render the Project's fleet identity (home-relative or absolute) instead of the cwd-relative alias the Project-target boundary rejects as a relative target, the copyable command token is never middle-elided, and the identity is one shell-quoted POSIX token through the shared quoting boundary, so the printed action — including Project paths containing spaces — executes exactly as printed instead of exiting with the invalid-path error (US-007, US-012, review INT-1 and RE-1 on [#489](https://github.com/kenneth-liao/agent-profile-kit/pull/489), [#461](https://github.com/kenneth-liao/agent-profile-kit/issues/461)).

@@ -67,7 +67,7 @@ async function workspaceWithSkill(
 }
 
 describe("Host Resolution", () => {
-  test("preview and apply allow Codex and Claude same-identity personal Skills", async () => {
+  test("preview and update allow Codex and Claude same-identity personal Skills", async () => {
     const home = temporaryDirectory("apk-host-resolution-home-");
     const project = temporaryDirectory("apk-host-resolution-project-");
     await workspaceWithSkill(home, project, ["codex", "claude"]);

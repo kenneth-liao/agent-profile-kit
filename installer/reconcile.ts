@@ -297,7 +297,7 @@ export class ApplyBlockedError extends Error {
   readonly report: BlockedReconciliationReport;
 
   constructor(report: BlockedReconciliationReport) {
-    super("Apply blocked before writes");
+    super("Update blocked before writes");
     this.name = "ApplyBlockedError";
     this.report = report;
   }
@@ -328,7 +328,7 @@ export class ApplyDeclinedError extends Error {
   readonly reason: "declined" | "cancelled";
 
   constructor(reason: "declined" | "cancelled") {
-    super(reason === "cancelled" ? "Apply cancelled before writes" : "Apply declined before writes");
+    super(reason === "cancelled" ? "Update cancelled before writes" : "Update declined before writes");
     this.name = "ApplyDeclinedError";
     this.reason = reason;
   }
@@ -358,8 +358,8 @@ export class ApplyExecutionError extends Error {
     const cause = options.cause instanceof Error ? options.cause.message : String(options.cause);
     super(
       options.failedProject === undefined
-        ? `Apply failed after committing Project work: ${cause}`
-        : `Apply failed at ${options.failedProject.canonicalProject}: ${cause}`,
+        ? `Update failed after committing Project work: ${cause}`
+        : `Update failed at ${options.failedProject.canonicalProject}: ${cause}`,
       { cause: options.cause },
     );
     this.name = "ApplyExecutionError";
@@ -377,7 +377,7 @@ export class ApplyVerificationError extends Error {
 
   constructor(receipt: ReconciliationReport, cause: unknown) {
     const detail = cause instanceof Error ? cause.message : String(cause);
-    super(`Apply committed; post-apply verification failed: ${detail}`, { cause });
+    super(`Update committed; post-update verification failed: ${detail}`, { cause });
     this.name = "ApplyVerificationError";
     this.receipt = receipt;
   }
@@ -1472,7 +1472,7 @@ export async function applyReconciliation(
 ): Promise<ApplyReconciliationResult> {
   return withInstallationLifecycleLock(
     home,
-    "apply",
+    "update",
     () => applyReconciliationLocked(home, desired, options),
     options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs },
   );
@@ -1816,7 +1816,7 @@ async function applyReconciliationLocked(
       ];
       const detail = `${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`;
       const cause = new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.canonicalProject}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
+        `Update failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: ${item.binding.canonicalProject}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
       );
       await failExecution({
         cause,
@@ -1882,7 +1882,7 @@ async function applyReconciliationLocked(
       ];
       const detail = `${failureMessage}${recoveryMessages.length > 0 ? `\n${recoveryMessages.join("\n")}` : ""}`;
       const cause = new Error(
-        `Apply failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
+        `Update failed; completed projects: ${completed.join(", ") || "(none)"}; failed project: removal ${previous.project}; pending projects: ${pending.map((project) => project.canonicalProject).join(", ") || "(none)"}\n${detail}`,
       );
       await failExecution({
         cause,

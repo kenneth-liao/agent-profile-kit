@@ -481,7 +481,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
         const remedy = compact([
           "Move your OpenCode configuration to opencode.json or .opencode/opencode.json " +
             "yourself, then run ",
-          apkit("apply", quoted(blocker.project!)),
+          apkit("update", quoted(blocker.project!)),
           ...unbindAlternative(blocker.project!),
         ]);
         return { message: problem, problem, remedy, requirement };
@@ -495,7 +495,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           ? inspectCommand(projectPath(blocker.project!, inspected))
           : listCommand(projectPath(blocker.project!, inspected)),
         ", move or remove it yourself only if you do not need it, then run ",
-        apkit("apply", quoted(blocker.project!)),
+        apkit("update", quoted(blocker.project!)),
         ...unbindAlternative(blocker.project!),
       ]);
       return { message: problem, problem, remedy, requirement };
@@ -518,7 +518,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           const remedy = untrackChoiceRemedy(
             blocker.project!,
             failure.outputs,
-            ["apply", quoted(blocker.project!)],
+            ["update", quoted(blocker.project!)],
           );
           return { message: problem, problem, remedy, requirement };
         }
@@ -529,8 +529,8 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
                 `untracking command from the recorded paths (${pathList(failure.outputs)}). ` +
                 "Untrack them in Git yourself without reinterpreting special characters, " +
                 "then run ",
-              apkit("apply", "--all"),
-              " — it applies every pending Project, not only this one.",
+              apkit("update", "--all"),
+              " — it updates every pending Project, not only this one.",
             ]
           : [
               "These stale generated files are tracked by Git; " + GIT_OWNED_CLAUSE +
@@ -538,8 +538,8 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
               untrack,
               " to stage their removal from the Git index while the files stay on " +
                 "disk (commit afterwards to keep the change), then run ",
-              apkit("apply", "--all"),
-              " — it applies every pending Project, not only this one.",
+              apkit("update", "--all"),
+              " — it updates every pending Project, not only this one.",
             ]);
         return { message: problem, problem, remedy, requirement };
       }
@@ -552,7 +552,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
             " to stop managing this Project — nothing is repaired or removed, and " +
               "its generated files stay on disk — or inspect the Project's generated " +
               "files yourself, restore what matches the installation record, then run ",
-            apkit("apply", quoted(blocker.project!)),
+            apkit("update", quoted(blocker.project!)),
             ".",
           ]);
           return { message: problem, problem, remedy, requirement };
@@ -560,8 +560,8 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
         const remedy = compact([
           "Manual recovery is required: no specific file is recorded. Remove or " +
             "restore the stale generated files yourself, then run ",
-          apkit("apply", "--all"),
-          " — it applies every pending Project, not only this one.",
+          apkit("update", "--all"),
+          " — it updates every pending Project, not only this one.",
         ]);
         return { message: problem, problem, remedy, requirement };
       }
@@ -580,7 +580,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
               "files it cannot prove. Inspect ",
             inspectCommand(inspectTarget),
             restoreClause,
-            apkit("apply", quoted(blocker.project!)),
+            apkit("update", quoted(blocker.project!)),
             ...unbindAlternative(blocker.project!),
           ]
         : [
@@ -588,8 +588,8 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
               "cannot prove. Inspect ",
             inspectCommand(inspectTarget),
             restoreClause,
-            apkit("apply", "--all"),
-            " — it applies every pending Project, not only this one.",
+            apkit("update", "--all"),
+            " — it updates every pending Project, not only this one.",
           ]);
       return { message: problem, problem, remedy, requirement };
     }
@@ -609,7 +609,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           "paths cannot be replaced.",
       ];
       const remedy = untrackChoiceRemedy(blocker.project!, paths, [
-        "apply",
+        "update",
         quoted(blocker.project!),
       ]);
       return { message: problem, problem, remedy, requirement };

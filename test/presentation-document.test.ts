@@ -17,10 +17,10 @@ const redirected = { color: false, interactive: false, width: 80 , rows: undefin
 
 test("renders a prose document to text for a terminal presentation context", () => {
   const text = renderPresentationDocument(
-    [{ kind: "prose", parts: ["Ready to apply."], category: "success" }],
+    [{ kind: "prose", parts: ["Ready to update."], category: "success" }],
     redirected,
   );
-  expect(text).toBe("Ready to apply.");
+  expect(text).toBe("Ready to update.");
 });
 
 test("renders heading, key-value, identifier, and list-item nodes as distinct lines", () => {
@@ -136,7 +136,7 @@ test("renders a command argument fully spelled, never middle-elided", () => {
       kind: "command",
       program: "apkit",
       args: [
-        { kind: "text", value: "apply" },
+        { kind: "text", value: "update" },
         {
           kind: "path",
           canonicalPath: project,
@@ -148,7 +148,7 @@ test("renders a command argument fully spelled, never middle-elided", () => {
     context,
     { cwd, home },
   );
-  const prefix = "apkit apply ";
+  const prefix = "apkit update ";
   expect(text.split("\n")).toHaveLength(1);
   expect(text.startsWith(prefix)).toBe(true);
   // A copyable command token is executable as printed: the identity renders

@@ -289,7 +289,7 @@ async function pendingHome(): Promise<{ home: string; project: string }> {
 
 async function currentHome(): Promise<{ home: string; project: string }> {
   const prepared = await pendingHome();
-  expectExitCode(await runCli(prepared.home, ["apply", prepared.project]), 0);
+  expectExitCode(await runCli(prepared.home, ["update", prepared.project]), 0);
   return prepared;
 }
 
@@ -617,30 +617,30 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
-    test: "apply receipt",
-    snapshot: "apply-receipt",
-    commandId: "apply",
+    test: "update receipt",
+    snapshot: "update-receipt",
+    commandId: "update",
     prepare: async () => {
       const { home, project } = await pendingHome();
-      return { home, args: ["apply", project] };
+      return { home, args: ["update", project] };
     },
   },
   {
-    test: "apply no-op",
-    snapshot: "apply-noop",
-    commandId: "apply",
+    test: "update no-op",
+    snapshot: "update-noop",
+    commandId: "update",
     prepare: async () => {
       const { home, project } = await currentHome();
-      return { home, args: ["apply", project] };
+      return { home, args: ["update", project] };
     },
   },
   {
-    test: "apply blocked",
-    snapshot: "apply-blocked",
-    commandId: "apply",
+    test: "update blocked",
+    snapshot: "update-blocked",
+    commandId: "update",
     prepare: async () => {
       const { home, project } = await blockedHome();
-      return { home, args: ["apply", project] };
+      return { home, args: ["update", project] };
     },
   },
   {
@@ -849,7 +849,7 @@ describe("rendered atomicity mutation evidence from real captures", () => {
     checkAtomicRendering(stabilized, stabilized, corpus);
 
     const spellings = new Set(collectSpellings(stabilized, corpus));
-    const nextLine = stabilized.split("\n").find((line) => line.startsWith("Next: apkit apply "));
+    const nextLine = stabilized.split("\n").find((line) => line.startsWith("Next: apkit update "));
     expect(nextLine).toBeDefined();
     const command = nextLine!.slice("Next: ".length).trim();
     expect(spellings).toContain(command);
@@ -861,7 +861,7 @@ describe("rendered atomicity mutation evidence from real captures", () => {
     // Two-line fold of a command with a path argument.
     expect(() =>
       checkAtomicRendering(
-        mutated(`Next: apkit ap\n  ply ${command.slice("apkit apply ".length)}\n`),
+        mutated(`Next: apkit up\n  date ${command.slice("apkit update ".length)}\n`),
         stabilized,
         corpus,
       ),
@@ -870,7 +870,7 @@ describe("rendered atomicity mutation evidence from real captures", () => {
     // An intact occurrence elsewhere never excuses a second, split occurrence.
     expect(() =>
       checkAtomicRendering(
-        mutated(`${nextLine!}\nAlso: apkit ap\n  ply ${command.slice("apkit apply ".length)}\n`),
+        mutated(`${nextLine!}\nAlso: apkit up\n  date ${command.slice("apkit update ".length)}\n`),
         stabilized,
         corpus,
       ),
@@ -878,11 +878,11 @@ describe("rendered atomicity mutation evidence from real captures", () => {
 
     // Fragmentation across three or more lines.
     expect(() =>
-      checkAtomicRendering(mutated("Next: apkit\n  apply ~/pro\n  jects/demo\n"), stabilized, corpus),
+      checkAtomicRendering(mutated("Next: apkit\n  update ~/pro\n  jects/demo\n"), stabilized, corpus),
     ).toThrow(/fragmented/);
 
     // A path argument split mid-token inside an intact command prefix.
-    const pathSpelling = command.slice("apkit apply ".length);
+    const pathSpelling = command.slice("apkit update ".length);
     expect(() =>
       checkAtomicRendering(
         stabilized.replace(

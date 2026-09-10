@@ -412,7 +412,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     expect(reportProjection(concurrentReport)).toEqual(reportProjection(sequentialReport));
   });
 
-  test("a read failure during reconciliation propagates and blocks apply writes", async () => {
+  test("a read failure during reconciliation propagates and blocks update writes", async () => {
     const home = temporaryDirectory("apk-concurrency-failure-");
     const projects = await fleetWorkspace({
       home,
@@ -478,7 +478,7 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
     }
   });
 
-  test("apply writes stay sequential while reads run concurrently", async () => {
+  test("update writes stay sequential while reads run concurrently", async () => {
     const home = temporaryDirectory("apk-concurrency-apply-sequential-");
     const projects = await fleetWorkspace({
       home,

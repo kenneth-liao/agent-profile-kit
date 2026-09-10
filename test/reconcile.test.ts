@@ -164,7 +164,7 @@ describe("injected project filesystem failures", () => {
 
     expect(failure).toBeInstanceOf(ApplyVerificationError);
     expect((failure as ApplyVerificationError).message).toContain(
-      "Apply committed; post-apply verification failed: injected verification read failure",
+      "Update committed; post-update verification failed: injected verification read failure",
     );
     expect((failure as ApplyVerificationError).receipt.projects).toContainEqual(
       expect.objectContaining({ project, state: { kind: "addition" } }),
@@ -316,7 +316,7 @@ describe("injected project filesystem failures", () => {
     expect(state.receipts[0]!.outputs.find((output) => output.path.endsWith("context.md"))?.mode).toBe(0o600);
   });
 
-  test("a wholly absent owned output is ordinary pending update work restored by apply", async () => {
+  test("a wholly absent owned output is ordinary pending update work restored by update", async () => {
     const home = temporaryDirectory("agent-profile-kit-absent-home-");
     const project = temporaryDirectory("agent-profile-kit-absent-project-");
     await initializeWorkspace(home);
@@ -353,7 +353,7 @@ describe("injected project filesystem failures", () => {
     ]));
   });
 
-  test("apply records the replacement of a user-edited generated file as a named write", async () => {
+  test("update records the replacement of a user-edited generated file as a named write", async () => {
     const home = temporaryDirectory("agent-profile-kit-edited-home-");
     const project = temporaryDirectory("agent-profile-kit-edited-project-");
     await initializeWorkspace(home);
@@ -447,7 +447,7 @@ describe("injected project filesystem failures", () => {
     expect(readFileSync(context, "utf8")).toContain("Repair transaction.");
   });
 
-  test("surfaces installation-state restore failures after an apply error", async () => {
+  test("surfaces installation-state restore failures after an update error", async () => {
     const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
     const firstProject = temporaryDirectory("agent-profile-kit-state-restore-a-");
     const secondProject = temporaryDirectory("agent-profile-kit-state-restore-b-");
@@ -522,7 +522,7 @@ describe("previous-version Marker migration", () => {
     );
   }
 
-  test("a leftover Marker from an earlier version is removed by the next apply even when the Project is current", async () => {
+  test("a leftover Marker from an earlier version is removed by the next update even when the Project is current", async () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-home-");
     const project = realpathSync(temporaryDirectory("agent-profile-kit-legacy-project-"));
     execFileSync("git", ["init", "-q", project]);
@@ -602,7 +602,7 @@ describe("previous-version Marker migration", () => {
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("unknown content at the legacy pathname is never removed by apply or uninstall", async () => {
+  test("unknown content at the legacy pathname is never removed by update or uninstall", async () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-foreign-home-");
     const project = temporaryDirectory("agent-profile-kit-legacy-foreign-project-");
     await initializeWorkspace(home);
@@ -680,7 +680,7 @@ describe("previous-version Marker migration", () => {
     expect(existsSync(adapterOutput)).toBe(true);
   });
 
-  test("a legacy token naming a different installation is preserved on apply and uninstall", async () => {
+  test("a legacy token naming a different installation is preserved on update and uninstall", async () => {
     const { home, project, desired } = await prepareLegacyFixture("agent-profile-kit-legacy-mismatch");
     await applyReconciliation(home, desired);
     // Valid token shape, but its id belongs to no receipt that owns this

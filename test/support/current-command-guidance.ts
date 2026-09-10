@@ -5,7 +5,7 @@ export interface MarkdownDocument {
 
 const HISTORICAL_START = "<!-- historical-command-excerpts:start -->";
 const HISTORICAL_END = "<!-- historical-command-excerpts:end -->";
-const FORMER_COMMAND = /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|status|uninstall|--help)\b)/g;
+const FORMER_COMMAND = /\bagent-profile-kit (?=(?:init|guide|bind|unbind|validate|preview|apply|update|status|uninstall|--help)\b)/g;
 
 function currentGuidance(path: string, source: string): string | undefined {
   if (path.startsWith("docs/adr/") || path.startsWith("docs/archive/")) return undefined;

@@ -183,7 +183,7 @@ describe("fleet-wide synchronization qualification", () => {
     const pathWithHosts = fixture.pathWithHosts;
 
     // Initial fleet sync: every Project installs the shared Profile.
-    const initialApply = await runCli(home, pathWithHosts, "apply", "--json");
+    const initialApply = await runCli(home, pathWithHosts, "update", "--json");
     expectExitCode(initialApply, 0);
     const initialJson = JSON.parse(initialApply.stdout) as {
       readonly applied: { readonly projects: readonly unknown[] };
@@ -207,7 +207,7 @@ describe("fleet-wide synchronization qualification", () => {
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
     // Primary-cause fleet partition renders complete actionable fleet.
-    expect(preview.stdout).toStartWith("Ready to apply\n- source changed (12):\n");
+    expect(preview.stdout).toStartWith("Ready to update\n- source changed (12):\n");
     for (const project of projects) expect(preview.stdout).toContain(project);
     expect(preview.stdout).not.toContain("Project changes:");
     expect(preview.stdout).not.toContain("Projects: 12");
@@ -218,7 +218,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(preview.stdout).not.toContain("Project Binding");
     // One collapsed next action; no repeated per-Project blocks or zero-value
     // blocker clauses.
-    expect(preview.stdout.match(/Next: apkit apply/g)).toHaveLength(1);
+    expect(preview.stdout.match(/Next: apkit update/g)).toHaveLength(1);
     expect(preview.stdout.match(/Details: apkit status --verbose/g)).toHaveLength(1);
     expect(preview.stdout).not.toContain("Blockers: 0");
     expect(preview.stdout).not.toContain("State: current");
@@ -239,10 +239,10 @@ describe("fleet-wide synchronization qualification", () => {
 
     // Apply reconciles the fleet and reports the receipt without a repeated
     // current-Project matrix; the resulting state is verified current.
-    const apply = await runCli(home, pathWithHosts, "apply");
+    const apply = await runCli(home, pathWithHosts, "update");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Apply complete");
-    expect(apply.stdout).toContain("Applied:");
+    expect(apply.stdout).toContain("Update complete");
+    expect(apply.stdout).toContain("Updated:");
     // The receipt repeats the same observable operation summary.
     expect(apply.stdout).toContain("  + 1 generated file addition in");
     expect(apply.stdout).toContain("  ~ 21 generated file updates in 12 projects");
@@ -368,7 +368,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(applyInstrumentation.counts.probeHostCapability).toBe(5);
   }, FLEET_TEST_TIMEOUT_MS);
 
-  test("apply still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
+  test("update still performs fresh post-commit verification while writes, state, and receipts stay sequential", async () => {
     const home = isolatedHome();
     createPackedFleet(home);
     const desired = await buildDesiredState(home, {
@@ -430,7 +430,7 @@ describe("fleet-wide synchronization qualification", () => {
     const fixture = createFleetFixture(home, { dependencyRich: true, projectCount: 14 });
     const statePath = stateManifestPath(home);
 
-    expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
+    expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);
     const published = readFileSync(statePath, "utf8");
     const stateValue = JSON.parse(published) as {
       receipts: readonly { readonly hosts: Readonly<Record<string, unknown>> }[];
@@ -444,7 +444,7 @@ describe("fleet-wide synchronization qualification", () => {
     const nextRead = await runCli(home, fixture.pathWithHosts, "status");
     expectExitCode(nextRead, 0);
     expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
-    expectExitCode(await runCli(home, fixture.pathWithHosts, "apply"), 0);
+    expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
   }, FLEET_TEST_TIMEOUT_MS);
 
@@ -474,7 +474,7 @@ describe("fleet-wide synchronization qualification", () => {
         new RegExp(`\\r${STATUS_PROGRESS_LABEL}(?:\\.){0,3}\\r[ ]+\\r`),
       );
     }
-    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Ready to apply");
+    expect(pty.stdout.split(/\r[ ]+\r/).at(-1) ?? "").toContain("Ready to update");
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
@@ -512,11 +512,11 @@ describe("fleet-wide synchronization qualification", () => {
     expect(() => JSON.parse(json.stdout)).not.toThrow();
   }, FLEET_TEST_TIMEOUT_MS);
 
-  test("representative warm status and apply samples are benchmarked and recorded with the qualification evidence", async () => {
+  test("representative warm status and update samples are benchmarked and recorded with the qualification evidence", async () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
     // Warm the fleet to current before measuring.
-    const warmup = await runCli(home, pathWithHosts, "apply");
+    const warmup = await runCli(home, pathWithHosts, "update");
     expectExitCode(warmup, 0);
 
     const result = await benchmarkWarmRuns(home, {
@@ -525,7 +525,7 @@ describe("fleet-wide synchronization qualification", () => {
       runCount: 2,
     });
     const commands = result.samples.map((sample) => sample.command);
-    expect(commands).toEqual(["status", "status", "apply", "apply"]);
+    expect(commands).toEqual(["status", "status", "update", "update"]);
     for (const sample of result.samples) {
       expect(Number.isFinite(sample.elapsedMs)).toBe(true);
       expect(sample.elapsedMs).toBeGreaterThan(0);
@@ -536,7 +536,7 @@ describe("fleet-wide synchronization qualification", () => {
     });
     expect(markdown).toContain("## Fleet synchronization warm-run benchmark");
     expect(markdown).toContain("| status | 2 |");
-    expect(markdown).toContain("| apply | 2 |");
+    expect(markdown).toContain("| update | 2 |");
     expect(markdown).toContain("isolated 12-Project fleet");
     expect(markdown).toContain("parent #193");
     // Fail fast on nonsensical sample configurations rather than rendering
@@ -616,7 +616,7 @@ function snapshotProjectTree(projectDir: string): Record<string, FsSnapshotEntry
 }
 
 describe("integrated fleet recovery qualification", () => {
-  test("qualifies the complete recovery journey: best-effort exclusion republication, global and project blockers, repeated warnings, focused status and partial apply, and zero unauthorized writes", async () => {
+  test("qualifies the complete recovery journey: best-effort exclusion republication, global and project blockers, repeated warnings, focused status and partial update, and zero unauthorized writes", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
     mkdirSync(workspace, { recursive: true });
@@ -651,7 +651,7 @@ describe("integrated fleet recovery qualification", () => {
     writeBindings(home, [
       { project: projectA, hosts: ["codex"], profile: "engineering" },
     ]);
-    const initialApplyA = await runCli(home, pathWithHosts, "apply", projectA);
+    const initialApplyA = await runCli(home, pathWithHosts, "update", projectA);
     expectExitCode(initialApplyA, 0);
     expect(existsSync(join(projectA, ".git", "info", "exclude"))).toBe(true);
 
@@ -699,7 +699,7 @@ describe("integrated fleet recovery qualification", () => {
     // The evidence-derived untracking command is carried inline in every view (#440).
     expect(focusedStatusGlobalBlocked.stdout).toContain("rm -r --cached --");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updates ready");
-    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Applied:");
+    expect(focusedStatusGlobalBlocked.stdout).not.toContain("Updated:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Host setup:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain("Standing Host setup:");
     expect(focusedStatusGlobalBlocked.stdout).not.toContain(projectC);
@@ -724,17 +724,17 @@ describe("integrated fleet recovery qualification", () => {
 
     // 2. Unfiltered partial apply commits healthy Projects, leaves the blocked
     //    Project untouched, and exits with code 2.
-    const partialApply = await runCli(home, pathWithHosts, "apply", "--all");
+    const partialApply = await runCli(home, pathWithHosts, "update", "--all");
     expectExitCode(partialApply, 2);
 
     // The committed Apply Receipt evidence and the blocked Project's evidence
     // render in one view without concealing either.
-    expect(partialApply.stdout).toContain("Applied:");
+    expect(partialApply.stdout).toContain("Updated:");
     expect(partialApply.stdout).toContain("are tracked by Git");
 
     // The receipt names the committed Projects and excludes blocked project B
     const appliedSection = partialApply.stdout.slice(
-      partialApply.stdout.indexOf("Applied:"),
+      partialApply.stdout.indexOf("Updated:"),
       partialApply.stdout.indexOf("Blocked:") === -1 ? undefined : partialApply.stdout.indexOf("Blocked:"),
     );
     expect(appliedSection).toContain(projectA);
@@ -858,7 +858,7 @@ describe("integrated fleet recovery qualification", () => {
     const projects = fixture.projects;
     const pathWithHosts = fixture.pathWithHosts;
 
-    expectExitCode(await runCli(home, pathWithHosts, "apply"), 0);
+    expectExitCode(await runCli(home, pathWithHosts, "update"), 0);
 
     // The spec's headline wedge action: delete one Project's generated roots
     // by hand — the obvious way to "start that one over".
@@ -889,8 +889,8 @@ describe("integrated fleet recovery qualification", () => {
       }
     }
 
-    // apply --all restores the deleted roots at exit 0.
-    const apply = await runCli(home, pathWithHosts, "apply");
+    // update --all restores the deleted roots at exit 0.
+    const apply = await runCli(home, pathWithHosts, "update");
     expectExitCode(apply, 0);
     expect(apply.stderr).toBe("");
     expect(existsSync(join(damaged, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
@@ -901,7 +901,7 @@ describe("integrated fleet recovery qualification", () => {
     expect(settled.stdout).toBe("All Projects are current (30 Projects)\n");
   }, 240_000);
 
-  test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and apply --all at exit 0", async () => {
+  test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and update --all at exit 0", async () => {
     const home = isolatedHome();
     const fixture = createFleetFixture(home, { projectCount: 30 });
     const projects = fixture.projects;
@@ -916,7 +916,7 @@ describe("integrated fleet recovery qualification", () => {
         hosts: FLEET_HOSTS[index % FLEET_HOSTS.length]!,
       })),
     );
-    expectExitCode(await runCli(home, pathWithHosts, "apply"), 0);
+    expectExitCode(await runCli(home, pathWithHosts, "update"), 0);
     const pending = projects[29]!;
     writeBindings(
       home,
@@ -986,9 +986,9 @@ describe("integrated fleet recovery qualification", () => {
       ),
     ).toHaveLength(1);
 
-    // apply --all completes at exit 0 and installs generated material for
+    // update --all completes at exit 0 and installs generated material for
     // every condition, including the missing Host's Projects.
-    const apply = await runCliWithExplicitPath(home, pathWithoutPi, "apply", "--all", "--json");
+    const apply = await runCliWithExplicitPath(home, pathWithoutPi, "update", "--all", "--json");
     expectExitCode(apply, 0);
     expect(apply.stderr).toBe("");
     const applyPayload = JSON.parse(apply.stdout) as {

@@ -171,7 +171,7 @@ describe("OpenCode Adapter capabilities and version probing", () => {
         expect(error.problem).toBe(
           `OpenCode 0.9.0 does not support native project instructions or Skills (requires ${OPENCODE_MINIMUM_CLI_VERSION}+)`,
         );
-        expect(error.remedy).toBe("upgrade OpenCode before checking status or applying the Profile");
+        expect(error.remedy).toBe("upgrade OpenCode before checking status or updating the Profile");
       }
     }
   });
@@ -722,7 +722,7 @@ describe("OpenCode lifecycle: status and apply", () => {
 
     await expect(
       applyReconciliation(home, desired.installations),
-    ).rejects.toThrow(/Apply blocked before writes/);
+    ).rejects.toThrow(/Update blocked before writes/);
 
     expect(readFileSync(join(project, ".opencode", "opencode.jsonc"), "utf8")).toBe(userConfig);
     expect(existsSync(join(project, ".agents"))).toBe(false);

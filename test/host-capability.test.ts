@@ -92,7 +92,7 @@ describe("Host capability probing", () => {
         requiredVersion: "0.145.0",
         warning: {
           copyableValues: ["codex"],
-          parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile"],
+          parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or updating the Profile"],
         },
       },
     ]);
@@ -219,7 +219,7 @@ describe("Host capability probing", () => {
     expect(isAdapterCapabilityError(malformedInspectError)).toBe(true);
     if (isAdapterCapabilityError(malformedInspectError)) {
       expect(malformedInspectError.message).toBe(
-        "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or applying the Profile",
+        "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or updating the Profile",
       );
     }
   });

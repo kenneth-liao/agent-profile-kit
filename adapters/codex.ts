@@ -171,7 +171,7 @@ export function assertCodexCliVersionSupportsDisabledModelInvocation(version: st
     throw versionFloorCapabilityFailure(
       "codex",
       `Codex CLI ${version} cannot enforce disabled model invocation via agents/openai.yaml policy.allow_implicit_invocation (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION}+)`,
-      "upgrade Codex before checking status or applying the Profile",
+      "upgrade Codex before checking status or updating the Profile",
       CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
     );
   }
@@ -197,7 +197,7 @@ async function resolveCodexCliVersion(
         "codex",
         "host",
         "Codex CLI was not found on PATH",
-        "install Codex and ensure `codex --version` works before checking status or applying Profiles that require Codex Host capabilities",
+        "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -215,7 +215,7 @@ async function resolveCodexCliVersion(
       "codex",
       "host",
       `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      "install a supported Codex release before checking status or applying Profiles that require Codex Host capabilities",
+      "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
     );
   }
 }
@@ -283,7 +283,7 @@ export function assertCodexCliVersionSupportsCompleteContext(version: string): v
     throw versionFloorCapabilityFailure(
       "codex",
       `Codex CLI ${version} cannot deliver complete Context through SessionStart hooks (requires ${CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT}+)`,
-      "upgrade Codex before checking status or applying the Profile",
+      "upgrade Codex before checking status or updating the Profile",
       CODEX_MINIMUM_CLI_VERSION_FOR_COMPLETE_CONTEXT,
     );
   }

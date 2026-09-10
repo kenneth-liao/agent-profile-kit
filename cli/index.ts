@@ -230,6 +230,7 @@ type FocusedHelpRequest =
   | { readonly kind: "machine" }
   | { readonly kind: "command"; readonly command: CommandHelp }
   | { readonly kind: "removedTemporary"; readonly name: string }
+  | { readonly kind: "removedPublic"; readonly from: string; readonly to: string }
   | { readonly kind: "unknown"; readonly token: string };
 
 function removedTemporaryRequest(token: string): FocusedHelpRequest | undefined {
@@ -238,10 +239,20 @@ function removedTemporaryRequest(token: string): FocusedHelpRequest | undefined 
     : undefined;
 }
 
+function removedPublicCommandRequest(token: string): FocusedHelpRequest | undefined {
+  const replaced = REMOVED_PUBLIC_COMMANDS.find((entry) => entry.from === token);
+  return replaced === undefined
+    ? undefined
+    : { kind: "removedPublic", from: replaced.from, to: replaced.to };
+}
+
 const MACHINE_NAMESPACE = "machine" as const;
 
 /** Top-level temporary installation command names removed by DEC-019. */
 const REMOVED_TEMPORARY_COMMANDS = ["install-temp", "remove-temp"] as const;
+
+/** Public commands replaced by a new name (DEC-001): retired without a compatibility shim. */
+const REMOVED_PUBLIC_COMMANDS = [{ from: "apply", to: "update" }] as const;
 
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
   if (
@@ -262,7 +273,7 @@ function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest |
       if (machineCommand !== undefined) return { kind: "command", command: machineCommand };
       return { kind: "unknown", token: arguments_[2]! };
     }
-    const removed = removedTemporaryRequest(commandToken);
+    const removed = removedTemporaryRequest(commandToken) ?? removedPublicCommandRequest(commandToken);
     if (removed !== undefined) return removed;
     if (!COMMAND_HELP_ALIASES.some((alias) => alias === arguments_[2])) return undefined;
     const command = COMMANDS.find((candidate) => candidate.name === commandToken);
@@ -283,7 +294,7 @@ function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest |
     if (second === MACHINE_NAMESPACE) {
       return { kind: "machine" };
     }
-    const removed = removedTemporaryRequest(second);
+    const removed = removedTemporaryRequest(second) ?? removedPublicCommandRequest(second);
     if (removed !== undefined) return removed;
     const command = COMMANDS.find(
       (candidate) => candidate.name === second && candidate.namespace === undefined,
@@ -298,7 +309,7 @@ function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest |
     }
     return undefined;
   }
-  const removed = removedTemporaryRequest(first);
+  const removed = removedTemporaryRequest(first) ?? removedPublicCommandRequest(first);
   if (removed !== undefined) return removed;
   const command = COMMANDS.find(
     (candidate) => candidate.name === first && candidate.namespace === undefined,
@@ -338,6 +349,14 @@ function suggestedCommand(unknown: string): string | undefined {
 
 function sanitizeCommandToken(token: string): string {
   return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
+}
+
+/** The diagnostic for one public command replaced by a new name (DEC-001). */
+function removedPublicCommandDiagnostic(from: string, to: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: [`${from} was replaced by ${to}`],
+    whatToType: [["Use ", commandPart(COMMAND_NAME, [arg(to)])]],
+  });
 }
 
 /** The diagnostic for one command removed behind the machine namespace (DEC-019). */
@@ -677,12 +696,12 @@ interface ParsedLifecycleArguments {
   readonly json: boolean;
   readonly selection: ProjectBindingSelection;
   readonly verbose: boolean;
-  /** The apply replacement-answering flag (US-031); always false for status. */
+  /** The update replacement-answering flag (US-031); always false for status. */
   readonly replaceChanged: boolean;
 }
 
 function parseLifecycleArguments(
-  command: "apply" | "status",
+  command: "update" | "status",
   arguments_: readonly string[],
 ): ParsedLifecycleArguments {
   let all = false;
@@ -690,13 +709,15 @@ function parseLifecycleArguments(
   let here = false;
   let json = false;
   let project: string | undefined;
+  let projectFlag = false;
   let stale = false;
   let verbose = false;
-  // The replacement-answering flag exists only on apply (US-031); status
+  // The replacement-answering flag exists only on update (US-031); status
   // rejects it through the shared unknown-argument error below.
-  const replaceChangedAllowed = command === "apply";
+  const replaceChangedAllowed = command === "update";
   let replaceChanged = false;
-  for (const argument of arguments_) {
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index]!;
     if (argument === "--json") {
       json = true;
       continue;
@@ -730,14 +751,37 @@ function parseLifecycleArguments(
       here = true;
       continue;
     }
+    if (argument === "--project") {
+      const value = arguments_[index + 1];
+      if (value === undefined || value.startsWith("-")) {
+        throw new Error(`${command} --project requires a Project path`);
+      }
+      if (project !== undefined) {
+        throw new Error(`${command} --project cannot be combined with a Project path`);
+      }
+      project = value;
+      projectFlag = true;
+      index += 1;
+      continue;
+    }
     if (!argument.startsWith("-")) {
       if (project !== undefined) {
-        throw new Error(`${command} accepts at most one Project path`);
+        throw new Error(
+          projectFlag
+            ? `${command} --project cannot be combined with a Project path`
+            : `${command} accepts at most one Project path`,
+        );
       }
       project = argument;
       continue;
     }
     throw new Error(`${command} does not accept argument '${argument}'`);
+  }
+  if (projectFlag && here) {
+    throw new Error(`${command} --project cannot be combined with --here`);
+  }
+  if (projectFlag && all) {
+    throw new Error(`${command} --project cannot be combined with --all`);
   }
   if (all && project !== undefined) {
     throw new Error(`${command} --all cannot be combined with a Project path`);
@@ -858,6 +902,15 @@ async function main(): Promise<void> {
     writeHumanDocument(
       process.stderr,
       removedNamespaceDiagnostic(focusedHelp.name),
+      stderrPresentationContext,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  if (focusedHelp?.kind === "removedPublic") {
+    writeHumanDocument(
+      process.stderr,
+      removedPublicCommandDiagnostic(focusedHelp.from, focusedHelp.to),
       stderrPresentationContext,
     );
     process.exitCode = 1;
@@ -1095,8 +1148,8 @@ async function main(): Promise<void> {
         return assertNever(parsed.topic);
     }
   }
-  if (arguments_.length >= 1 && arguments_[0] === "apply") {
-    const parsed = parseOrExit("apply", () => parseLifecycleArguments("apply", arguments_.slice(1)));
+  if (arguments_.length >= 1 && arguments_[0] === "update") {
+    const parsed = parseOrExit("update", () => parseLifecycleArguments("update", arguments_.slice(1)));
     if (parsed === undefined) return;
     const outcome = await runApplyCommand({
       home,
@@ -1161,6 +1214,20 @@ async function main(): Promise<void> {
     );
     process.exitCode = 1;
     return;
+  }
+  {
+    const removed = arguments_.length >= 1
+      ? REMOVED_PUBLIC_COMMANDS.find((entry) => entry.from === arguments_[0])
+      : undefined;
+    if (removed !== undefined) {
+      writeHumanDocument(
+        process.stderr,
+        removedPublicCommandDiagnostic(removed.from, removed.to),
+        stderrPresentationContext,
+      );
+      process.exitCode = 1;
+      return;
+    }
   }
   if (arguments_.length >= 1 && arguments_[0] === MACHINE_NAMESPACE) {
     const rest = arguments_.slice(1);

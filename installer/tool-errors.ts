@@ -19,7 +19,7 @@ export type ConfiguredPathOrigin =
     }
   | { readonly source: "init" }
   | { readonly source: "install-temp" }
-  | { readonly source: "project-target"; readonly command: "apply" | "status" }
+  | { readonly source: "project-target"; readonly command: "update" | "status" }
   | { readonly source: "project-binding" };
 
 /**

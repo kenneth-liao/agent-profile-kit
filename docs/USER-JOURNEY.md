@@ -15,7 +15,7 @@ vocabulary (`CONTEXT.md`), or settled decisions (`docs/adr/`).
 gap register was removed from this document; git history is its provenance.
 Spec #373 recaptured this map against the delivered task-sufficient surface
 (fleet-default lifecycle commands, cause-grouped default views, `--stale` and
-`--blocked` narrowing, focused `--verbose` diagnostics, complete apply
+`--blocked` narrowing, focused `--verbose` diagnostics, complete update
 receipts, bare-invocation setup state, `apkit new`/`apkit open` authoring
 commands, changed-output confirmation, and the first-run authoring handoff),
 and ticket #461 re-proved the recaptured journey end to end: the integrated
@@ -34,8 +34,8 @@ the executed tracked-output Blocker remedy, wholly settled status, and
 whole-invocation cancellation through the delivered confirmation gate); and
 the integrated newcomer journey (isolated machine, present and absent
 controlled Hosts, only printed actions from bare invocation through example
-apply, real material authoring via the printed handoff commands, binding and
-applying the real Profile, advisory absent-Host warnings, and the concrete
+update, real material authoring via the printed handoff commands, binding and
+updating the real Profile, advisory absent-Host warnings, and the concrete
 Host-loading verification guidance). The interactive changed-output
 confirmation in stage 8 and the teardown receipts in stage 12 were captured
 from separate interactive PTY sessions of the same packed build (the
@@ -73,15 +73,15 @@ than duplicating it.
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Bind | `bind <profile> [project] --host <host> [--replace]` | One project associated with one Profile and its Hosts, or an existing binding restated with `--replace`; missing arguments are asked for on an interactive terminal |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
-| 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only apply plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
-| 8 | Apply | `apply [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
-| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the apply receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
-| 10 | Re-sync | `status` → `apply` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
-| 11 | Recover | `status`, `apply`, `uninstall` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies |
+| 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
+| 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the Apply Receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
+| 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
+| 11 | Recover | `status`, `update`, `uninstall` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies |
 | 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state without prompting, with the boundary made clear |
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-021) |
 
-Stages 1–8 are the first-run path; an apply that installed the scaffolded
+Stages 1–8 are the first-run path; an update that installed the scaffolded
 example Profile hands off to stage 4's authoring commands so the first run ends
 where the user was heading (DEC-024). Stages 10–12 are the returning-user
 path. Stage 9 is the only stage the CLI never speaks to: the receipt states
@@ -92,10 +92,10 @@ prompt (DEC-030, DEC-031).
 
 `status` is the single authoritative read-only Project lifecycle plan. It
 defaults to the complete fleet and uses the same selected scope and normalized
-desired plan as `apply` (DEC-001); `--stale` and `--blocked` select the same
+desired plan as `update` (DEC-001); `--stale` and `--blocked` select the same
 Projects for reports and writes (DEC-006). It performs no Agent Host process
 execution (ADR-0025): Host capability probing is advisory and happens during
-`apply` (and first-run `init` for machine-tailored guidance per DEC-022),
+`update` (and first-run `init` for machine-tailored guidance per DEC-022),
 where a missing or outdated Host CLI produces one advisory inline warning per
 Host per invocation — naming the Host and the strictest version it requires,
 regardless of Project count or distinct requirement messages — and never
@@ -132,9 +132,9 @@ $ apkit
 
 Common next steps:
   apkit status
-    Show the complete read-only apply plan for the complete fleet, the
+    Show the complete read-only update plan for the complete fleet, the
       containing Project, or one explicit Project
-  apkit apply
+  apkit update
     Sync the complete fleet, the containing Project, or one explicit Project
   apkit bind
     Configure a Project with a Profile and Agent Hosts, or replace an existing
@@ -349,7 +349,7 @@ working directory, and `--host` is explicit with no default. A conflicting
 bind without `--replace` fails and names the flag; passing `--replace`
 restates the existing binding's Profile and Host set in one command (shown
 old → new above) while reconciling generated output through the ordinary
-status → apply path.
+status → update path.
 
 On an interactive terminal, `bind` asks only for the missing required Profile
 and Host arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
@@ -399,7 +399,7 @@ account for every Project exactly once (US-016):
 
 ```
 $ apkit status
-Cannot apply
+Cannot update
 - needs attention (1):
   <project>
     Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
@@ -410,7 +410,7 @@ Cannot apply
         git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
-        apkit apply '<project>'.
+        apkit update '<project>'.
         To keep Git ownership instead, run
         apkit unbind '<project>'.
       Affected paths (2):
@@ -435,9 +435,9 @@ pending view presents one compact decision:
 
 ```
 $ apkit status
-Ready to apply
+Ready to update
 - not installed yet (2): <project>, <project>
-Next: apkit apply
+Next: apkit update
 
 Details: apkit status --verbose
 ```
@@ -447,7 +447,7 @@ DEC-006): `--stale` selects existing installations needing updates or
 restoration, excluding never-installed and Blocked Projects; `--blocked`
 selects Projects with Project-scoped Blockers. The flags are mutually
 exclusive, compose with fleet, `--here`, and explicit Project scope, and
-select the same Projects for reports and apply writes (shown in stage 10).
+select the same Projects for reports and update writes (shown in stage 10).
 Each selected view states one primary next action naming the selected scope
 (US-007), and every copyable command argument is executable as printed: the
 Project identity renders home-relative or absolute — never the cwd-relative
@@ -457,10 +457,10 @@ never dead-ends.
 
 ```
 $ apkit status --stale
-Ready to apply
+Ready to update
 - generated files missing (1): <project>
 - source changed (1): <project>
-Next: apkit apply --stale
+Next: apkit update --stale
 
 Details: apkit status --stale --verbose
 ```
@@ -496,31 +496,34 @@ Interactive previews that outlast a short anti-flicker threshold show delayed
 operation-level progress on the terminal line; the line is cleared before the
 report, and redirected output and JSON never carry progress bytes.
 
-### 8. Apply
+### 8. Update
 
-`apply` shares `status`'s selection: the complete fleet by default, `--here`
+`update` shares `status`'s selection: the complete fleet by default, `--here`
 for the bound Project containing the current working directory, one explicit
 existing absolute or home-relative bound Project root, or `--stale`/`--blocked`
-for the narrowed selection. Scoped apply does not plan, probe, inspect,
+for the narrowed selection. Scoped update does not plan, probe, inspect,
 report, or write unrelated Projects; it rewrites the owned section of a shared
 Git exclusion target from the receipts that will exist after the operation,
-preserving unrelated bytes (best-effort bookkeeping, ADR-0025). `apply` on
+preserving unrelated bytes (best-effort bookkeeping, ADR-0025). `update` on
 fleet scope stops every write for a global Blocker, but leaves Project-scoped
 blocked Projects untouched while committing and freshly verifying healthy
 Projects sequentially. A partial blocker result exits `2`; a tool or
 verification failure exits `1` and identifies committed, failed, and
 still-pending Project work.
 
-The Apply Receipt is the authoritative record of what apply actually did,
+`apkit update` refreshes the installed Context and Skills in your Projects from
+the Workspace; it does not upgrade the `apkit` executable itself.
+
+The Apply Receipt is the authoritative record of what update actually did,
 distinct from the resulting-state report (US-027, DEC-018): it names every
 committed file operation with its Project attribution, including replacement
 of a changed generated file, in every invocation mode (US-028):
 
 ```
-$ apkit apply
-Apply complete
+$ apkit update
+Update complete
 
-Applied:
+Updated:
   + 3 generated file additions in 2 projects
   + .agent-profile-kit/codex/context.md (<project>)
   + .claude/rules/agent-profile-kit.md (<project>)
@@ -538,7 +541,7 @@ To check that claude and codex loaded Profile example, start a new session of
   material it loaded; the installed material should appear in the answers.
 ```
 
-The first-run example apply closes with a concrete handoff to authoring real
+The first-run example update closes with a concrete handoff to authoring real
 material (US-040, DEC-024); routine applies do not repeat it:
 
 ```
@@ -548,20 +551,20 @@ Now author your own:
   apkit new profile <profile> --context <context> --skill <skill>
 ```
 
-A non-interactive apply that replaces a hand-edited generated file names the
+A non-interactive update that replaces a hand-edited generated file names the
 replacement and prompts nothing (US-030, TEST-014):
 
 ```
-$ apkit apply <project>
-Apply complete
+$ apkit update <project>
+Update complete
 
-Applied:
+Updated:
   ~ 1 generated file update in 1 project
   ~ .agent-profile-kit/codex/context.md (<project>)
 …
 ```
 
-On an interactive terminal, apply asks before replacing changed generated
+On an interactive terminal, update asks before replacing changed generated
 files, even when all scope arguments are supplied (US-029, DEC-019). The
 confirmation names the affected files with Project attribution before any
 invocation write, and the default answer is no; declining, cancelling, or the
@@ -571,28 +574,28 @@ permits replacement without prompting (US-031) but never bypasses an ownership
 or path-safety Blocker:
 
 ```
-$ apkit apply <project>
+$ apkit update <project>
 Changed generated files:
   ~ .agent-profile-kit/codex/context.md (<project>)
 Replacing overwrites these files with current Workspace content.
 ? Replace these generated files with current Workspace content? (y/N)
-apkit: apply was cancelled before any write
+apkit: update was cancelled before any write
 No Project or setting was changed; your edits to the named generated files are
   preserved.
 To replace changed generated files without asking, run
-  apkit apply <project> --replace-changed
+  apkit update <project> --replace-changed
 ```
 
-Verbose apply retains the full per-Project inventory, and machine JSON keeps
+Verbose update retains the full per-Project inventory, and machine JSON keeps
 its keys and meanings (US-060). The receipt is grouped and
-preview-consistent: `Applied:` lists the same operation groups with the same
+preview-consistent: `Updated:` lists the same operation groups with the same
 symbols and counts as the preceding preview, and is followed by
 change-relevant first-use guidance and the invocation-wide next-launch
-readiness (once per apply invocation, never split by Host or Project set).
+readiness (once per update invocation, never split by Host or Project set).
 
 ### 9. Use
 
-A successful apply states one concrete Project-local action that checks
+A successful update states one concrete Project-local action that checks
 whether the Agent Host loaded the Profile (US-041, DEC-025): start a new
 session of the configured Host in the updated Project and ask it what Profile
 material it loaded — the installed material should appear in the answer.
@@ -600,7 +603,7 @@ Agent Profile Kit never claims it observed that loading (OOS-009). Beyond
 that check, setup guidance is reported conditionally by Host *and* by what
 was installed:
 
-| Host | Requirement after `apply` |
+| Host | Requirement after `update` |
 |------|---------------------------|
 | Claude Code | None. Rule + Skills load on next launch; no Git dependency. |
 | Codex | Codex CLI 0.145.0+ for complete Context delivery, plus project trust **and** native review/trust of the generated `SessionStart` hook — only when Context is installed. Non-Git projects must be launched from the exact bound root. |
@@ -610,17 +613,17 @@ was installed:
 | Antigravity | `agy` 1.1.13+ and native project trust. Profile Context loads from deterministic always-on `.agents/rules/` files and Skills from the qualified shared `.agents/skills/` packages. |
 
 **Codex Context floor (0.145.0+).** Context-bearing Codex plans probe
-`codex --version` during `apply`; a missing, unreadable, or older CLI produces
+`codex --version` during `update`; a missing, unreadable, or older CLI produces
 one advisory warning for that requirement per invocation, naming Codex and the
 required floor, and the material is written regardless (ADR-0025).
 Skills-only Codex plans do not probe. `status`, `validate`, and `uninstall`
-do not probe, so a post-apply Codex downgrade is not reported there — Context
-stops loading until a supported CLI is restored, and the next `apply` warns
+do not probe, so a post-update Codex downgrade is not reported there — Context
+stops loading until a supported CLI is restored, and the next `update` warns
 again.
 
 ### 10. Re-sync after a Workspace edit
 
-`status` and `apply` share one Project selection (US-009, DEC-001): the
+`status` and `update` share one Project selection (US-009, DEC-001): the
 complete fleet by default, `--here` for the containing Project, one explicit
 absolute or home-relative bound root, `--stale`/`--blocked` for the narrowed
 selections, or `--all` for explicit fleet scope. Ambiguous, unbound, missing,
@@ -640,12 +643,12 @@ progress bytes.
 ### 11. Recover
 
 **Missing output** — a deleted generated file — is ordinary pending work:
-`status` names the missing paths under `generated files missing` and `apply`
+`status` names the missing paths under `generated files missing` and `update`
 restores them.
 
 **Drifted output** — a generated file whose bytes, modes, or members differ
 from the recorded installation — is ordinary pending work: `status` groups it
-under `generated files changed` and `apply` replaces the whole recorded root
+under `generated files changed` and `update` replaces the whole recorded root
 from current Workspace source, naming the replacement in the receipt and
 discarding unknown members such as host scratch directories. Removal paths
 (`uninstall`, stale removal, `machine remove-temp`) may remove drifted proven
@@ -655,18 +658,18 @@ remain Blockers, and their evidence states only what was proven, never
 asserting a user edit without provenance.
 
 **Host CLI missing or outdated** no longer blocks anything (ADR-0025):
-during `apply`, a missing or outdated Host CLI produces one advisory warning
+during `update`, a missing or outdated Host CLI produces one advisory warning
 per Host per invocation, rendered inline with the outcome — no warnings
 heading, no empty warning section — and never changes the exit code
 (US-017–019, DEC-010, DEC-011):
 
 ```
-$ apkit apply <project>
-Apply complete
+$ apkit update <project>
+Update complete
 - Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the
-  CLI before checking status or applying the Profile (1 Project)
+  CLI before checking status or updating the Profile (1 Project)
 
-Applied:
+Updated:
   + 1 generated file addition in <project>
   …
 ```
@@ -678,7 +681,7 @@ by the typed kind:
 
 ```
 Blocker: Claude Code CLI was not found on PATH; install Claude Code and ensure
-`claude --version` works before previewing or applying the Profile
+`claude --version` works before previewing or updating the Profile
 ```
 
 **Blockers render as rows with runnable remedies** (US-020–021, DEC-013).
@@ -695,7 +698,7 @@ Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
     git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
     — it stages their removal from the Git index while the files stay on
     disk; commit afterwards to keep the change — then run
-    apkit apply '<project>'.
+    apkit update '<project>'.
     To keep Git ownership instead, run
     apkit unbind '<project>'.
 ```
@@ -707,25 +710,25 @@ command, recovery states the manual action plainly rather than prose about
 hidden state. Errors follow one shape across every command: what happened,
 why, then one or more commands to run (US-022, DEC-014).
 
-During a narrowed or fleet apply, Project-scoped blocked Projects remain
+During a narrowed or fleet update, Project-scoped blocked Projects remain
 untouched while healthy Projects commit sequentially and freshly verify; a
-partial blocker result exits `2` and retains the committed `Applied:` receipt
+partial blocker result exits `2` and retains the committed `Updated:` receipt
 before remaining blockers, so writes are never hidden.
 
 ### 12. Tear down
 
 `uninstall` removes proven output and preserves bindings; `unbind` removes the
 binding and retires the installation receipt ("Generated files remain until
-apply"). Neither command prompts — on any input stream, including an
+update"). Neither command prompts — on any input stream, including an
 interactive terminal (US-055 teardown clause, DEC-030, DEC-031) — and
-re-binding and re-applying recovers both:
+re-binding and re-updating recovers both:
 
 ```
 $ apkit unbind <project>
 Removed configured Project for <project>
   Profile: release
   Hosts: claude
-Generated files remain until apply
+Generated files remain until update
 Next: apkit status --all
 
 $ apkit uninstall
@@ -743,7 +746,7 @@ Configured Projects preserved.
 Next: Run
   apkit unbind
   for configured Projects you no longer want, or
-  apkit apply
+  apkit update
   to reinstall.
 ```
 
@@ -836,6 +839,6 @@ are argued from these rather than from scratch.
    setup.
 10. **Exit codes agree across commands** for the same state.
 11. **Prompts are predictable and teach by use.** Exactly bind, init, and the
-    apply confirmation interact; every completed prompt flow prints the
+    update confirmation interact; every completed prompt flow prints the
     equivalent fully specified command, and everything else — including
     teardown — never prompts (DEC-030–032).

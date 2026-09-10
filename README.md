@@ -24,7 +24,7 @@ npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
 apkit init                                  # scaffold your Workspace
 apkit bind <profile> --host <host>          # bind a Profile to the current project
 apkit status                                # review the plan for the bound project
-apkit apply                                 # install the Profile into the project
+apkit update                                 # install the Profile into the project
 ```
 
 ## Learn more

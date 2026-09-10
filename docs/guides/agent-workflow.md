@@ -47,7 +47,7 @@ Use this workflow when helping a person author their Workspace and bind projects
      Host preferences. User-managed native global Skill delivery (including
      Host-root symlinks into Workspace source) is Host configuration, not
      Agent Profile Kit–owned state: outside Project Bindings and Installation
-     Manifests; `apply` / `uninstall` never adopt or remove those paths. v1 does
+     Manifests; `update` / `uninstall` never adopt or remove those paths. v1 does
      not manage global Host delivery. Hosts own Skill discovery, precedence,
      deduplication, collision diagnostics, and resolution across project,
      personal, package, plugin, extension, and compatibility sources.
@@ -62,24 +62,24 @@ Use this workflow when helping a person author their Workspace and bind projects
    (cwd when project is omitted; at least one explicit `--host` required). Do not
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
-   per-session selection, and Profile version pins. `bind` never applies output;
-   after recording, continue with validate/status/apply. To remove desired
+   per-session selection, and Profile version pins. `bind` never writes output;
+   after recording, continue with validate/status/update. To remove desired
    state, use `apkit unbind [project]`; it defaults to cwd, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. `unbind` never removes generated output.
-6. Validate before applying. Context Modules use `id` frontmatter and flat
+6. Validate before updating. Context Modules use `id` frontmatter and flat
    Profiles contain `id`, `context`, and `skills` only. Dependencies use
    explicit `{ type, id }` references. Run `apkit validate`, review
-   the concise fleet outcome from `apkit status --all`, and ask before applying
-   all configured Project Bindings with `apkit apply --all`. Use Project-scoped
-   `apply [project]` only when the user intends one bound Project. Use
-   `apkit status --verbose` or `apkit apply --verbose` when complete
+   the concise fleet outcome from `apkit status --all`, and ask before updating
+   all configured Project Bindings with `apkit update --all`. Use Project-scoped
+   `update [project]` only when the user intends one bound Project. Use
+   `apkit status --verbose` or `apkit update --verbose` when complete
    per-output diagnostics, resolved artifact reasons, or composed Context are
    needed. For automation, add `--json` on those two commands: exit `0` means
    no tool error and no blockers (JSON `outcome` may still be `attention`),
    exit `1` is a tool error, and exit `2` means blockers. The current Workspace
    schema version is 1.
-7. After apply, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
+7. After update, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
    natively in the bound project. Do not claim that Agent Profile Kit manages
    Host authentication, trust, approvals, plugins, or sessions. Antigravity
    bindings load deterministic always-on Context rules under `.agents/rules/`
@@ -97,15 +97,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    paths with `+`, `~`, `-`, or `!` markers, caps long lists with a pointer to
    `--verbose`, explains non-current states when they appear, preserves warnings
    and blockers, and ends with one next-action line when useful (run the matching
-   apply for pending work; resolve a blocker and retry status when blocked; omit
+   update for pending work; resolve a blocker and retry status when blocked; omit
    when already current). Pending Git exclusion work appears as one concise clause.
-   A ready fleet `status --all` recommends `apply --all`; blocked `status` or
-   `apply` retries that command after the blocker. Add
+   A ready fleet `status --all` recommends `update --all`; blocked `status` or
+   `update` retries that command after the blocker. Add
    `--verbose` to distinguish current, stale, drifted, missing, and blocked
    installations and inspect exact Git exclusion paths in the complete report.
    `apkit unbind` removes desired
    Project Binding state but leaves generated output for fleet `status --all` and
-   `apply --all`. `apkit uninstall` instead removes only output whose Installation Receipt
+   `update --all`. `apkit uninstall` instead removes only output whose Installation Receipt
    and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
    Local Configuration, global Host configuration, and repository-owned files.
    Never use `uninstall` as a substitute for removing a binding, or `unbind` as
