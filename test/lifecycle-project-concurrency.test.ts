@@ -241,6 +241,8 @@ function gatedOwnershipInspection(projectCount: number): {
         await gateOnce(project);
         return undefined;
       },
+      listDirectoryMembers: async () => [],
+      readDirectoryMember: async () => undefined,
     },
     maxInFlight: () => maxInFlight,
   };
@@ -440,6 +442,8 @@ describe("lifecycle Project concurrency through one shared scheduler", () => {
             if (project === failingProject) throw failure;
             return { kind: "missing" };
           },
+          listDirectoryMembers: async () => [],
+          readDirectoryMember: async () => undefined,
         };
         return inner;
       },

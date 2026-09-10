@@ -1755,10 +1755,18 @@ describe("project-bound release candidate", () => {
     expect(blockedJson.projects.map((entry) => entry.canonicalProject)).toEqual([realpathSync(blocked)]);
 
     // 3. Narrowed apply writes exactly the selected Projects (TEST-007):
-    // non-interactive completion replaces the changed generated files, names
-    // every operation with its Project attribution, and prompts nothing
-    // (US-030, TEST-014).
-    const staleApply = await runCliDefaultScope(home, ["update", "--stale"], { path: gitOnlyPath });
+    // non-interactive completion with the explicit answering flag replaces
+    // the changed generated files, names every operation with its Project
+    // attribution, and prompts nothing (US-007, DEC-005, TEST-004).
+    // Without the flag the same scope refuses before any write (DEC-005).
+    const staleRefused = await runCliDefaultScope(home, ["update", "--stale"], { path: gitOnlyPath });
+    expectExitCode(staleRefused, 1);
+    expect(staleRefused.stderr).toContain("--replace-changed");
+    const staleApply = await runCliDefaultScope(
+      home,
+      ["update", "--stale", "--replace-changed"],
+      { path: gitOnlyPath },
+    );
     expectExitCode(staleApply, 0);
     expect(staleApply.stdout).toContain("Update complete");
     for (const committed of [changed, multi, missing, source]) {
@@ -1817,7 +1825,12 @@ describe("project-bound release candidate", () => {
     // predecessor apply-confirmation fixture and seam, consumed as a journey
     // phase rather than reimplemented.
     const driftedFleet = await prepareDriftedFleet("agent-profile-kit-rc-loop-cancel");
-    const interactiveReplacement = await runCli(driftedFleet.home, ["update", driftedFleet.driftedProject]);
+    // The explicit answering flag authorizes the replacement without a
+    // prompt on the piped harness stream (US-007, DEC-005).
+    const interactiveReplacement = await runCli(
+      driftedFleet.home,
+      ["update", driftedFleet.driftedProject, "--replace-changed"],
+    );
     expectExitCode(interactiveReplacement, 0);
     expect(interactiveReplacement.stdout).toContain(".agent-profile-kit/codex/context.md");
     writeFileSync(driftedFleet.driftedOutputPath, driftedFleet.driftedBytes);
@@ -2177,12 +2190,20 @@ describe("project-bound release candidate", () => {
 
     // 6c. Routine apply: restoring a hand-edited generated file reports the
     // replacement, carries the Host-loading check, and no first-run handoff
-    // (US-040, DEC-024, DEC-025).
+    // (US-040, DEC-024, DEC-025). The explicit answering flag authorizes the
+    // replacement (US-007, DEC-005); without it the scope refuses (DEC-005).
     writeFileSync(
       join(boundProject, ".agent-profile-kit", "codex", "context.md"),
       "hand-edited bytes\n",
     );
-    const restore = await runCli(home, ["update", boundProject], { path: pathWithHosts });
+    const restoreRefused = await runCli(home, ["update", boundProject], { path: pathWithHosts });
+    expectExitCode(restoreRefused, 1);
+    expect(restoreRefused.stderr).toContain("--replace-changed");
+    const restore = await runCli(
+      home,
+      ["update", boundProject, "--replace-changed"],
+      { path: pathWithHosts },
+    );
     expectExitCode(restore, 0);
     expect(restore.stdout).toContain("Updated:");
     expect(restore.stdout).toContain("To check that codex loaded Profile example");

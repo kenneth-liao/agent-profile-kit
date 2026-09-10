@@ -55,6 +55,13 @@ export interface LifecycleCommandOptions {
   /** Injectable changed-output replacement consent for apply (DEC-019). */
   readonly confirmChangedOutputReplacement?:
     (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
+  /**
+   * Explicit per-operation changed-file authorization (DEC-005). Neither flag
+   * authorizes the other operation; `--auto-confirm` answers no changed-file
+   * scope and is never threaded here.
+   */
+  readonly removeChanged?: boolean;
+  readonly replaceChanged?: boolean;
   readonly instrumentation?: LifecycleInstrumentation;
   readonly selection?: ProjectBindingSelection;
 }
@@ -142,6 +149,8 @@ export async function applyApplication(
     ...(options.confirmChangedOutputReplacement === undefined
       ? {}
       : { confirmChangedOutputReplacement: options.confirmChangedOutputReplacement }),
+    ...(options.replaceChanged === undefined ? {} : { replaceChanged: options.replaceChanged }),
+    ...(options.removeChanged === undefined ? {} : { removeChanged: options.removeChanged }),
     createGitInspection: () => createLifecycleGitInspectionContext(instrumentation?.git),
     createOwnershipInspection: () =>
       createLifecycleOwnershipInspectionContext(instrumentation?.ownership),

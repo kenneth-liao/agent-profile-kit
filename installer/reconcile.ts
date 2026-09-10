@@ -67,12 +67,23 @@ import {
 import {
   createLifecycleOwnershipInspectionContext,
   type LifecycleOwnershipInspection,
+  type ListedDirectoryMember,
+  type OwnedOutputInspection,
   recordedOutputMatches,
 } from "./lifecycle-ownership-inspection.js";
 import {
   createProjectReadScheduler,
   type ProjectReadScheduler,
 } from "./project-scheduler.js";
+import {
+  compareChangedDirectory,
+  compareChangedFile,
+  compareDirectoryMembers,
+  comparisonMatchesDigests,
+  digestBytes,
+  type ChangedOutputComparison,
+  type DirectoryMemberEvidence,
+} from "./changed-output-review.js";
 import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import {
   inspectRepositoryExclusions,
@@ -303,16 +314,25 @@ export class ApplyBlockedError extends Error {
   }
 }
 
-/** The Project-scoped facts one replacement confirmation names (DEC-019). */
+/** The Project-scoped facts one changed-output review names (DEC-005, DEC-019). */
 export interface ChangedOutputConsentProject {
   readonly canonicalProject: string;
   readonly project: string;
-  /** Recorded generated outputs whose on-disk bytes are proven changed. */
+  /** Recorded generated outputs whose on-disk bytes are proven changed and would be replaced. */
   readonly changedOutputs: readonly string[];
+  /** Recorded generated outputs whose changed on-disk bytes would be deleted. */
+  readonly removedOutputs: readonly string[];
 }
 
 export interface ChangedOutputConsentRequest {
   readonly projects: readonly ChangedOutputConsentProject[];
+  /**
+   * One shared current-disk-versus-planned comparison per consented file
+   * (US-020): the CLI renders the optional diff from these without rereading
+   * the filesystem. In-memory review evidence only — never persisted; history
+   * records carry the review identity and paths, never contents (DEC-014).
+   */
+  readonly comparisons: readonly ChangedOutputComparison[];
 }
 
 export type ChangedOutputConsentAnswer = "accepted" | "declined" | "cancelled";
@@ -331,6 +351,77 @@ export class ApplyDeclinedError extends Error {
     super(reason === "cancelled" ? "Update cancelled before writes" : "Update declined before writes");
     this.name = "ApplyDeclinedError";
     this.reason = reason;
+  }
+}
+
+export type ChangedOutputOperation = "replace" | "remove";
+
+/**
+ * Raised before any write when changed generated output needs explicit
+ * consent that no answering flag supplied (DEC-005): the whole invocation
+ * refuses, including writes for other selected Projects and pending
+ * retirement work, with the missing operations named so the caller can print
+ * the runnable remedy. Never bypasses ownership, path-safety, or global
+ * Blockers — produced only after every Blocker check has passed.
+ */
+export class ApplyConsentRequiredError extends Error {
+  readonly requiredOperations: readonly ChangedOutputOperation[];
+  readonly projects: readonly ChangedOutputConsentProject[];
+  /**
+   * Partial-outcome evidence for a late authorization stop (RE-1): set when
+   * the per-Project proof refuses after earlier Projects committed, so the
+   * outcome reports committed work instead of claiming no writes. Absent for
+   * the invocation-wide pre-write refusal, where nothing was written.
+   */
+  readonly completedProjects: readonly string[];
+  readonly failedProject?: ProjectIdentity | undefined;
+  readonly pendingProjects?: readonly ProjectIdentity[] | undefined;
+
+  constructor(
+    requiredOperations: readonly ChangedOutputOperation[],
+    projects: readonly ChangedOutputConsentProject[],
+    evidence: {
+      readonly completedProjects?: readonly string[];
+      readonly failedProject?: ProjectIdentity;
+      readonly pendingProjects?: readonly ProjectIdentity[];
+    } = {},
+  ) {
+    const needs = requiredOperations.map((operation) =>
+      operation === "replace" ? "--replace-changed" : "--remove-changed",
+    ).join(" and ");
+    super(`Update refuses without explicit changed-file consent (${needs})`);
+    this.name = "ApplyConsentRequiredError";
+    this.requiredOperations = requiredOperations;
+    this.projects = projects;
+    this.completedProjects = evidence.completedProjects ?? [];
+    this.failedProject = evidence.failedProject;
+    this.pendingProjects = evidence.pendingProjects;
+  }
+}
+
+/**
+ * Raised before a Project's write when its on-disk bytes no longer match the
+ * reviewed bytes (US-020): the invocation stops instead of silently executing
+ * a change different from the reviewed one. Completed Projects stay
+ * committed (DEC-006); re-running reviews the current bytes anew.
+ */
+export class ApplyReviewStaleError extends Error {
+  readonly failedProject: ProjectIdentity;
+  readonly pendingProjects: readonly ProjectIdentity[];
+  readonly completedProjects: readonly string[];
+
+  constructor(options: {
+    readonly failedProject: ProjectIdentity;
+    readonly pendingProjects: readonly ProjectIdentity[];
+    readonly completedProjects: readonly string[];
+  }) {
+    super(
+      `Update stopped at ${options.failedProject.canonicalProject}: the reviewed files changed during confirmation; re-run to review the current bytes`,
+    );
+    this.name = "ApplyReviewStaleError";
+    this.failedProject = options.failedProject;
+    this.pendingProjects = options.pendingProjects;
+    this.completedProjects = [...options.completedProjects];
   }
 }
 
@@ -1031,8 +1122,14 @@ export async function previewReconciliation(
       });
       previousOutputs.delete(output.path);
     }
-    for (const [path] of previousOutputs) {
+    for (const [path, previousOutput] of previousOutputs) {
+      // A removed output whose disk bytes drifted from the receipt discards
+      // independent changes: its deletion needs explicit consent (DEC-005).
+      // Absent roots are already gone and need none.
+      const disk = await inspection.inspectOutput(installation.binding.canonicalProject, previousOutput);
+      const drifted = !recordedOutputMatches(disk, previousOutput);
       projectOutputItems.push({
+        ...(drifted && disk.kind !== "missing" ? { driftKind: "changed" as const } : {}),
         kind: "removal",
         path,
         project: installation.binding.project,
@@ -1193,10 +1290,17 @@ export async function previewReconciliation(
             ? { reason: proof.failure }
             : {}),
       }],
-      outputItems: installation.outputs.map((output) => ({
-        kind: "removal" as const,
-        path: output.path,
-        project: installation.project,
+      // Stale removals discard whatever survives on disk: drifted survivors
+      // need explicit deletion consent (DEC-005), absent roots need none.
+      outputItems: await Promise.all(installation.outputs.map(async (output) => {
+        const disk = await inspection.inspectOutput(installation.project, output);
+        const drifted = !recordedOutputMatches(disk, output);
+        return {
+          ...(drifted && disk.kind !== "missing" ? { driftKind: "changed" as const } : {}),
+          kind: "removal" as const,
+          path: output.path,
+          project: installation.project,
+        };
       })),
     };
   }));
@@ -1458,6 +1562,14 @@ export async function applyReconciliation(
     readonly confirmChangedOutputReplacement?:
       (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
     /**
+     * Explicit per-operation changed-file authorization (DEC-005):
+     * `--replace-changed` answers replacement, `--remove-changed` answers
+     * deletion. Neither authorizes the other operation, and neither bypasses
+     * a Blocker. `--auto-confirm` answers no changed-file scope.
+     */
+    readonly removeChanged?: boolean;
+    readonly replaceChanged?: boolean;
+    /**
      * Invocation-scoped bounded scheduler for independent Project reads. Apply
      * passes it to preflight and post-commit verification while all mutation,
      * publication, and rollback stay sequential.
@@ -1499,6 +1611,14 @@ async function applyReconciliationLocked(
      */
     readonly confirmChangedOutputReplacement?:
       (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
+    /**
+     * Explicit per-operation changed-file authorization (DEC-005):
+     * `--replace-changed` answers replacement, `--remove-changed` answers
+     * deletion. Neither authorizes the other operation, and neither bypasses
+     * a Blocker. `--auto-confirm` answers no changed-file scope.
+     */
+    readonly removeChanged?: boolean;
+    readonly replaceChanged?: boolean;
     /**
      * Invocation-scoped bounded scheduler for independent Project reads. Apply
      * passes it to preflight and post-commit verification while all mutation,
@@ -1610,29 +1730,223 @@ async function applyReconciliationLocked(
   ) {
     throw new ApplyBlockedError(report);
   }
-  // One invocation-wide consent gate (DEC-019): reached only after the global
-  // and Project Blocker checks above, so acceptance can never bypass an
-  // ownership, path-safety, or global Blocker; and placed before the first
-  // write, so a decline or cancellation leaves every selected Project — and
-  // all pending retirement work — untouched.
-  if (options.confirmChangedOutputReplacement !== undefined) {
-    const consentProjects = report.projects
-      .filter((project) => !blockedProjects.has(project.canonicalProject))
-      .flatMap((project) => {
-        const changedOutputs = project.outputs
-          .filter((output) => output.driftKind === "changed")
-          .map((output) => output.path);
-        return changedOutputs.length === 0 ? [] : [{
-          canonicalProject: project.canonicalProject,
-          project: project.project,
-          changedOutputs,
-        }];
-      });
-    if (consentProjects.length > 0) {
-      const answer =
-        await options.confirmChangedOutputReplacement({ projects: consentProjects });
-      if (answer !== "accepted") throw new ApplyDeclinedError(answer);
+  // Recorded-output lookup for review evidence: ordinary receipts first, then
+  // retired receipts pending removal. Shared by review construction and the
+  // fresh pre-write check so both read the same receipt facts.
+  const receiptOutputFor = (canonicalProject: string, path: string) => {
+    for (const receipts of [ordinaryReceipts(before), retiredReceipts(before)]) {
+      const found = receipts
+        .find((receipt) => receipt.project === canonicalProject)
+        ?.outputs.find((output) => output.path === path);
+      if (found !== undefined) return found;
     }
+    return undefined;
+  };
+  const plannedOutputFor = (canonicalProject: string, path: string) =>
+    desired
+      .find((installation) => installation.binding.canonicalProject === canonicalProject)
+      ?.outputs.find((output) => output.path === path);
+  // One invocation-wide changed-file consent gate (DEC-005, DEC-019): reached
+  // only after the global and Project Blocker checks above, so no consent —
+  // flag or prompt — can ever bypass an ownership, path-safety, or global
+  // Blocker; and placed before the first write, so a refusal, decline, or
+  // cancellation leaves every selected Project — and all pending retirement
+  // work — untouched. Replacement needs `--replace-changed`, deletion needs
+  // `--remove-changed`; neither flag authorizes the other operation.
+  const replaceAuthorized = options.replaceChanged === true;
+  const removeAuthorized = options.removeChanged === true;
+  const pendingConsentScope: ChangedOutputConsentProject[] = [];
+  for (const project of report.projects) {
+    if (blockedProjects.has(project.canonicalProject)) continue;
+    const changedOutputs = replaceAuthorized ? [] : project.outputs
+      .filter((output) => output.driftKind === "changed" && output.kind !== "removal")
+      .map((output) => output.path);
+    const removedOutputs = removeAuthorized ? [] : project.outputs
+      .filter((output) => output.driftKind === "changed" && output.kind === "removal")
+      .map((output) => output.path);
+    if (changedOutputs.length > 0 || removedOutputs.length > 0) {
+      pendingConsentScope.push({
+        canonicalProject: project.canonicalProject,
+        changedOutputs,
+        project: project.project,
+        removedOutputs,
+      });
+    }
+  }
+  // Planned-side digest for one review path: exact planned bytes, or the
+  // deletion marker when the operation removes the root.
+  const plannedDigestFor = (
+    planned: DesiredProjectOutput | undefined,
+    isRemoval: boolean,
+  ): string => {
+    if (isRemoval || planned === undefined) return "deletion";
+    return planned.type === "file" ? digestBytes(planned.bytes) : planned.hash;
+  };
+  // Live digest binding for one inspected root (INT-1): files bind exact
+  // bytes, directories bind the aggregate hash, anything else binds its
+  // kind — so an unreadable-then-readable swap can never compare equal.
+  const liveDigestFor = (
+    inspected: OwnedOutputInspection,
+    receiptType: "file" | "directory",
+  ): string => {
+    if (receiptType === "file") {
+      return inspected.kind === "file" && inspected.contentBytes !== undefined
+        ? digestBytes(inspected.contentBytes)
+        : `unreadable:${inspected.kind}`;
+    }
+    return inspected.kind === "directory" && inspected.directoryHash !== undefined
+      ? inspected.directoryHash
+      : `unreadable:${inspected.kind}`;
+  };
+  // Directory member evidence through the shared comparison policy: update
+  // supplies the inspection-backed listing and reader, while the union and
+  // classification rules live in the contract for install/uninstall reuse.
+  const buildDirectoryEvidence = async (
+    canonicalProject: string,
+    rootPath: string,
+    planned: DesiredProjectOutput | undefined,
+  ): Promise<{ readonly members: readonly DirectoryMemberEvidence[]; readonly note?: string }> => {
+    let listed: readonly ListedDirectoryMember[];
+    try {
+      listed = await preflightOwnershipInspection.listDirectoryMembers(canonicalProject, rootPath);
+    } catch {
+      return { members: [], note: "(current directory cannot be listed; review on disk)" };
+    }
+    return {
+      members: await compareDirectoryMembers(
+        listed.map((member) => ({
+          path: member.path,
+          type: member.type,
+          ...(member.type === "other" || member.mode === undefined ? {} : { mode: member.mode }),
+        })),
+        (planned !== undefined && planned.type === "directory" ? planned.members : []).map((member) =>
+          member.type === "file"
+            ? { bytes: member.bytes, mode: member.mode, path: member.path, type: "file" as const }
+            : { mode: member.mode, path: member.path, type: "directory" as const }),
+        (memberPath) => preflightOwnershipInspection.readDirectoryMember(
+          canonicalProject,
+          rootPath,
+          memberPath,
+        ),
+      ),
+    };
+  };
+  // Reviewed comparisons per consented path for the fresh pre-write proof
+  // (US-020): the planned bytes cannot move mid-invocation, so the proof
+  // re-reads live digests and refuses when they differ from the review.
+  const reviewedScope = new Map<string, ChangedOutputComparison>();
+  if (pendingConsentScope.length > 0) {
+    if (options.confirmChangedOutputReplacement === undefined) {
+      const required: ChangedOutputOperation[] = [
+        ...(pendingConsentScope.some((entry) => entry.changedOutputs.length > 0)
+          ? ["replace" as const] : []),
+        ...(pendingConsentScope.some((entry) => entry.removedOutputs.length > 0)
+          ? ["remove" as const] : []),
+      ];
+      throw new ApplyConsentRequiredError(required, pendingConsentScope);
+    }
+    // Review evidence reuses the cached preflight inspection: the same receipt
+    // facts the drift finding was proven from, so review construction adds no
+    // extra filesystem reads for already-inspected roots. File reviews bind
+    // exact raw bytes (INT-1); directory reviews carry member evidence (INT-2).
+    const comparisons: ChangedOutputComparison[] = [];
+    for (const entry of pendingConsentScope) {
+      for (const path of [...entry.changedOutputs, ...entry.removedOutputs]) {
+        const receiptOutput = receiptOutputFor(entry.canonicalProject, path);
+        const planned = plannedOutputFor(entry.canonicalProject, path);
+        const isRemoval = entry.removedOutputs.includes(path);
+        const operation = isRemoval ? "remove" as const : "replace" as const;
+        const receiptIsDir = receiptOutput?.type === "directory";
+        const plannedIsDir = planned?.type === "directory";
+        let comparison: ChangedOutputComparison;
+        if (receiptIsDir && (planned === undefined || plannedIsDir)) {
+          const inspected = receiptOutput === undefined
+            ? undefined
+            : await preflightOwnershipInspection.inspectOutput(entry.canonicalProject, receiptOutput);
+          const currentHash = inspected?.kind === "directory" ? inspected.directoryHash : undefined;
+          const { members, note } = currentHash === undefined && inspected?.kind !== "missing"
+            ? {
+              members: [],
+              note: "(current directory cannot be inspected; review on disk)",
+            }
+            : await buildDirectoryEvidence(
+              entry.canonicalProject,
+              path,
+              isRemoval ? undefined : planned,
+            );
+          comparison = compareChangedDirectory({
+            operation,
+            path,
+            project: entry.project,
+            ...(currentHash === undefined ? {} : { currentHash }),
+            ...(isRemoval || planned === undefined || planned.type !== "directory"
+              ? {}
+              : { plannedHash: planned.hash }),
+            members,
+            ...(note === undefined ? {} : { note }),
+          });
+        } else if (!receiptIsDir && !plannedIsDir) {
+          let current: Uint8Array | string | undefined;
+          let currentNote: string | undefined;
+          if (receiptOutput !== undefined) {
+            const inspected = await preflightOwnershipInspection.inspectOutput(
+              entry.canonicalProject,
+              receiptOutput,
+            );
+            if (inspected.kind === "file" && inspected.contentBytes !== undefined) {
+              current = inspected.contentBytes;
+            } else if (inspected.kind !== "missing") {
+              currentNote = `(current on-disk contents ${
+                inspected.kind === "other" ? "are an unexpected type" : "cannot be read"
+              }; review on disk)`;
+            }
+          }
+          comparison = compareChangedFile({
+            operation,
+            path,
+            project: entry.project,
+            ...(current === undefined ? {} : { current }),
+            ...(currentNote === undefined ? {} : { currentNote }),
+            ...(isRemoval || planned === undefined || planned.type !== "file"
+              ? {}
+              : { planned: planned.bytes }),
+          });
+        } else {
+          // The output changed type between receipt and plan: bind exact
+          // digests on both sides without a member or line diff.
+          let currentHash: string | undefined;
+          if (receiptOutput !== undefined) {
+            const inspected = await preflightOwnershipInspection.inspectOutput(
+              entry.canonicalProject,
+              receiptOutput,
+            );
+            currentHash = inspected.kind === "file" && inspected.contentBytes !== undefined
+              ? digestBytes(inspected.contentBytes)
+              : inspected.kind === "directory" && inspected.directoryHash !== undefined
+                ? inspected.directoryHash
+                : undefined;
+          }
+          comparison = compareChangedDirectory({
+            operation,
+            path,
+            project: entry.project,
+            ...(currentHash === undefined ? {} : { currentHash }),
+            ...(isRemoval || planned === undefined
+              ? {}
+              : { plannedHash: planned.type === "file" ? digestBytes(planned.bytes) : planned.hash }),
+            members: [],
+            note: "(output type changed; review on disk)",
+          });
+        }
+        comparisons.push(comparison);
+        reviewedScope.set(`${entry.canonicalProject}\0${path}`, comparison);
+      }
+    }
+    const answer = await options.confirmChangedOutputReplacement({
+      comparisons,
+      projects: pendingConsentScope,
+    });
+    if (answer !== "accepted") throw new ApplyDeclinedError(answer);
   }
   const currentProjects = new Set(
     report.projects
@@ -1657,6 +1971,126 @@ async function applyReconciliationLocked(
     : [];
   const completed: string[] = [];
   const appliedProjects = new Set<string>();
+  // Per-Project pre-transaction proof (US-020, PROD-1): immediately before
+  // each Project's first mutation — and never from a pre-review snapshot —
+  // re-prove ownership and path safety for every output about to be mutated
+  // (preflight evidence predates the consent window, so a concurrently
+  // occupied new destination must block its own Project), then authorize
+  // every drifted root against the review or the answering flags. Reviewed
+  // bytes that moved stop the invocation (stale review); drift that was
+  // never authorized refuses it (missing consent).
+  const pendingAfter = (desiredIndex: number, staleFrom: number): ProjectIdentity[] => [
+    ...desired.slice(desiredIndex + 1)
+      .filter((entry) =>
+        !blockedProjects.has(entry.binding.canonicalProject) &&
+        !currentProjects.has(entry.binding.project) &&
+        (options.filter === undefined || selectedProjects.has(entry.binding.canonicalProject))
+      )
+      .map((entry) => ({
+        canonicalProject: entry.binding.canonicalProject,
+        project: entry.binding.project,
+      })),
+    ...stale.slice(staleFrom)
+      .filter((entry) => !blockedProjects.has(entry.project))
+      .map((entry) => ({ canonicalProject: entry.project, project: entry.project })),
+  ];
+  const proveProjectWrites = async (options: {
+    readonly canonicalProject: string;
+    readonly project: string;
+    /** Desired installation for ordinary writes; undefined for stale removals. */
+    readonly desired: DesiredInstallation | undefined;
+    /** Previous receipt: the ordinary previous, or the stale receipt itself. */
+    readonly previous: OwnershipReceipt | undefined;
+    readonly pendingProjects: readonly ProjectIdentity[];
+  }): Promise<void> => {
+    const { canonicalProject, project, pendingProjects } = options;
+    const ownership = createOwnershipInspection();
+    if (options.desired !== undefined) {
+      const conflicts = await desiredOutputConflicts(
+        options.desired,
+        options.previous,
+        ownership,
+        createGitInspection(),
+      );
+      if (conflicts.length > 0) {
+        const paths = [...new Set(conflicts.flatMap((conflict) =>
+          conflict.affectedItems.map((item) => item.value)))].sort();
+        await failExecution({
+          cause: new Error(
+            `Update stopped before writes at ${canonicalProject}: fresh ownership and path-safety proof failed for ${
+              paths.join(", ") || "generated output"
+            }`,
+          ),
+          detail: `Fresh ownership and path-safety proof failed for ${
+            paths.join(", ") || "generated output"
+          }; re-run to review the current state.`,
+          failedProject: { canonicalProject, project },
+          pendingProjects,
+        });
+      }
+    }
+    // Changed-file authorization for every recorded root about to be
+    // mutated. Additions without a receipt were decided by the conflict
+    // proof above (blocked, or missing/byte-identical); recorded roots need
+    // an explicit review match or the flag for their operation.
+    const plannedByPath = new Map(
+      (options.desired?.outputs ?? []).map((output) => [output.path, output]),
+    );
+    const newlyDrifted = { changedOutputs: [] as string[], removedOutputs: [] as string[] };
+    const authorize = (
+      path: string,
+      operation: ChangedOutputOperation,
+      liveDigest: string,
+      plannedDigest: string,
+    ): void => {
+      const review = reviewedScope.get(`${canonicalProject}\0${path}`);
+      if (review !== undefined) {
+        if (comparisonMatchesDigests(review, liveDigest, plannedDigest)) return;
+        throw new ApplyReviewStaleError({
+          completedProjects: completed,
+          failedProject: { canonicalProject, project },
+          pendingProjects,
+        });
+      }
+      if (operation === "replace" ? replaceAuthorized : removeAuthorized) return;
+      (operation === "replace" ? newlyDrifted.changedOutputs : newlyDrifted.removedOutputs).push(path);
+    };
+    for (const receipt of [options.previous]) {
+      if (receipt === undefined) continue;
+      for (const recorded of receipt.outputs) {
+        const planned = plannedByPath.get(recorded.path);
+        const inspected = await ownership.inspectOutput(canonicalProject, recorded);
+        if (recordedOutputMatches(inspected, recorded)) continue;
+        if (inspected.kind === "missing") continue;
+        const isRemoval = planned === undefined;
+        authorize(
+          recorded.path,
+          isRemoval ? "remove" : "replace",
+          liveDigestFor(inspected, recorded.type),
+          plannedDigestFor(planned, isRemoval),
+        );
+      }
+    }
+    if (newlyDrifted.changedOutputs.length > 0 || newlyDrifted.removedOutputs.length > 0) {
+      throw new ApplyConsentRequiredError(
+        [
+          ...(newlyDrifted.changedOutputs.length > 0 ? ["replace" as const] : []),
+          ...(newlyDrifted.removedOutputs.length > 0 ? ["remove" as const] : []),
+        ],
+        [{
+          canonicalProject,
+          changedOutputs: newlyDrifted.changedOutputs.sort(compareCanonicalStrings),
+          project,
+          removedOutputs: newlyDrifted.removedOutputs.sort(compareCanonicalStrings),
+        }],
+        {
+          completedProjects: [...completed],
+          failedProject: { canonicalProject, project },
+          pendingProjects,
+        },
+      );
+    }
+  };
   /** Best-effort publication result; filled by the final publication pass. */
   let publication: Awaited<ReturnType<typeof publishRepositoryExclusions>> | undefined;
   /** Inverse of the publication's target→Projects map, for report attachment. */
@@ -1748,6 +2182,15 @@ async function applyReconciliationLocked(
       }
       continue;
     }
+    // Per-Project proof before this Project's first mutation: fresh
+    // ownership/path-safety plus changed-file authorization (US-020).
+    await proveProjectWrites({
+      canonicalProject: item.binding.canonicalProject,
+      desired: item,
+      pendingProjects: pendingAfter(index, 0),
+      previous,
+      project: item.binding.project,
+    });
     let transaction: { readonly commit: () => Promise<void>; readonly rollback: () => Promise<void> } | undefined;
     let stateWriteAttempted = false;
     try {
@@ -1839,6 +2282,14 @@ async function applyReconciliationLocked(
     : undefined;
   for (const [index, previous] of stale.entries()) {
     if (blockedProjects.has(previous.project)) continue;
+    // Per-Project proof before this removal's first mutation (US-020).
+    await proveProjectWrites({
+      canonicalProject: previous.project,
+      desired: undefined,
+      pendingProjects: pendingAfter(desired.length, index + 1),
+      previous,
+      project: previous.project,
+    });
     let transaction: Awaited<ReturnType<typeof stageProvenInstallationRemoval>> | undefined;
     let stateWriteAttempted = false;
     try {

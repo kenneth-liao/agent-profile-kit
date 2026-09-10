@@ -44,8 +44,11 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
+import type { ChangedOutputComparison } from "../installer/changed-output-review.js";
 import {
+  type ApplyConsentRequiredError,
   type ApplyReconciliationResult,
+  type ApplyReviewStaleError,
   type ChangedOutputConsentRequest,
   type ProjectIdentity,
   type BlockedReconciliationReport,
@@ -3333,14 +3336,17 @@ export function applyExecutionFailureDocument(
   return nodes;
 }
 
-/** The interactive changed-output replacement question (DEC-019); the
- * capitalized N marks the default no answer. */
+/** The interactive changed-output consent question (DEC-005, DEC-019); the
+ * capitalized N marks the default no answer, and `d` opens the optional
+ * current-versus-planned diff without granting consent (US-020). */
 export const APPLY_REPLACEMENT_QUESTION =
-  "Replace these generated files with current Workspace content? (y/N)";
+  "Replace or delete these generated files as listed? (y/N)";
 
-/** The interactive changed-output replacement confirmation (DEC-019): names
- * every affected changed generated file with its Project attribution before
- * any write, without inferring who changed the bytes (US-028). */
+/** The interactive changed-output review (DEC-005, DEC-019): names every
+ * affected changed generated file with its Project attribution and the
+ * planned operation before any write, without inferring who changed the
+ * bytes. Wording reflects explicit changed-file protection, never an
+ * ownership marker (DEC-014). */
 export function applyReplacementConfirmationDocument(
   request: ChangedOutputConsentRequest,
   options: LifecycleHumanOptions,
@@ -3349,16 +3355,80 @@ export function applyReplacementConfirmationDocument(
   const lines = request.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
-    .flatMap((project) =>
-      project.changedOutputs
+    .flatMap((project) => [
+      ...project.changedOutputs
         .slice()
         .sort(compareCanonicalStrings)
-        .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`));
+        .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`),
+      ...project.removedOutputs
+        .slice()
+        .sort(compareCanonicalStrings)
+        .map((path) => `  - ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`),
+    ]);
+  const hasReplacements = request.projects.some((project) => project.changedOutputs.length > 0);
+  const hasRemovals = request.projects.some((project) => project.removedOutputs.length > 0);
+  const consequence = hasReplacements && hasRemovals
+    ? "Replacing overwrites the ~ files with current Workspace content; deleting removes the - files."
+    : hasRemovals
+      ? "Deleting removes these files."
+      : "Replacing overwrites these files with current Workspace content.";
   return [
     { kind: "heading", text: `Changed ${DEFAULT_VIEW_LEXICON.generatedOutput.plural}:` },
     ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
-    { kind: "prose", parts: ["Replacing overwrites these files with current Workspace content."] },
+    { kind: "prose", parts: [consequence] },
+    { kind: "prose", parts: ["Type d to view the current on-disk versus planned diff before deciding."] },
   ];
+}
+
+/** One page of the optional current-disk-versus-planned diff view (US-020,
+ * INT-3): hunks render in file order across every comparison, bounded per
+ * page so no single view can bury the changes; typing `d` again advances to
+ * the next page. Viewing grants no consent; the caller returns to the same
+ * scope. */
+export const CHANGED_OUTPUT_DIFF_PAGE_LINES = 60;
+
+export function changedOutputDiffDocument(
+  comparisons: readonly ChangedOutputComparison[],
+  pageIndex: number,
+): {
+  readonly document: PresentationDocument;
+  readonly pageIndex: number;
+  readonly pageCount: number;
+} {
+  const lines: string[] = [];
+  for (const comparison of [...comparisons].sort((left, right) =>
+    left.project.localeCompare(right.project) || left.path.localeCompare(right.path))) {
+    lines.push(
+      `${comparison.operation === "remove" ? "Delete" : "Replace"} ${comparison.path}`,
+      comparison.kind === "directory"
+        ? `--- current/${comparison.path}/`
+        : `--- current/${comparison.path}`,
+      comparison.operation === "remove"
+        ? "+++ /dev/null"
+        : comparison.kind === "directory"
+          ? `+++ planned/${comparison.path}/`
+          : `+++ planned/${comparison.path}`,
+    );
+    for (const hunk of comparison.hunks) {
+      lines.push(hunk.heading, ...hunk.lines);
+    }
+  }
+  const pageCount = Math.max(1, Math.ceil(lines.length / CHANGED_OUTPUT_DIFF_PAGE_LINES));
+  const page = Math.min(Math.max(0, pageIndex), pageCount - 1);
+  const window = lines.slice(page * CHANGED_OUTPUT_DIFF_PAGE_LINES, (page + 1) * CHANGED_OUTPUT_DIFF_PAGE_LINES);
+  const nodes: PresentationNode[] = [
+    { kind: "heading", text: "Current on-disk versus planned:" },
+    { kind: "verbatim", text: window.join("\n") },
+  ];
+  if (pageCount > 1) {
+    nodes.push({
+      kind: "prose",
+      parts: [page < pageCount - 1
+        ? `…more changes remain (page ${page + 1}/${pageCount}) — type d again to continue.`
+        : `(last page ${page + 1}/${pageCount}; type d again to review from the start.)`],
+    });
+  }
+  return { document: nodes, pageIndex: page, pageCount };
 }
 
 /** The equivalent fully specified command for a completed prompt flow (DEC-032):
@@ -3435,19 +3505,111 @@ export function bindCancelledDocument(): PresentationDocument {
   });
 }
 
+/** How the declined answer was given: an explicit no, or the default no. */
+export type ApplyDeclinedAnswer = "cancelled" | "declined" | "default";
+
+/** Which discard operations one equivalent update command answers. */
+export interface ChangedFileAnsweringScope {
+  readonly remove: boolean;
+  readonly replace: boolean;
+}
+
 /** The declined-or-cancelled replacement diagnostic (DEC-019, DEC-033): what
- * happened, why, and the command that answers the prompt explicitly. */
+ * happened, why, and the command that answers the prompt explicitly.
+ * Rendered with neutral styling: declining is a safe choice, not an error.
+ * The remedy names only the operations at stake (DEC-005). */
 export function applyReplacementDeclinedDocument(
-  reason: "declined" | "cancelled",
+  reason: ApplyDeclinedAnswer,
   commandArguments: readonly string[],
+  scope: ChangedFileAnsweringScope,
 ): PresentationDocument {
+  const remedy = scope.replace && scope.remove
+    ? "To replace or delete changed generated files without asking, run "
+    : scope.remove
+      ? "To delete changed generated files without asking, run "
+      : "To replace changed generated files without asking, run ";
   return diagnosticDocument({
     happened: [reason === "cancelled"
       ? "update was cancelled before any write"
-      : "update kept the changed generated files; nothing was written"],
+      : reason === "default"
+        ? "update kept the changed generated files; nothing was written (default answer no)"
+        : "update kept the changed generated files; nothing was written (you answered no)"],
     why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
     whatToType: [[
-      "To replace changed generated files without asking, run ",
+      remedy,
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ]],
+    severity: "info",
+  });
+}
+
+/** The missing-consent refusal diagnostic (DEC-005): what happened, which
+ * files still need an explicit flag, and the runnable command that answers
+ * it. Raised before any selected lifecycle write. */
+export function applyConsentRequiredDocument(
+  error: ApplyConsentRequiredError,
+  commandArguments: readonly string[],
+): PresentationDocument {
+  const lines = error.projects
+    .slice()
+    .sort((left, right) => left.canonicalProject.localeCompare(right.canonicalProject))
+    .flatMap((project) => [
+      ...[...project.changedOutputs].sort().map((path) => `  ~ ${path} (${project.project})`),
+      ...[...project.removedOutputs].sort().map((path) => `  - ${path} (${project.project})`),
+    ]);
+  // A late authorization stop reports the actual partial outcome (RE-1):
+  // the no-write claim below belongs only to the invocation-wide pre-write
+  // refusal, where completedProjects is empty.
+  if (error.completedProjects.length > 0) {
+    const pending = (error.pendingProjects ?? [])
+      .map((project) => project.canonicalProject)
+      .sort(compareCanonicalStrings);
+    return diagnosticDocument({
+      happened: [error.failedProject === undefined
+        ? "update stopped: newly changed files need explicit consent"
+        : `update stopped at ${error.failedProject.canonicalProject}: newly changed files need explicit consent`],
+      why: [
+        [`Completed Projects stay completed: ${[...error.completedProjects].sort(compareCanonicalStrings).join(", ")}.`],
+        ...lines.map((line): readonly InlineContent[] => [line]),
+        ...(pending.length === 0
+          ? []
+          : [[`Still pending: ${pending.join(", ")}.`] as readonly InlineContent[]]),
+      ],
+      whatToType: [[
+        "To review the current bytes and proceed, run ",
+        commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      ]],
+    });
+  }
+  return diagnosticDocument({
+    happened: ["update needs explicit changed-file consent before any write"],
+    why: [
+      ...lines.map((line): readonly InlineContent[] => [line]),
+      ["No Project or setting was changed."],
+    ],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+    ]],
+  });
+}
+
+/** The stale-review safety refusal diagnostic (US-020): the reviewed bytes
+ * moved before the write, so the invocation stopped instead of executing a
+ * change different from the reviewed one. Completed work stays committed. */
+export function applyReviewStaleDocument(
+  error: ApplyReviewStaleError,
+  commandArguments: readonly string[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [`update stopped at ${error.failedProject.canonicalProject}: the reviewed files changed during confirmation`],
+    why: [[
+      error.completedProjects.length === 0
+        ? "No Project was changed after the review."
+        : `Completed Projects stay completed: ${error.completedProjects.join(", ")}.`,
+    ]],
+    whatToType: [[
+      "To review the current bytes and proceed, run ",
       commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
     ]],
   });

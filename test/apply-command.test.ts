@@ -60,6 +60,7 @@ function invoke(
     selection,
     json: arguments_.includes("--json"),
     replaceChanged: arguments_.includes("--replace-changed"),
+    removeChanged: arguments_.includes("--remove-changed"),
     verbose: false,
     stdout,
     stderr,
@@ -197,10 +198,29 @@ describe("update replacement confirmation command", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
-  test("non-interactive update never prompts and completes with the replacement receipt", async () => {
+  test("non-interactive update without consent refuses before any write with a runnable remedy", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-noninteractive");
     // A plain pipe carries no TTY evidence; the invocation must not wait on it.
     const invocation = invoke(fleet, [fleet.driftedProject], undefined, { interactive: false });
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    const stdout = humanText(invocation.stdout.text());
+    expect(stdout).not.toContain("(y/N)");
+    expect(stdout).not.toContain("Updated:");
+    const stderr = humanText(invocation.stderr.text());
+    expect(stderr).toContain("--replace-changed");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
+    expect(existsSync(join(fleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("non-interactive update with --replace-changed completes without a prompt", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-noninteractive-flag");
+    const invocation = invoke(
+      fleet,
+      [fleet.driftedProject, "--replace-changed"],
+      undefined,
+      { interactive: false },
+    );
     const { exitCode } = await invocation.outcome;
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
@@ -209,9 +229,20 @@ describe("update replacement confirmation command", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
-  test("JSON output never prompts and retains the replacement receipt", async () => {
+  test("JSON output without consent refuses instead of prompting", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-json");
     const invocation = invoke(fleet, [fleet.driftedProject, "--json"], (input) => {
+      // An answer arriving proves a prompt fired; the payload must not wait.
+      setTimeout(() => input.write("n\n"), 5);
+    });
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
+  });
+
+  test("JSON output with --replace-changed never prompts and retains the replacement receipt", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-json-flag");
+    const invocation = invoke(fleet, [fleet.driftedProject, "--json", "--replace-changed"], (input) => {
       // An answer arriving proves a prompt fired; the payload must not wait.
       setTimeout(() => input.write("n\n"), 5);
     });
@@ -249,6 +280,234 @@ describe("update replacement confirmation command", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
   });
 
+  test("viewing the optional diff grants no consent and returns to the same scope", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff");
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection([fleet.driftedProject], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let step: "diff" | "accept" | "done" = "diff";
+    const poll = setInterval(() => {
+      const text = humanText(stdout.text());
+      if (!text.includes("(y/N)")) return;
+      if (step === "diff") {
+        step = "accept";
+        input.write("d\n");
+      } else if (step === "accept" && text.includes("current/")) {
+        step = "done";
+        clearInterval(poll);
+        input.write("y\n");
+      }
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(0);
+    const rendered = humanText(stdout.text());
+    // The diff compares actual disk bytes against the planned replacement.
+    expect(rendered).toContain("current/");
+    expect(rendered).toContain("hand-edited");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
+  });
+
+  test("repeated diff views page through the remaining hunks", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff-pages");
+    writeFileSync(
+      fleet.driftedOutputPath,
+      Array.from({ length: 70 }, (_, index) => `user line ${index}`).join("\n") + "\n",
+    );
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection([fleet.driftedProject], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let step: "first" | "second" | "done" = "first";
+    const poll = setInterval(() => {
+      const text = humanText(stdout.text());
+      if (step === "first" && text.includes("(y/N)")) {
+        step = "second";
+        input.write("d\n");
+      } else if (step === "second" && text.includes("page 1/")) {
+        step = "done";
+        clearInterval(poll);
+        input.write("d\n");
+        setTimeout(() => input.write("y\n"), 50);
+      }
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(0);
+    const rendered = humanText(stdout.text());
+    expect(rendered).toContain("more changes remain (page 1/");
+    expect(rendered).toContain("last page");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
+  });
+
+  test("a late refusal reports committed work instead of claiming no writes", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-late");
+    const seed = invoke(fleet, ["--all", "--replace-changed"], undefined, { interactive: false });
+    expect((await seed.outcome).exitCode).toBe(0);
+    writeFileSync(
+      join(fleet.workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared.\n",
+    );
+    writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
+    const healthyOutput = join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md");
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection(["--all"], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let answered = false;
+    const poll = setInterval(() => {
+      if (!humanText(stdout.text()).includes("(y/N)")) return;
+      if (answered) return;
+      answered = true;
+      clearInterval(poll);
+      writeFileSync(healthyOutput, "concurrent edit\n");
+      input.write("y\n");
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(1);
+    const rendered = humanText(stderr.text());
+    // The first Project's committed work is reported; the no-write claim
+    // that belongs to the invocation-wide refusal must not appear.
+    expect(rendered).toContain(fleet.driftedProject);
+    expect(rendered).not.toContain("No Project or setting was changed");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Updated shared.");
+    expect(readFileSync(healthyOutput, "utf8")).toBe("concurrent edit\n");
+  });
+
+  test("leaving the diff without accepting leaves the whole invocation untouched", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-diff-leave");
+    const stdout = new RecordingSink();
+    const stderr = new RecordingSink();
+    const input = fakeInteractiveInput();
+    const outcome = runApplyCommand({
+      home: fleet.home,
+      selection: parsedSelection([fleet.driftedProject], fleet),
+      json: false,
+      replaceChanged: false,
+      removeChanged: false,
+      verbose: false,
+      stdout,
+      stderr,
+      input,
+    });
+    let step: "diff" | "decline" | "done" = "diff";
+    const poll = setInterval(() => {
+      const text = humanText(stdout.text());
+      if (!text.includes("(y/N)")) return;
+      if (step === "diff") {
+        step = "decline";
+        input.write("d\n");
+      } else if (step === "decline" && text.includes("current/")) {
+        step = "done";
+        clearInterval(poll);
+        input.write("n\n");
+      }
+    }, 1);
+    const { exitCode } = await outcome;
+    clearInterval(poll);
+    expect(exitCode).toBe(1);
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
+    expect(existsSync(join(fleet.healthyProject, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("the default empty answer declines and says so", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-default-says");
+    const invocation = invoke(
+      fleet,
+      [fleet.driftedProject],
+      (input) => input.write("\n"),
+      { feedAfterQuestion: true },
+    );
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    const stderr = humanText(invocation.stderr.text());
+    expect(stderr).toContain("nothing was written");
+    expect(stderr).toContain("default");
+  });
+
+  test("--remove-changed does not authorize replacement at the command seam", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-no-cross");
+    const invocation = invoke(
+      fleet,
+      [fleet.driftedProject, "--remove-changed"],
+      undefined,
+      { interactive: false },
+    );
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    const stderr = humanText(invocation.stderr.text());
+    // The missing replacement flag is named, and the already-supplied
+    // deletion flag is kept so the remedy stays runnable.
+    expect(stderr).toContain("--replace-changed");
+    expect(stderr).toContain("--remove-changed");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
+  });
+
+  test("a mixed-scope refusal remedy keeps already-supplied flags", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-mixed");
+    const seed = invoke(fleet, ["--all", "--replace-changed", "--remove-changed"], undefined, {
+      interactive: false,
+    });
+    expect((await seed.outcome).exitCode).toBe(0);
+    // One invocation holds an authorized replacement (bound, drifted) plus an
+    // unauthorized deletion (unbound with drifted surviving output).
+    writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
+    const healthyOutput = join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md");
+    writeFileSync(healthyOutput, "healthy drift\n");
+    writeFileSync(
+      fleet.configPath,
+      `schema_version: 2\nworkspace: ${fleet.workspace}\nbindings:\n` +
+        `  - project: ${fleet.driftedProject}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const invocation = invoke(
+      fleet,
+      ["--all", "--replace-changed"],
+      undefined,
+      { interactive: false },
+    );
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    const stderr = humanText(invocation.stderr.text());
+    // The remedy stays runnable: it keeps the supplied replacement flag and
+    // adds the missing deletion flag.
+    expect(stderr).toContain("--replace-changed");
+    expect(stderr).toContain("--remove-changed");
+    expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
+    expect(readFileSync(healthyOutput, "utf8")).toBe("healthy drift\n");
+  });
+
   test("the equivalent command expresses every scope argument explicitly", () => {
     expect(fullySpecifiedApplyArguments({
       kind: "all",
@@ -266,5 +525,9 @@ describe("update replacement confirmation command", () => {
       match: "exact",
       target: "/tmp/project",
     })).toEqual(["update", "/tmp/project", "--replace-changed"]);
+    expect(fullySpecifiedApplyArguments({ kind: "all" }, { replace: true, remove: true }))
+      .toEqual(["update", "--all", "--replace-changed", "--remove-changed"]);
+    expect(fullySpecifiedApplyArguments({ kind: "all" }, { replace: false, remove: true }))
+      .toEqual(["update", "--all", "--remove-changed"]);
   });
 });

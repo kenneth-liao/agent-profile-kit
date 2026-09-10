@@ -414,11 +414,13 @@ describe("fleet-wide synchronization qualification", () => {
 
     // Project writes never overlap while reads stay concurrent.
     expect(maxWriteInFlight).toBe(1);
-    // Post-commit verification re-proves every Project: the preflight and
-    // verification passes each inspect every owned file and directory.
+    // Three inspection passes prove every Project: preflight planning, the
+    // per-Project pre-transaction proof (fresh ownership/path-safety plus
+    // changed-file authorization), and post-commit verification — each
+    // inspects every owned file and directory.
     const expected = ownedOutputCounts(changed.installations);
-    expect(instrumentation.counts.inspectFile).toBe(2 * expected.files);
-    expect(instrumentation.counts.inspectDirectory).toBe(2 * expected.directories);
+    expect(instrumentation.counts.inspectFile).toBe(3 * expected.files);
+    expect(instrumentation.counts.inspectDirectory).toBe(3 * expected.directories);
     expect(reportBlockers(applied.resultingState)).toEqual([]);
     expect(reportItems(applied.resultingState).every((item) => item.kind === "current")).toBe(true);
     const state = await readInstallationState(home);
@@ -986,9 +988,22 @@ describe("integrated fleet recovery qualification", () => {
       ),
     ).toHaveLength(1);
 
-    // update --all completes at exit 0 and installs generated material for
-    // every condition, including the missing Host's Projects.
-    const apply = await runCliWithExplicitPath(home, pathWithoutPi, "update", "--all", "--json");
+    // update --all without the answering flag refuses before any write while
+    // the drifted Project awaits consent (DEC-005).
+    const refused = await runCliWithExplicitPath(home, pathWithoutPi, "update", "--all", "--json");
+    expectExitCode(refused, 1);
+
+    // update --all with the explicit flag completes at exit 0 and installs
+    // generated material for every condition, including the missing Host's
+    // Projects.
+    const apply = await runCliWithExplicitPath(
+      home,
+      pathWithoutPi,
+      "update",
+      "--all",
+      "--json",
+      "--replace-changed",
+    );
     expectExitCode(apply, 0);
     expect(apply.stderr).toBe("");
     const applyPayload = JSON.parse(apply.stdout) as {

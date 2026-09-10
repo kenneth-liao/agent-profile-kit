@@ -29,6 +29,7 @@ export const COMMAND_EXAMPLES = {
     "update --stale --json",
     "update --blocked",
     "update --replace-changed",
+    "update --remove-changed",
     "update --json",
   ],
   status: [

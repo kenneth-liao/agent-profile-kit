@@ -376,7 +376,8 @@ describe("injected project filesystem failures", () => {
     const contextPath = join(project, ".agent-profile-kit", "codex", "context.md");
     writeFileSync(contextPath, "user edit\n");
 
-    const applied = await applyReconciliation(home, desired.installations);
+    // The explicit answering flag authorizes the replacement (DEC-005).
+    const applied = await applyReconciliation(home, desired.installations, { replaceChanged: true });
     expect(readFileSync(contextPath, "utf8")).toContain("Edited replacement.");
     expect(applied.receipt.projects[0]!.state).toMatchObject({ kind: "drifted output" });
     expect(applied.receipt.projects[0]!.outputs).toEqual(expect.arrayContaining([

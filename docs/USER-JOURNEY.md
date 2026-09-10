@@ -551,11 +551,11 @@ Now author your own:
   apkit new profile <profile> --context <context> --skill <skill>
 ```
 
-A non-interactive update that replaces a hand-edited generated file names the
-replacement and prompts nothing (US-030, TEST-014):
+A non-interactive update with the explicit answering flag replaces a
+hand-edited generated file and prompts nothing (US-007, DEC-005, TEST-004):
 
 ```
-$ apkit update <project>
+$ apkit update <project> --replace-changed
 Update complete
 
 Updated:
@@ -564,21 +564,38 @@ Updated:
 …
 ```
 
-On an interactive terminal, update asks before replacing changed generated
-files, even when all scope arguments are supplied (US-029, DEC-019). The
-confirmation names the affected files with Project attribution before any
-invocation write, and the default answer is no; declining, cancelling, or the
-default aborts the entire invocation without writes, including writes for
-other selected Projects. The explicit answering flag `--replace-changed`
-permits replacement without prompting (US-031) but never bypasses an ownership
-or path-safety Blocker:
+Without the applicable flag, a non-interactive update refuses before any
+selected lifecycle write and prints the runnable remedy (US-007, DEC-005):
+
+```
+$ apkit update <project>
+apkit: update needs explicit changed-file consent before any write
+  ~ .agent-profile-kit/codex/context.md (<project>)
+No Project or setting was changed.
+To proceed without asking, run
+  apkit update <project> --replace-changed
+```
+
+On an interactive terminal, update asks before replacing or deleting changed
+generated files, even when all scope arguments are supplied (US-006, US-007,
+DEC-005, DEC-019). The review names the affected files with Project
+attribution and the planned operation before any invocation write, and the
+default answer is no; declining, the default, or cancellation aborts the
+entire invocation without writes — rendered in neutral styling with the
+answer named — including writes for other selected Projects. The review
+offers an optional current-on-disk versus planned diff: viewing or leaving it
+grants no consent and returns to the same scope (US-020). The explicit
+answering flags `--replace-changed` (replacement) and `--remove-changed`
+(deletion) each permit only their own operation without prompting and never
+bypass an ownership or path-safety Blocker; `--auto-confirm` answers neither:
 
 ```
 $ apkit update <project>
 Changed generated files:
   ~ .agent-profile-kit/codex/context.md (<project>)
 Replacing overwrites these files with current Workspace content.
-? Replace these generated files with current Workspace content? (y/N)
+Type d to view the current on-disk versus planned diff before deciding (d again for more pages).
+? Replace or delete these generated files as listed? (y/N)
 apkit: update was cancelled before any write
 No Project or setting was changed; your edits to the named generated files are
   preserved.
