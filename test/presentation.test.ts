@@ -617,7 +617,7 @@ describe("lifecycle status document", () => {
       {
         kind: "command",
         program: "apkit",
-        args: [{ kind: "text", value: "apply" }],
+        args: [{ kind: "text", value: "update" }],
       },
       {
         kind: "command",
@@ -652,7 +652,7 @@ describe("lifecycle status document", () => {
       flatInlineText(node.parts).includes("apkit status")
     )).toBe(true);
     expect(commandsIn(document).some((node) =>
-      node.args.some((arg) => arg.kind === "text" && arg.value === "apply")
+      node.args.some((arg) => arg.kind === "text" && arg.value === "update")
     )).toBe(false);
   });
 
@@ -766,7 +766,7 @@ describe("lifecycle status document", () => {
       .map((node) => node.kind === "command" ? node : undefined);
     expect(commands.some((node) =>
       node !== undefined && node.program === "apkit" &&
-      node.args.some((arg) => arg.kind === "text" && arg.value === "apply") &&
+      node.args.some((arg) => arg.kind === "text" && arg.value === "update") &&
       node.args.some((arg) =>
         arg.kind === "path" &&
         arg.canonicalPath === project &&
@@ -788,7 +788,7 @@ describe("lifecycle status document", () => {
       { color: false, interactive: true, width: 40 , rows: undefined },
     );
     for (const line of rendered.split("\n")) {
-      if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
+      if (!line.startsWith("Next: apkit update") && !line.startsWith("Details: apkit status")) {
         continue;
       }
       // A copyable command token is never middle-elided (review INT-1 cycle 2
@@ -800,11 +800,11 @@ describe("lifecycle status document", () => {
     }
     // The full runnable identity survives at any width: the command tail and
     // the leading directory segments are all present.
-    const nextLine = rendered.split("\n").find((line) => line.startsWith("Next: apkit apply"));
+    const nextLine = rendered.split("\n").find((line) => line.startsWith("Next: apkit update"));
     const detailsLine = rendered.split("\n").find((line) => line.startsWith("Details: apkit status"));
     // The argument is one shell-quoted token around the full identity
     // (review RE-1 on #489): the printed command executes as printed.
-    expect(nextLine).toContain(`apkit apply '${project}'`);
+    expect(nextLine).toContain(`apkit update '${project}'`);
     expect(detailsLine).toContain(`apkit status '${project}' --verbose`);
   });
 
@@ -1209,7 +1209,7 @@ describe("Host Setup Step provenance and presentation", () => {
     );
   });
 
-  test("apply shows change-relevant transition setup and a separate standing reminder", () => {
+  test("update shows change-relevant transition setup and a separate standing reminder", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [
         hookApproval(),
@@ -1352,7 +1352,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
   });
 
-  test("setup-free apply emits invocation-wide readiness statement", () => {
+  test("setup-free update emits invocation-wide readiness statement", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1405,7 +1405,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
   });
 
-  test("no-op apply omits transition setup and the standing reminder", () => {
+  test("no-op update omits transition setup and the standing reminder", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
       items: [{ kind: "current", project: "/project-a" }],
@@ -1426,7 +1426,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(concise.map(shape)).toEqual(["notice:success", "prose"]);
   });
 
-  test("concise apply deduplicates first-use guidance across projects without a path matrix", () => {
+  test("concise update deduplicates first-use guidance across projects without a path matrix", () => {
     const piTrust: HostSetupStep = {
       host: "pi",
       kind: "trust-required",
@@ -1538,7 +1538,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
   });
 
-  test("non-standard security warning consequence is preserved in concise apply", () => {
+  test("non-standard security warning consequence is preserved in concise update", () => {
     const warningStep: HostSetupStep = {
       consequence: "Security warning: remote execution permitted",
       host: "codex",
@@ -1621,7 +1621,7 @@ describe("Host Setup Step provenance and presentation", () => {
     )).toHaveLength(1);
   });
 
-  test("blocked apply suppresses Host setup for work that did not happen", () => {
+  test("blocked update suppresses Host setup for work that did not happen", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [installation("/project-a", [hookApproval(), codexTrust()])],
@@ -1645,7 +1645,7 @@ describe("Host Setup Step provenance and presentation", () => {
     )).toBe(false);
   });
 
-  test("post-commit verification failure retains apply setup without claiming activation", () => {
+  test("post-commit verification failure retains update setup without claiming activation", () => {
     const report = emptyReport({
       desired: [installation("/project-a", [codexTrust()])],
       items: [{ kind: "addition", project: "/project-a" }],
@@ -1666,7 +1666,7 @@ describe("Host Setup Step provenance and presentation", () => {
 
 describe("responsive lifecycle presentation", () => {
 
-  test("wraps applied lifecycle prose to the selected width", () => {
+  test("wraps updated lifecycle prose to the selected width", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -1721,15 +1721,15 @@ describe("responsive lifecycle presentation", () => {
     const emptyStatus = renderBoundary(lifecycleStatusDocument(emptyReport()), context(40));
 
     for (const line of status.split("\n")) {
-      if (!line.startsWith("Next: apkit apply") && !line.startsWith("Details: apkit status")) {
+      if (!line.startsWith("Next: apkit update") && !line.startsWith("Details: apkit status")) {
         continue;
       }
       expect(line.split("\n")).toHaveLength(1);
       expect(line).not.toContain("…");
     }
-    expect(status).toContain(`apkit apply '${project}'`);
+    expect(status).toContain(`apkit update '${project}'`);
     expect(status).toContain(`apkit status '${project}' --verbose`);
-    expect(wideStatus).toContain(`apkit apply '${project}'`);
+    expect(wideStatus).toContain(`apkit update '${project}'`);
     expect(wideStatus).toContain(`apkit status '${project}' --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
     expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
@@ -2000,7 +2000,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
       )
       .filter((command) => command.startsWith("apkit new "));
 
-  test("an apply that installed the scaffolded example ends with the authoring handoff", () => {
+  test("an update that installed the scaffolded example ends with the authoring handoff", () => {
     const document = applyReportDocument(applyResult(installedReceipt(exampleProfile), emptyReport()));
     const commands = handoffCommands(document);
     // The handoff teaches the three predecessor authoring kinds: the Skill,
@@ -2019,7 +2019,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     // full spelling, so the three exact spellings above prove atomicity.
   });
 
-  test("the handoff also closes the verbose apply view under the same condition", () => {
+  test("the handoff also closes the verbose update view under the same condition", () => {
     const document = applyReportDocument(
       applyResult(installedReceipt(exampleProfile), emptyReport()),
       { verbose: true },
@@ -2053,7 +2053,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     }
   });
 
-  test("a routine apply that refreshed the installed example omits the handoff", () => {
+  test("a routine update that refreshed the installed example omits the handoff", () => {
     for (const options of [{}, { verbose: true }] as const) {
       const document = applyReportDocument(
         applyResult(refreshedReceipt(exampleProfile), emptyReport()),
@@ -2063,7 +2063,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     }
   });
 
-  test("a no-op apply of the example omits the handoff", () => {
+  test("a no-op update of the example omits the handoff", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2080,7 +2080,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
     expect(handoffCommands(document)).toEqual([]);
   });
 
-  test("an apply that installed a user-authored Profile omits the handoff", () => {
+  test("an update that installed a user-authored Profile omits the handoff", () => {
     const document = applyReportDocument(applyResult(installedReceipt("coding"), emptyReport()));
     expect(handoffCommands(document)).toEqual([]);
   });
@@ -2154,7 +2154,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
       .filter((node) => node.kind === "prose" && nodeText(node).startsWith("To check that "))
       .map((line) => nodeText(line));
 
-  test("a successful changed apply follows readiness with one concrete Project-local check", () => {
+  test("a successful changed update follows readiness with one concrete Project-local check", () => {
     const document = applyReportDocument(changedApply("coding"));
     const lines = verificationLines(document);
     // Exactly one instruction, and it is the trailing node: the readiness
@@ -2187,7 +2187,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(instruction).toContain("the installed material should appear in the answers");
   });
 
-  test("a multi-Project apply keeps the check Project-local without listing every Project", () => {
+  test("a multi-Project update keeps the check Project-local without listing every Project", () => {
     const document = applyReportDocument(changedApply("coding", ["codex"], ["/project-a", "/project-b"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toContain("in each updated Project");
@@ -2195,7 +2195,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(instruction).not.toContain("/project-b");
   });
 
-  test("a no-op apply omits the check", () => {
+  test("a no-op update omits the check", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2211,7 +2211,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(verificationLines(applyReportDocument(applyResult(receipt, receipt)))).toEqual([]);
   });
 
-  test("a blocked apply omits the check", () => {
+  test("a blocked update omits the check", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [{
@@ -2227,7 +2227,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(verificationLines(blockedApplyReportDocument(asBlockedReport(report)))).toEqual([]);
   });
 
-  test("the verbose apply view closes with the same check", () => {
+  test("the verbose update view closes with the same check", () => {
     const document = applyReportDocument(changedApply("coding"), { verbose: true });
     const lines = verificationLines(document);
     expect(lines).toHaveLength(1);
@@ -2395,7 +2395,7 @@ function expectTrackedGroups(document: PresentationDocument, identities: readonl
  * Its last prose is the freshly-current evidence; the preceding nodes are
  * Applied operations. Fixtures must contain a committed, resulting-current Project. */
 function currentEvidenceIndex(nodes: readonly PresentationNode[], pending = false): number {
-  const applied = nodes.findIndex((node) => node.kind === "heading" && node.text === "Applied:");
+  const applied = nodes.findIndex((node) => node.kind === "heading" && node.text === "Updated:");
   expect(applied).toBeGreaterThan(-1);
   const boundary = nodes.findIndex((node, index) => index > applied && node.kind === "verbatim");
   expect(boundary).toBeGreaterThan(applied);
@@ -2438,8 +2438,8 @@ describe("status concise terminology", () => {
       ],
     });
 
-    for (const command of ["status", "apply"] as const) {
-      const document = command === "apply"
+    for (const command of ["status", "update"] as const) {
+      const document = command === "update"
         ? blockedApplyReportDocument(asBlockedReport(report))
         : lifecycleStatusDocument(report);
       const nodes = flattenPresentationNodes(document);
@@ -2492,7 +2492,7 @@ describe("status concise terminology", () => {
           project: "/project-a",
           remedy: "Manual recovery is required: Agent Profile Kit will not adopt or delete " +
             "files it cannot prove. Inspect ls -ld '/project-a/.codex', restore it to a " +
-            "regular directory inside the Project yourself, then run apkit apply " +
+            "regular directory inside the Project yourself, then run apkit update " +
             "'/project-a'; or run apkit unbind '/project-a' to stop managing this Project " +
             "(its generated files stay on disk).",
           requirement:
@@ -2527,7 +2527,7 @@ describe("status concise terminology", () => {
     // Every structured field is its own prose node in the typed evidence block.
     expect(nodes.slice(blockerIndex + 1, blockerIndex + 4).map(shape)).toEqual(["prose", "prose", "prose"]);
     // The remedy carries the evidence-derived scoped commands as atomic parts.
-    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit apply '/project-a'");
+    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit update '/project-a'");
     expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit unbind '/project-a'");
     expect(nodeText(nodes[blockerIndex + 3]!)).toContain("codex");
   });
@@ -2819,7 +2819,7 @@ describe("status concise terminology", () => {
     }
   });
 
-  test("blocked and failed apply verbose views print the evidence-derived command (#353)", () => {
+  test("blocked and failed update verbose views print the evidence-derived command (#353)", () => {
     const paths = [".codex/hooks.json", ".agents/skills/s01.md"];
     const project = "/project-b";
     const receipt = emptyReport({
@@ -3082,7 +3082,7 @@ describe("status concise terminology", () => {
     // The concise receipt summarizes above one Project and names no Project
     // receipt block; the operation summary and named paths are prose nodes.
     const concise = applyReportDocument(applyResult(receipt, emptyReport()));
-    expect(headingsIn(concise)).toContain("Applied:");
+    expect(headingsIn(concise)).toContain("Updated:");
     expect(keyValuesIn(concise, "Project")).toEqual([]);
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && nodeText(node).includes("receipt-project")
@@ -3091,7 +3091,7 @@ describe("status concise terminology", () => {
     // Verbose receipt opens with the Applied section in Projects detail.
     const verbose = applyReportDocument(applyResult(receipt, emptyReport()), { verbose: true });
     const nodes = flattenPresentationNodes(verbose);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     // The Applied section carries its own Projects detail after the section heading.
     const projects = indexWhere(
       nodes.slice(applied + 1),
@@ -3229,7 +3229,7 @@ describe("status concise terminology", () => {
     expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
   });
 
-  test("labels remaining and committed apply work distinctly", () => {
+  test("labels remaining and committed update work distinctly", () => {
     const receipt = identityReport("/project-a");
     const resultingState = emptyReport({
       desired: reportDesired(receipt),
@@ -3241,7 +3241,7 @@ describe("status concise terminology", () => {
     // no already-current statement, no status-style Changes summary.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const conciseNodes = flattenPresentationNodes(concise);
-    expect(headingsIn(concise)).toContain("Applied:");
+    expect(headingsIn(concise)).toContain("Updated:");
     expect(conciseNodes.some((node) =>
       node.kind === "prose"
     )).toBe(true);
@@ -3254,7 +3254,7 @@ describe("status concise terminology", () => {
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     const verboseNodes = flattenPresentationNodes(verbose);
     const pending = indexWhere(verboseNodes, (node) => node.kind === "heading" && nodeText(node) === "Pending:");
-    const applied = indexWhere(verboseNodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(verboseNodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(pending).toBeGreaterThan(-1);
     expect(applied).toBeGreaterThan(pending);
     expect(verboseNodes.some((node) =>
@@ -3533,7 +3533,7 @@ describe("status concise terminology", () => {
     expect(inlineIdentifiers(verbose)).toEqual(expect.arrayContaining([exclusionTarget, exclusionEntry]));
   });
 
-  test("renders task-authored apply verification failures without semantic translation", () => {
+  test("renders task-authored update verification failures without semantic translation", () => {
     const receipt = emptyReport({
       items: [{ kind: "addition", project: "/project-a" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
@@ -3552,7 +3552,7 @@ describe("status concise terminology", () => {
 
     const verbose = applyVerificationFailureDocument(receipt, message, { verbose: true });
     expect(noticesIn(verbose)).toEqual(conciseNotices);
-    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Applied:", "Outputs:"]));
+    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Updated:", "Outputs:"]));
     expect(headingsIn(verbose)).not.toContain("Selected setup:");
     expect(headingsIn(verbose)).not.toContain("Git exclusions:");
   });
@@ -3835,8 +3835,8 @@ describe("status concise terminology", () => {
     expect(headingsIn(concise)).not.toContain("State explanations:");
     expect(headingsIn(concise)).not.toContain("Changes:");
 
-    for (const command of ["status", "apply"] as const) {
-      const verbose = command === "apply"
+    for (const command of ["status", "update"] as const) {
+      const verbose = command === "update"
         ? blockedApplyReportDocument(asBlockedReport(report), { verbose: true })
         : lifecycleStatusDocument(report, { verbose: true });
       // The populated Blockers section leads the verbose view, ahead of the
@@ -3951,7 +3951,7 @@ describe("status concise terminology", () => {
         installed: false,
       }],
       warnings: [
-        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries",
+        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries",
       ],
     });
 
@@ -4024,7 +4024,7 @@ describe("status concise terminology", () => {
     expect(texts.some((text) => text.includes("generated-output"))).toBe(false);
   });
 
-  test("verbose apply keeps published exclusion guidance in the receipt tense", () => {
+  test("verbose update keeps published exclusion guidance in the receipt tense", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -4072,7 +4072,7 @@ describe("status concise terminology", () => {
 
     const verbose = applyReportDocument(applyResult(receipt, result), { verbose: true });
     const nodes = flattenPresentationNodes(verbose);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     const exclusions = indexWhere(
       nodes.slice(applied),
@@ -4082,7 +4082,7 @@ describe("status concise terminology", () => {
     expect(nodes.slice(applied).filter((node) => node.kind === "list-item").map((node) => inlineIdentifiers([node]))).toContainEqual(["/repo/.git/info/exclude", "/.agent-profile-kit/codex/context.md"]);
   });
 
-  test("verbose apply explains non-current states once across pending and applied sections", () => {
+  test("verbose update explains non-current states once across pending and updated sections", () => {
     const receipt = emptyReport({
       items: [{ kind: "stale source", project: "/repo" }],
     });
@@ -4101,7 +4101,7 @@ describe("status concise terminology", () => {
     expect(listItemsFrom(nodes, sections[0]! + 1)).toHaveLength(2);
   });
 
-  test("apply only expands projects with receipt work", () => {
+  test("update only expands projects with receipt work", () => {
     const desired = [
       {
         canonicalProject: "/changed",
@@ -4140,14 +4140,14 @@ describe("status concise terminology", () => {
     // Receipt work drives the operation summary; Projects without receipt work
     // gain no receipt block.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
-    expect(headingsIn(concise)).toContain("Applied:");
+    expect(headingsIn(concise)).toContain("Updated:");
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && nodeText(node).includes("/changed")
     )).toBe(true);
     expect(keyValuesIn(concise, "Project")).toEqual([]);
   });
 
-  test("verified apply blockers change the outcome and preserve a nonzero-worthy state", () => {
+  test("verified update blockers change the outcome and preserve a nonzero-worthy state", () => {
     const resultingState = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -4166,10 +4166,10 @@ describe("status concise terminology", () => {
     const concise = applyReportDocument(applyResult(emptyReport(), resultingState));
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "error" });
     expect(noticesIn(concise).map((node) => node.severity)).toEqual(["error", "error"]);
-    expect(nextActionItems(concise).map(nextActionStructure)).toEqual([{ paths: [], commands: ["apkit apply"] }]);
+    expect(nextActionItems(concise).map(nextActionStructure)).toEqual([{ paths: [], commands: ["apkit update"] }]);
   });
 
-  test("execution failures label only applied receipt Projects as freshly current", () => {
+  test("execution failures label only updated receipt Projects as freshly current", () => {
     const receipt = emptyReport({
       items: [{ kind: "addition", project: "/applied" }],
       outputs: [{ kind: "addition", path: "a.md", project: "/applied" }],
@@ -4255,7 +4255,7 @@ describe("status concise terminology", () => {
     );
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "error" });
     const nodes = flattenPresentationNodes(concise);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("a.md"))).toBe(true);
     // A failure view carries no success-claim notice.
@@ -4332,7 +4332,7 @@ describe("status next-action guidance", () => {
     });
 
     const concise = lifecycleStatusDocument(report);
-    expect(nextGuidance(concise)).toEqual(["apkit apply"]);
+    expect(nextGuidance(concise)).toEqual(["apkit update"]);
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
     // The drift detail stays behind the verbose route; no routine path appears.
     expect(presentationTexts(concise).some((text) => text.includes("a.md"))).toBe(false);
@@ -4343,7 +4343,7 @@ describe("status next-action guidance", () => {
     });
   });
 
-  test("ready status recommends apply", () => {
+  test("ready status recommends update", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -4358,11 +4358,11 @@ describe("status next-action guidance", () => {
     });
 
     const concise = lifecycleStatusDocument(report);
-    expect(nextGuidance(concise)).toEqual(["apkit apply"]);
+    expect(nextGuidance(concise)).toEqual(["apkit update"]);
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
   });
 
-  test("blocked status retries status without recommending apply", () => {
+  test("blocked status retries status without recommending update", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -4385,7 +4385,7 @@ describe("status next-action guidance", () => {
     expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "error" });
   });
 
-  test("blocked apply directs resolve-and-retry of apply", () => {
+  test("blocked update directs resolve-and-retry of update", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -4400,7 +4400,7 @@ describe("status next-action guidance", () => {
     });
 
     expect(nextActionItems(applyReportDocument(applyResult(report))).map(nextActionStructure)).toEqual([
-      { paths: [], commands: ["apkit apply"] },
+      { paths: [], commands: ["apkit update"] },
     ]);
   });
 
@@ -4444,7 +4444,7 @@ describe("status next-action guidance", () => {
     expect(JSON.parse(formatLifecycleJson("status", current)).outcome).toBe("clean");
   });
 
-  test("completed or no-op apply without blockers emits no next action", () => {
+  test("completed or no-op update without blockers emits no next action", () => {
     const current = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -4493,7 +4493,7 @@ describe("status next-action guidance", () => {
     expect(noticesIn(metadataDocument)[0]).toMatchObject({ kind: "notice", severity: "success" });
     expect(keyValuesIn(metadataDocument, "Project")).toEqual([]);
     expect(keyValuesIn(metadataDocument, "  State")).toEqual([]);
-    expect(headingsIn(applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }))).toContain("Applied:");
+    expect(headingsIn(applyReportDocument(applyResult(metadataOnlyReceipt, metadataOnlyResult), { verbose: true }))).toContain("Updated:");
   });
 
   test("mixed multi-project guidance names ready work alongside blocked work", () => {
@@ -4587,7 +4587,7 @@ describe("status next-action guidance", () => {
     });
 
     const mixedStatus = lifecycleStatusDocument(mixedActionable);
-    expect(nextGuidance(mixedStatus)).toEqual(["apkit apply"]);
+    expect(nextGuidance(mixedStatus)).toEqual(["apkit update"]);
     // The Details key-value carries the typed fleet-verbose command.
     expect(keyValuesIn(mixedStatus, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -4613,7 +4613,7 @@ describe("status next-action guidance", () => {
     expect(nextGuidance(lifecycleStatusDocument(report, { verbose: true }))).toEqual([]);
   });
 
-  test("exclusion-only deltas remain pending work with a direct apply action", () => {
+  test("exclusion-only deltas remain pending work with a direct update action", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -4641,7 +4641,7 @@ describe("status next-action guidance", () => {
       program: "apkit",
       args: [{ kind: "text", value: "status" }, { kind: "text", value: "--verbose" }],
     });
-    expect(nextGuidance(status)).toEqual(["apkit apply"]);
+    expect(nextGuidance(status)).toEqual(["apkit update"]);
   });
 
   test("status renders a nested desired Project with current state as current", () => {
@@ -4762,7 +4762,7 @@ describe("Machine surface JSON and exit codes", () => {
         project,
         remedy: "Manual recovery is required: Agent Profile Kit will not adopt or " +
           "delete files it cannot prove. Inspect ls -ld '/project-a/CLI missing', " +
-          "remove or restore it yourself, then run apkit apply '/project-a'; or run " +
+          "remove or restore it yourself, then run apkit update '/project-a'; or run " +
           "apkit unbind '/project-a' to stop managing this Project (its generated " +
           "files stay on disk).",
         requirement:
@@ -4834,7 +4834,7 @@ describe("Machine surface JSON and exit codes", () => {
     ]);
   });
 
-  test("apply JSON keeps applied work distinct from resulting state", () => {
+  test("update JSON keeps updated work distinct from resulting state", () => {
     const receipt = machineReport([
       machineProject(project, {
         desired,
@@ -4856,18 +4856,18 @@ describe("Machine surface JSON and exit codes", () => {
     expect(payload.applied.projects[0].state).toEqual({ kind: "addition" });
   });
 
-  test("blocked apply JSON has no applied snapshot", () => {
+  test("blocked update JSON has no updated snapshot", () => {
     const report = machineReport([
       machineProject(project, { blockers: [fixtureBlocker("CLI missing", project)] }),
     ]);
 
     const payload = JSON.parse(formatBlockedApplyJson(report));
-    expect(payload).toMatchObject({ command: "apply", outcome: "blocked", schemaVersion: 15 });
+    expect(payload).toMatchObject({ command: "update", outcome: "blocked", schemaVersion: 15 });
     expect(payload).not.toHaveProperty("applied");
     expect(payload.projects[0].blockers).toHaveLength(1);
   });
 
-  test("apply verification failure JSON retains applied evidence and the typed error", () => {
+  test("update verification failure JSON retains updated evidence and the typed error", () => {
     const receipt = machineReport([
       machineProject(project, {
         state: { kind: "addition" },
@@ -4879,7 +4879,7 @@ describe("Machine surface JSON and exit codes", () => {
       formatApplyVerificationFailureJson(receipt, "post-apply verification failed: boom"),
     );
     expect(payload).toMatchObject({
-      command: "apply",
+      command: "update",
       outcome: "error",
       error: "post-apply verification failed: boom",
       schemaVersion: 15,
@@ -4891,7 +4891,7 @@ describe("Machine surface JSON and exit codes", () => {
   });
 
   test("tool-error JSON uses the empty nested model", () => {
-    for (const command of ["status", "apply"] as const) {
+    for (const command of ["status", "update"] as const) {
       expect(JSON.parse(formatLifecycleToolErrorJson(command, "missing"))).toEqual({
         schemaVersion: 15,
         command,
@@ -5949,7 +5949,7 @@ describe("operation-first multi-Project presentation", () => {
     // Details command values; no per-Project receipt bookkeeping appears.
     expect(noticesIn(concise)).toHaveLength(1);
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nextGuidance(concise)).toEqual(["apkit apply"]);
+    expect(nextGuidance(concise)).toEqual(["apkit update"]);
     expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
@@ -6043,7 +6043,7 @@ describe("operation-first multi-Project presentation", () => {
       kind: "command",
       program: "apkit",
       args: [
-        { kind: "text", value: "apply" },
+        { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
@@ -6081,7 +6081,7 @@ describe("operation-first multi-Project presentation", () => {
     expect(headingsIn(concise)).not.toContain("Project changes:");
   });
 
-  test("apply summarizes applied operations separately from freshly verified state", () => {
+  test("update summarizes updated operations separately from freshly verified state", () => {
     const receipt = sharedSkillFleet();
     const resultingState = emptyReport({
       desired: reportDesired(receipt),
@@ -6100,7 +6100,7 @@ describe("operation-first multi-Project presentation", () => {
     // selected-setup detail stay out of the receipt section.
     const apply = applyReportDocument({ receipt, resultingState });
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
       node.kind === "prose"
@@ -6166,7 +6166,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
 
     const status = lifecycleStatusDocument(report);
     // The typed Next command value carries the fleet invocation once.
-    expect(nextGuidance(status)).toEqual(["apkit apply"]);
+    expect(nextGuidance(status)).toEqual(["apkit update"]);
     expect(keyValuesIn(status, "Next")).toHaveLength(1);
   });
 
@@ -6192,7 +6192,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       kind: "command",
       program: "apkit",
       args: [
-        { kind: "text", value: "apply" },
+        { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
     });
@@ -6283,7 +6283,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(rendered).not.toMatch(/(^|\n)\.: /);
   });
 
-  test("successful apply does not print a current-Project matrix before Applied", () => {
+  test("successful update does not print a current-Project matrix before Updated", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -6306,7 +6306,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // Applied, and no per-Project receipt block or state bookkeeping.
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
     expect(applied).toBeGreaterThan(-1);
     // The Applied section carries operation-summary prose; the composed count
@@ -6316,7 +6316,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(keyValuesIn(apply, "  State")).toEqual([]);
   });
 
-  test("exclusion-only apply does not reprint a current Project block", () => {
+  test("exclusion-only update does not reprint a current Project block", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/repo",
@@ -6356,7 +6356,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(verbose.filter((node) => node.kind === "list-item").map((node) => inlineIdentifiers([node]))).toContainEqual(["/repo/.git/info/exclude", "/.agent-profile-kit/codex/context.md"]);
   });
 
-  test("remaining attention after apply still appears", () => {
+  test("remaining attention after update still appears", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -6385,7 +6385,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(stateNodes).toHaveLength(1);
     expect(stateNodes[0]!.value).toMatchObject({ kind: "prose" });
     expect(nodeText(stateNodes[0]!.value)).toContain("a.md");
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
       node.kind === "prose"
@@ -6393,7 +6393,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("a.md"))).toBe(true);
   });
 
-  test("multi-project apply preserves remaining attention across projects", () => {
+  test("multi-project update preserves remaining attention across projects", () => {
     const receipt = emptyReport({
       desired: [
         {
@@ -6439,7 +6439,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.slice(applied).some((node) =>
       node.kind === "prose"
@@ -6453,7 +6453,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("b.md"))).toBe(true);
   });
 
-  test("no-op apply preserves adapter warnings", () => {
+  test("no-op update preserves adapter warnings", () => {
     const report = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -6473,11 +6473,11 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const document = applyReportDocument(applyResult(report));
     expect(headingsIn(document)).toEqual([]);
     expect(listItemsIn(document)).toEqual([expect.stringContaining("Project /project-a carries an adapter warning.")]);
-    expect(headingsIn(document)).not.toContain("Applied:");
+    expect(headingsIn(document)).not.toContain("Updated:");
   });
 
 
-  test("blocked multi-project apply retains exclusion-only apply receipt", () => {
+  test("blocked multi-project update retains exclusion-only apply receipt", () => {
     const receipt = emptyReport({
       desired: [
         {
@@ -6530,7 +6530,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(applied).toBeGreaterThan(-1);
     expect(nodes.some((node) => node.kind === "prose" && nodeText(node).includes("/project-a"))).toBe(true);
   });
@@ -6919,7 +6919,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     const guidance = flattenPresentationNodes(uninstall).find((node) =>
       node.kind === "prose" && node.category === "command");
     expect(guidance).toBeDefined();
-    expect(inlineCommandTexts([guidance!])).toEqual(["apkit unbind", "apkit apply"]);
+    expect(inlineCommandTexts([guidance!])).toEqual(["apkit unbind", "apkit update"]);
     expectUserFacingVocabulary(renderPresentationDocument(uninstall, defaultRenderContext));
   });
 
@@ -7045,7 +7045,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 });
 
 
-describe("apply presentation documents", () => {
+describe("update presentation documents", () => {
   test("concise apply receipt carries a success notice, receipt evidence, and trailing readiness", () => {
     const receipt = emptyReport({
       desired: [{
@@ -7069,7 +7069,7 @@ describe("apply presentation documents", () => {
     expect(noticesIn(document)).toHaveLength(1);
     expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "success" });
     const nodes = flattenPresentationNodes(document);
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Applied:");
+    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(appliedIndex).toBeGreaterThan(-1);
     expect(nodes.slice(appliedIndex).some((node) =>
       node.kind === "prose"
@@ -7083,7 +7083,7 @@ describe("apply presentation documents", () => {
     expect(commandsIn(document)).toEqual([]);
   });
 
-  test("verbose apply separates Pending and Applied sections without composed Context bodies", () => {
+  test("verbose update separates Pending and Updated sections without composed Context bodies", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -7110,12 +7110,12 @@ describe("apply presentation documents", () => {
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
     expect(texts).toContain("Pending:");
-    expect(texts).toContain("Applied:");
+    expect(texts).toContain("Updated:");
     expect(texts).not.toContain("Selected setup:");
     expect(texts).not.toContain("Host Setup:");
   });
 
-  test("blocked apply presents an error notice, Blocker evidence, and the committed receipt", () => {
+  test("blocked update presents an error notice, Blocker evidence, and the committed receipt", () => {
     const report = emptyReport({
       blockers: [fixtureBlocker("occupied output", "/project-a")],
       desired: [{
@@ -7162,7 +7162,7 @@ describe("apply presentation documents", () => {
     expect(document.slice(0, 4).map(shape)).toEqual(["notice:error", "prose", "prose", "heading"]);
     expect(nodeText(document[1]!)).toContain("/project-a");
     expect(nodeText(document[2]!)).not.toContain("/project-a");
-    expect(document[3]).toMatchObject({ kind: "heading", text: "Applied:" });
+    expect(document[3]).toMatchObject({ kind: "heading", text: "Updated:" });
   });
 
   test("verification failure carries the task message as an error notice and receipt evidence", () => {
@@ -7183,7 +7183,7 @@ describe("apply presentation documents", () => {
     expect(noticesIn(document)).toEqual([
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Verification failed."] }] },
     ]);
-    expect(headingsIn(document)).toContain("Applied:");
+    expect(headingsIn(document)).toContain("Updated:");
   });
 });
 
@@ -7412,7 +7412,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     ]);
   });
 
-  test("multi-report apply deduplicates same Project across receipt and resultingState without inflating count", () => {
+  test("multi-report update deduplicates same Project across receipt and resultingState without inflating count", () => {
     const w1 = {
       copyableValues: [".claude/skills"],
       kind: "diagnostic" as const,
@@ -7716,7 +7716,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "ls -la '/project-a/.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7730,7 +7730,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "ls -la '/project-a/.agents/skills/demo-skill'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7744,7 +7744,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "ls -ld '/project-a/.codex/nested'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7758,7 +7758,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "ls -la '/project-a/.agents/skills/demo-skill'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7772,7 +7772,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
         remedyKey: "opencode-config-occupied",
       })),
       expectedCommands: [
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["opencode.json"],
@@ -7791,7 +7791,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
           "'.agents/skills/s01' '.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Git index", "files stay on disk"],
@@ -7808,7 +7808,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/project-a/.agent-profile-kit/codex/context.md'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7825,7 +7825,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/project-a/.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7842,7 +7842,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/p/.codex'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7860,7 +7860,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/project-a/.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
@@ -7881,7 +7881,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/project-a/.agents/skills/demo-skill/scripts/run.sh'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       // No rm from observed type alone: the user inspects and recovers by hand.
@@ -7900,7 +7900,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "apkit unbind '/project-a'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
       ],
       mustState: ["nothing is repaired or removed"],
     },
@@ -7917,9 +7917,9 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
-        "apkit apply --all",
+        "apkit update --all",
       ],
-      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      bannedCommands: ["apkit update '/project-a'", "apkit uninstall"],
       mustState: ["every pending Project"],
     },
     {
@@ -7934,9 +7934,9 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       }),
       expectedCommands: [
         "ls -ld '/project-a/.agent-profile-kit/codex/context.md'",
-        "apkit apply --all",
+        "apkit update --all",
       ],
-      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      bannedCommands: ["apkit update '/project-a'", "apkit uninstall"],
       mustState: ["Manual recovery is required", "every pending Project"],
     },
     {
@@ -7949,8 +7949,8 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
         project,
         scope: "project",
       }),
-      expectedCommands: ["apkit apply --all"],
-      bannedCommands: ["apkit apply '/project-a'", "apkit uninstall"],
+      expectedCommands: ["apkit update --all"],
+      bannedCommands: ["apkit update '/project-a'", "apkit uninstall"],
       mustState: ["Manual recovery is required", "every pending Project"],
     },
     // 4. output-ownership-conflict — the stated Git-vs-binding choice.
@@ -7962,7 +7962,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
       mustState: ["Git index", "files stay on disk"],
@@ -7976,7 +7976,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
           "'.agents/skills/s01.md' '.codex/hooks.json'",
-        "apkit apply '/project-a'",
+        "apkit update '/project-a'",
         "apkit unbind '/project-a'",
       ],
     },
@@ -8109,7 +8109,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     expect(problem).toContain("broken\nname.md");
     expect(remedy).not.toContain("rm -r --cached");
     expect(remedy).toContain("Manual recovery is required");
-    expect(commands(wording(blocker).remedy)).toContain("apkit apply '/project-a'");
+    expect(commands(wording(blocker).remedy)).toContain("apkit update '/project-a'");
     expect(commands(wording(blocker).remedy)).toContain("apkit unbind '/project-a'");
   });
 
@@ -9206,7 +9206,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("Ready to apply\n");
+      expect(rendered).toStartWith("Ready to update\n");
       expect(rendered).toContain("- needs attention (1):");
       expect(rendered).toContain("/project-1");
       expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
@@ -9215,7 +9215,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect(rendered).toContain("- not installed yet (1): /project-4");
       expect(rendered).toContain("- source changed (1): /project-5");
       expect(rendered).toContain("- settled (1)");
-      expect(rendered).toContain("Next: apkit apply");
+      expect(rendered).toContain("Next: apkit update");
       expect(rendered).toContain("Details: apkit status --verbose");
     });
 
@@ -9239,7 +9239,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("Cannot apply\n");
+      expect(rendered).toStartWith("Cannot update\n");
       expect(rendered).toContain("- needs attention (1):");
       expect(rendered).toContain("/project-1");
       expect(rendered).toContain("- not installed yet (1): /project-2");
@@ -9314,7 +9314,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
 
       expect(rendered).toContain("- needs attention (1):");
       expect(rendered).toContain("/project-1");
-      expect(rendered).toContain("Apply will remove generated files for unbound projects.");
+      expect(rendered).toContain("Update will remove generated files for unbound projects.");
       expect(rendered).not.toContain("Blocker:");
       expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
     });
@@ -9399,12 +9399,12 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const betaChildren = nodes.slice(betaAt + 1, removalFirstAt);
       expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
       expect(betaChildren.some((node) => nodeText(node).includes("second.json"))).toBe(true);
-      expect(betaChildren.some((node) => nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(false);
+      expect(betaChildren.some((node) => nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(false);
       expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
 
       const removalFirstChildren = nodes.slice(removalFirstAt + 1, alphaAt);
       expect(removalFirstChildren.some((node) =>
-        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
       expect(removalFirstChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
       expect(removalFirstChildren.some((node) => nodeHasPath(node, "/removal-first"))).toBe(false);
 
@@ -9414,11 +9414,11 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       )).toBe(true);
       expect(alphaChildren.some((node) => nodeText(node).includes("Manual recovery is required"))).toBe(true);
       expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(false);
+      expect(alphaChildren.some((node) => nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(false);
 
       const removalSecondChildren = nodes.slice(removalSecondAt + 1, pendingGroupAt);
       expect(removalSecondChildren.some((node) =>
-        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
       expect(removalSecondChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
       expect(removalSecondChildren.some((node) => nodeHasPath(node, "/removal-second"))).toBe(false);
       expect(pendingGroupAt).not.toBe(removalSecondAt + 1);
@@ -9447,12 +9447,12 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         const removalFirstSection = compact(rendered.slice(removalFirstStart, alphaStart));
         const removalSecondSection = compact(rendered.slice(removalSecondStart, rendered.indexOf("- not installed yet")));
         const alphaSection = compact(rendered.slice(alphaStart, removalSecondStart));
-        expect(removalFirstSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalFirstSection).toContain("Update will remove generated files for unbound projects.");
         expect(removalFirstSection).not.toContain("Blocker:");
-        expect(removalSecondSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalSecondSection).toContain("Update will remove generated files for unbound projects.");
         expect(removalSecondSection).not.toContain("Blocker:");
         expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
-        expect(alphaSection).not.toContain("Apply will remove generated files for unbound projects.");
+        expect(alphaSection).not.toContain("Update will remove generated files for unbound projects.");
       }
     });
 
@@ -9536,7 +9536,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const removalChildren = nodes.slice(removalAt + 1, indexWhere(nodes, (node) =>
         node.kind === "list-item" && nodeText(node).startsWith("not installed yet")));
       expect(removalChildren.some((node) =>
-        nodeText(node).includes("Apply will remove generated files for unbound projects."))).toBe(true);
+        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
       expect(removalChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
 
       for (const width of [40, 60, 80, 10_000]) {
@@ -9567,7 +9567,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
         expect(alphaSection).toContain("Manual recovery is required");
         expect(alphaSection).not.toContain("tracked by Git");
-        expect(removalSection).toContain("Apply will remove generated files for unbound projects.");
+        expect(removalSection).toContain("Update will remove generated files for unbound projects.");
         expect(removalSection).not.toContain("Blocker:");
       }
     });
@@ -9615,7 +9615,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       expect((rendered.match(/\/project-missing/g) || []).length).toBe(1);
       expect((rendered.match(/\/project-changed/g) || []).length).toBe(1);
       expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
-      expect(rendered).toContain("Next: apkit apply");
+      expect(rendered).toContain("Next: apkit update");
     });
 
     test("wrapped concise status preserves exactly-once project identity in narrow terminals", () => {
@@ -9883,7 +9883,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     }
   });
 
-  test("verbose apply document renders focused diagnostics with distinct output kinds", () => {
+  test("verbose update document renders focused diagnostics with distinct output kinds", () => {
     const multiCauseProject = machineProject("/workspace/multi-cause", {
       desired: {
         context: "Sensitive composed context body",
@@ -9961,7 +9961,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     const verboseTexts = presentationTexts(verboseDoc);
 
     expect(headings).toContain("Pending:");
-    expect(headings).toContain("Applied:");
+    expect(headings).toContain("Updated:");
     expect(headings).not.toContain("Selected setup:");
 
     const outputLine = (path: string, kind: string) => verboseNodes.some((node) =>
@@ -10173,7 +10173,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     expect(text).toContain("Legacy configuration");
     expect(text).toContain("apkit init");
     expect(text).not.toContain("apkit status");
-    expect(text).not.toContain("apkit apply");
+    expect(text).not.toContain("apkit update");
   });
 
   test("a configured machine sees its setup state and task commands, not the manual (US-032)", () => {
@@ -10192,7 +10192,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     // installed Project is pending, summarised by its primary cause.
     expect(text).toContain("not installed yet (1)");
     // Task-relevant human commands only.
-    for (const command of ["apkit status", "apkit apply", "apkit bind", "apkit guide"]) {
+    for (const command of ["apkit status", "apkit update", "apkit bind", "apkit guide"]) {
       expect(text).toContain(command);
     }
     // Not the full manual.
@@ -10218,7 +10218,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     const text = renderedText(document);
     expect(text).toContain("up to date");
     expect(text).toContain("apkit status");
-    expect(text).toContain("apkit apply");
+    expect(text).toContain("apkit update");
   });
 
   test("an empty configured fleet points at binding a Project (US-032)", () => {

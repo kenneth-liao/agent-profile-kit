@@ -531,7 +531,7 @@ describe("Skill model-invocation policy", () => {
     ).toEqual([]);
   });
 
-  test("end-to-end: unsupported Codex CLI blocks preview and apply before project or state writes", async () => {
+  test("end-to-end: unsupported Codex CLI blocks preview and update before project or state writes", async () => {
     const home = temporaryDirectory("apk-mi-e2e-home-");
     const project = temporaryDirectory("apk-mi-e2e-project-");
     await initializeWorkspace(home);

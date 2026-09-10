@@ -424,7 +424,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
   });
 
-  test("blocks status and apply with Output Ownership Conflict when claimed slot is occupied by unowned material", async () => {
+  test("blocks status and update with Output Ownership Conflict when claimed slot is occupied by unowned material", async () => {
     const home = temporaryDirectory("apk-opencode-occupied-home-");
     const project = temporaryDirectory("apk-opencode-occupied-proj-");
 
@@ -468,7 +468,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     // Apply fails closed before writes
     await expect(
       applyReconciliation(home, desired.installations),
-    ).rejects.toThrow(/Apply blocked before writes/);
+    ).rejects.toThrow(/Update blocked before writes/);
 
     // Verify unowned configuration file was NOT overwritten or modified
     expect(readFileSync(join(project, ".opencode", "opencode.jsonc"), "utf8")).toBe(userJsonc);
@@ -511,7 +511,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
 
     await expect(
       applyReconciliation(home, desired.installations),
-    ).rejects.toThrow(/Apply blocked before writes/);
+    ).rejects.toThrow(/Update blocked before writes/);
   });
 
   test("combines OpenCode Context with multi-Host bindings cleanly", async () => {
@@ -631,7 +631,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(excludeContent).toContain("# END Agent Profile Kit generated paths");
   });
 
-  test("ordinary uninstall removes every proven OpenCode output without touching user configuration and leaves binding ready for apply", async () => {
+  test("ordinary uninstall removes every proven OpenCode output without touching user configuration and leaves binding ready for update", async () => {
     const home = temporaryDirectory("apk-opencode-uninst-home-");
     const project = gitRepository("apk-opencode-uninst-proj-");
 

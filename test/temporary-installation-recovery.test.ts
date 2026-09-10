@@ -163,7 +163,7 @@ describe("Temporary Profile Installation recovery", () => {
     });
     expect(receipt.completionState).toBe("installed");
     expect(receipt.warnings).toEqual([
-      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or applying the Profile",
+      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or updating the Profile",
     ]);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
@@ -494,7 +494,7 @@ describe("Temporary Profile Installation recovery", () => {
     const home = await prepareHome();
     const project = gitRepository("agent-profile-kit-temp-lock-");
 
-    await withInstallationLifecycleLock(home, "apply", async () => {
+    await withInstallationLifecycleLock(home, "update", async () => {
       await expect(
         installTemporaryProfile({
           home,
@@ -521,7 +521,7 @@ describe("Temporary Profile Installation recovery", () => {
     };
 
     await Promise.all([
-      withInstallationLifecycleLock(home, "apply", body, { lockTimeoutMs: 2_000 }),
+      withInstallationLifecycleLock(home, "update", body, { lockTimeoutMs: 2_000 }),
       withInstallationLifecycleLock(home, "install-temp", body, { lockTimeoutMs: 2_000 }),
       withInstallationLifecycleLock(home, "remove-temp", body, { lockTimeoutMs: 2_000 }),
     ]);
@@ -541,7 +541,7 @@ describe("Temporary Profile Installation recovery", () => {
     let contenderSawBusy = false;
     let contenderEnteredAfterRelease = false;
 
-    await withInstallationLifecycleLock(home, "apply", async () => {
+    await withInstallationLifecycleLock(home, "update", async () => {
       holderEntered = true;
       await expect(
         withInstallationLifecycleLock(home, "install-temp", async () => {
@@ -603,7 +603,7 @@ describe("Temporary Profile Installation recovery", () => {
     };
 
     await Promise.all([
-      withInstallationLifecycleLock(home, "apply", body, {
+      withInstallationLifecycleLock(home, "update", body, {
         fileSystem,
         lockTimeoutMs: 1_000,
       }),

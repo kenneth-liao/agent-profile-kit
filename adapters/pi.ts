@@ -158,7 +158,7 @@ export function parsePiCliVersion(source: string): string {
       "pi",
       "host",
       `Pi CLI version is unreadable from '${source.trim()}'`,
-      `install Pi ${PI_MINIMUM_CLI_VERSION}+ and ensure \`pi --version\` works before checking status or applying the Profile`,
+      `install Pi ${PI_MINIMUM_CLI_VERSION}+ and ensure \`pi --version\` works before checking status or updating the Profile`,
     );
   }
   return `${match[1]}.${match[2]}.${match[3]}`;
@@ -183,14 +183,14 @@ export function assertPiCliVersionSupported(
       throw versionFloorCapabilityFailure(
         "pi",
         `Pi CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${PI_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Pi before checking status or applying the Profile",
+        "upgrade Pi before checking status or updating the Profile",
         PI_MINIMUM_CLI_VERSION,
       );
     }
     throw versionFloorCapabilityFailure(
       "pi",
       `Pi CLI ${version} does not support project APPEND_SYSTEM.md Context discovery (requires ${PI_MINIMUM_CLI_VERSION}+)`,
-      "upgrade Pi before checking status or applying the Profile",
+      "upgrade Pi before checking status or updating the Profile",
       PI_MINIMUM_CLI_VERSION,
     );
   }
@@ -210,7 +210,7 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
         "pi",
         "host",
         "Pi CLI was not found on PATH",
-        "install Pi and ensure `pi --version` works before checking status or applying the Profile",
+        "install Pi and ensure `pi --version` works before checking status or updating the Profile",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -228,7 +228,7 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
       "pi",
       "host",
       `Pi CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      `install Pi ${PI_MINIMUM_CLI_VERSION}+ before checking status or applying the Profile`,
+      `install Pi ${PI_MINIMUM_CLI_VERSION}+ before checking status or updating the Profile`,
     );
   }
 }

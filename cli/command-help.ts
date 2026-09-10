@@ -110,7 +110,7 @@ export const COMMANDS: readonly CommandHelp[] = [
       "Run ",
       invocation("status", "--all"),
       ", then ",
-      invocation("apply", "--all"),
+      invocation("update", "--all"),
       " to remove obsolete generated files.",
     ],
   },
@@ -145,18 +145,18 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "status",
     group: "common",
     syntax: "status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]",
-    summary: "Show the complete read-only apply plan for the complete fleet, the containing Project, or one explicit Project",
+    summary: "Show the complete read-only update plan for the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.status,
     writes: "Nothing; this command is read-only.",
-    next: ["Run ", invocation("apply"), " for pending work after resolving any blockers."],
+    next: ["Run ", invocation("update"), " for pending work after resolving any blockers."],
   },
   {
-    name: "apply",
+    name: "update",
     group: "common",
-    syntax: "apply [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
+    syntax: "update [project | --here | --all] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
     summary: "Sync the complete fleet, the containing Project, or one explicit Project",
-    examples: COMMAND_EXAMPLES.apply,
-    writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records.",
+    examples: COMMAND_EXAMPLES.update,
+    writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records from the Workspace. This updates installed Context and Skills; it does not upgrade the apkit executable itself.",
     next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
   },
   {
@@ -167,7 +167,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     examples: COMMAND_EXAMPLES.uninstall,
     writes: "Removes owned generated project files and machine-local installation records; keeps the Workspace and configured Projects.",
     next: ["Run ", invocation("unbind"), " for configured Projects you no longer want, or ",
-    invocation("apply"), " to reinstall."],
+    invocation("update"), " to reinstall."],
   },
   {
     name: "install-temp",
@@ -269,7 +269,7 @@ const QUICK_START_COMMANDS = [
   "init",
   "bind <profile> --host <host>",
   "status",
-  "apply",
+  "update",
 ] as const;
 
 function spacer(): PresentationNode {

@@ -105,7 +105,7 @@ describe("shared blocker contract", () => {
           "required. Run apkit unbind '/project-a' to stop managing this Project — " +
           "nothing is repaired or removed, and its generated files stay on disk — or " +
           "inspect the Project's generated files yourself, restore what matches the " +
-          "installation record, then run apkit apply '/project-a'.",
+          "installation record, then run apkit update '/project-a'.",
       requirement:
         "Agent Profile Kit changes or removes generated files only when ownership " +
           "is proven by the installation record at safe paths.",
@@ -255,7 +255,7 @@ describe("shared blocker contract", () => {
             "required. Run apkit unbind '/project-a' to stop managing this Project — " +
             "nothing is repaired or removed, and its generated files stay on disk — or " +
             "inspect the Project's generated files yourself, restore what matches the " +
-            "installation record, then run apkit apply '/project-a'.",
+            "installation record, then run apkit update '/project-a'.",
         affectedItems: [{ kind: "host", value: "codex" }],
       }],
     });

@@ -20,7 +20,7 @@ import {
  * command) rather than any hardware-dependent threshold.
  */
 
-export type LifecycleBenchmarkCommand = "validate" | "status" | "apply";
+export type LifecycleBenchmarkCommand = "validate" | "status" | "update";
 
 /** One measured warm sample of one lifecycle command. */
 export interface LifecycleBenchmarkSample {
@@ -58,7 +58,7 @@ export interface LifecycleBenchmarkOptions {
 
 const DEFAULT_COMMANDS: readonly LifecycleBenchmarkCommand[] = [
   "status",
-  "apply",
+  "update",
 ];
 
 /** Path of the shared Skill's canonical SKILL.md within the isolated Workspace. */
@@ -79,7 +79,7 @@ async function sampleCommand(
   mutation: number,
   env: NodeJS.ProcessEnv | undefined,
 ): Promise<number> {
-  if (mutateSkill !== undefined && (command === "status" || command === "apply")) {
+  if (mutateSkill !== undefined && (command === "status" || command === "update")) {
     appendFileSync(
       skillMarkdownPath(home, mutateSkill),
       `\nBenchmark mutation ${mutation}.\n`,

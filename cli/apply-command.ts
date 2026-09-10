@@ -1,5 +1,5 @@
 /**
- * The `apply` command: one invocation-wide changed-output replacement consent
+ * The `update` command: one invocation-wide changed-output replacement consent
  * gate (DEC-019) wired in front of the Installer's write loop.
  *
  * The consent prompt fires only on an interactive input stream, only for human
@@ -73,8 +73,8 @@ export interface ApplyCommandOutcome {
   readonly exitCode: 0 | 1 | 2;
 }
 
-/** The one canonical apply usage line, read from the command-help table. */
-const applyCommandSyntax = COMMANDS.find((command) => command.name === "apply")!.syntax;
+/** The one canonical update usage line, read from the command-help table. */
+const applyCommandSyntax = COMMANDS.find((command) => command.name === "update")!.syntax;
 
 /** One trusted terminal-presentation context per injected stream. */
 function presentationContext(stream: Writable & TerminalStream): TerminalPresentationContext {
@@ -102,7 +102,7 @@ export function fullySpecifiedApplyArguments(
     args.push(selection.filter === "stale" ? "--stale" : "--blocked");
   }
   args.push("--replace-changed");
-  return ["apply", ...args];
+  return ["update", ...args];
 }
 
 export async function runApplyCommand(request: ApplyCommandRequest): Promise<ApplyCommandOutcome> {
@@ -152,13 +152,13 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
         );
       }
     }
-    // Exit 0 whenever apply completed without blockers, including remaining
+    // Exit 0 whenever update completed without blockers, including remaining
     // non-current work (outcome "attention"). Gate on blockers only.
     return { exitCode: lifecycleExitCode(applied.resultingState) };
   } catch (error) {
     if (error instanceof ApplyDeclinedError) {
       if (request.json) {
-        request.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
+        request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
         writeHumanDocument(
           request.stderr,
@@ -208,7 +208,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: 1 };
     }
     if (request.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("apply", formatError(error)));
+      request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
     } else {
       // Structured recovery: Project-target rejections carry their usage node,
       // matching the shared lifecycle diagnostic (DEC-014).

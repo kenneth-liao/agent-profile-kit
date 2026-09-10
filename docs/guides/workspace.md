@@ -23,10 +23,10 @@ Source ownership and managed delivery are separate:
   Kit–managed project-bound delivery. A Project Binding selects a project root,
   one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
   that Profile enter Installation Receipts and the managed lifecycle
-  (`status`, `apply`, and `uninstall`).
+  (`status`, `update`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
-  outside Project Bindings and Installation Receipts, and `apply` / `uninstall`
+  outside Project Bindings and Installation Receipts, and `update` / `uninstall`
   never adopt, record as managed output, or mutate those paths. `status` does not
   treat global roots as managed output.
 - You may still manage native global delivery yourself—for example by symlinking
@@ -82,7 +82,7 @@ only `schema_version: 1`. Local Configuration schema version is 2 and its
 ### Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without `workspace` is supported only as migration
-input. Run `apkit init` to upgrade it before using `validate`, `status`, `apply`,
+input. Run `apkit init` to upgrade it before using `validate`, `status`, `update`,
 `bind`, or `unbind`. Those commands never migrate
 the file implicitly: they fail closed with actionable `apkit init`
 guidance while leaving migration to the explicit `init` command.
@@ -134,11 +134,11 @@ you can discover where material belongs:
 - short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
 - a starter `.gitignore`
 
-The example gives a new user one complete `bind` → `status` → `apply` path.
+The example gives a new user one complete `bind` → `status` → `update` path.
 Delete both `profiles/example.yaml` and `context/example-context.md` together,
 unused empty directories, or bootstrap docs if you prefer a minimal tree;
 later `init` runs do not restore removed optional scaffolding; validation,
-status, apply, and uninstall keep working. Do not treat generated Host
+status, update, and uninstall keep working. Do not treat generated Host
 output as source material.
 
 ## Author the Workspace
@@ -185,7 +185,7 @@ This is the only portable spelling. Host-native top-level
 canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
 the namespaced metadata key above rather than relying on Host-specific
 frontmatter. The Installer never rewrites Workspace `SKILL.md` during
-validate, status, or apply.
+validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -199,7 +199,7 @@ invocation policy coalesces; malformed, wrong-type, or conflicting policy
 produces one structured project Blocker naming the Workspace and shared
 Host-policy authorities with a Workspace repair remedy before any project write. Generated
 policy fields carry short deterministic comments. When any selected Skill
-disables model invocation, apply-time capability probing checks each selected
+disables model invocation, update-time capability probing checks each selected
 Host's enforcement floor: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
 honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
@@ -305,7 +305,7 @@ Omit the project argument to use the current working directory. At least one
 Profile or Host set for the same project fails instead of overwriting. Do not
 hand-edit `config.yaml` while `bind` is running: `bind` commands serialize with
 each other, but a text editor does not participate in that lock. After binding,
-run `validate`, then `status` and `apply` separately.
+run `validate`, then `status` and `update` separately.
 
 Remove desired state with the recording-only command:
 
@@ -319,7 +319,7 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, `unbind` can remove a binding only when the
 argument exactly matches its authored `project` spelling; it never guesses an
 alias. `unbind` edits Local Configuration only and leaves generated output for
-the next fleet `status` and `apply --all`. Cooperating `bind` and `unbind` commands
+the next fleet `status` and `update --all`. Cooperating `bind` and `unbind` commands
 serialize and publish atomically; do not hand-edit the file concurrently.
 
 ```yaml
@@ -336,21 +336,21 @@ bindings:
       - claude
 ```
 
-## Validate, status, and apply
+## Validate, status, and update
 
 For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
 newer so the generated SessionStart handler can deliver the complete Context
 envelope without Codex's default head-and-tail spill. Host capability probing is
-advisory: during `apply`, an older, missing, or unreadable Codex CLI produces a
+advisory: during `update`, an older, missing, or unreadable Codex CLI produces a
 warning while the planned project and Installation State writes proceed
 regardless. `status` performs no Agent Host process execution and no capability
-probing; a Project-scoped `status` or `apply` plans only its
-selected binding. `apply --all` writes every selected Project including any with
+probing; a Project-scoped `status` or `update` plans only its
+selected binding. `update --all` writes every selected Project including any with
 Host capability warnings; global Blockers still stop every fleet write.
 Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
-during apply and warns when hooks are explicitly disabled, when relevant
+during update and warns when hooks are explicitly disabled, when relevant
 configuration is malformed or unreadable, or when `hooks` or the deprecated
 `codex_hooks` alias is not a boolean. These warnings do not block installation,
 but generated Context may not load until the setting is corrected. Project configuration takes
@@ -370,25 +370,28 @@ installations). Pending Git exclusion work appears as one concise clause; exact
 targets and path changes are reserved for `--verbose`. When action is
 useful, concise results end with one next-action line derived from the same
 attention surface as the report body: actionable `status` points directly to the
-matching apply command; a ready fleet `status --all` recommends `apply --all`; a
+matching update command; a ready fleet `status --all` recommends `update --all`; a
 blocked result tells you to resolve the reported blocker and retry the same
-command you just ran; current status and completed or no-op `apply` results omit
-a next step. `status` and `apply` default to the bound Project containing the
+command you just ran; current status and completed or no-op `update` results omit
+a next step. `status` and `update` default to the bound Project containing the
 current working directory and accept one explicit existing absolute or
 home-relative bound Project root. Use `--all` as the only fleet scope. Scoped
 planning, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
 through the selected installation's contribution-aware union. Host capability
-probing is advisory and happens only during `apply`: a missing or outdated Host
+probing is advisory and happens only during `update`: a missing or outdated Host
 CLI produces a warning and the planned output is written regardless; capability
 problems never block application and do not mark generated files as drifted.
 
-For focused per-output and state diagnostics, append `--verbose` to `status` or `apply`. Warnings, blockers, drift reasons, and removal
+`apkit update` refreshes the installed Context and Skills in your Projects from
+the Workspace; it does not upgrade the `apkit` executable itself.
+
+For focused per-output and state diagnostics, append `--verbose` to `status` or `update`. Warnings, blockers, drift reasons, and removal
 intent remain visible in the concise view. Git-tracked-path blockers explain
 that repository-owned content is not replaced because generated Profile
 Installation output must be exclusively Installer-owned.
 
-Git is optional. For a Git binding, `apply` installs only into the exact bound
+Git is optional. For a Git binding, `update` installs only into the exact bound
 project directory. The Installer uses Git for tracked-path protection and local
 exclusions but does not inspect or report worktree topology. Bind any additional
 root explicitly only when Hosts must be launched directly from that root; it
@@ -398,16 +401,16 @@ For every bound project root, the ordinary removal order is:
 
 ```sh
 apkit unbind /path/to/project
-apkit apply --all
+apkit update --all
 # Now delete the project directory.
 ```
 
 If the project directory was deleted first, run `unbind` with its exact authored
 path. That explicit action confirms the deletion was intentional; the next
-`apply --all` retires its machine-local installation record without attempting
+`update --all` retires its machine-local installation record without attempting
 project filesystem deletion and cleans any separately surviving local Git
 exclusions whose ownership was recorded. Restoring the project later requires a
-new `bind` and `apply`.
+new `bind` and `update`.
 
 Generated output is owned whole: complete files and artifact directories whose
 Installation Receipt proves Agent Profile Kit ownership, with the receipt's
@@ -418,7 +421,7 @@ approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
 Git hook, or modify shared `.gitignore` files.
 
-For a currently bound installation, `apply` recreates a
+For a currently bound installation, `update` recreates a
 recorded output that is completely missing when normal path-conflict checks
 pass. Modified output is ordinary refresh work while at least one recorded root
 still matches its recorded hash; when no recorded root matches, ownership
@@ -427,7 +430,7 @@ generated files. Unexpected directory members are never overwritten.
 
 ## Use Hosts natively
 
-After `apply`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
+After `update`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
 bound project the way you normally would. Agent Profile Kit does not manage their
 authentication, trust, approvals, plugins, or sessions, and does not launch
 Hosts.
@@ -442,7 +445,7 @@ below 12,000 characters. If one Context Module is too large, status reports a
 structured blocker instead of truncating it.
 
 Antigravity discovers the rules from the current bound project; you do not need
-to create or select an Antigravity Project. Trust is Host-owned: after `apply`,
+to create or select an Antigravity Project. Trust is Host-owned: after `update`,
 trust the bound project in Antigravity if it asks. Agent Profile Kit does not
 read or change trust, settings, authentication, plugins, Project records,
 `AGENTS.md`, or `GEMINI.md`. A standing trust reminder appears for every
@@ -561,7 +564,7 @@ ownership you independently verify, including any
 `.git/info/exclude`, remove only the marked block between
 `# BEGIN Agent Profile Kit generated paths` and
 `# END Agent Profile Kit generated paths`; preserve every unrelated byte. Then
-recreate the desired Project Bindings and run `apkit apply` to establish fresh
+recreate the desired Project Bindings and run `apkit update` to establish fresh
 ownership receipts. This manual path is intentionally fail-closed.
 
 ### Host Resolution and project-bound Profiles
@@ -611,14 +614,14 @@ configuration warnings visible.
 
 Use `apkit unbind [project]` to remove desired Project Binding state.
 It does not delete generated output. When an installed receipt remains, its
-output recommends the fleet `status --all` and `apply --all` needed to review and
+output recommends the fleet `status --all` and `update --all` needed to review and
 reconcile the former installation; after `uninstall`, it omits that no-op step.
 
 To delete generated output directly, use `apkit uninstall`. It names each
 affected project, removed generated path, and cleaned Git exclusion entry. It
 removes only Installation Receipt-proven output and preserves the
 Workspace and Local Configuration, including Project Bindings. It writes no teardown provenance. Because the Project Binding remains, the next
-`status` reports the Project as not installed and eligible for `apply`, rather
+`status` reports the Project as not installed and eligible for `update`, rather
 than as unsafe unexplained missing output. `unbind` changes desired state;
 `uninstall` removes proven output. Neither command modifies
 personal/global Host configuration or repository-owned files.

@@ -22,11 +22,11 @@ const SEPARATOR = "# Agent Profile Kit generated paths separator";
 
 /** Canonical suffix for a missing-section warning surfaced by status. */
 export const REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX =
-  " is missing its Agent Profile Kit exclusion section; apply will restore recorded exact entries";
+  " is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries";
 
 /** Canonical suffix for a drifted-section warning surfaced by status. */
 export const REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX =
-  " Agent Profile Kit exclusion section does not match the generated entries; apply will rewrite it";
+  " Agent Profile Kit exclusion section does not match the generated entries; update will rewrite it";
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;

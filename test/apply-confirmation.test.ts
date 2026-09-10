@@ -200,7 +200,7 @@ describe("changed-output confirmation gate", () => {
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
   });
 
-  test("the command layer threads the consent callback through apply", async () => {
+  test("the command layer threads the consent callback through update", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-gate-command");
     const outcome = await abortedOutcome(() =>
       applyApplication(fleet.home, { confirmChangedOutputReplacement: decline }));

@@ -15,7 +15,7 @@ describe("per-capture oracle: baseline shapes are accepted", () => {
   });
 
   test("accepts a stacked label above an intact command line", () => {
-    const capture = "Next:\n  apkit apply ~/projects/demo --verbose\n";
+    const capture = "Next:\n  apkit update ~/projects/demo --verbose\n";
     checkAtomicRendering(capture, capture, {});
   });
 
@@ -29,13 +29,13 @@ describe("per-capture oracle: baseline shapes are accepted", () => {
     // equivalent identity, and a long path elides in the middle keeping its
     // tail. Whatever intact shape the baseline shows is the accepted atom.
     const baseline = [
-      "Next: apkit apply ~/…/demo --verbose",
+      "Next: apkit update ~/…/demo --verbose",
       "Project: ~/…/demo",
       "",
     ].join("\n");
     checkAtomicRendering(baseline, baseline, {});
     const spellings = collectSpellings(baseline, {});
-    expect(spellings).toContain("apkit apply ~/…/demo --verbose");
+    expect(spellings).toContain("apkit update ~/…/demo --verbose");
     expect(spellings).toContain("~/…/demo");
   });
 
@@ -54,31 +54,31 @@ describe("per-capture oracle: baseline shapes are accepted", () => {
 });
 
 describe("fragmentation not aligned with the baseline is rejected", () => {
-  const pristine = "Next: apkit apply ~/projects/demo --verbose\n";
+  const pristine = "Next: apkit update ~/projects/demo --verbose\n";
 
   test("rejects a path split mid-token across lines", () => {
     expect(() =>
-      checkAtomicRendering("Next: apkit apply ~/projects/de\nmo --verbose\n", pristine, {}),
+      checkAtomicRendering("Next: apkit update ~/projects/de\nmo --verbose\n", pristine, {}),
     ).toThrow(/fragmented/);
   });
 
   test("rejects a command folded at a word boundary with continuation indent", () => {
     expect(() =>
-      checkAtomicRendering("Next:\n  apkit apply\n  ~/projects/demo --verbose\n", pristine, {}),
+      checkAtomicRendering("Next:\n  apkit update\n  ~/projects/demo --verbose\n", pristine, {}),
     ).toThrow(/fragmented/);
   });
 
   test("rejects a split occurrence even though the same spelling is intact elsewhere", () => {
     const actual =
-      "Next: apkit apply ~/projects/demo --verbose\n\nDetails:\n  apkit ap\n  ply ~/projects/demo --verbose\n";
+      "Next: apkit update ~/projects/demo --verbose\n\nDetails:\n  apkit up\n  date ~/projects/demo --verbose\n";
     expect(() => checkAtomicRendering(actual, pristine, {})).toThrow(/fragmented from line 4/);
   });
 
   test("rejects fragmentation across an arbitrary number of lines", () => {
     const actual = [
       "Next:",
-      "  apkit ap",
-      "  ply ~/pro",
+      "  apkit up",
+      "  date ~/pro",
       "  jects/de",
       "  mo --ver",
       "  bose",
@@ -91,7 +91,7 @@ describe("fragmentation not aligned with the baseline is rejected", () => {
 
   test("rejects a fold hidden under ANSI styling", () => {
     const actual =
-      "\u001b[36mNext: apkit apply\u001b[0m\n\u001b[36m~/projects/demo --verbose\u001b[0m\n";
+      "\u001b[36mNext: apkit update\u001b[0m\n\u001b[36m~/projects/demo --verbose\u001b[0m\n";
     expect(() => checkAtomicRendering(actual, pristine, {})).toThrow(/fragmented/);
   });
 
@@ -159,9 +159,9 @@ describe("verbatim tolerance is scoped to actual verbatim regions", () => {
   });
 
   test("fragmentation adjacent to but outside a verbatim region is still flagged", () => {
-    const baseline = "alpha ~/projects/demo\nbeta line\nNext: apkit apply ~/projects/demo --verbose\n";
+    const baseline = "alpha ~/projects/demo\nbeta line\nNext: apkit update ~/projects/demo --verbose\n";
     const actual =
-      "alpha ~/projects/demo\nbeta line\nNext: apkit apply ~/projects/de\n  mo --verbose\n";
+      "alpha ~/projects/demo\nbeta line\nNext: apkit update ~/projects/de\n  mo --verbose\n";
     expect(() => checkAtomicRendering(actual, baseline, { verbatimLines })).toThrow(
       /fragmented/,
     );
@@ -267,10 +267,10 @@ describe("complete spellings from real command and path forms", () => {
 describe("baseline-intact spelling oracle", () => {
   test("collects command and path spellings from the baseline only", () => {
     const spellings = collectSpellings(
-      "Next: apkit apply ~/projects/demo --verbose\nTopics:\n  apkit guide profile\n",
+      "Next: apkit update ~/projects/demo --verbose\nTopics:\n  apkit guide profile\n",
       {},
     );
-    expect(spellings).toContain("apkit apply ~/projects/demo --verbose");
+    expect(spellings).toContain("apkit update ~/projects/demo --verbose");
     expect(spellings).toContain("~/projects/demo");
     expect(spellings).toContain("apkit guide profile");
   });
@@ -279,7 +279,7 @@ describe("baseline-intact spelling oracle", () => {
 describe("INT-1 exact follow-up regressions", () => {
   test.each([
     ["apkit status . --verbose", "apkit status\n    . --verbose"],
-    ['apkit apply "~/projects/my demo" --verbose', 'apkit apply\n    "~/projects/my demo" --verbose'],
+    ['apkit update "~/projects/my demo" --verbose', 'apkit update\n    "~/projects/my demo" --verbose'],
     ["Project: ~/projects/my demo", "Project: ~/projects/my\n    demo"],
   ])("rejects the reported fold in %s", (baseline, actual) => {
     expect(() => checkAtomicRendering(actual, baseline)).toThrow(/fragmented/);
@@ -293,9 +293,9 @@ test("INT-1 renderer-produced command and spaced path spellings reject every fol
   const commands = [
     ["status", ".", "--verbose"],
     ["status", "..", "--verbose"],
-    ["apply", '"~/projects/my demo"', "--verbose"],
-    ["apply", '"~/projects/my  demo"', "--verbose"],
-    ["apply", "'~/projects/my demo'", "--verbose"],
+    ["update", '"~/projects/my demo"', "--verbose"],
+    ["update", '"~/projects/my  demo"', "--verbose"],
+    ["update", "'~/projects/my demo'", "--verbose"],
   ];
   const rendered = commands.map((args) => renderPresentationDocument([
     { kind: "sentence", parts: [commandPart("apkit", args.map((value) => ({ kind: "text", value })))] },

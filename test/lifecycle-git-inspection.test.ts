@@ -366,7 +366,7 @@ describe("lifecycle Git inspection batching", () => {
     expect(instrumentation.counts.classifyTrackedPaths).toBe(1);
   });
 
-  test("apply post-commit verification uses a fresh Git inspection pass", async () => {
+  test("update post-commit verification uses a fresh Git inspection pass", async () => {
     const { home, gitProjects } = await fleetHome({
       gitProjectCount: 1,
       skillCount: 2,
@@ -402,7 +402,7 @@ describe("lifecycle Git inspection batching", () => {
     expect(reportItems(report.resultingState).every((item) => item.kind === "current")).toBe(true);
   });
 
-  test("reusing one Git inspection context across apply preflight and verify leaves stale exclusion evidence", async () => {
+  test("reusing one Git inspection context across update preflight and verify leaves stale exclusion evidence", async () => {
     const { home } = await fleetHome({
       gitProjectCount: 1,
       skillCount: 2,

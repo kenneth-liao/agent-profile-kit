@@ -487,7 +487,7 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "configuration-lock-busy":
       return [`Local Configuration ${fact.configurationPath} is busy; another ${fact.operation} holds the lock — retry`];
     case "configuration-changed-while-planning":
-      return ["Local Configuration changed while apply was planning; retry apply"];
+      return ["Local Configuration changed while update was planning; retry update"];
     case "configuration-changed-before-publication":
       return [`Local Configuration ${fact.configurationPath} changed before ${fact.operation} publication; retry after the other edit completes`];
     case "temporary-identity-required":
@@ -605,8 +605,8 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       };
     case "configuration-changed-while-planning":
       return {
-        happened: ["Local Configuration changed while apply was planning"],
-        whatToType: [["Retry apply."]],
+        happened: ["Local Configuration changed while update was planning"],
+        whatToType: [["Retry update."]],
       };
     case "configuration-changed-before-publication":
       return {

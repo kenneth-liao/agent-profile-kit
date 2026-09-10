@@ -156,7 +156,7 @@ function normalizedDirectory(): DesiredProjectOutput {
 }
 
 describe("Installer-owned artifact-directory outputs", () => {
-  test("apply creates an artifact directory transactionally and records ownership hashes", async () => {
+  test("update creates an artifact directory transactionally and records ownership hashes", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-project-");
     const base = await contextInstallation(home, project);
@@ -213,7 +213,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(reportOutputs(report)).not.toContainEqual({ kind: "update", path: directory.path, project });
   });
 
-  test("apply drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
+  test("update drops a wholly absent recorded directory that current Workspace state no longer desires", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-absent-removal-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-absent-removal-project-");
     const base = await contextInstallation(home, project);
@@ -439,7 +439,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     )).toHaveLength(1);
   });
 
-  test("a host scratch directory under an installed Skill root is non-blocking drift that apply restores", async () => {
+  test("a host scratch directory under an installed Skill root is non-blocking drift that update restores", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-scratch-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-scratch-project-");
     const base = await contextInstallation(home, project);
@@ -492,7 +492,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(readFileSync(join(external, "SKILL.md"), "utf8")).toBe("external\n");
   });
 
-  test("apply rolls back a mid-directory publication failure", async () => {
+  test("update rolls back a mid-directory publication failure", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-rollback-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-rollback-project-");
     const base = await contextInstallation(home, project);
@@ -561,7 +561,7 @@ describe("Installer-owned artifact-directory outputs", () => {
     expect(state.receipts[0]!.outputs.every((output) => output.type === "file")).toBe(true);
   });
 
-  test("apply stages read-only directory roots and nested directories successfully", async () => {
+  test("update stages read-only directory roots and nested directories successfully", async () => {
     const home = temporaryDirectory("agent-profile-kit-dir-readonly-home-");
     const project = temporaryDirectory("agent-profile-kit-dir-readonly-project-");
     const base = await contextInstallation(home, project);

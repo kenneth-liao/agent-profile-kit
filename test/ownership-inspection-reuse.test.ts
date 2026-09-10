@@ -244,7 +244,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
   });
 
-  test("apply preflight and post-commit verification each use a fresh ownership inspection pass", async () => {
+  test("update preflight and post-commit verification each use a fresh ownership inspection pass", async () => {
     const home = temporaryDirectory("apk-own-inspect-apply-home-");
     const project = temporaryDirectory("apk-own-inspect-apply-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);

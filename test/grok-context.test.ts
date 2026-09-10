@@ -335,7 +335,7 @@ describe("Grok Adapter planner", () => {
         resolveVersion: async () => "0.2.111",
         inspect: async () => {
           throw new Error(
-            "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or applying the Profile",
+            "Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the CLI before checking status or updating the Profile",
           );
         },
       }),
@@ -367,7 +367,7 @@ describe("Grok Adapter planner", () => {
     }
   });
 
-  test("infers applied Claude rules topology from prior installation outputs", () => {
+  test("infers updated Claude rules topology from prior installation outputs", () => {
     expect(
       inferGrokClaudeRulesEnabledFromOutputs(
         ["claude", "grok"],
@@ -620,7 +620,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     }
   });
 
-  test("status preserves dual-path topology without probing after compatibility-disabled apply", async () => {
+  test("status preserves dual-path topology without probing after compatibility-disabled update", async () => {
     const home = temporaryDirectory("apk-status-topology-home-");
     const project = temporaryDirectory("apk-status-topology-project-");
     await writeContextWorkspace(home, project, ["claude", "grok"]);

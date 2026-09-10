@@ -161,7 +161,7 @@ import {
 } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 
-export type LifecycleCommand = "apply" | "status";
+export type LifecycleCommand = "update" | "status";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -266,17 +266,17 @@ void _assertOrderExhaustive;
 /** Short, progressive-disclosure glosses for non-current Profile Installation states. */
 const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
   addition:
-    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; apply will create its ` +
+    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; update will create its ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
   update:
     `${capitalize(DEFAULT_VIEW_LEXICON.desiredState)} changed for this ` +
-    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}; apply will rewrite ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)}; update will rewrite ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive} to match.`,
   "stale source":
-    `Workspace source changed since the last apply; ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} no longer ` +
+    `Workspace source changed since the last update; ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} no longer ` +
     `match current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
   "drifted output":
-    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} differs from its recorded installation; apply will ` +
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} differs from its recorded installation; update will ` +
     `replace it from current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
   "malformed ownership state":
     "Ownership metadata is incomplete or inconsistent, so Agent Profile Kit cannot prove what it owns.",
@@ -284,7 +284,7 @@ const STATE_EXPLANATIONS: Readonly<Record<NonCurrentKind, string>> = {
     `${capitalize(DEFAULT_VIEW_LEXICON.reconciliation.noun)} cannot change this ` +
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} until the listed blocker is resolved.`,
   removal:
-    `No ${DEFAULT_VIEW_LEXICON.projectBinding.singular} remains for this installation; apply will remove proven ` +
+    `No ${DEFAULT_VIEW_LEXICON.projectBinding.singular} remains for this installation; update will remove proven ` +
     `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
 };
 
@@ -342,7 +342,7 @@ export function hasNotInstalledYet(project: ReconciliationProjectRecord): boolea
 /** Canonical per-output source-change evidence: only outputs whose desired
  * projection provably differs from the recorded receipt (typed sourceChanged
  * fact from the reconciliation boundary), or whose operation itself implies
- * desired-state change since the last apply (addition, removal, a source-only
+ * desired-state change since the last update (addition, removal, a source-only
  * update). Drifted outputs without the typed fact never claim a source
  * change — that would infer a cause the evidence does not own. */
 function outputSourceChanged(output: Omit<OutputReconciliationItem, "project">): boolean {
@@ -471,7 +471,7 @@ function needsAttentionCauseNodes(
     if (project.state.kind === "removal") {
       nodes.push({
         kind: "prose",
-        parts: ["    Apply will remove generated files for unbound projects."],
+        parts: ["    Update will remove generated files for unbound projects."],
       });
     }
   }
@@ -628,7 +628,7 @@ export function formatInfoToolErrorJson(
  * against the canonical command table, so a machine-facing command
  * (DEC-021) cannot appear here by construction.
  */
-const BARE_TASK_COMMAND_NAMES = ["status", "apply", "bind", "guide"] as const;
+const BARE_TASK_COMMAND_NAMES = ["status", "update", "bind", "guide"] as const;
 
 /** One muted pointer to the full surface; the entry screen is not the manual. */
 function bareHelpPointerNodes(): PresentationNode[] {
@@ -1365,7 +1365,7 @@ export function uninstallResultDocument(
         "Next: Run ",
         commandPart(COMMAND_NAME, [arg("unbind")]),
         ` for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or `,
-        commandPart(COMMAND_NAME, [arg("apply")]),
+        commandPart(COMMAND_NAME, [arg("update")]),
         " to reinstall.",
       ],
       category: "command",
@@ -1777,7 +1777,7 @@ function isNoOpApply(
   report: ReconciliationReport,
   receipt: ReconciliationReport | undefined,
 ): boolean {
-  return command === "apply" &&
+  return command === "update" &&
     receipt !== undefined &&
     fullyCurrentProjectCount(report) !== undefined &&
     !reportHasReconciliationWork(receipt);
@@ -1807,13 +1807,13 @@ function outcomeLine(
   applyCompleted = false,
   selection?: ProjectBindingSelection,
 ): string {
-  if (command === "apply") {
-    if (reportBlockers(report).length > 0) return applyCompleted ? "Apply completed with blockers" : "Apply blocked";
-    if (reportItems(report).some((item) => item.kind !== "current")) return "Apply completed with attention";
-    return "Apply complete";
+  if (command === "update") {
+    if (reportBlockers(report).length > 0) return applyCompleted ? "Update completed with blockers" : "Update blocked";
+    if (reportItems(report).some((item) => item.kind !== "current")) return "Update completed with attention";
+    return "Update complete";
   }
   const currentProjects = fullyCurrentProjectCount(report);
-  if (reportBlockers(report).length > 0) return "Cannot apply";
+  if (reportBlockers(report).length > 0) return "Cannot update";
   // An empty filtered selection is a valid empty result, not an unconfigured
   // fleet: the outcome names the filter, never unconfigured-fleet copy (DEC-006).
   if (selection?.filter !== undefined && report.projects.length === 0) {
@@ -1824,7 +1824,7 @@ function outcomeLine(
     const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
     return `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
   }
-  if (reportItems(report).length > 0) return "Ready to apply";
+  if (reportItems(report).length > 0) return "Ready to update";
   return `No ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} are configured`;
 }
 
@@ -1838,13 +1838,13 @@ function aggregateLine(
     `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)}: ${installations}`,
   ];
   if (reportBlockers(report).length > 0) {
-    if (command === "apply") parts.push("Pending: blocked");
+    if (command === "update") parts.push("Pending: blocked");
     parts.push(`Blockers: ${reportBlockers(report).length}`);
     return parts.join(" · ");
   }
   const changes = changeParts(summarizeOutputs(reportOutputs(report)));
   if (changes.length > 0) {
-    parts.push(`${command === "apply" ? "Pending" : "Changes"}: ${changes.join(", ")}`);
+    parts.push(`${command === "update" ? "Pending" : "Changes"}: ${changes.join(", ")}`);
   }
   return parts.length === 1 ? undefined : parts.join(" · ");
 }
@@ -1995,7 +1995,7 @@ function presentedSetupSteps(
   scope: LocationDisplayScope,
 ): readonly PresentedSetupStep[] {
   if (command === "status" && !verbose) return [];
-  if (command === "apply" && reportBlockers(report).length > 0) return [];
+  if (command === "update" && reportBlockers(report).length > 0) return [];
   const changeReport = changeEvidence ?? report;
   const steps: PresentedSetupStep[] = [];
   for (const project of report.projects) {
@@ -2344,10 +2344,10 @@ function nextActionNodes(
   },
   options: LifecycleHumanOptions,
 ): PresentationNode[] {
-  if (command === "apply" && reportBlockers(report).length === 0) return [];
+  if (command === "update" && reportBlockers(report).length === 0) return [];
   const scope = locationDisplayScope(options, report);
   const commandArgs = lifecycleCommandArgs(command, options.selection, report, scope);
-  const applyCommandArgs = lifecycleCommandArgs("apply", options.selection, report, scope);
+  const applyCommandArgs = lifecycleCommandArgs("update", options.selection, report, scope);
 
   const globalBlockers = reportBlockers(report).filter((blocker) => blockerProject(blocker) === undefined);
   const grouped = new Map<
@@ -2388,7 +2388,7 @@ function nextActionNodes(
         [
           "After all blockers are resolved, run ",
           commandPart(COMMAND_NAME, applyCommandArgs),
-          command === "apply" ? " again." : ".",
+          command === "update" ? " again." : ".",
         ],
         project,
       );
@@ -2801,7 +2801,7 @@ function applyOutcomeNotice(
   return {
     kind: "notice",
     severity: reportBlockers(report).length > 0 ? "error" : "success",
-    nodes: [{ kind: "prose", parts: [outcomeLine("apply", report, applyCompleted)] }],
+    nodes: [{ kind: "prose", parts: [outcomeLine("update", report, applyCompleted)] }],
   };
 }
 
@@ -2817,7 +2817,7 @@ function operationReceiptNodes(
   const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
   if (groups.length === 0 && exclusionClause === undefined) return [];
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: "Applied:" },
+    { kind: "heading", text: "Updated:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
       parts: [`  ${operationGroupLine(group, fleetScope, scope)}`],
@@ -2874,10 +2874,10 @@ function applyReceiptNodes(
   });
   const exclusionClause = repositoryExclusionClause(receipt, true);
   if (entries.length === 0 && exclusionClause === undefined) {
-    return [{ kind: "prose", parts: ["Applied: none."] }];
+    return [{ kind: "prose", parts: ["Updated: none."] }];
   }
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: "Applied:" },
+    { kind: "heading", text: "Updated:" },
     ...(entries.length > 0
       ? entries
       : [{ kind: "prose" as const, parts: [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`] }]),
@@ -3012,7 +3012,7 @@ function conciseApplyDocument(
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = reportBlockers(report).length > 0;
-  const noOpApply = isNoOpApply("apply", report, receipt);
+  const noOpApply = isNoOpApply("update", report, receipt);
 
   const nodes: PresentationNode[] = [
     applyOutcomeNotice(report, noOpApply || receipt !== undefined),
@@ -3032,7 +3032,7 @@ function conciseApplyDocument(
 
   const activeGroups = blocked
     ? groups.filter((group) => group.blockers.length > 0)
-    : groups.filter((group) => groupNeedsAttention(group, "apply"));
+    : groups.filter((group) => groupNeedsAttention(group, "update"));
 
   if (!noOpApply) {
     for (const group of activeGroups) {
@@ -3112,7 +3112,7 @@ function conciseApplyDocument(
   const globalBlockers = globalBlockerNodes(report, groups, scope);
   if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
 
-  const blockedSummary = blocked ? aggregateLine("apply", report, groups) : undefined;
+  const blockedSummary = blocked ? aggregateLine("update", report, groups) : undefined;
   if (blockedSummary !== undefined) {
     nodes.push(spacerNode(), {
       kind: "notice",
@@ -3122,12 +3122,12 @@ function conciseApplyDocument(
   }
 
   const setupNodes = conciseFirstUseNodes(
-    presentedSetupSteps("apply", report, receipt, false, scope),
+    presentedSetupSteps("update", report, receipt, false, scope),
     receipt,
   );
   if (setupNodes.length > 0) nodes.push(spacerNode(), ...setupNodes);
 
-  const next = nextActionNodes("apply", report, {
+  const next = nextActionNodes("update", report, {
     groups,
     unscopedItems: grouped.unscopedItems,
   }, options);
@@ -3169,12 +3169,12 @@ function verboseApplyDocument(
         ...reportItems(result.receipt),
       ],
     }),
-    { kind: "heading", text: "Applied:" },
+    { kind: "heading", text: "Updated:" },
     ...verboseLifecycleSections(result.receipt, {
       includeStateExplanations: false,
       scope,
     }),
-    ...verboseHostSetupNodes("apply", result.resultingState, scope),
+    ...verboseHostSetupNodes("update", result.resultingState, scope),
   ];
   if (reportBlockers(result.resultingState).length === 0) {
     const readiness = readinessNodes(result.resultingState, result.receipt);
@@ -3265,7 +3265,7 @@ export function blockedApplyReportDocument(
       ...verboseLifecycleSections(report, {
         scope,
       }),
-      ...verboseHostSetupNodes("apply", report, scope),
+      ...verboseHostSetupNodes("update", report, scope),
     ];
   }
   return conciseApplyDocument(report, undefined, options);
@@ -3301,8 +3301,8 @@ export function applyExecutionFailureDocument(
       nodes: [{
         kind: "prose",
         parts: [failedProject === undefined
-          ? `Apply failed after committing Project work: ${failure.detail}`
-          : `Apply failed at ${failedProject}: ${failure.detail}`],
+          ? `Update failed after committing Project work: ${failure.detail}`
+          : `Update failed at ${failedProject}: ${failure.detail}`],
       }],
     },
     ...warningItems,
@@ -3367,7 +3367,7 @@ export function applyReplacementConfirmationDocument(
 export function applyReplacementCommandDocument(
   commandArguments: readonly string[],
 ): PresentationDocument {
-  return promptedEquivalentCommandDocument("apply", commandArguments);
+  return promptedEquivalentCommandDocument("update", commandArguments);
 }
 
 /** The equivalent fully specified command for a completed interactive bind
@@ -3382,7 +3382,7 @@ export function bindPromptedCommandDocument(
 /** The one shared equivalent-command rendering for completed prompt flows:
  * the sentence names the command; the carried command part is canonical. */
 function promptedEquivalentCommandDocument(
-  command: "apply" | "bind",
+  command: "update" | "bind",
   commandArguments: readonly string[],
 ): PresentationDocument {
   return [{
@@ -3443,8 +3443,8 @@ export function applyReplacementDeclinedDocument(
 ): PresentationDocument {
   return diagnosticDocument({
     happened: [reason === "cancelled"
-      ? "apply was cancelled before any write"
-      : "apply kept the changed generated files; nothing was written"],
+      ? "update was cancelled before any write"
+      : "update kept the changed generated files; nothing was written"],
     why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
     whatToType: [[
       "To replace changed generated files without asking, run ",
@@ -3468,11 +3468,11 @@ export function applyVerificationFailureDocument(
     return [
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
       ...warningItems,
-      { kind: "heading", text: "Applied:" },
+      { kind: "heading", text: "Updated:" },
       ...verboseLifecycleSections(receipt, {
         scope,
       }),
-      ...verboseHostSetupNodes("apply", receipt, scope),
+      ...verboseHostSetupNodes("update", receipt, scope),
     ];
   }
   const nodes: PresentationNode[] = [
@@ -3481,7 +3481,7 @@ export function applyVerificationFailureDocument(
     ...applyReceiptNodes(receipt, scope),
   ];
   const setup = conciseFirstUseNodes(
-    presentedSetupSteps("apply", receipt, receipt, false, scope),
+    presentedSetupSteps("update", receipt, receipt, false, scope),
     receipt,
   );
   if (setup.length > 0) nodes.push(spacerNode(), ...setup);
@@ -3673,7 +3673,7 @@ function readyStatusGuidanceNodes(
     {
       kind: "key-value",
       key: "Next",
-      value: statusLifecycleCommand("apply", report, options),
+      value: statusLifecycleCommand("update", report, options),
       category: "command",
     },
     spacerNode(),
@@ -4201,7 +4201,7 @@ function canonicalLifecycleMachinePayload(
 }
 
 export function formatLifecycleJson(
-  command: Exclude<LifecycleCommand, "apply">,
+  command: Exclude<LifecycleCommand, "update">,
   report: ReconciliationReport,
 ): string {
   return serializeMachinePayload(canonicalLifecycleMachinePayload(command, report));
@@ -4209,12 +4209,12 @@ export function formatLifecycleJson(
 
 export function formatApplyJson(result: ApplyReconciliationResult): string {
   return serializeMachinePayload(
-    canonicalLifecycleMachinePayload("apply", result.resultingState, result.receipt),
+    canonicalLifecycleMachinePayload("update", result.resultingState, result.receipt),
   );
 }
 
 export function formatBlockedApplyJson(report: BlockedReconciliationReport): string {
-  return serializeMachinePayload(canonicalLifecycleMachinePayload("apply", report));
+  return serializeMachinePayload(canonicalLifecycleMachinePayload("update", report));
 }
 
 export function formatApplyExecutionFailureJson(failure: {
@@ -4226,7 +4226,7 @@ export function formatApplyExecutionFailureJson(failure: {
 }): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
-    command: "apply",
+    command: "update",
     outcome: "error",
     error: failure.message,
     ...(failure.resultingState === undefined
@@ -4246,7 +4246,7 @@ export function formatApplyVerificationFailureJson(
 ): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
-    command: "apply",
+    command: "update",
     outcome: "error",
     error: message,
     globalBlockers: [],

@@ -193,7 +193,7 @@ export function assertGrokCliVersionSupported(
       throw versionFloorCapabilityFailure(
         "grok",
         `Grok CLI ${version} cannot enforce disabled model invocation via disable-model-invocation (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Grok Build before checking status or applying the Profile",
+        "upgrade Grok Build before checking status or updating the Profile",
         GROK_MINIMUM_CLI_VERSION,
       );
     }
@@ -201,7 +201,7 @@ export function assertGrokCliVersionSupported(
       throw versionFloorCapabilityFailure(
         "grok",
         `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Grok Build before checking status or applying the Profile",
+        "upgrade Grok Build before checking status or updating the Profile",
         GROK_MINIMUM_CLI_VERSION,
       );
     }
@@ -209,14 +209,14 @@ export function assertGrokCliVersionSupported(
       throw versionFloorCapabilityFailure(
         "grok",
         `Grok CLI ${version} does not support native project Skills (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
-        "upgrade Grok Build before checking status or applying the Profile",
+        "upgrade Grok Build before checking status or updating the Profile",
         GROK_MINIMUM_CLI_VERSION,
       );
     }
     throw versionFloorCapabilityFailure(
       "grok",
       `Grok CLI ${version} does not support project rules inspection (requires ${GROK_MINIMUM_CLI_VERSION}+)`,
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
       GROK_MINIMUM_CLI_VERSION,
     );
   }
@@ -236,7 +236,7 @@ export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Pro
         "grok",
         "host",
         "Grok CLI was not found on PATH",
-        "install Grok Build and ensure `grok version` works before checking status or applying the Profile",
+        "install Grok Build and ensure `grok version` works before checking status or updating the Profile",
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -254,7 +254,7 @@ export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Pro
       "grok",
       "host",
       `Grok CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      "install a supported Grok Build release before checking status or applying the Profile",
+      "install a supported Grok Build release before checking status or updating the Profile",
     );
   }
 }
@@ -440,7 +440,7 @@ function parseCompatCellEnabled(
       "grok",
       "project",
       `Grok inspect --json ${description} cell is unreadable`,
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
     );
   }
   return enabled;
@@ -471,7 +471,7 @@ export function parseGrokInspectDocument(
       "grok",
       "project",
       "Grok inspect --json output is not valid JSON",
-      "upgrade Grok Build or fix the CLI before checking status or applying the Profile",
+      "upgrade Grok Build or fix the CLI before checking status or updating the Profile",
     );
   }
   if (typeof document !== "object" || document === null || Array.isArray(document)) {
@@ -479,7 +479,7 @@ export function parseGrokInspectDocument(
       "grok",
       "project",
       "Grok inspect --json output must be a JSON object",
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
     );
   }
   const root = document as Record<string, unknown>;
@@ -493,7 +493,7 @@ export function parseGrokInspectDocument(
       "grok",
       "project",
       "Grok inspect --json output is missing externalCompat",
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
     );
   }
   const cells = (externalCompat as Record<string, unknown>).cells;
@@ -502,7 +502,7 @@ export function parseGrokInspectDocument(
       "grok",
       "project",
       "Grok inspect --json externalCompat.cells must be an array",
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
     );
   }
 
@@ -512,7 +512,7 @@ export function parseGrokInspectDocument(
       "grok",
       "project",
       "Grok inspect --json does not report the Claude rules compatibility cell",
-      "upgrade Grok Build before checking status or applying the Profile",
+      "upgrade Grok Build before checking status or updating the Profile",
     );
   }
 
@@ -555,7 +555,7 @@ export async function inspectGrokProject(
         "grok",
         "host",
         "Grok CLI was not found on PATH",
-        "install Grok Build and ensure `grok inspect --json` works before checking status or applying the Profile",
+        "install Grok Build and ensure `grok inspect --json` works before checking status or updating the Profile",
       );
     }
     if (error instanceof Error && error.message.startsWith("Grok inspect")) {
@@ -581,7 +581,7 @@ export async function inspectGrokProject(
       "grok",
       "project",
       `Grok project inspection failed (${error instanceof Error ? error.message : String(error)})`,
-      "ensure `grok inspect --json` works in the bound project before checking status or applying the Profile",
+      "ensure `grok inspect --json` works in the bound project before checking status or updating the Profile",
     );
   }
 }

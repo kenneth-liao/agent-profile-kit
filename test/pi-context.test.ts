@@ -690,7 +690,7 @@ describe("Pi Adapter", () => {
     expect(readFileSync(join(destination, "SKILL.md"), "utf8")).toBe("foreign skill\n");
   });
 
-  test("Pi Skill selection plans only its binding without touching project or Installation State before apply", async () => {
+  test("Pi Skill selection plans only its binding without touching project or Installation State before update", async () => {
     const home = temporaryDirectory("apk-pi-skill-home-");
     const project = temporaryDirectory("apk-pi-skill-project-");
     const unrelatedProject = temporaryDirectory("apk-pi-skill-unrelated-project-");

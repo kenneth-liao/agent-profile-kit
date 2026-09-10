@@ -43,7 +43,7 @@ function fleetExecutorOptions(options: {
 export function withFleetScope(arguments_: readonly string[]): readonly string[] {
   const [command, ...rest] = arguments_;
   const hasPositional = rest.some((arg) => !arg.startsWith("-"));
-  return (command === "apply" || command === "status") && !rest.includes("--all") && !hasPositional
+  return (command === "update" || command === "status") && !rest.includes("--all") && !hasPositional
     ? [...arguments_, "--all"]
     : arguments_;
 }

@@ -40,13 +40,13 @@ describe("fleet packed-CLI child deadline policy", () => {
 
   test("runFleetCli launches the packed CLI under the fleet deadline, not the fast-suite deadline", async () => {
     const records: ExecutorOptions[] = [];
-    const result = await runFleetCli("home-dir", "path-dir", ["apply", "--all", "--json"], recordingExecutor(records));
+    const result = await runFleetCli("home-dir", "path-dir", ["update", "--all", "--json"], recordingExecutor(records));
     expect(result.kind).toBe("exit");
     expect(records).toHaveLength(1);
     const launch = records[0]!;
     expect(launch.deadlineMs).toBe(FLEET_CHILD_DEADLINE_MS);
     expect(launch.deadlineMs).not.toBe(TEST_CHILD_DEADLINE_MS);
-    expect(launch.arguments_).toEqual([FLEET_CLI_PATH, "apply", "--all", "--json"]);
+    expect(launch.arguments_).toEqual([FLEET_CLI_PATH, "update", "--all", "--json"]);
     expect(launch.environment?.HOME).toBe("home-dir");
     expect(launch.environment?.PATH).toBe("path-dir");
   });
