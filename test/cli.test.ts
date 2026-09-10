@@ -2744,7 +2744,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed.stderr).toContain("Run apkit bind to configure this directory as a Project.");
     expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
     // Usage node as final guidance
-    expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--verbose] [--json]");
+    expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]");
     expect(lines.at(-1)).toBe("");
   });
 
@@ -3645,7 +3645,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspacePath(home), "context", "team-rules.md"),
       "---\nid: team-rules\ndependencies: []\n---\nScoped composition change.\n",
     );
-    const applyStale = await runCli(home, "update", stale, "--stale");
+    const applyStale = await runCli(home, "update", stale, "--stale", "--replace-changed");
 
     expectExitCode(applyStale, 0);
     expect(applyStale.stdout).toContain("Updated:");
@@ -5259,7 +5259,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(context, 0o600);
 
     const status = await runCli(home, "status", "--verbose");
-    const applied = await runCli(home, "update");
+    const applied = await runCli(home, "update", "--replace-changed");
 
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: drifted output`));
@@ -5292,7 +5292,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(unexpected, "user note\n");
 
     const driftStatus = await runCli(home, "status", "--verbose");
-    const applied = await runCli(home, "update");
+    // The user-added member is discarded by the replacement, so the explicit
+    // answering flag is required (US-007, DEC-005).
+    const applied = await runCli(home, "update", "--replace-changed");
 
     expectExitCode(driftStatus, 0);
     expect(driftStatus.stdout).toContain(".agents/skills/review-pr");
@@ -5314,7 +5316,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(drifted, "user edit\n");
 
     const driftStatus = await runCli(home, "status", "--verbose");
-    const repaired = await runCli(home, "update");
+    const repaired = await runCli(home, "update", "--replace-changed");
     const current = await runCli(home, "status");
 
     expectExitCode(driftStatus, 0);
@@ -5352,7 +5354,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Concise fleet: the replacement is named with its Project attribution,
     // and the receipt does not infer who changed the file (US-028, DEC-018).
     writeFileSync(driftedPath(projectAlpha), "hand edit\n");
-    const concise = await runCli(home, "update", "--all");
+    const concise = await runCli(home, "update", "--all", "--replace-changed");
     expectExitCode(concise, 0);
     const appliedSection = concise.stdout.slice(
       concise.stdout.indexOf("Updated:"),
@@ -5364,7 +5366,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Verbose: the drifted replacement is distinguishable as changed bytes.
     writeFileSync(driftedPath(projectAlpha), "hand edit again\n");
-    const verbose = await runCli(home, "update", "--all", "--verbose");
+    const verbose = await runCli(home, "update", "--all", "--verbose", "--replace-changed");
     expectExitCode(verbose, 0);
     const verboseText = humanText(verbose.stdout);
     expect(verboseText).toContain(
@@ -5375,7 +5377,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // the named replacement, without key changes. Drift classification stays
     // presentation-side; the machine receipt names the operation and file.
     writeFileSync(driftedPath(projectAlpha), "hand edit once more\n");
-    const json = await runCli(home, "update", "--all", "--json");
+    const json = await runCli(home, "update", "--all", "--json", "--replace-changed");
     expectExitCode(json, 0);
     const payload = JSON.parse(json.stdout) as {
       readonly applied?: {
@@ -5429,7 +5431,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(projectBeta, 0o555);
 
     try {
-      const failed = await runCli(home, "update", "--all");
+      const failed = await runCli(home, "update", "--all", "--replace-changed");
       expectExitCode(failed, 1);
       const evidence = humanText(failed.stderr);
       // Complete committed-operation evidence, including the replaced changed
@@ -5631,7 +5633,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const drifted = join(projectPath, ".codex", "hooks.json");
     writeFileSync(drifted, "user edit\n");
 
-    const applied = await runCli(home, "update");
+    const applied = await runCli(home, "update", "--replace-changed");
 
     expectExitCode(applied, 0);
     const republished = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -6229,7 +6231,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     bind(home, retained);
 
-    const result = await runCliAt(home, removed, "update", "--all");
+    // Deleting the stale installation's drifted output needs its own explicit
+    // flag: without it the whole invocation refuses before any write, leaving
+    // both the drifted survivor and the healthy Project untouched (DEC-005).
+    const refused = await runCliAt(home, removed, "update", "--all");
+    expectExitCode(refused, 1);
+    expect(refused.stderr).toContain("--remove-changed");
+    expect(readFileSync(join(removed, ".codex", "hooks.json"), "utf8")).toBe("user drift\n");
+    expect(readFileSync(retainedContext, "utf8")).toBe(before);
+
+    const result = await runCliAt(home, removed, "update", "--all", "--remove-changed");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -6348,7 +6359,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Pure user drift after the source change is applied: no sourceChanged
     // fact exists, so no source-change cause may be claimed.
-    expectExitCode(await runCli(home, "update"), 0);
+    expectExitCode(await runCli(home, "update", "--replace-changed"), 0);
     writeFileSync(hooksPath, "{\"user\":\"edited\"}\n");
     const drifted = await runCli(home, "status", "--verbose");
     expectExitCode(drifted, 0);
@@ -6356,7 +6367,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(drifted.stdout)).not.toContain(humanText(`${hooksPath}: changed (source changed)`));
 
     // Apply performs the same pending update work from current source.
-    const applied = await runCli(home, "update", "--verbose");
+    const applied = await runCli(home, "update", "--verbose", "--replace-changed");
     expectExitCode(applied, 0);
     expect(readFileSync(hooksPath, "utf8")).toContain("hooks");
   });
@@ -6438,7 +6449,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Apply consumes both causes: restores the drifted output from current
     // Workspace source and records the refreshed input digest.
-    const applied = await runCli(home, "update");
+    const applied = await runCli(home, "update", "--replace-changed");
     expectExitCode(applied, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
   });
@@ -6828,7 +6839,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const help = await runCli(isolatedHome(), "help", "update");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
-      "Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
+      "Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]",
     );
     expect(help.stdout).toContain("apkit update --stale");
     expect(help.stdout).toContain("apkit update --blocked");
@@ -6899,7 +6910,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "---\nid: team-rules\ndependencies: []\n---\nPending shared update.\n",
     );
 
-    const result = await runCli(home, "update", "--all");
+    const result = await runCli(home, "update", "--all", "--replace-changed");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -14493,7 +14504,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
 });
 
 describe("packed CLI changed-output replacement confirmation (#458, US-029-031, DEC-019)", () => {
-  test("non-interactive update never prompts and completes a drifted replacement", async () => {
+  test("non-interactive update without consent refuses a drifted replacement before any write", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -14503,12 +14514,17 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     writeFileSync(contextPath, "hand-edited\n");
 
-    // Piped stdin: if a prompt fired it could only cancel, so completion
-    // itself proves the invocation never waited for input.
+    // Piped stdin: the invocation refuses instead of waiting for input, names
+    // the runnable remedy, and leaves the drifted bytes untouched.
     const result = await runCli(home, "update", "--all");
-    expectExitCode(result, 0);
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("--replace-changed");
+    expect(readFileSync(contextPath, "utf8")).toBe("hand-edited\n");
+
+    const flagged = await runCli(home, "update", "--all", "--replace-changed");
+    expectExitCode(flagged, 0);
     expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
-    expect(humanText(result.stdout)).toContain(contextPath.replace(/.*\//, ""));
+    expect(humanText(flagged.stdout)).toContain(contextPath.replace(/.*\//, ""));
   });
 
   test("the answering flag replaces changed generated files without a prompt", async () => {
@@ -14535,6 +14551,9 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
     const result = await runCli(home, "status", "--replace-changed");
     expectExitCode(result, 1);
     expect(humanText(result.stderr)).toContain("status does not accept argument '--replace-changed'");
+    const removal = await runCli(home, "status", "--remove-changed");
+    expectExitCode(removal, 1);
+    expect(humanText(removal.stderr)).toContain("status does not accept argument '--remove-changed'");
   });
 });
 

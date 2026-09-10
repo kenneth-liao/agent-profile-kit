@@ -48,15 +48,20 @@ describe("changed-output confirmation gate", () => {
     });
     expect(requests).toEqual([
       {
+        comparisons: expect.any(Array),
         projects: [
           {
             canonicalProject: fleet.driftedProject,
             project: fleet.driftedProject,
             changedOutputs: [".agent-profile-kit/codex/context.md"],
+            removedOutputs: [],
           },
         ],
       },
     ]);
+    const comparisons = (requests[0] as { comparisons: { path: string }[] }).comparisons;
+    expect(comparisons.map((comparison) => comparison.path))
+      .toEqual([".agent-profile-kit/codex/context.md"]);
   });
 
   test("a declined confirmation aborts the whole invocation before any write", async () => {

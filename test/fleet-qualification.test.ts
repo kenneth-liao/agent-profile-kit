@@ -986,9 +986,22 @@ describe("integrated fleet recovery qualification", () => {
       ),
     ).toHaveLength(1);
 
-    // update --all completes at exit 0 and installs generated material for
-    // every condition, including the missing Host's Projects.
-    const apply = await runCliWithExplicitPath(home, pathWithoutPi, "update", "--all", "--json");
+    // update --all without the answering flag refuses before any write while
+    // the drifted Project awaits consent (DEC-005).
+    const refused = await runCliWithExplicitPath(home, pathWithoutPi, "update", "--all", "--json");
+    expectExitCode(refused, 1);
+
+    // update --all with the explicit flag completes at exit 0 and installs
+    // generated material for every condition, including the missing Host's
+    // Projects.
+    const apply = await runCliWithExplicitPath(
+      home,
+      pathWithoutPi,
+      "update",
+      "--all",
+      "--json",
+      "--replace-changed",
+    );
     expectExitCode(apply, 0);
     expect(apply.stderr).toBe("");
     const applyPayload = JSON.parse(apply.stdout) as {

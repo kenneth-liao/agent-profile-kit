@@ -696,8 +696,10 @@ interface ParsedLifecycleArguments {
   readonly json: boolean;
   readonly selection: ProjectBindingSelection;
   readonly verbose: boolean;
-  /** The update replacement-answering flag (US-031); always false for status. */
+  /** The update replacement-answering flag (DEC-005); always false for status. */
   readonly replaceChanged: boolean;
+  /** The update deletion-answering flag (DEC-005); always false for status. */
+  readonly removeChanged: boolean;
 }
 
 function parseLifecycleArguments(
@@ -712,9 +714,12 @@ function parseLifecycleArguments(
   let projectFlag = false;
   let stale = false;
   let verbose = false;
-  // The replacement-answering flag exists only on update (US-031); status
-  // rejects it through the shared unknown-argument error below.
+  // The changed-file answering flags exist only on update (DEC-005); status
+  // rejects them through the shared unknown-argument error below. Update has
+  // no general confirmation (DEC-004), so `--auto-confirm` is not accepted
+  // here and stays inert toward changed-file consent by construction.
   const replaceChangedAllowed = command === "update";
+  let removeChanged = false;
   let replaceChanged = false;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
@@ -728,6 +733,10 @@ function parseLifecycleArguments(
     }
     if (replaceChangedAllowed && argument === "--replace-changed") {
       replaceChanged = true;
+      continue;
+    }
+    if (replaceChangedAllowed && argument === "--remove-changed") {
+      removeChanged = true;
       continue;
     }
     if (argument === "--blockers-only") {
@@ -820,9 +829,10 @@ function parseLifecycleArguments(
 
   return {
     json,
+    removeChanged,
+    replaceChanged,
     selection,
     verbose,
-    replaceChanged,
   };
 }
 
@@ -1155,6 +1165,7 @@ async function main(): Promise<void> {
       home,
       selection: parsed.selection,
       json: parsed.json,
+      removeChanged: parsed.removeChanged,
       replaceChanged: parsed.replaceChanged,
       verbose: parsed.verbose,
       stdout: process.stdout,

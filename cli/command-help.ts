@@ -153,7 +153,7 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "update",
     group: "common",
-    syntax: "update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--verbose] [--json]",
+    syntax: "update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]",
     summary: "Sync the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.update,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records from the Workspace. This updates installed Context and Skills; it does not upgrade the apkit executable itself.",

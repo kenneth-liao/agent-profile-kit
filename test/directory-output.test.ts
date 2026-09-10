@@ -458,7 +458,9 @@ describe("Installer-owned artifact-directory outputs", () => {
       project,
     });
 
-    const applied = await applyReconciliation(home, desired);
+    // Restoring the directory discards the scratch member, so the explicit
+    // answering flag is required (DEC-005).
+    const applied = await applyReconciliation(home, desired, { replaceChanged: true });
     expect(reportBlockers(applied.resultingState)).toEqual([]);
     expect(reportOutputs(applied.resultingState)).toContainEqual({
       kind: "unchanged",

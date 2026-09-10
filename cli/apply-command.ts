@@ -1,25 +1,31 @@
 /**
- * The `update` command: one invocation-wide changed-output replacement consent
- * gate (DEC-019) wired in front of the Installer's write loop.
+ * The `update` command: one invocation-wide changed-output consent gate
+ * (DEC-005, DEC-019) wired in front of the Installer's write loop.
  *
- * The consent prompt fires only on an interactive input stream, only for human
- * output, and only when the invocation holds proven changed generated files;
- * `--replace-changed` answers it explicitly, and non-interactive invocations
- * never prompt. Declining, cancelling, or the default answer aborts the whole
- * invocation before any configuration or generated-output write. The Installer
- * keeps every safety Blocker: consent never bypasses ownership, path-safety,
- * or global Blockers.
+ * The consent review fires only on an interactive input stream, only for
+ * human output, and only when the invocation holds proven changed generated
+ * files; `--replace-changed` answers replacement and `--remove-changed`
+ * answers deletion explicitly, and non-interactive invocations never prompt —
+ * missing consent refuses before any write with the runnable remedy. Update
+ * has no general confirmation (DEC-004): routine source updates stay
+ * prompt-free. Declining, the default answer, or cancellation aborts the whole
+ * invocation before any configuration or generated-output write and renders
+ * in neutral styling. The Installer keeps every safety Blocker: consent never
+ * bypasses ownership, path-safety, or global Blockers.
  */
 import type { Readable, Writable } from "node:stream";
 
 import {
+  applyConsentRequiredDocument,
   applyExecutionFailureDocument,
   applyReplacementCommandDocument,
   applyReplacementConfirmationDocument,
   applyReplacementDeclinedDocument,
   applyReportDocument,
+  applyReviewStaleDocument,
   applyVerificationFailureDocument,
   blockedApplyReportDocument,
+  changedOutputDiffDocument,
   APPLY_REPLACEMENT_QUESTION,
   formatApplyExecutionFailureJson,
   formatApplyJson,
@@ -27,6 +33,8 @@ import {
   formatBlockedApplyJson,
   formatLifecycleToolErrorJson,
   lifecycleExitCode,
+  type ApplyDeclinedAnswer,
+  type ChangedFileAnsweringScope,
   type LifecycleHumanOptions,
 } from "./presentation.js";
 import {
@@ -37,7 +45,7 @@ import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import { terminalPresentationContext, type TerminalPresentationContext, type TerminalStream } from "./terminal-presentation.js";
 import {
-  createConfirmPrompt,
+  createTextPrompt,
   isInteractiveInput,
   type PromptClock,
 } from "./prompts.js";
@@ -47,8 +55,10 @@ import {
 } from "../installer/commands.js";
 import {
   ApplyBlockedError,
+  ApplyConsentRequiredError,
   ApplyDeclinedError,
   ApplyExecutionError,
+  ApplyReviewStaleError,
   ApplyVerificationError,
   type ChangedOutputConsentRequest,
 } from "../installer/reconcile.js";
@@ -57,8 +67,10 @@ export interface ApplyCommandRequest {
   readonly home: string;
   readonly selection: ProjectBindingSelection;
   readonly json: boolean;
-  /** The explicit answering flag: replace changed generated files without asking (US-031). */
+  /** The explicit answering flag: replace changed generated files without asking (DEC-005). */
   readonly replaceChanged: boolean;
+  /** The explicit answering flag: delete changed generated files without asking (DEC-005). */
+  readonly removeChanged: boolean;
   readonly verbose: boolean;
   /** Injectable output stream for the human report and the prompt question. */
   readonly stdout: Writable & TerminalStream;
@@ -81,14 +93,18 @@ function presentationContext(stream: Writable & TerminalStream): TerminalPresent
   return terminalPresentationContext(stream);
 }
 
+/** Which discard operations one equivalent command answers explicitly. */
+export type ApplyAnsweringScope = ChangedFileAnsweringScope;
 
 /**
  * The equivalent fully specified command arguments (DEC-032): every scope
- * argument explicit, plus the answering flag, so the printed command expresses
- * the chosen operation without needing the same answer again.
+ * argument explicit, plus the answering flags for the given scope, so the
+ * printed command expresses the chosen operation without needing the same
+ * answer again. Defaults to the historical replacement-only scope.
  */
 export function fullySpecifiedApplyArguments(
   selection: ProjectBindingSelection,
+  scope: ApplyAnsweringScope = { replace: true, remove: false },
 ): readonly string[] {
   const args: string[] = [];
   if (selection.kind === "all") {
@@ -101,7 +117,8 @@ export function fullySpecifiedApplyArguments(
   if (selection.filter !== undefined) {
     args.push(selection.filter === "stale" ? "--stale" : "--blocked");
   }
-  args.push("--replace-changed");
+  if (scope.replace) args.push("--replace-changed");
+  if (scope.remove) args.push("--remove-changed");
   return ["update", ...args];
 }
 
@@ -113,29 +130,70 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
     ...(request.verbose ? { verbose: true } : {}),
   };
   const interactive = isInteractiveInput(request.input);
-  const prompt = interactive && !request.json && !request.replaceChanged
-    ? createConfirmPrompt({
+  // Update has no general confirmation (DEC-004): the prompt exists only for
+  // unauthored changed-file scope. When both answering flags are present no
+  // review can fire, so no prompt object is needed.
+  const prompt = interactive && !request.json && !(request.replaceChanged && request.removeChanged)
+    ? createTextPrompt({
       input: request.input,
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
     })
     : undefined;
-  let promptedAccepted = false;
+  let promptedAcceptedScope: ApplyAnsweringScope | undefined;
+  let requestedScope: ApplyAnsweringScope = { replace: false, remove: false };
+  let declinedAnswer: ApplyDeclinedAnswer = "declined";
   const confirmChangedOutputReplacement = prompt === undefined
     ? undefined
     : async (consentRequest: ChangedOutputConsentRequest): Promise<"accepted" | "declined" | "cancelled"> => {
+      requestedScope = {
+        remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
+        replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
+      };
       writeHumanDocument(
         request.stdout,
         applyReplacementConfirmationDocument(consentRequest, humanOptions),
         stdoutContext,
       );
-      const answer = await prompt(APPLY_REPLACEMENT_QUESTION);
-      if (answer === "accepted") promptedAccepted = true;
-      return answer;
+      for (;;) {
+        const answer = await prompt(APPLY_REPLACEMENT_QUESTION);
+        if (answer.kind === "cancelled") {
+          declinedAnswer = "cancelled";
+          return "cancelled";
+        }
+        const normalized = answer.value.trim().toLowerCase();
+        if (normalized === "d" || normalized === "diff") {
+          // The optional diff is a consent view, not consent (US-020):
+          // viewing returns to the same scope with nothing authorized.
+          writeHumanDocument(
+            request.stdout,
+            changedOutputDiffDocument(consentRequest.comparisons),
+            stdoutContext,
+          );
+          continue;
+        }
+        if (normalized === "y" || normalized === "yes") {
+          promptedAcceptedScope = {
+            remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
+            replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
+          };
+          return "accepted";
+        }
+        declinedAnswer = normalized === "" ? "default" : "declined";
+        return "declined";
+      }
     };
+  // The answering scope one equivalent command must carry: flags already
+  // given plus the operations the prompt authorized or is asked to authorize.
+  const equivalentScope = (prompted: ApplyAnsweringScope | undefined): ApplyAnsweringScope => ({
+    remove: request.removeChanged || prompted?.remove === true || requestedScope.remove,
+    replace: request.replaceChanged || prompted?.replace === true || requestedScope.replace,
+  });
   try {
     const applied = await applyApplication(request.home, {
       selection: request.selection,
+      ...(request.replaceChanged ? { replaceChanged: true as const } : {}),
+      ...(request.removeChanged ? { removeChanged: true as const } : {}),
       ...(confirmChangedOutputReplacement === undefined
         ? {}
         : { confirmChangedOutputReplacement }),
@@ -144,10 +202,12 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       request.stdout.write(formatApplyJson(applied));
     } else {
       writeHumanDocument(request.stdout, applyReportDocument(applied, humanOptions), stdoutContext);
-      if (promptedAccepted) {
+      if (promptedAcceptedScope !== undefined) {
         writeHumanDocument(
           request.stdout,
-          applyReplacementCommandDocument(fullySpecifiedApplyArguments(request.selection)),
+          applyReplacementCommandDocument(
+            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope)),
+          ),
           stdoutContext,
         );
       }
@@ -160,11 +220,52 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
+        const scope = equivalentScope(promptedAcceptedScope);
         writeHumanDocument(
           request.stderr,
           applyReplacementDeclinedDocument(
-            error.reason,
-            fullySpecifiedApplyArguments(request.selection),
+            error.reason === "cancelled" ? "cancelled" : declinedAnswer,
+            fullySpecifiedApplyArguments(request.selection, scope),
+            scope,
+          ),
+          stderrContext,
+        );
+      }
+      return { exitCode: 1 };
+    }
+    if (error instanceof ApplyConsentRequiredError) {
+      // The remedy stays runnable: already-supplied flags are kept and the
+      // missing operations are added, so re-running answers the whole scope.
+      const scope: ApplyAnsweringScope = {
+        remove: request.removeChanged || error.requiredOperations.includes("remove"),
+        replace: request.replaceChanged || error.requiredOperations.includes("replace"),
+      };
+      if (request.json) {
+        request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
+      } else {
+        writeHumanDocument(
+          request.stderr,
+          applyConsentRequiredDocument(
+            error,
+            fullySpecifiedApplyArguments(request.selection, scope),
+          ),
+          stderrContext,
+        );
+      }
+      return { exitCode: 1 };
+    }
+    if (error instanceof ApplyReviewStaleError) {
+      if (request.json) {
+        request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
+      } else {
+        writeHumanDocument(
+          request.stderr,
+          applyReviewStaleDocument(
+            error,
+            fullySpecifiedApplyArguments(
+              request.selection,
+              equivalentScope(promptedAcceptedScope),
+            ),
           ),
           stderrContext,
         );
