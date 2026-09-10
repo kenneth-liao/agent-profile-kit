@@ -57,13 +57,19 @@ Use this workflow when helping a person author their Workspace and bind projects
      Host Resolution, not an Agent Profile Kit blocker. Concrete Host settings
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
-5. Author bindings in Local Configuration—either hand-edit `config.yaml` or run
-   recording-only `apkit bind <profile> [project] --host <host>…`
-   (cwd when project is omitted; at least one explicit `--host` required). Do not
+5. Install Profiles into Projects—either hand-edit `config.yaml` and run
+   `apkit update`, or run `apkit install <profile> [project] --host <host>…`
+   (cwd when project is omitted; at least one explicit `--host` required),
+   which records the selection and installs the verified output in one
+   action after an interactive confirmation (`--auto-confirm` answers it
+   non-interactively). Do not
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
-   per-session selection, and Profile version pins. `bind` never writes output;
-   after recording, continue with validate/status/update. To remove desired
+   per-session selection, and Profile version pins. Installing a different
+   Profile or Host set for the same project replaces the installation in the
+   same action; replacing or deleting independently changed generated files
+   needs `--replace-changed`/`--remove-changed`. After installing, continue
+   with validate/status/update. To remove desired
    state, use `apkit unbind [project]`; it defaults to cwd, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. `unbind` never removes generated output.

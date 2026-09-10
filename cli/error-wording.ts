@@ -476,6 +476,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`];
     case "bind-host-required":
       return [`bind requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
+    case "install-host-required":
+      return [`install requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-host":
       return [`unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-temporary-host":
@@ -576,6 +578,11 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "bind-host-required":
       return {
         happened: ["bind requires at least one --host flag"],
+        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+      };
+    case "install-host-required":
+      return {
+        happened: ["install requires at least one --host flag"],
         why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
       };
     case "unsupported-host":
@@ -751,7 +758,7 @@ export function formatProjectTargetError(
           "run ",
         commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
         " or ",
-        commandPart(COMMAND_NAME, [arg("bind")]),
+        commandPart(COMMAND_NAME, [arg("install")]),
       ];
     case "wildcard-target":
       return [
@@ -778,7 +785,7 @@ export function formatProjectTargetErrorDiagnostic(
       return {
         happened: [`directory '${reason.target}' is not configured as a Project`],
         whatToType: [
-          ["Run ", commandPart(COMMAND_NAME, [arg("bind")]), " to configure this directory as a Project."],
+          ["Run ", commandPart(COMMAND_NAME, [arg("install")]), " to configure this directory as a Project."],
           ["Run ", commandPart(COMMAND_NAME, [arg("list"), arg("projects")]), " to list configured Projects."],
         ],
       };

@@ -36,7 +36,7 @@ export const TOPIC_GUIDES = {
     introduction:
       "A Profile selects reusable material for a kind of work through its context and skills lists.",
     language: "yaml",
-    next: `Next: run \`apkit bind ${AUTHORING_EXAMPLES.profile.id} --host codex\`.`,
+    next: `Next: run \`apkit install ${AUTHORING_EXAMPLES.profile.id} --host codex\`.`,
   },
   context: {
     title: "Context Module",
@@ -96,7 +96,7 @@ export function guideIndexDocument(): PresentationDocument {
   for (const args of [
     ["init"],
     ["guide", "profile"],
-    ["bind", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
+    ["install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
   ] as const) {
     nodes.push(routeLine(args));
   }

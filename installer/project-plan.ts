@@ -651,6 +651,46 @@ export async function buildDesiredState(
     home,
     options.selection ?? { kind: "all" },
   );
+  const installations = await planDesiredInstallations(home, [...configuration.bindings], workspace, {
+    ...(options.checkHostCapability === undefined ? {} : { checkHostCapability: options.checkHostCapability }),
+    ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.gitInspection === undefined ? {} : { gitInspection: options.gitInspection }),
+    ...(options.planningInstrumentation === undefined
+      ? {}
+      : { planningInstrumentation: options.planningInstrumentation }),
+    ...(options.previousInstallations === undefined
+      ? {}
+      : { previousInstallations: options.previousInstallations }),
+    ...(options.scheduler === undefined ? {} : { scheduler: options.scheduler }),
+  });
+  return {
+    bindingCount: configuration.bindings.length,
+    installations,
+    workspace,
+  };
+}
+
+export interface PlanDesiredInstallationsOptions {
+  readonly checkHostCapability?: boolean;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly gitInspection?: LifecycleGitInspection;
+  readonly planningInstrumentation?: LifecyclePlanningInstrumentation;
+  readonly previousInstallations?: readonly OwnershipReceipt[];
+  readonly scheduler?: ProjectReadScheduler;
+}
+
+/**
+ * Plan generated output for explicit bindings without reading Local
+ * Configuration. The caller supplies already-ingested bindings — either the
+ * ingested selection or one prospective binding overlaid in memory — so
+ * consent can review a plan that was never published (DEC-005).
+ */
+export async function planDesiredInstallations(
+  home: string,
+  bindings: readonly ProjectBinding[],
+  workspace: Workspace,
+  options: PlanDesiredInstallationsOptions = {},
+): Promise<readonly DesiredInstallation[]> {
   // One invocation-scoped planning context. Discarded when this call returns.
   const planning = createLifecyclePlanningContext(
     workspace,
@@ -667,10 +707,10 @@ export async function buildDesiredState(
       },
     ]),
   );
-  const bindings = [...configuration.bindings].sort((left, right) =>
+  const sortedBindings = [...bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
   );
-  const installations = await scheduler.run(bindings.map((binding) => async () => {
+  const installations = await scheduler.run(sortedBindings.map((binding) => async () => {
     const profile = requireProfile(
       workspace.profiles,
       binding.profile,
@@ -775,11 +815,7 @@ export async function buildDesiredState(
       ? installation
       : { ...installation, capabilityWarnings };
   });
-  return {
-    bindingCount: configuration.bindings.length,
-    installations: dedupedInstallations,
-    workspace,
-  };
+  return dedupedInstallations;
 }
 
 export { adapterVersionFor, stateDirectory };

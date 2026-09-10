@@ -286,12 +286,12 @@ export interface IngestedApplicationSource {
  * newcomer-worded on human surfaces.
  */
 export type ProjectTargetErrorReason =
-  | { readonly case: "ambiguous-target"; readonly command: "update" | "status"; readonly target: string }
-  | { readonly case: "dangling-symlink-target"; readonly command: "update" | "status"; readonly target: string }
-  | { readonly case: "missing-target"; readonly command: "update" | "status"; readonly target: string }
-  | { readonly case: "relative-target"; readonly command: "update" | "status"; readonly target: string }
-  | { readonly case: "unbound-target"; readonly command: "update" | "status"; readonly target: string }
-  | { readonly case: "wildcard-target"; readonly command: "update" | "status"; readonly target: string };
+  | { readonly case: "ambiguous-target"; readonly command: "update" | "status" | "install"; readonly target: string }
+  | { readonly case: "dangling-symlink-target"; readonly command: "update" | "status" | "install"; readonly target: string }
+  | { readonly case: "missing-target"; readonly command: "update" | "status" | "install"; readonly target: string }
+  | { readonly case: "relative-target"; readonly command: "update" | "status" | "install"; readonly target: string }
+  | { readonly case: "unbound-target"; readonly command: "update" | "status" | "install"; readonly target: string }
+  | { readonly case: "wildcard-target"; readonly command: "update" | "status" | "install"; readonly target: string };
 
 /** Focused user-input failure raised before scoped lifecycle planning or writes. */
 export class ProjectTargetError extends Error {
@@ -311,7 +311,7 @@ export type ProjectSelectionFilter = "stale" | "blocked";
 export type ProjectBindingSelection =
   | { readonly kind: "all"; readonly filter?: ProjectSelectionFilter }
   | {
-      readonly command: "update" | "status";
+      readonly command: "update" | "status" | "install";
       readonly kind: "project";
       readonly match: "containing" | "exact";
       readonly target: string;

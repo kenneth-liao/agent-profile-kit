@@ -8,11 +8,11 @@ Usage: apkit <command> [arguments]
 
 First run:
   apkit init
-  apkit bind <profile> --host <host>
+  apkit install <profile> --host <host>
   apkit status
   apkit update
 
-  Choose a Profile with apkit guide profile; see apkit bind --help for
+  Choose a Profile with apkit guide profile; see apkit install --help for
     supported Host values.
 
 Common commands:
@@ -26,9 +26,9 @@ Common commands:
       Workspace
   open
     Open the configured Workspace in your system file manager
-  bind
-    Configure a Project with a Profile and Agent Hosts, or replace an existing
-      binding
+  install
+    Install a Profile with Agent Hosts into a Project and remember the
+      selection
   validate
     Check Workspace and settings validity
   status
@@ -144,7 +144,7 @@ Complete references:
 Examples:
   apkit init
   apkit guide profile
-  apkit bind example --host codex
+  apkit install example --host codex
 --- stderr ---
 "
 `;
@@ -177,7 +177,7 @@ dependencies: []
 Keep project-specific instructions in the project repository.
 \`\`\`
 
-Next: run \`apkit bind example --host codex\`.
+Next: run \`apkit install example --host codex\`.
 --- stderr ---
 "
 `;
@@ -529,20 +529,22 @@ and duplicate entries normalize at ingestion. There are no wildcards, recursive 
 hidden default projects, Host auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
 
-Hand-edit \`config.yaml\`, or record one binding with the authoring-only command
-(does not install or reconcile project output):
+Hand-edit \`config.yaml\`, or record one binding and install it in one action
+with \`apkit install\` (confirms interactively; \`--auto-confirm\` answers it):
 
 \`\`\`sh
-apkit bind coding --host codex
-apkit bind coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi
+apkit install coding --host codex --auto-confirm
+apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi --auto-confirm
 \`\`\`
 
 Omit the project argument to use the current working directory. At least one
-\`--host\` flag is required. An identical binding is left unchanged; a different
-Profile or Host set for the same project fails instead of overwriting. Do not
-hand-edit \`config.yaml\` while \`bind\` is running: \`bind\` commands serialize with
-each other, but a text editor does not participate in that lock. After binding,
-run \`validate\`, then \`status\` and \`update\` separately.
+\`--host\` flag is required. An identical installation is left unchanged; a different
+Profile or Host set for the same project replaces the installation in the same
+action. Do not
+hand-edit \`config.yaml\` while \`install\` is running: cooperating lifecycle commands
+serialize, but a text editor does not participate in that lock. Installing a
+Profile also verifies its generated output; run \`validate\` for Workspace checks
+and \`status\` to review installation state.
 
 Remove desired state with the recording-only command:
 
@@ -556,8 +558,8 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, \`unbind\` can remove a binding only when the
 argument exactly matches its authored \`project\` spelling; it never guesses an
 alias. \`unbind\` edits Local Configuration only and leaves generated output for
-the next fleet \`status\` and \`update --all\`. Cooperating \`bind\` and \`unbind\` commands
-serialize and publish atomically; do not hand-edit the file concurrently.
+the next fleet \`status\` and \`update --all\`. Cooperating lifecycle commands
+serialize; do not hand-edit the file concurrently.
 
 \`\`\`yaml
 schema_version: 1
@@ -937,13 +939,19 @@ Use this workflow when helping a person author their Workspace and bind projects
      Host Resolution, not an Agent Profile Kit blocker. Concrete Host settings
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
-5. Author bindings in Local Configuration—either hand-edit \`config.yaml\` or run
-   recording-only \`apkit bind <profile> [project] --host <host>…\`
-   (cwd when project is omitted; at least one explicit \`--host\` required). Do not
+5. Install Profiles into Projects—either hand-edit \`config.yaml\` and run
+   \`apkit update\`, or run \`apkit install <profile> [project] --host <host>…\`
+   (cwd when project is omitted; at least one explicit \`--host\` required),
+   which records the selection and installs the verified output in one
+   action after an interactive confirmation (\`--auto-confirm\` answers it
+   non-interactively). Do not
    invent project roots or Host lists. Use only explicit paths the user confirms.
    Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
-   per-session selection, and Profile version pins. \`bind\` never writes output;
-   after recording, continue with validate/status/update. To remove desired
+   per-session selection, and Profile version pins. Installing a different
+   Profile or Host set for the same project replaces the installation in the
+   same action; replacing or deleting independently changed generated files
+   needs \`--replace-changed\`/\`--remove-changed\`. After installing, continue
+   with validate/status/update. To remove desired
    state, use \`apkit unbind [project]\`; it defaults to cwd, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. \`unbind\` never removes generated output.
@@ -1000,7 +1008,7 @@ visibility.
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.175.0
+Engine version: 0.176.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1042,7 +1050,7 @@ Profile: example
   Context Modules: 1
   Skills: 0
 
-Use <profile> with apkit bind to select it for a configured Project.
+Use <profile> with apkit install to select it for a Project.
 --- stderr ---
 "
 `;
@@ -1057,7 +1065,7 @@ Supported Hosts:
   opencode
   pi
 
-Use <host> with apkit bind to select it for a configured Project.
+Use <host> with apkit install to select it for a Project.
 --- stderr ---
 "
 `;
@@ -1087,7 +1095,7 @@ A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
 Next: from the project you want to try, run
-  apkit bind example --host antigravity
+  apkit install example --host antigravity
 --- stderr ---
 "
 `;
@@ -1116,9 +1124,9 @@ Next: select the Context Module from a Profile, then run apkit validate
 "
 `;
 
-exports[`golden snapshots of every human view bind success: bind-success 1`] = `
+exports[`golden snapshots of every human view install success: install-success 1`] = `
 "--- stdout ---
-Recorded configured Project for ~/projects/demo
+Installed example for ~/projects/demo
   Profile: example
   Hosts: codex
 Next: apkit status
@@ -1557,7 +1565,7 @@ exports[`golden snapshots of every human view unbound-directory error: unbound-d
 --- stderr ---
 apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
-Run apkit bind to configure this directory as a Project.
+Run apkit install to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 "
@@ -1576,13 +1584,13 @@ Usage: apkit <command> [arguments]
 
 First run:
   apkit init
-  apkit bind <profile> --host <host>
+  apkit install <profile> --host <host>
   apkit status
   apkit update
 
   Choose a Profile with apkit guide
-    profile; see apkit bind --help for
-    supported Host values.
+    profile; see apkit install --help
+    for supported Host values.
 
 Common commands:
   init
@@ -1599,10 +1607,10 @@ Common commands:
   open
     Open the configured Workspace in
       your system file manager
-  bind
-    Configure a Project with a Profile
-      and Agent Hosts, or replace an
-      existing binding
+  install
+    Install a Profile with Agent Hosts
+      into a Project and remember the
+      selection
   validate
     Check Workspace and settings
       validity
@@ -1654,13 +1662,13 @@ Agent Profile Kit composes reusable
 
 \x1B[1;34mFirst run:\x1B[0m
 \x1B[36m  apkit init\x1B[0m
-\x1B[36m  apkit bind <profile> --host <host>\x1B[0m
+\x1B[36m  apkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
   Choose a Profile with apkit guide
-    profile; see apkit bind --help for
-    supported Host values.
+    profile; see apkit install --help
+    for supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1677,10 +1685,10 @@ Agent Profile Kit composes reusable
 \x1B[36m  open\x1B[0m
     Open the configured Workspace in
       your system file manager
-\x1B[36m  bind\x1B[0m
-    Configure a Project with a Profile
-      and Agent Hosts, or replace an
-      existing binding
+\x1B[36m  install\x1B[0m
+    Install a Profile with Agent Hosts
+      into a Project and remember the
+      selection
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings
       validity
@@ -1730,11 +1738,11 @@ Usage: apkit <command> [arguments]
 
 First run:
   apkit init
-  apkit bind <profile> --host <host>
+  apkit install <profile> --host <host>
   apkit status
   apkit update
 
-  Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
+  Choose a Profile with apkit guide profile; see apkit install --help for supported Host values.
 
 Common commands:
   init
@@ -1745,8 +1753,8 @@ Common commands:
     Create a Skill, Context Module, or Profile scaffold in the configured Workspace
   open
     Open the configured Workspace in your system file manager
-  bind
-    Configure a Project with a Profile and Agent Hosts, or replace an existing binding
+  install
+    Install a Profile with Agent Hosts into a Project and remember the selection
   validate
     Check Workspace and settings validity
   status
@@ -1785,11 +1793,11 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 \x1B[1;34mFirst run:\x1B[0m
 \x1B[36m  apkit init\x1B[0m
-\x1B[36m  apkit bind <profile> --host <host>\x1B[0m
+\x1B[36m  apkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Choose a Profile with apkit guide profile; see apkit bind --help for supported Host values.
+  Choose a Profile with apkit guide profile; see apkit install --help for supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1800,8 +1808,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
     Create a Skill, Context Module, or Profile scaffold in the configured Workspace
 \x1B[36m  open\x1B[0m
     Open the configured Workspace in your system file manager
-\x1B[36m  bind\x1B[0m
-    Configure a Project with a Profile and Agent Hosts, or replace an existing binding
+\x1B[36m  install\x1B[0m
+    Install a Profile with Agent Hosts into a Project and remember the selection
 \x1B[36m  validate\x1B[0m
     Check Workspace and settings validity
 \x1B[36m  status\x1B[0m
@@ -1831,7 +1839,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.175.0
+Engine version: 0.176.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1841,7 +1849,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.175.0\x1B[0m
+\x1B[35mEngine version: 0.176.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1851,7 +1859,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.175.0
+Engine version: 0.176.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1861,7 +1869,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.175.0\x1B[0m
+\x1B[35mEngine version: 0.176.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2154,7 +2162,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 apkit: directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
-Run apkit bind to configure this
+Run apkit install to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
@@ -2168,7 +2176,7 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31mapkit: directory\x1B[0m
 \x1B[31m  '/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  is not configured as a Project\x1B[0m
-Run apkit bind to configure this
+Run apkit install to configure this
   directory as a Project.
 Run apkit list projects to list
   configured Projects.
@@ -2180,7 +2188,7 @@ Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--sta
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-nocolor 1`] = `
 "--- stdout ---
 apkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
-Run apkit bind to configure this directory as a Project.
+Run apkit install to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
@@ -2190,7 +2198,7 @@ Usage: apkit status [project | --here | --all | --project <path>] [--stale | --b
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-color 1`] = `
 "--- stdout ---
 \x1B[31mapkit: directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
-Run apkit bind to configure this directory as a Project.
+Run apkit install to configure this directory as a Project.
 Run apkit list projects to list configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---

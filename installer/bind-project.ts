@@ -112,6 +112,218 @@ export type BindProjectResult =
  * Append one Project Binding to Local Configuration without reconciling output.
  * Local Configuration remains the sole canonical home; this is a validated edit.
  */
+export interface PublishBindingUnderLockOptions {
+  readonly home: string;
+  readonly profile: string;
+  readonly hosts: readonly SupportedHost[];
+  readonly canonicalProject: string;
+  readonly storedProject: string;
+  readonly replace: boolean;
+}
+
+/**
+ * Validate, edit, and atomically publish one Project Binding while the caller
+ * holds the Local Configuration lock. Shared by `bindProject` and the install
+ * commit path so both publish through one snapshot-checked boundary.
+ */
+export async function publishBindingUnderLock(
+  configurationPath: string,
+  fileSystem: BindProjectFileSystem,
+  operation: string,
+  binding: PublishBindingUnderLockOptions,
+): Promise<BindProjectResult> {
+  const description = `Local Configuration ${configurationPath}`;
+  // Legacy claim-aside residue is restored only under proven exclusive ownership.
+  await recoverHeldConfiguration(configurationPath, fileSystem);
+
+  let source: string;
+  try {
+    source = await fileSystem.readFile(configurationPath, "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new InstallerToolError({
+        kind: "missing-local-configuration",
+        path: configurationPath,
+      });
+    }
+    throw error;
+  }
+
+  // Exact snapshot being edited is the sole input to the trusted semantic boundary.
+  const { configuration, workspace } = await ingestApplicationFromSource(
+    binding.home,
+    source,
+    configurationPath,
+  );
+  requireProfile(workspace.profiles, binding.profile);
+
+  // Serialize one edited document and publish it through the shared
+  // configuration-replacement boundary; all edits happen under held lock.
+  const publishSourceReplacement = async (editedSource: string): Promise<void> => {
+    const nextSource = preserveSourceNewlines(source, editedSource);
+    const sourceStats = await fileSystem.stat(configurationPath);
+    const mode = sourceStats.mode & 0o777;
+    await publishConfigurationReplacement(
+      configurationPath,
+      source,
+      nextSource,
+      mode,
+      fileSystem,
+      description,
+      operation,
+    );
+  };
+
+  // The application model preserves Local Configuration's binding order 1:1,
+  // so the semantic match's position is also the YAML sequence index.
+  const existingIndex = configuration.bindings.findIndex(
+    (entry) => entry.canonicalProject === binding.canonicalProject,
+  );
+  const existing = existingIndex === -1 ? undefined : configuration.bindings[existingIndex];
+  if (existing) {
+    if (existing.profile === binding.profile && hostsEqual(existing.hosts, binding.hosts)) {
+      return {
+        outcome: "unchanged" as const,
+        configurationPath,
+        project: existing.project,
+        canonicalProject: binding.canonicalProject,
+        profile: binding.profile,
+        hosts: binding.hosts,
+      };
+    }
+    if (!binding.replace) {
+      throw new InstallerToolError({
+        kind: "bind-conflict",
+        configurationPath,
+        canonicalProject: binding.canonicalProject,
+        profile: existing.profile,
+        hosts: existing.hosts,
+      });
+    }
+
+    // The application model preserves Local Configuration's binding order 1:1,
+    // so the semantic match's position is also the YAML sequence index.
+    const document = parseDocument(source);
+    const bindingsNode = document.get("bindings");
+    if (!isSeq(bindingsNode)) {
+      throw new Error(`${description} bindings must be an array`);
+    }
+    const bindingNode = bindingsNode.items[existingIndex];
+    if (!isMap(bindingNode)) {
+      throw new Error(`${description} bindings[${existingIndex}] must be a mapping`);
+    }
+    bindingNode.set("profile", binding.profile);
+    bindingNode.set("hosts", [...binding.hosts]);
+    bindingNode.flow = false;
+
+    await publishSourceReplacement(document.toString());
+
+    return {
+      outcome: "replaced" as const,
+      configurationPath,
+      project: existing.project,
+      canonicalProject: binding.canonicalProject,
+      profile: binding.profile,
+      hosts: binding.hosts,
+      previousProfile: existing.profile,
+      previousHosts: existing.hosts,
+    };
+  }
+
+  const document = parseDocument(source);
+  const bindingsNode = document.get("bindings");
+  if (!isSeq(bindingsNode)) {
+    throw new Error(`${description} bindings must be an array`);
+  }
+  // Prefer block style when starting from an empty flow sequence (init default).
+  if (bindingsNode.items.length === 0) {
+    bindingsNode.flow = false;
+  }
+
+  const entry = document.createNode({
+    project: binding.storedProject,
+    profile: binding.profile,
+    hosts: [...binding.hosts],
+  });
+  if (isMap(entry)) {
+    entry.flow = false;
+    const hostsNode = entry.get("hosts");
+    if (isSeq(hostsNode)) hostsNode.flow = false;
+  }
+  bindingsNode.add(entry);
+
+  await publishSourceReplacement(document.toString());
+
+  return {
+    outcome: "created" as const,
+    configurationPath,
+    project: binding.storedProject,
+    canonicalProject: binding.canonicalProject,
+    profile: binding.profile,
+    hosts: binding.hosts,
+  };
+
+}
+
+/**
+ * Remove one Project Binding by canonical identity while the caller holds the
+ * Local Configuration lock. Used only to restore the pre-install selection
+ * after a failed install commit; removal selection itself belongs to uninstall.
+ */
+export async function removeBindingUnderLock(
+  home: string,
+  configurationPath: string,
+  fileSystem: BindProjectFileSystem,
+  operation: string,
+  canonicalProject: string,
+): Promise<{ readonly removed: boolean }> {
+  const description = `Local Configuration ${configurationPath}`;
+  await recoverHeldConfiguration(configurationPath, fileSystem);
+  let source: string;
+  try {
+    source = await fileSystem.readFile(configurationPath, "utf8");
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) {
+      throw new InstallerToolError({
+        kind: "missing-local-configuration",
+        path: configurationPath,
+      });
+    }
+    throw error;
+  }
+  const { configuration } = await ingestApplicationFromSource(
+    home,
+    source,
+    configurationPath,
+  );
+  const existingIndex = configuration.bindings.findIndex(
+    (entry) => entry.canonicalProject === canonicalProject,
+  );
+  if (existingIndex === -1) return { removed: false };
+  const document = parseDocument(source);
+  const bindingsNode = document.get("bindings");
+  if (!isSeq(bindingsNode)) {
+    throw new Error(`${description} bindings must be an array`);
+  }
+  bindingsNode.items.splice(existingIndex, 1);
+  if (bindingsNode.items.length === 0) {
+    bindingsNode.flow = false;
+  }
+  const nextSource = preserveSourceNewlines(source, document.toString());
+  const sourceStats = await fileSystem.stat(configurationPath);
+  const mode = sourceStats.mode & 0o777;
+  await publishConfigurationReplacement(
+    configurationPath,
+    source,
+    nextSource,
+    mode,
+    fileSystem,
+    description,
+    operation,
+  );
+  return { removed: true };
+}
+
 export async function bindProject(
   options: BindProjectOptions,
 ): Promise<BindProjectResult> {
@@ -126,7 +338,6 @@ export async function bindProject(
   const hosts = normalizeHosts(options.hosts);
   const cwd = options.cwd ?? process.cwd();
 
-  const description = `Local Configuration ${configurationPath}`;
   let canonicalProject: string;
   if (options.project === undefined) {
     canonicalProject = await requireExistingDirectory(
@@ -159,141 +370,14 @@ export async function bindProject(
     }
   }
 
-  return withConfigurationLock(
-    configurationPath,
-    fileSystem,
-    lockTimeoutMs,
-    "bind",
-    async () => {
-      // Legacy claim-aside residue is restored only under proven exclusive ownership.
-      await recoverHeldConfiguration(configurationPath, fileSystem);
-
-      let source: string;
-      try {
-        source = await fileSystem.readFile(configurationPath, "utf8");
-      } catch (error) {
-        if (hasErrorCode(error, "ENOENT")) {
-          throw new InstallerToolError({
-            kind: "missing-local-configuration",
-            path: configurationPath,
-          });
-        }
-        throw error;
-      }
-
-      // Exact snapshot being edited is the sole input to the trusted semantic boundary.
-      const { configuration, workspace } = await ingestApplicationFromSource(
-        options.home,
-        source,
-        configurationPath,
-      );
-      requireProfile(workspace.profiles, profile);
-
-      // Serialize one edited document and publish it through the shared
-      // configuration-replacement boundary; all edits happen under held lock.
-      const publishSourceReplacement = async (editedSource: string): Promise<void> => {
-        const nextSource = preserveSourceNewlines(source, editedSource);
-        const sourceStats = await fileSystem.stat(configurationPath);
-        const mode = sourceStats.mode & 0o777;
-        await publishConfigurationReplacement(
-          configurationPath,
-          source,
-          nextSource,
-          mode,
-          fileSystem,
-          description,
-          "bind",
-        );
-      };
-
-      // The application model preserves Local Configuration's binding order 1:1,
-      // so the semantic match's position is also the YAML sequence index.
-      const existingIndex = configuration.bindings.findIndex(
-        (binding) => binding.canonicalProject === canonicalProject,
-      );
-      const existing = existingIndex === -1 ? undefined : configuration.bindings[existingIndex];
-      if (existing) {
-        if (existing.profile === profile && hostsEqual(existing.hosts, hosts)) {
-          return {
-            outcome: "unchanged" as const,
-            configurationPath,
-            project: existing.project,
-            canonicalProject,
-            profile,
-            hosts,
-          };
-        }
-        if (!options.replace) {
-          throw new InstallerToolError({
-            kind: "bind-conflict",
-            configurationPath,
-            canonicalProject,
-            profile: existing.profile,
-            hosts: existing.hosts,
-          });
-        }
-
-        // The application model preserves Local Configuration's binding order 1:1,
-        // so the semantic match's position is also the YAML sequence index.
-        const document = parseDocument(source);
-        const bindingsNode = document.get("bindings");
-        if (!isSeq(bindingsNode)) {
-          throw new Error(`${description} bindings must be an array`);
-        }
-        const bindingNode = bindingsNode.items[existingIndex];
-        if (!isMap(bindingNode)) {
-          throw new Error(`${description} bindings[${existingIndex}] must be a mapping`);
-        }
-        bindingNode.set("profile", profile);
-        bindingNode.set("hosts", [...hosts]);
-        bindingNode.flow = false;
-
-        await publishSourceReplacement(document.toString());
-
-        return {
-          outcome: "replaced" as const,
-          configurationPath,
-          project: existing.project,
-          canonicalProject,
-          profile,
-          hosts,
-          previousProfile: existing.profile,
-          previousHosts: existing.hosts,
-        };
-      }
-
-      const document = parseDocument(source);
-      const bindingsNode = document.get("bindings");
-      if (!isSeq(bindingsNode)) {
-        throw new Error(`${description} bindings must be an array`);
-      }
-      // Prefer block style when starting from an empty flow sequence (init default).
-      if (bindingsNode.items.length === 0) {
-        bindingsNode.flow = false;
-      }
-
-      const entry = document.createNode({
-        project: storedProject,
-        profile,
-        hosts: [...hosts],
-      });
-      if (isMap(entry)) {
-        entry.flow = false;
-        const hostsNode = entry.get("hosts");
-        if (isSeq(hostsNode)) hostsNode.flow = false;
-      }
-      bindingsNode.add(entry);
-
-      await publishSourceReplacement(document.toString());
-
-      return {
-        outcome: "created" as const,
-        configurationPath,
-        project: storedProject,
-        canonicalProject,
-        profile,
-        hosts,
-      };
-    },
+  return withConfigurationLock(configurationPath, fileSystem, lockTimeoutMs, "bind", () =>
+    publishBindingUnderLock(configurationPath, fileSystem, "bind", {
+      home: options.home,
+      profile,
+      hosts,
+      canonicalProject,
+      storedProject,
+      replace: options.replace === true,
+    }),
   );
 }

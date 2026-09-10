@@ -19,7 +19,7 @@ export type ConfiguredPathOrigin =
     }
   | { readonly source: "init" }
   | { readonly source: "install-temp" }
-  | { readonly source: "project-target"; readonly command: "update" | "status" }
+  | { readonly source: "project-target"; readonly command: "update" | "status" | "install" }
   | { readonly source: "project-binding" };
 
 /**
@@ -146,6 +146,7 @@ export type InstallerToolErrorFact =
       readonly project: string;
     }
   | { readonly kind: "bind-host-required"; readonly supportedHosts: readonly string[] }
+  | { readonly kind: "install-host-required"; readonly supportedHosts: readonly string[] }
   | { readonly kind: "unsupported-host"; readonly host: string; readonly supportedHosts: readonly string[] }
   | {
       readonly kind: "unsupported-temporary-host";

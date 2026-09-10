@@ -292,20 +292,22 @@ and duplicate entries normalize at ingestion. There are no wildcards, recursive 
 hidden default projects, Host auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
 
-Hand-edit `config.yaml`, or record one binding with the authoring-only command
-(does not install or reconcile project output):
+Hand-edit `config.yaml`, or record one binding and install it in one action
+with `apkit install` (confirms interactively; `--auto-confirm` answers it):
 
 ```sh
-apkit bind coding --host codex
-apkit bind coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi
+apkit install coding --host codex --auto-confirm
+apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi --auto-confirm
 ```
 
 Omit the project argument to use the current working directory. At least one
-`--host` flag is required. An identical binding is left unchanged; a different
-Profile or Host set for the same project fails instead of overwriting. Do not
-hand-edit `config.yaml` while `bind` is running: `bind` commands serialize with
-each other, but a text editor does not participate in that lock. After binding,
-run `validate`, then `status` and `update` separately.
+`--host` flag is required. An identical installation is left unchanged; a different
+Profile or Host set for the same project replaces the installation in the same
+action. Do not
+hand-edit `config.yaml` while `install` is running: cooperating lifecycle commands
+serialize, but a text editor does not participate in that lock. Installing a
+Profile also verifies its generated output; run `validate` for Workspace checks
+and `status` to review installation state.
 
 Remove desired state with the recording-only command:
 
@@ -319,8 +321,8 @@ paths use the same canonical-root rules as bindings, including symlink aliases.
 When a project no longer exists, `unbind` can remove a binding only when the
 argument exactly matches its authored `project` spelling; it never guesses an
 alias. `unbind` edits Local Configuration only and leaves generated output for
-the next fleet `status` and `update --all`. Cooperating `bind` and `unbind` commands
-serialize and publish atomically; do not hand-edit the file concurrently.
+the next fleet `status` and `update --all`. Cooperating lifecycle commands
+serialize; do not hand-edit the file concurrently.
 
 ```yaml
 schema_version: 1

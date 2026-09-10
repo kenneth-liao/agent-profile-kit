@@ -19,14 +19,11 @@ import {
   applyConsentRequiredDocument,
   applyExecutionFailureDocument,
   applyReplacementCommandDocument,
-  applyReplacementConfirmationDocument,
   applyReplacementDeclinedDocument,
   applyReportDocument,
   applyReviewStaleDocument,
   applyVerificationFailureDocument,
   blockedApplyReportDocument,
-  changedOutputDiffDocument,
-  APPLY_REPLACEMENT_QUESTION,
   formatApplyExecutionFailureJson,
   formatApplyJson,
   formatApplyVerificationFailureJson,
@@ -38,6 +35,10 @@ import {
   type LifecycleHumanOptions,
 } from "./presentation.js";
 import {
+  answeringScope,
+  createChangedOutputConfirmer,
+} from "./changed-output-confirm.js";
+import {
   writeHumanDocument,
   type PresentationDocument,
 } from "./presentation-document.js";
@@ -45,8 +46,6 @@ import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import { terminalPresentationContext, type TerminalPresentationContext, type TerminalStream } from "./terminal-presentation.js";
 import {
-  createTextPrompt,
-  isInteractiveInput,
   type PromptClock,
 } from "./prompts.js";
 import { ProjectTargetError, type ProjectBindingSelection } from "../installer/local-configuration.js";
@@ -60,7 +59,6 @@ import {
   ApplyExecutionError,
   ApplyReviewStaleError,
   ApplyVerificationError,
-  type ChangedOutputConsentRequest,
 } from "../installer/reconcile.js";
 
 export interface ApplyCommandRequest {
@@ -129,66 +127,25 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
     selection: request.selection,
     ...(request.verbose ? { verbose: true } : {}),
   };
-  const interactive = isInteractiveInput(request.input);
   // Update has no general confirmation (DEC-004): the prompt exists only for
-  // unauthored changed-file scope. When both answering flags are present no
-  // review can fire, so no prompt object is needed.
-  const prompt = interactive && !request.json && !(request.replaceChanged && request.removeChanged)
-    ? createTextPrompt({
-      input: request.input,
-      output: request.stdout,
-      ...(request.clock === undefined ? {} : { clock: request.clock }),
-    })
-    : undefined;
-  let promptedAcceptedScope: ApplyAnsweringScope | undefined;
-  let requestedScope: ApplyAnsweringScope = { replace: false, remove: false };
-  let declinedAnswer: ApplyDeclinedAnswer = "declined";
-  const confirmChangedOutputReplacement = prompt === undefined
-    ? undefined
-    : async (consentRequest: ChangedOutputConsentRequest): Promise<"accepted" | "declined" | "cancelled"> => {
-      let diffPage = 0;
-      requestedScope = {
-        remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
-        replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
-      };
-      writeHumanDocument(
-        request.stdout,
-        applyReplacementConfirmationDocument(consentRequest, humanOptions),
-        stdoutContext,
-      );
-      for (;;) {
-        const answer = await prompt(APPLY_REPLACEMENT_QUESTION);
-        if (answer.kind === "cancelled") {
-          declinedAnswer = "cancelled";
-          return "cancelled";
-        }
-        const normalized = answer.value.trim().toLowerCase();
-        if (normalized === "d" || normalized === "diff") {
-          // The optional diff is a consent view, not consent (US-020):
-          // viewing returns to the same scope with nothing authorized, and
-          // repeated views page through the remaining hunks (INT-3).
-          const viewed = changedOutputDiffDocument(consentRequest.comparisons, diffPage);
-          diffPage = (viewed.pageIndex + 1) % viewed.pageCount;
-          writeHumanDocument(request.stdout, viewed.document, stdoutContext);
-          continue;
-        }
-        if (normalized === "y" || normalized === "yes") {
-          promptedAcceptedScope = {
-            remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
-            replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
-          };
-          return "accepted";
-        }
-        declinedAnswer = normalized === "" ? "default" : "declined";
-        return "declined";
-      }
-    };
+  // unauthored changed-file scope, through the one shared consent loop.
+  const confirmer = createChangedOutputConfirmer({
+    input: request.input,
+    output: request.stdout,
+    ...(request.clock === undefined ? {} : { clock: request.clock }),
+    json: request.json,
+    replaceChanged: request.replaceChanged,
+    removeChanged: request.removeChanged,
+    selection: request.selection,
+  });
+  const confirmChangedOutputReplacement = confirmer.confirm;
+  const promptedAcceptedScope = (): ApplyAnsweringScope | undefined =>
+    confirmer.promptedAcceptedScope();
+  const declinedAnswer = (): ApplyDeclinedAnswer => confirmer.declinedAnswer();
   // The answering scope one equivalent command must carry: flags already
   // given plus the operations the prompt authorized or is asked to authorize.
-  const equivalentScope = (prompted: ApplyAnsweringScope | undefined): ApplyAnsweringScope => ({
-    remove: request.removeChanged || prompted?.remove === true || requestedScope.remove,
-    replace: request.replaceChanged || prompted?.replace === true || requestedScope.replace,
-  });
+  const equivalentScope = (prompted: ApplyAnsweringScope | undefined): ApplyAnsweringScope =>
+    answeringScope(request, prompted, confirmer.requestedScope());
   try {
     const applied = await applyApplication(request.home, {
       selection: request.selection,
@@ -202,11 +159,11 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       request.stdout.write(formatApplyJson(applied));
     } else {
       writeHumanDocument(request.stdout, applyReportDocument(applied, humanOptions), stdoutContext);
-      if (promptedAcceptedScope !== undefined) {
+      if (promptedAcceptedScope() !== undefined) {
         writeHumanDocument(
           request.stdout,
           applyReplacementCommandDocument(
-            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope)),
+            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope())),
           ),
           stdoutContext,
         );
@@ -220,11 +177,11 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
-        const scope = equivalentScope(promptedAcceptedScope);
+        const scope = equivalentScope(promptedAcceptedScope());
         writeHumanDocument(
           request.stderr,
           applyReplacementDeclinedDocument(
-            error.reason === "cancelled" ? "cancelled" : declinedAnswer,
+            error.reason === "cancelled" ? "cancelled" : declinedAnswer(),
             fullySpecifiedApplyArguments(request.selection, scope),
             scope,
           ),
@@ -264,7 +221,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
             error,
             fullySpecifiedApplyArguments(
               request.selection,
-              equivalentScope(promptedAcceptedScope),
+              equivalentScope(promptedAcceptedScope()),
             ),
           ),
           stderrContext,

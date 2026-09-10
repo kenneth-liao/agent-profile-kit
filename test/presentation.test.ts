@@ -7,7 +7,7 @@ import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/projec
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
-import { bindReceiptDocument, initReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
+import { initReceiptDocument, installReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
 import {
   flatInlineText,
   identifierPart,
@@ -1733,7 +1733,7 @@ describe("responsive lifecycle presentation", () => {
     expect(wideStatus).toContain(`apkit update '${project}'`);
     expect(wideStatus).toContain(`apkit status '${project}' --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
-    expect(emptyStatus).toContain("apkit bind <profile> --host <host>");
+    expect(emptyStatus).toContain("apkit install <profile> --host <host>");
 
     // A command invocation inside an opaque carried message is no longer
     // re-identified or promoted: structural commands are authored as parts
@@ -5412,14 +5412,14 @@ describe("standalone view presentation documents (#389)", () => {
     }
   });
 
-  test("an empty project inventory is a success notice with bind guidance", () => {
+  test("an empty project inventory is a success notice with install guidance", () => {
     const document = projectInventoryDocument([], "/home", "/work");
     expect(document.map(shape)).toEqual(["notice:success", "prose"]);
     const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
     expect(notice.severity).toBe("success");
     // The guidance is one prose node whose typed inline command part keeps
-    // the bind invocation atomic.
-    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit bind <profile> --host <host>"]);
+    // the install invocation atomic.
+    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit install <profile> --host <host>"]);
   });
 
   test("profile inventory presents each Profile with its module and skill counts", () => {
@@ -5456,7 +5456,7 @@ describe("standalone view presentation documents (#389)", () => {
       .map((node) => nodeText(node));
     expect(hostLines[0]).toContain("codex");
     expect(hostLines[1]).toContain("claude");
-    expect(inlineCommandTexts(document)).toContain("apkit bind");
+    expect(inlineCommandTexts(document)).toContain("apkit install");
   });
 
   test("temporary inventory presents each installation as typed identity fields", () => {
@@ -5535,7 +5535,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
   });
 
-  test("validation without bindings points at the bind command as a typed command node", () => {
+  test("validation without bindings points at the install command as a typed command node", () => {
     const document = validationResultDocument({
       bindings: 0,
       hosts: [],
@@ -5546,7 +5546,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
-      args: [{ kind: "text", value: "bind <profile> --host <host>" }],
+      args: [{ kind: "text", value: "install <profile> --host <host>" }],
     });
     expect(keyValuesIn(document, "Profiles found")[0]!.value).toMatchObject({ kind: "prose" });
     // The count clause is protected report material: it never wraps (US-010).
@@ -6846,7 +6846,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       parts: ["engineering"],
     });
     expect(keyValuesIn(zeroProjects, "Hosts bound")[0]!.value).toMatchObject({ kind: "prose" });
-    expect(commandTexts(zeroProjects)).toContain("apkit bind <profile> --host <host>");
+    expect(commandTexts(zeroProjects)).toContain("apkit install <profile> --host <host>");
     expectUserFacingVocabulary(renderBoundary(zeroProjects));
 
     const oneProject = validationDocument(1, ["codex"], ["engineering"]);
@@ -6955,7 +6955,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     // command parts keep both invocations atomic.
     expect(inlineCommandTexts(empty)).toEqual([
       "apkit list projects",
-      "apkit bind <profile> --host <host>",
+      "apkit install <profile> --host <host>",
     ]);
     expectUserFacingVocabulary(renderPresentationDocument(empty, defaultRenderContext));
   });
@@ -8229,7 +8229,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           kind: "command",
           program: "apkit",
           args: [
-            { kind: "text", value: "bind" },
+            { kind: "text", value: "install" },
             { kind: "text", value: "example" },
             { kind: "text", value: "--host" },
             { kind: "text", value: "codex" },
@@ -8238,7 +8238,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       ],
     });
 
-    // When multiple Hosts are detected, the first detected Host is selected for the suggested bind
+    // When multiple Hosts are detected, the first detected Host is selected for the suggested install
     const multiHostDocument = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
@@ -8262,7 +8262,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           kind: "command",
           program: "apkit",
           args: [
-            { kind: "text", value: "bind" },
+            { kind: "text", value: "install" },
             { kind: "text", value: "example" },
             { kind: "text", value: "--host" },
             { kind: "text", value: "antigravity" },
@@ -8347,8 +8347,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(unchanged)).toEqual(["sentence"]);
   });
 
-  test("the recorded bind receipt presents binding detail and the next command", () => {
-    const document = bindReceiptDocument({
+  test("the created install receipt presents the installed selection and the next command", () => {
+    const document = installReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
       project: projectPath,
@@ -8375,15 +8375,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
   });
 
-  test("the replaced bind receipt keeps only the changed deltas", () => {
-    const document = bindReceiptDocument({
+  test("the replaced install receipt keeps only the changed deltas", () => {
+    const document = installReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: projectPath,
       profile: "coding",
       hosts: ["codex"],
-      previousProfile: "coding",
-      previousHosts: ["codex", "pi"],
+      previous: { profile: "coding", hosts: ["codex", "pi"] },
     });
     // The unchanged Profile delta is omitted; the changed Hosts delta remains.
     expect(shapes(document)).toEqual([
@@ -8398,15 +8397,15 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
   });
 
-  test("the unchanged bind and unbind receipts stay informational", () => {
-    const unchangedBind = bindReceiptDocument({
+  test("the unchanged install and unbind receipts stay informational", () => {
+    const unchangedInstall = installReceiptDocument({
       outcome: "unchanged",
       canonicalProject: projectPath,
       project: projectPath,
       profile: "coding",
       hosts: ["codex"],
     });
-    expect(shapes(unchangedBind)).toEqual([
+    expect(shapes(unchangedInstall)).toEqual([
       "sentence",
       "key-value:Profile(path)",
       "key-value:Hosts",
@@ -8419,8 +8418,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(unchangedUnbind)).toEqual(["sentence"]);
   });
 
-  test("bind receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
-    const created = bindReceiptDocument({
+  test("install receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
+    const created = installReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
       project: ".",
@@ -8430,7 +8429,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(created[0]).toEqual({
       kind: "sentence",
       parts: [
-        "Recorded configured Project for ",
+        "Installed coding for ",
         {
           kind: "path",
           canonicalPath: projectPath,
@@ -8441,7 +8440,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       category: "success",
     });
 
-    const unchanged = bindReceiptDocument({
+    const unchanged = installReceiptDocument({
       outcome: "unchanged",
       canonicalProject: projectPath,
       project: ".",
@@ -8451,7 +8450,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(unchanged[0]).toEqual({
       kind: "sentence",
       parts: [
-        "Configured Project unchanged for ",
+        "Installation unchanged for ",
         {
           kind: "path",
           canonicalPath: projectPath,
@@ -8461,19 +8460,18 @@ describe("authoring and teardown receipt documents (#390)", () => {
       ],
     });
 
-    const replaced = bindReceiptDocument({
+    const replaced = installReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: ".",
       profile: "ops",
       hosts: ["codex", "claude"],
-      previousProfile: "coding",
-      previousHosts: ["codex"],
+      previous: { profile: "coding", hosts: ["codex"] },
     });
     expect(replaced[0]).toEqual({
       kind: "sentence",
       parts: [
-        "Replaced configured Project for ",
+        "Replaced installation ops for ",
         {
           kind: "path",
           canonicalPath: projectPath,
@@ -8670,15 +8668,15 @@ describe("help documents (#390)", () => {
   });
 
   test("focused command help lists supported Hosts when the command carries them", () => {
-    const bind = defaultCommands().find((command) => command.name === "bind")!;
-    const document = commandHelpDocument(bind);
+    const install = defaultCommands().find((command) => command.name === "install")!;
+    const document = commandHelpDocument(install);
     const sections = shapes(document);
     const examplesIndex = sections.indexOf("heading");
     // The Supported Hosts sentence sits after Examples and before Writes.
     const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
     expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
     expect(inlineText(document[hostIndex] as PresentationNode))
-      .toContain(`Supported Hosts: ${bind.supportedHosts!.join(", ")}`);
+      .toContain(`Supported Hosts: ${install.supportedHosts!.join(", ")}`);
   });
 
   test("machine help presents the namespace intro, usage, and machine commands", () => {
@@ -8738,7 +8736,7 @@ describe("guide documents (#390)", () => {
       "  apkit guide --agent",
       "  apkit init",
       "  apkit guide profile",
-      "  apkit bind example --host codex",
+      "  apkit install example --host codex",
     ]);
   });
 
@@ -10193,7 +10191,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     // installed Project is pending, summarised by its primary cause.
     expect(text).toContain("not installed yet (1)");
     // Task-relevant human commands only.
-    for (const command of ["apkit status", "apkit update", "apkit bind", "apkit guide"]) {
+    for (const command of ["apkit status", "apkit update", "apkit install", "apkit guide"]) {
       expect(text).toContain(command);
     }
     // Not the full manual.
@@ -10222,7 +10220,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     expect(text).toContain("apkit update");
   });
 
-  test("an empty configured fleet points at binding a Project (US-032)", () => {
+  test("an empty configured fleet points at installing a Project (US-032)", () => {
     const document = bareInvocationDocument({
       info: bareInfo(),
       report: emptyReport(),
@@ -10230,7 +10228,7 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
     });
     const text = renderedText(document);
     expect(text).toContain("No Projects are configured");
-    expect(text).toContain("apkit bind");
+    expect(text).toContain("apkit install");
   });
 
   test("the entry screen never lists machine-facing commands (US-035, DEC-021, TEST-020)", () => {
