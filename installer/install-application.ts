@@ -48,11 +48,12 @@ import {
   DEFAULT_LOCK_TIMEOUT_MS,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
+import { withInstallationLifecycleLock } from "./installation-lifecycle-lock.js";
 import { buildDesiredState, planDesiredInstallations } from "./project-plan.js";
 import type { DesiredInstallation } from "./project-plan.js";
 import type { ChangedOutputComparison } from "./changed-output-review.js";
 import {
-  applyReconciliation,
+  applyReconciliationWithLifecycleLock,
   previewReconciliation,
   resolveChangedOutputConsent,
   unreadableInstallationStateReport,
@@ -416,182 +417,191 @@ export async function executeInstall(
   // was published, so there is nothing to restore.
   try {
     return await withConfigurationLock(
-    configurationPath,
-    fileSystem,
-    lockTimeoutMs,
-    "install",
-    async () => {
-      let published: PreviousInstallSelection | undefined;
-      try {
-        // 1. Re-verify the snapshot this operation owns; fail closed on drift.
-        const current = await readPreviousSelection(home, preview.canonicalProject);
-        if (!sameInstallSelection(current, preview.previous)) {
-          throw new InstallerToolError({
-            kind: "configuration-changed-before-publication",
-            configurationPath,
-            operation: "install",
-          });
-        }
-        // 2. Publish through the shared locked boundary.
-        const binding = await publishBindingUnderLock(
-          configurationPath,
-          fileSystem,
-          "install",
-          {
-            home,
-            profile: preview.profile,
-            hosts: preview.hosts,
-            canonicalProject: preview.canonicalProject,
-            storedProject: preview.authoredProject,
-            replace: true,
-          },
-        );
-        published = {
-          profile: binding.profile,
-          hosts: binding.hosts,
-          authoredProject: binding.project,
-        };
-        // 3. Fresh authoritative plan from the published configuration.
-        const commitScheduler = createProjectReadScheduler();
-        const planning: {
-          readonly planningInstrumentation?: LifecyclePlanningInstrumentation;
-        } = instrumentation === undefined
-          ? {}
-          : { planningInstrumentation: instrumentation.planning };
-        const desired = await buildDesiredState(home, {
-          ...(options.env === undefined ? {} : { env: options.env }),
-          gitInspection: createGitInspection(),
-          ...planning,
-          scheduler: commitScheduler,
-          selection: {
-            command: "install",
-            kind: "project",
-            match: "exact",
-            target: binding.canonicalProject,
-          },
-        });
-        // 4. Programmatic commit confirmer: the commit authorizes exactly the
-        // reviewed bytes, never a moved review and never a second prompt.
-        let commitStale = false;
-        const commitConfirmer = async (
-          commitRequest: ChangedOutputConsentRequest,
-        ): Promise<"accepted" | "declined" | "cancelled"> => {
-          if (commitMatchesProspectiveReview(consent.comparisons, commitRequest.comparisons)) {
-            return "accepted";
-          }
-          commitStale = true;
-          return "declined";
-        };
-        // 5. Reconcile (lifecycle lock nested inside the held lock).
-        let applied: ApplyReconciliationResult;
-        try {
-          applied = await applyReconciliation(home, desired.installations, {
-            scheduler: commitScheduler,
-            scope: { kind: "project" },
-            confirmChangedOutputReplacement: commitConfirmer,
-            ...(options.replaceChanged === undefined ? {} : { replaceChanged: options.replaceChanged }),
-            ...(options.removeChanged === undefined ? {} : { removeChanged: options.removeChanged }),
-            createGitInspection,
-            createOwnershipInspection,
-            ...(options.reconcileFileSystem === undefined
-              ? {}
-              : { fileSystem: options.reconcileFileSystem }),
-            ...(options.writeInstallationState === undefined
-              ? {}
-              : { writeInstallationState: options.writeInstallationState }),
-          });
-        } catch (error) {
-          if (error instanceof ApplyDeclinedError && commitStale) {
-            throw new ApplyReviewStaleError({
-              completedProjects: [],
-              failedProject: {
-                canonicalProject: preview.canonicalProject,
-                project: preview.authoredProject,
-              },
-              pendingProjects: [],
-            });
-          }
-          throw error;
-        }
-        // 6. Post-verify ownership (defense in depth; exclusion guarantees it).
-        const currentAfter = await readPreviousSelection(home, preview.canonicalProject);
-        if (!sameInstallSelection(currentAfter, published)) {
-          throw new InstallerToolError({
-            kind: "configuration-changed-before-publication",
-            configurationPath,
-            operation: "install",
-          });
-        }
-        return { preview, binding, applied };
-      } catch (error) {
-        if (error instanceof ApplyVerificationError) {
-          // Post-commit: the new output is committed, so the new selection stays
-          // and the failure reports truthfully with a concrete retry.
-          throw new InstallExecutionError({
-            cause: error,
-            selectionRestored: false,
-            outputCommitted: true,
-            concurrentSelectionChange: false,
-          });
-        }
-        const postVerifyMismatch = error instanceof InstallerToolError &&
-          error.fact.kind === "configuration-changed-before-publication" &&
-          published !== undefined;
-        // Restore only the snapshot still owned: a concurrent change is left
-        // untouched and reported instead of blindly overwritten.
-        let restoreFailure: unknown;
-        let restored = false;
-        let concurrent = false;
-        if (published !== undefined && !postVerifyMismatch) {
-          let currentNow: PreviousInstallSelection | undefined;
+      configurationPath,
+      fileSystem,
+      lockTimeoutMs,
+      "install",
+      async () => {
+        // The lifecycle lock nests inside the configuration lock (the same
+        // order as unbind) and is retained through reconciliation AND
+        // selection recovery, so lifecycle writers queue instead of
+        // interleaving with either phase.
+        return withInstallationLifecycleLock(home, "install", async () => {
+          let published: PreviousInstallSelection | undefined;
           try {
-            currentNow = await readPreviousSelection(home, preview.canonicalProject);
-          } catch (readError) {
-            throw new InstallExecutionError({
-              cause: error,
-              selectionRestored: false,
-              restoreFailure: readError,
-              outputCommitted: false,
-              concurrentSelectionChange: false,
+            // 1. Re-verify the snapshot this operation owns; fail closed on drift.
+            const current = await readPreviousSelection(home, preview.canonicalProject);
+            if (!sameInstallSelection(current, preview.previous)) {
+              throw new InstallerToolError({
+                kind: "configuration-changed-before-publication",
+                configurationPath,
+                operation: "install",
+              });
+            }
+            // 2. Publish through the shared locked boundary.
+            const binding = await publishBindingUnderLock(
+              configurationPath,
+              fileSystem,
+              "install",
+              {
+                home,
+                profile: preview.profile,
+                hosts: preview.hosts,
+                canonicalProject: preview.canonicalProject,
+                storedProject: preview.authoredProject,
+                replace: true,
+              },
+            );
+            published = {
+              profile: binding.profile,
+              hosts: binding.hosts,
+              authoredProject: binding.project,
+            };
+            // 3. Fresh authoritative plan from the published configuration.
+            const commitScheduler = createProjectReadScheduler();
+            const planning: {
+              readonly planningInstrumentation?: LifecyclePlanningInstrumentation;
+            } = instrumentation === undefined
+              ? {}
+              : { planningInstrumentation: instrumentation.planning };
+            const desired = await buildDesiredState(home, {
+              ...(options.env === undefined ? {} : { env: options.env }),
+              gitInspection: createGitInspection(),
+              ...planning,
+              scheduler: commitScheduler,
+              selection: {
+                command: "install",
+                kind: "project",
+                match: "exact",
+                target: binding.canonicalProject,
+              },
             });
-          }
-          if (!sameInstallSelection(currentNow, published)) {
-            concurrent = true;
-          } else {
+            // 4. Programmatic commit confirmer: the commit authorizes exactly the
+            // reviewed bytes, never a moved review and never a second prompt.
+            let commitStale = false;
+            const commitConfirmer = async (
+              commitRequest: ChangedOutputConsentRequest,
+            ): Promise<"accepted" | "declined" | "cancelled"> => {
+              if (commitMatchesProspectiveReview(consent.comparisons, commitRequest.comparisons)) {
+                return "accepted";
+              }
+              commitStale = true;
+              return "declined";
+            };
+            // 5. Reconcile (lifecycle lock nested inside the held lock).
+            let applied: ApplyReconciliationResult;
             try {
-              if (preview.previous === undefined) {
-                await removeBindingUnderLock(
-                  configurationPath,
-                  fileSystem,
-                  "install",
-                  preview.canonicalProject,
-                );
-              } else {
-                await publishBindingUnderLock(configurationPath, fileSystem, "install", {
-                  home,
-                  profile: preview.previous.profile,
-                  hosts: preview.previous.hosts,
-                  canonicalProject: preview.canonicalProject,
-                  storedProject: preview.previous.authoredProject,
-                  replace: true,
+              applied = await applyReconciliationWithLifecycleLock(home, desired.installations, {
+                scheduler: commitScheduler,
+                scope: { kind: "project" },
+                confirmChangedOutputReplacement: commitConfirmer,
+                ...(options.replaceChanged === undefined ? {} : { replaceChanged: options.replaceChanged }),
+                ...(options.removeChanged === undefined ? {} : { removeChanged: options.removeChanged }),
+                createGitInspection,
+                createOwnershipInspection,
+                ...(options.reconcileFileSystem === undefined
+                  ? {}
+                  : { fileSystem: options.reconcileFileSystem }),
+                ...(options.writeInstallationState === undefined
+                  ? {}
+                  : { writeInstallationState: options.writeInstallationState }),
+              });
+            } catch (error) {
+              if (error instanceof ApplyDeclinedError && commitStale) {
+                throw new ApplyReviewStaleError({
+                  completedProjects: [],
+                  failedProject: {
+                    canonicalProject: preview.canonicalProject,
+                    project: preview.authoredProject,
+                  },
+                  pendingProjects: [],
                 });
               }
-              restored = true;
-            } catch (failure) {
-              restoreFailure = failure;
+              throw error;
             }
+            // 6. Post-verify ownership (defense in depth; exclusion guarantees it).
+            const currentAfter = await readPreviousSelection(home, preview.canonicalProject);
+            if (!sameInstallSelection(currentAfter, published)) {
+              throw new InstallerToolError({
+                kind: "configuration-changed-before-publication",
+                configurationPath,
+                operation: "install",
+              });
+            }
+            return { preview, binding, applied };
+          } catch (error) {
+            if (error instanceof ApplyVerificationError) {
+              // Post-commit: the new output is committed, so the new selection stays
+              // and the failure reports truthfully with a concrete retry.
+              throw new InstallExecutionError({
+                cause: error,
+                selectionRestored: false,
+                outputCommitted: true,
+                concurrentSelectionChange: false,
+              });
+            }
+            const postVerifyMismatch = error instanceof InstallerToolError &&
+              error.fact.kind === "configuration-changed-before-publication" &&
+              published !== undefined;
+            // Restore only the snapshot still owned: a concurrent change is left
+            // untouched and reported instead of blindly overwritten.
+            let restoreFailure: unknown;
+            let restored = false;
+            let concurrent = false;
+            if (published !== undefined && !postVerifyMismatch) {
+              let currentNow: PreviousInstallSelection | undefined;
+              try {
+                currentNow = await readPreviousSelection(home, preview.canonicalProject);
+              } catch (readError) {
+                throw new InstallExecutionError({
+                  cause: error,
+                  selectionRestored: false,
+                  restoreFailure: readError,
+                  outputCommitted: false,
+                  concurrentSelectionChange: false,
+                });
+              }
+              if (!sameInstallSelection(currentNow, published)) {
+                concurrent = true;
+              } else {
+                try {
+                  if (preview.previous === undefined) {
+                    await removeBindingUnderLock(
+                      home,
+                      configurationPath,
+                      fileSystem,
+                      "install",
+                      preview.canonicalProject,
+                    );
+                  } else {
+                    await publishBindingUnderLock(configurationPath, fileSystem, "install", {
+                      home,
+                      profile: preview.previous.profile,
+                      hosts: preview.previous.hosts,
+                      canonicalProject: preview.canonicalProject,
+                      storedProject: preview.previous.authoredProject,
+                      replace: true,
+                    });
+                  }
+                  restored = true;
+                } catch (failure) {
+                  restoreFailure = failure;
+                }
+              }
+            }
+            throw new InstallExecutionError({
+              cause: error,
+              selectionRestored: restored,
+              ...(restoreFailure === undefined ? {} : { restoreFailure }),
+              outputCommitted: postVerifyMismatch,
+              concurrentSelectionChange: concurrent || postVerifyMismatch,
+            });
           }
-        }
-        throw new InstallExecutionError({
-          cause: error,
-          selectionRestored: restored,
-          ...(restoreFailure === undefined ? {} : { restoreFailure }),
-          outputCommitted: postVerifyMismatch,
-          concurrentSelectionChange: concurrent || postVerifyMismatch,
-        });
-      }
-    },
-  );
+          },
+        { lockTimeoutMs },
+        );
+      },
+    );
   } catch (error) {
     if (error instanceof InstallExecutionError) throw error;
     throw new InstallExecutionError({

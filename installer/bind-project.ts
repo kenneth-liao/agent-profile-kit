@@ -271,6 +271,7 @@ export async function publishBindingUnderLock(
  * after a failed install commit; removal selection itself belongs to uninstall.
  */
 export async function removeBindingUnderLock(
+  home: string,
   configurationPath: string,
   fileSystem: BindProjectFileSystem,
   operation: string,
@@ -291,7 +292,7 @@ export async function removeBindingUnderLock(
     throw error;
   }
   const { configuration } = await ingestApplicationFromSource(
-    "",
+    home,
     source,
     configurationPath,
   );

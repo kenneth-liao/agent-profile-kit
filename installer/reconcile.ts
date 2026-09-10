@@ -1785,53 +1785,56 @@ export async function resolveChangedOutputConsent(
   return { comparisons, pendingConsentScope, reviewedScope };
 }
 
+/** Options shared by the locking and lock-aware reconciliation entrypoints. */
+export interface ApplyReconciliationOptions {
+      /**
+       * Factory for one Git inspection context. Apply creates a fresh context for
+       * preflight and another for post-commit verification so pre-write snapshots
+       * cannot prove post-write state. Tests may inject a counting factory.
+       */
+      readonly createGitInspection?: () => LifecycleGitInspection;
+      /**
+       * Factory for one ownership inspection context. Apply creates a fresh
+       * context for preflight and another for post-commit verification so
+       * pre-write filesystem evidence cannot prove post-write state. Tests may
+       * inject a counting factory.
+       */
+      readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
+      readonly fileSystem?: Partial<ReconciliationFileSystem>;
+      readonly lockTimeoutMs?: number;
+      /**
+       * Injectable changed-output replacement consent (DEC-019). Invoked after
+       * every Blocker check and before the first write, exactly when the
+       * selected, non-Blocked Projects hold proven changed generated outputs;
+       * any answer but "accepted" aborts the whole invocation without writes.
+       */
+      readonly confirmChangedOutputReplacement?:
+        (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
+      /**
+       * Explicit per-operation changed-file authorization (DEC-005):
+       * `--replace-changed` answers replacement, `--remove-changed` answers
+       * deletion. Neither authorizes the other operation, and neither bypasses
+       * a Blocker. `--auto-confirm` answers no changed-file scope.
+       */
+      readonly removeChanged?: boolean;
+      readonly replaceChanged?: boolean;
+      /**
+       * Invocation-scoped bounded scheduler for independent Project reads. Apply
+       * passes it to preflight and post-commit verification while all mutation,
+       * publication, and rollback stay sequential.
+       */
+      readonly scheduler?: ProjectReadScheduler;
+      readonly scope?: ReconciliationScope;
+      /** Selected-Project narrowing; membership governs writes and both reports (DEC-006). */
+      readonly filter?: ProjectSelectionFilter;
+      readonly verifyReconciliation?: typeof previewReconciliation;
+      readonly writeInstallationState?: typeof writeInstallationState;
+}
+
 export async function applyReconciliation(
   home: string,
   desired: readonly DesiredInstallation[],
-  options: {
-    /**
-     * Factory for one Git inspection context. Apply creates a fresh context for
-     * preflight and another for post-commit verification so pre-write snapshots
-     * cannot prove post-write state. Tests may inject a counting factory.
-     */
-    readonly createGitInspection?: () => LifecycleGitInspection;
-    /**
-     * Factory for one ownership inspection context. Apply creates a fresh
-     * context for preflight and another for post-commit verification so
-     * pre-write filesystem evidence cannot prove post-write state. Tests may
-     * inject a counting factory.
-     */
-    readonly createOwnershipInspection?: () => LifecycleOwnershipInspection;
-    readonly fileSystem?: Partial<ReconciliationFileSystem>;
-    readonly lockTimeoutMs?: number;
-    /**
-     * Injectable changed-output replacement consent (DEC-019). Invoked after
-     * every Blocker check and before the first write, exactly when the
-     * selected, non-Blocked Projects hold proven changed generated outputs;
-     * any answer but "accepted" aborts the whole invocation without writes.
-     */
-    readonly confirmChangedOutputReplacement?:
-      (request: ChangedOutputConsentRequest) => Promise<ChangedOutputConsentAnswer>;
-    /**
-     * Explicit per-operation changed-file authorization (DEC-005):
-     * `--replace-changed` answers replacement, `--remove-changed` answers
-     * deletion. Neither authorizes the other operation, and neither bypasses
-     * a Blocker. `--auto-confirm` answers no changed-file scope.
-     */
-    readonly removeChanged?: boolean;
-    readonly replaceChanged?: boolean;
-    /**
-     * Invocation-scoped bounded scheduler for independent Project reads. Apply
-     * passes it to preflight and post-commit verification while all mutation,
-     * publication, and rollback stay sequential.
-     */
-    readonly scheduler?: ProjectReadScheduler;
-    readonly scope?: ReconciliationScope;
-    /** Selected-Project narrowing; membership governs writes and both reports (DEC-006). */
-    readonly filter?: ProjectSelectionFilter;
-    readonly verifyReconciliation?: typeof previewReconciliation;
-    readonly writeInstallationState?: typeof writeInstallationState;
-  } = {},
+  options: ApplyReconciliationOptions = {},
 ): Promise<ApplyReconciliationResult> {
   return withInstallationLifecycleLock(
     home,
@@ -1839,6 +1842,20 @@ export async function applyReconciliation(
     () => applyReconciliationLocked(home, desired, options),
     options.lockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.lockTimeoutMs },
   );
+}
+
+/**
+ * Reconciliation with the installation lifecycle lock already held by the
+ * caller. Use only from a joint commit boundary that nests the lifecycle
+ * lock inside the Local Configuration lock (install; same order as unbind),
+ * and hold it across the whole call including any recovery.
+ */
+export async function applyReconciliationWithLifecycleLock(
+  home: string,
+  desired: readonly DesiredInstallation[],
+  options: ApplyReconciliationOptions = {},
+): Promise<ApplyReconciliationResult> {
+  return applyReconciliationLocked(home, desired, options);
 }
 
 async function applyReconciliationLocked(

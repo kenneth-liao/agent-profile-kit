@@ -18,6 +18,8 @@ import {
 import { bindProject } from "../installer/bind-project.js";
 import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
+import { buildDesiredState } from "../installer/project-plan.js";
+import { applyReconciliation } from "../installer/reconcile.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { defaultFileSystem } from "../installer/bind-project.js";
 import type { BindProjectFileSystem } from "../installer/bind-project.js";
@@ -422,5 +424,110 @@ describe("install commit serializes cooperating writers", () => {
     expect(sameInstallSelection(selection, { ...selection, profile: "ops" })).toBe(false);
     expect(sameInstallSelection(selection, { ...selection, hosts: ["claude"] as const })).toBe(false);
     expect(sameInstallSelection(selection, { ...selection, authoredProject: "~/proj" })).toBe(false);
+  });
+});
+
+describe("install recovery resolves home-relative paths against the real home", () => {
+  test("restoring a new binding with home-relative Workspace and Project paths succeeds", async () => {
+    const home = await setupHome();
+    const projectPath = join(home, "proj");
+    mkdirSync(projectPath, { recursive: true });
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ~/.agents/agent-profile-kit/workspace\nbindings: []\n`,
+    );
+    const failingOutputs = {
+      ...nodeFileSystem,
+      writeFile: async (): Promise<void> => {
+        throw new Error("simulated generated-output write failure");
+      },
+    };
+
+    const failure = await executeInstall(home, {
+      profile: "coding",
+      hosts: ["codex"],
+      project: "~/proj",
+      reconcileFileSystem: failingOutputs,
+    }).then(
+      () => { throw new Error("expected install to fail"); },
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(InstallExecutionError);
+    const installFailure = failure as InstallExecutionError;
+    expect(installFailure.failure.cause).toBeInstanceOf(ApplyExecutionError);
+    expect(installFailure.failure.selectionRestored).toBe(true);
+    expect(installFailure.failure.restoreFailure).toBeUndefined();
+    expect(readFileSync(configPath(home), "utf8")).not.toContain("profile: coding");
+  });
+});
+
+describe("install excludes lifecycle writers through publication and recovery", () => {
+  test("an update cannot commit between selection publication and install recovery", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const baseline = await executeInstall(home, {
+      profile: "coding",
+      hosts: ["codex"],
+      project: projectPath,
+    });
+    expect(baseline.binding.outcome).toBe("created");
+    const outputPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
+    const installedBytes = readFileSync(outputPath, "utf8");
+
+    async function contendingUpdate(): Promise<unknown> {
+      const desired = await buildDesiredState(home);
+      return applyReconciliation(home, desired.installations, { lockTimeoutMs: 100 }).then(
+        () => { throw new Error("expected the contending update to wait out the lock"); },
+        (error: unknown) => error,
+      );
+    }
+
+    let renames = 0;
+    const failingOutputs = {
+      ...nodeFileSystem,
+      writeFile: async (): Promise<void> => {
+        throw new Error("simulated generated-output write failure");
+      },
+    };
+    const gatedConfig: BindProjectFileSystem = {
+      ...defaultFileSystem,
+      rename: (async (...args: Parameters<typeof defaultFileSystem.rename>) => {
+        renames += 1;
+        // Rename 1 publishes the requested selection; rename 2 restores the
+        // previous one. Both run under the joint boundary, so the ordinary
+        // update path (lifecycle lock only) must wait out each of them.
+        const contender = await contendingUpdate();
+        expect(contender).toBeInstanceOf(InstallerToolError);
+        expect((contender as InstallerToolError).fact.kind).toBe("lifecycle-lock-busy");
+        return defaultFileSystem.rename(...args);
+      }) as typeof defaultFileSystem.rename,
+    };
+
+    const failure = await executeInstall(home, {
+      profile: "ops",
+      hosts: ["claude"],
+      project: projectPath,
+      bindFileSystem: gatedConfig,
+      reconcileFileSystem: failingOutputs,
+    }).then(
+      () => { throw new Error("expected install to fail"); },
+      (error: unknown) => error,
+    );
+
+    expect(renames).toBe(2);
+    expect(failure).toBeInstanceOf(InstallExecutionError);
+    const installFailure = failure as InstallExecutionError;
+    expect(installFailure.failure.selectionRestored).toBe(true);
+    expect(installFailure.failure.outputCommitted).toBe(false);
+    // No split brain: the restored selection matches the durable receipt and
+    // the untouched output.
+    expect(readFileSync(configPath(home), "utf8")).toContain("profile: coding");
+    expect(readFileSync(outputPath, "utf8")).toBe(installedBytes);
+    expect(installationsOf(home)).toBe(1);
+    // After release the ordinary update path converges on the restored state.
+    const desired = await buildDesiredState(home);
+    const converged = await applyReconciliation(home, desired.installations, {});
+    expect(converged.resultingState.projects.every((project) => project.state.kind === "current")).toBe(true);
   });
 });
