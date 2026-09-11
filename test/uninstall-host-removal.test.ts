@@ -12,6 +12,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -28,9 +29,11 @@ import { parse as parseYaml } from "yaml";
 import { runUninstallCommand } from "../cli/uninstall-command.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import {
+  assertSurvivorAdditionsFree,
   normalizeUninstallHosts,
   survivingHostsForRemoval,
 } from "../installer/uninstall-application.js";
+import { hashBytes } from "../installer/project-plan.js";
 import { executeInstall } from "../installer/install-application.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import { ordinaryReceipts } from "../installer/ownership-state.js";
@@ -224,6 +227,52 @@ describe("uninstall --host surviving-set computation", () => {
   });
 });
 
+describe("survivor-addition preflight", () => {
+  test("missing and byte-identical additions adopt; occupied additions refuse with recovery", async () => {
+    const project = projectDirectory();
+    try {
+      const bytes = "# review-pr\n";
+      const planned = {
+        bytes,
+        consumingHosts: ["pi"],
+        hash: hashBytes(bytes),
+        mode: 0o644,
+        origins: [],
+        path: ".agents/skills/review-pr/SKILL.md",
+        requirements: [],
+        type: "file",
+      } as const;
+      const receipt = {
+        project,
+        outputs: [],
+      } as unknown as Parameters<typeof assertSurvivorAdditionsFree>[0];
+      const plan = {
+        survivingHosts: ["pi"],
+        desired: { outputs: [planned] },
+      } as unknown as Parameters<typeof assertSurvivorAdditionsFree>[1];
+      // Missing adopts without a write.
+      await assertSurvivorAdditionsFree(receipt, plan, project);
+      // Byte-identical content and mode adopts.
+      mkdirSync(join(project, ".agents/skills/review-pr"), { recursive: true });
+      writeFileSync(join(project, ".agents/skills/review-pr/SKILL.md"), bytes, { mode: 0o644 });
+      chmodSync(join(project, ".agents/skills/review-pr/SKILL.md"), 0o644);
+      await assertSurvivorAdditionsFree(receipt, plan, project);
+      // Differing bytes refuse with recovery instead of adopting.
+      writeFileSync(join(project, ".agents/skills/review-pr/SKILL.md"), "# foreign\n");
+      let caught: unknown;
+      try {
+        await assertSurvivorAdditionsFree(receipt, plan, project);
+      } catch (error) {
+        caught = error;
+      }
+      expect((caught as Error).message).toContain("occupied by unowned content");
+      expect((caught as Error).message).toContain("remove the whole installation instead");
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe("uninstall --host partial removal", () => {
   test("removes only the requested Host's output and narrows the remembered selection", async () => {
     const home = await setupHome();
@@ -263,6 +312,29 @@ describe("uninstall --host partial removal", () => {
       expect(existsSync(codexOutput)).toBe(false);
       expect(existsSync(shared.root)).toBe(true);
       expect(bindingHosts(home, project)).toEqual(["pi"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a vanished root with --host converges to forgetting like whole-removal", async () => {
+    const home = await setupHome();
+    const project = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+      const canonical = realpathSync(project);
+      rmSync(project, { recursive: true, force: true });
+
+      // No survivors to serve: teardown forgets the selection instead of
+      // narrowing Hosts for a Project that is gone.
+      const result = await executeUninstall(home, { project, hosts: ["codex"] });
+
+      expect(result.failed).toBeUndefined();
+      expect(result.completed).toHaveLength(1);
+      expect(result.completed[0]!.removedHosts).toBeUndefined();
+      expect(readFileSync(configPath(home), "utf8")).not.toContain(project);
+      const state = await readInstallationState(home);
+      expect(state.receipts.some((entry) => entry.project === canonical)).toBe(false);
     } finally {
       cleanup();
     }

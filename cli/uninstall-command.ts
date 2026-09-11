@@ -43,13 +43,19 @@ export class UninstallUnsupportedFlagError extends Error {
   }
 }
 
-/** The canonical token order for one equivalent uninstall command. */
+/**
+ * The canonical token order for one equivalent uninstall command. The
+ * `--replace-changed` rejection is the sole caller and fires only for
+ * whole-removal (no `--host`), so no Host rendering belongs here:
+ * `--host` values travel only through `fullySpecifiedUninstallArguments`,
+ * which renders them exactly like install's equivalent (plain-text tokens
+ * from the allowlisted Host catalog).
+ */
 function equivalentCommand(options: {
   readonly here: boolean;
   readonly all: boolean;
   readonly project?: string;
   readonly profile?: string;
-  readonly hosts?: readonly string[];
   readonly removeChanged: boolean;
   readonly replaceChanged: boolean;
   readonly autoConfirm: boolean;
@@ -60,7 +66,6 @@ function equivalentCommand(options: {
   if (options.all) tokens.push("--all");
   if (options.project !== undefined) tokens.push("--project", options.project);
   if (options.profile !== undefined) tokens.push("--profile", options.profile);
-  for (const host of options.hosts ?? []) tokens.push("--host", host);
   if (options.removeChanged) tokens.push("--remove-changed");
   if (options.replaceChanged) tokens.push("--replace-changed");
   if (options.autoConfirm) tokens.push("--auto-confirm");

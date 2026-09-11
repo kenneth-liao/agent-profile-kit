@@ -873,12 +873,39 @@ function survivorOutputMatchesReceipt(
 }
 
 /**
- * Preflight for survivor-planned paths with no receipt: an occupied path
- * whose bytes differ is an ownership conflict the partial commit must not
- * silently adopt or overwrite, so Phase A skips the Project explicitly.
- * Missing paths and byte-identical files are adopted without a write.
+ * A survivor-planned path with no receipt is adoptable without a write
+ * only when absent, or a file with byte-identical content and mode. An
+ * occupied path whose bytes differ is an ownership conflict the partial
+ * commit must not silently adopt or overwrite.
  */
-async function assertSurvivorAdditionsFree(
+async function isAdoptableSurvivorAddition(
+  project: string,
+  planned: DesiredProjectOutput,
+): Promise<boolean> {
+  const absolute = join(project, planned.path);
+  let entry;
+  try {
+    entry = await lstat(absolute);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT")) return true;
+    throw error;
+  }
+  if (planned.type === "file" && entry.isFile()) {
+    const current = await readFile(absolute);
+    const currentMode = entry.mode & 0o777;
+    if (hashBytes(current) === planned.hash && currentMode === planned.mode) return true;
+  }
+  return false;
+}
+
+/**
+ * Preflight for survivor-planned paths with no receipt: an occupied path
+ * whose bytes differ is an ownership conflict, so Phase A skips the
+ * Project explicitly instead of guessing retention. Exported as a test
+ * seam: adapter planning rarely produces additions, so integration cannot
+ * deterministically occupy one.
+ */
+export async function assertSurvivorAdditionsFree(
   receipt: OwnershipReceipt,
   plan: SurvivingHostPlan,
   authoredProject: string,
@@ -886,19 +913,7 @@ async function assertSurvivorAdditionsFree(
   const recordedPaths = new Set(receipt.outputs.map((output) => output.path));
   for (const planned of plan.desired.outputs) {
     if (recordedPaths.has(planned.path)) continue;
-    const absolute = join(receipt.project, planned.path);
-    let entry;
-    try {
-      entry = await lstat(absolute);
-    } catch (error) {
-      if (hasErrorCode(error, "ENOENT")) continue;
-      throw error;
-    }
-    if (planned.type === "file" && entry.isFile()) {
-      const current = await readFile(absolute);
-      const currentMode = entry.mode & 0o777;
-      if (hashBytes(current) === planned.hash && currentMode === planned.mode) continue;
-    }
+    if (await isAdoptableSurvivorAddition(receipt.project, planned)) continue;
     throw new Error(
       `surviving Host output '${planned.path}' for ${authoredProject} is occupied by unowned content; ` +
         `remove it or remove the whole installation instead`,
@@ -1314,18 +1329,14 @@ async function commitPartialUninstallProject(
               },
             );
           }
-          // Survivor-planned paths with no receipt must still be free:
-          // Phase A proved this, and the joint lock held since covers no
-          // interleaving writer — re-check before staging so a race fails
-          // closed with nothing staged.
+          // Survivor-planned paths with no receipt must still be
+          // adoptable (absent, or byte-identical): Phase A proved this,
+          // and the joint lock held since covers no interleaving writer —
+          // re-check before staging so a race fails closed with nothing
+          // staged. The same adoption rule applies here as in Phase A.
           for (const output of desired.outputs) {
             if (recordedPaths.has(output.path)) continue;
-            try {
-              await lstat(join(receipt.project, output.path));
-            } catch (error) {
-              if (hasErrorCode(error, "ENOENT")) continue;
-              throw error;
-            }
+            if (await isAdoptableSurvivorAddition(receipt.project, output)) continue;
             return {
               state: await readInstallationState(home),
               failed: failedProjectResult(item, canonicalProject, {
