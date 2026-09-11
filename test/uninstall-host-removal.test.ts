@@ -489,7 +489,11 @@ describe("uninstall --host partial removal", () => {
     }
   });
 
-  test("bare-interactive --host refuses with a scoped equivalent and zero writes", async () => {
+  test("bare-interactive --host routes into Project selection instead of refusing", async () => {
+    // Ticket #499 replaces the bare-interactive Host-only refusal with the
+    // picker flow carrying the named Hosts as proposed: the picker opens
+    // with zero writes, and cancelling it changes nothing (full routing
+    // behavior lives in uninstall-search.test.ts).
     const home = await setupHome();
     const project = projectDirectory();
     try {
@@ -497,16 +501,20 @@ describe("uninstall --host partial removal", () => {
       const codexOutput = await exclusiveOutputPath(home, project);
 
       const streams = capturedStreams();
-      const outcome = await runUninstallCommand({
+      const input = fakeInteractiveInput();
+      const pending = runUninstallCommand({
         home,
         arguments: ["--host", "codex"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
-        input: fakeInteractiveInput(),
+        input,
       });
+      await waitForOutput(streams.humanText, "Which Projects");
+      input.end();
+      const outcome = await pending;
 
       expect(outcome.exitCode).toBe(1);
-      expect(plain(streams.errorText())).toContain("--host codex");
+      expect(plain(streams.errorText())).toContain("cancelled");
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
       expect(existsSync(codexOutput)).toBe(true);
     } finally {

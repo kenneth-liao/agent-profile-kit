@@ -253,13 +253,18 @@ describe("uninstall confirmation matrix", () => {
     snapshotUntouched(home, first, firstOutput);
   });
 
-  test("bare interactive uninstall refuses instead of widening, with zero writes", async () => {
+  test("bare interactive uninstall opens Project selection instead of refusing", async () => {
+    // Ticket #499 replaces the bare-interactive refusal with the picker
+    // flow: the picker opens with zero writes, and cancelling it changes
+    // nothing (full picker behavior lives in uninstall-search.test.ts).
     const { home, first, firstOutput } = await setupInstalledPair();
     const input = fakeInteractiveInput();
-    const pending = runUninstall(home, [], input);
-    const result = await pending;
+    const started = startUninstall(home, [], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    input.end();
+    const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(result.streams.errorText())).toContain("--all");
+    expect(plain(started.streams.errorText())).toContain("cancelled");
     snapshotUntouched(home, first, firstOutput);
   });
 
