@@ -436,6 +436,9 @@ describe("uninstall confirmation matrix", () => {
     const result = await runUninstall(home, ["--profile", "engineering"], nonInteractiveInput());
     expect(result.exitCode).toBe(1);
     expect(plain(result.streams.errorText())).toContain("--auto-confirm");
+    // The refusal names the Profile-scoped retry (not the missing-scope
+    // shape): dropping the filter from scope detection must flip this test.
+    expect(plain(result.streams.errorText())).toContain("--profile");
     snapshotMixedUntouched(home, first, firstOutput, second, secondOutput);
   });
 
@@ -453,6 +456,20 @@ describe("uninstall confirmation matrix", () => {
     expect(result.exitCode).toBe(0);
     expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
+    expect(existsSync(secondOutput)).toBe(true);
+  });
+
+  test("composed --project --profile match removes exactly that installation", async () => {
+    const { home, first, second, firstOutput, secondOutput } = await setupMixedProfilePair();
+    const result = await runUninstall(
+      home,
+      ["--project", first, "--profile", "engineering", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
+    expect(existsSync(firstOutput)).toBe(false);
     expect(existsSync(secondOutput)).toBe(true);
   });
 
@@ -491,6 +508,32 @@ describe("uninstall confirmation matrix", () => {
     // Zero writes: the reviewed scope and the added binding both survive.
     snapshotMixedUntouched(home, first, firstOutput, second, secondOutput);
     expect(readFileSync(configPath(home), "utf8")).toContain(added);
+  });
+
+  test("a profile change between confirmation and commit fails closed under a non-profile scope", async () => {
+    const { home, first, second, firstOutput, secondOutput } = await setupMixedProfilePair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--project", first], input);
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    // A concurrent writer retargets the reviewed installation to another
+    // Profile. Only the first binding uses engineering, so the first
+    // occurrence is exactly its line; a missed anchor leaves exit 0 and
+    // fails this test loudly instead of passing vacuously.
+    const before = readFileSync(configPath(home), "utf8");
+    writeFileSync(configPath(home), before.replace("profile: engineering", "profile: docs"));
+    input.write("y\n");
+    const result = await started.pending;
+    // The reviewed-preview comparison (whose scope key carries the profile)
+    // refuses before any write — never the under-lock concurrent-change path.
+    expect(result.exitCode).toBe(1);
+    expect(plain(started.streams.errorText())).toContain("scope changed during confirmation");
+    expect(plain(started.streams.errorText())).not.toContain("--auto-confirm");
+    // Zero lifecycle writes: both installations keep their output and the
+    // concurrent retarget is left untouched.
+    expect(existsSync(firstOutput)).toBe(true);
+    expect(existsSync(secondOutput)).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
   });
 
   test("unbound Project scope fails before any write", async () => {

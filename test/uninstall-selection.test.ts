@@ -182,6 +182,32 @@ describe("previewUninstall scope resolution", () => {
     }
   });
 
+  test("--here --profile with nested bound Projects fails closed instead of intersecting", async () => {
+    const home = isolatedHome();
+    try {
+      const outer = projectDirectory();
+      const inner = join(outer, "nested");
+      mkdirSync(inner, { recursive: true });
+      writeBindings(home, [
+        { project: outer, profile: "engineering", hosts: ["codex"] },
+        { project: inner, profile: "docs", hosts: ["claude"] },
+      ]);
+      // Scope resolution precedes the filter: the location ambiguity throws
+      // even though the Profile would narrow it to one installation.
+      let caught: unknown;
+      try {
+        await previewUninstall(home, { here: true, cwd: inner, profile: "docs" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(ProjectTargetError);
+      expect((caught as ProjectTargetError).reason.case).toBe("ambiguous-target");
+      expect((caught as ProjectTargetError).reason.command).toBe("uninstall");
+    } finally {
+      await cleanup();
+    }
+  });
+
   test("zero matches resolve to an empty preview with no writes", async () => {
     const home = isolatedHome();
     try {
