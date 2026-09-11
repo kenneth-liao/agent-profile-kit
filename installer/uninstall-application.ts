@@ -210,10 +210,11 @@ export async function previewUninstall(
   return {
     projects: [...selected]
       .map(toPreviewProject)
-      .sort((left, right) =>
-        (left.canonicalProject ?? left.project) < (right.canonicalProject ?? right.project)
-          ? -1
-          : 1),
+      .sort((left, right) => {
+        const leftKey = left.canonicalProject ?? left.project;
+        const rightKey = right.canonicalProject ?? right.project;
+        return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+      }),
   };
 }
 

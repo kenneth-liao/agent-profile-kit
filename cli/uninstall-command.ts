@@ -47,6 +47,7 @@ function equivalentCommand(options: {
   readonly profile?: string;
   readonly removeChanged: boolean;
   readonly autoConfirm: boolean;
+  readonly json: boolean;
 }): string {
   const tokens = ["uninstall"];
   if (options.here) tokens.push("--here");
@@ -55,6 +56,7 @@ function equivalentCommand(options: {
   if (options.profile !== undefined) tokens.push("--profile", options.profile);
   if (options.removeChanged) tokens.push("--remove-changed");
   if (options.autoConfirm) tokens.push("--auto-confirm");
+  if (options.json) tokens.push("--json");
   return tokens.join(" ");
 }
 
@@ -169,6 +171,7 @@ export function parseUninstallArguments(
       ...(profile === undefined ? {} : { profile }),
       removeChanged,
       autoConfirm,
+      json,
     });
     throw new UninstallUnsupportedFlagError(
       "--host",
@@ -185,6 +188,7 @@ export function parseUninstallArguments(
       ...(profile === undefined ? {} : { profile }),
       removeChanged: true,
       autoConfirm,
+      json,
     });
     throw new UninstallUnsupportedFlagError(
       "--replace-changed",

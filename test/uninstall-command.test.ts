@@ -239,6 +239,19 @@ describe("uninstall confirmation matrix", () => {
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
   });
 
+  test("--here selects the containing bound Project", async () => {
+    const { home, first, second } = await setupInstalledPair();
+    const { mkdirSync } = await import("node:fs");
+    const descendant = `${first}/src/nested`;
+    mkdirSync(descendant, { recursive: true });
+    const result = await runUninstall(home, ["--here", "--auto-confirm"], nonInteractiveInput(), {
+      cwd: descendant,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
+  });
+
   test("zero-match Profile scope reports no match with no writes", async () => {
     const { home, first, firstOutput } = await setupInstalledPair();
     const result = await runUninstall(
