@@ -37,25 +37,21 @@ export interface ConfirmPromptOptions {
 
 export type ConfirmPrompt = (question: string) => Promise<PromptAnswer>;
 
-/** One labelled choice offered by a choice prompt. */
+/** One labelled choice offered by a choice prompt. Single-select search
+ * reuses this shape: every choice is always eligible, so there is no
+ * initial-selection state to misrepresent. */
 export interface PromptChoice<T> {
   readonly title: string;
   readonly value: T;
 }
 
-/** One labelled choice offered by a searchable prompt.
- *
- * The shape stays generic so later consumers (uninstall Project selection
- * #499, configure membership #500) reuse the same seam: callers mark
- * initial selection with `selected` and pass through an optional
- * `description` for longer inventories. Filtering matches the title
- * (and string values) case-insensitively and preserves choice order;
- * `description` is display-only evidence and is never matched, so advisory
- * suffixes cannot pollute filtering. */
-export interface SearchableChoice<T> {
+/** One labelled choice offered by a searchable multi-select prompt: the
+ * title/value pair plus the caller's initial selection. Later consumers
+ * (uninstall Project selection #499, configure membership #500) reuse
+ * this seam without new prompt kinds. */
+export interface SearchableMultiChoice<T> {
   readonly title: string;
   readonly value: T;
-  readonly description?: string;
   readonly selected?: boolean;
 }
 
@@ -86,11 +82,10 @@ type RawModeInput = Readable & {
 };
 
 /** One choice as the prompt dependency receives it: the label and value
- * plus the optional display/initial-selection evidence the seam forwards. */
+ * plus the initial-selection evidence the multi seam forwards. */
 interface CarriageChoice {
   readonly title: string;
   readonly value: unknown;
-  readonly description?: string;
   readonly selected?: boolean;
 }
 
@@ -347,8 +342,6 @@ function searchableSuggest(
  * filters the choices, arrows navigate, enter submits; cancellation follows
  * the shared answer contract. Backed by the same prompt dependency and
  * carriage seam as every other prompt — no second prompt framework.
- * An initial `selected` choice is ignored: single selection always starts
- * at the first match, so later consumers must not expect pre-highlighting.
  */
 export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
   const input = options.input as RawModeInput;
@@ -356,7 +349,7 @@ export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
 
   return async <T>(
     questionText: string,
-    choices: readonly SearchableChoice<T>[],
+    choices: readonly PromptChoice<T>[],
     search: SearchableSelectOptions = {},
   ): Promise<SelectAnswer<T>> => {
     const answer = await askCarriageQuestion<T>(input, output, {
@@ -365,7 +358,6 @@ export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
       choices: choices.map((choice) => ({
         title: choice.title,
         value: choice.value as unknown,
-        ...(choice.description === undefined ? {} : { description: choice.description }),
       })),
       suggest: searchableSuggest,
       ...(search.limit === undefined ? {} : { limit: search.limit }),
@@ -383,9 +375,9 @@ export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
  * open until answered or cancelled. Cancellation follows the shared answer
  * contract. Callers mark initial selection with `selected` — install
  * pre-checks the existing Hosts, while a new installation passes none so
- * detected Hosts are never silently selected. Note: the underlying element
- * renders titles only, so must-see per-choice evidence belongs in a
- * preceding notice (descriptions still pass through harmlessly).
+ * detected Hosts are never silently selected. Must-see per-choice evidence
+ * belongs in a preceding notice: titles stay bare identities so filtering
+ * matches the choice, never the evidence.
  */
 export function createSearchableMultiSelectPrompt(options: ConfirmPromptOptions) {
   const input = options.input as RawModeInput;
@@ -393,7 +385,7 @@ export function createSearchableMultiSelectPrompt(options: ConfirmPromptOptions)
 
   return async <T>(
     questionText: string,
-    choices: readonly SearchableChoice<T>[],
+    choices: readonly SearchableMultiChoice<T>[],
     selection: MultiSelectOptions = {},
   ): Promise<MultiSelectAnswer<T>> => {
     const answer = await askCarriageQuestion<readonly T[]>(input, output, {
@@ -402,7 +394,6 @@ export function createSearchableMultiSelectPrompt(options: ConfirmPromptOptions)
       choices: choices.map((choice) => ({
         title: choice.title,
         value: choice.value as unknown,
-        ...(choice.description === undefined ? {} : { description: choice.description }),
         ...(choice.selected === undefined ? {} : { selected: choice.selected }),
       })),
       ...(selection.min === undefined ? {} : { min: selection.min }),

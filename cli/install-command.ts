@@ -48,7 +48,8 @@ import {
   createChangedOutputConfirmer,
   type ChangedOutputConfirmer,
 } from "./changed-output-confirm.js";
-import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";import {
+import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";
+import {
   terminalPresentationContext,
   type TerminalPresentationContext,
   type TerminalStream,
@@ -61,6 +62,7 @@ import {
   resolveInstallTarget,
   InstallExecutionError,
   type InstallApplicationResult,
+  type InstallTarget,
 } from "../installer/install-application.js";
 import {
   ApplyBlockedError,
@@ -74,6 +76,9 @@ import {
 import { formatError } from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import { listProfiles } from "../installer/inventory.js";
+import type { CommandArg } from "./inline-content.js";
+
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 export interface ParsedInstallArguments {
   readonly profile?: string;
@@ -235,15 +240,16 @@ const INSTALL_HOSTS_QUESTION = "Which Agent Hosts?";
  * Collect the missing Profile/Host choices for one guided install (#495,
  * US-001/US-005, DEC-002): the target is resolved and named before anything
  * is asked, supplied choices skip their picker, and the picked values return
- * for the explicit operation. Cancellation or an unanswerable choice writes
- * its diagnostic and resolves undefined with zero lifecycle writes.
+ * with the shared target for the explicit operation. Cancellation or an
+ * unanswerable choice writes its diagnostic and resolves undefined with
+ * zero lifecycle writes.
  */
 async function collectMissingInstallChoices(
   request: InstallCommandRequest,
   parsed: ParsedInstallArguments,
   cwd: string,
   stderrContext: TerminalPresentationContext,
-): Promise<ParsedInstallArguments | undefined> {
+): Promise<{ readonly parsed: ParsedInstallArguments; readonly target: InstallTarget } | undefined> {
   const stdoutContext = terminalPresentationContext(request.stdout);
   let target;
   try {
@@ -298,7 +304,7 @@ async function collectMissingInstallChoices(
   }
 
   let hosts = parsed.hosts;
-  if (hosts === undefined || hosts.length === 0) {
+  if (hosts === undefined) {
     // Detection is advisory only and is stated once up front, mirroring
     // the initialization receipt; titles stay bare Host identities so
     // filtering matches the Host, never the evidence text. A new
@@ -344,7 +350,7 @@ async function collectMissingInstallChoices(
     );
     return undefined;
   }
-  return { ...parsed, profile, hosts: [...hosts] };
+  return { parsed: { ...parsed, profile, hosts: [...hosts] }, target };
 }
 
 export async function runInstallCommand(request: InstallCommandRequest): Promise<InstallCommandOutcome> {
@@ -370,14 +376,16 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
   // same explicit operation below. `--auto-confirm` still answers only the
   // later general confirmation, never a missing choice (DEC-004).
   let guided = false;
+  let guidedTarget: InstallTarget | undefined;
   if (
-    (parsed.profile === undefined || parsed.hosts === undefined || parsed.hosts.length === 0) &&
+    (parsed.profile === undefined || parsed.hosts === undefined) &&
     interactive &&
     !parsed.json
   ) {
     const completed = await collectMissingInstallChoices(request, parsed, cwd, stderrContext);
     if (completed === undefined) return { exitCode: 1 };
-    parsed = completed;
+    parsed = completed.parsed;
+    guidedTarget = completed.target;
     guided = true;
   }
 
@@ -385,7 +393,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     writeHumanDocument(request.stderr, missingProfileDiagnostic(), stderrContext);
     return { exitCode: 1 };
   }
-  if (parsed.hosts === undefined || parsed.hosts.length === 0) {
+  if (parsed.hosts === undefined) {
     writeHumanDocument(request.stderr, missingHostsDiagnostic(), stderrContext);
     return { exitCode: 1 };
   }
@@ -402,7 +410,9 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
   }
 
   // The preview validates the proposed scope without writing anything; the
-  // general confirmation (DEC-004) authorizes exactly this scope.
+  // general confirmation (DEC-004) authorizes exactly this scope. A guided
+  // flow passes its already-resolved target so the preview cannot drift
+  // from what was named and picked.
   let preview;
   try {
     preview = await previewInstall(request.home, {
@@ -410,6 +420,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
       hosts: [...(parsed.hosts ?? [])],
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
       cwd,
+      ...(guidedTarget === undefined ? {} : { target: guidedTarget }),
     });
   } catch (error) {
     writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
@@ -431,7 +442,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd)),
+        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
         stderrContext,
       );
       return { exitCode: 1 };
@@ -442,7 +453,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         request.stderr,
         installDeclinedDocument(
           normalized === "" ? "default" : "declined",
-          fullySpecifiedInstallArguments(parsed, cwd),
+          fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
         ),
         stderrContext,
       );
@@ -497,7 +508,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         writeHumanDocument(
           request.stdout,
           installReplacementCommandDocument(
-            fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope)),
+            fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope), preview),
           ),
           stdoutContext,
         );
@@ -508,7 +519,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         // them. Explicit installs keep the #494 echo contract.
         writeHumanDocument(
           request.stdout,
-          installReplacementCommandDocument(fullySpecifiedInstallArguments(parsed, cwd)),
+          installReplacementCommandDocument(fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
           stdoutContext,
         );
       }
@@ -560,6 +571,8 @@ function installReconcileFailureOutcome(
   const cause = failure.failure.cause;
   const answering = (prompted: ChangedFileAnsweringScope | undefined): ChangedFileAnsweringScope =>
     answeringScope(parsed, prompted, confirmer.requestedScope());
+  // Every remedy below names the resolved Project, so the printed command
+  // shell-quotes it as one token even when the path contains spaces.
   // Selection/output recovery evidence renders consistently in every branch:
   // the dedicated execution/verification diagnostics carry it, and the shared
   // declined/consent/stale/blocked views append the addendum below.
@@ -590,7 +603,10 @@ function installReconcileFailureOutcome(
         request.stderr,
         applyReplacementDeclinedDocument(
           cause.reason === "cancelled" ? "cancelled" : confirmer.declinedAnswer(),
-          fullySpecifiedInstallArguments(parsed, cwd, scope),
+          fullySpecifiedInstallArguments(parsed, cwd, scope, {
+            canonicalProject: failedProject.canonicalProject,
+            authoredProject: failedProject.project,
+          }),
           scope,
           "install",
         ),
@@ -614,7 +630,10 @@ function installReconcileFailureOutcome(
         request.stderr,
         applyConsentRequiredDocument(
           cause,
-          fullySpecifiedInstallArguments(parsed, cwd, scope),
+          fullySpecifiedInstallArguments(parsed, cwd, scope, {
+            canonicalProject: failedProject.canonicalProject,
+            authoredProject: failedProject.project,
+          }),
           "install",
         ),
         stderrContext,
@@ -631,7 +650,15 @@ function installReconcileFailureOutcome(
         request.stderr,
         applyReviewStaleDocument(
           cause,
-          fullySpecifiedInstallArguments(parsed, cwd, answering(confirmer.promptedAcceptedScope())),
+          fullySpecifiedInstallArguments(
+            parsed,
+            cwd,
+            answering(confirmer.promptedAcceptedScope()),
+            {
+              canonicalProject: failedProject.canonicalProject,
+              authoredProject: failedProject.project,
+            },
+          ),
           "install",
         ),
         stderrContext,
@@ -648,7 +675,10 @@ function installReconcileFailureOutcome(
         request.stdout,
         installBlockedDocument(
           cause.report,
-          fullySpecifiedInstallArguments(parsed, cwd),
+          fullySpecifiedInstallArguments(parsed, cwd, undefined, {
+            canonicalProject: failedProject.canonicalProject,
+            authoredProject: failedProject.project,
+          }),
         ),
         stdoutContext,
       );
@@ -657,7 +687,10 @@ function installReconcileFailureOutcome(
     return { exitCode: lifecycleExitCode(cause.report) };
   }
   if (cause instanceof ApplyExecutionError) {
-    const retry = fullySpecifiedInstallArguments(parsed, cwd);
+    const retry = fullySpecifiedInstallArguments(parsed, cwd, undefined, {
+      canonicalProject: failedProject.canonicalProject,
+      authoredProject: failedProject.project,
+    });
     if (parsed.json) {
       request.stdout.write(formatApplyExecutionFailureJson({
         failedProject: cause.failedProject,
@@ -683,7 +716,10 @@ function installReconcileFailureOutcome(
     return { exitCode: 1 };
   }
   if (cause instanceof ApplyVerificationError) {
-    const retry = fullySpecifiedInstallArguments(parsed, cwd);
+    const retry = fullySpecifiedInstallArguments(parsed, cwd, undefined, {
+      canonicalProject: failedProject.canonicalProject,
+      authoredProject: failedProject.project,
+    });
     if (parsed.json) {
       request.stdout.write(
         formatApplyVerificationFailureJson(cause.receipt, cause.message, "install", recoveryJson),
@@ -700,7 +736,10 @@ function installReconcileFailureOutcome(
   // Publication and other pre-write failures carry no reconciliation cause:
   // nothing was published, so the previous selection stands — reported here
   // with the same concrete retry instead of a bare diagnostic.
-  const retry = fullySpecifiedInstallArguments(parsed, cwd);
+  const retry = fullySpecifiedInstallArguments(parsed, cwd, undefined, {
+    canonicalProject: failedProject.canonicalProject,
+    authoredProject: failedProject.project,
+  });
   const detail = cause instanceof Error ? cause.message : String(cause);
   if (parsed.json) {
     request.stdout.write(formatLifecycleToolErrorJson("install", detail, recoveryJson));
@@ -754,23 +793,35 @@ function installReceiptInput(
 /**
  * The equivalent fully specified command arguments: the same installation
  * with every scope argument and the general-confirmation answer explicit, so
- * re-running it needs no second answer.
- */export function fullySpecifiedInstallArguments(
+ * re-running it needs no second answer. The Project travels as a path
+ * argument so the renderer shell-quotes it as one POSIX token (US-006);
+ * every other token is plain text.
+ */
+export function fullySpecifiedInstallArguments(
   parsed: ParsedInstallArguments,
   cwd: string | undefined,
   answering?: ChangedFileAnsweringScope,
-): readonly string[] {
-  const args: string[] = ["install"];
-  if (parsed.profile !== undefined) args.push(parsed.profile);
-  if (parsed.project !== undefined) {
-    if (parsed.projectFlag) args.push("--project", parsed.project);
-    else args.push(parsed.project);
-  } else if (cwd !== undefined && parsed.profile !== undefined) {
-    args.push(cwd);
+  project?: { readonly canonicalProject: string; readonly authoredProject: string },
+): readonly CommandArg[] {
+  const args: CommandArg[] = [arg("install")];
+  if (parsed.profile !== undefined) args.push(arg(parsed.profile));
+  const authored = parsed.project ??
+    (cwd !== undefined && parsed.profile !== undefined ? cwd : undefined);
+  if (authored !== undefined) {
+    // Fleet scope: the equivalent must name the Project stably (DEC-006),
+    // never as a cwd-relative alias that reinstalls elsewhere when pasted.
+    const projectArg: CommandArg = {
+      kind: "path",
+      canonicalPath: project?.canonicalProject ?? authored,
+      scope: "fleet",
+      authoredPath: project?.authoredProject ?? authored,
+    };
+    if (parsed.project !== undefined && parsed.projectFlag) args.push(arg("--project"), projectArg);
+    else args.push(projectArg);
   }
-  for (const host of parsed.hosts ?? []) args.push("--host", host);
-  if (parsed.replaceChanged || answering?.replace === true) args.push("--replace-changed");
-  if (parsed.removeChanged || answering?.remove === true) args.push("--remove-changed");
-  args.push("--auto-confirm");
+  for (const host of parsed.hosts ?? []) args.push(arg("--host"), arg(host));
+  if (parsed.replaceChanged || answering?.replace === true) args.push(arg("--replace-changed"));
+  if (parsed.removeChanged || answering?.remove === true) args.push(arg("--remove-changed"));
+  args.push(arg("--auto-confirm"));
   return args;
 }

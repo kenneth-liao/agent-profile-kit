@@ -17,6 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { PER_TEST_TIMEOUT_MS } from "./support/suite-supervisor.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -106,7 +107,7 @@ async function startPty(
   const controllerPath = join(import.meta.dir, "support", "pty-controller.py");
   const driverPath = join(import.meta.dir, "support", "searchable-pty-driver.ts");
   const child = Bun.spawn(
-    ["python3", controllerPath, transcriptPath, String(columns), "30", process.execPath, driverPath, ...driverArguments],
+    ["python3", controllerPath, transcriptPath, String(columns), String(PER_TEST_TIMEOUT_MS), process.execPath, driverPath, ...driverArguments],
     { stdin: "pipe", stdout: "ignore", stderr: "ignore", env: process.env },
   );
   return {
@@ -136,10 +137,15 @@ async function startPty(
   };
 }
 
+// Transcript waits derive from the canonical per-test timeout policy
+// (PER_TEST_TIMEOUT_MS): the diagnostic below stays reachable because bun
+// kills the test only after this deadline passes.
+const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
+
 async function waitForTranscript(
   session: PtySession,
   fragment: string,
-  deadlineMs = 20000,
+  deadlineMs = TRANSCRIPT_DEADLINE_MS,
 ): Promise<string> {
   const wanted = fragment.replace(/\s+/g, "");
   const deadline = Date.now() + deadlineMs;
@@ -157,12 +163,12 @@ describe("searchable prompts under a real PTY", () => {
   test("typing filters the single choice and Enter selects the match", async () => {
     const session = await startPty(["select"], 80);
     try {
-      await waitForTranscript(session, "Which Profile?", 15000);
+      await waitForTranscript(session, "Which Profile?");
       session.write("writ");
       // Settle so the async filter applies before Enter (human timing).
       await sleep(600);
       session.write("\r");
-      const text = await waitForTranscript(session, '"value":"writing"', 15000);
+      const text = await waitForTranscript(session, '"value":"writing"');
       expect(squashed(text)).toContain('"value":"writing"');
     } finally {
       await session.close();
@@ -172,7 +178,7 @@ describe("searchable prompts under a real PTY", () => {
   test("arrow navigation with Space toggles and Enter submits the multi choice", async () => {
     const session = await startPty(["multi"], 80);
     try {
-      await waitForTranscript(session, "Which Agent Hosts?", 15000);
+      await waitForTranscript(session, "Which Agent Hosts?");
       session.write("\x1b[B");
       await sleep(250);
       session.write("\x1b[B");
@@ -180,7 +186,7 @@ describe("searchable prompts under a real PTY", () => {
       session.write(" ");
       await sleep(300);
       session.write("\r");
-      const text = await waitForTranscript(session, '"values":["pi"]', 15000);
+      const text = await waitForTranscript(session, '"values":["pi"]');
       expect(squashed(text)).toContain('"values":["pi"]');
     } finally {
       await session.close();
@@ -189,11 +195,11 @@ describe("searchable prompts under a real PTY", () => {
   test("arrow navigation highlights and Enter selects the single choice", async () => {
     const session = await startPty(["select"], 80);
     try {
-      await waitForTranscript(session, "Which Profile?", 15000);
+      await waitForTranscript(session, "Which Profile?");
       session.write("\x1b[B");
       await sleep(400);
       session.write("\r");
-      const text = await waitForTranscript(session, '"value":"ops"', 15000);
+      const text = await waitForTranscript(session, '"value":"ops"');
       expect(squashed(text)).toContain('"value":"ops"');
     } finally {
       await session.close();
@@ -209,21 +215,21 @@ describe("guided install under a real PTY", () => {
     try {
       // The bare install names its current-directory Project target first,
       // even wrapped at 60 columns.
-      const target = await waitForTranscript(session, projectPath, 15000);
+      const target = await waitForTranscript(session, projectPath);
       expect(squashed(target)).toContain(projectPath.replace(/\s+/g, ""));
-      await waitForTranscript(session, "Which Profile?", 15000);
+      await waitForTranscript(session, "Which Profile?");
       session.write("cod");
       await sleep(600);
       session.write("\r");
-      await waitForTranscript(session, "Which Agent Hosts?", 15000);
+      await waitForTranscript(session, "Which Agent Hosts?");
       session.write("codex");
       await sleep(600);
       session.write(" ");
       await sleep(300);
       session.write("\r");
-      await waitForTranscript(session, "(y/N)", 15000);
+      await waitForTranscript(session, "(y/N)");
       session.write("y\r");
-      await waitForTranscript(session, "RESULTexitCode=0", 15000);
+      await waitForTranscript(session, "RESULTexitCode=0");
     } finally {
       await session.close();
     }
@@ -242,9 +248,9 @@ describe("guided install under a real PTY", () => {
     const projectPath = projectDirectory();
     const session = await startPty(["install", home, projectPath], 80);
     try {
-      await waitForTranscript(session, "Which Profile?", 15000);
+      await waitForTranscript(session, "Which Profile?");
       session.write("\x03");
-      const text = await waitForTranscript(session, "RESULTexitCode=1", 15000);
+      const text = await waitForTranscript(session, "RESULTexitCode=1");
       expect(plain(text)).toContain("cancelled");
     } finally {
       await session.close();

@@ -310,20 +310,19 @@ describe("searchable select prompt seam", () => {
     expect(await pending).toEqual({ kind: "cancelled" });
   });
 
-  test("matches titles and values, never display-only descriptions", async () => {
+  test("matches string values as well as titles", async () => {
     const input = fakeInteractiveInput();
     const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
     const pending = select("Which Profile?", [
-      { title: "alpha", value: "alpha" },
-      { title: "beta", value: "beta", description: "installed everywhere" },
+      { title: "First", value: "one" },
+      { title: "Second", value: "two" },
     ]);
     await new Promise((resolve) => setTimeout(resolve, 20));
-    // "installed" appears only in advisory evidence: it matches nothing,
-    // and submitting with no match cancels instead of selecting beta.
-    input.write("installed");
+    // "two" appears only in the value, never in a title.
+    input.write("two");
     await new Promise((resolve) => setTimeout(resolve, 50));
     input.write("\r");
-    expect(await pending).toEqual({ kind: "cancelled" });
+    expect(await pending).toEqual({ kind: "selected", value: "two" });
   });
 });
 

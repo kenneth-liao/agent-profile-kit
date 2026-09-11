@@ -5,7 +5,7 @@
  * pickers, and passes the selected values into the explicit #494 operation.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
@@ -134,6 +134,7 @@ describe("guided install collects only missing choices", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     // The bare install names its current-directory Project target first.
@@ -187,6 +188,7 @@ describe("guided install skips supplied choices", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
@@ -218,6 +220,7 @@ describe("guided install skips supplied choices", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Profile?");
@@ -250,6 +253,7 @@ describe("guided install Host defaults", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
@@ -289,6 +293,7 @@ describe("guided install Host defaults", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
@@ -324,6 +329,7 @@ describe("guided install cancellation", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Profile?");
@@ -348,6 +354,7 @@ describe("guided install cancellation", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
@@ -372,6 +379,7 @@ describe("guided install cancellation", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     await waitForOutput(streams.humanText, "Which Profile?");
@@ -464,6 +472,7 @@ describe("guided install changed-file consent", () => {
       stderr: guided.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     // The existing Host stays pre-checked: submit immediately.
@@ -497,6 +506,7 @@ describe("guided install refusals", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input: fakeInteractiveInput(),
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     expect(outcome.exitCode).toBe(1);
@@ -523,6 +533,7 @@ describe("guided install with no Profiles", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input: fakeInteractiveInput(),
       cwd: projectPath,
+      env: { PATH: "" },
     });
 
     expect(outcome.exitCode).toBe(1);
@@ -530,5 +541,83 @@ describe("guided install with no Profiles", () => {
     expect(plain(streams.humanText())).not.toContain("Which Profile?");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+});
+
+describe("guided install executable equivalent", () => {
+  test("a Project path with spaces echoes as one quoted token", async () => {
+    const home = await setupHome();
+    const base = projectDirectory();
+    const projectPath = join(base, "My Projects", "app");
+    mkdirSync(projectPath, { recursive: true });
+    const input = fakeInteractiveInput();
+    const streams = capturedStreams();
+    const pending = runInstallCommand({
+      home,
+      arguments: [],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input,
+      cwd: projectPath,
+      env: { PATH: "" },
+    });
+
+    await waitForOutput(streams.humanText, "Which Profile?");
+    input.write("cod");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write("\r");
+    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    input.write("codex");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write(" ");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write("\r");
+    await waitForOutput(streams.humanText, "(y/N)");
+    input.write("y\n");
+    const outcome = await pending;
+
+    expect(outcome.exitCode).toBe(0);
+    // The echoed equivalent must parse as one Project token in a shell:
+    // the resolved canonical path, single-quoted.
+    expect(plain(streams.humanText())).toContain(`'${realpathSync(projectPath)}'`);
+  });
+});
+
+describe("guided install DEC-004", () => {
+  test("--auto-confirm on a TTY still opens the missing-choice pickers", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const input = fakeInteractiveInput();
+    const streams = capturedStreams();
+    const pending = runInstallCommand({
+      home,
+      arguments: ["--auto-confirm"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input,
+      cwd: projectPath,
+      env: { PATH: "" },
+    });
+
+    // --auto-confirm answers only the general confirmation: both pickers
+    // still open for the missing choices.
+    await waitForOutput(streams.humanText, "Which Profile?");
+    input.write("cod");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write("\r");
+    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    input.write("codex");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write(" ");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    input.write("\r");
+    const outcome = await pending;
+
+    expect(outcome.exitCode).toBe(0);
+    // The general confirmation was answered, never asked.
+    expect(plain(streams.humanText())).not.toContain("(y/N)");
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).toContain("profile: coding");
+    expect(config).toContain("- codex");
   });
 });

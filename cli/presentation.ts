@@ -3435,7 +3435,7 @@ export function changedOutputDiffDocument(
  * the same operation with every scope argument and the replacement-answering
  * flag explicit, so re-running it needs no second answer (US-052). */
 export function applyReplacementCommandDocument(
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return promptedEquivalentCommandDocument("update", commandArguments);
 }
@@ -3444,13 +3444,13 @@ export function applyReplacementCommandDocument(
  * the sentence names the command; the carried command part is canonical. */
 function promptedEquivalentCommandDocument(
   command: "update" | "install",
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return [{
     kind: "prose",
     parts: [
       `Run the same ${command} without the prompt: `,
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ],
   }];
 }
@@ -3459,7 +3459,7 @@ function promptedEquivalentCommandDocument(
  * flow: the same installation with the authorized changed-file scope
  * explicit, so re-running it needs no second answer. */
 export function installReplacementCommandDocument(
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return promptedEquivalentCommandDocument("install", commandArguments);
 }
@@ -3508,7 +3508,7 @@ export interface ChangedFileAnsweringScope {
  * The remedy names only the operations at stake (DEC-005). */
 export function applyReplacementDeclinedDocument(
   reason: ApplyDeclinedAnswer,
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
   scope: ChangedFileAnsweringScope,
   command: LifecycleCommand = "update",
 ): PresentationDocument {
@@ -3526,7 +3526,7 @@ export function applyReplacementDeclinedDocument(
     why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
     whatToType: [[
       remedy,
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ]],
     severity: "info",
   });
@@ -3537,7 +3537,7 @@ export function applyReplacementDeclinedDocument(
  * it. Raised before any selected lifecycle write. */
 export function applyConsentRequiredDocument(
   error: ApplyConsentRequiredError,
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
   command: LifecycleCommand = "update",
 ): PresentationDocument {
   const lines = error.projects
@@ -3567,7 +3567,7 @@ export function applyConsentRequiredDocument(
       ],
       whatToType: [[
         "To review the current bytes and proceed, run ",
-        commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+        commandPart(COMMAND_NAME, commandArguments),
       ]],
     });
   }
@@ -3579,7 +3579,7 @@ export function applyConsentRequiredDocument(
     ],
     whatToType: [[
       "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ]],
   });
 }
@@ -3658,7 +3658,7 @@ export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
  * neutral styling: declining is a safe choice, not an error. */
 export function installDeclinedDocument(
   reason: InstallDeclinedAnswer,
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return diagnosticDocument({
     happened: [reason === "cancelled"
@@ -3669,7 +3669,7 @@ export function installDeclinedDocument(
     why: [["No Project or setting was changed."]],
     whatToType: [[
       "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ]],
     severity: "info",
   });
@@ -3680,14 +3680,14 @@ export function installDeclinedDocument(
  * before any configuration or generated-output write, with the runnable
  * command that answers it. */
 export function installConfirmationRequiredDocument(
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return diagnosticDocument({
     happened: ["install needs explicit confirmation before any write"],
     why: [["No Project or setting was changed."]],
     whatToType: [[
       "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ]],
   });
 }
@@ -3705,7 +3705,7 @@ export function installWarningNodes(report: ReconciliationReport): PresentationD
  * keeps the view compact; machine JSON carries the complete report. */
 export function installBlockedDocument(
   report: BlockedReconciliationReport,
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   const scope = "project" as const;
   const groups = groupProjects(report).groups;
@@ -3728,7 +3728,7 @@ export function installBlockedDocument(
     kind: "prose",
     parts: [
       "To retry after resolving the cause, run ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ],
   });
   return nodes;
@@ -3794,7 +3794,7 @@ export function installExecutionFailureDocument(input: {
   readonly detail: string;
   readonly failedProject?: ProjectIdentity;
   readonly recovery: InstallRecoveryEvidence;
-  readonly retryArguments: readonly string[];
+  readonly retryArguments: readonly CommandArg[];
 }): PresentationDocument {
   const failed = input.failedProject === undefined
     ? undefined
@@ -3810,7 +3810,7 @@ export function installExecutionFailureDocument(input: {
     why: installRecoverySentences(input.recovery).map((sentence): readonly InlineContent[] => [sentence]),
     whatToType: [[
       "To retry the same installation, run ",
-      commandPart(COMMAND_NAME, input.retryArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, input.retryArguments),
     ]],
   });
 }
@@ -3820,14 +3820,14 @@ export function installExecutionFailureDocument(input: {
  * failure reports truthfully with a concrete retry. */
 export function installVerificationFailureDocument(input: {
   readonly message: string;
-  readonly retryArguments: readonly string[];
+  readonly retryArguments: readonly CommandArg[];
 }): PresentationDocument {
   return diagnosticDocument({
     happened: [`install verified nothing: ${input.message}`],
     why: [["The new selection is kept; generated output may not match the Workspace."]],
     whatToType: [[
       "To retry verification of the same installation, run ",
-      commandPart(COMMAND_NAME, input.retryArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, input.retryArguments),
     ]],
   });
 }
@@ -3837,7 +3837,7 @@ export function installVerificationFailureDocument(input: {
  * change different from the reviewed one. Completed work stays committed. */
 export function applyReviewStaleDocument(
   error: ApplyReviewStaleError,
-  commandArguments: readonly string[],
+  commandArguments: readonly CommandArg[],
   command: LifecycleCommand = "update",
 ): PresentationDocument {
   return diagnosticDocument({
@@ -3849,7 +3849,7 @@ export function applyReviewStaleDocument(
     ]],
     whatToType: [[
       "To review the current bytes and proceed, run ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
+      commandPart(COMMAND_NAME, commandArguments),
     ]],
   });
 }

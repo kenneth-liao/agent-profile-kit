@@ -231,8 +231,9 @@ export function sameInstallSelection(
  * canonical and authored Project plus the existing selection when one is
  * recorded. Guided pickers (#495) read this before asking anything, so a
  * bare interactive install names its target first and pre-checks the
- * existing Hosts; the explicit preview below reuses the same resolution so
- * the target cannot drift between the two. */
+ * existing Hosts; callers pass the resolved target into `previewInstall`
+ * so naming, picking, and preview share one resolution instead of
+ * re-reading it. */
 export interface InstallTarget {
   readonly canonicalProject: string;
   readonly authoredProject: string;
@@ -263,18 +264,23 @@ export async function resolveInstallTarget(
 
 /**
  * Resolve, snapshot, and validate the requested installation without writing
- * anything. The CLI confirms this preview before executing it.
+ * anything. The CLI confirms this preview before executing it. Callers that
+ * already resolved the target (the guided flow) pass it so the preview
+ * cannot drift from what was named and picked; otherwise it is resolved
+ * here through the same boundary.
  */
 export async function previewInstall(
   home: string,
   options: Pick<
     InstallApplicationOptions,
     "profile" | "hosts" | "project" | "cwd"
-  >,
+  > & {
+    readonly target?: InstallTarget;
+  },
 ): Promise<InstallPreview> {
   const profile = requireArtifactId(options.profile, "install profile");
   const hosts = normalizeInstallHosts(options.hosts);
-  const target = await resolveInstallTarget(home, options);
+  const target = options.target ?? await resolveInstallTarget(home, options);
 
   const profiles = await listProfiles(home);
   requireProfile(new Map(profiles.map((entry) => [entry.id, entry])), profile);

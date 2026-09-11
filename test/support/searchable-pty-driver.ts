@@ -1,9 +1,9 @@
 /**
  * Real-PTY driver for searchable-prompt qualification (ticket #495,
- * TEST-003). Spawned under `script(1)` so `process.stdin`/`process.stdout`
- * are a genuine pseudo-terminal — raw-mode keypresses, terminal width, and
- * redraws — rather than injected streams. Prints one `RESULT …` line for the
- * parent to match on.
+ * TEST-003). Spawned under `test/support/pty-controller.py`, which allocates
+ * a genuine pseudo-terminal via `pty.fork()` — raw-mode keypresses, terminal
+ * width, and redraws — rather than injected streams. Prints one `RESULT …`
+ * line for the parent to match on.
  *
  * Modes:
  * - `select`: searchable single choice over three Profiles.

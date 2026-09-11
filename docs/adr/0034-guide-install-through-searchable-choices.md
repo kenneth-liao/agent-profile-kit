@@ -25,10 +25,11 @@ this slice only completes its inputs on an interactive human stream.
   by the single prompt dependency's autocomplete kinds with a
   case-insensitive substring filter that preserves canonical order.
   Cancellation, stream lifecycle, and the clock contract are unchanged.
-  The reusable `SearchableChoice` shape (title/value plus optional
-  description and initial `selected`) is shared: uninstall Project
-  selection (#499) and configure membership (#500) reuse it without new
-  prompt kinds or their features.
+  Single-select reuses the existing choice shape (title/value — there is
+  no initial-selection state to misrepresent); multi-select adds an
+  optional `selected` initial. Uninstall Project selection (#499) and
+  configure membership (#500) reuse the seam without new prompt kinds
+  or their features.
 - **Advisory detection, pre-checked existing Hosts, empty new defaults.**
   A Detected Agent Hosts notice (mirroring the initialization receipt)
   precedes the Host picker; titles stay bare Host identities so filtering
