@@ -43,7 +43,26 @@ export interface PromptChoice<T> {
   readonly value: T;
 }
 
-/** Terminal outcome of one select prompt. */
+/** One labelled choice offered by a searchable prompt.
+ *
+ * The shape stays generic so later consumers (uninstall Project selection
+ * #499, configure membership #500) reuse the same seam: callers mark
+ * initial selection with `selected` and pass through an optional
+ * `description` for longer inventories. Filtering matches the title
+ * (and string values) case-insensitively and preserves choice order;
+ * `description` is display-only evidence and is never matched, so advisory
+ * suffixes cannot pollute filtering. */
+export interface SearchableChoice<T> {
+  readonly title: string;
+  readonly value: T;
+  readonly description?: string;
+  readonly selected?: boolean;
+}
+
+export interface SearchableSelectOptions {
+  /** Maximum visible suggestions; the prompt dependency defaults to 10. */
+  readonly limit?: number;
+}
 export type SelectAnswer<T> =
   | { readonly kind: "selected"; readonly value: T }
   | { readonly kind: "cancelled" };
@@ -66,16 +85,32 @@ type RawModeInput = Readable & {
   ref?(): unknown;
 };
 
+/** One choice as the prompt dependency receives it: the label and value
+ * plus the optional display/initial-selection evidence the seam forwards. */
+interface CarriageChoice {
+  readonly title: string;
+  readonly value: unknown;
+  readonly description?: string;
+  readonly selected?: boolean;
+}
+
 /** Raw carriage question handed to the prompt dependency. */
 interface CarriageQuestion {
-  readonly type: "text" | "confirm" | "select" | "multiselect";
+  readonly type: "text" | "confirm" | "select" | "multiselect" | "autocomplete" | "autocompleteMultiselect";
   readonly message: string;
-  readonly choices?: readonly PromptChoice<unknown>[];
+  readonly choices?: readonly CarriageChoice[];
   readonly min?: number;
   /** Default answer for yes/no questions; the offer default is no. */
   readonly initial?: boolean;
   /** Short inline hint; the dependency renders it unwrapped, so keep it narrow. */
   readonly hint?: string;
+  /** Choice filter for searchable single selection; multiselect filters internally. */
+  readonly suggest?: (
+    input: string,
+    choices: readonly { readonly title: string; readonly value?: unknown }[],
+  ) => Promise<readonly { readonly title: string; readonly value?: unknown }[]>;
+  /** Maximum visible suggestions for searchable single selection. */
+  readonly limit?: number;
 }
 
 /** The carriage stream the prompt dependency reads from. */
@@ -128,9 +163,11 @@ async function askCarriageQuestion<T>(
     name: "answer",
     message: question.message,
     ...(question.initial === undefined ? {} : { initial: question.initial }),
-    ...(question.choices === undefined ? {} : { choices: [...(question.choices as PromptChoice<unknown>[])] }),
+    ...(question.choices === undefined ? {} : { choices: [...question.choices] }),
     ...(question.min === undefined ? {} : { min: question.min }),
     ...(question.hint === undefined ? {} : { hint: question.hint }),
+    ...(question.suggest === undefined ? {} : { suggest: question.suggest }),
+    ...(question.limit === undefined ? {} : { limit: question.limit }),
     stdin: carriage,
     stdout: output,
   }).then(
@@ -277,6 +314,99 @@ export function createMultiSelectPrompt(options: ConfirmPromptOptions) {
       message: questionText,
       choices,
       ...(selection.min === undefined ? {} : { min: selection.min }),
+    });
+    return answer === undefined
+      ? { kind: "cancelled" }
+      : { kind: "selected", values: [...answer] };
+  };
+}
+
+/**
+ * Case-insensitive substring filter for searchable single selection.
+ * Matches the title (and string values) and preserves choice order, so
+ * Profile/Host/Project inventories stay in their canonical order while
+ * typing narrows them. An empty query returns every choice.
+ */
+function searchableSuggest(
+  input: string,
+  choices: readonly { readonly title: string; readonly value?: unknown }[],
+): Promise<readonly { readonly title: string; readonly value?: unknown }[]> {
+  const needle = input.trim().toLowerCase();
+  if (needle === "") return Promise.resolve(choices);
+  return Promise.resolve(
+    choices.filter((choice) =>
+      choice.title.toLowerCase().includes(needle) ||
+        (typeof choice.value === "string" &&
+          (choice.value as string).toLowerCase().includes(needle))
+    ),
+  );
+}
+
+/**
+ * One searchable single-choice prompt bound to the given streams: typing
+ * filters the choices, arrows navigate, enter submits; cancellation follows
+ * the shared answer contract. Backed by the same prompt dependency and
+ * carriage seam as every other prompt — no second prompt framework.
+ * An initial `selected` choice is ignored: single selection always starts
+ * at the first match, so later consumers must not expect pre-highlighting.
+ */
+export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
+  const input = options.input as RawModeInput;
+  const output = options.output;
+
+  return async <T>(
+    questionText: string,
+    choices: readonly SearchableChoice<T>[],
+    search: SearchableSelectOptions = {},
+  ): Promise<SelectAnswer<T>> => {
+    const answer = await askCarriageQuestion<T>(input, output, {
+      type: "autocomplete",
+      message: questionText,
+      choices: choices.map((choice) => ({
+        title: choice.title,
+        value: choice.value as unknown,
+        ...(choice.description === undefined ? {} : { description: choice.description }),
+      })),
+      suggest: searchableSuggest,
+      ...(search.limit === undefined ? {} : { limit: search.limit }),
+      hint: "Type to filter, \u2191/\u2193 navigate, enter selects.",
+    });
+    return answer === undefined ? { kind: "cancelled" } : { kind: "selected", value: answer };
+  };
+}
+
+/**
+ * One searchable multi-choice prompt bound to the given streams: typing
+ * filters the choices, arrows navigate, space toggles, enter submits.
+ * Selections persist across filter changes (the dependency toggles the
+ * underlying choice, not the filtered view); a refused minimum submit stays
+ * open until answered or cancelled. Cancellation follows the shared answer
+ * contract. Callers mark initial selection with `selected` — install
+ * pre-checks the existing Hosts, while a new installation passes none so
+ * detected Hosts are never silently selected. Note: the underlying element
+ * renders titles only, so must-see per-choice evidence belongs in a
+ * preceding notice (descriptions still pass through harmlessly).
+ */
+export function createSearchableMultiSelectPrompt(options: ConfirmPromptOptions) {
+  const input = options.input as RawModeInput;
+  const output = options.output;
+
+  return async <T>(
+    questionText: string,
+    choices: readonly SearchableChoice<T>[],
+    selection: MultiSelectOptions = {},
+  ): Promise<MultiSelectAnswer<T>> => {
+    const answer = await askCarriageQuestion<readonly T[]>(input, output, {
+      type: "autocompleteMultiselect",
+      message: questionText,
+      choices: choices.map((choice) => ({
+        title: choice.title,
+        value: choice.value as unknown,
+        ...(choice.description === undefined ? {} : { description: choice.description }),
+        ...(choice.selected === undefined ? {} : { selected: choice.selected }),
+      })),
+      ...(selection.min === undefined ? {} : { min: selection.min }),
+      hint: "Type to filter, \u2191/\u2193 navigate, space toggles, enter submits.",
     });
     return answer === undefined
       ? { kind: "cancelled" }

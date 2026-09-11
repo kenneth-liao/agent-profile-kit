@@ -3586,6 +3586,42 @@ export function applyConsentRequiredDocument(
 
 export const INSTALL_CONFIRMATION_QUESTION = "Install as listed? (y/N)";
 
+/** The guided-install Host detection notice (US-005): states the advisory
+ * detection result before the Host picker opens, mirroring the
+ * initialization receipt's wording. Titles stay bare Host identities so
+ * filtering matches the Host, never the evidence text; every Host stays
+ * selectable regardless of detection. */
+export function installDetectedHostsDocument(detected: readonly string[]): PresentationDocument {
+  return [{
+    kind: "prose",
+    parts: [detected.length > 0
+      ? `Detected Agent Hosts: ${detected.join(", ")}.`
+      : "Detected Agent Hosts: none. Every supported Host stays selectable."],
+  }];
+}
+/** The guided-install target notice (US-001, DEC-002): names the Project
+ * target before missing choices are collected, so a bare interactive
+ * install shows which directory it will act on — and states the existing
+ * selection when one is recorded, so replacing it starts informed. The
+ * full proposed scope follows later in the general-confirmation review. */
+export function installTargetDocument(target: {
+  readonly canonicalProject: string;
+  readonly authoredProject: string;
+  readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
+}): PresentationDocument {
+  const scope = "project" as const;
+  return [
+    {
+      kind: "prose",
+      parts: [`Installing into ${displayProjectPath(target.canonicalProject, target.authoredProject, scope)}.`],
+    },
+    ...(target.previous === undefined ? [] : [{
+      kind: "prose",
+      parts: [`Current selection: Profile ${target.previous.profile}, Hosts ${target.previous.hosts.join(", ")}.`],
+    } as const]),
+  ];
+}
+
 /** The interactive general-confirmation review (DEC-004): the proposed
  * scope — Project, previous-to-new Profile and Hosts — before any write. */
 export function installConfirmationDocument(preview: {

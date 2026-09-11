@@ -227,6 +227,40 @@ export function sameInstallSelection(
     left.hosts.every((host, index) => host === right.hosts[index]);
 }
 
+/** The resolved install target without any Profile/Host choice: the
+ * canonical and authored Project plus the existing selection when one is
+ * recorded. Guided pickers (#495) read this before asking anything, so a
+ * bare interactive install names its target first and pre-checks the
+ * existing Hosts; the explicit preview below reuses the same resolution so
+ * the target cannot drift between the two. */
+export interface InstallTarget {
+  readonly canonicalProject: string;
+  readonly authoredProject: string;
+  readonly previous?: PreviousInstallSelection;
+}
+
+export async function resolveInstallTarget(
+  home: string,
+  options: Pick<InstallApplicationOptions, "project" | "cwd">,
+): Promise<InstallTarget> {
+  const configurationPath = localConfigurationPath(home);
+  const origin: ConfiguredPathOrigin = {
+    source: "local-configuration",
+    configurationPath,
+  };
+  const cwd = options.cwd ?? process.cwd();
+  const canonicalProject = options.project === undefined
+    ? await requireExistingDirectory(cwd, cwd, origin, "project")
+    : await normalizeProject(options.project, home, origin);
+  const authoredProject = options.project ?? canonicalProject;
+  const previous = await readPreviousSelection(home, canonicalProject);
+  return {
+    canonicalProject,
+    authoredProject,
+    ...(previous === undefined ? {} : { previous }),
+  };
+}
+
 /**
  * Resolve, snapshot, and validate the requested installation without writing
  * anything. The CLI confirms this preview before executing it.
@@ -238,19 +272,9 @@ export async function previewInstall(
     "profile" | "hosts" | "project" | "cwd"
   >,
 ): Promise<InstallPreview> {
-  const configurationPath = localConfigurationPath(home);
-  const origin: ConfiguredPathOrigin = {
-    source: "local-configuration",
-    configurationPath,
-  };
   const profile = requireArtifactId(options.profile, "install profile");
   const hosts = normalizeInstallHosts(options.hosts);
-  const cwd = options.cwd ?? process.cwd();
-  const canonicalProject = options.project === undefined
-    ? await requireExistingDirectory(cwd, cwd, origin, "project")
-    : await normalizeProject(options.project, home, origin);
-  const authoredProject = options.project ?? canonicalProject;
-  const previous = await readPreviousSelection(home, canonicalProject);
+  const target = await resolveInstallTarget(home, options);
 
   const profiles = await listProfiles(home);
   requireProfile(new Map(profiles.map((entry) => [entry.id, entry])), profile);
@@ -258,9 +282,9 @@ export async function previewInstall(
   return {
     profile,
     hosts,
-    canonicalProject,
-    authoredProject,
-    ...(previous === undefined ? {} : { previous }),
+    canonicalProject: target.canonicalProject,
+    authoredProject: target.authoredProject,
+    ...(target.previous === undefined ? {} : { previous: target.previous }),
   };
 }
 

@@ -4,9 +4,10 @@
  * selection and installs/verifies the generated output. It replaces public
  * `bind` with no compatibility shim (pre-1.0 breaking-change policy).
  *
- * Explicit arguments are required for the Profile and Hosts in this slice;
- * searchable missing-choice pickers belong to #495, so missing Profile/Hosts
- * remain errors on every input stream here. The general confirmation
+ * An interactive human invocation with missing Profile/Hosts collects only
+ * those choices through searchable pickers (#495, US-001/US-005): the target
+ * is named first, supplied choices skip their picker, and the picked values
+ * flow into the same explicit operation below. The general confirmation
  * (DEC-004) fires on interactive input unless `--auto-confirm` answers it;
  * non-interactive invocations without that flag refuse before any write.
  * Changed-file consent (DEC-005) consumes the shared #493 contract and is
@@ -25,9 +26,11 @@ import {
   installConfirmationDocument,
   installConfirmationRequiredDocument,
   installDeclinedDocument,
+  installDetectedHostsDocument,
   installExecutionFailureDocument,
   installRecoveryAddendum,
   installReplacementCommandDocument,
+  installTargetDocument,
   installVerificationFailureDocument,
   installWarningNodes,
   formatApplyExecutionFailureJson,
@@ -45,17 +48,17 @@ import {
   createChangedOutputConfirmer,
   type ChangedOutputConfirmer,
 } from "./changed-output-confirm.js";
-import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";
-import {
+import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";import {
   terminalPresentationContext,
   type TerminalPresentationContext,
   type TerminalStream,
 } from "./terminal-presentation.js";
-import { createTextPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
-import { SUPPORTED_HOSTS } from "../adapters/registry.js";
+import { createTextPrompt, createSearchableMultiSelectPrompt, createSearchableSelectPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
+import { detectInstalledHosts, SUPPORTED_HOSTS } from "../adapters/registry.js";
 import {
   executeInstall,
   previewInstall,
+  resolveInstallTarget,
   InstallExecutionError,
   type InstallApplicationResult,
 } from "../installer/install-application.js";
@@ -70,6 +73,7 @@ import {
 } from "../installer/reconcile.js";
 import { formatError } from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
+import { listProfiles } from "../installer/inventory.js";
 
 export interface ParsedInstallArguments {
   readonly profile?: string;
@@ -83,11 +87,11 @@ export interface ParsedInstallArguments {
 }
 
 /**
- * Parse `install <profile> [project] --host <host> ... [--project <path>]
+ * Parse `install [profile] [project] --host <host> ... [--project <path>]
  * [--auto-confirm] [--replace-changed] [--remove-changed] [--json]`.
- * Missing Profile/Hosts are reported as absent, not errors: the command
- * layer refuses them before any write on every input stream (#495 owns the
- * pickers that will complete them interactively).
+ * Missing Profile/Hosts are reported as absent, not errors: an interactive
+ * human invocation collects them through searchable pickers (#495), while
+ * non-interactive and machine-JSON invocations refuse them before any write.
  */
 export function parseInstallArguments(
   arguments_: readonly string[],
@@ -201,7 +205,8 @@ const installCommandSyntax = COMMANDS.find((command) => command.name === "instal
 
 /**
  * The delivered install argument errors, used whenever prompting cannot help
- * (missing choices belong to #495; non-interactive invocations keep them).
+ * (non-interactive and machine-JSON invocations keep missing choices as
+ * refusals; interactive humans collect them through pickers instead).
  */
 function missingProfileDiagnostic(): PresentationDocument {
   return errorDiagnosticDocument(new Error("install requires a Profile name"), {
@@ -223,6 +228,125 @@ function installArgumentErrorDiagnostic(error: unknown): PresentationDocument {
   return errorDiagnosticDocument(error, { usage: installCommandSyntax });
 }
 
+const INSTALL_PROFILE_QUESTION = "Which Profile?";
+const INSTALL_HOSTS_QUESTION = "Which Agent Hosts?";
+
+/**
+ * Collect the missing Profile/Host choices for one guided install (#495,
+ * US-001/US-005, DEC-002): the target is resolved and named before anything
+ * is asked, supplied choices skip their picker, and the picked values return
+ * for the explicit operation. Cancellation or an unanswerable choice writes
+ * its diagnostic and resolves undefined with zero lifecycle writes.
+ */
+async function collectMissingInstallChoices(
+  request: InstallCommandRequest,
+  parsed: ParsedInstallArguments,
+  cwd: string,
+  stderrContext: TerminalPresentationContext,
+): Promise<ParsedInstallArguments | undefined> {
+  const stdoutContext = terminalPresentationContext(request.stdout);
+  let target;
+  try {
+    target = await resolveInstallTarget(request.home, {
+      ...(parsed.project === undefined ? {} : { project: parsed.project }),
+      cwd,
+    });
+  } catch (error) {
+    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    return undefined;
+  }
+  writeHumanDocument(request.stdout, installTargetDocument(target), stdoutContext);
+
+  const promptOptions = {
+    input: request.input,
+    output: request.stdout,
+    ...(request.clock === undefined ? {} : { clock: request.clock }),
+  };
+
+  let profile = parsed.profile;
+  if (profile === undefined) {
+    let profiles;
+    try {
+      profiles = await listProfiles(request.home);
+    } catch (error) {
+      writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      return undefined;
+    }
+    if (profiles.length === 0) {
+      writeHumanDocument(
+        request.stderr,
+        errorDiagnosticDocument(
+          new Error("install needs a Profile, but the Workspace has no Profiles yet; create one with apkit new profile"),
+        ),
+        stderrContext,
+      );
+      return undefined;
+    }
+    const answer = await createSearchableSelectPrompt(promptOptions)(
+      INSTALL_PROFILE_QUESTION,
+      profiles.map((entry) => ({ title: entry.id, value: entry.id })),
+    );
+    if (answer.kind === "cancelled") {
+      writeHumanDocument(
+        request.stderr,
+        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd)),
+        stderrContext,
+      );
+      return undefined;
+    }
+    profile = answer.value;
+  }
+
+  let hosts = parsed.hosts;
+  if (hosts === undefined || hosts.length === 0) {
+    // Detection is advisory only and is stated once up front, mirroring
+    // the initialization receipt; titles stay bare Host identities so
+    // filtering matches the Host, never the evidence text. A new
+    // installation starts with nothing checked; an existing installation
+    // pre-checks its Hosts, so detected Hosts are never silently selected.
+    const detected = await detectInstalledHosts({ env: request.env ?? process.env });
+    writeHumanDocument(request.stdout, installDetectedHostsDocument(detected), stdoutContext);
+    const previousHosts = new Set(target.previous?.hosts ?? []);
+    const answer = await createSearchableMultiSelectPrompt(promptOptions)(
+      INSTALL_HOSTS_QUESTION,
+      SUPPORTED_HOSTS.map((host) => ({
+        title: host,
+        value: host,
+        ...(previousHosts.has(host) ? { selected: true } : {}),
+      })),
+      { min: 1 },
+    );
+    if (answer.kind === "cancelled") {
+      writeHumanDocument(
+        request.stderr,
+        installDeclinedDocument(
+          "cancelled",
+          fullySpecifiedInstallArguments(
+            { ...parsed, ...(profile === undefined ? {} : { profile }) },
+            cwd,
+          ),
+        ),
+        stderrContext,
+      );
+      return undefined;
+    }
+    hosts = [...answer.values];
+  }
+
+  if (profile === undefined || hosts === undefined) {
+    // Unreachable: each picker above either fills its choice or cancels
+    // with a diagnostic. Fail closed instead of smuggling undefined into
+    // the explicit operation.
+    writeHumanDocument(
+      request.stderr,
+      errorDiagnosticDocument(new Error("install guided flow left a missing choice unfilled")),
+      stderrContext,
+    );
+    return undefined;
+  }
+  return { ...parsed, profile, hosts: [...hosts] };
+}
+
 export async function runInstallCommand(request: InstallCommandRequest): Promise<InstallCommandOutcome> {
   const stderrContext = terminalPresentationContext(request.stderr);
 
@@ -234,6 +358,29 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     return { exitCode: 1 };
   }
 
+  // The effective working directory is captured once at the command boundary:
+  // retries and equivalent commands always name the resolved Project, even
+  // when the real entrypoint leaves cwd implicit (DEC-006).
+  const cwd = request.cwd ?? process.cwd();
+  const interactive = isInteractiveInput(request.input);
+
+  // Guided install (#495, US-001/US-005, DEC-002): an interactive human
+  // invocation collects only its missing choices through searchable pickers;
+  // supplied choices skip their picker and the picked values flow into the
+  // same explicit operation below. `--auto-confirm` still answers only the
+  // later general confirmation, never a missing choice (DEC-004).
+  let guided = false;
+  if (
+    (parsed.profile === undefined || parsed.hosts === undefined || parsed.hosts.length === 0) &&
+    interactive &&
+    !parsed.json
+  ) {
+    const completed = await collectMissingInstallChoices(request, parsed, cwd, stderrContext);
+    if (completed === undefined) return { exitCode: 1 };
+    parsed = completed;
+    guided = true;
+  }
+
   if (parsed.profile === undefined) {
     writeHumanDocument(request.stderr, missingProfileDiagnostic(), stderrContext);
     return { exitCode: 1 };
@@ -243,11 +390,6 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     return { exitCode: 1 };
   }
 
-  // The effective working directory is captured once at the command boundary:
-  // retries and equivalent commands always name the resolved Project, even
-  // when the real entrypoint leaves cwd implicit (DEC-006).
-  const cwd = request.cwd ?? process.cwd();
-  const interactive = isInteractiveInput(request.input);
   if (!parsed.autoConfirm && (!interactive || parsed.json)) {
     writeHumanDocument(
       request.stderr,
@@ -357,6 +499,16 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
           installReplacementCommandDocument(
             fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope)),
           ),
+          stdoutContext,
+        );
+      } else if (guided) {
+        // A guided install always leaves its executable fully specified
+        // equivalent (US-006): the picked choices plus the general
+        // confirmation answer, with consent flags when the flow authorized
+        // them. Explicit installs keep the #494 echo contract.
+        writeHumanDocument(
+          request.stdout,
+          installReplacementCommandDocument(fullySpecifiedInstallArguments(parsed, cwd)),
           stdoutContext,
         );
       }
