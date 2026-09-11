@@ -652,21 +652,12 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
-    test: "unbind",
-    snapshot: "unbind",
-    commandId: "unbind",
-    prepare: async () => {
-      const { home, project } = await pendingHome();
-      return { home, args: ["unbind", project] };
-    },
-  },
-  {
     test: "uninstall",
     snapshot: "uninstall",
     commandId: "uninstall",
     prepare: async () => {
-      const { home } = await currentHome();
-      return { home, args: ["uninstall"] };
+      const { home, project } = await currentHome();
+      return { home, args: ["uninstall", "--project", project, "--auto-confirm"] };
     },
   },
   {

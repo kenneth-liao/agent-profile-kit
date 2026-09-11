@@ -7,7 +7,7 @@ import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/projec
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
-import { initReceiptDocument, installReceiptDocument, unbindReceiptDocument } from "../cli/receipts.js";
+import { initReceiptDocument, installReceiptDocument } from "../cli/receipts.js";
 import {
   flatInlineText,
   identifierPart,
@@ -54,7 +54,13 @@ import {
   temporaryBlockedMessagesDocument,
   temporaryInstallationDocument,
   temporaryInventoryDocument,
-  uninstallResultDocument,
+  uninstallReceiptDocument,
+  uninstallConfirmationDocument,
+  uninstallDeclinedDocument,
+  uninstallConfirmationRequiredDocument,
+  uninstallMissingScopeDocument,
+  uninstallNoMatchDocument,
+  uninstallExecutionFailureDocument,
   validationResultDocument,
   type TemporaryInstallationReceiptView,
   displayPath,
@@ -2494,8 +2500,7 @@ describe("status concise terminology", () => {
           remedy: "Manual recovery is required: Agent Profile Kit will not adopt or delete " +
             "files it cannot prove. Inspect ls -ld '/project-a/.codex', restore it to a " +
             "regular directory inside the Project yourself, then run apkit update " +
-            "'/project-a'; or run apkit unbind '/project-a' to stop managing this Project " +
-            "(its generated files stay on disk).",
+            "'/project-a'; or run apkit uninstall --project '/project-a' to remove its generated files and stop managing this Project.",
           requirement:
             "Agent Profile Kit changes or removes generated files only when ownership " +
             "is proven by the installation record at safe paths.",
@@ -2529,7 +2534,7 @@ describe("status concise terminology", () => {
     expect(nodes.slice(blockerIndex + 1, blockerIndex + 4).map(shape)).toEqual(["prose", "prose", "prose"]);
     // The remedy carries the evidence-derived scoped commands as atomic parts.
     expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit update '/project-a'");
-    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit unbind '/project-a'");
+    expect(inlineCommandTexts([nodes[blockerIndex + 2]!])).toContain("apkit uninstall --project '/project-a'");
     expect(nodeText(nodes[blockerIndex + 3]!)).toContain("codex");
   });
 
@@ -2790,7 +2795,7 @@ describe("status concise terminology", () => {
     expect(gitCommands[0]).toContain("'weird'\\''name.md'");
   });
 
-  test("the verbose remedy frames the working-files statement and the unbind choice (#440)", () => {
+  test("the verbose remedy frames the working-files statement and the uninstall choice (#440)", () => {
     const verbose = lifecycleStatusDocument(
       ownershipReport([".codex/hooks.json"]),
       { verbose: true },
@@ -4764,8 +4769,8 @@ describe("Machine surface JSON and exit codes", () => {
         remedy: "Manual recovery is required: Agent Profile Kit will not adopt or " +
           "delete files it cannot prove. Inspect ls -ld '/project-a/CLI missing', " +
           "remove or restore it yourself, then run apkit update '/project-a'; or run " +
-          "apkit unbind '/project-a' to stop managing this Project (its generated " +
-          "files stay on disk).",
+          "apkit uninstall --project '/project-a' to remove its generated files and stop " +
+          "managing this Project.",
         requirement:
           "Agent Profile Kit changes or removes generated files only when ownership " +
           "is proven by the installation record at safe paths.",
@@ -5565,79 +5570,76 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered.split("\n").filter((line) => line.includes(count))).toHaveLength(1);
   });
 
-  test("uninstall presents removed Projects with typed identity and their generated paths", () => {
-    const document = uninstallResultDocument({
-      kept: [],
-      projects: [
+  test("uninstall receipt reports the removed count once without inventories", () => {
+    const document = uninstallReceiptDocument({
+      completed: [
         {
-          outputs: [".agent-profile-kit/codex/context.md"],
+          canonicalProject: "/home/projects/api",
           project: "/home/projects/api",
-          repositoryExclusions: [],
+          profile: "engineering",
+          outputs: [".agent-profile-kit/codex/context.md"],
         },
       ],
+      skipped: [],
+      unattempted: [],
       warnings: [],
-    }, "/home", "/work");
-
-    expect(document.map(shape)).toEqual([
-      "notice:success",
-      "blank",
-      "key-value(Project)",
-      "prose:success",
-      "prose",
-      "blank",
-      "prose",
-      "prose:command",
-    ]);
-    expect(keyValuesIn(document, "Project")[0]!.value).toEqual({
-      kind: "path",
-      canonicalPath: "/home/projects/api",
-      authoredPath: "/home/projects/api",
-      scope: "fleet",
     });
+
+    expect(document.map(shape)).toEqual(["notice:success"]);
+    const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
+    expect(notice.severity).toBe("success");
+    // One count, no per-file, per-Project, or Profile-breakdown inventory.
     const proseNodes = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose");
-    // The generated paths are listed under one success-category prose node;
-    // each fixture output path rides as its own list-entry prose node.
-    expect(proseNodes.some((node) => node.category === "success")).toBe(true);
-    expect(proseNodes.some((node) => nodeText(node).includes(".agent-profile-kit/codex/context.md"))).toBe(true);
+    expect(proseNodes).toHaveLength(1);
+    expect(nodeText(proseNodes[0]!)).toContain("1 Project");
+    expect(nodeText(proseNodes[0]!)).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(keyValuesIn(document, "Project")).toEqual([]);
   });
 
-  test("uninstall presents cleaned Git exclusions with their repository target", () => {
-    const document = uninstallResultDocument({
-      kept: [],
-      projects: [{
-        outputs: [".codex/hooks.json"],
-        project: "/project-a",
-        repositoryExclusions: [
-          {
-            entries: ["/.claude/rules/agent-profile-kit.md", "/.codex/hooks.json"],
-            target: "/project-a/.git/info/exclude",
-          },
-          {
-            entries: ["/.claude/rules/agent-profile-kit.md"],
-            target: "/shared/.git/info/exclude",
-          },
-        ],
-      }],
+  test("uninstall receipt counts multiple removed Projects once", () => {
+    const document = uninstallReceiptDocument({
+      completed: [
+        { project: "/project-a", profile: "engineering", outputs: [] },
+        { project: "/project-b", profile: "engineering", outputs: [] },
+      ],
+      skipped: [],
+      unattempted: [],
       warnings: [],
     });
-
-    const entries = document.filter((node) => node.kind === "prose")
-      .filter((node) => inlineIdentifiers([node])[0]?.startsWith("/") === true);
-    expect(entries.map((node) => inlineIdentifiers([node]))).toEqual([
-      ["/.claude/rules/agent-profile-kit.md"], ["/.codex/hooks.json"], ["/.claude/rules/agent-profile-kit.md"],
-    ]);
-    ["/project-a/.git/info/exclude", "/project-a/.git/info/exclude", "/shared/.git/info/exclude"]
-      .forEach((target, index) => expect(nodeText(entries[index]!)).toContain(target));
+    expect(document.map(shape)).toEqual(["notice:success"]);
+    const text = nodeText(flattenPresentationNodes(document).find((node) => node.kind === "prose")!);
+    expect(text).toContain("2 Projects");
   });
 
-  test("uninstall presents kept Projects and their removal failure reasons", () => {
-    const document = uninstallResultDocument({
-      projects: [],
-      kept: [{
+  test("uninstall receipt carries no per-file or exclusion inventory", () => {
+    const document = uninstallReceiptDocument({
+      completed: [
+        {
+          project: "/project-a",
+          profile: "engineering",
+          outputs: [".codex/hooks.json"],
+        },
+      ],
+      skipped: [],
+      unattempted: [],
+      warnings: [],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).not.toContain(".codex/hooks.json");
+    expect(headingsIn(document)).toEqual([]);
+  });
+
+  test("uninstall receipt presents skipped Projects and their Blocker reasons", () => {
+    const document = uninstallReceiptDocument({
+      completed: [],
+      skipped: [{
+        canonicalProject: "/project-a",
         project: "/project-a",
+        profile: "engineering",
         reason: "Cannot remove Project at /project-a: owned output .codex/hooks.json has unsafe parent: /project-a/.codex is a symlink parent",
       }],
+      unattempted: [],
       warnings: [],
     });
 
@@ -5648,19 +5650,24 @@ describe("standalone view presentation documents (#389)", () => {
       "blank",
       "key-value(Project)",
       "prose:error",
-      "blank",
-      "prose",
     ]);
-    const keptReason = flattenPresentationNodes(document).find((node) =>
+    const skippedReason = flattenPresentationNodes(document).find((node) =>
       node.kind === "prose" && node.category === "error"
     ) as Extract<PresentationNode, { kind: "prose" }>;
-    expect(keptReason.category).toBe("error");
+    expect(skippedReason.category).toBe("error");
+    expect(keyValuesIn(document, "Project")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: "/project-a",
+      authoredPath: "/project-a",
+      scope: "fleet",
+    });
   });
 
-  test("uninstall presents warnings as inline typed list items beside the outcome notice", () => {
-    const document = uninstallResultDocument({
-      kept: [],
-      projects: [],
+  test("uninstall receipt presents warnings as inline typed list items beside the outcome notice", () => {
+    const document = uninstallReceiptDocument({
+      completed: [],
+      skipped: [],
+      unattempted: [],
       warnings: [
         "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
       ],
@@ -5669,14 +5676,61 @@ describe("standalone view presentation documents (#389)", () => {
     const items = flattenPresentationNodes(document).filter((node) => node.kind === "list-item");
     expect(items).toHaveLength(1);
     expect(items[0]).toMatchObject({ kind: "list-item", category: "attention" });
-    expect(document.map(shape)).toEqual(["notice:success", "list-item", "blank", "prose"]);
+    expect(document.map(shape)).toEqual(["notice:success", "list-item"]);
     expect(keyValuesIn(document, "Project")).toEqual([]);
   });
 
   test("an uninstall with nothing installed is a single success notice", () => {
-    const document = uninstallResultDocument({ projects: [], kept: [], warnings: [] });
-    expect(document.map(shape)).toEqual(["notice:success", "blank", "prose"]);
+    const document = uninstallReceiptDocument({ completed: [], skipped: [], unattempted: [], warnings: [] });
+    expect(document.map(shape)).toEqual(["notice:success"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toMatchObject({ kind: "prose" });
+  });
+
+  test("uninstall confirmation review names every selected Project before any write", () => {
+    const document = uninstallConfirmationDocument({
+      projects: [
+        { canonicalProject: "/project-a", project: "/project-a", profile: "engineering", hosts: ["codex"] },
+        { project: "~/project-b", profile: "docs", hosts: ["claude", "pi"] },
+      ],
+    });
+    expect(document.map(shape)).toEqual(["heading", "prose", "prose", "prose"]);
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("engineering");
+    expect(rendered).toContain("will not reinstall");
+  });
+
+  test("uninstall declined and confirmation-required diagnostics name the explicit equivalent", () => {
+    const args = [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }];
+    const declined = uninstallDeclinedDocument("declined", args);
+    expect(inlineCommandTexts(declined)).toEqual(["apkit uninstall --all"]);
+    const required = uninstallConfirmationRequiredDocument(args);
+    expect(inlineCommandTexts(required)).toEqual(["apkit uninstall --all"]);
+    const missing = uninstallMissingScopeDocument(args);
+    expect(inlineCommandTexts(missing)).toEqual(["apkit uninstall --all"]);
+    const noMatch = uninstallNoMatchDocument("Profile 'docs'");
+    expect(renderPresentationDocument(noMatch, defaultRenderContext)).toContain("docs");
+  });
+
+  test("uninstall execution failure distinguishes completed, failed, and unattempted work", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected Installation State fault",
+        selectionRestored: true,
+        outputCommitted: false,
+        concurrentSelectionChange: false,
+      },
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      unattempted: [{ project: "/project-c", profile: "engineering" }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("/project-b");
+    expect(rendered).toContain("/project-a");
+    expect(rendered).toContain("/project-c");
+    expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
   });
 
   test("temporary installation receipts present identity fields and a typed removal command", () => {
@@ -6905,33 +6959,32 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     expectUserFacingVocabulary(renderPresentationDocument(activeTemp, defaultRenderContext));
   });
 
-  test("routine teardown receipts preserve configured Projects in user-facing vocabulary", () => {
-    const uninstall = uninstallResultDocument({
-      kept: [],
-      projects: [{
-        outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
+  test("routine teardown receipts state forgetting in user-facing vocabulary", () => {
+    const uninstall = uninstallReceiptDocument({
+      completed: [{
         project: "/project-a",
-        repositoryExclusions: [],
+        profile: "engineering",
+        outputs: [".claude/rules/agent-profile-kit.md", ".codex/hooks.json"],
       }],
+      skipped: [],
+      unattempted: [],
       warnings: [],
     });
-    // The next action is one command-category prose node whose typed inline
-    // command parts keep both invocations atomic.
-    const guidance = flattenPresentationNodes(uninstall).find((node) =>
-      node.kind === "prose" && node.category === "command");
-    expect(guidance).toBeDefined();
-    expect(inlineCommandTexts([guidance!])).toEqual(["apkit unbind", "apkit update"]);
-    expectUserFacingVocabulary(renderPresentationDocument(uninstall, defaultRenderContext));
+    const rendered = renderPresentationDocument(uninstall, defaultRenderContext);
+    expect(rendered).toContain("forgot");
+    expect(rendered).not.toContain(".claude/rules/agent-profile-kit.md");
+    expectUserFacingVocabulary(rendered);
   });
 
-  test("uninstall renders best-effort exclusion warnings and claims only cleaned entries", () => {
-    const result = uninstallResultDocument({
-      kept: [],
-      projects: [{
-        outputs: [".codex/hooks.json"],
+  test("uninstall renders best-effort exclusion warnings without claiming cleaned entries", () => {
+    const result = uninstallReceiptDocument({
+      completed: [{
         project: "/project-a",
-        repositoryExclusions: [],
+        profile: "engineering",
+        outputs: [".codex/hooks.json"],
       }],
+      skipped: [],
+      unattempted: [],
       warnings: [
         "/project-a/.git/info/exclude changed during exclusion publication; skipping to preserve unrelated bytes",
       ],
@@ -7575,10 +7628,11 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     expect(renderBoundary(verifyVerbose)).toContain("Sample diagnostic warning (/project-a)");
     expect(headingsIn(verifyVerbose)).not.toContain("Warnings:");
 
-    // 8. Uninstall result document (with Projects and kept Projects)
-    const uninstallDoc = uninstallResultDocument({
-      kept: [{ project: "/project-b", reason: "permission denied" }],
-      projects: [{ outputs: [".codex/hooks.json"], project: "/project-a", repositoryExclusions: [] }],
+    // 8. Uninstall receipt document (completed and skipped Projects)
+    const uninstallDoc = uninstallReceiptDocument({
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [".codex/hooks.json"] }],
+      skipped: [{ project: "/project-b", profile: "engineering", reason: "permission denied" }],
+      unattempted: [],
       warnings: ["Sample uninstall warning"],
     });
     expect(uninstallDoc[0]?.kind).toBe("notice");
@@ -7718,7 +7772,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -la '/project-a/.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7732,7 +7786,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -la '/project-a/.agents/skills/demo-skill'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7746,7 +7800,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/project-a/.codex/nested'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7760,7 +7814,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -la '/project-a/.agents/skills/demo-skill'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7774,7 +7828,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       })),
       expectedCommands: [
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["opencode.json"],
     },
@@ -7793,9 +7847,8 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
           "'.agents/skills/s01' '.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
       ],
-      mustState: ["Git index", "files stay on disk"],
+      mustState: ["Git index", "files stay on disk", "leave the files in place"],
     },
     {
       label: "ownership/verify/continuity",
@@ -7810,7 +7863,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/project-a/.agent-profile-kit/codex/context.md'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7827,7 +7880,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/project-a/.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7844,7 +7897,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/p/.codex'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
       problemMustState: ["not a regular directory"],
@@ -7862,7 +7915,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/project-a/.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       mustState: ["Manual recovery is required"],
     },
@@ -7883,7 +7936,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "ls -ld '/project-a/.agents/skills/demo-skill/scripts/run.sh'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
       ],
       // No rm from observed type alone: the user inspects and recovers by hand.
       bannedCommands: ["rm '"],
@@ -7900,10 +7953,10 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
         scope: "project",
       }),
       expectedCommands: [
-        "apkit unbind '/project-a'",
+        "apkit uninstall --project '/project-a'",
         "apkit update '/project-a'",
       ],
-      mustState: ["nothing is repaired or removed"],
+      mustState: ["remove its generated files and stop managing this Project"],
     },
     // 3b. installation-ownership, remove action — teardown: explicit --all.
     {
@@ -7964,9 +8017,8 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
       expectedCommands: [
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- '.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
       ],
-      mustState: ["Git index", "files stay on disk"],
+      mustState: ["Git index", "files stay on disk", "leave the files in place"],
     },
     {
       label: "output-ownership-conflict/multi",
@@ -7978,7 +8030,6 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
         "git --literal-pathspecs -C '/project-a' rm -r --cached -- " +
           "'.agents/skills/s01.md' '.codex/hooks.json'",
         "apkit update '/project-a'",
-        "apkit unbind '/project-a'",
       ],
     },
     // Literal pathspecs: glob-significant filenames stay verbatim, quoted.
@@ -8007,9 +8058,9 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     {
       label: "temp-conflict/ordinary",
       blocker: normalizeBlocker(temporaryInstallationConflictBlocker({ project })),
-      expectedCommands: ["apkit unbind '/project-a'"],
+      expectedCommands: ["apkit uninstall --project '/project-a'"],
       bannedCommands: ["install-temp"],
-      mustState: ["stay on disk", "retry your original command"],
+      mustState: ["stop managing this Project", "retry your original command"],
     },
     // 6. temporary-installation-removal — identity is required evidence.
     {
@@ -8111,7 +8162,7 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     expect(remedy).not.toContain("rm -r --cached");
     expect(remedy).toContain("Manual recovery is required");
     expect(commands(wording(blocker).remedy)).toContain("apkit update '/project-a'");
-    expect(commands(wording(blocker).remedy)).toContain("apkit unbind '/project-a'");
+    expect(commands(wording(blocker).remedy)).not.toContain("apkit uninstall --project '/project-a'");
   });
 
   test("quoted filenames survive POSIX quoting inside the derived command (#440)", () => {
@@ -8397,7 +8448,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
   });
 
-  test("the unchanged install and unbind receipts stay informational", () => {
+  test("the unchanged install receipt stays informational", () => {
     const unchangedInstall = installReceiptDocument({
       outcome: "unchanged",
       canonicalProject: projectPath,
@@ -8411,11 +8462,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "key-value:Hosts",
       "key-value:Next(command)",
     ]);
-    const unchangedUnbind = unbindReceiptDocument({
-      outcome: "unchanged",
-      requestedProject: "~/projects/absent",
-    });
-    expect(shapes(unchangedUnbind)).toEqual(["sentence"]);
   });
 
   test("install receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
@@ -8483,51 +8529,42 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
   });
 
-  test("the removed unbind receipt keeps recovery evidence and survival guidance", () => {
-    const document = unbindReceiptDocument({
-      outcome: "removed",
-      canonicalProject: projectPath,
-      project: projectPath,
-      profile: "coding",
-      hosts: ["codex"],
-      recovery: "canonical",
-      generatedOutputSurvives: true,
+  test("the uninstall receipt states forgetting with its compact count", () => {
+    const document = uninstallReceiptDocument({
+      completed: [{
+        canonicalProject: projectPath,
+        project: projectPath,
+        profile: "coding",
+        outputs: [".codex/hooks.json"],
+      }],
+      skipped: [],
+      unattempted: [],
+      warnings: [],
     });
-    expect(shapes(document)).toEqual([
-      "sentence(success)",
-      "key-value:Profile(path)",
-      "key-value:Hosts",
-      "prose",
-      "key-value:Next(command)",
-    ]);
-    expect(document.at(-1)).toEqual({
-      kind: "key-value",
-      key: "Next",
-      value: { kind: "command", program: "apkit", args: [
-        { kind: "text", value: "status" },
-        { kind: "text", value: "--all" },
-      ] },
-      category: "command",
-    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("1 Project");
+    expect(rendered).toContain("forgot");
+    expect(rendered).not.toContain(".codex/hooks.json");
   });
 
-  test("the authored-path unbind receipt carries the recovery explanation and configuration location", () => {
-    const document = unbindReceiptDocument({
-      outcome: "removed",
-      project: "/opt/authored/demo",
-      profile: "coding",
-      hosts: ["codex"],
-      recovery: "authored-path",
-      configurationPath: `/test/config.yaml`,
-      generatedOutputSurvives: false,
+  test("the uninstall execution failure carries retry evidence", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        project: "/opt/authored/demo",
+        profile: "coding",
+        detail: "injected fault",
+        selectionRestored: true,
+        outputCommitted: false,
+        concurrentSelectionChange: false,
+      },
+      completed: [],
+      unattempted: [],
+      retryArguments: [
+        { kind: "text", value: "uninstall" },
+        { kind: "text", value: "--all" },
+      ],
     });
-    expect(shapes(document)).toEqual([
-      "sentence(success)",
-      "key-value:Recovery",
-      "key-value:Local Configuration(path)",
-      "key-value:Profile(path)",
-      "key-value:Hosts",
-    ]);
+    expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
   });
 });
 

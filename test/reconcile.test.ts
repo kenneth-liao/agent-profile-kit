@@ -25,7 +25,7 @@ import {
   writeInstallationState,
 } from "../installer/installation-state.js";
 import { publishRepositoryExclusions } from "../installer/git-exclusions.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -516,6 +516,15 @@ describe("previous-version Marker migration", () => {
     };
   }
 
+  /** Remove every binding from Local Configuration without touching output. */
+  function forgetBindingByHand(home: string): void {
+    const configuration = join(home, ".agents", "agent-profile-kit", "config.yaml");
+    const lines = readFileSync(configuration, "utf8").split("\n");
+    const bindingsIndex = lines.findIndex((line) => line.startsWith("bindings:"));
+    if (bindingsIndex === -1) throw new Error("Local Configuration has no bindings section");
+    writeFileSync(configuration, `${lines.slice(0, bindingsIndex).join("\n")}\nbindings: []\n`);
+  }
+
   function writeToken(project: string, installationId: string): void {
     writeFileSync(
       join(project, ".agent-profile-kit", "installation.json"),
@@ -633,10 +642,10 @@ describe("previous-version Marker migration", () => {
 
     // The removal staging must preserve the unknown bytes too while removing
     // the proven owned output.
-    // Retire the receipt the way unbind does: the removal pass then consumes
-    // the retiring record without a desired plan.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home, project });
+    // Forget the binding by hand-editing Local Configuration (public unbind
+    // is retired): the removal pass then consumes the leftover record
+    // without a desired plan.
+    forgetBindingByHand(home);
     await applyReconciliation(home, []);
     expect(readFileSync(foreign, "utf8")).toBe("user data unknown to Agent Profile Kit\n");
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
@@ -693,10 +702,10 @@ describe("previous-version Marker migration", () => {
     await applyReconciliation(home, desired);
     expect(readFileSync(token, "utf8")).toContain("some-other-installation");
 
-    // Retire the receipt the way unbind does: the removal pass then consumes
-    // the retiring record without a desired plan.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home, project });
+    // Forget the binding by hand-editing Local Configuration (public unbind
+    // is retired): the removal pass then consumes the leftover record
+    // without a desired plan.
+    forgetBindingByHand(home);
     await applyReconciliation(home, []);
     expect(readFileSync(token, "utf8")).toContain("some-other-installation");
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);
@@ -730,10 +739,10 @@ describe("previous-version Marker migration", () => {
     writeToken(project, receiptId);
     const token = join(project, ".agent-profile-kit", "installation.json");
 
-    // Retire the receipt the way unbind does: the removal pass then consumes
-    // the retiring record without a desired plan.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home, project });
+    // Forget the binding by hand-editing Local Configuration (public unbind
+    // is retired): the removal pass then consumes the leftover record
+    // without a desired plan.
+    forgetBindingByHand(home);
     await applyReconciliation(home, []);
 
     expect(existsSync(token)).toBe(false);
@@ -765,20 +774,26 @@ describe("uninstall failure safety and exclusion publication races", () => {
     return { home, project };
   }
 
-  test("a publish-then-throw state write restores the prior state instead of stranding output", async () => {
+  test("a failed state write restores the selection instead of stranding output", async () => {
     const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-restore-");
     let writeCalls = 0;
 
-    await expect(uninstallApplication(home, {
+    const result = await executeUninstall(home, {
+      all: true,
       writeInstallationState: async (targetHome, state) => {
         writeCalls += 1;
-        await writeInstallationState(targetHome, state);
-        if (writeCalls === 1) throw new Error("injected post-publish failure");
+        if (writeCalls === 1) throw new Error("injected state write failure");
+        return writeInstallationState(targetHome, state);
       },
-    })).rejects.toThrow("injected post-publish failure");
+    });
 
-    // The staged removals rolled back and the prior state (with its receipt)
-    // was restored: no managed output is stranded without ownership evidence.
+    // The staged removal rolled back and the selection was restored: the
+    // binding names the Project again and no managed output is stranded
+    // without ownership evidence.
+    expect(result.completed).toEqual([]);
+    expect(result.failed?.project).toBe(project);
+    expect(result.failed?.selectionRestored).toBe(true);
+    expect(result.failed?.outputCommitted).toBe(false);
     const state = await readInstallationState(home);
     expect(state.receipts).toHaveLength(1);
     expect(state.receipts[0]!.project).toBe(realpathSync(project));
@@ -864,16 +879,22 @@ describe("uninstall failure safety and exclusion publication races", () => {
         .map((name) => join(project, name));
     }
 
-    test("a mid-stage failure with confirmed rollback is reported as a kept Project, never a tool error", async () => {
+    test("a mid-stage failure with confirmed rollback stops with the selection restored", async () => {
       const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-rollback-ok-");
       failNthStagedMove(project, 2);
 
-      const result = await uninstallApplication(home);
+      // An unexpected write failure stops further work (DEC-006): it is
+      // reported as failed with its restoration evidence, never silently
+      // skipped as a known Blocker.
+      const result = await executeUninstall(home, { all: true });
 
-      expect(result.projects).toEqual([]);
-      expect(result.kept).toHaveLength(1);
-      expect(result.kept[0]!.project).toBe(realpathSync(project));
-      expect(result.kept[0]!.reason).toContain("EACCES");
+      expect(result.completed).toEqual([]);
+      expect(result.skipped).toEqual([]);
+      expect(result.unattempted).toEqual([]);
+      expect(result.failed?.project).toBe(project);
+      expect(result.failed?.detail).toContain("EACCES");
+      expect(result.failed?.selectionRestored).toBe(true);
+      expect(result.failed?.outputCommitted).toBe(false);
       // The confirmed rollback restored every moved root; no staging tree survives.
       const receipt = (await readInstallationState(home)).receipts[0]!;
       for (const output of receipt.outputs) {
@@ -882,7 +903,7 @@ describe("uninstall failure safety and exclusion publication races", () => {
       expect(retainedStageDirectories(project)).toEqual([]);
     });
 
-    test("a mid-stage failure whose restore also fails is a global tool error retaining staged bytes", async () => {
+    test("a mid-stage failure whose restore also fails reports an explicit restoration failure retaining staged bytes", async () => {
       const { home, project } = await prepareGitProject("agent-profile-kit-uninstall-rollback-ok-");
       const second = temporaryDirectory("agent-profile-kit-uninstall-rollback-fail-project-");
       execFileSync("git", ["init", "-q", second]);
@@ -896,29 +917,45 @@ describe("uninstall failure safety and exclusion publication races", () => {
       failNthStagedMove(second, 2);
       failRestoreFromStage(second);
 
-      const failure: Error = await uninstallApplication(home).then(
-        () => expect.unreachable("uninstall was expected to fail with a staged rollback failure") as never,
-        (error: unknown) => error as Error,
-      );
-      expect(failure).toBeInstanceOf(Error);
-      expect(failure!.message).toContain("staged output restore failed");
-      expect(failure!.message).toContain("Cannot remove Project at");
+      // The restoration failure is explicit on the failed Project (DEC-006):
+      // staged bytes are retained and the outcome distinguishes completed,
+      // failed, and unattempted work instead of throwing a tool error.
+      const result = await executeUninstall(home, { all: true });
+
+      expect(result.failed?.project).toBe(second);
+      expect(result.failed?.detail).toContain("staged output restore failed");
+      expect(result.failed?.restoreError).toContain("staged output restore failed");
+      expect(result.failed?.outputCommitted).toBe(false);
 
       // The failing Project keeps its receipt and its staged bytes: the staging
       // tree survives with the moved output inside it.
       const receipts = (await readInstallationState(home)).receipts;
-      expect(receipts).toHaveLength(2);
       const failingReceipt = receipts.find((candidate) => candidate.project === realpathSync(second))!;
       const stagedRoot = retainedStageDirectories(second);
       expect(stagedRoot).toHaveLength(1);
       expect(existsSync(join(stagedRoot[0]!, failingReceipt.outputs[0]!.path))).toBe(true);
       expect(existsSync(join(second, failingReceipt.outputs[0]!.path))).toBe(false);
-      // The healthy Project staged earlier was rolled back by the same tool error.
-      const healthyReceipt = receipts.find((candidate) => candidate.project === realpathSync(project))!;
-      for (const output of healthyReceipt.outputs) {
-        expect(existsSync(join(project, output.path))).toBe(true);
+      // Completed work stays completed while unattempted work remains
+      // untouched: preview order is canonical, so the healthy Project is
+      // completed when it sorts first and unattempted otherwise.
+      const healthyFirst = realpathSync(project) < realpathSync(second);
+      const healthyReceipt = receipts.find((candidate) => candidate.project === realpathSync(project));
+      if (healthyFirst) {
+        expect(result.completed.map((entry) => entry.project)).toEqual([project]);
+        expect(result.unattempted).toEqual([]);
+        expect(healthyReceipt).toBeUndefined();
+      } else {
+        expect(result.completed).toEqual([]);
+        expect(result.unattempted.map((entry) => entry.project)).toEqual([project]);
+        expect(healthyReceipt).toBeDefined();
+        for (const output of healthyReceipt!.outputs) {
+          expect(existsSync(join(project, output.path))).toBe(true);
+        }
+        expect(retainedStageDirectories(project)).toEqual([]);
       }
-      expect(retainedStageDirectories(project)).toEqual([]);
+      // Selection accounting is truthful either way: the failed Project
+      // keeps its receipt, and only a completed healthy Project is forgotten.
+      expect(receipts).toHaveLength(healthyFirst ? 1 : 2);
     });
 
     test("stageProvenInstallationRemoval surfaces original and restore failures and retains the staging tree", async () => {

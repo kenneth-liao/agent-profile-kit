@@ -41,7 +41,8 @@ import {
   applyReconciliation,
   previewReconciliation,
 } from "../installer/reconcile.js";
-import { statusApplication, uninstallApplication } from "../installer/commands.js";
+import { statusApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -447,7 +448,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     const status = await previewReconciliation(current.installations, state);
     expect(reportItems(status)).toContainEqual({ kind: "current", project });
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
     expect(readFileSync(join(project, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
     expect(readFileSync(join(project, ".grok", "rules", "team.md"), "utf8")).toBe(
@@ -583,7 +584,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(state.receipts[0]?.hosts.claude?.capabilityContract).toBe(CLAUDE_HOST_VERSION);
     expect(state.receipts[0]?.hosts.grok?.capabilityContract).toBe(GROK_HOST_VERSION);
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned\n");
   });
@@ -808,7 +809,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     expect(Object.keys(raw.receipts[0]?.hosts ?? {})).toEqual(["claude", "codex", "grok"]);
     expect(raw.receipts[0]?.hosts.grok?.capability_contract).toBe(GROK_HOST_VERSION);
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);

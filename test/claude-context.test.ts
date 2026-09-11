@@ -36,7 +36,7 @@ import {
   applyReconciliation,
   previewReconciliation,
 } from "../installer/reconcile.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import { parseLocalConfiguration } from "../schemas/local-configuration.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -346,7 +346,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     const status = await previewReconciliation(current.installations, state);
     expect(reportItems(status)).toContainEqual({ kind: "current", project });
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(rulePath)).toBe(false);
     expect(readFileSync(join(project, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
     expect(readFileSync(join(project, ".claude", "rules", "team.md"), "utf8")).toBe("existing team rule\n");
@@ -479,7 +479,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
     expect(raw.receipts[0]?.hosts.claude?.capability_contract).toBe(CLAUDE_HOST_VERSION);
     expect(raw.receipts[0]?.hosts.codex?.capability_contract).toBe(CODEX_HOST_VERSION);
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(false);

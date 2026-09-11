@@ -12,7 +12,7 @@
  * The commit runs under one joint serialization boundary: the Local
  * Configuration lock is held across snapshot re-verification, selection
  * publication, fresh planning, reconciliation, and recovery, with the
- * installation lifecycle lock nested inside (the same lock order as unbind),
+ * installation lifecycle lock nested inside (the same lock order as the retired unbind),
  * so a cooperating writer queues instead of interleaving. Prompts and the
  * prospective review stay outside the locks; the commit re-verifies the
  * snapshot and the reviewed bytes and fails closed on any drift.
@@ -441,7 +441,7 @@ export async function executeInstall(
   // Commit under one joint boundary: the configuration lock is held across
   // snapshot re-verification, selection publication, fresh planning,
   // reconciliation, and recovery, with the lifecycle lock nested inside
-  // (the same lock order as unbind). Prompts stay outside; the commit
+  // (the same lock order as the retired unbind). Prompts stay outside; the commit
   // re-verifies the snapshot and the reviewed bytes instead. A lock the
   // commit never acquires still reports through the same envelope: nothing
   // was published, so there is nothing to restore.
@@ -453,7 +453,7 @@ export async function executeInstall(
       "install",
       async () => {
         // The lifecycle lock nests inside the configuration lock (the same
-        // order as unbind) and is retained through reconciliation AND
+        // order as the retired unbind) and is retained through reconciliation AND
         // selection recovery, so lifecycle writers queue instead of
         // interleaving with either phase.
         return withInstallationLifecycleLock(home, "install", async () => {

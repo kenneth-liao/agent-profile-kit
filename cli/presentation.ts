@@ -131,7 +131,13 @@ import {
 } from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
-import type { UninstallResult, ValidationResult } from "../installer/commands.js";
+import type { ValidationResult } from "../installer/commands.js";
+import type {
+  UninstallApplicationResult,
+  UninstallCompletedProject,
+  UninstallFailedProject,
+  UninstallUnattemptedProject,
+} from "../installer/uninstall-application.js";
 import type {
   HostInventoryRecord,
   ProfileInventoryRecord,
@@ -164,7 +170,7 @@ import {
 } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 
-export type LifecycleCommand = "update" | "status" | "install";
+export type LifecycleCommand = "update" | "status" | "install" | "uninstall";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -1277,104 +1283,189 @@ export function validationResultDocument(result: ValidationResult): Presentation
   ];
 }
 
-/** The uninstall result view as a presentation document. */
-export function uninstallResultDocument(
-  result: UninstallResult,
-  home = homedir(),
-  cwd = process.cwd(),
-): PresentationDocument {
-  const projectCount = result.projects.length;
-  const keptCount = result.kept.length;
-  const nodes: PresentationNode[] = [
-    // Severity is the teardown outcome fact: removed, kept-below, or nothing installed.
+/** The interactive general-confirmation question for uninstall (DEC-004). */
+export const UNINSTALL_CONFIRMATION_QUESTION = "Uninstall as listed? (y/N)";
+
+/** The interactive general-confirmation review (DEC-004, US-003): the exact
+ * selected scope — Projects with their Profile and Hosts — before any
+ * write. Forgetting is stated plainly: a later update will not reinstall. */
+export function uninstallConfirmationDocument(preview: {
+  readonly projects: readonly {
+    readonly canonicalProject?: string;
+    readonly project: string;
+    readonly profile: string;
+    readonly hosts: readonly string[];
+  }[];
+}): PresentationDocument {
+  return [
+    { kind: "heading", text: "Uninstall:" },
+    ...preview.projects.map((entry): PresentationNode => ({
+      kind: "prose",
+      parts: [
+        `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`,
+      ],
+    })),
     {
-      kind: "notice",
-      severity: "success",
-      nodes: [{
-        kind: "prose",
-        parts: [projectCount === 0
-          ? keptCount === 0
-            ? "No ordinary Agent Profile Kit-owned output is installed."
-            : `Removed no Agent Profile Kit-owned output; kept ${plural(keptCount, "Project")} below.`
-          : `Removed proven Agent Profile Kit-owned output from ${plural(projectCount, "Project")}.`],
-      }],
+      kind: "prose",
+      parts: ["Removes the generated files and forgets the recorded selection. A later update will not reinstall them."],
     },
-    ...result.warnings.map((warning) => ({
+  ];
+}
+
+/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
+ * what happened and the command that answers it explicitly. Rendered with
+ * neutral styling: declining is a safe choice, not an error. */
+export function uninstallDeclinedDocument(
+  reason: ApplyDeclinedAnswer,
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [reason === "cancelled"
+      ? "uninstall was cancelled before any write"
+      : reason === "default"
+        ? "uninstall kept the current state; nothing was written (default answer no)"
+        : "uninstall kept the current state; nothing was written (you answered no)"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments),
+    ]],
+    severity: "info",
+  });
+}
+
+/** The missing general-confirmation refusal diagnostic (DEC-004): a
+ * non-interactive (or machine-JSON) uninstall without `--auto-confirm`
+ * refuses before any write, with the runnable command that answers it. */
+export function uninstallConfirmationRequiredDocument(
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["uninstall needs explicit confirmation before any write"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments),
+    ]],
+  });
+}
+
+/** The missing-scope refusal diagnostic (DEC-003/DEC-004): an uninstall
+ * without an explicit scope refuses instead of implying all Projects.
+ * Missing choices stay missing — the equivalent names the fleet scope
+ * explicitly so re-running it stays intentional. */
+export function uninstallMissingScopeDocument(
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["uninstall needs an explicit scope before any write; an absent scope never implies all Projects"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To remove every installation without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments),
+      ", or scope to one Project with --here or --project.",
+    ]],
+  });
+}
+
+/** The truthful zero-match outcome (DEC-003): the selected scope matched no
+ * installation, so nothing was written. Never an error-shaped report for a
+ * state that simply selects nothing. */
+export function uninstallNoMatchDocument(description: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: [`uninstall matched no installation for ${description}; nothing was written`],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "Run ",
+      commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+      " to list installed Projects.",
+    ]],
+  });
+}
+
+/** The compact uninstall receipt (DEC-007/US-011): removed Project count
+ * once, without per-file, per-Project, or Profile-breakdown inventories.
+ * Skipped Projects keep actionable identities with their reasons;
+ * warnings stay visible. Complete evidence belongs to history (US-012). */
+export function uninstallReceiptDocument(
+  result: UninstallApplicationResult,
+): PresentationDocument {
+  const removedCount = result.completed.length;
+  const skippedCount = result.skipped.length;
+  const nodes: PresentationNode[] = [{
+    kind: "notice",
+    severity: "success",
+    nodes: [{
+      kind: "prose",
+      parts: [removedCount === 0
+        ? skippedCount === 0
+          ? "No Agent Profile Kit-owned output was installed for the selected scope."
+          : `Removed no Agent Profile Kit-owned output; skipped ${plural(skippedCount, "Project")} below.`
+        : `Removed proven Agent Profile Kit-owned output from ${plural(removedCount, "Project")} and forgot ${removedCount === 1 ? "its" : "their"} recorded selection.`],
+    }],
+  }];
+  for (const warning of result.warnings) {
+    nodes.push({
       kind: "list-item" as const,
       parts: [warning],
       category: "attention" as const,
-    })),
-  ];
-  for (const project of result.projects) {
-    nodes.push(
-      spacerNode(),
-      {
-        kind: "key-value",
-        key: "Project",
-        value: projectPathNode(project.project, project.project, "fleet"),
-      },
-      { kind: "prose", parts: ["  Removed generated paths:"], category: "success" },
-      ...project.outputs.map((path) => ({ kind: "prose" as const, parts: ["  - ", identifierPart(path)] })),
-    );
-    if (project.repositoryExclusions.length > 0) {
-      nodes.push(
-        { kind: "prose", parts: ["  Cleaned Git exclusions:"] },
-        ...project.repositoryExclusions.flatMap((exclusion) =>
-          exclusion.entries.map((entry) => ({
-            kind: "prose" as const,
-            parts: [
-              "  - ",
-              identifierPart(entry),
-              ` (${replaceProjectReference(
-                exclusion.target,
-                project.project,
-                displayProjectPath(project.project, project.project, "fleet", cwd, home),
-              )})`,
-            ],
-          })),
-        ),
-      );
-    }
+    });
   }
-  if (keptCount > 0) {
+  if (skippedCount > 0) {
     nodes.push(
       spacerNode(),
       {
         kind: "prose",
-        parts: [`Kept ${plural(keptCount, "Project")} whose owned output could not be fully removed:`],
+        parts: [`Skipped ${plural(skippedCount, "Project")} with a known Blocker; healthy Projects above still completed:`],
       },
     );
-    for (const kept of result.kept) {
+    for (const skipped of result.skipped) {
       nodes.push(
         spacerNode(),
         {
           kind: "key-value",
           key: "Project",
-          value: projectPathNode(kept.project, kept.project, "fleet"),
+          value: projectPathNode(skipped.canonicalProject ?? skipped.project, skipped.project, "fleet"),
         },
-        // The reason is a removal failure fact; its category is error.
-        { kind: "prose", parts: [`  - ${renderItemReason(kept.reason)}`], category: "error" },
+        { kind: "prose", parts: [`  - ${renderItemReason(skipped.reason)}`], category: "error" },
       );
     }
   }
-  nodes.push(
-    spacerNode(),
-    { kind: "prose", parts: [`${capitalize(DEFAULT_VIEW_LEXICON.projectBinding.plural)} preserved.`] },
-  );
-  if (projectCount > 0) {
-    nodes.push({
-      kind: "prose",
-      parts: [
-        "Next: Run ",
-        commandPart(COMMAND_NAME, [arg("unbind")]),
-        ` for ${DEFAULT_VIEW_LEXICON.projectBinding.plural} you no longer want, or `,
-        commandPart(COMMAND_NAME, [arg("update")]),
-        " to reinstall.",
-      ],
-      category: "command",
-    });
-  }
   return nodes;
+}
+
+/** The stopped-removal diagnostic (DEC-006/US-008): an unexpected write
+ * failure stopped further work. Completed Projects stay completed, the
+ * failed Project carries its restoration evidence, unattempted Projects
+ * remain untouched, and the retry preserves the original scope. */
+export function uninstallExecutionFailureDocument(input: {
+  readonly failed: UninstallFailedProject;
+  readonly completed: readonly UninstallCompletedProject[];
+  readonly unattempted: readonly UninstallUnattemptedProject[];
+  readonly retryArguments: readonly CommandArg[];
+}): PresentationDocument {
+  const { failed, completed, unattempted, retryArguments } = input;
+  const restoration = failed.restoreError !== undefined
+    ? `Previous selection/output restore failed: ${failed.restoreError}`
+    : failed.selectionRestored
+      ? "The previous selection and output were restored where possible."
+      : "The previous selection could not be restored.";
+  return diagnosticDocument({
+    happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
+    why: [[
+      completed.length === 0
+        ? "No Project was completed before the failure."
+        : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`,
+      ` ${restoration}`,
+      unattempted.length === 0
+        ? ""
+        : ` Unattempted Projects remain untouched: ${unattempted.map((entry) => entry.project).join(", ")}.`,
+    ]],
+    whatToType: [[
+      "After resolving the cause, retry the same scope with ",
+      commandPart(COMMAND_NAME, retryArguments),
+    ]],
+  });
 }
 
 
@@ -3443,7 +3534,7 @@ export function applyReplacementCommandDocument(
 /** The one shared equivalent-command rendering for completed prompt flows:
  * the sentence names the command; the carried command part is canonical. */
 function promptedEquivalentCommandDocument(
-  command: "update" | "install",
+  command: "update" | "install" | "uninstall",
   commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return [{
@@ -3462,6 +3553,15 @@ export function installReplacementCommandDocument(
   commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return promptedEquivalentCommandDocument("install", commandArguments);
+}
+
+/** The equivalent fully specified command for a completed uninstall consent
+ * flow: the same removal with the authorized deletion scope explicit, so
+ * re-running it needs no second answer. */
+export function uninstallReplacementCommandDocument(
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return promptedEquivalentCommandDocument("uninstall", commandArguments);
 }
 
 /** The equivalent fully specified command for a completed guided-init Profile

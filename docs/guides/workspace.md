@@ -83,7 +83,7 @@ only `schema_version: 1`. Local Configuration schema version is 2 and its
 
 Version-1 Local Configuration without `workspace` is supported only as migration
 input. Run `apkit init` to upgrade it before using `validate`, `status`, `update`,
-`bind`, or `unbind`. Those commands never migrate
+`install`, or `uninstall`. Those commands never migrate
 the file implicitly: they fail closed with actionable `apkit init`
 guidance while leaving migration to the explicit `init` command.
 
@@ -309,19 +309,18 @@ serialize, but a text editor does not participate in that lock. Installing a
 Profile also verifies its generated output; run `validate` for Workspace checks
 and `status` to review installation state.
 
-Remove desired state with the recording-only command:
+Remove one installation and forget its recorded selection with an explicit scope:
 
 ```sh
-apkit unbind
-apkit unbind ~/projects/tools/agent-profile-kit
+apkit uninstall --here --auto-confirm
+apkit uninstall --project ~/projects/tools/agent-profile-kit --auto-confirm
 ```
 
-Omitting the project targets the canonical current working directory. Existing
+Scope is explicit (`--here`, `--project <path>`, or `--all`, mutually exclusive); add `--profile <name>` to intersect, `--remove-changed` to authorize deletion of independently changed generated files, and `--auto-confirm` to answer the confirmation non-interactively. Existing
 paths use the same canonical-root rules as bindings, including symlink aliases.
-When a project no longer exists, `unbind` can remove a binding only when the
+When a project no longer exists, `uninstall --project` still forgets its selection only when the
 argument exactly matches its authored `project` spelling; it never guesses an
-alias. `unbind` edits Local Configuration only and leaves generated output for
-the next fleet `status` and `update --all`. Cooperating lifecycle commands
+alias. A fully removed Project is forgotten only after its output removal succeeds, so a later `update` does not reinstall it. Cooperating lifecycle commands
 serialize; do not hand-edit the file concurrently.
 
 ```yaml
@@ -403,17 +402,15 @@ then follows the same lifecycle as any other binding.
 For every bound project root, the ordinary removal order is:
 
 ```sh
-apkit unbind /path/to/project
-apkit update --all
+apkit uninstall --project /path/to/project --auto-confirm
 # Now delete the project directory.
 ```
 
-If the project directory was deleted first, run `unbind` with its exact authored
-path. That explicit action confirms the deletion was intentional; the next
-`update --all` retires its machine-local installation record without attempting
+If the project directory was deleted first, run `uninstall --project` with its exact authored
+path. That explicit action confirms the deletion was intentional; it forgets the machine-local selection without attempting
 project filesystem deletion and cleans any separately surviving local Git
 exclusions whose ownership was recorded. Restoring the project later requires a
-new `bind` and `update`.
+new `install`.
 
 Generated output is owned whole: complete files and artifact directories whose
 Installation Receipt proves Agent Profile Kit ownership, with the receipt's
@@ -607,7 +604,7 @@ settings rule is described in its Adapter section above. Capability failures,
 unrepresentable portable semantics, and exact Output Ownership Conflicts at the
 planned project destination remain blockers.
 
-## Status, unbind, and uninstall
+## Status and uninstall
 
 Use `apkit status` for the bound Project containing the current directory, pass
 one explicit Project root, or use `apkit status --all` to inspect every binding.
@@ -615,19 +612,9 @@ It reports current, not installed, stale source, drifted output (including wholl
 owned output), malformed ownership, and blocked installations, while keeping Host
 configuration warnings visible.
 
-Use `apkit unbind [project]` to remove desired Project Binding state.
-It does not delete generated output. When an installed receipt remains, its
-output recommends the fleet `status --all` and `update --all` needed to review and
-reconcile the former installation; after `uninstall`, it omits that no-op step.
+Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>` and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
 
-To delete generated output directly, use `apkit uninstall`. It names each
-affected project, removed generated path, and cleaned Git exclusion entry. It
-removes only Installation Receipt-proven output and preserves the
-Workspace and Local Configuration, including Project Bindings. It writes no teardown provenance. Because the Project Binding remains, the next
-`status` reports the Project as not installed and eligible for `update`, rather
-than as unsafe unexplained missing output. `unbind` changes desired state;
-`uninstall` removes proven output. Neither command modifies
-personal/global Host configuration or repository-owned files.
+To stop managing a Project but keep its Git-owned files in place, remove its entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next `update` reconciles the leftovers. Neither path modifies personal/global Host configuration or repository-owned files.
 
 Review personal content before publishing this Workspace. Agent Profile Kit does
 not classify private material, and credential values do not belong in a Workspace

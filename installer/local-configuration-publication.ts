@@ -49,6 +49,72 @@ export function preserveSourceNewlines(source: string, serialized: string): stri
   return serialized.replace(/\r?\n/g, "\r\n");
 }
 
+interface RangedYamlNode {
+  readonly range?: readonly [number, number, number];
+  readonly commentBefore?: string | null;
+}
+
+/**
+ * Remove only the selected bindings entry by source range. YAML Document
+ * serialization normalizes untouched flow/inline formatting, so byte-range
+ * removal is the deliberate preservation path for binding removal; its flow,
+ * block, CRLF, comment, and mode cases are packed-CLI tested. Shared by
+ * install's replacement path (via bind-project) and uninstall's forgetting.
+ */
+export function removeBindingSourceEntry(
+  source: string,
+  bindingsNode: {
+    readonly flow?: boolean;
+    readonly items: readonly unknown[];
+    readonly commentBefore?: string | null;
+  },
+  index: number,
+): string {
+  const item = bindingsNode.items[index] as RangedYamlNode | undefined;
+  const range = item?.range;
+  if (!range) throw new Error("Local Configuration bindings entry has no source range");
+
+  if (bindingsNode.flow) {
+    if (bindingsNode.items.length === 1) {
+      return source.slice(0, range[0]) + source.slice(range[1]);
+    }
+    if (index < bindingsNode.items.length - 1) {
+      const next = bindingsNode.items[index + 1] as RangedYamlNode;
+      if (!next.range) throw new Error("Local Configuration bindings entry has no source range");
+      return source.slice(0, range[0]) + source.slice(next.range[0]);
+    }
+    const previous = bindingsNode.items[index - 1] as RangedYamlNode;
+    if (!previous.range) throw new Error("Local Configuration bindings entry has no source range");
+    return source.slice(0, previous.range[1]) + source.slice(range[1]);
+  }
+
+  let lineStart = source.lastIndexOf("\n", range[0] - 1) + 1;
+  const commentBefore = item.commentBefore ?? (index === 0 ? bindingsNode.commentBefore : undefined);
+  if (commentBefore) {
+    for (const comment of commentBefore.split(/\r?\n/).reverse()) {
+      const previousStart = source.lastIndexOf("\n", lineStart - 2) + 1;
+      const previousLine = source
+        .slice(previousStart, lineStart)
+        .replace(/\r?\n$/, "")
+        .trim();
+      if (previousLine !== `#${comment}`) break;
+      lineStart = previousStart;
+    }
+  }
+  const prefix = source.slice(0, lineStart);
+  if (bindingsNode.items.length === 1) {
+    // Keep the original indentation while restoring an empty sequence value.
+    const indentation = source.slice(lineStart, range[0]).replace(/-\s*$/, "");
+    const lineEnding = source.slice(range[1] - 2, range[1]) === "\r\n"
+      ? 2
+      : source[range[1] - 1] === "\n"
+        ? 1
+        : 0;
+    return prefix + indentation + "[]" + source.slice(range[1] - lineEnding);
+  }
+  return prefix + source.slice(range[1]);
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }

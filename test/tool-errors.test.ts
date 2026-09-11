@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bindProject } from "../installer/bind-project.js";
-import { unbindProject } from "../installer/unbind-project.js";
 import { ingestApplicationModelFromSource } from "../installer/local-configuration.js";
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import { expandConfiguredPath, requireExistingDirectory } from "../installer/local-configuration.js";
@@ -141,36 +140,6 @@ describe("typed Installer tool errors", () => {
       expect((duplicate as InstallerToolError).fact.kind).toBe("duplicate-canonical-root");
       expect(flatInlineText(formatInstallerToolError((duplicate as InstallerToolError).fact))).toContain(
         "project resolves to duplicate canonical root",
-      );
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  test("unbind's stale-binding fallback carries its typed cause", async () => {
-    const home = isolatedHome();
-    try {
-      const workspace = scaffoldWorkspace(home);
-      const projectPath = join(home, "project");
-      mkdirSync(projectPath, { recursive: true });
-      scaffoldConfiguration(home, workspace);
-      writeFileSync(
-        configPath(home),
-        `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`,
-      );
-
-      const failure = await rejection(() => unbindProject({ home, project: projectPath }));
-      // Missing Profile crosses through the pre-existing typed error with its
-      // hand-edit recovery; the sentence is composed by presentation from the
-      // typed fields, not read from the error's opaque message.
-      expect((failure as Error).name).toBe("MissingProfileError");
-      expect((failure as Error).message).toBe("missing profile: missing");
-      const sentence = failure instanceof MissingProfileError
-        ? flatInlineText(formatMissingProfileError(failure))
-        : undefined;
-      expect(sentence).toContain("Profile 'missing' does not exist in this Workspace");
-      expect(sentence).toContain(
-        "Edit Local Configuration directly if this stale binding must be removed.",
       );
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -401,41 +370,6 @@ describe("typed Installer tool errors", () => {
     // Machine flattened projection still publishes the carried sentence.
     const machine = flatInlineText(formatInstallerToolError(fact));
     expect(machine).toBe("Local Configuration is missing at /home/.agents/agent-profile-kit/config.yaml; run apkit init");
-  });
-
-  test("foreign runtime causes keep the hand-edit recovery through typed evidence", async () => {
-    const home = isolatedHome();
-    try {
-      const workspace = scaffoldWorkspace(home);
-      const projectPath = join(home, "project");
-      mkdirSync(projectPath, { recursive: true });
-      scaffoldConfiguration(home, workspace);
-      writeFileSync(
-        configPath(home),
-        `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`,
-      );
-      // An unreadable Workspace Manifest makes its readFile fail with a raw
-      // runtime error (EACCES) inside Workspace ingestion — not a typed fact.
-      chmodSync(join(workspace, "workspace.yaml"), 0o000);
-
-      const failure = await rejection(() => unbindProject({ home, project: projectPath }));
-      expect(failure).toBeInstanceOf(InstallerToolError);
-      const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("stale-binding-removal");
-      if (fact.kind === "stale-binding-removal") {
-        expect(fact.cause).toBeInstanceOf(InstallerToolError);
-        expect((fact.cause as InstallerToolError).fact.kind).toBe("foreign-diagnostic");
-      }
-      // The foreign detail is carried verbatim and the presentation-owned
-      // recovery clause is retained, matching the pre-typing composition.
-      const sentence = flatInlineText(formatInstallerToolError(fact));
-      expect(sentence).toContain("EACCES");
-      expect(sentence.endsWith(
-        "; edit Local Configuration directly if this stale or malformed binding must be removed",
-      )).toBeTrue();
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
   });
 
   test("workspace-open-failed diagnostic carries failure detail and runnable recovery command", () => {

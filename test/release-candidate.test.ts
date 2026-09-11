@@ -770,14 +770,15 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(existingWorktree, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
-    const uninstall = await runCli(home, ["uninstall"], { path: pathWithClaude });
+    const uninstall = await runCli(home, ["uninstall", "--all", "--auto-confirm"], { path: pathWithClaude });
     expectExitCode(uninstall, 0);
     expect(existsSync(join(nonGitCodex, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(gitRoot, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(existingWorktree, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
-    expect(readFileSync(configPath(home), "utf8")).toContain(nonGitCodex);
+    // Removed installations are forgotten with their output.
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(nonGitCodex);
   }, 15_000);
 
   test("packed CLI installs Pi Context, records its Capability Contract, and fails closed on unsupported Pi", async () => {
@@ -950,7 +951,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(await runCli(home, ["update"], { path: supportedPath }), 0);
     expectExitCode(await runCli(home, ["status"], { path: supportedPath }), 0);
 
-    expectExitCode(await runCli(home, ["uninstall"], { path: supportedPath }), 0);
+    expectExitCode(await runCli(home, ["uninstall", "--all", "--auto-confirm"], { path: supportedPath }), 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".pi", "skills", "review-pr"))).toBe(false);
   });
@@ -1243,7 +1244,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
 
-    const uninstall = await runCli(home, ["uninstall"], { path: pathWithClaude });
+    const uninstall = await runCli(home, ["uninstall", "--all", "--auto-confirm"], { path: pathWithClaude });
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(projectPath, ".claude", "skills", "review-pr"))).toBe(false);
@@ -1467,7 +1468,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(listTemporary, 0);
     expect(listTemporary.stdout).toContain(receipt.temporaryInstallationId);
 
-    const uninstall = await runCli(home, ["uninstall"], { path: pathWithHosts });
+    const uninstall = await runCli(home, ["uninstall", "--all", "--auto-confirm"], { path: pathWithHosts });
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "installation.json"))).toBe(false);
     expect(existsSync(join(temporaryProject, ".agent-profile-kit", "installation.json"))).toBe(false);

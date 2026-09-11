@@ -22,7 +22,6 @@ import {
 import {
   newArtifactReceiptDocument,
   type NewArtifactReceiptInput,
-  unbindReceiptDocument,
 } from "./receipts.js";
 import {
   DEFAULT_VIEW_LEXICON,
@@ -52,12 +51,12 @@ import {
   temporaryBlockedMessagesDocument,
   temporaryInstallationDocument,
   temporaryInventoryDocument,
-  uninstallResultDocument,
   type LifecycleCommand,
   validationResultDocument,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
 import { runInstallCommand } from "./install-command.js";
+import { runUninstallCommand } from "./uninstall-command.js";
 import { runInitCommand } from "./init-command.js";
 import {
   renderPresentationDocument,
@@ -71,10 +70,6 @@ import { nearestName } from "./nearest-match.js";
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 import { applicationInfoLocations, readApplicationInfo } from "../installer/info.js";
-import { bindProject } from "../installer/bind-project.js";
-import {
-  unbindProject,
-} from "../installer/unbind-project.js";
 import { createSkill } from "../installer/create-skill.js";
 import { createContextModule } from "../installer/create-context-module.js";
 import { createProfile } from "../installer/create-profile.js";
@@ -87,7 +82,6 @@ import {
 import { StateReadFailureError } from "../installer/installation-state.js";
 import {
   statusApplication,
-  uninstallApplication,
   validateApplication,
 } from "../installer/commands.js";
 import {
@@ -252,7 +246,7 @@ const MACHINE_NAMESPACE = "machine" as const;
 const REMOVED_TEMPORARY_COMMANDS = ["install-temp", "remove-temp"] as const;
 
 /** Public commands replaced by a new name (DEC-001): retired without a compatibility shim. */
-const REMOVED_PUBLIC_COMMANDS = [{ from: "apply", to: "update" }, { from: "bind", to: "install" }] as const;
+const REMOVED_PUBLIC_COMMANDS = [{ from: "apply", to: "update" }, { from: "bind", to: "install" }, { from: "unbind", to: "uninstall" }] as const;
 
 function focusedHelpRequest(arguments_: readonly string[]): FocusedHelpRequest | undefined {
   if (
@@ -422,18 +416,6 @@ function positionalArgument(command: string, description: string, value: string)
     throw new Error(`${command} does not accept flag '${value}' as ${description}`);
   }
   return value;
-}
-
-/**
- * Parse `unbind [<project>]`.
- */
-function parseUnbindArguments(arguments_: readonly string[]): { readonly project?: string } {
-  if (arguments_.length > 1) {
-    throw new Error("unbind accepts at most one project path");
-  }
-  return arguments_.length === 0
-    ? {}
-    : { project: positionalArgument("unbind", "a project path", arguments_[0]!) };
 }
 
 function parseInstallTempArguments(
@@ -1041,18 +1023,6 @@ async function main(): Promise<void> {
     process.exitCode = outcome.exitCode;
     return;
   }
-  if (arguments_.length >= 1 && arguments_[0] === "unbind") {
-    const parsed = parseOrExit("unbind", () => parseUnbindArguments(arguments_.slice(1)));
-    if (parsed === undefined) return;
-    const result = await unbindProject({
-      home,
-      ...(parsed.project === undefined ? {} : { project: parsed.project }),
-    });
-    // Exceptional recovery keeps the diagnostic detail needed to act safely;
-    // routine removal stays compact (ADR-0014, DEC-041/DEC-043).
-    writeHumanDocument(process.stdout, unbindReceiptDocument(result), stdoutPresentationContext);
-    return;
-  }
   if (arguments_.length >= 1 && arguments_[0] === "validate") {
     const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
     if (parsed === undefined) return;
@@ -1207,13 +1177,14 @@ async function main(): Promise<void> {
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "uninstall") {
-    const parsed = parseOrExit("uninstall", () => parseNoArguments("uninstall", arguments_.slice(1)));
-    if (parsed === undefined) return;
-    writeHumanDocument(
-      process.stdout,
-      uninstallResultDocument(await uninstallApplication(home)),
-      stdoutPresentationContext,
-    );
+    const outcome = await runUninstallCommand({
+      home,
+      arguments: arguments_.slice(1),
+      stdout: process.stdout,
+      stderr: process.stderr,
+      input: process.stdin,
+    });
+    process.exitCode = outcome.exitCode;
     return;
   }
   if (arguments_.length >= 1 && REMOVED_TEMPORARY_COMMANDS.some((name) => name === arguments_[0])) {

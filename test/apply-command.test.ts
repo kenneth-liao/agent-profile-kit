@@ -5,6 +5,7 @@ import { PassThrough, Writable } from "node:stream";
 
 import { runApplyCommand, fullySpecifiedApplyArguments } from "../cli/apply-command.js";
 import { humanText } from "./support/human-text.js";
+import { retireBindingByHand } from "./support/retire-receipt.js";
 import {
   cleanupTemporaryDirectories,
   prepareDriftedFleet,
@@ -263,8 +264,7 @@ describe("update replacement confirmation command", () => {
 
   test("the answering flag cannot bypass a Blocker", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-flag-blocked");
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home: fleet.home, project: fleet.healthyProject });
+    await retireBindingByHand(fleet.home, fleet.healthyProject);
     writeFileSync(
       fleet.configPath,
       `schema_version: 2\nworkspace: ${fleet.workspace}\nbindings:\n  - project: ${fleet.driftedProject}\n    profile: coding\n    hosts: [codex, claude]\n`,

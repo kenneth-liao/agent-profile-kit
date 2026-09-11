@@ -102,8 +102,7 @@ describe("shared blocker contract", () => {
           "from the installation record.",
       remedy:
         "No specific file is recorded, so manual inspection of the Project is " +
-          "required. Run apkit unbind '/project-a' to stop managing this Project — " +
-          "nothing is repaired or removed, and its generated files stay on disk — or " +
+          "required. Run apkit uninstall --project '/project-a' to remove its generated files and stop managing this Project — or " +
           "inspect the Project's generated files yourself, restore what matches the " +
           "installation record, then run apkit update '/project-a'.",
       requirement:
@@ -252,8 +251,8 @@ describe("shared blocker contract", () => {
             "is proven by the installation record at safe paths.",
         remedy:
           "No specific file is recorded, so manual inspection of the Project is " +
-            "required. Run apkit unbind '/project-a' to stop managing this Project — " +
-            "nothing is repaired or removed, and its generated files stay on disk — or " +
+            "required. Run apkit uninstall --project '/project-a' to remove its generated files " +
+            "and stop managing this Project — or " +
             "inspect the Project's generated files yourself, restore what matches the " +
             "installation record, then run apkit update '/project-a'.",
         affectedItems: [{ kind: "host", value: "codex" }],

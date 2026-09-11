@@ -468,8 +468,6 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init")])];
     case "bind-conflict":
       return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`];
-    case "stale-binding-removal":
-      return [...carriedCauseDetail(fact.cause), "; edit Local Configuration directly if this stale or malformed binding must be removed"];
     case "duplicate-canonical-root":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
@@ -565,11 +563,6 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return {
         happened: [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]`],
         whatToType: [["Pass --replace to restate its Profile and Hosts."]],
-      };
-    case "stale-binding-removal":
-      return {
-        happened: carriedCauseDetail(fact.cause),
-        whatToType: [["Edit Local Configuration directly if this stale or malformed binding must be removed."]],
       };
     case "duplicate-canonical-root":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };

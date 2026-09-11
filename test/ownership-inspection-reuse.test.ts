@@ -37,6 +37,7 @@ import {
   reportItems,
   reportOutputs,
 } from "./support/reconciliation-report.js";
+import { retireBindingByHand } from "./support/retire-receipt.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -388,11 +389,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
       (item) => item.binding.canonicalProject === keep,
     );
     if (!keepInstallation) throw new Error("expected keep installation");
-    // Retire the stale Project's receipt the way unbind does, so the stale
+    // Retire the stale Project's receipt by hand (public unbind is retired), so the stale
     // removal pass below consumes a retiring record under the current
     // desired-state serialization contract.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home, project: stale });
+    await retireBindingByHand(home, stale);
 
     const contexts: LifecycleOwnershipInspection[] = [];
     const readsByContext: number[] = [];
@@ -448,11 +448,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
       (item) => item.binding.canonicalProject === keep,
     );
     if (!keepInstallation) throw new Error("expected keep installation");
-    // Retire the stale Project's receipt the way unbind does, so the stale
+    // Retire the stale Project's receipt by hand (public unbind is retired), so the stale
     // removal pass below consumes a retiring record under the current
     // desired-state serialization contract.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home, project: stale });
+    await retireBindingByHand(home, stale);
     const staleContextPath = join(stale, ".agent-profile-kit", "codex", "context.md");
     const drifted = "# Drifted by a concurrent process after preflight\n";
 
