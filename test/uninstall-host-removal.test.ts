@@ -18,6 +18,7 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -31,8 +32,11 @@ import { InstallerToolError } from "../installer/tool-errors.js";
 import {
   assertSurvivorAdditionsFree,
   normalizeUninstallHosts,
+  previewUninstall,
+  stagePartialTransition,
   survivingHostsForRemoval,
 } from "../installer/uninstall-application.js";
+import { withReceipts } from "../installer/ownership-state.js";
 import { hashBytes } from "../installer/project-plan.js";
 import { executeInstall } from "../installer/install-application.js";
 import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
@@ -273,6 +277,35 @@ describe("survivor-addition preflight", () => {
   });
 });
 
+describe("partial stage cleanup", () => {
+  test("a failed stage cleanup surfaces so the commit warning is real", async () => {
+    const project = projectDirectory();
+    try {
+      writeFileSync(join(project, "obsolete.txt"), "staged for deletion\n");
+      const transition = await stagePartialTransition(project, ["obsolete.txt"], []);
+      expect(existsSync(join(project, "obsolete.txt"))).toBe(false);
+      // Revoke write on the Project root: the recursive stage removal
+      // cannot proceed, so commit must throw instead of vanishing.
+      chmodSync(project, 0o555);
+      let caught: unknown;
+      try {
+        await transition.commit();
+      } catch (error) {
+        caught = error;
+      } finally {
+        chmodSync(project, 0o755);
+      }
+      expect(caught).toBeDefined();
+      // Permissions restored: the commit succeeds and leaves no stage tree.
+      await transition.commit();
+      expect(readdirSync(project).filter((entry) => entry.startsWith(".agent-profile-kit-partial-"))).toEqual([]);
+    } finally {
+      chmodSync(project, 0o755);
+      cleanup();
+    }
+  });
+});
+
 describe("uninstall --host partial removal", () => {
   test("removes only the requested Host's output and narrows the remembered selection", async () => {
     const home = await setupHome();
@@ -317,7 +350,7 @@ describe("uninstall --host partial removal", () => {
     }
   });
 
-  test("a vanished root with --host converges to forgetting like whole-removal", async () => {
+  test("a vanished root with --host narrows the selection with no output work", async () => {
     const home = await setupHome();
     const project = projectDirectory();
     try {
@@ -325,16 +358,76 @@ describe("uninstall --host partial removal", () => {
       const canonical = realpathSync(project);
       rmSync(project, { recursive: true, force: true });
 
-      // No survivors to serve: teardown forgets the selection instead of
-      // narrowing Hosts for a Project that is gone.
+      // Narrowing never broadens (INT-2): the remembered selection keeps
+      // the unnamed Host instead of forgetting the whole installation.
+      // Deletions are trivially complete and nothing is rewritten.
       const result = await executeUninstall(home, { project, hosts: ["codex"] });
 
       expect(result.failed).toBeUndefined();
       expect(result.completed).toHaveLength(1);
-      expect(result.completed[0]!.removedHosts).toBeUndefined();
-      expect(readFileSync(configPath(home), "utf8")).not.toContain(project);
+      expect(result.completed[0]!.removedHosts).toEqual(["codex"]);
+      expect(bindingHosts(home, project)).toEqual(["pi"]);
+      const receipt = (await readInstallationState(home)).receipts
+        .find((entry) => entry.project === canonical);
+      expect(receipt).toBeDefined();
+      expect(Object.keys(receipt!.hosts).sort()).toEqual(["pi"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a vanished root with --host fails closed when survivors need rewrites", async () => {
+    const home = await setupHome();
+    const project = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+      // New source bytes mean the surviving plan rewrites shared output —
+      // unservable without recreating the deleted directory.
+      appendFileSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"), "\nSource update.\n");
+      rmSync(project, { recursive: true, force: true });
+
+      const result = await executeUninstall(home, { project, hosts: ["codex"] });
+
+      expect(result.completed).toEqual([]);
+      expect(result.failed?.project).toBe(project);
+      expect(result.failed?.selectionRestored).toBe(true);
+      expect(result.failed?.detail).toContain("no longer exists");
+      // Nothing widened: the full selection stands for an explicit retry.
+      expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a binding without a receipt narrows Hosts instead of forgetting", async () => {
+    const home = await setupHome();
+    const project = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+      const codexOutput = await exclusiveOutputPath(home, project);
+      const sharedOutput = (await sharedOutputPaths(home, project)).root;
+      // Drop the receipt while the binding and generated output survive:
+      // the remembered selection is all that remains to narrow.
+      const before = await readInstallationState(home);
+      await writeInstallationState(home, withReceipts(before, []));
+
+      const preview = await previewUninstall(home, { project, hosts: ["codex"] });
+      expect(preview.projects).toHaveLength(1);
+      expect(preview.projects[0]!.removeHosts).toEqual(["codex"]);
+
+      const result = await executeUninstall(home, { project, hosts: ["codex"] });
+
+      expect(result.failed).toBeUndefined();
+      expect(result.completed).toHaveLength(1);
+      expect(result.completed[0]!.removedHosts).toEqual(["codex"]);
+      expect(result.completed[0]!.outputs).toEqual([]);
+      // Only the requested Host leaves the selection; the unnamed Host
+      // stays bound and the ownerless output is left untouched.
+      expect(bindingHosts(home, project)).toEqual(["pi"]);
+      expect(existsSync(codexOutput)).toBe(true);
+      expect(existsSync(sharedOutput)).toBe(true);
       const state = await readInstallationState(home);
-      expect(state.receipts.some((entry) => entry.project === canonical)).toBe(false);
+      expect(state.receipts.filter((entry) => entry.lifetime === "ordinary")).toEqual([]);
     } finally {
       cleanup();
     }
@@ -726,6 +819,60 @@ describe("uninstall --host faulted partial removal (TEST-005)", () => {
       const mmmReceipt = await receiptFor(home, projects[1]!);
       expect(Object.keys(mmmReceipt.hosts).sort()).toEqual(["codex", "pi"]);
       expect(bindingHosts(home, projects[2]!)).toEqual(["codex", "pi"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("a concurrent forget rolls the staged partial back instead of stranding writes", async () => {
+    const home = await setupHome();
+    const project = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+      const codexOutput = await exclusiveOutputPath(home, project);
+      const shared = await sharedOutputPaths(home, project);
+      const codexBytes = readFileSync(codexOutput, "utf8");
+      const sharedBytes = readFileSync(shared.skillFile, "utf8");
+      // New source bytes stage a survivor rewrite: without a rollback the
+      // converged branch would strand it unowned in the repo.
+      appendFileSync(join(workspacePath(home), "skills", "review-pr", "SKILL.md"), "\nSource update.\n");
+      const { defaultFileSystem } = await import("../installer/local-configuration-publication.js");
+      let intercepted = false;
+      const concurrentFileSystem = {
+        ...defaultFileSystem,
+        readFile: (async (...args: Parameters<typeof defaultFileSystem.readFile>) => {
+          const result = await defaultFileSystem.readFile(...args);
+          if (!intercepted && typeof args[0] === "string" && args[0] === configPath(home)) {
+            intercepted = true;
+            // A concurrent whole-removal forgets the binding and receipt
+            // after our outputs staged but before our joint snapshot read.
+            const { parse, stringify } = await import("yaml");
+            const parsed = parse(result as string) as { bindings: unknown[] };
+            parsed.bindings = [];
+            await defaultFileSystem.writeFile(args[0], stringify(parsed));
+            const state = await readInstallationState(home);
+            await writeInstallationState(home, withReceipts(state, []));
+            return await defaultFileSystem.readFile(...args);
+          }
+          return result;
+        }) as typeof defaultFileSystem.readFile,
+      };
+
+      const result = await executeUninstall(home, {
+        project,
+        hosts: ["codex"],
+        bindFileSystem: concurrentFileSystem,
+      });
+
+      expect(result.failed).toBeUndefined();
+      expect(result.completed.map((entry) => entry.project)).toEqual([project]);
+      expect(result.completed[0]!.removedHosts).toEqual(["codex"]);
+      expect(result.warnings.join("\n")).toContain("concurrent uninstall");
+      // Rolled back, not committed: pre-run bytes stand and no rewrite
+      // is stranded unowned; the concurrent forget stands.
+      expect(readFileSync(codexOutput, "utf8")).toBe(codexBytes);
+      expect(readFileSync(shared.skillFile, "utf8")).toBe(sharedBytes);
+      expect(readFileSync(configPath(home), "utf8")).not.toContain(project);
     } finally {
       cleanup();
     }

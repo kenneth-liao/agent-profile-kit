@@ -40,8 +40,11 @@ there.
   An unresolvable Workspace or a failed survivor plan skips that Project
   explicitly with recovery (fix the Workspace or remove the whole
   installation) while healthy Projects proceed; retention is never guessed.
-  A vanished Project root converges to forgetting like whole-removal of
-  vanished roots — there are no survivors to serve.
+  A vanished Project root narrows the remembered selection with no output
+  work — converging to whole-removal forgetting would drop Hosts the user
+  never named, against the narrows-never-broadens invariant. Deletions are
+  trivially complete there; a non-empty rewrite set fails closed (the
+  deleted directory is never recreated) with recovery instead.
 - **Shared output retention under whole-file ownership (DEC-014).**
   Recorded roots absent from the surviving plan are removed; roots the plan
   rewrites are replaced; byte-identical roots are never touched. No

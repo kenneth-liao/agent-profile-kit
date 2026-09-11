@@ -23,7 +23,6 @@
  * result path.
  */
 import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
 import { isMap, isSeq, parseDocument } from "yaml";
 
@@ -307,12 +306,11 @@ export async function previewUninstall(
       if (bound.length > 0) narrowed.set(binding, bound);
     }
     selected = [...narrowed.keys()];
-    // A vanished root has no survivors to serve: its teardown converges
-    // to forgetting like whole-removal of vanished roots, instead of
-    // narrowing a selection for a Project that is gone.
-    for (const binding of [...narrowed.keys()]) {
-      if (binding.missing) narrowed.delete(binding);
-    }
+    // A vanished root keeps its narrowing (INT-2): converging to whole
+    // removal would forget Hosts the user never named, against the
+    // narrows-never-broadens invariant. The commit narrows the remembered
+    // selection with no output work — deletions are trivially complete
+    // and rewrites fail closed when the root is gone.
   }
   return {
     projects: [...selected]
@@ -481,6 +479,8 @@ interface UninstallWorkItem {
   readonly hosts: readonly SupportedHost[];
   /** Requested bound Hosts (`--host` filter); absent means whole-removal. */
   readonly removeHosts?: readonly SupportedHost[];
+  /** The bound root no longer exists: output work converges, selection narrows. */
+  readonly missing: boolean;
   /** Absent when no ordinary receipt names the Project: forget-only. */
   readonly receipt?: OwnershipReceipt;
 }
@@ -575,6 +575,7 @@ export async function executeUninstall(
       profile: entry.profile,
       hosts: entry.hosts,
       ...(entry.removeHosts === undefined ? {} : { removeHosts: entry.removeHosts }),
+      missing: entry.missing,
     };
     // Deleted roots resolve through their surviving ancestors to rejoin
     // their receipt, so forgetting removes the record together with the
@@ -704,13 +705,24 @@ export async function executeUninstall(
       project: entry.project,
       profile: entry.profile,
     }));
-    const surviving = item.receipt === undefined
-      ? undefined
-      : survivingPlans.get(item.receipt.project);
-    const outcome = surviving === undefined
-      ? await commitUninstallProject(home, {
+    // Partial items narrow even without a receipt (INT-1): dispatching on
+    // the surviving plan alone would route a receipt-less `--host` item to
+    // whole-removal and forget Hosts the user never named.
+    const partial = isPartialWorkItem(item);
+    const surviving = partial && item.receipt !== undefined
+      ? survivingPlans.get(item.receipt.project)
+      : undefined;
+    if (partial && item.receipt !== undefined && surviving === undefined) {
+      throw new Error(
+        `surviving-Host plan missing for partial removal of ${item.project}`,
+      );
+    }
+    const completedNames = completed.map((entry) => entry.canonicalProject ?? entry.project);
+    let outcome: CommitUninstallProjectOutcome;
+    if (!partial) {
+      outcome = await commitUninstallProject(home, {
         bindFileSystem: fileSystem,
-        completedProjects: completed.map((entry) => entry.canonicalProject ?? entry.project),
+        completedProjects: completedNames,
         confirmState: workingState,
         createOwnershipInspection,
         gitInspection,
@@ -720,10 +732,11 @@ export async function executeUninstall(
         removeAuthorized,
         reviewedScope: consent.reviewedScope,
         writeState,
-      })
-      : await commitPartialUninstallProject(home, {
+      });
+    } else if (surviving !== undefined) {
+      outcome = await commitPartialUninstallProject(home, {
         bindFileSystem: fileSystem,
-        completedProjects: completed.map((entry) => entry.canonicalProject ?? entry.project),
+        completedProjects: completedNames,
         confirmState: workingState,
         createOwnershipInspection,
         gitInspection,
@@ -736,6 +749,17 @@ export async function executeUninstall(
         reviewedScope: consent.reviewedScope,
         writeState,
       });
+    } else {
+      // Receipt-less partial: no output work exists, only the remembered
+      // Hosts narrow — never the whole binding.
+      outcome = await commitNarrowOnly(home, {
+        bindFileSystem: fileSystem,
+        confirmState: workingState,
+        item,
+        lockTimeoutMs,
+        survivingHosts: survivingHostsForRemoval(item.hosts, item.removeHosts ?? []),
+      }, configurationPath);
+    }
     workingState = outcome.state;
     if ("completed" in outcome) {
       completed.push(outcome.completed);
@@ -1097,9 +1121,10 @@ async function applyExactDirectoryModes(
  * ownership: complete roots move, never member merges): deletions move to
  * the staging tree, rewrites/additions are built staged then published
  * over a backup of the prior root. Retained byte-identical roots are
- * never touched.
+ * never touched. Exported as a test seam: the commit-path cleanup failure
+ * cannot be faulted through the injected filesystems.
  */
-async function stagePartialTransition(
+export async function stagePartialTransition(
   project: string,
   deletions: readonly string[],
   writes: readonly DesiredProjectOutput[],
@@ -1190,10 +1215,17 @@ async function stagePartialTransition(
   }
   return {
     rollback,
+    // Commit surfaces a failed cleanup (PROD-2): the callers capture it
+    // as an explicit warning instead of reporting a silent success while
+    // a `.agent-profile-kit-partial-*` tree lingers in the repo. Rollback
+    // keeps its swallowing cleanup — its restore failures already throw.
     commit: async () => {
       if (settled) return;
+      // Settle only on success: a failed recursive removal is retryable
+      // (idempotent `rm`), while rollback stays available for the
+      // still-staged transition.
+      await rm(stage, { recursive: true, force: true });
       settled = true;
-      await cleanup();
     },
   };
 }
@@ -1231,7 +1263,13 @@ async function commitPartialUninstallProject(
   }
 
   if (item.receipt === undefined) {
-    return commitNarrowOnly(home, options, configurationPath, canonicalProject);
+    return commitNarrowOnly(home, {
+      bindFileSystem: options.bindFileSystem,
+      confirmState: options.confirmState,
+      item,
+      lockTimeoutMs: options.lockTimeoutMs,
+      survivingHosts: plan.survivingHosts,
+    }, configurationPath);
   }
   const receipt = item.receipt;
   const plannedByPath = new Map(desired.outputs.map((output) => [output.path, output]));
@@ -1347,9 +1385,26 @@ async function commitPartialUninstallProject(
             };
           }
 
+          // A vanished root needs no output work (INT-2): deletions are
+          // trivially complete and retained roots are already absent. A
+          // non-empty rewrite set cannot be served without recreating the
+          // user's deleted directory, so it fails closed with recovery
+          // instead of widening to forgetting.
+          if (item.missing && writes.length > 0) {
+            return {
+              state: await readInstallationState(home),
+              failed: failedProjectResult(item, canonicalProject, {
+                detail: `cannot rewrite shared output for the surviving Hosts because ${item.project} no longer exists; restore the Project directory and retry, or remove the whole installation instead`,
+                selectionRestored: true,
+                concurrentSelectionChange: false,
+              }),
+            };
+          }
           let transition: StagedPartialTransition | undefined;
           try {
-            transition = await stagePartialTransition(receipt.project, deletions, writes);
+            transition = item.missing
+              ? { commit: async () => undefined, rollback: async () => undefined }
+              : await stagePartialTransition(receipt.project, deletions, writes);
           } catch (error) {
             if (error instanceof StagedRollbackFailureError) {
               const detail = error.message;
@@ -1384,13 +1439,25 @@ async function commitPartialUninstallProject(
             );
             if (joint.converged) {
               // A concurrent run forgot this Project while its outputs
-              // were staged here: committing drops the staged bytes. The
-              // requested Hosts are gone with the installation.
-              let warning: string | undefined;
+              // were staged here: roll back instead of committing, so no
+              // survivor rewrite or addition is left in the repo claimed
+              // by nothing (PROD-1) — invisible to status and a future
+              // unowned-occupied conflict. The requested Hosts are gone
+              // with the forgotten installation, so the outcome still
+              // reports the completed removal, with an explicit warning.
               try {
-                await transition!.commit();
+                await transition!.rollback();
               } catch (error) {
-                warning = error instanceof Error ? error.message : String(error);
+                const detail = error instanceof Error ? error.message : String(error);
+                return {
+                  state: await readInstallationState(home),
+                  failed: failedProjectResult(item, canonicalProject, {
+                    detail: `a concurrent uninstall forgot ${item.project}, and rolling back the staged partial removal failed: ${detail}`,
+                    selectionRestored: false,
+                    restoreError: detail,
+                    concurrentSelectionChange: false,
+                  }),
+                };
               }
               return {
                 state: joint.state,
@@ -1401,7 +1468,7 @@ async function commitPartialUninstallProject(
                   outputs: deletions,
                   removedHosts: item.removeHosts ?? [],
                 },
-                ...(warning === undefined ? {} : { warning }),
+                warning: `a concurrent uninstall forgot ${item.project} first; the staged partial removal was rolled back`,
               };
             }
             const nextSource = joint.narrowHosts(survivingHosts);
@@ -1534,6 +1601,14 @@ async function commitPartialUninstallProject(
   }
 }
 
+interface CommitNarrowOnlyOptions {
+  readonly bindFileSystem: BindProjectFileSystem;
+  readonly confirmState: OwnershipState;
+  readonly item: UninstallWorkItem;
+  readonly lockTimeoutMs: number;
+  readonly survivingHosts: readonly SupportedHost[];
+}
+
 /**
  * Narrow a receipt-less binding's remembered Hosts (partial removal with
  * nothing installed): the commit only rewrites the Host list under the
@@ -1541,12 +1616,24 @@ async function commitPartialUninstallProject(
  */
 async function commitNarrowOnly(
   home: string,
-  options: CommitPartialUninstallProjectOptions,
+  options: CommitNarrowOnlyOptions,
   configurationPath: string,
-  canonicalProject: string,
 ): Promise<CommitUninstallProjectOutcome> {
-  const { item, plan } = options;
+  const { item } = options;
   const fileSystem = options.bindFileSystem;
+  let canonicalProject: string;
+  try {
+    canonicalProject = await removalCanonicalProject(home, item);
+  } catch (error) {
+    return {
+      state: options.confirmState,
+      failed: failedProjectResult(item, item.canonicalProject ?? item.project, {
+        detail: error instanceof Error ? error.message : String(error),
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      }),
+    };
+  }
   try {
     await withConfigurationLock(
       configurationPath,
@@ -1563,7 +1650,7 @@ async function commitNarrowOnly(
             canonicalProject,
           );
           if (joint.converged) return;
-          const nextSource = joint.narrowHosts(plan.survivingHosts);
+          const nextSource = joint.narrowHosts(options.survivingHosts);
           const sourceStats = await fileSystem.stat(configurationPath);
           const mode = sourceStats.mode & 0o777;
           await publishConfigurationReplacement(
