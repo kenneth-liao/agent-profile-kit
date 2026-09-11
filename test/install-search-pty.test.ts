@@ -91,8 +91,9 @@ interface PtySession {
  * Start the PTY driver on a real pseudo-terminal at the requested width.
  * Keystrokes go through `write` in separate macrotasks; callers settle
  * after filter text before sending Enter (see the file header). The
- * controller's own watchdog (30s) kills the driver if the test itself is
- * ever timed out, so no probe can orphan a PTY child.
+ * controller's own watchdog (the canonical per-test policy) kills the
+ * driver if the test itself is ever timed out, so no probe can orphan
+ * a PTY child.
  */
 async function startPty(
   driverArguments: readonly string[],
