@@ -1,9 +1,10 @@
 /**
- * Uninstall scope parsing (ticket #496, spec #491 US-003/DEC-003): explicit
- * `--here` / `--project` / `--all` scope, mutually exclusive; `--profile`
- * intersects as a simple selector; `--host` is rejected as 498-owned;
- * `--replace-changed` is rejected as inapplicable to a deletion-only
- * operation. Pure argument tests: no filesystem, no writes.
+ * Uninstall scope parsing (tickets #496/#498, spec #491 US-003/US-004/
+ * DEC-003): explicit `--here` / `--project` / `--all` scope, mutually
+ * exclusive; `--profile` intersects as a simple selector; repeatable
+ * `--host` narrows removal within the scope; `--replace-changed` is
+ * accepted only alongside `--host` (survivor rewrites) and rejected for
+ * whole-removal. Pure argument tests: no filesystem, no writes.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -94,19 +95,31 @@ describe("uninstall scope parsing", () => {
     );
   });
 
-  test("--host is rejected as 498-owned with the full-Project equivalent", () => {
-    let caught: unknown;
-    try {
-      parseUninstallArguments(["--here", "--host", "codex", "--auto-confirm"]);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(UninstallUnsupportedFlagError);
-    const message = (caught as Error).message;
-    expect(message).toContain("--host");
-    expect(message).toContain("per-Host removal");
-    expect(message).toContain("uninstall --here --auto-confirm");
-    expect(message).not.toContain("--host codex");
+  test("repeatable --host narrows within the scope", () => {
+    const parsed = parseUninstallArguments(["--here", "--host", "codex", "--host", "pi", "--auto-confirm"]);
+    expect(parsed.hosts).toEqual(["codex", "pi"]);
+    expect(parsed.here).toBe(true);
+  });
+
+  test("--host requires a value", () => {
+    expect(() => parseUninstallArguments(["--host"])).toThrow(
+      "uninstall --host requires an Agent Host name",
+    );
+  });
+
+  test("--host alone selects no scope", () => {
+    const parsed = parseUninstallArguments(["--host", "codex"]);
+    expect(parsed.hosts).toEqual(["codex"]);
+    expect(parsed.here).toBe(false);
+    expect(parsed.all).toBe(false);
+    expect(parsed.project).toBeUndefined();
+    expect(parsed.profile).toBeUndefined();
+  });
+
+  test("--replace-changed is accepted alongside --host", () => {
+    const parsed = parseUninstallArguments(["--here", "--host", "codex", "--replace-changed"]);
+    expect(parsed.replaceChanged).toBe(true);
+    expect(parsed.hosts).toEqual(["codex"]);
   });
 
   test("bare --replace-changed names --here alongside --remove-changed", () => {
@@ -122,17 +135,17 @@ describe("uninstall scope parsing", () => {
     expect(message).toContain("--remove-changed");
   });
 
-  test("bare --host names --here in its equivalent instead of a scope-less dead end", () => {
+  test("whole-removal --replace-changed rejection points at the --host partial path", () => {
     let caught: unknown;
     try {
-      parseUninstallArguments(["--host", "codex"]);
+      parseUninstallArguments(["--here", "--replace-changed"]);
     } catch (error) {
       caught = error;
     }
     expect(caught).toBeInstanceOf(UninstallUnsupportedFlagError);
     const message = (caught as Error).message;
-    expect(message).toContain("uninstall --here");
-    expect(message).not.toContain("--host codex");
+    expect(message).toContain("--replace-changed");
+    expect(message).toContain("--host <name>");
   });
 
   test("--replace-changed is rejected with a did-you-mean---remove-changed equivalent", () => {

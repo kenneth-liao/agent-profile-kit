@@ -1,17 +1,19 @@
 /**
- * The `uninstall` command (spec #491 US-003/US-006/US-007/US-008, DEC-001/
- * DEC-003–DEC-006, ticket #496): remove selected Project installations and
- * forget their remembered selection in one per-Project transition. It
- * replaces public `unbind` with no compatibility shim (pre-1.0
- * breaking-change policy).
+ * The `uninstall` command (spec #491 US-003/US-004/US-006/US-007/US-008,
+ * DEC-001/DEC-003–DEC-006, tickets #496–#498): remove selected Project
+ * installations and forget their remembered selection in one per-Project
+ * transition. It replaces public `unbind` with no compatibility shim
+ * (pre-1.0 breaking-change policy).
  *
  * Scope is explicit: `--here`, `--project <path>`, or `--all` (mutually
  * exclusive), intersected by `--profile`. An absent non-interactive scope
  * never implies all Projects, and a bare interactive invocation refuses
  * instead of widening (interactive selection belongs to #499). `--host`
- * stays rejected until #498 introduces per-Host removal with final
- * partial-removal semantics; `--replace-changed` is rejected because a
- * deletion-only operation has no replacement scope for it to authorize.
+ * narrows removal to those Hosts within the selected scope (#498): a
+ * Host-only invocation still needs an explicit Project scope (a `--profile`
+ * selector provides one). `--replace-changed` authorizes only the
+ * survivor-rewrite portion of a `--host` partial removal; whole-removal
+ * stays deletion-only and keeps rejecting it.
  */
 export interface ParsedUninstallArguments {
   readonly project?: string;
@@ -19,8 +21,10 @@ export interface ParsedUninstallArguments {
   readonly here: boolean;
   readonly all: boolean;
   readonly profile?: string;
+  readonly hosts?: readonly string[];
   readonly autoConfirm: boolean;
   readonly removeChanged: boolean;
+  readonly replaceChanged: boolean;
   readonly json: boolean;
 }
 
@@ -32,20 +36,28 @@ export interface ParsedUninstallArguments {
 export class UninstallUnsupportedFlagError extends Error {
   readonly equivalent: string;
 
-  constructor(flag: "--host" | "--replace-changed", equivalent: string, message: string) {
+  constructor(flag: "--replace-changed", equivalent: string, message: string) {
     super(message);
     this.name = "UninstallUnsupportedFlagError";
     this.equivalent = equivalent;
   }
 }
 
-/** The canonical token order for one equivalent uninstall command. */
+/**
+ * The canonical token order for one equivalent uninstall command. The
+ * `--replace-changed` rejection is the sole caller and fires only for
+ * whole-removal (no `--host`), so no Host rendering belongs here:
+ * `--host` values travel only through `fullySpecifiedUninstallArguments`,
+ * which renders them exactly like install's equivalent (plain-text tokens
+ * from the allowlisted Host catalog).
+ */
 function equivalentCommand(options: {
   readonly here: boolean;
   readonly all: boolean;
   readonly project?: string;
   readonly profile?: string;
   readonly removeChanged: boolean;
+  readonly replaceChanged: boolean;
   readonly autoConfirm: boolean;
   readonly json: boolean;
 }): string {
@@ -55,6 +67,7 @@ function equivalentCommand(options: {
   if (options.project !== undefined) tokens.push("--project", options.project);
   if (options.profile !== undefined) tokens.push("--profile", options.profile);
   if (options.removeChanged) tokens.push("--remove-changed");
+  if (options.replaceChanged) tokens.push("--replace-changed");
   if (options.autoConfirm) tokens.push("--auto-confirm");
   if (options.json) tokens.push("--json");
   return tokens.join(" ");
@@ -62,8 +75,11 @@ function equivalentCommand(options: {
 
 /**
  * Parse `uninstall [--here | --project <path> | --all] [--profile <name>]
- * [--auto-confirm] [--remove-changed] [--json]`. Missing scope is reported
- * as absent, not defaulted: the command layer refuses it before any write.
+ * [--host <host>]... [--auto-confirm] [--remove-changed]
+ * [--replace-changed] [--json]`. Missing scope is reported as absent, not
+ * defaulted: the command layer refuses it before any write. `--host` may
+ * repeat; `--replace-changed` is accepted only alongside `--host` (it
+ * authorizes the survivor-rewrite portion of a partial removal).
  */
 export function parseUninstallArguments(
   arguments_: readonly string[],
@@ -77,7 +93,7 @@ export function parseUninstallArguments(
   let removeChanged = false;
   let json = false;
   let positional: string | undefined;
-  let host: string | undefined;
+  const hosts: string[] = [];
   let replaceChanged = false;
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
@@ -113,7 +129,7 @@ export function parseUninstallArguments(
       if (value === undefined || value.startsWith("-")) {
         throw new Error("uninstall --host requires an Agent Host name");
       }
-      host = value;
+      hosts.push(value);
       index += 1;
       continue;
     }
@@ -163,42 +179,27 @@ export function parseUninstallArguments(
   if (here && project !== undefined) {
     throw new Error("uninstall --here cannot be combined with a Project path");
   }
-  if (host !== undefined) {
-    // A bare `--host` names no scope, and the scope-less equivalent would
-    // itself be refused: `--here` (the containing Project) keeps the
-    // rejection runnable (INT-6).
-    const equivalent = equivalentCommand({
-      here: here || (!all && project === undefined),
-      all,
-      ...(project === undefined ? {} : { project }),
-      ...(profile === undefined ? {} : { profile }),
-      removeChanged,
-      autoConfirm,
-      json,
-    });
-    throw new UninstallUnsupportedFlagError(
-      "--host",
-      equivalent,
-      `uninstall --host is not supported yet; per-Host removal arrives with the Host-removal change, which removes only output no longer required by the remaining Hosts. ` +
-        `To remove the whole installation now, run ${equivalent}`,
-    );
-  }
-  if (replaceChanged) {
-    // Like --host, a scope-less rejection names --here so the equivalent
-    // stays runnable (RE-4).
+  if (replaceChanged && hosts.length === 0) {
+    // A whole-removal deletes only: there is no replacement scope for
+    // `--replace-changed` to authorize (DEC-005). It becomes applicable on
+    // the `--host` partial path, where retained shared output may be
+    // rewritten to serve the remaining Hosts — the rejection points there.
+    // A scope-less rejection names --here so the equivalent stays runnable.
     const equivalent = equivalentCommand({
       here: here || (!all && project === undefined),
       all,
       ...(project === undefined ? {} : { project }),
       ...(profile === undefined ? {} : { profile }),
       removeChanged: true,
+      replaceChanged: false,
       autoConfirm,
       json,
     });
     throw new UninstallUnsupportedFlagError(
       "--replace-changed",
       equivalent,
-      `uninstall --replace-changed is not applicable: uninstall only deletes generated output, so there is no replacement scope to authorize. ` +
+      `uninstall --replace-changed is not applicable: whole-removal only deletes generated output, so there is no replacement scope to authorize. ` +
+        `It applies only to per-Host removal, where retained shared output may be rewritten for the remaining Hosts: add --host <name> to remove Hosts. ` +
         `Did you mean --remove-changed? To authorize deletion of independently changed output, run ${equivalent}`,
     );
   }
@@ -208,8 +209,10 @@ export function parseUninstallArguments(
     here,
     all,
     ...(profile === undefined ? {} : { profile }),
+    ...(hosts.length === 0 ? {} : { hosts }),
     autoConfirm,
     removeChanged,
+    replaceChanged,
     json,
   };
 }
@@ -332,7 +335,11 @@ export function fullySpecifiedUninstallArguments(
   if (parsed.profile !== undefined) {
     args.push(uninstallArg("--profile"), uninstallArg(parsed.profile));
   }
+  for (const host of parsed.hosts ?? []) {
+    args.push(uninstallArg("--host"), uninstallArg(host));
+  }
   if (parsed.removeChanged) args.push(uninstallArg("--remove-changed"));
+  if (parsed.replaceChanged) args.push(uninstallArg("--replace-changed"));
   if (includeAutoConfirm) args.push(uninstallArg("--auto-confirm"));
   return args;
 }
@@ -375,6 +382,11 @@ export async function runUninstallCommand(
 
   const cwd = request.cwd ?? process.cwd();
   const interactive = isInteractiveInput(request.input);
+  // A `--host` filter narrows removal within a scope but never provides
+  // one (DEC-003): Host-only non-interactive use requires an explicit
+  // Project scope, and Host-only interactive use refuses here — Project
+  // selection belongs to #499. The missing-scope equivalent below carries
+  // the requested Hosts through fullySpecifiedUninstallArguments.
   const hasScope = parsed.here || parsed.all || parsed.project !== undefined ||
     parsed.profile !== undefined;
   if (!hasScope) {
@@ -404,6 +416,7 @@ export async function runUninstallCommand(
       ...(parsed.here ? { here: true as const } : {}),
       ...(parsed.all ? { all: true as const } : {}),
       ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
+      ...(parsed.hosts === undefined ? {} : { hosts: parsed.hosts }),
       cwd,
     });
   } catch (error) {
@@ -425,9 +438,14 @@ export async function runUninstallCommand(
   if (preview.projects.length === 0) {
     // Filters intersect, never broaden: a zero match reports truthfully with
     // no writes rather than failing as a target error.
+    const hostFilter = parsed.hosts === undefined
+      ? ""
+      : ` Host${parsed.hosts.length === 1 ? "" : "s"} '${parsed.hosts.join(", ")}'`;
     const description = parsed.profile !== undefined
-      ? `Profile '${parsed.profile}'${parsed.all || parsed.here || parsed.project !== undefined ? " within the selected scope" : ""}`
-      : "the selected scope";
+      ? `Profile '${parsed.profile}'${parsed.all || parsed.here || parsed.project !== undefined ? " within the selected scope" : ""}${hostFilter}`
+      : hostFilter === ""
+        ? "the selected scope"
+        : `the selected scope for Host${parsed.hosts!.length === 1 ? "" : "s"} '${parsed.hosts!.join(", ")}'`;
     if (parsed.json) {
       request.stdout.write(
         formatUninstallToolErrorJson(`uninstall matched no installation for ${description}`),
@@ -502,31 +520,37 @@ export async function runUninstallCommand(
   }
 
   // Changed-file consent consumes the one shared loop (DEC-005, US-020).
-  // Uninstall performs no replacements, so only deletion needs authorization.
+  // Whole-removal performs no replacements, so only deletion needs
+  // authorization there; a `--host` partial removal may additionally
+  // rewrite retained shared output for the survivors, which
+  // `--replace-changed` authorizes (conditional on the actual plan: clean
+  // portions need no flag — the gate demands only planned discards).
   const confirmer = createChangedOutputConfirmer({
     input: request.input,
     output: request.stdout,
     ...(request.clock === undefined ? {} : { clock: request.clock }),
     json: parsed.json,
-    replaceChanged: false,
+    replaceChanged: parsed.replaceChanged,
     removeChanged: parsed.removeChanged,
     selection: uninstallScopeSelection(parsed, cwd),
   });
   const answering = (
     prompted: ChangedFileAnsweringScope | undefined,
   ): ChangedFileAnsweringScope =>
-    answeringScope({ replaceChanged: false, removeChanged: parsed.removeChanged }, prompted, confirmer.requestedScope());
+    answeringScope({ replaceChanged: parsed.replaceChanged, removeChanged: parsed.removeChanged }, prompted, confirmer.requestedScope());
   try {
     const result = await executeUninstall(request.home, {
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
       ...(parsed.here ? { here: true as const } : {}),
       ...(parsed.all ? { all: true as const } : {}),
       ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
+      ...(parsed.hosts === undefined ? {} : { hosts: parsed.hosts }),
       cwd,
       // The executed scope is the reviewed scope: re-resolution inside
       // fails closed when a concurrent change widens or narrows it (INT-2).
       confirmedPreview: preview,
       ...(parsed.removeChanged ? { removeChanged: true as const } : {}),
+      ...(parsed.replaceChanged ? { replaceChanged: true as const } : {}),
       ...(confirmer.confirm === undefined ? {} : { confirmChangedOutputReplacement: confirmer.confirm }),
     });
     if (result.failed !== undefined) {
@@ -560,6 +584,7 @@ export async function runUninstallCommand(
               {
                 ...parsed,
                 removeChanged: parsed.removeChanged || acceptedScope.remove === true,
+                replaceChanged: parsed.replaceChanged || acceptedScope.replace === true,
               },
               preview,
             ),
@@ -618,11 +643,14 @@ export async function runUninstallCommand(
       return { exitCode: 1 };
     }
     if (error instanceof ApplyConsentRequiredError) {
-      // The remedy stays runnable: the missing deletion authorization is
-      // added, so re-running answers the whole scope. The refusal carries
-      // the partial outcome for machine consumers (PROD-3); a pre-write
-      // refusal carries no pending evidence, so the whole reviewed scope
-      // reports as unattempted — nothing was attempted.
+      // The remedy stays runnable: precisely the missing authorizations
+      // named by the gate are added (a changed deletion names only
+      // `--remove-changed`, a changed survivor-rewrite only
+      // `--replace-changed`), so re-running answers the actual plan with
+      // one actionable command. The refusal carries the partial outcome
+      // for machine consumers (PROD-3); a pre-write refusal carries no
+      // pending evidence, so the whole reviewed scope reports as
+      // unattempted — nothing was attempted.
       const progress: UninstallErrorProgress = {
         completed: error.completedProjects.map((name) => ({ canonicalProject: name, project: name })),
         ...(error.failedProject === undefined ? {} : {
@@ -643,7 +671,16 @@ export async function runUninstallCommand(
           request.stderr,
           applyConsentRequiredDocument(
             error,
-            fullySpecifiedUninstallArguments({ ...parsed, removeChanged: true }, preview),
+            fullySpecifiedUninstallArguments(
+              {
+                ...parsed,
+                removeChanged: parsed.removeChanged ||
+                  error.requiredOperations.includes("remove"),
+                replaceChanged: parsed.replaceChanged ||
+                  error.requiredOperations.includes("replace"),
+              },
+              preview,
+            ),
             "uninstall",
           ),
           stderrContext,

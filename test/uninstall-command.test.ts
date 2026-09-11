@@ -342,10 +342,12 @@ describe("uninstall confirmation matrix", () => {
     expect(badPayload.outcome).toBe("error");
     expect(badPayload.error).toContain("--bogus");
 
+    // `--host` alone names no scope (DEC-003): the refusal carries the
+    // missing-scope envelope with zero writes, not a flag rejection.
     const hostFlag = await runUninstall(home, ["--host", "codex", "--json"], nonInteractiveInput());
     expect(hostFlag.exitCode).toBe(1);
     const hostPayload = JSON.parse(hostFlag.streams.humanText()) as { error: string };
-    expect(hostPayload.error).toContain("--host");
+    expect(hostPayload.error).toContain("explicit scope");
   });
 
   test("--json refusals use the versioned envelope without prose", async () => {
