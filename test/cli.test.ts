@@ -14670,7 +14670,7 @@ describe("packed CLI install missing-argument errors (#494, US-001, US-006)", ()
     expect(humanText(refused.stderr)).toContain("--auto-confirm");
     // The real entrypoint leaves cwd implicit: the retry still names the
     // resolved Project explicitly, so it cannot install elsewhere (DEC-006).
-    expect(humanText(refused.stderr)).toContain(projectPath);
+    expect(humanText(refused.stderr)).toContain("'~/projects/install-fully-specified'");
     expect(readFileSync(configPath(home), "utf8")).not.toContain(realpathSync(projectPath));
 
     const result = await runCliAt(home, projectPath, "install", "coding", "--host", "codex", "--auto-confirm");

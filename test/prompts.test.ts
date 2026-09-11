@@ -4,6 +4,8 @@ import { PassThrough } from "node:stream";
 import {
   createConfirmPrompt,
   createMultiSelectPrompt,
+  createSearchableMultiSelectPrompt,
+  createSearchableSelectPrompt,
   createSelectPrompt,
   createTextPrompt,
   createYesNoPrompt,
@@ -282,5 +284,112 @@ describe("prompt seam interactivity", () => {
   test("reads interactivity from the injected input stream", () => {
     expect(isInteractiveInput(fakeInteractiveInput())).toBe(true);
     expect(isInteractiveInput(new PassThrough())).toBe(false);
+  });
+});
+
+describe("searchable select prompt seam", () => {
+  test("filters choices by typing and selects the match with enter", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [
+      { title: "coding", value: "coding" },
+      { title: "ops", value: "ops" },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    input.write("op");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", value: "ops" });
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [{ title: "coding", value: "coding" }]);
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+  });
+
+  test("matches string values as well as titles", async () => {
+    const input = fakeInteractiveInput();
+    const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
+    const pending = select("Which Profile?", [
+      { title: "First", value: "one" },
+      { title: "Second", value: "two" },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // "two" appears only in the value, never in a title.
+    input.write("two");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", value: "two" });
+  });
+});
+
+describe("searchable multiselect prompt seam", () => {
+  test("toggles choices with space and submits with enter", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createSearchableMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi(
+      "Which Agent Hosts?",
+      [
+        { title: "claude", value: "claude" },
+        { title: "codex", value: "codex" },
+      ],
+      { min: 1 },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    input.write(" \x1b[B ");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", values: ["claude", "codex"] });
+  });
+
+  test("keeps pre-selected choices checked and retains them across filters", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createSearchableMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi("Which Agent Hosts?", [
+      { title: "claude", value: "claude", selected: true },
+      { title: "codex", value: "codex" },
+      { title: "pi", value: "pi" },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Filter to "pi", toggle it, clear the filter, then submit: both the
+    // pre-selected and the filtered selection survive.
+    input.write("pi");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    input.write(" ");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    input.write("\u007f\u007f");
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    input.write("\r");
+    expect(await pending).toEqual({ kind: "selected", values: ["claude", "pi"] });
+  });
+
+  test("cancels when the input stream ends before an answer", async () => {
+    const input = fakeInteractiveInput();
+    const multi = createSearchableMultiSelectPrompt({ input, output: new PassThrough() });
+    const pending = multi("Which Agent Hosts?", [{ title: "codex", value: "codex" }]);
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+  });
+
+  test("renders the question and choice titles on the injected output stream", async () => {
+    const input = fakeInteractiveInput();
+    const output = new PassThrough();
+    const chunks: Buffer[] = [];
+    output.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const multi = createSearchableMultiSelectPrompt({ input, output });
+    const pending = multi("Which Agent Hosts?", [
+      { title: "claude", value: "claude" },
+      { title: "codex", value: "codex" },
+    ]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    input.write(" \r");
+    await pending;
+    const written = Buffer.concat(chunks).toString();
+    expect(written).toContain("Which Agent Hosts?");
+    expect(written).toContain("claude");
+    expect(written).toContain("codex");
   });
 });

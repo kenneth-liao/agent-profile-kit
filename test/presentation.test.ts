@@ -10257,18 +10257,23 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
   });
 });
 
+const textArg = (value: string): { readonly kind: "text"; readonly value: string } => ({
+  kind: "text",
+  value,
+});
+
 describe("update declined diagnostic (US-006, DEC-005)", () => {
   const args = ["update", "--all", "--replace-changed", "--remove-changed"] as const;
 
   test("the remedy names only the operations at stake", () => {
     const replaceOnly = renderBoundary(
-      applyReplacementDeclinedDocument("declined", [...args], { replace: true, remove: false }),
+      applyReplacementDeclinedDocument("declined", [...args].map(textArg), { replace: true, remove: false }),
     );
     expect(replaceOnly).toContain("you answered no");
     expect(replaceOnly).toContain("To replace changed generated files without asking");
 
     const removeOnly = renderBoundary(
-      applyReplacementDeclinedDocument("declined", ["update", "--all", "--remove-changed"], {
+      applyReplacementDeclinedDocument("declined", ["update", "--all", "--remove-changed"].map(textArg), {
         replace: false,
         remove: true,
       }),
@@ -10277,14 +10282,14 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
     expect(removeOnly).not.toContain("To replace changed generated files");
 
     const both = renderBoundary(
-      applyReplacementDeclinedDocument("default", [...args], { replace: true, remove: true }),
+      applyReplacementDeclinedDocument("default", [...args].map(textArg), { replace: true, remove: true }),
     );
     expect(both).toContain("default answer no");
     expect(both).toContain("To replace or delete changed generated files without asking");
   });
 
   test("declining stays neutral, never an error notice", () => {
-    const document = applyReplacementDeclinedDocument("cancelled", ["update", "--all"], {
+    const document = applyReplacementDeclinedDocument("cancelled", ["update", "--all"].map(textArg), {
       replace: true,
       remove: false,
     });

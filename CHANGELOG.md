@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Added
+
+- Guide installation through searchable choices (US-001 interactive flow, US-005 Profile/Host search, US-006 echo/cancellation, DEC-002, DEC-004, [#495](https://github.com/kenneth-liao/agent-profile-kit/issues/495)): bare interactive `install` names its target and collects only missing Profile/Hosts through searchable pickers into the unchanged explicit operation. See ADR-0034 for the recorded decision.
+
 ### Changed
 
 - Install a Project with its remembered selection in one `install` action (US-001, US-006 install confirmation, US-007 install consent, US-008 install recovery, DEC-001, DEC-002, DEC-004–006, [#494](https://github.com/kenneth-liao/agent-profile-kit/issues/494)): `apkit install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` targets the current Project by default, records the requested final selection and installs/verifies the generated output together after an interactive general confirmation (including with fully supplied arguments; `--auto-confirm` answers only that confirmation and chooses no missing input). A changed installation uses the requested final selection with its old-to-new scope shown before confirmation; replacing or deleting independently changed generated files consumes the shared per-operation consent contract (`--replace-changed`/`--remove-changed`, optional pre-confirmation diff), which `--auto-confirm` alone never answers. Faults restore the previous selection/output where possible, report failed restoration or verification truthfully with a concrete retry, and retain completed work; a post-commit verification failure keeps the committed selection. Public `bind` is retired without a compatibility shim — every `bind` form exits `1` naming `apkit install` as the replacement. See ADR-0033 for the recorded command-surface decision.

@@ -345,7 +345,12 @@ Next: apkit status
 ```
 
 An interactive `install` shows the proposed scope and asks for confirmation
-before any write; `--auto-confirm` answers that confirmation. Replacing or
+before any write; `--auto-confirm` answers that confirmation. On an
+interactive terminal a bare `install` names the current-directory Project
+target first and collects only its missing Profile/Hosts through searchable
+pickers — an existing installation pre-checks its Hosts while a new one
+starts with nothing checked — and a completed guided install prints the
+executable fully specified equivalent. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
 restored where possible and the retry is printed.

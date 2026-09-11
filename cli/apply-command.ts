@@ -48,6 +48,9 @@ import { terminalPresentationContext, type TerminalPresentationContext, type Ter
 import {
   type PromptClock,
 } from "./prompts.js";
+import type { CommandArg } from "./inline-content.js";
+
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 import { ProjectTargetError, type ProjectBindingSelection } from "../installer/local-configuration.js";
 import {
   applyApplication,
@@ -163,7 +166,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
         writeHumanDocument(
           request.stdout,
           applyReplacementCommandDocument(
-            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope())),
+            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope())).map(arg),
           ),
           stdoutContext,
         );
@@ -182,7 +185,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
           request.stderr,
           applyReplacementDeclinedDocument(
             error.reason === "cancelled" ? "cancelled" : declinedAnswer(),
-            fullySpecifiedApplyArguments(request.selection, scope),
+            fullySpecifiedApplyArguments(request.selection, scope).map(arg),
             scope,
           ),
           stderrContext,
@@ -204,7 +207,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
           request.stderr,
           applyConsentRequiredDocument(
             error,
-            fullySpecifiedApplyArguments(request.selection, scope),
+            fullySpecifiedApplyArguments(request.selection, scope).map(arg),
           ),
           stderrContext,
         );
@@ -222,7 +225,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
             fullySpecifiedApplyArguments(
               request.selection,
               equivalentScope(promptedAcceptedScope()),
-            ),
+            ).map(arg),
           ),
           stderrContext,
         );
