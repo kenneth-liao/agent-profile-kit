@@ -3,7 +3,8 @@
  * filter intersections at representative fleet size — 18 Projects across six
  * Hosts with long paths and colliding basenames. Selected scope is removed
  * and forgotten; unselected Projects stay byte-identical; zero matches write
- * nothing.
+ * nothing. Ticket #497 pins the Profile-source safety: removing every
+ * installation of a Profile leaves its canonical Workspace source untouched.
  */
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -106,6 +107,12 @@ describe("uninstall fleet qualification", () => {
       const docs = fleet.filter((entry) => entry.profile === "docs");
       const engineering = fleet.filter((entry) => entry.profile === "engineering");
       expect(docs.length).toBeGreaterThan(0);
+      // The canonical Profile source is snapshotted before removal: no
+      // filter may delete the Workspace definition it selects by (US-003).
+      const docsSourcePath = join(workspacePath(home), "profiles", "docs.yaml");
+      const engineeringSourcePath = join(workspacePath(home), "profiles", "engineering.yaml");
+      const docsSourceBefore = readFileSync(docsSourcePath, "utf8");
+      const engineeringSourceBefore = readFileSync(engineeringSourcePath, "utf8");
       const profilePreview = await previewUninstall(home, { profile: "docs" });
       expect(profilePreview.projects).toHaveLength(docs.length);
       const profileResult = await executeUninstall(home, { profile: "docs" });
@@ -120,6 +127,11 @@ describe("uninstall fleet qualification", () => {
       expect(await installedProjects(home)).toEqual(
         engineering.map((entry) => canonical(entry.directory)).sort(),
       );
+      // Removing every installation of a Profile never deletes its
+      // canonical Workspace source: full composition only.
+      expect(existsSync(docsSourcePath)).toBe(true);
+      expect(readFileSync(docsSourcePath, "utf8")).toBe(docsSourceBefore);
+      expect(readFileSync(engineeringSourcePath, "utf8")).toBe(engineeringSourceBefore);
 
       // --project narrows to one installation; everything else is untouched.
       const [single] = engineering;

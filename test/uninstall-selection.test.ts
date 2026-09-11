@@ -6,6 +6,9 @@
  * source. Zero matches resolve to an empty preview (the command layer
  * reports them truthfully with no writes); conflicting scopes are already
  * rejected by argument parsing and cannot reach this boundary.
+ *
+ * Ticket #497 pins the Profile-filter composition: `--profile` alone and
+ * intersected with every explicit scope kind (`--here`/`--project`/`--all`).
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -137,6 +140,42 @@ describe("previewUninstall scope resolution", () => {
       const preview = await previewUninstall(home, { project: first, profile: "engineering" });
       expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
       const empty = await previewUninstall(home, { project: first, profile: "docs" });
+      expect(empty.projects).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("--profile intersects --here instead of replacing it", async () => {
+    const home = isolatedHome();
+    try {
+      const first = projectDirectory();
+      const second = projectDirectory();
+      writeBindings(home, [
+        { project: first, profile: "engineering", hosts: ["codex"] },
+        { project: second, profile: "docs", hosts: ["claude"] },
+      ]);
+      const preview = await previewUninstall(home, { here: true, cwd: first, profile: "engineering" });
+      expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
+      const empty = await previewUninstall(home, { here: true, cwd: first, profile: "docs" });
+      expect(empty.projects).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("--profile intersects --all instead of replacing it", async () => {
+    const home = isolatedHome();
+    try {
+      const first = projectDirectory();
+      const second = projectDirectory();
+      writeBindings(home, [
+        { project: first, profile: "engineering", hosts: ["codex"] },
+        { project: second, profile: "docs", hosts: ["claude"] },
+      ]);
+      const preview = await previewUninstall(home, { all: true, profile: "engineering" });
+      expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
+      const empty = await previewUninstall(home, { all: true, profile: "unknown-profile" });
       expect(empty.projects).toEqual([]);
     } finally {
       await cleanup();
