@@ -1525,7 +1525,9 @@ export function formatUninstallToolErrorJson(
 
 /** The machine payload for one uninstall outcome: the same envelope as
  * every other lifecycle payload, carrying the completed/skipped/failed
- * evidence the human receipt carries, without rendered prose. */
+ * evidence the human receipt carries, without rendered prose. Skipped
+ * Projects are known Blockers, so the outcome unifies with update's
+ * "blocked" rather than "attention" (RE-2). */
 export function formatUninstallJson(result: UninstallApplicationResult): string {
   return serializeMachinePayload({
     schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
@@ -1533,7 +1535,7 @@ export function formatUninstallJson(result: UninstallApplicationResult): string 
     outcome: result.failed !== undefined
       ? "error" as const
       : result.skipped.length > 0
-        ? "attention" as const
+        ? "blocked" as const
         : "clean" as const,
     ...(result.failed === undefined ? {} : { error: result.failed.detail }),
     completed: result.completed,

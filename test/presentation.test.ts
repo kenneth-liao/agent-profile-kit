@@ -55,6 +55,7 @@ import {
   temporaryInstallationDocument,
   temporaryInventoryDocument,
   uninstallReceiptDocument,
+  formatUninstallJson,
   uninstallConfirmationDocument,
   uninstallDeclinedDocument,
   uninstallConfirmationRequiredDocument,
@@ -5697,6 +5698,42 @@ describe("standalone view presentation documents (#389)", () => {
     const rendered = renderPresentationDocument(document, defaultRenderContext);
     expect(rendered).toContain("engineering");
     expect(rendered).toContain("will not reinstall");
+  });
+
+  test("uninstall JSON outcomes unify skipped with blocked", () => {
+    const clean = JSON.parse(formatUninstallJson({
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      skipped: [],
+      unattempted: [],
+      warnings: [],
+    })) as { schemaVersion: number; command: string; outcome: string };
+    expect(clean.schemaVersion).toBe(15);
+    expect(clean.command).toBe("uninstall");
+    expect(clean.outcome).toBe("clean");
+
+    const blocked = JSON.parse(formatUninstallJson({
+      completed: [],
+      skipped: [{ project: "/project-a", profile: "engineering", reason: "tracked by Git" }],
+      unattempted: [],
+      warnings: [],
+    })) as { outcome: string };
+    expect(blocked.outcome).toBe("blocked");
+
+    const failed = JSON.parse(formatUninstallJson({
+      completed: [],
+      skipped: [],
+      failed: {
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected fault",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      unattempted: [],
+      warnings: [],
+    })) as { outcome: string; error: string };
+    expect(failed.outcome).toBe("error");
+    expect(failed.error).toContain("injected fault");
   });
 
   test("uninstall confirmation names the fleet-wide reach of a Profile-only scope", () => {

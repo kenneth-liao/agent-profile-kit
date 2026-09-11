@@ -109,6 +109,19 @@ describe("uninstall scope parsing", () => {
     expect(message).not.toContain("--host codex");
   });
 
+  test("bare --replace-changed names --here alongside --remove-changed", () => {
+    let caught: unknown;
+    try {
+      parseUninstallArguments(["--replace-changed"]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(UninstallUnsupportedFlagError);
+    const message = (caught as Error).message;
+    expect(message).toContain("uninstall --here");
+    expect(message).toContain("--remove-changed");
+  });
+
   test("bare --host names --here in its equivalent instead of a scope-less dead end", () => {
     let caught: unknown;
     try {

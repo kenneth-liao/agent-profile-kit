@@ -268,9 +268,35 @@ describe("uninstall confirmation matrix", () => {
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
     expect(plain(started.streams.errorText())).toContain("scope changed during confirmation");
+    // The printed retry must not carry --auto-confirm: following it reviews
+    // the changed scope instead of removing it unseen (RE-1).
+    expect(plain(started.streams.errorText())).toContain("uninstall --all");
+    expect(plain(started.streams.errorText())).not.toContain("--auto-confirm");
     // Zero writes: the reviewed scope and the added binding both survive.
     snapshotUntouched(home, first, firstOutput);
     expect(readFileSync(configPath(home), "utf8")).toContain(added);
+  });
+
+  test("--json parse refusals use the versioned envelope without prose", async () => {
+    const { home } = await setupInstalledPair();
+    const badFlag = await runUninstall(home, ["--bogus", "--json"], nonInteractiveInput());
+    expect(badFlag.exitCode).toBe(1);
+    expect(badFlag.streams.errorText()).toBe("");
+    const badPayload = JSON.parse(badFlag.streams.humanText()) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      error: string;
+    };
+    expect(badPayload.schemaVersion).toBe(15);
+    expect(badPayload.command).toBe("uninstall");
+    expect(badPayload.outcome).toBe("error");
+    expect(badPayload.error).toContain("--bogus");
+
+    const hostFlag = await runUninstall(home, ["--host", "codex", "--json"], nonInteractiveInput());
+    expect(hostFlag.exitCode).toBe(1);
+    const hostPayload = JSON.parse(hostFlag.streams.humanText()) as { error: string };
+    expect(hostPayload.error).toContain("--host");
   });
 
   test("--json refusals use the versioned envelope without prose", async () => {

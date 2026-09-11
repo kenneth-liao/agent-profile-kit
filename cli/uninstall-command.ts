@@ -184,8 +184,10 @@ export function parseUninstallArguments(
     );
   }
   if (replaceChanged) {
+    // Like --host, a scope-less rejection names --here so the equivalent
+    // stays runnable (RE-4).
     const equivalent = equivalentCommand({
-      here,
+      here: here || (!all && project === undefined),
       all,
       ...(project === undefined ? {} : { project }),
       ...(profile === undefined ? {} : { profile }),
@@ -299,14 +301,17 @@ function uninstallScopeSelection(
 
 /**
  * The equivalent fully specified command arguments: the same removal with
- * every scope argument and the general-confirmation answer explicit, so
- * re-running it needs no second answer. The Project travels as a path
+ * every scope argument and, unless omitted, the general-confirmation answer
+ * explicit, so re-running it needs no second answer. The scope-changed
+ * retry omits the answer so the changed scope is reviewed, not removed
+ * unseen (RE-1). The Project travels as a path
  * argument so the renderer shell-quotes it as one POSIX token; every other
  * token is plain text.
  */
 export function fullySpecifiedUninstallArguments(
   parsed: ParsedUninstallArguments,
   preview?: UninstallPreview,
+  includeAutoConfirm = true,
 ): readonly CommandArg[] {
   const args: CommandArg[] = [uninstallArg("uninstall")];
   if (parsed.here) args.push(uninstallArg("--here"));
@@ -328,7 +333,7 @@ export function fullySpecifiedUninstallArguments(
     args.push(uninstallArg("--profile"), uninstallArg(parsed.profile));
   }
   if (parsed.removeChanged) args.push(uninstallArg("--remove-changed"));
-  args.push(uninstallArg("--auto-confirm"));
+  if (includeAutoConfirm) args.push(uninstallArg("--auto-confirm"));
   return args;
 }
 
@@ -352,11 +357,19 @@ export async function runUninstallCommand(
   try {
     parsed = parseUninstallArguments(request.arguments);
   } catch (error) {
-    writeHumanDocument(
-      request.stderr,
-      errorDiagnosticDocument(error, { usage: uninstallCommandSyntax }),
-      stderrContext,
-    );
+    // The parse catch runs before `parsed` exists: detect machine mode
+    // from the raw arguments so scripts get the versioned envelope
+    // instead of prose on stderr (RE-3). A `--json` token can only be the
+    // flag here — every flag value and positional rejects a leading dash.
+    if (request.arguments.includes("--json")) {
+      request.stdout.write(formatUninstallToolErrorJson(formatError(error)));
+    } else {
+      writeHumanDocument(
+        request.stderr,
+        errorDiagnosticDocument(error, { usage: uninstallCommandSyntax }),
+        stderrContext,
+      );
+    }
     return { exitCode: 1 };
   }
 
@@ -561,17 +574,20 @@ export async function runUninstallCommand(
   } catch (error) {
     if (error instanceof UninstallScopeChangedError) {
       // The selection moved between confirmation and commit: nothing was
-      // written, and the current scope reports as unattempted (INT-2).
+      // written, and the current scope reports as unattempted (INT-2). The
+      // retry deliberately omits --auto-confirm: following it must review
+      // the changed scope, not remove it unseen (RE-1).
       const progress: UninstallErrorProgress = {
         completed: [],
         unattempted: error.current.map(uninstallProgressIdentity),
       };
+      const retry = fullySpecifiedUninstallArguments(parsed, preview, false);
       if (parsed.json) {
         request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
         writeHumanDocument(
           request.stderr,
-          uninstallScopeChangedDocument(fullySpecifiedUninstallArguments(parsed, preview)),
+          uninstallScopeChangedDocument(retry),
           stderrContext,
         );
       }
