@@ -69,10 +69,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    Profile or Host set for the same project replaces the installation in the
    same action; replacing or deleting independently changed generated files
    needs `--replace-changed`/`--remove-changed`. After installing, continue
-   with validate/status/update. To remove desired
-   state, use `apkit unbind [project]`; it defaults to cwd, matches
+   with validate/status/update. To remove selected installations, use
+   `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all`
+   (explicit scope plus `--auto-confirm` non-interactively, with `--profile`
+   and `--remove-changed` as needed); it forgets each fully removed Project's
+   recorded selection so a later update does not reinstall it, matches
    existing paths canonically, and permits missing-path recovery only by exact
-   authored spelling. `unbind` never removes generated output.
+   authored spelling. To keep generated files in place instead, remove the
+   Project's entry from Local Configuration by hand and let the next update
+   reconcile the leftovers.
 6. Validate before updating. Context Modules use `id` frontmatter and flat
    Profiles contain `id`, `context`, and `skills` only. Dependencies use
    explicit `{ type, id }` references. Run `apkit validate`, review
@@ -109,13 +114,13 @@ Use this workflow when helping a person author their Workspace and bind projects
    `update` retries that command after the blocker. Add
    `--verbose` to distinguish current, stale, drifted, missing, and blocked
    installations and inspect exact Git exclusion paths in the complete report.
-   `apkit unbind` removes desired
-   Project Binding state but leaves generated output for fleet `status --all` and
-   `update --all`. `apkit uninstall` instead removes only output whose Installation Receipt
-   and hashes prove Agent Profile Kit ownership; it preserves the Workspace,
-   Local Configuration, global Host configuration, and repository-owned files.
-   Never use `uninstall` as a substitute for removing a binding, or `unbind` as
-   a substitute for output cleanup.
+   `apkit uninstall` with an explicit scope removes only output whose Installation Receipt
+   and hashes prove Agent Profile Kit ownership and forgets each fully removed
+   Project's recorded selection; it preserves the Workspace,
+   unselected Projects, global Host configuration, and repository-owned files.
+   Never use hand-editing as a substitute for output cleanup: hand-editing the
+   selection out of Local Configuration keeps generated files in place for the
+   next update to reconcile, while `uninstall` deletes them.
 
 If the user plans to publish the Workspace, remind them to review personal
 content. Credentials are invalid in a Workspace regardless of publication

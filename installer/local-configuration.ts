@@ -89,7 +89,7 @@ export function expandConfiguredPath(
   return value;
 }
 
-function isSameOrDescendant(path: string, ancestor: string): boolean {
+export function isSameOrDescendant(path: string, ancestor: string): boolean {
   const relativePath = relative(ancestor, path);
   return (
     relativePath === "" ||
@@ -286,12 +286,12 @@ export interface IngestedApplicationSource {
  * newcomer-worded on human surfaces.
  */
 export type ProjectTargetErrorReason =
-  | { readonly case: "ambiguous-target"; readonly command: "update" | "status" | "install"; readonly target: string }
-  | { readonly case: "dangling-symlink-target"; readonly command: "update" | "status" | "install"; readonly target: string }
-  | { readonly case: "missing-target"; readonly command: "update" | "status" | "install"; readonly target: string }
-  | { readonly case: "relative-target"; readonly command: "update" | "status" | "install"; readonly target: string }
-  | { readonly case: "unbound-target"; readonly command: "update" | "status" | "install"; readonly target: string }
-  | { readonly case: "wildcard-target"; readonly command: "update" | "status" | "install"; readonly target: string };
+  | { readonly case: "ambiguous-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string }
+  | { readonly case: "dangling-symlink-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string }
+  | { readonly case: "missing-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string }
+  | { readonly case: "relative-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string }
+  | { readonly case: "unbound-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string }
+  | { readonly case: "wildcard-target"; readonly command: "update" | "status" | "install" | "uninstall"; readonly target: string };
 
 /** Focused user-input failure raised before scoped lifecycle planning or writes. */
 export class ProjectTargetError extends Error {
@@ -311,7 +311,7 @@ export type ProjectSelectionFilter = "stale" | "blocked";
 export type ProjectBindingSelection =
   | { readonly kind: "all"; readonly filter?: ProjectSelectionFilter }
   | {
-      readonly command: "update" | "status" | "install";
+      readonly command: "update" | "status" | "install" | "uninstall";
       readonly kind: "project";
       readonly match: "containing" | "exact";
       readonly target: string;
@@ -422,6 +422,12 @@ type ProjectBindingNormalizationMode =
       readonly allowMissingProjects: boolean;
       readonly kind: "application";
       readonly profiles: ReadonlyMap<string, unknown>;
+      /**
+       * Uninstall normalizes bindings without resolving the Workspace, so
+       * recovery stays independent of valid source: profile membership is
+       * compared as raw strings at selection time instead of validated here.
+       */
+      readonly requireProfiles?: boolean;
     }
   | { readonly kind: "inventory" };
 
@@ -448,7 +454,13 @@ async function ingestWorkspaceFromConfiguration(
  * application ingestion validates every path and Profile; inventory retains
  * per-binding path problems so one stale record cannot hide the rest.
  */
-async function normalizeProjectBindings(
+/**
+ * Normalize the Project Binding portion of Local Configuration once. Exported
+ * for uninstall selection, which reads bindings without resolving the
+ * Workspace so recovery stays independent of valid source (application mode
+ * with `requireProfiles: false` and missing roots retained).
+ */
+export async function normalizeProjectBindings(
   home: string,
   parsedBindings: readonly ParsedProjectBinding[],
   path: string,
@@ -525,7 +537,7 @@ async function normalizeProjectBindings(
       missingProjects.add(binding.project);
     }
 
-    if (mode.kind === "application") requireProfile(mode.profiles, binding.profile);
+    if (mode.kind === "application" && mode.requireProfiles !== false) requireProfile(mode.profiles, binding.profile);
     bindings.push({
       index,
       project: binding.project,

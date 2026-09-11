@@ -15,7 +15,6 @@ export const COMMAND_EXAMPLES = {
     `install ${profile} --host codex --auto-confirm`,
     `install ${profile} ${project} --host codex --host claude --auto-confirm`,
   ],
-  unbind: ["unbind", `unbind ${project}`],
   validate: ["validate"],
   info: ["info", "info --json"],
   list: inventoryCommandExamples(),
@@ -40,7 +39,14 @@ export const COMMAND_EXAMPLES = {
     "status --stale --json",
     "status --json",
   ],
-  uninstall: ["uninstall"],
+  uninstall: [
+    "uninstall --here --auto-confirm",
+    `uninstall ${project} --auto-confirm`,
+    "uninstall --all --auto-confirm",
+    "uninstall --profile my-profile --auto-confirm",
+    "uninstall --profile my-profile --all --auto-confirm",
+    "uninstall --all --remove-changed --auto-confirm",
+  ],
   "install-temp": [
     `machine install-temp ${profile} ${project} --host codex --json`,
     `machine install-temp ${profile} ${project} --host claude --json`,

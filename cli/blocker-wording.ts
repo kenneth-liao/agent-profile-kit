@@ -289,9 +289,7 @@ function untrackChoiceRemedy(
         `untracking command from the recorded paths (${pathList(paths)}). Untrack them ` +
         "in Git yourself without reinterpreting special characters, then run ",
       apkit(...applyArgs),
-      "; or run ",
-      apkit("unbind", quoted(project)),
-      " to keep Git ownership.",
+      "; or leave the files in place to keep Git ownership.",
     ];
   }
   return [
@@ -300,18 +298,17 @@ function untrackChoiceRemedy(
     " — it stages their removal from the Git index while the files stay on " +
       "disk; commit afterwards to keep the change — then run ",
     apkit(...applyArgs),
-    ". To keep Git ownership instead, run ",
-    apkit("unbind", quoted(project)),
-    ".",
+    ". To keep Git ownership instead, leave the files in place.",
   ];
 }
 
-/** The scoped unbind alternative with its honest consequence. */
-function unbindAlternative(project: string): readonly InlineContent[] {
+/** The scoped uninstall alternative with its honest consequence: removal plus
+ * forgetting, so a later update does not reinstall (DEC-001). */
+function uninstallAlternative(project: string): readonly InlineContent[] {
   return [
     "; or run ",
-    apkit("unbind", quoted(project)),
-    " to stop managing this Project (its generated files stay on disk).",
+    apkit("uninstall", "--project", quoted(project)),
+    " to remove its generated files and stop managing this Project.",
   ];
 }
 
@@ -482,7 +479,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           "Move your OpenCode configuration to opencode.json or .opencode/opencode.json " +
             "yourself, then run ",
           apkit("update", quoted(blocker.project!)),
-          ...unbindAlternative(blocker.project!),
+          ...uninstallAlternative(blocker.project!),
         ]);
         return { message: problem, problem, remedy, requirement };
       }
@@ -496,7 +493,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           : listCommand(projectPath(blocker.project!, inspected)),
         ", move or remove it yourself only if you do not need it, then run ",
         apkit("update", quoted(blocker.project!)),
-        ...unbindAlternative(blocker.project!),
+        ...uninstallAlternative(blocker.project!),
       ]);
       return { message: problem, problem, remedy, requirement };
     }
@@ -548,10 +545,10 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           const remedy = compact([
             "No specific file is recorded, so manual inspection of the Project is " +
               "required. Run ",
-            apkit("unbind", quoted(blocker.project!)),
-            " to stop managing this Project — nothing is repaired or removed, and " +
-              "its generated files stay on disk — or inspect the Project's generated " +
-              "files yourself, restore what matches the installation record, then run ",
+            apkit("uninstall", "--project", quoted(blocker.project!)),
+            " to remove its generated files and stop managing this Project — or inspect " +
+              "the Project's generated files yourself, restore what matches the " +
+              "installation record, then run ",
             apkit("update", quoted(blocker.project!)),
             ".",
           ]);
@@ -581,7 +578,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
             inspectCommand(inspectTarget),
             restoreClause,
             apkit("update", quoted(blocker.project!)),
-            ...unbindAlternative(blocker.project!),
+            ...uninstallAlternative(blocker.project!),
           ]
         : [
             "Manual recovery is required: Agent Profile Kit will not delete files it " +
@@ -644,9 +641,8 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
         problem,
         remedy: compact([
           "Run ",
-          apkit("unbind", quoted(blocker.project!)),
-          " to stop managing this Project — nothing is removed automatically and " +
-            "its generated files stay on disk; remove the generated files yourself, " +
+          apkit("uninstall", "--project", quoted(blocker.project!)),
+          " to remove its generated files and stop managing this Project, " +
             "then retry your original command.",
         ]),
         requirement,

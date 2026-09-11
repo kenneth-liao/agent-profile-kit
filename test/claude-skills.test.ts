@@ -25,7 +25,7 @@ import {
 } from "../installer/reconcile.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import type { Skill } from "../schemas/skill.js";
 import {
   reportBlockers,
@@ -421,7 +421,7 @@ describe("Claude project Skill packages", () => {
       "leave me\n",
     );
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".claude", "skills", "write-notes"))).toBe(false);
     expect(readFileSync(join(project, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -485,7 +485,7 @@ describe("Claude project Skill packages", () => {
     expect(state.receipts).toHaveLength(1);
     expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "codex"]);
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(false);

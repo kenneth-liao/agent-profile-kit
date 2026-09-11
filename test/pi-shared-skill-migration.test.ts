@@ -24,7 +24,7 @@ import {
   readInstallationState,
   writeInstallationState,
 } from "../installer/installation-state.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import type {
   DesiredInstallation,
   DesiredProjectDirectoryOutput,
@@ -154,10 +154,11 @@ describe("Pi shared Skill migration", () => {
     expect(reportBlockers(current.resultingState)).toEqual([]);
     expect(reportItems(current.resultingState).every((item) => item.kind === "current")).toBe(true);
 
-    await uninstallApplication(home);
+    await executeUninstall(home, { all: true });
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".pi", "skills", "review-pr"))).toBe(false);
-    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "config.yaml"), "utf8")).toContain(project);
+    // The removed Project's selection is forgotten with its output.
+    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "config.yaml"), "utf8")).not.toContain(project);
   });
 
   test("adopts a byte-identical shared destination during migration", async () => {

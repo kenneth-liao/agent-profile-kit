@@ -40,7 +40,8 @@ import {
 } from "../installer/reconcile.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
-import { statusApplication, uninstallApplication } from "../installer/commands.js";
+import { statusApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import type { Skill } from "../schemas/skill.js";
 import {
   reportBlockers,
@@ -431,7 +432,7 @@ describe("Grok project Skill packages", () => {
       "leave me\n",
     );
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
     expect(existsSync(join(project, ".grok", "skills", "write-notes"))).toBe(false);
     expect(readFileSync(join(project, ".grok", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -530,7 +531,7 @@ describe("Grok project Skill packages", () => {
     expect(state.receipts).toHaveLength(1);
     expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "codex", "grok"]);
 
-    expect((await uninstallApplication(home)).projects).toHaveLength(1);
+    expect((await executeUninstall(home, { all: true })).completed).toHaveLength(1);
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".grok", "skills", "review-pr"))).toBe(false);

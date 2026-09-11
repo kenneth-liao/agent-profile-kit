@@ -41,7 +41,7 @@ confirmation in stage 8 and the teardown receipts in stage 12 were captured
 from separate interactive PTY sessions of the same packed build (the
 confirmation's accept/decline behavior is pinned by the prompt-seam tests in
 `test/apply-confirmation.test.ts` and `test/apply-command.test.ts`, and the
-teardown non-prompting audit by `test/cli.test.ts`).
+teardown prompting audit by the `test/uninstall-*.test.ts` suites).
 
 Earlier qualification evidence remains recorded for provenance. Fleet-scale
 qualification (spec #193, ticket #205): the 12-Project workload — one shared
@@ -78,7 +78,7 @@ than duplicating it.
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the Apply Receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies |
-| 12 | Tear down | `uninstall`, `unbind` | Remove output and/or desired state without prompting, with the boundary made clear |
+| 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--auto-confirm] [--remove-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; a later update does not reinstall them |
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-021) |
 
 Stages 1–8 are the first-run path; an update that installed the scaffolded
@@ -87,8 +87,7 @@ where the user was heading (DEC-024). Stages 10–12 are the returning-user
 path. Stage 9 is the only stage the CLI never speaks to: the receipt states
 how to check Host loading, it never claims Agent Profile Kit observed the
 loading (OOS-009). Stage 13 is the receipt-owned temporary flow, usable
-alongside either path. `new` never prompts; the teardown commands never
-prompt (DEC-030, DEC-031).
+alongside either path. `new` never prompts; `uninstall` always confirms interactively unless `--auto-confirm` answers it (DEC-004).
 
 `status` is the single authoritative read-only Project lifecycle plan. It
 defaults to the complete fleet and uses the same selected scope and normalized
@@ -423,8 +422,7 @@ Cannot update
         — it stages their removal from the Git index while the files stay on
         disk; commit afterwards to keep the change — then run
         apkit update '<project>'.
-        To keep Git ownership instead, run
-        apkit unbind '<project>'.
+        To keep Git ownership instead, leave the files in place.
       Affected paths (2):
         - .agent-profile-kit/codex/context.md
         - .codex/hooks.json
@@ -728,8 +726,7 @@ Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
     — it stages their removal from the Git index while the files stay on
     disk; commit afterwards to keep the change — then run
     apkit update '<project>'.
-    To keep Git ownership instead, run
-    apkit unbind '<project>'.
+    To keep Git ownership instead, leave the files in place.
 ```
 
 The evidence-derived recovery command is carried inline in every view —
@@ -746,55 +743,15 @@ before remaining blockers, so writes are never hidden.
 
 ### 12. Tear down
 
-`uninstall` removes proven output and preserves bindings; `unbind` removes the
-binding and retires the installation receipt ("Generated files remain until
-update"). Neither command prompts — on any input stream, including an
-interactive terminal (US-055 teardown clause, DEC-030, DEC-031) — and
-re-binding and re-updating recovers both:
+`uninstall [--here | --project <path> | --all] [--profile <name>] [--auto-confirm] [--remove-changed] [--json]` removes the selected installations and forgets their recorded selection in one action. A later `update` does not reinstall a fully removed Project; installing again needs a new `install`.
 
-```
-$ apkit unbind <project>
-Removed configured Project for <project>
-  Profile: release
-  Hosts: claude
-Generated files remain until update
-Next: apkit status --all
+Scope is explicit: `--here`, `--project <path>`, and `--all` are mutually exclusive and conflicting scopes are rejected before any write. `--profile <name>` alone selects installations using that Profile and intersects an explicit scope without ever broadening it; it never deletes Workspace source. `--host` is rejected as not yet supported and `--replace-changed` is rejected because uninstall only deletes (use `--remove-changed`). An absent scope never implies all Projects: a non-interactive invocation refuses, and a bare interactive invocation refuses because interactive selection belongs to a later change.
 
-$ apkit uninstall
-Removed proven Agent Profile Kit-owned output from 4 Projects.
+On an interactive terminal `uninstall` confirms the selected scope before any write, even with fully supplied arguments; `--auto-confirm` answers that general confirmation only, never changed-file consent. Deleting independently changed generated files needs `--remove-changed` (or interactive consent); missing consent or cancellation leaves every selected Project untouched.
 
-Project: <project>
-  Removed generated paths:
-  - .agent-profile-kit/codex/context.md
-  - .codex/hooks.json
-  Cleaned Git exclusions:
-  - /.agent-profile-kit/codex/context.md (<project>/.git/info/exclude)
-  - /.codex/hooks.json (<project>/.git/info/exclude)
-…
-Configured Projects preserved.
-Next: Run
-  apkit unbind
-  for configured Projects you no longer want, or
-  apkit update
-  to reinstall.
-```
+Each selected Project commits in order: Projects with known Blockers are skipped while healthy Projects proceed, and an unexpected write failure stops further work. Completed Projects stay completed, a failed Project restores its previous selection and output where possible (a restoration failure is reported explicitly), and the outcome reports completed, failed, and unattempted Projects with a concrete scope-preserving retry.
 
-An output whose ownership cannot be proven is kept and reported, not deleted
-silently:
-
-```
-Kept 1 Project whose owned output could not be fully removed:
-
-Project: <project>
-  - recorded output .claude/rules/agent-profile-kit.md does not match the
-    recorded installation and no other recorded root proves ownership
-    continuity; restore the recorded output or remove the generated files, then
-    retry
-```
-
-The follow-on `status` names the resulting state once in its cause group —
-the former duplicated `State:` plus attention-line pairing is gone
-(US-008, DEC-007).
+Public `unbind` is retired: `apkit unbind` exits with `unbind was replaced by uninstall`.
 
 ### 13. Temporary Profile Installations
 
@@ -867,7 +824,4 @@ are argued from these rather than from scratch.
    journey into the Host without presenting unobserved Host state as unfinished
    setup.
 10. **Exit codes agree across commands** for the same state.
-11. **Prompts are predictable and teach by use.** Exactly bind, init, and the
-    update confirmation interact; every completed prompt flow prints the
-    equivalent fully specified command, and everything else — including
-    teardown — never prompts (DEC-030–032).
+11. **Prompts are predictable and teach by use.** Exactly install, init, uninstall, and the update changed-file review interact; every completed prompt flow prints the equivalent fully specified command, and everything else never prompts (DEC-004, DEC-005).

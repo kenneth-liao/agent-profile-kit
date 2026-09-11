@@ -17,6 +17,7 @@ import {
   temporaryDirectory,
 } from "./support/apply-confirmation-fixture.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { retireBindingByHand } from "./support/retire-receipt.js";
 
 afterAll(cleanupTemporaryDirectories);
 
@@ -74,8 +75,7 @@ describe("update changed-file authorization", () => {
     // Hand-edit again, then retire the drifted Project: its surviving output
     // becomes a deletion whose disk bytes differ from the receipt.
     writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home: fleet.home, project: fleet.driftedProject });
+    await retireBindingByHand(fleet.home, fleet.driftedProject);
     const desired = (await buildDesiredState(fleet.home, { checkHostCapability: false })).installations;
     const refused = await outcomeOf(() =>
       applyReconciliation(fleet.home, desired, { replaceChanged: true }));
@@ -94,8 +94,7 @@ describe("update changed-file authorization", () => {
 
   test("answering flags never bypass a Blocker", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-consent-blocked");
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home: fleet.home, project: fleet.healthyProject });
+    await retireBindingByHand(fleet.home, fleet.healthyProject);
     const { execFileSync } = await import("node:child_process");
     const { mkdirSync } = await import("node:fs");
     writeFileSync(

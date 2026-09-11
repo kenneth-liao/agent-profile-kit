@@ -19,7 +19,7 @@ export type ConfiguredPathOrigin =
     }
   | { readonly source: "init" }
   | { readonly source: "install-temp" }
-  | { readonly source: "project-target"; readonly command: "update" | "status" | "install" }
+  | { readonly source: "project-target"; readonly command: "update" | "status" | "install" | "uninstall" }
   | { readonly source: "project-binding" };
 
 /**
@@ -128,10 +128,6 @@ export type InstallerToolErrorFact =
       readonly canonicalProject: string;
       readonly profile: string;
       readonly hosts: readonly string[];
-    }
-  | {
-      readonly kind: "stale-binding-removal";
-      readonly cause: InstallerAuthoredError;
     }
   | {
       readonly kind: "duplicate-canonical-root";

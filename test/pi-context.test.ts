@@ -27,7 +27,7 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { applyReconciliation, previewReconciliation } from "../installer/reconcile.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import {
   reportBlockers,
   reportDiagnosticValues,
@@ -461,7 +461,7 @@ describe("Pi Adapter", () => {
     expect(reportItems(status).some((item) => item.project === piProject && item.kind === "drifted output")).toBe(true);
 
     writeFileSync(join(piProject, ".pi", "APPEND_SYSTEM.md"), String(piDesired?.outputs[0]?.type === "file" ? piDesired.outputs[0].bytes : ""));
-    await uninstallApplication(home);
+    await executeUninstall(home, { all: true });
     expect(existsSync(join(piProject, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
     expect(readFileSync(join(piProject, ".pi", "settings.json"), "utf8")).toBe("keep native settings\n");
     expect(readFileSync(trustPath, "utf8")).toBe(`{"${piProject}":true}\n`);
@@ -575,7 +575,7 @@ describe("Pi Adapter", () => {
     expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["claude", "pi"]);
     expect(existsSync(join(project, ".claude", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
-    await uninstallApplication(home);
+    await executeUninstall(home, { all: true });
     expect(existsSync(join(project, ".claude", "skills", "review-pr"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
   });

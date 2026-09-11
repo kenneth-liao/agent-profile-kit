@@ -69,7 +69,7 @@ The durable machine-local JSON ownership evidence used to prove ownership and dr
 _Avoid_: Disposable Profile Installation output, Workspace source, reconstructed Host inventory
 
 **Installation Receipt**:
-The single ownership record for one ordinary or Temporary Profile Installation. It owns installation identity, lifetime, canonical Project, Profile ID, desired-input digest, one Host receipt map, and generated output roots; it records no exclusion target or entry list. An active receipt grants the Installer authority over each recorded generated output root while the recorded paths are safe; a receipt retired by `unbind` no longer proves active ownership and persists only as the teardown authority whose recorded detail a later `apply` consumes. Directory roots retain one aggregate ownership hash and no member tree.
+The single ownership record for one ordinary or Temporary Profile Installation. It owns installation identity, lifetime, canonical Project, Profile ID, desired-input digest, one Host receipt map, and generated output roots; it records no exclusion target or entry list. An active receipt grants the Installer authority over each recorded generated output root while the recorded paths are safe; a receipt retired by the removed `unbind` boundary no longer proves active ownership and persists only as the teardown authority whose recorded detail a later `update` consumes. Directory roots retain one aggregate ownership hash and no member tree.
 _Avoid_: Installation Manifest, presentation history, selected Context, generated output
 
 **Repository Exclusion Contribution**:

@@ -46,6 +46,7 @@ import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installatio
 import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
+import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
 import {
@@ -832,7 +833,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
 
-    const uninstall = await runCli(home, "uninstall");
+    const uninstall = await runCli(home, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output");
   });
@@ -1654,7 +1655,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       ["update"],
       ["status"],
       ["install", "coding", projectPath, "--host", "codex", "--auto-confirm"],
-      ["unbind", projectPath],
+      ["uninstall", "--project", projectPath, "--auto-confirm"],
     ];
     for (const arguments_ of commands) {
       const result = await runCli(home, ...arguments_);
@@ -4095,7 +4096,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const laterUnrelated = "# author entry added after installation\n/local-only\n";
     writeFileSync(exclude, `${installedExclude}${laterUnrelated}`);
     expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "uninstall"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
     expect(readFileSync(exclude, "utf8")).toBe(`${unrelated}${laterUnrelated}`);
     expect(readFileSync(join(repository, ".gitignore"), "utf8")).toBe(sharedIgnore);
   });
@@ -4234,9 +4235,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(exclude, 0o640);
     rmSync(nested, { recursive: true });
 
-    const unbound = await runCli(home, "unbind", nested);
-
-    expectExitCode(unbound, 0);
+    await retireBindingByHand(home, nested);
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${nested}: removal`));
@@ -4274,7 +4273,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     rmSync(first, { recursive: true });
 
-    expectExitCode(await runCli(home, "unbind", first), 0);
+    await retireBindingByHand(home, first);
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${first}: removal`));
@@ -4297,7 +4296,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     rmSync(repository, { recursive: true });
 
-    expectExitCode(await runCli(home, "unbind", repository), 0);
+    await retireBindingByHand(home, repository);
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
     expect(status.stdout).toContain("- needs attention (1):");
@@ -4322,7 +4321,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     rmSync(worktree, { recursive: true });
 
-    expectExitCode(await runCli(home, "unbind", worktree), 0);
+    await retireBindingByHand(home, worktree);
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
     expectExitCode(await runCli(home, "update"), 0);
@@ -4355,9 +4354,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(exclude);
     rmSync(nested, { recursive: true });
 
-    const unbound = await runCli(home, "unbind", nested);
-
-    expectExitCode(unbound, 0);
+    await retireBindingByHand(home, nested);
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
@@ -4441,7 +4438,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const unrelated = "# local rules\n*.local\n";
     writeFileSync(exclude, unrelated);
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
 
     const status = await runCli(home, "status", "--verbose");
 
@@ -4473,7 +4470,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     rmSync(exclude);
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
 
     const statusVerbose = await runCli(home, "status", "--verbose");
 
@@ -4529,7 +4526,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const info = join(repository, ".git", "info");
     rmSync(info, { recursive: true });
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
 
     const status = await runCli(home, "status");
 
@@ -4573,7 +4570,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const malformed = `${readFileSync(exclude, "utf8")}# BEGIN Agent Profile Kit generated paths\n`;
     writeFileSync(exclude, malformed);
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
 
     const status = await runCli(home, "status", "--json");
 
@@ -4622,7 +4619,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     rmSync(exclude);
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
     const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
     chmodSync(stateDirectory, 0o555);
 
@@ -4669,7 +4666,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exclude = join(repository, ".git", "info", "exclude");
     const beforeExclude = readFileSync(exclude);
     rmSync(nested, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", nested), 0);
+    await retireBindingByHand(home, nested);
     const stateDirectory = join(home, ".agents", "agent-profile-kit", "state");
     chmodSync(stateDirectory, 0o555);
 
@@ -4828,7 +4825,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     )).toHaveLength(1);
 
     // Teardown proceeds best-effort on unprovable topology too.
-    const uninstall = await runCli(home, "uninstall");
+    const uninstall = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
     expectExitCode(uninstall, 0);
     expect(existsSync(join(repository, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
@@ -4892,10 +4889,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(applied.stdout).toContain("cannot write to it.");
     expect(readFileSync(generated).equals(installed)).toBe(true);
 
-    const uninstall = await runCli(home, "uninstall");
+    const uninstall = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(uninstall, 0);
-    expect(uninstall.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expectExitCode(uninstall, 2);
+    expect(uninstall.stdout).toMatch(/skipped 1 Project/i);
     expect(uninstall.stdout).toContain("tracked by Git");
     expect(readFileSync(generated).equals(installed)).toBe(true);
   });
@@ -4989,7 +4986,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       exclude,
       readFileSync(exclude).toString("utf8").replace("/.codex/hooks.json", "/unexpected"),
     );
-    const uninstalled = await runCli(home, "uninstall");
+    const uninstalled = await runCli(home, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstalled, 0);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(false);
   });
@@ -5492,7 +5489,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status");
     const apply = await runCli(home, "update");
-    const uninstall = await runCli(home, "uninstall");
+    const uninstall = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
     expectExitCode(status, 2);
     expect(status.stdout).toContain("schema_version must be 9 or 8 or 7 or 6");
@@ -5747,7 +5744,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
   });
 
-  test("uninstall removes drifted proven output", async () => {
+  test("uninstall refuses drifted output without changed-file consent", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5756,9 +5753,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "user edit\n");
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
+    // Deleting independently changed output needs explicit authorization
+    // (DEC-005): the invocation refuses before any lifecycle write.
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("--remove-changed");
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+
+    const authorized = await runCli(home, "uninstall", "--all", "--auto-confirm", "--remove-changed");
+    expectExitCode(authorized, 0);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
   });
 
@@ -5773,10 +5777,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(tracked, "user drift\n");
     execFileSync("git", ["-C", repository, "add", "-f", ".codex/hooks.json"]);
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expectExitCode(result, 2);
+    expect(result.stdout).toMatch(/skipped 1 Project/i);
     expect(result.stdout).toContain("tracked by Git");
     expect(existsSync(tracked)).toBe(true);
     expect(execFileSync("git", ["-C", repository, "status", "--porcelain"], { encoding: "utf8" }))
@@ -5797,7 +5801,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     rmSync(join(projectPath, ".codex", "hooks.json"));
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
     expectExitCode(result, 0);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
@@ -5817,11 +5821,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(external, "hooks.json"), hook);
     symlinkSync(external, join(projectPath, ".codex"));
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
-    // The unsafe-parent fact carries the bare parent path (#440); the kept
+    expectExitCode(result, 2);
+    expect(result.stdout).toMatch(/skipped 1 Project/i);
+    // The unsafe-parent fact carries the bare parent path (#440); the skipped
     // reason renders from the Installer-failure sentence surface (ticket #441).
     expect(result.stdout).toContain("has unsafe parent:");
     expect(readFileSync(join(external, "hooks.json"), "utf8")).toBe(hook);
@@ -5832,7 +5836,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(projectPath)]);
   });
 
-  test("uninstall removes each Project independently and reports the Project it kept", async () => {
+  test("uninstall removes each Project independently and reports the Project it skipped", async () => {
     const home = isolatedHome();
     await initialize(home);
     const first = project("agent-profile-kit-uninstall-a-");
@@ -5843,16 +5847,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     // An unsafe output parent keeps the second Project's owned output from
     // being fully removed; the first Project is still removed in the same
-    // invocation and the second is reported as kept without a tool error.
+    // invocation and the second is reported as skipped with a Blocker exit.
     rmSync(join(second, ".codex"), { recursive: true });
     symlinkSync(first, join(second, ".codex"));
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
+    expectExitCode(result, 2);
+    expect(result.stdout).toMatch(/skipped 1 Project/i);
     expect(existsSync(join(first, ".codex", "hooks.json"))).toBe(false);
     expect(existsSync(join(first, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    // The kept Project's owned output survives untouched: the symlink parent
+    // The skipped Project's owned output survives untouched: the symlink parent
     // is still in place and its own recorded roots were never staged.
     expect(existsSync(join(second, ".codex"))).toBe(true);
     expect(existsSync(join(second, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
@@ -5860,16 +5865,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       receipts: Array<{ project: string }>;
     };
     expect(state.receipts.map((receipt) => receipt.project)).toEqual([realpathSync(second)]);
-    // The typed Project identity is an atomic path node: it elides in the
-    // middle and keeps the tail visible instead of overflowing (DEC-004).
-    expectElidedProjectLine(result.stdout, realpathSync(first));
-    expectElidedProjectLine(result.stdout, realpathSync(second));
     expect(result.stdout).toContain("unsafe parent");
-    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    // The completed Project is forgotten while the skipped one is retained.
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
   });
 
-  test("uninstall reads only ownership state when Workspace and Project Binding input is invalid", async () => {
+  test("uninstall refuses invalid Local Configuration without writes", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -5879,11 +5882,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(configPath(home), "invalid local configuration\n");
     rmSync(workspacePath(home), { recursive: true });
 
-    const result = await runCli(home, "uninstall");
+    const before = readFileSync(configPath(home), "utf8");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
-    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
-    expect(readFileSync(configPath(home), "utf8")).toBe("invalid local configuration\n");
+    // Forgetting needs the bindings it removes: an unreadable selection
+    // fails closed before any lifecycle write.
+    expectExitCode(result, 1);
+    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 
   test("uninstall removes only proven output and preserves canonical and unrelated project state", async () => {
@@ -5899,25 +5905,25 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "uninstall"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
 
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
     expect(existsSync(join(projectPath, ".codex"))).toBe(true);
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
-    expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(projectPath);
     expect(readFileSync(join(globalCodex, "config.toml"), "utf8")).toBe("[features]\nhooks = true\n# global setting\n");
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
   });
 
-  test("uninstall leaves a bound Project not installed and eligible for update without teardown provenance", async () => {
+  test("uninstall forgets the Project so status no longer lists it", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
     writeContextProfile(home);
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "uninstall"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
 
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly unknown[];
@@ -5928,10 +5934,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.receipts).toEqual([]);
     expect(state.removed_temporary_installation_ids).toEqual([]);
     expectExitCode(result, 0);
-    expect(result.stdout).not.toContain("State: addition");
-    expect(result.stdout).toContain("- not installed yet (1):");
-    expect(result.stdout).not.toContain("intended teardown");
-    expect(result.stdout).not.toContain("not a safe automatic repair");
+    expect(result.stdout).not.toContain("not installed yet");
+    expect(result.stdout).not.toContain(projectPath);
   });
 
   test("uninstall preserves active and removed Temporary Profile Installations and their owned output", async () => {
@@ -5975,7 +5979,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       removed_temporary_installation_ids: readonly string[];
     };
 
-    expectExitCode(await runCli(home, "uninstall"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { installation_id: string; lifetime: string }[];
@@ -5988,7 +5992,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(after.removed_temporary_installation_ids).toEqual([removedId]);
   });
 
-  test("uninstall names removed project files, cleaned Git exclusions, and preserved bindings", async () => {
+  test("uninstall reports the removed count once and forgets the selection", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = gitRepository("agent-profile-kit-uninstall-receipt-");
@@ -5996,33 +6000,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
+    expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project and forgot");
     expect(result.stdout).not.toMatch(/^Uninstalled\b/m);
-    // The typed Project identity is an atomic path node: it elides in the
-    // middle and keeps the tail visible instead of overflowing (DEC-004).
-    expectElidedProjectLine(result.stdout, realpathSync(projectPath));
-    expect(result.stdout).toContain("Removed generated paths:");
-    expect(result.stdout).toContain("- .agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("- .codex/hooks.json");
-    expect(result.stdout).toContain("Cleaned Git exclusions:");
-    expect(result.stdout).toContain("- /.agent-profile-kit/codex/context.md");
-    expect(result.stdout).toContain("Configured Projects preserved.");
+    // Routine success is compact: no per-file, per-Project, or exclusion
+    // inventories, and the forgotten selection is stated once.
+    expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
+    expect(result.stdout).not.toContain(".codex/hooks.json");
+    expect(result.stdout).not.toContain("Cleaned Git exclusions:");
+    expect(result.stdout).toContain("forgot");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(projectPath);
   });
 
-  test("uninstall with no installed output states the empty result without removing Projects", async () => {
+  test("uninstall with no matching installation reports zero matches without writes", async () => {
     const home = isolatedHome();
     await initialize(home);
 
-    const result = await runCli(home, "uninstall");
+    const result = await runCli(home, "uninstall", "--all", "--auto-confirm");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toBe(
-      "No ordinary Agent Profile Kit-owned output is installed.\n\n" +
-      "Configured Projects preserved.\n",
-    );
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("matched no installation");
     expect(result.stdout).not.toMatch(/(?:Uninstalled|Removed .*Projects?)/i);
   });
 
@@ -6033,8 +6032,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeContextProfile(home);
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "uninstall"), 0);
-    expectExitCode(await runCli(home, "unbind", projectPath), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
     const rebound = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(rebound, 0);
     expect(rebound.stdout).toContain("Installed coding for");
@@ -6094,7 +6092,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(state.receipts).toHaveLength(1);
   });
 
-  test("retires an intentionally deleted project after exact-path unbind", async () => {
+  test("uninstall forgets an intentionally deleted project by exact authored path", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project("agent-profile-kit-intentionally-deleted-");
@@ -6103,34 +6101,20 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     rmSync(projectPath, { recursive: true });
 
-    const unbound = await runCli(home, "unbind", projectPath);
+    // A deleted root is still forgettable by its exact authored spelling: its
+    // removal is trivially complete, so forgetting needs no later update.
+    const removed = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
 
-    expectExitCode(unbound, 0);
-    expect(unbound.stdout).toContain("Generated files remain until update");
-    expect(unbound.stdout).toContain("Next: apkit status --all");
-    // The receipt is retired by unbind itself: no active receipt remains and
-    // the retiring record carries exactly its previously recorded detail.
-    const retired = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { installation_id: string; retired?: boolean }[];
-    };
-    expect(retired.receipts).toHaveLength(1);
-    expect(retired.receipts[0]?.retired).toBe(true);
-    const status = await runCli(home, "status", "--verbose");
-    expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: removal`));
-    expect(status.stdout).toContain("intentionally deleted");
-
-    const applied = await runCli(home, "update");
-
-    expectExitCode(applied, 0);
-    expect(existsSync(projectPath)).toBe(false);
+    expectExitCode(removed, 0);
+    expect(removed.stdout).toContain("1 Project");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(projectPath);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly unknown[];
     };
     expect(state.receipts).toHaveLength(0);
   });
 
-  test("deleting a bound root without unbind leaves desired state and blocks reconciliation", async () => {
+  test("deleting a bound root without uninstall leaves desired state and blocks reconciliation", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project("agent-profile-kit-deleted-still-bound-");
@@ -6161,8 +6145,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     };
     const initialId = initial.receipts[0]!.installation_id;
     rmSync(projectPath, { recursive: true });
-    expectExitCode(await runCli(home, "unbind", projectPath), 0);
-    expectExitCode(await runCli(home, "update"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm"), 0);
     mkdirSync(projectPath);
 
     const rebound = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
@@ -6555,11 +6538,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(applied, 2);
     expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
 
-    const uninstalled = await runCli(home, "uninstall");
+    const uninstalled = await runCli(home, "uninstall", "--all", "--auto-confirm");
     // The fail-closed Project is reported and skipped — never a tool error —
     // and its receipt survives so the foreign bytes are never claimed.
-    expectExitCode(uninstalled, 0);
-    expect(uninstalled.stdout).toContain("Kept 1 Project whose owned output could not be fully removed");
+    expectExitCode(uninstalled, 2);
+    expect(uninstalled.stdout).toMatch(/skipped 1 Project/i);
     expect(uninstalled.stdout).toContain("ownership continuity");
     expect(readFileSync(foreignHooks, "utf8")).toBe("foreign checkout material\n");
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -7552,7 +7535,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "native-project-unscoped-rules-skills-v1",
     );
 
-    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall");
+    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(readFileSync(join(projectPath, "CLAUDE.md"), "utf8")).toBe("project-owned instructions\n");
@@ -7699,7 +7682,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(antigravityProject, "GEMINI.md"), "utf8")).toBe("gemini instructions\n");
     expect(readFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "utf8")).toBe("keep this rule\n");
 
-    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall"), 0);
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall", "--all", "--auto-confirm"), 0);
     expect(existsSync(join(antigravityProject, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(readFileSync(join(antigravityProject, ".agents", "rules", "unrelated.md"), "utf8")).toBe("keep this rule\n");
     expect(readFileSync(join(antigravityProject, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
@@ -7881,7 +7864,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     )?.hosts ?? {})).toEqual(["codex", "pi"]);
     expect(existsSync(join(combinedProject, ".agents", "skills", "disabled-skill", "SKILL.md"))).toBe(true);
 
-    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall"), 0);
+    expectExitCode(await runCliWithPath(home, pathWithHosts, "uninstall", "--all", "--auto-confirm"), 0);
     for (const projectPath of [antigravityProject, combinedProject]) {
       expect(existsSync(join(projectPath, ".agents", "skills", "top-skill"))).toBe(false);
       expect(existsSync(join(projectPath, ".agents", "skills", "disabled-skill"))).toBe(false);
@@ -8002,7 +7985,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(Object.keys((state.receipts[0]?.hosts) ?? {})).toEqual(["grok"]);
     expect(state.receipts[0]?.hosts.grok?.capability_contract).toBe("native-project-unscoped-rules-v1");
 
-    const uninstall = await runCliWithPath(home, pathWithGrok, "uninstall");
+    const uninstall = await runCliWithPath(home, pathWithGrok, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned instructions\n");
@@ -8297,7 +8280,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "leave me\n",
     );
 
-    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall");
+    const uninstall = await runCliWithPath(home, pathWithClaude, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
     expect(readFileSync(join(projectPath, ".claude", "skills", "foreign-skill", "SKILL.md"), "utf8")).toBe(
@@ -8375,10 +8358,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "guide", "--full");
     expectExitCode(result, 0);
 
-    for (const command of ["init", "validate", "status", "update", "unbind", "uninstall"]) {
+    for (const command of ["init", "validate", "status", "update", "uninstall"]) {
       expect(result.stdout).toContain(`apkit ${command}`);
     }
-    expect(result.stdout).toMatch(/unbind.*(?:desired|Project Binding).*uninstall|uninstall.*unbind/is);
+    expect(result.stdout).toMatch(/uninstall --(here|project|all)/);
+    expect(result.stdout).not.toMatch(/apkit unbind\b/);
     expect(result.stdout).not.toMatch(/apkit (plan|run)\b/);
 
     expect(result.stdout).toMatch(/project:\s*(~\/|\/)/);
@@ -8581,9 +8565,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(result.stdout).toMatch(/Host Resolution/i);
     expect(result.stdout).toMatch(/Output Ownership Conflict/i);
-    for (const command of ["validate", "status", "update", "unbind", "uninstall"]) {
+    for (const command of ["validate", "status", "update", "uninstall"]) {
       expect(result.stdout).toContain(`apkit ${command}`);
     }
+    expect(result.stdout).not.toMatch(/apkit unbind\b/);
   });
 
   test("packed human guide distinguishes required Manifest from init scaffolding", async () => {
@@ -8678,572 +8663,37 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 });
 
-describe("agent-profile-kit unbind (recording-only Project Binding removal)", () => {
-  test("unbind without a project argument removes the canonical current working directory binding", async () => {
+describe("agent-profile-kit uninstall (explicit removal and forgetting)", () => {
+  test("unbind was replaced by uninstall without a compatibility shim", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
-    bind(home, projectPath);
-
-    const result = await runCliAt(home, projectPath, "unbind");
-
-    expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain("Removed configured Project for .");
-    expect(result.stdout).toContain("Profile: coding");
-    expect(result.stdout).toContain("Hosts: codex");
-    expect(result.stdout).not.toContain(realpathSync(projectPath));
-    expect(result.stdout).not.toContain(configPath(home));
-    expect(result.stdout).not.toContain("Next:");
-    expect(result.stdout).not.toContain("apkit update");
-    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
-  });
-
-  test("unbind removes a missing project only by exact authored path", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const authored = "~/projects/agent-profile-kit-unbind-missing";
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
-    );
-
-    const result = await runCli(home, "unbind", authored);
-
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed configured Project");
-    expect(result.stdout).toContain("canonical project identity could not be proven");
-    expect(result.stdout).toContain(`Local Configuration: ${configPath(home)}`);
-    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
-  });
-
-  test("unbind does not infer an alias for a missing authored project path", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const authored = "~/projects/agent-profile-kit-unbind-authored";
-    const alias = "~/projects/agent-profile-kit-unbind-alias";
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
-    );
-    const before = readFileSync(configPath(home), "utf8");
-
-    const result = await runCli(home, "unbind", alias);
-
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Configured Project unchanged");
-    expect(result.stdout).toContain(alias);
-    expect(readFileSync(configPath(home), "utf8")).toBe(before);
-  });
-
-  test("unbind rejects malformed or ambiguous Local Configuration without mutation", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    const malformed = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: not-an-array\n`;
-    writeFileSync(configPath(home), malformed);
-
-    const malformedResult = await runCli(home, "unbind", projectPath);
-
-    expectExitCode(malformedResult, 1);
-    expect(malformedResult.stderr).toMatch(/bindings must be an array/i);
-    expect(readFileSync(configPath(home), "utf8")).toBe(malformed);
-
-    const missing = "~/projects/agent-profile-kit-unbind-ambiguous";
-    const ambiguous =
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
-      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n` +
-      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n`;
-    writeFileSync(configPath(home), ambiguous);
-
-    const ambiguousResult = await runCli(home, "unbind", missing);
-
-    expectExitCode(ambiguousResult, 1);
-    expect(ambiguousResult.stderr).toMatch(/duplicates missing project path/i);
-    expect(readFileSync(configPath(home), "utf8")).toBe(ambiguous);
-  });
-
-  test("unbind fails closed with a hand-edit fallback when a Profile is missing", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    const source =
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
-    writeFileSync(configPath(home), source);
 
     const result = await runCli(home, "unbind", projectPath);
 
     expectExitCode(result, 1);
-    expect(result.stderr).toMatch(/does not exist in this Workspace/i);
-    expect(result.stderr).toMatch(/edit Local Configuration directly/i);
-    expect(readFileSync(configPath(home), "utf8")).toBe(source);
+    expect(result.stderr).toContain("unbind was replaced by uninstall");
   });
 
-  test("unbind gives an empty Workspace one recovery for its stale missing Profile", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    removeScaffoldedExample(home);
-    const projectPath = project();
-    const source =
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
-    writeFileSync(configPath(home), source);
-
-    const result = await runCli(home, "unbind", projectPath);
-
-    expectExitCode(result, 1);
-    expect(result.stderr.replace(/\s+/g, " ")).toContain("No Profiles exist in the Workspace");
-    expect(result.stderr).toMatch(/edit Local Configuration directly/i);
-    expect(result.stderr).not.toContain("apkit guide");
-    expect(readFileSync(configPath(home), "utf8")).toBe(source);
-  });
-
-  test("unbind refuses a direct edit observed before atomic publication", async () => {
+  test("uninstall refuses without an explicit scope and never implies all Projects", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     bind(home, projectPath);
-    const configuration = configPath(home);
-    const before = readFileSync(configuration, "utf8");
-
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    const {
-      mkdir,
-      readdir,
-      readFile,
-      rename,
-      rm,
-      stat,
-      unlink,
-      writeFile,
-    } = await import("node:fs/promises");
-    let staged = false;
-    await expect(
-      unbindProject({
-        home,
-        project: projectPath,
-        fileSystem: {
-          mkdir,
-          readdir,
-          rename,
-          rm,
-          stat,
-          unlink,
-          writeFile: async (path, data, options) => {
-            const result = await writeFile(path, data, options);
-            if (typeof path === "string" && path.includes(".config-") && path.endsWith(".tmp")) {
-              staged = true;
-            }
-            return result;
-          },
-          readFile: (async (path: string, encoding?: BufferEncoding) => {
-            if (path === configuration && staged) {
-              await writeFile(configuration, `${before.trimEnd()}\n# external edit before replace\n`);
-            }
-            return readFile(path, encoding ?? "utf8");
-          }) as typeof readFile,
-        },
-      }),
-    ).rejects.toThrow(
-      new RegExp(`^installer tool error: configuration-changed-before-publication$`),
-    );
-
-    expect(readFileSync(configuration, "utf8")).toContain("# external edit before replace");
-    expect(readFileSync(configuration, "utf8")).toContain(projectPath);
-  });
-
-  test("unbind leaves Workspace, project output, state, and Host configuration untouched", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    const projectOutput = join(projectPath, ".agent-profile-kit");
-    mkdirSync(projectOutput, { recursive: true });
-    writeFileSync(join(projectOutput, "sentinel"), "project output\n");
-    const state = join(home, ".agents", "agent-profile-kit", "state");
-    mkdirSync(state, { recursive: true });
-    writeFileSync(join(state, "sentinel"), "machine state\n");
-    const hostConfig = join(home, ".codex", "config.toml");
-    const hostBefore = readFileSync(hostConfig, "utf8");
-    const workspaceBefore = readdirSync(workspacePath(home)).sort();
-
-    const result = await runCli(home, "unbind", projectPath);
-
-    expectExitCode(result, 0);
-    expect(readFileSync(join(projectOutput, "sentinel"), "utf8")).toBe("project output\n");
-    expect(readFileSync(join(state, "sentinel"), "utf8")).toBe("machine state\n");
-    expect(readFileSync(hostConfig, "utf8")).toBe(hostBefore);
-    expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
-  });
-
-  test("unbind reports no match without rewriting Local Configuration", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const bound = project();
-    const other = project();
-    bind(home, bound);
+    expectExitCode(await runCli(home, "update"), 0);
     const before = readFileSync(configPath(home), "utf8");
-
-    const result = await runCli(home, "unbind", other);
-
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Configured Project unchanged");
-    expect(result.stdout).not.toContain(configPath(home));
-    expect(readFileSync(configPath(home), "utf8")).toBe(before);
-  });
-
-  test("unbind retires the Project's active Installation Receipt in the same operation", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    const applied = await runCli(home, "update");
-    expectExitCode(applied, 0);
-    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(true);
-    const before = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly {
-        installation_id: string;
-        outputs: readonly { path: string }[];
-        retired?: boolean;
-      }[];
-      removed_temporary_installation_ids: readonly string[];
-    };
-    expect(before.receipts).toHaveLength(1);
-    expect(before.receipts[0]?.retired).toBeUndefined();
-
-    const removed = await runCli(home, "unbind", projectPath);
-    expectExitCode(removed, 0);
-    expect(humanText(removed.stdout)).toContain(`Removed configured Project for ${projectPath}`);
-    expect(removed.stdout).not.toContain(realpathSync(projectPath));
-    expect(removed.stdout).not.toContain(configPath(home));
-    expect(removed.stdout).toContain("Generated files remain until update");
-    expect(removed.stdout).toContain("Next: apkit status --all");
-
-    // Retirement records only what the receipt already recorded: it is marked
-    // retired in the same operation and no tombstone or ownership detail is
-    // added, while apply keeps the teardown authority over surviving output.
-    const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly {
-        installation_id: string;
-        retired?: boolean;
-        outputs: readonly { path: string }[];
-      }[];
-      removed_temporary_installation_ids: readonly string[];
-    };
-    expect(after.receipts).toHaveLength(1);
-    expect(after.receipts[0]?.retired).toBe(true);
-    expect(after.receipts[0]?.installation_id).toBe(before.receipts[0]?.installation_id);
-    expect(after.receipts[0]?.outputs).toEqual(before.receipts[0]?.outputs);
-    expect(after.removed_temporary_installation_ids).toEqual(
-      before.removed_temporary_installation_ids,
-    );
-
-    // Generated files remain on disk and status reports the pending removal.
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
-    const status = await runCli(home, "status");
-    expectExitCode(status, 0);
-    expect(status.stdout).toContain(projectPath);
-    expect(status.stdout).toContain("- needs attention (1):");
-    expect(status.stdout).toContain("Update will remove generated files for unbound projects.");
-    const verbose = await runCli(home, "status", "--verbose");
-    expect(verbose.stdout).toMatch(/removal/i);
-
-    // apply keeps its teardown authority: the surviving Host-active files are
-    // removed and the retiring record is consumed in the same run.
-    const reconciled = await runCli(home, "update");
-    expectExitCode(reconciled, 0);
-    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
-    const consumed = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly unknown[];
-    };
-    expect(consumed.receipts).toHaveLength(0);
-  });
-
-  test("re-binding an unbound Project and updating starts a clean lifetime", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    const initial = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { installation_id: string }[];
-    };
-    const initialId = initial.receipts[0]!.installation_id;
-
-    expectExitCode(await runCli(home, "unbind", projectPath), 0);
-    expectExitCode(await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm"), 0);
-    const rebound = await runCli(home, "update");
-
-    expectExitCode(rebound, 0);
-    expect(rebound.stderr).toBe("");
-    const restored = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { installation_id: string; project: string; retired?: boolean }[];
-    };
-    expect(restored.receipts).toHaveLength(1);
-    expect(restored.receipts[0]?.retired).toBeUndefined();
-    expect(restored.receipts[0]?.project).toBe(realpathSync(projectPath));
-    expect(restored.receipts[0]?.installation_id).not.toBe(initialId);
-  });
-
-  test("update rejects a stale desired-state snapshot after a concurrent unbind", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    const { buildDesiredState } = await import("../installer/project-plan.js");
-    const { applyReconciliation } = await import("../installer/reconcile.js");
-    const desired = await buildDesiredState(home);
-    expect(desired.installations).toHaveLength(1);
-
-    // A concurrent unbind retires the receipt and removes the binding between
-    // desired-state planning and the lifecycle lock.
-    expectExitCode(await runCli(home, "unbind", projectPath), 0);
-
-    await expect(applyReconciliation(home, desired.installations)).rejects
-      .toThrow(/^installer tool error: configuration-changed-while-planning$/);
-
-    // Fail closed: the retired receipt survives unchanged for the next apply.
-    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { installation_id: string; retired?: boolean }[];
-    };
-    expect(state.receipts).toHaveLength(1);
-    expect(state.receipts[0]?.retired).toBe(true);
-    expectExitCode(await runCli(home, "update"), 0);
-    expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
-  });
-
-  test("unbind rolls the retirement back when binding publication fails", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    const before = readFileSync(statePath(home), "utf8");
-
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    const {
-      mkdir,
-      readdir,
-      readFile,
-      rename,
-      rm,
-      stat,
-      unlink,
-      writeFile,
-    } = await import("node:fs/promises");
-    await expect(
-      unbindProject({
-        home,
-        project: projectPath,
-        fileSystem: {
-          mkdir,
-          readdir,
-          rename,
-          rm,
-          stat,
-          unlink,
-          writeFile: async (path, data, options) => {
-            if (typeof path === "string" && path.includes(".config-") && path.endsWith(".tmp")) {
-              throw new Error("simulated Local Configuration staging failure");
-            }
-            return writeFile(path, data, options);
-          },
-          readFile,
-        },
-      }),
-    ).rejects.toThrow(/simulated Local Configuration staging failure/);
-
-    // The failed unbind mutated nothing: the receipt is active again.
-    expect(readFileSync(statePath(home), "utf8")).toBe(before);
-    expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
-  });
-
-  test("uninstall is unaffected by a previously unbound Project", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const unbound = project("agent-profile-kit-unbound-");
-    const retained = project("agent-profile-kit-retained-");
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${unbound}\n    profile: coding\n    hosts: [codex]\n  - project: ${retained}\n    profile: coding\n    hosts: [codex]\n`,
-    );
-    expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "unbind", unbound), 0);
 
     const result = await runCli(home, "uninstall");
 
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project.");
-    expect(existsSync(join(retained, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
-    // The unbound Project's surviving generated files are nobody's teardown business.
-    expect(existsSync(join(unbound, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expectExitCode(result, 1);
+    expect(result.stderr).toMatch(/explicit scope|never implies all Projects/);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("retiring an ordinary receipt at unbind preserves Temporary Profile Installations", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    const temporaryProject = project("agent-profile-kit-temporary-");
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    const active = await runCli(
-      home,
-      "machine", "install-temp",
-      "coding",
-      temporaryProject,
-      "--host",
-      "codex",
-      "--json",
-    );
-    expectExitCode(active, 0);
-    const activeId = (JSON.parse(active.stdout) as { temporaryInstallationId: string })
-      .temporaryInstallationId;
-    const removedTempProject = join(temporaryProject, "removed");
-    mkdirSync(removedTempProject, { recursive: true });
-    const removed = await runCli(
-      home,
-      "machine", "install-temp",
-      "coding",
-      removedTempProject,
-      "--host",
-      "codex",
-      "--json",
-    );
-    expectExitCode(removed, 0);
-    const removedId = (JSON.parse(removed.stdout) as { temporaryInstallationId: string })
-      .temporaryInstallationId;
-    expectExitCode(await runCli(home, "machine", "remove-temp", removedId, "--json"), 0);
-
-    expectExitCode(await runCli(home, "unbind", projectPath), 0);
-
-    const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
-      receipts: readonly { lifetime: string; installation_id: string; retired?: boolean }[];
-      removed_temporary_installation_ids: readonly string[];
-    };
-    // The active Temporary receipt, its identity, and its generated output all
-    // survive the ordinary retirement untouched; the tombstone is unchanged.
-    expect(state.receipts).toHaveLength(2);
-    const survivingActive = state.receipts.find(
-      (receipt) => receipt.installation_id === activeId,
-    );
-    expect(survivingActive?.lifetime).toBe("temporary");
-    expect(survivingActive?.retired).toBeUndefined();
-    expect(state.removed_temporary_installation_ids).toEqual([removedId]);
-    expect(existsSync(join(temporaryProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
-  });
-
-  test("unbind omits reconciliation guidance when uninstall already removed generated output", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    bind(home, projectPath);
-    expectExitCode(await runCli(home, "update"), 0);
-    expectExitCode(await runCli(home, "uninstall"), 0);
-
-    const result = await runCli(home, "unbind", projectPath);
-
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed configured Project");
-    expect(result.stdout).not.toContain("Next:");
-    expect(result.stdout).not.toContain("status");
-    expect(result.stdout).not.toContain("update");
-  });
-
-  test("unbind preserves Local Configuration line endings and file mode", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings:\r\n  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`,
-    );
-    chmodSync(configPath(home), 0o600);
-
-    const result = await runCli(home, "unbind", projectPath);
-
-    expectExitCode(result, 0);
-    const source = readFileSync(configPath(home), "utf8");
-    expect(source).toContain("\r\n");
-    expect(source).toContain("# keep");
-    expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
-    expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
-  });
-
-  test("unbind accepts an explicit symlink alias and removes its canonical binding", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = project();
-    const alias = join(home, "project-alias");
-    symlinkSync(projectPath, alias, "dir");
-    bind(home, projectPath);
-
-    const result = await runCli(home, "unbind", alias);
-
-    expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${projectPath}`);
-    expect(result.stdout).not.toContain(realpathSync(projectPath));
-    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
-    expect(existsSync(alias)).toBe(true);
-  });
-
-  test("unbind preserves flow-style unrelated binding text", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const removed = project();
-    const retained = project();
-    const source =
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${removed}, profile: coding, hosts: [codex]}, ` +
-      `{project: ${retained}, profile: coding, hosts: [claude]}]\n`;
-    writeFileSync(configPath(home), source);
-
-    const result = await runCli(home, "unbind", removed);
-
-    expectExitCode(result, 0);
-    expect(readFileSync(configPath(home), "utf8")).toBe(
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
-    );
-  });
-
-  test("unbind resolves an existing home-relative project path", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    writeContextProfile(home);
-    const projectPath = join(home, "projects", "home-relative");
-    mkdirSync(projectPath, { recursive: true });
-    const authored = "~/projects/home-relative";
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
-    );
-
-    const result = await runCli(home, "unbind", authored);
-
-    expectExitCode(result, 0);
-    expect(result.stdout).toContain("Removed configured Project");
-    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
-  });
-
-  test("unbind removes one explicit existing binding and preserves unrelated configuration", async () => {
+  test("uninstall forgets one explicit binding and preserves unrelated configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9255,18 +8705,211 @@ describe("agent-profile-kit unbind (recording-only Project Binding removal)", ()
       `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`;
     writeFileSync(configPath(home), original);
 
-    const result = await runCli(home, "unbind", removed);
+    const result = await runCli(home, "uninstall", "--project", removed, "--auto-confirm");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(`Removed configured Project for ${removed}`);
-    expect(result.stdout).not.toContain(realpathSync(removed));
-    expect(result.stdout).toContain("Profile: coding");
-    expect(result.stdout).toContain("Hosts: codex");
+    expect(result.stdout).toContain("1 Project");
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toBe(
       `schema_version: 2\n# keep this comment\nworkspace: ${workspacePath(home)}\nbindings:\n` +
         `  # retain this binding note\n  - project: ${retained}\n    profile: coding\n    hosts: [claude]\n`,
     );
+  });
+
+  test("uninstall preserves flow-style unrelated binding text", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const removed = project();
+    const retained = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${removed}, profile: coding, hosts: [codex]}, ` +
+      `{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
+    );
+
+    const result = await runCli(home, "uninstall", "--project", removed, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    expect(readFileSync(configPath(home), "utf8")).toBe(
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: [{project: ${retained}, profile: coding, hosts: [claude]}]\n`,
+    );
+  });
+
+  test("uninstall preserves CRLF line endings and file mode", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\r\n# keep\r\nworkspace: ${workspacePath(home)}\r\nbindings:\r\n  - project: ${projectPath}\r\n    profile: coding\r\n    hosts: [codex]\r\n`,
+    );
+    chmodSync(configPath(home), 0o600);
+
+    const result = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    const source = readFileSync(configPath(home), "utf8");
+    expect(source).toContain("\r\n");
+    expect(source).toContain("# keep");
+    expect(source.split("\n").every((line) => line.endsWith("\r") || line === "")).toBe(true);
+    expect(statSync(configPath(home)).mode & 0o777).toBe(0o600);
+  });
+
+  test("uninstall accepts an explicit symlink alias and forgets its canonical binding", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const alias = join(home, "project-alias");
+    symlinkSync(projectPath, alias, "dir");
+    bind(home, projectPath);
+
+    const result = await runCli(home, "uninstall", "--project", alias, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+    expect(existsSync(alias)).toBe(true);
+  });
+
+  test("uninstall resolves an existing home-relative project path", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = join(home, "projects", "home-relative");
+    mkdirSync(projectPath, { recursive: true });
+    const authored = "~/projects/home-relative";
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+
+    const result = await runCli(home, "uninstall", "--project", authored, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+  });
+
+  test("uninstall does not infer an alias for a missing authored project path", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const authored = "~/projects/agent-profile-kit-uninstall-authored";
+    const alias = "~/projects/agent-profile-kit-uninstall-alias";
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${authored}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = await runCli(home, "uninstall", "--project", alias, "--auto-confirm");
+
+    // Fail closed: a missing path matches only its exact authored spelling.
+    expectExitCode(result, 1);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
+  test("uninstall rejects malformed or duplicate Local Configuration without mutation", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const malformed = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: not-an-array\n`;
+    writeFileSync(configPath(home), malformed);
+
+    const malformedResult = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
+
+    expectExitCode(malformedResult, 1);
+    expect(malformedResult.stderr).toMatch(/bindings must be an array/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(malformed);
+
+    const missing = "~/projects/agent-profile-kit-uninstall-ambiguous";
+    const ambiguous =
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n` +
+      `  - project: ${missing}\n    profile: coding\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), ambiguous);
+
+    const ambiguousResult = await runCli(home, "uninstall", "--project", missing, "--auto-confirm");
+
+    expectExitCode(ambiguousResult, 1);
+    expect(ambiguousResult.stderr).toMatch(/duplicates missing project path/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(ambiguous);
+  });
+
+  test("uninstall forgets a binding whose Profile is missing without touching the Workspace", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    const source =
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`;
+    writeFileSync(configPath(home), source);
+    const workspaceBefore = readdirSync(workspacePath(home)).sort();
+
+    // Recovery stays independent of valid source: no Workspace resolution,
+    // no hand-edit fallback, just forgetting.
+    const result = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+    expect(readdirSync(workspacePath(home)).sort()).toEqual(workspaceBefore);
+  });
+
+  test("uninstall forgets a binding with an empty Workspace", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    const projectPath = project();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: missing\n    hosts: [codex]\n`,
+    );
+
+    const result = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
+
+    expectExitCode(result, 0);
+    expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
+  });
+
+  test("uninstall --json reports the machine outcome without rendered prose", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+    bind(home, projectPath);
+    expectExitCode(await runCli(home, "update"), 0);
+
+    const result = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm", "--json");
+
+    expectExitCode(result, 0);
+    const payload = JSON.parse(result.stdout) as {
+      command: string;
+      completed: { project: string }[];
+      skipped: unknown[];
+      unattempted: unknown[];
+    };
+    expect(payload.command).toBe("uninstall");
+    expect(payload.completed.map((entry) => entry.project)).toEqual([projectPath]);
+    expect(payload.skipped).toEqual([]);
+    expect(payload.unattempted).toEqual([]);
+  });
+
+  test("uninstall reports an unbound Project without rewriting Local Configuration", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const bound = project();
+    const other = project();
+    bind(home, bound);
+    const before = readFileSync(configPath(home), "utf8");
+
+    const result = await runCli(home, "uninstall", "--project", other, "--auto-confirm");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toMatch(/not a bound Project|not configured as a Project/i);
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
   });
 });
 
@@ -10262,9 +9905,9 @@ describe("shared presentation boundary", () => {
       { arguments_: ["list", "projects"], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
       { arguments_: ["info"], exclude: structuralLabel },
       { arguments_: ["validate"], exclude: structuralLabel },
-      { arguments_: ["uninstall"], exclude: structuralLabel },
+      { arguments_: ["uninstall"], exclude: (line) => usageLine(line) || line.includes("\u001b"), exitCode: 1 },
       { arguments_: ["init"], exclude: (line) => line.includes(workspace) },
-      { arguments_: ["unbind", projectPath], exclude: (line) => unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) },
+      { arguments_: ["uninstall", "--project", home, "--auto-confirm"], exclude: (line) => line.includes(home) || unbreakableProject(line) || unbreakableApkit(line) || structuralLabel(line) || usageLine(line), exitCode: 1 },
       { arguments_: ["help", "status"], exclude: (line) => usageLine(line) || unbreakableApkit(line) || /^(?:Purpose|Writes|Next|Supported Hosts|Examples):/.test(line) },
       { arguments_: ["unknown-command"], exclude: usageLine, exitCode: 1 },
       // Bare bind is retired: the replacement diagnostic wraps without prompting.
@@ -10335,7 +9978,7 @@ describe("shared presentation boundary", () => {
     );
     // The blocked view renders the remedy with its runnable command (US-027);
     // the placeholder install-temp retry is retired (#440, decision 6).
-    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain("Remedy: Run apkit unbind");
+    expect(blockedTempOutput.replace(/\s+/g, " ")).toContain("Remedy: Run apkit uninstall --project");
     expect(blockedTempOutput.replace(/\s+/g, " ")).toContain("then retry your original command.");
     // Blocked temporary-installation output stays free of internal terms (TEST-012).
     expect(humanText(blockedTempOutput)).not.toMatch(INTERNAL_TERM_PATTERN);
@@ -10689,7 +10332,7 @@ function treeDigest(roots: readonly string[]): string {
     for (const command of ["init", "guide", "install", "validate", "status", "update"]) {
       expect(common).toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
-    for (const command of ["list", "unbind", "uninstall", "info"]) {
+    for (const command of ["list", "uninstall", "info"]) {
       expect(common).not.toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
 
@@ -10697,7 +10340,7 @@ function treeDigest(roots: readonly string[]): string {
     for (const heading of ["Inventory", "Teardown", "Machine details"]) {
       expect(secondary).toContain(`  ${heading}:`);
     }
-    for (const command of ["list", "unbind", "uninstall", "info"]) {
+    for (const command of ["list", "uninstall", "info"]) {
       expect(secondary).toMatch(new RegExp(`^  ${command}\\b`, "m"));
     }
   });
@@ -10764,7 +10407,7 @@ function treeDigest(roots: readonly string[]): string {
     }
   });
 
-  test("uninstall help describes removing owned output while preserving Projects", async () => {
+  test("uninstall help describes selected removal with forgotten selection", async () => {
     const home = isolatedHome();
     const root = await runCli(home, "--help");
     const focused = await runCli(home, "uninstall", "--help");
@@ -10773,7 +10416,9 @@ function treeDigest(roots: readonly string[]): string {
     expectExitCode(focused, 0);
     for (const view of [root.stdout, focused.stdout]) {
       const normalized = view.replace(/\s+/g, " ");
-      expect(normalized).toContain("Remove proven Agent Profile Kit-owned output");
+      expect(normalized).toContain("Remove selected Project installations and forget");
+      expect(normalized).toContain("lone --profile");
+      expect(normalized).toContain("fleet-wide");
       expect(normalized).not.toContain("Remove all Projects");
       expect(normalized).not.toMatch(/Remove(?:d)? (?:one|all|\d+)? ?Projects?\b/i);
     }
@@ -11132,7 +10777,7 @@ function treeDigest(roots: readonly string[]): string {
     const cases = [
       { arguments: ["init", "--workspace"], message: "init does not accept flag '--workspace' as a Workspace path" },
       { arguments: ["install", "--profile"], message: "install does not accept argument '--profile'" },
-      { arguments: ["unbind", "--project"], message: "unbind does not accept flag '--project' as a project path" },
+      { arguments: ["uninstall", "--verbose"], message: "uninstall does not accept argument '--verbose'" },
     ] as const;
 
     for (const example of cases) {
@@ -11192,15 +10837,15 @@ function treeDigest(roots: readonly string[]): string {
     expect(badValidateFlag.stderr).toContain("validate does not accept argument '--json'");
     expect(badValidateFlag.stderr).toContain("Usage: apkit validate");
 
-    const badUninstallFlag = await runCli(home, "uninstall", "--json");
+    const badUninstallFlag = await runCli(home, "uninstall", "--verbose");
     expectExitCode(badUninstallFlag, 1);
-    expect(badUninstallFlag.stderr).toContain("uninstall does not accept argument '--json'");
+    expect(badUninstallFlag.stderr).toContain("uninstall does not accept argument '--verbose'");
     expect(badUninstallFlag.stderr).toContain("Usage: apkit uninstall");
 
-    const tooManyUnbindPaths = await runCli(home, "unbind", "one", "two");
-    expectExitCode(tooManyUnbindPaths, 1);
-    expect(tooManyUnbindPaths.stderr).toContain("unbind accepts at most one project path");
-    expect(tooManyUnbindPaths.stderr).toContain("Usage: apkit unbind [project]");
+    const retiredUnbind = await runCli(home, "unbind", "one", "two");
+    expectExitCode(retiredUnbind, 1);
+    expect(retiredUnbind.stderr).toContain("unbind was replaced by uninstall");
+    expect(retiredUnbind.stderr).toContain("apkit uninstall");
   });
 });
 
@@ -13103,15 +12748,12 @@ describe("apkit temporary Profile installation (Codex)", () => {
     expect(state.receipts[0]?.project).toBe(canonical);
     expect(readFileSync(configPath(home), "utf8")).toContain(authored);
 
-    const uninstall = await runCli(home, "uninstall");
+    // The compact receipt reports the count; the authored spelling leaves with
+    // the forgotten selection, never surfacing the canonical path.
+    const uninstall = await runCli(home, "uninstall", "--project", authored, "--auto-confirm");
     expectExitCode(uninstall, 0);
-    expect(uninstall.stdout).toContain(`Project: ${authored}\n`);
+    expect(uninstall.stdout).toContain("1 Project");
     expect(uninstall.stdout).not.toContain(canonical);
-
-    const unbind = await runCli(home, "unbind", authored);
-    expectExitCode(unbind, 0);
-    expect(humanText(unbind.stdout)).toContain(`Removed configured Project for ${authored}`);
-    expect(unbind.stdout).not.toContain(canonical);
     expect(parse(readFileSync(configPath(home), "utf8")).bindings).toEqual([]);
   });
 });
@@ -13353,7 +12995,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
       await runCliWithClaude(home, "machine", "remove-temp", allowedReceipt.temporaryInstallationId),
       0,
     );
-    expectExitCode(await runCliWithClaude(home, "uninstall"), 0);
+    expectExitCode(await runCliWithClaude(home, "uninstall", "--all", "--auto-confirm"), 0);
   });
 
   test("Claude and Codex receipts share protocol shape with Host-truthful provenance", async () => {
@@ -13927,16 +13569,14 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     expect(state.receipts[0]?.repository_exclusion).toBeUndefined();
   });
 
-  test("unbind followed by update removes the exclusion entries", async () => {
+  test("uninstall removes the exclusion entries without a later update", async () => {
     const { home, repository, exclude, derived } = await installIntoGitRepository(
-      "agent-profile-kit-unbind-exclusion-",
+      "agent-profile-kit-uninstall-exclusion-",
     );
     const unrelated = "# repository-local author bytes\n*.scratch\n";
     expect(readFileSync(exclude, "utf8").startsWith(unrelated)).toBe(true);
 
-    const unbind = await runCli(home, "unbind", repository);
-    expectExitCode(unbind, 0);
-    expectExitCode(await runCli(home, "update"), 0);
+    expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
 
     const after = readFileSync(exclude, "utf8");
     expect(after.startsWith(unrelated)).toBe(true);
@@ -13950,7 +13590,7 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
     );
     chmodSync(join(repository, ".git", "info"), 0o555);
 
-    const uninstall = await runCli(home, "uninstall");
+    const uninstall = await runCli(home, "uninstall", "--all", "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(existsSync(join(repository, ".codex", "hooks.json"))).toBe(false);
     // The failed publication surfaces as an inline warning, and the failure is never
@@ -14028,17 +13668,15 @@ describe("packed CLI new skill", () => {
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
 
-    const uninstall = await runCliInPty(home, 80, "uninstall");
+    const uninstall = await runCliInPty(home, 80, "uninstall", "--project", projectPath, "--auto-confirm");
     expectExitCode(uninstall, 0);
     expect(uninstall.stdout).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
     expect(uninstall.stdout).not.toContain("?");
     expect(uninstall.stdout).not.toContain("cancel");
 
     const unbind = await runCliInPty(home, 80, "unbind", projectPath);
-    expectExitCode(unbind, 0);
-    expect(unbind.stdout).toContain("Removed configured Project for");
-    expect(unbind.stdout).not.toContain("?");
-    expect(unbind.stdout).not.toContain("cancel");
+    expectExitCode(unbind, 1);
+    expect(unbind.stdout).toContain("unbind was replaced by uninstall");
   });
 
   test("new skill refuses a duplicated Artifact ID, an occupied destination, invalid names, and symlinks without writing", async () => {

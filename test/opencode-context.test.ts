@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { uninstallApplication } from "../installer/commands.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import {
   installTemporaryProfile,
   removeTemporaryProfile,
@@ -661,9 +661,9 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(project, ".opencode", "opencode.jsonc"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(true);
 
-    const uninstallResult = await uninstallApplication(home);
-    expect(uninstallResult.projects).toHaveLength(1);
-    expect(uninstallResult.projects[0]?.project).toBe(project);
+    const uninstallResult = await executeUninstall(home, { all: true });
+    expect(uninstallResult.completed).toHaveLength(1);
+    expect(uninstallResult.completed[0]?.project).toBe(project);
 
     // Outputs removed
     expect(existsSync(join(project, ".agent-profile-kit", "opencode", "context.md"))).toBe(false);
@@ -682,14 +682,12 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const excludeContent = readFileSync(join(project, ".git", "info", "exclude"), "utf8");
     expect(excludeContent).not.toContain("# BEGIN Agent Profile Kit generated paths");
 
-    // Binding remains and project is reported not installed, ready for apply
+    // Binding forgotten and project has no installation: reinstalling needs install.
     const postUninstallState = await readInstallationState(home);
     expect(postUninstallState.receipts).toEqual([]);
 
     const postUninstallDesired = await buildDesiredState(home, { checkHostCapability: false });
-    const postStatus = await previewReconciliation(postUninstallDesired.installations, postUninstallState);
-    expect(reportItems(postStatus).some((item) => item.kind === "addition")).toBe(true);
-    expect(reportBlockers(postStatus)).toEqual([]);
+    expect(postUninstallDesired.installations).toEqual([]);
   });
 
   test("temporary Profile installation installs OpenCode Context, configuration, and Skills without Project Binding, and remove-temp cleans up idempotently", async () => {

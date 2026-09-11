@@ -11,6 +11,7 @@ import {
 } from "../installer/reconcile.js";
 import { applyApplication } from "../installer/commands.js";
 import { readInstallationState } from "../installer/installation-state.js";
+import { retireBindingByHand } from "./support/retire-receipt.js";
 import {
   cleanupTemporaryDirectories,
   prepareDriftedFleet,
@@ -91,15 +92,14 @@ describe("changed-output confirmation gate", () => {
 
   test("a declined confirmation leaves pending retirement work untouched", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-gate-retire");
-    // Install the healthy Project, re-drift the first, then unbind the
-    // healthy one: its receipt retires, so the declined invocation would
+    // Install the healthy Project, re-drift the first, then retire the
+    // healthy binding by hand: its receipt retires, so the declined invocation would
     // otherwise remove its surviving output.
     await applyReconciliation(fleet.home, fleet.desired, {
       confirmChangedOutputReplacement: accept,
     });
     writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home: fleet.home, project: fleet.healthyProject });
+    await retireBindingByHand(fleet.home, fleet.healthyProject);
     const desired = (await buildDesiredState(fleet.home, { checkHostCapability: false })).installations;
     const outcome = await abortedOutcome(() =>
       applyReconciliation(fleet.home, desired, { confirmChangedOutputReplacement: decline }));
@@ -162,8 +162,7 @@ describe("changed-output confirmation gate", () => {
     // Only the drifted Project remains bound; it gains a second Host whose
     // output root is occupied by foreign git-tracked bytes, so the Project is
     // Blocked while its generated file stays drifted.
-    const { unbindProject } = await import("../installer/unbind-project.js");
-    await unbindProject({ home: fleet.home, project: fleet.healthyProject });
+    await retireBindingByHand(fleet.home, fleet.healthyProject);
     const application = join(fleet.home, ".agents", "agent-profile-kit");
     const workspace = join(application, "workspace");
     writeFileSync(

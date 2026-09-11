@@ -1560,19 +1560,26 @@ export interface ChangedOutputConsentEvidence {
   readonly reviewedScope: ReadonlyMap<string, ChangedOutputComparison>;
 }
 
-// Planned-side digest for one review path: exact planned bytes, or the
-// deletion marker when the operation removes the root.
-const plannedDigestFor = (
+/**
+ * Planned-side digest for one review path: exact planned bytes, or the
+ * deletion marker when the operation removes the root. Exported for the
+ * uninstall commit-time proof, which authorizes removals against the same
+ * reviewed bytes through the shared comparison contract (no second policy).
+ */
+export const plannedDigestFor = (
   planned: DesiredProjectOutput | undefined,
   isRemoval: boolean,
 ): string => {
   if (isRemoval || planned === undefined) return "deletion";
   return planned.type === "file" ? digestBytes(planned.bytes) : planned.hash;
 };
-// Live digest binding for one inspected root (INT-1): files bind exact
-// bytes, directories bind the aggregate hash, anything else binds its
-// kind — so an unreadable-then-readable swap can never compare equal.
-const liveDigestFor = (
+/**
+ * Live digest binding for one inspected root (INT-1): files bind exact
+ * bytes, directories bind the aggregate hash, anything else binds its
+ * kind — so an unreadable-then-readable swap can never compare equal.
+ * Exported with plannedDigestFor for the uninstall commit-time proof.
+ */
+export const liveDigestFor = (
   inspected: OwnedOutputInspection,
   receiptType: "file" | "directory",
 ): string => {
@@ -1847,7 +1854,7 @@ export async function applyReconciliation(
 /**
  * Reconciliation with the installation lifecycle lock already held by the
  * caller. Use only from a joint commit boundary that nests the lifecycle
- * lock inside the Local Configuration lock (install; same order as unbind),
+ * lock inside the Local Configuration lock (install; same order as the retired unbind),
  * and hold it across the whole call including any recovery.
  */
 export async function applyReconciliationWithLifecycleLock(
@@ -1909,7 +1916,7 @@ async function applyReconciliationLocked(
   const scope = options.scope ?? { kind: "all" };
   // Serialize the desired-state snapshot with lifecycle mutation: Local
   // Configuration is re-ingested under the lifecycle lock and must still match
-  // the bindings `desired` was planned from, or a concurrent bind/unbind could
+  // the bindings `desired` was planned from, or a concurrent bind/uninstall could
   // resurrect an active Installation Receipt after its binding was removed.
   // Fail closed; the retry re-plans from the current configuration. Bindings
   // are matched by authored path so a missing unrelated root in a scoped run
