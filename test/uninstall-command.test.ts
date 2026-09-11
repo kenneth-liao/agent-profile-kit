@@ -4,6 +4,10 @@
  * interactive input unless `--auto-confirm` answers it, and every refusal
  * or decline leaves all lifecycle state and output untouched — including a
  * second healthy pending Project. Public-command behavior only.
+ *
+ * Ticket #497 pins the lone `--profile` path end to end (removal,
+ * refusal, fleet-wide interactive review), the composed zero-match
+ * outcome, and the single-resolution race under a Profile filter.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -182,9 +186,54 @@ async function setupInstalledPair(): Promise<{
   return { home, first, second, firstOutput: join(first, receipt.outputs[0]!.path) };
 }
 
+async function setupMixedProfilePair(): Promise<{
+  readonly home: string;
+  readonly first: string;
+  readonly second: string;
+  readonly firstOutput: string;
+  readonly secondOutput: string;
+}> {
+  const home = await setupHome();
+  writeProfile(home, "docs");
+  const first = projectDirectory();
+  const second = projectDirectory();
+  await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: first });
+  await executeInstall(home, { profile: "docs", hosts: ["codex"], project: second });
+  const state = await readInstallationState(home);
+  const { realpathSync } = await import("node:fs");
+  const firstReceipt = ordinaryReceipts(state).find((entry) => entry.project === realpathSync(first));
+  const secondReceipt = ordinaryReceipts(state).find((entry) => entry.project === realpathSync(second));
+  if (firstReceipt === undefined || firstReceipt.outputs.length === 0) {
+    throw new Error("fixture install produced no output");
+  }
+  if (secondReceipt === undefined || secondReceipt.outputs.length === 0) {
+    throw new Error("fixture install produced no output");
+  }
+  return {
+    home,
+    first,
+    second,
+    firstOutput: join(first, firstReceipt.outputs[0]!.path),
+    secondOutput: join(second, secondReceipt.outputs[0]!.path),
+  };
+}
+
 function snapshotUntouched(home: string, first: string, firstOutput: string): void {
   expect(readFileSync(configPath(home), "utf8")).toContain(first);
   expect(existsSync(firstOutput)).toBe(true);
+}
+
+function snapshotMixedUntouched(
+  home: string,
+  first: string,
+  firstOutput: string,
+  second: string,
+  secondOutput: string,
+): void {
+  expect(readFileSync(configPath(home), "utf8")).toContain(first);
+  expect(readFileSync(configPath(home), "utf8")).toContain(second);
+  expect(existsSync(firstOutput)).toBe(true);
+  expect(existsSync(secondOutput)).toBe(true);
 }
 
 describe("uninstall confirmation matrix", () => {
@@ -367,6 +416,124 @@ describe("uninstall confirmation matrix", () => {
     expect(result.exitCode).toBe(1);
     expect(plain(result.streams.errorText())).toContain("unknown-profile");
     snapshotUntouched(home, first, firstOutput);
+  });
+
+  test("lone --profile removes only installations using that Profile", async () => {
+    const { home, first, second, secondOutput } = await setupMixedProfilePair();
+    const result = await runUninstall(
+      home,
+      ["--profile", "engineering", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
+    expect(existsSync(secondOutput)).toBe(true);
+  });
+
+  test("lone --profile without --auto-confirm refuses on non-interactive input", async () => {
+    const { home, first, firstOutput, second, secondOutput } = await setupMixedProfilePair();
+    const result = await runUninstall(home, ["--profile", "engineering"], nonInteractiveInput());
+    expect(result.exitCode).toBe(1);
+    expect(plain(result.streams.errorText())).toContain("--auto-confirm");
+    // The refusal names the Profile-scoped retry (not the missing-scope
+    // shape): dropping the filter from scope detection must flip this test.
+    expect(plain(result.streams.errorText())).toContain("--profile");
+    snapshotMixedUntouched(home, first, firstOutput, second, secondOutput);
+  });
+
+  test("interactive lone --profile reviews the fleet-wide Profile scope", async () => {
+    const { home, first, second, secondOutput } = await setupMixedProfilePair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--profile", "engineering"], input);
+    await waitForOutput(
+      started.streams.humanText,
+      "every installation using Profile 'engineering' (fleet-wide)",
+    );
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
+    expect(existsSync(secondOutput)).toBe(true);
+  });
+
+  test("composed --project --profile match removes exactly that installation", async () => {
+    const { home, first, second, firstOutput, secondOutput } = await setupMixedProfilePair();
+    const result = await runUninstall(
+      home,
+      ["--project", first, "--profile", "engineering", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
+    expect(existsSync(firstOutput)).toBe(false);
+    expect(existsSync(secondOutput)).toBe(true);
+  });
+
+  test("composed --project --profile mismatch reports no match with no writes", async () => {
+    const { home, first, firstOutput, second, secondOutput } = await setupMixedProfilePair();
+    const result = await runUninstall(
+      home,
+      ["--project", first, "--profile", "docs", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(result.exitCode).toBe(1);
+    expect(plain(result.streams.errorText())).toContain("docs");
+    expect(plain(result.streams.errorText())).toContain("within the selected scope");
+    snapshotMixedUntouched(home, first, firstOutput, second, secondOutput);
+  });
+
+  test("a matching binding added during Profile confirmation is never removed unshown", async () => {
+    const { home, first, firstOutput, second, secondOutput } = await setupMixedProfilePair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--profile", "engineering"], input);
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    // A concurrent installation using the filtered Profile lands after review.
+    const added = projectDirectory();
+    const before = readFileSync(configPath(home), "utf8");
+    writeFileSync(
+      configPath(home),
+      `${before.trimEnd()}\n  - project: ${added}\n    profile: engineering\n    hosts: [codex]\n`,
+    );
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(1);
+    expect(plain(started.streams.errorText())).toContain("scope changed during confirmation");
+    // The retry reviews the changed Profile scope instead of removing it unseen.
+    expect(plain(started.streams.errorText())).toContain("uninstall --profile engineering");
+    expect(plain(started.streams.errorText())).not.toContain("--auto-confirm");
+    // Zero writes: the reviewed scope and the added binding both survive.
+    snapshotMixedUntouched(home, first, firstOutput, second, secondOutput);
+    expect(readFileSync(configPath(home), "utf8")).toContain(added);
+  });
+
+  test("a profile change between confirmation and commit fails closed under a non-profile scope", async () => {
+    const { home, first, second, firstOutput, secondOutput } = await setupMixedProfilePair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--project", first], input);
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    // A concurrent writer retargets the reviewed installation to another
+    // Profile. Only the first binding uses engineering, so the first
+    // occurrence is exactly its line; a missed anchor leaves exit 0 and
+    // fails this test loudly instead of passing vacuously.
+    const before = readFileSync(configPath(home), "utf8");
+    writeFileSync(configPath(home), before.replace("profile: engineering", "profile: docs"));
+    input.write("y\n");
+    const result = await started.pending;
+    // The reviewed-preview comparison (whose scope key carries the profile)
+    // refuses before any write — never the under-lock concurrent-change path.
+    expect(result.exitCode).toBe(1);
+    expect(plain(started.streams.errorText())).toContain("scope changed during confirmation");
+    expect(plain(started.streams.errorText())).not.toContain("--auto-confirm");
+    // Zero lifecycle writes: both installations keep their output and the
+    // concurrent retarget is left untouched.
+    expect(existsSync(firstOutput)).toBe(true);
+    expect(existsSync(secondOutput)).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toContain(first);
+    expect(readFileSync(configPath(home), "utf8")).toContain(second);
   });
 
   test("unbound Project scope fails before any write", async () => {

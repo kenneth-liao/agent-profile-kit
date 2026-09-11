@@ -6,6 +6,9 @@
  * source. Zero matches resolve to an empty preview (the command layer
  * reports them truthfully with no writes); conflicting scopes are already
  * rejected by argument parsing and cannot reach this boundary.
+ *
+ * Ticket #497 pins the Profile-filter composition: `--profile` alone and
+ * intersected with every explicit scope kind (`--here`/`--project`/`--all`).
  */
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -138,6 +141,68 @@ describe("previewUninstall scope resolution", () => {
       expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
       const empty = await previewUninstall(home, { project: first, profile: "docs" });
       expect(empty.projects).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("--profile intersects --here instead of replacing it", async () => {
+    const home = isolatedHome();
+    try {
+      const first = projectDirectory();
+      const second = projectDirectory();
+      writeBindings(home, [
+        { project: first, profile: "engineering", hosts: ["codex"] },
+        { project: second, profile: "docs", hosts: ["claude"] },
+      ]);
+      const preview = await previewUninstall(home, { here: true, cwd: first, profile: "engineering" });
+      expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
+      const empty = await previewUninstall(home, { here: true, cwd: first, profile: "docs" });
+      expect(empty.projects).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("--profile intersects --all instead of replacing it", async () => {
+    const home = isolatedHome();
+    try {
+      const first = projectDirectory();
+      const second = projectDirectory();
+      writeBindings(home, [
+        { project: first, profile: "engineering", hosts: ["codex"] },
+        { project: second, profile: "docs", hosts: ["claude"] },
+      ]);
+      const preview = await previewUninstall(home, { all: true, profile: "engineering" });
+      expect(preview.projects.map((entry) => entry.project)).toEqual([first]);
+      const empty = await previewUninstall(home, { all: true, profile: "unknown-profile" });
+      expect(empty.projects).toEqual([]);
+    } finally {
+      await cleanup();
+    }
+  });
+
+  test("--here --profile with nested bound Projects fails closed instead of intersecting", async () => {
+    const home = isolatedHome();
+    try {
+      const outer = projectDirectory();
+      const inner = join(outer, "nested");
+      mkdirSync(inner, { recursive: true });
+      writeBindings(home, [
+        { project: outer, profile: "engineering", hosts: ["codex"] },
+        { project: inner, profile: "docs", hosts: ["claude"] },
+      ]);
+      // Scope resolution precedes the filter: the location ambiguity throws
+      // even though the Profile would narrow it to one installation.
+      let caught: unknown;
+      try {
+        await previewUninstall(home, { here: true, cwd: inner, profile: "docs" });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(ProjectTargetError);
+      expect((caught as ProjectTargetError).reason.case).toBe("ambiguous-target");
+      expect((caught as ProjectTargetError).reason.command).toBe("uninstall");
     } finally {
       await cleanup();
     }

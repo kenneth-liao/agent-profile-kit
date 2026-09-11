@@ -190,6 +190,12 @@ export async function previewUninstall(
     requireProfiles: false,
   });
 
+  // Scope-resolution errors precede filter intersection (DEC-003): an
+  // unbound or ambiguous `--here`/`--project` target throws before
+  // `--profile` is applied. The filter intersects the selected scope — a
+  // scope that fails to resolve selects nothing to intersect — so a
+  // location ambiguity is never silently resolved by the filter into a
+  // removal the review never showed.
   let selected: readonly IngestedProjectBinding[];
   if (options.all === true) {
     selected = bindings;
