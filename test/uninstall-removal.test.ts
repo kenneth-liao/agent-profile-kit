@@ -15,7 +15,7 @@ import { executeInstall } from "../installer/install-application.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { ordinaryReceipts } from "../installer/ownership-state.js";
 import { applyApplication } from "../installer/commands.js";
-import { executeUninstall } from "../installer/uninstall-application.js";
+import { executeUninstall, previewUninstall, UninstallScopeChangedError } from "../installer/uninstall-application.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 
 const temporaryDirectories: string[] = [];
@@ -119,6 +119,64 @@ describe("uninstall removal forgets the selection after success", () => {
       expect(
         readFileSync(join(workspacePath(home), "context", "team-rules.md"), "utf8"),
       ).toContain("Always preserve the project boundary.");
+    } finally {
+      for (const directory of temporaryDirectories.splice(0)) {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("a confirmed scope that widens before commit fails closed with zero writes", async () => {
+    const home = await setupHome();
+    const removed = projectDirectory();
+    const kept = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: removed });
+      await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: kept });
+      const confirmed = await previewUninstall(home, { project: removed });
+      expect(confirmed.projects.map((entry) => entry.project)).toEqual([removed]);
+
+      // A binding added after the review is never removed unshown: the run
+      // fails closed before any lifecycle write.
+      const added = projectDirectory();
+      const before = readFileSync(configPath(home), "utf8");
+      writeFileSync(
+        configPath(home),
+        `${before.trimEnd()}\n  - project: ${added}\n    profile: engineering\n    hosts: [codex]\n`,
+      );
+      let caught: unknown;
+      try {
+        await executeUninstall(home, { all: true, confirmedPreview: confirmed });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(UninstallScopeChangedError);
+      // Zero writes: every binding and receipt survives, including the added one.
+      const state = await readInstallationState(home);
+      expect(state.receipts.filter((entry) => entry.lifetime === "ordinary" && !entry.retired)).toHaveLength(2);
+      expect(readFileSync(configPath(home), "utf8")).toContain(removed);
+      expect(readFileSync(configPath(home), "utf8")).toContain(added);
+      for (const project of [removed, kept]) {
+        for (const output of await receiptOutputPaths(home, project)) {
+          expect(existsSync(output)).toBe(true);
+        }
+      }
+    } finally {
+      for (const directory of temporaryDirectories.splice(0)) {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("a matching confirmed scope executes normally", async () => {
+    const home = await setupHome();
+    const removed = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: removed });
+      const confirmed = await previewUninstall(home, { all: true });
+      const result = await executeUninstall(home, { all: true, confirmedPreview: confirmed });
+      expect(result.failed).toBeUndefined();
+      expect(result.completed.map((entry) => entry.project)).toEqual([removed]);
     } finally {
       for (const directory of temporaryDirectories.splice(0)) {
         rmSync(directory, { recursive: true, force: true });

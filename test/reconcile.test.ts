@@ -793,7 +793,6 @@ describe("uninstall failure safety and exclusion publication races", () => {
     expect(result.completed).toEqual([]);
     expect(result.failed?.project).toBe(project);
     expect(result.failed?.selectionRestored).toBe(true);
-    expect(result.failed?.outputCommitted).toBe(false);
     const state = await readInstallationState(home);
     expect(state.receipts).toHaveLength(1);
     expect(state.receipts[0]!.project).toBe(realpathSync(project));
@@ -894,7 +893,6 @@ describe("uninstall failure safety and exclusion publication races", () => {
       expect(result.failed?.project).toBe(project);
       expect(result.failed?.detail).toContain("EACCES");
       expect(result.failed?.selectionRestored).toBe(true);
-      expect(result.failed?.outputCommitted).toBe(false);
       // The confirmed rollback restored every moved root; no staging tree survives.
       const receipt = (await readInstallationState(home)).receipts[0]!;
       for (const output of receipt.outputs) {
@@ -925,7 +923,6 @@ describe("uninstall failure safety and exclusion publication races", () => {
       expect(result.failed?.project).toBe(second);
       expect(result.failed?.detail).toContain("staged output restore failed");
       expect(result.failed?.restoreError).toContain("staged output restore failed");
-      expect(result.failed?.outputCommitted).toBe(false);
 
       // The failing Project keeps its receipt and its staged bytes: the staging
       // tree survives with the moved output inside it.

@@ -1288,7 +1288,8 @@ export const UNINSTALL_CONFIRMATION_QUESTION = "Uninstall as listed? (y/N)";
 
 /** The interactive general-confirmation review (DEC-004, US-003): the exact
  * selected scope — Projects with their Profile and Hosts — before any
- * write. Forgetting is stated plainly: a later update will not reinstall. */
+ * write. Forgetting is stated plainly: a later update will not reinstall.
+ * A Profile-only scope names its fleet-wide reach explicitly (PROD-4). */
 export function uninstallConfirmationDocument(preview: {
   readonly projects: readonly {
     readonly canonicalProject?: string;
@@ -1296,9 +1297,13 @@ export function uninstallConfirmationDocument(preview: {
     readonly profile: string;
     readonly hosts: readonly string[];
   }[];
-}): PresentationDocument {
+}, options: { readonly fleetProfile?: string } = {}): PresentationDocument {
   return [
     { kind: "heading", text: "Uninstall:" },
+    ...(options.fleetProfile === undefined ? [] : [{
+      kind: "prose",
+      parts: [`Scope: every installation using Profile '${options.fleetProfile}' (fleet-wide).`],
+    } as const]),
     ...preview.projects.map((entry): PresentationNode => ({
       kind: "prose",
       parts: [
@@ -1465,6 +1470,77 @@ export function uninstallExecutionFailureDocument(input: {
       "After resolving the cause, retry the same scope with ",
       commandPart(COMMAND_NAME, retryArguments),
     ]],
+  });
+}
+
+/** The scope-changed diagnostic (INT-2): the selection moved between
+ * confirmation and commit, so nothing was removed. Re-running reviews the
+ * current scope before anything is authorized. */
+export function uninstallScopeChangedDocument(
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["uninstall stopped before any write: the selected scope changed during confirmation"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "Re-run to review the current scope: ",
+      commandPart(COMMAND_NAME, commandArguments),
+    ]],
+  });
+}
+
+/** Machine progress for one uninstall error: what the run removed before
+ * stopping, what failed with its recovery evidence, and what was never
+ * attempted — so scripted fleet runs never lose the deletion record. */
+export interface UninstallErrorProgress {
+  readonly completed: readonly { readonly canonicalProject?: string; readonly project: string }[];
+  readonly failed?: {
+    readonly canonicalProject?: string;
+    readonly project: string;
+    readonly detail: string;
+    readonly selectionRestored: boolean;
+    readonly restoreError?: string;
+    readonly concurrentSelectionChange: boolean;
+  };
+  readonly unattempted: readonly { readonly canonicalProject?: string; readonly project: string }[];
+}
+
+/** The machine payload for one uninstall error: the same envelope as every
+ * other lifecycle payload (schema version, command, outcome, error), plus
+ * the run's progress so nothing removed is lost to scripts. */
+export function formatUninstallToolErrorJson(
+  message: string,
+  progress?: UninstallErrorProgress,
+): string {
+  return serializeMachinePayload({
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    command: "uninstall",
+    outcome: "error",
+    error: message,
+    ...(progress === undefined
+      ? { completed: [], unattempted: [] }
+      : progress),
+  });
+}
+
+/** The machine payload for one uninstall outcome: the same envelope as
+ * every other lifecycle payload, carrying the completed/skipped/failed
+ * evidence the human receipt carries, without rendered prose. */
+export function formatUninstallJson(result: UninstallApplicationResult): string {
+  return serializeMachinePayload({
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    command: "uninstall",
+    outcome: result.failed !== undefined
+      ? "error" as const
+      : result.skipped.length > 0
+        ? "attention" as const
+        : "clean" as const,
+    ...(result.failed === undefined ? {} : { error: result.failed.detail }),
+    completed: result.completed,
+    skipped: result.skipped,
+    ...(result.failed === undefined ? {} : { failed: result.failed }),
+    unattempted: result.unattempted,
+    warnings: result.warnings,
   });
 }
 

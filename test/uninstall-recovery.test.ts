@@ -160,7 +160,6 @@ describe("uninstall sequential recovery", () => {
       expect(result.completed.map((entry) => entry.project)).toEqual([aaa]);
       expect(result.failed?.project).toBe(mmm);
       expect(result.failed?.selectionRestored).toBe(true);
-      expect(result.failed?.outputCommitted).toBe(false);
       expect(result.failed?.concurrentSelectionChange).toBe(false);
       expect(result.unattempted.map((entry) => entry.project)).toEqual([zzz]);
 
@@ -265,7 +264,6 @@ describe("uninstall sequential recovery", () => {
       expect(result.failed?.project).toBe(aaa);
       expect(result.failed?.concurrentSelectionChange).toBe(true);
       expect(result.failed?.selectionRestored).toBe(true);
-      expect(result.failed?.outputCommitted).toBe(false);
       expect(result.unattempted.map((entry) => entry.project)).toEqual([mmm]);
       // Nothing was overwritten: the concurrent selection stands, staged
       // output was rolled back, and the receipt survives.

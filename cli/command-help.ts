@@ -148,7 +148,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "uninstall",
     group: "teardown",
     syntax: "uninstall [--here | --project <path> | --all] [--profile <name>] [--auto-confirm] [--remove-changed] [--json]",
-    summary: "Remove selected Project installations and forget their recorded selection",
+    summary: "Remove selected Project installations and forget their recorded selection; a lone --profile reaches that Profile's installations fleet-wide",
     examples: COMMAND_EXAMPLES.uninstall,
     writes: "Removes owned generated project files, forgets the removed scope's recorded selection, and updates machine-local installation records; keeps the Workspace and unselected Projects.",
     next: ["Run ", invocation("install"), " to install a Profile into a Project again."],

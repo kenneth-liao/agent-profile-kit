@@ -264,7 +264,28 @@ async function selectExact(
   return matches;
 }
 
+/** The selection changed between confirmation and commit: fail closed
+ * before any lifecycle write, so unshown Projects are never removed. */
+export class UninstallScopeChangedError extends Error {
+  readonly current: readonly { readonly canonicalProject?: string; readonly project: string }[];
+
+  constructor(
+    current: readonly { readonly canonicalProject?: string; readonly project: string }[],
+  ) {
+    super("the uninstall scope changed during confirmation; re-run to review the current scope");
+    this.name = "UninstallScopeChangedError";
+    this.current = current;
+  }
+}
+
 export interface ExecuteUninstallOptions extends PreviewUninstallOptions {
+  /**
+   * The scope the user already reviewed (INT-2): when provided, the
+   * selection is re-resolved and the run fails closed when it differs, so
+   * a binding added between confirmation and commit is never removed
+   * without ever having been shown.
+   */
+  readonly confirmedPreview?: UninstallPreview;
   /**
    * Explicit deletion authorization (DEC-005): answers removal of
    * independently changed generated output without asking. Never answers
@@ -312,8 +333,6 @@ export interface UninstallFailedProject {
   readonly selectionRestored: boolean;
   /** The restoration failure, when restoring itself failed. */
   readonly restoreError?: string;
-  /** True when generated output was committed (nothing to restore on disk). */
-  readonly outputCommitted: boolean;
   /** True when another writer owns the current selection, left untouched. */
   readonly concurrentSelectionChange: boolean;
 }
@@ -340,6 +359,21 @@ interface UninstallWorkItem {
   readonly hosts: readonly SupportedHost[];
   /** Absent when no ordinary receipt names the Project: forget-only. */
   readonly receipt?: OwnershipReceipt;
+}
+
+/** Scope identity for the confirmation-to-commit comparison (INT-2):
+ * canonical identity, profile, and hosts — anything the review showed. */
+function uninstallScopeKey(entry: {
+  readonly canonicalProject?: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly hosts: readonly string[];
+}): string {
+  return JSON.stringify([
+    entry.canonicalProject ?? entry.project,
+    entry.profile,
+    [...entry.hosts].sort(),
+  ]);
 }
 
 /**
@@ -375,6 +409,20 @@ export async function executeUninstall(
   const removeAuthorized = options.removeChanged === true;
 
   const preview = await previewUninstall(home, options);
+  if (options.confirmedPreview !== undefined) {
+    const confirmed = options.confirmedPreview.projects.map(uninstallScopeKey).sort();
+    const fresh = preview.projects.map(uninstallScopeKey).sort();
+    if (confirmed.length !== fresh.length || confirmed.some((key, index) => key !== fresh[index])) {
+      throw new UninstallScopeChangedError(
+        preview.projects.map((entry) => ({
+          ...(entry.canonicalProject === undefined
+            ? {}
+            : { canonicalProject: entry.canonicalProject }),
+          project: entry.project,
+        })),
+      );
+    }
+  }
   if (preview.projects.length === 0) {
     return { completed: [], skipped: [], unattempted: [], warnings: [] };
   }
@@ -596,7 +644,6 @@ function failedProjectResult(
     readonly detail: string;
     readonly selectionRestored: boolean;
     readonly restoreError?: string;
-    readonly outputCommitted: boolean;
     readonly concurrentSelectionChange: boolean;
   },
 ): UninstallFailedProject {
@@ -607,7 +654,6 @@ function failedProjectResult(
     detail: failure.detail,
     selectionRestored: failure.selectionRestored,
     ...(failure.restoreError === undefined ? {} : { restoreError: failure.restoreError }),
-    outputCommitted: failure.outputCommitted,
     concurrentSelectionChange: failure.concurrentSelectionChange,
   };
 }
@@ -649,7 +695,6 @@ async function commitUninstallProject(
       failed: failedProjectResult(item, item.canonicalProject ?? item.project, {
         detail: error instanceof Error ? error.message : String(error),
         selectionRestored: true,
-        outputCommitted: false,
         concurrentSelectionChange: false,
       }),
     };
@@ -662,248 +707,277 @@ async function commitUninstallProject(
   }
 
   const receipt = item.receipt;
-  // Per-Project proof immediately before the first mutation — fresh
-  // ownership plus changed-file authorization against the reviewed bytes
-  // (cf. update's proveProjectWrites). A newly Blocked Project is skipped
-  // while healthy Projects proceed; drift that was never authorized stops
-  // the invocation with its partial outcome, like update's late consent
-  // refusal.
-  const ownership = options.createOwnershipInspection();
-  const proof = await proveOwnedInstallation(receipt, ownership, options.gitInspection);
-  if (!proof.owned) {
-    return {
-      state: options.confirmState,
-      skipped: {
-        canonicalProject,
-        project: item.project,
-        profile: item.profile,
-        reason: proof.failure ?? "unproven",
-      },
-    };
-  }
-  const newlyChanged: string[] = [];
-  for (const recorded of receipt.outputs) {
-    const inspected = await ownership.inspectOutput(receipt.project, recorded);
-    if (recordedOutputMatches(inspected, recorded)) continue;
-    if (inspected.kind === "missing") continue;
-    const review = options.reviewedScope.get(`${receipt.project}\0${recorded.path}`);
-    if (
-      review !== undefined &&
-      comparisonMatchesDigests(review, liveDigestFor(inspected, recorded.type), "deletion")
-    ) {
-      continue;
-    }
-    if (options.removeAuthorized) continue;
-    newlyChanged.push(recorded.path);
-  }
-  if (newlyChanged.length > 0) {
-    throw new ApplyConsentRequiredError(
-      ["remove"],
-      [{
-        canonicalProject: receipt.project,
-        changedOutputs: [],
-        project: item.project,
-        removedOutputs: newlyChanged.sort(),
-      }],
-      {
-        completedProjects: [...options.completedProjects],
-        failedProject: { canonicalProject: receipt.project, project: item.project },
-        pendingProjects: options.pendingAfter.map((entry) => ({
-          canonicalProject: entry.canonicalProject ?? entry.project,
-          project: entry.project,
-        })),
-      },
-    );
-  }
-
-  let transaction: ProvenInstallationRemovalTransaction | undefined;
+  // The destructive work happens inside the joint boundary (the same lock
+  // order as install): the Local Configuration lock outer, the installation
+  // lifecycle lock nested. The per-Project proof, changed-file
+  // authorization, and output staging all run under both locks, so a
+  // concurrent install or update cannot regenerate output mid-staging and
+  // leave it ownerless; the binding and receipt are forgotten only after
+  // the staged removal proves the output is gone from its live roots, with
+  // rollback in the same boundary.
   try {
-    transaction = await stageProvenInstallationRemoval(receipt, ownership, options.gitInspection);
-  } catch (error) {
-    if (error instanceof OwnershipBlockedRemovalError) {
-      return {
-        state: options.confirmState,
-        skipped: {
-          canonicalProject,
-          project: item.project,
-          profile: item.profile,
-          reason: error.failure,
-        },
-      };
-    }
-    if (error instanceof StagedRollbackFailureError) {
-      // Staged bytes are retained while the records are untouched: the
-      // restoration failure is explicit and nothing was forgotten.
-      const detail = error.message;
-      return {
-        state: options.confirmState,
-        failed: failedProjectResult(item, canonicalProject, {
-          detail,
-          selectionRestored: true,
-          restoreError: detail,
-          outputCommitted: false,
-          concurrentSelectionChange: false,
-        }),
-      };
-    }
-    // A vanished root converges: staging rolls itself back on partial
-    // failure, so absent recorded roots mean nothing remains to remove.
-    if (await allRecordedOutputsAbsent(receipt)) {
-      transaction = {
-        commit: async () => undefined,
-        rollback: async () => undefined,
-      };
-    } else {
-      const detail = error instanceof Error ? error.message : String(error);
-      return {
-        state: options.confirmState,
-        failed: failedProjectResult(item, canonicalProject, {
-          detail,
-          selectionRestored: true,
-          outputCommitted: false,
-          concurrentSelectionChange: false,
-        }),
-      };
-    }
-  }
-
-  // Joint commit boundary (the same lock order as install/unbind): the
-  // Local Configuration lock outer, the installation lifecycle lock nested.
-  // The binding and receipt are forgotten only after the staged removal
-  // proves the output is gone from its live roots.
-  try {
-    const nextState = await withConfigurationLock(
+    return await withConfigurationLock(
       configurationPath,
       fileSystem,
       options.lockTimeoutMs,
       "uninstall",
       () =>
         withInstallationLifecycleLock(home, "uninstall", async () => {
-          const joint = await readJointUninstallSnapshot(
-            home,
-            fileSystem,
-            configurationPath,
-            item,
-            canonicalProject,
-          );
-          if (joint.converged) return joint.state;
-          const nextSource = joint.splice();
-          const sourceStats = await fileSystem.stat(configurationPath);
-          const mode = sourceStats.mode & 0o777;
-          await publishConfigurationReplacement(
-            configurationPath,
-            joint.source,
-            nextSource,
-            mode,
-            fileSystem,
-            `Local Configuration ${configurationPath}`,
-            "uninstall",
-          );
-          let publishedState: OwnershipState;
-          try {
-            publishedState = withReceipts(
-              joint.state,
-              joint.state.receipts.filter(
-                (entry) => entry.installationId !== receipt.installationId,
-              ),
-            );
-            await options.writeState(home, publishedState);
-          } catch (error) {
-            // The binding is already forgotten: restore it from the exact
-            // source snapshot so a failed uninstall mutates nothing.
-            let restoreError: string | undefined;
-            try {
-              await publishConfigurationReplacement(
-                configurationPath,
-                nextSource,
-                joint.source,
-                mode,
-                fileSystem,
-                `Local Configuration ${configurationPath}`,
-                "uninstall",
-              );
-            } catch (restoreFailure) {
-              restoreError = restoreFailure instanceof Error
-                ? restoreFailure.message
-                : String(restoreFailure);
+          // Fresh ownership proof immediately before the first mutation,
+          // plus changed-file authorization against the reviewed bytes
+          // (cf. update's proveProjectWrites). A newly Blocked Project is
+          // skipped while healthy Projects proceed; drift that was never
+          // authorized stops the invocation with its partial outcome, like
+          // update's late consent refusal.
+          const ownership = options.createOwnershipInspection();
+          const proof = await proveOwnedInstallation(receipt, ownership, options.gitInspection);
+          if (!proof.owned) {
+            return {
+              state: await readInstallationState(home),
+              skipped: {
+                canonicalProject,
+                project: item.project,
+                profile: item.profile,
+                reason: proof.failure ?? "unproven",
+              },
+            };
+          }
+          const newlyChanged: string[] = [];
+          for (const recorded of receipt.outputs) {
+            const inspected = await ownership.inspectOutput(receipt.project, recorded);
+            if (recordedOutputMatches(inspected, recorded)) continue;
+            if (inspected.kind === "missing") continue;
+            const review = options.reviewedScope.get(`${receipt.project}\0${recorded.path}`);
+            if (
+              review !== undefined &&
+              comparisonMatchesDigests(review, liveDigestFor(inspected, recorded.type), "deletion")
+            ) {
+              continue;
             }
-            throw new UninstallRestoreError(
-              error instanceof Error ? error.message : String(error),
-              restoreError,
+            if (options.removeAuthorized) continue;
+            newlyChanged.push(recorded.path);
+          }
+          if (newlyChanged.length > 0) {
+            throw new ApplyConsentRequiredError(
+              ["remove"],
+              [{
+                canonicalProject: receipt.project,
+                changedOutputs: [],
+                project: item.project,
+                removedOutputs: newlyChanged.sort(),
+              }],
+              {
+                completedProjects: [...options.completedProjects],
+                failedProject: { canonicalProject: receipt.project, project: item.project },
+                pendingProjects: options.pendingAfter.map((entry) => ({
+                  canonicalProject: entry.canonicalProject ?? entry.project,
+                  project: entry.project,
+                })),
+              },
             );
           }
-          return publishedState;
+
+          let transaction: ProvenInstallationRemovalTransaction | undefined;
+          try {
+            transaction = await stageProvenInstallationRemoval(receipt, ownership, options.gitInspection);
+          } catch (error) {
+            if (error instanceof OwnershipBlockedRemovalError) {
+              return {
+                state: await readInstallationState(home),
+                skipped: {
+                  canonicalProject,
+                  project: item.project,
+                  profile: item.profile,
+                  reason: error.failure,
+                },
+              };
+            }
+            if (error instanceof StagedRollbackFailureError) {
+              // Staged bytes are retained while the records are untouched:
+              // the restoration failure is explicit and nothing was forgotten.
+              const detail = error.message;
+              return {
+                state: await readInstallationState(home),
+                failed: failedProjectResult(item, canonicalProject, {
+                  detail,
+                  selectionRestored: true,
+                  restoreError: detail,
+                  concurrentSelectionChange: false,
+                }),
+              };
+            }
+            // A vanished root converges: staging rolls itself back on
+            // partial failure, so absent recorded roots mean nothing
+            // remains to remove.
+            if (await allRecordedOutputsAbsent(receipt)) {
+              transaction = {
+                commit: async () => undefined,
+                rollback: async () => undefined,
+              };
+            } else {
+              const detail = error instanceof Error ? error.message : String(error);
+              return {
+                state: await readInstallationState(home),
+                failed: failedProjectResult(item, canonicalProject, {
+                  detail,
+                  selectionRestored: true,
+                  concurrentSelectionChange: false,
+                }),
+              };
+            }
+          }
+
+          try {
+            const joint = await readJointUninstallSnapshot(
+              home,
+              fileSystem,
+              configurationPath,
+              item,
+              canonicalProject,
+            );
+            if (joint.converged) {
+              // A concurrent run completed this removal while its outputs
+              // were staged here: committing drops the staged bytes and the
+              // outcome reports the completed removal truthfully.
+              let warning: string | undefined;
+              try {
+                await transaction!.commit();
+              } catch (error) {
+                warning = error instanceof Error ? error.message : String(error);
+              }
+              return {
+                state: joint.state,
+                completed: {
+                  canonicalProject,
+                  project: item.project,
+                  profile: item.profile,
+                  outputs: receipt.outputs.map((output) => output.path).sort(),
+                },
+                ...(warning === undefined ? {} : { warning }),
+              };
+            }
+            const nextSource = joint.splice();
+            const sourceStats = await fileSystem.stat(configurationPath);
+            const mode = sourceStats.mode & 0o777;
+            await publishConfigurationReplacement(
+              configurationPath,
+              joint.source,
+              nextSource,
+              mode,
+              fileSystem,
+              `Local Configuration ${configurationPath}`,
+              "uninstall",
+            );
+            let publishedState: OwnershipState;
+            try {
+              publishedState = withReceipts(
+                joint.state,
+                joint.state.receipts.filter(
+                  (entry) => entry.installationId !== receipt.installationId,
+                ),
+              );
+              await options.writeState(home, publishedState);
+            } catch (error) {
+              // The binding is already forgotten: restore it from the exact
+              // source snapshot so a failed uninstall mutates nothing.
+              let restoreError: string | undefined;
+              try {
+                await publishConfigurationReplacement(
+                  configurationPath,
+                  nextSource,
+                  joint.source,
+                  mode,
+                  fileSystem,
+                  `Local Configuration ${configurationPath}`,
+                  "uninstall",
+                );
+              } catch (restoreFailure) {
+                restoreError = restoreFailure instanceof Error
+                  ? restoreFailure.message
+                  : String(restoreFailure);
+              }
+              throw new UninstallRestoreError(
+                error instanceof Error ? error.message : String(error),
+                restoreError,
+              );
+            }
+            let warning: string | undefined;
+            try {
+              await transaction!.commit();
+            } catch (error) {
+              // The output is removed and the selection forgotten; only
+              // staging cleanup failed. Success stands with an explicit warning.
+              warning = error instanceof Error ? error.message : String(error);
+            }
+            return {
+              state: publishedState,
+              completed: {
+                canonicalProject,
+                project: item.project,
+                profile: item.profile,
+                outputs: receipt.outputs.map((output) => output.path).sort(),
+              },
+              ...(warning === undefined ? {} : { warning }),
+            };
+          } catch (error) {
+            if (error instanceof UninstallConcurrentChangeError) {
+              let restoreError: string | undefined;
+              try {
+                await transaction!.rollback();
+              } catch (rollbackFailure) {
+                restoreError = rollbackFailure instanceof Error
+                  ? rollbackFailure.message
+                  : String(rollbackFailure);
+              }
+              return {
+                state: await readInstallationState(home),
+                failed: failedProjectResult(item, canonicalProject, {
+                  detail: restoreError === undefined
+                    ? error.message
+                    : `${error.message}\n${restoreError}`,
+                  selectionRestored: true,
+                  ...(restoreError === undefined ? {} : { restoreError }),
+                  concurrentSelectionChange: true,
+                }),
+              };
+            }
+            let restoreError: string | undefined;
+            if (error instanceof UninstallRestoreError) {
+              restoreError = error.restoreError;
+            }
+            try {
+              await transaction!.rollback();
+            } catch (rollbackFailure) {
+              const detail = rollbackFailure instanceof Error
+                ? rollbackFailure.message
+                : String(rollbackFailure);
+              restoreError = restoreError === undefined ? detail : `${restoreError}\n${detail}`;
+            }
+            const detail = error instanceof Error ? error.message : String(error);
+            return {
+              state: await readInstallationState(home),
+              failed: failedProjectResult(item, canonicalProject, {
+                detail,
+                // The binding was restored unless its restoration itself
+                // failed; the receipt was never deleted because its write
+                // did not succeed.
+                selectionRestored: restoreError === undefined,
+                ...(restoreError === undefined ? {} : { restoreError }),
+                concurrentSelectionChange: false,
+              }),
+            };
+          }
         }, { lockTimeoutMs: options.lockTimeoutMs }),
     );
-    let warning: string | undefined;
-    try {
-      await transaction.commit();
-    } catch (error) {
-      // The output is removed and the selection forgotten; only staging
-      // cleanup failed. Success stands with an explicit warning.
-      warning = error instanceof Error ? error.message : String(error);
-    }
-    return {
-      state: nextState,
-      completed: {
-        canonicalProject,
-        project: item.project,
-        profile: item.profile,
-        outputs: receipt.outputs.map((output) => output.path).sort(),
-      },
-      ...(warning === undefined ? {} : { warning }),
-    };
   } catch (error) {
-    if (error instanceof UninstallConcurrentChangeError) {
-      try {
-        await transaction.rollback();
-      } catch (rollbackFailure) {
-        const detail = rollbackFailure instanceof Error
-          ? rollbackFailure.message
-          : String(rollbackFailure);
-        return {
-          state: options.confirmState,
-          failed: failedProjectResult(item, canonicalProject, {
-            detail: `${error.message}\n${detail}`,
-            selectionRestored: true,
-            restoreError: detail,
-            outputCommitted: false,
-            concurrentSelectionChange: true,
-          }),
-        };
-      }
-      return {
-        state: options.confirmState,
-        failed: failedProjectResult(item, canonicalProject, {
-          detail: error.message,
-          selectionRestored: true,
-          outputCommitted: false,
-          concurrentSelectionChange: true,
-        }),
-      };
-    }
-    let restoreError: string | undefined;
-    if (error instanceof UninstallRestoreError) {
-      restoreError = error.restoreError;
-    }
-    try {
-      await transaction.rollback();
-    } catch (rollbackFailure) {
-      const detail = rollbackFailure instanceof Error
-        ? rollbackFailure.message
-        : String(rollbackFailure);
-      restoreError = restoreError === undefined ? detail : `${restoreError}\n${detail}`;
-    }
-    const detail = error instanceof Error ? error.message : String(error);
+    // The late consent refusal carries its partial outcome to the command
+    // layer; lock-acquisition failures stop before anything was staged.
+    if (error instanceof ApplyConsentRequiredError) throw error;
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, canonicalProject, {
-        detail,
-        // The binding was restored unless its restoration itself failed;
-        // the receipt was never deleted because its write did not succeed.
-        selectionRestored: restoreError === undefined,
-        ...(restoreError === undefined ? {} : { restoreError }),
-        outputCommitted: false,
+        detail: error instanceof Error ? error.message : String(error),
+        selectionRestored: true,
         concurrentSelectionChange: false,
       }),
     };
@@ -1060,7 +1134,6 @@ async function commitForgetOnly(
         failed: failedProjectResult(item, canonicalProject, {
           detail: error.message,
           selectionRestored: true,
-          outputCommitted: false,
           concurrentSelectionChange: true,
         }),
       };
@@ -1070,7 +1143,6 @@ async function commitForgetOnly(
       failed: failedProjectResult(item, canonicalProject, {
         detail: error instanceof Error ? error.message : String(error),
         selectionRestored: true,
-        outputCommitted: false,
         concurrentSelectionChange: false,
       }),
     };

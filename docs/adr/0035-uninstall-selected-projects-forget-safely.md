@@ -99,7 +99,7 @@ This record supersedes the **recording-only `unbind` boundary of ADR-0010**
 happens through `uninstall` in one per-Project transition, and a standalone
 recording-only public removal command no longer exists. ADR-0010's Project
 Binding scope is unaffected, as is the `install` recording boundary owned by
-the sibling slice. This record further supersedes **#373's no-prompt teardown
+the sibling slice. This record further supersedes **ADR-0025's `unbind`-retires-receipt boundary** per DEC-012: the retired receipt itself remains legacy input that `update` still honors for teardown on older machines, but no public command creates one anymore. This record further supersedes **#373's no-prompt teardown
 contract** per DEC-012: explicit confirmation (and, for changed output,
 explicit consent) replaces silent teardown, with no compatibility shim.
 Unrelated ownership, Host Resolution, versioning, and process-executor

@@ -164,6 +164,30 @@ describe("uninstall changed-output consent", () => {
     expectUntouched(home, drifted, healthy, driftedOutput);
   });
 
+  test("--json consent refusal carries the unattempted scope without prose", async () => {
+    const { home, drifted, healthy, driftedOutput } = await setupDriftedPair();
+    const streams = capturedStreams();
+    const outcome = await runUninstallCommand({
+      home,
+      arguments: ["--project", drifted, "--auto-confirm", "--json"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(outcome.exitCode).toBe(1);
+    const payload = JSON.parse(streams.humanText()) as {
+      schemaVersion: number;
+      outcome: string;
+      completed: unknown[];
+      unattempted: { project: string }[];
+    };
+    expect(payload.schemaVersion).toBe(15);
+    expect(payload.outcome).toBe("error");
+    expect(payload.completed).toEqual([]);
+    expect(payload.unattempted.map((entry) => entry.project)).toEqual([drifted]);
+    expectUntouched(home, drifted, healthy, driftedOutput);
+  });
+
   test("--remove-changed authorizes deletion of changed output", async () => {
     const { home, drifted, healthy, driftedOutput } = await setupDriftedPair();
     const streams = capturedStreams();

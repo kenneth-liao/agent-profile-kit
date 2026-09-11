@@ -43,6 +43,7 @@ export const COMMAND_EXAMPLES = {
     "uninstall --here --auto-confirm",
     `uninstall ${project} --auto-confirm`,
     "uninstall --all --auto-confirm",
+    "uninstall --profile my-profile --auto-confirm",
     "uninstall --profile my-profile --all --auto-confirm",
     "uninstall --all --remove-changed --auto-confirm",
   ],

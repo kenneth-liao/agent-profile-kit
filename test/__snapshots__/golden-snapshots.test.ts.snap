@@ -43,7 +43,8 @@ More commands:
     List read-only inventory for Projects, Profiles, or Hosts
   Teardown:
   uninstall
-    Remove selected Project installations and forget their recorded selection
+    Remove selected Project installations and forget their recorded selection;
+      a lone --profile reaches that Profile's installations fleet-wide
   Machine details:
   info
     Show the engine version and selected application locations
@@ -1592,7 +1593,9 @@ More commands:
   uninstall
     Remove selected Project
       installations and forget their
-      recorded selection
+      recorded selection; a lone
+      --profile reaches that Profile's
+      installations fleet-wide
   Machine details:
   info
     Show the engine version and
@@ -1668,7 +1671,9 @@ Agent Profile Kit composes reusable
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project
       installations and forget their
-      recorded selection
+      recorded selection; a lone
+      --profile reaches that Profile's
+      installations fleet-wide
 \x1B[1;34m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and
@@ -1724,7 +1729,8 @@ More commands:
     List read-only inventory for Projects, Profiles, or Hosts
   Teardown:
   uninstall
-    Remove selected Project installations and forget their recorded selection
+    Remove selected Project installations and forget their recorded selection; a lone --profile
+      reaches that Profile's installations fleet-wide
   Machine details:
   info
     Show the engine version and selected application locations
@@ -1777,7 +1783,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
     List read-only inventory for Projects, Profiles, or Hosts
 \x1B[1;34m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
-    Remove selected Project installations and forget their recorded selection
+    Remove selected Project installations and forget their recorded selection; a lone --profile
+      reaches that Profile's installations fleet-wide
 \x1B[1;34m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and selected application locations

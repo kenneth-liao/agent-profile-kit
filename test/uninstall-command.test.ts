@@ -252,6 +252,85 @@ describe("uninstall confirmation matrix", () => {
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
   });
 
+  test("a binding added between confirmation and commit is never removed unshown", async () => {
+    const { home, first, firstOutput } = await setupInstalledPair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--all"], input);
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    // A concurrent installation lands after the review was shown.
+    const added = projectDirectory();
+    const before = readFileSync(configPath(home), "utf8");
+    writeFileSync(
+      configPath(home),
+      `${before.trimEnd()}\n  - project: ${added}\n    profile: engineering\n    hosts: [codex]\n`,
+    );
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(1);
+    expect(plain(started.streams.errorText())).toContain("scope changed during confirmation");
+    // Zero writes: the reviewed scope and the added binding both survive.
+    snapshotUntouched(home, first, firstOutput);
+    expect(readFileSync(configPath(home), "utf8")).toContain(added);
+  });
+
+  test("--json refusals use the versioned envelope without prose", async () => {
+    const { home } = await setupInstalledPair();
+    const missingScope = await runUninstall(home, ["--json"], nonInteractiveInput());
+    expect(missingScope.exitCode).toBe(1);
+    const missingPayload = JSON.parse(missingScope.streams.humanText()) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      error: string;
+    };
+    expect(missingPayload.schemaVersion).toBe(15);
+    expect(missingPayload.command).toBe("uninstall");
+    expect(missingPayload.outcome).toBe("error");
+    expect(missingPayload.error).toContain("explicit scope");
+
+    const needsConfirm = await runUninstall(home, ["--all", "--json"], nonInteractiveInput());
+    expect(needsConfirm.exitCode).toBe(1);
+    const confirmPayload = JSON.parse(needsConfirm.streams.humanText()) as { outcome: string; error: string };
+    expect(confirmPayload.outcome).toBe("error");
+    expect(confirmPayload.error).toContain("confirmation");
+  });
+
+  test("--json success carries schemaVersion and outcome", async () => {
+    const { home, first } = await setupInstalledPair();
+    const result = await runUninstall(home, ["--project", first, "--auto-confirm", "--json"], nonInteractiveInput());
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.streams.humanText()) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      completed: { project: string }[];
+      skipped: unknown[];
+      unattempted: unknown[];
+    };
+    expect(payload.schemaVersion).toBe(15);
+    expect(payload.command).toBe("uninstall");
+    expect(payload.outcome).toBe("clean");
+    expect(payload.completed.map((entry) => entry.project)).toEqual([first]);
+    expect(payload.skipped).toEqual([]);
+    expect(payload.unattempted).toEqual([]);
+  });
+
+  test("--json confirmation refusal carries empty progress without prose", async () => {
+    const { home } = await setupInstalledPair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--all", "--json"], input);
+    // JSON never prompts: the confirmation refusal carries no progress writes.
+    const result = await started.pending;
+    expect(result.exitCode).toBe(1);
+    const payload = JSON.parse(started.streams.humanText()) as {
+      outcome: string;
+      completed: unknown[];
+      unattempted: unknown[];
+    };
+    expect(payload.outcome).toBe("error");
+    expect(payload.completed).toEqual([]);
+  });
+
   test("zero-match Profile scope reports no match with no writes", async () => {
     const { home, first, firstOutput } = await setupInstalledPair();
     const result = await runUninstall(

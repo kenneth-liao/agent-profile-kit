@@ -10417,6 +10417,8 @@ function treeDigest(roots: readonly string[]): string {
     for (const view of [root.stdout, focused.stdout]) {
       const normalized = view.replace(/\s+/g, " ");
       expect(normalized).toContain("Remove selected Project installations and forget");
+      expect(normalized).toContain("lone --profile");
+      expect(normalized).toContain("fleet-wide");
       expect(normalized).not.toContain("Remove all Projects");
       expect(normalized).not.toMatch(/Remove(?:d)? (?:one|all|\d+)? ?Projects?\b/i);
     }

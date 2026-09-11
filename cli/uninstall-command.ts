@@ -164,8 +164,11 @@ export function parseUninstallArguments(
     throw new Error("uninstall --here cannot be combined with a Project path");
   }
   if (host !== undefined) {
+    // A bare `--host` names no scope, and the scope-less equivalent would
+    // itself be refused: `--here` (the containing Project) keeps the
+    // rejection runnable (INT-6).
     const equivalent = equivalentCommand({
-      here,
+      here: here || (!all && project === undefined),
       all,
       ...(project === undefined ? {} : { project }),
       ...(profile === undefined ? {} : { profile }),
@@ -218,7 +221,8 @@ import {
   applyConsentRequiredDocument,
   applyReplacementDeclinedDocument,
   applyReviewStaleDocument,
-  formatLifecycleToolErrorJson,
+  formatUninstallJson,
+  formatUninstallToolErrorJson,
   uninstallConfirmationDocument,
   uninstallConfirmationRequiredDocument,
   uninstallDeclinedDocument,
@@ -227,8 +231,10 @@ import {
   uninstallNoMatchDocument,
   uninstallReceiptDocument,
   uninstallReplacementCommandDocument,
+  uninstallScopeChangedDocument,
   UNINSTALL_CONFIRMATION_QUESTION,
   type ChangedFileAnsweringScope,
+  type UninstallErrorProgress,
 } from "./presentation.js";
 import {
   answeringScope,
@@ -245,6 +251,7 @@ import { ProjectTargetError, type ProjectBindingSelection } from "../installer/l
 import {
   executeUninstall,
   previewUninstall,
+  UninstallScopeChangedError,
   type UninstallPreview,
 } from "../installer/uninstall-application.js";
 import {
@@ -325,16 +332,15 @@ export function fullySpecifiedUninstallArguments(
   return args;
 }
 
-/** Machine JSON for one uninstall outcome: the same completed/skipped/failed
- * evidence the human receipt carries, without rendered prose. */
-function formatUninstallJson(result: {
-  readonly completed: readonly unknown[];
-  readonly skipped: readonly unknown[];
-  readonly failed?: unknown;
-  readonly unattempted: readonly unknown[];
-  readonly warnings: readonly string[];
-}): string {
-  return `${JSON.stringify({ command: "uninstall", ...result })}\n`;
+/** One preview identity carried into machine progress payloads. */
+function uninstallProgressIdentity(entry: {
+  readonly canonicalProject?: string;
+  readonly project: string;
+}): { readonly canonicalProject?: string; readonly project: string } {
+  return {
+    ...(entry.canonicalProject === undefined ? {} : { canonicalProject: entry.canonicalProject }),
+    project: entry.project,
+  };
 }
 
 export async function runUninstallCommand(
@@ -362,11 +368,17 @@ export async function runUninstallCommand(
     // Missing choices stay missing (DEC-004/US-006): an absent scope never
     // implies all Projects, on any input stream. Interactive selection
     // belongs to #499; this refusal names the explicit fleet equivalent.
-    writeHumanDocument(
-      request.stderr,
-      uninstallMissingScopeDocument(fullySpecifiedUninstallArguments({ ...parsed, all: true })),
-      stderrContext,
-    );
+    if (parsed.json) {
+      request.stdout.write(formatUninstallToolErrorJson(
+        "uninstall needs an explicit scope before any write; an absent scope never implies all Projects",
+      ));
+    } else {
+      writeHumanDocument(
+        request.stderr,
+        uninstallMissingScopeDocument(fullySpecifiedUninstallArguments({ ...parsed, all: true })),
+        stderrContext,
+      );
+    }
     return { exitCode: 1 };
   }
 
@@ -382,14 +394,18 @@ export async function runUninstallCommand(
       cwd,
     });
   } catch (error) {
-    writeHumanDocument(
-      request.stderr,
-      errorDiagnosticDocument(
-        error,
-        error instanceof ProjectTargetError ? { usage: uninstallCommandSyntax } : undefined,
-      ),
-      stderrContext,
-    );
+    if (parsed.json) {
+      request.stdout.write(formatUninstallToolErrorJson(formatError(error)));
+    } else {
+      writeHumanDocument(
+        request.stderr,
+        errorDiagnosticDocument(
+          error,
+          error instanceof ProjectTargetError ? { usage: uninstallCommandSyntax } : undefined,
+        ),
+        stderrContext,
+      );
+    }
     return { exitCode: 1 };
   }
 
@@ -401,7 +417,7 @@ export async function runUninstallCommand(
       : "the selected scope";
     if (parsed.json) {
       request.stdout.write(
-        formatLifecycleToolErrorJson("uninstall", `uninstall matched no installation for ${description}`),
+        formatUninstallToolErrorJson(`uninstall matched no installation for ${description}`),
       );
     } else {
       writeHumanDocument(
@@ -415,11 +431,17 @@ export async function runUninstallCommand(
 
   const stdoutContext: TerminalPresentationContext = terminalPresentationContext(request.stdout);
   if (!parsed.autoConfirm && (!interactive || parsed.json)) {
-    writeHumanDocument(
-      request.stderr,
-      uninstallConfirmationRequiredDocument(fullySpecifiedUninstallArguments(parsed, preview)),
-      stderrContext,
-    );
+    if (parsed.json) {
+      request.stdout.write(formatUninstallToolErrorJson(
+        "uninstall needs explicit confirmation before any write",
+      ));
+    } else {
+      writeHumanDocument(
+        request.stderr,
+        uninstallConfirmationRequiredDocument(fullySpecifiedUninstallArguments(parsed, preview)),
+        stderrContext,
+      );
+    }
     return { exitCode: 1 };
   }
   if (!parsed.autoConfirm) {
@@ -431,7 +453,18 @@ export async function runUninstallCommand(
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
     });
-    writeHumanDocument(request.stdout, uninstallConfirmationDocument(preview), stdoutContext);
+    writeHumanDocument(
+      request.stdout,
+      uninstallConfirmationDocument(
+        preview,
+        // A Profile-only scope names its fleet-wide reach (PROD-4): it
+        // selects every installation using the Profile, not a modifier.
+        !parsed.here && !parsed.all && parsed.project === undefined && parsed.profile !== undefined
+          ? { fleetProfile: parsed.profile }
+          : {},
+      ),
+      stdoutContext,
+    );
     const answer = await prompt(UNINSTALL_CONFIRMATION_QUESTION);
     if (answer.kind === "cancelled") {
       writeHumanDocument(
@@ -477,6 +510,9 @@ export async function runUninstallCommand(
       ...(parsed.all ? { all: true as const } : {}),
       ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
       cwd,
+      // The executed scope is the reviewed scope: re-resolution inside
+      // fails closed when a concurrent change widens or narrows it (INT-2).
+      confirmedPreview: preview,
       ...(parsed.removeChanged ? { removeChanged: true as const } : {}),
       ...(confirmer.confirm === undefined ? {} : { confirmChangedOutputReplacement: confirmer.confirm }),
     });
@@ -523,10 +559,34 @@ export async function runUninstallCommand(
     // blocker matrix); exit 0 when every selected Project completed.
     return { exitCode: result.skipped.length > 0 ? 2 : 0 };
   } catch (error) {
+    if (error instanceof UninstallScopeChangedError) {
+      // The selection moved between confirmation and commit: nothing was
+      // written, and the current scope reports as unattempted (INT-2).
+      const progress: UninstallErrorProgress = {
+        completed: [],
+        unattempted: error.current.map(uninstallProgressIdentity),
+      };
+      if (parsed.json) {
+        request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
+      } else {
+        writeHumanDocument(
+          request.stderr,
+          uninstallScopeChangedDocument(fullySpecifiedUninstallArguments(parsed, preview)),
+          stderrContext,
+        );
+      }
+      return { exitCode: 1 };
+    }
     if (error instanceof ApplyDeclinedError) {
       const scope = answering(confirmer.promptedAcceptedScope());
+      // Declining precedes every lifecycle write: nothing completed, and
+      // the reviewed scope reports as unattempted (PROD-3).
+      const progress: UninstallErrorProgress = {
+        completed: [],
+        unattempted: preview.projects.map(uninstallProgressIdentity),
+      };
       if (parsed.json) {
-        request.stdout.write(formatLifecycleToolErrorJson("uninstall", formatError(error)));
+        request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
         writeHumanDocument(
           request.stderr,
@@ -543,9 +603,25 @@ export async function runUninstallCommand(
     }
     if (error instanceof ApplyConsentRequiredError) {
       // The remedy stays runnable: the missing deletion authorization is
-      // added, so re-running answers the whole scope.
+      // added, so re-running answers the whole scope. The refusal carries
+      // the partial outcome for machine consumers (PROD-3); a pre-write
+      // refusal carries no pending evidence, so the whole reviewed scope
+      // reports as unattempted — nothing was attempted.
+      const progress: UninstallErrorProgress = {
+        completed: error.completedProjects.map((name) => ({ canonicalProject: name, project: name })),
+        ...(error.failedProject === undefined ? {} : {
+          failed: {
+            canonicalProject: error.failedProject.canonicalProject,
+            project: error.failedProject.project,
+            detail: formatError(error),
+            selectionRestored: true,
+            concurrentSelectionChange: false,
+          },
+        }),
+        unattempted: (error.pendingProjects ?? preview.projects).map(uninstallProgressIdentity),
+      };
       if (parsed.json) {
-        request.stdout.write(formatLifecycleToolErrorJson("uninstall", formatError(error)));
+        request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
         writeHumanDocument(
           request.stderr,
@@ -560,8 +636,19 @@ export async function runUninstallCommand(
       return { exitCode: 1 };
     }
     if (error instanceof ApplyReviewStaleError) {
+      const progress: UninstallErrorProgress = {
+        completed: error.completedProjects.map((name) => ({ canonicalProject: name, project: name })),
+        failed: {
+          canonicalProject: error.failedProject.canonicalProject,
+          project: error.failedProject.project,
+          detail: formatError(error),
+          selectionRestored: true,
+          concurrentSelectionChange: false,
+        },
+        unattempted: error.pendingProjects.map(uninstallProgressIdentity),
+      };
       if (parsed.json) {
-        request.stdout.write(formatLifecycleToolErrorJson("uninstall", formatError(error)));
+        request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
         writeHumanDocument(
           request.stderr,
@@ -576,7 +663,7 @@ export async function runUninstallCommand(
       return { exitCode: 1 };
     }
     if (parsed.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("uninstall", formatError(error)));
+      request.stdout.write(formatUninstallToolErrorJson(formatError(error)));
     } else {
       writeHumanDocument(
         request.stderr,

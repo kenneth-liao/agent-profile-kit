@@ -5699,6 +5699,25 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("will not reinstall");
   });
 
+  test("uninstall confirmation names the fleet-wide reach of a Profile-only scope", () => {
+    const document = uninstallConfirmationDocument(
+      {
+        projects: [
+          { project: "/project-a", profile: "docs", hosts: ["codex"] },
+          { project: "/project-b", profile: "docs", hosts: ["claude"] },
+        ],
+      },
+      { fleetProfile: "docs" },
+    );
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("every installation using Profile 'docs' (fleet-wide)");
+
+    const scoped = uninstallConfirmationDocument({
+      projects: [{ project: "/project-a", profile: "docs", hosts: ["codex"] }],
+    });
+    expect(renderPresentationDocument(scoped, defaultRenderContext)).not.toContain("fleet-wide");
+  });
+
   test("uninstall declined and confirmation-required diagnostics name the explicit equivalent", () => {
     const args = [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }];
     const declined = uninstallDeclinedDocument("declined", args);
@@ -5719,7 +5738,6 @@ describe("standalone view presentation documents (#389)", () => {
         profile: "engineering",
         detail: "injected Installation State fault",
         selectionRestored: true,
-        outputCommitted: false,
         concurrentSelectionChange: false,
       },
       completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
@@ -8554,7 +8572,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
         profile: "coding",
         detail: "injected fault",
         selectionRestored: true,
-        outputCommitted: false,
         concurrentSelectionChange: false,
       },
       completed: [],
