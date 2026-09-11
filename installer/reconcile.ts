@@ -551,7 +551,13 @@ interface StagedDirectoryOutput {
 
 type StagedProjectOutput = StagedDirectoryOutput | StagedFileOutput;
 
-function ownedOutputFromDesired(output: DesiredProjectOutput): OwnershipOutputReceipt {
+/**
+ * Map one planned output to its ownership receipt (partial Host removal
+ * narrows receipts to the surviving plan through this same boundary, so
+ * retained evidence agrees with install/update rather than a second
+ * mapping).
+ */
+export function ownedOutputFromDesired(output: DesiredProjectOutput): OwnershipOutputReceipt {
   if (output.type === "file") {
     return {
       hash: output.hash,

@@ -46,6 +46,7 @@ export const COMMAND_EXAMPLES = {
     "uninstall --profile my-profile --auto-confirm",
     "uninstall --profile my-profile --all --auto-confirm",
     "uninstall --all --remove-changed --auto-confirm",
+    "uninstall --here --host codex --auto-confirm",
   ],
   "install-temp": [
     `machine install-temp ${profile} ${project} --host codex --json`,

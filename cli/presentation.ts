@@ -1296,6 +1296,7 @@ export function uninstallConfirmationDocument(preview: {
     readonly project: string;
     readonly profile: string;
     readonly hosts: readonly string[];
+    readonly removeHosts?: readonly string[];
   }[];
 }, options: { readonly fleetProfile?: string } = {}): PresentationDocument {
   return [
@@ -1307,7 +1308,9 @@ export function uninstallConfirmationDocument(preview: {
     ...preview.projects.map((entry): PresentationNode => ({
       kind: "prose",
       parts: [
-        `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`,
+        entry.removeHosts === undefined
+          ? `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
+          : `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
       ],
     })),
     {
@@ -1389,24 +1392,43 @@ export function uninstallNoMatchDocument(description: string): PresentationDocum
 }
 
 /** The compact uninstall receipt (DEC-007/US-011): removed Project count
- * once, without per-file, per-Project, or Profile-breakdown inventories.
+ * once — or the removed Host and affected count for partial Host removal —
+ * without per-file, per-Project, or Profile-breakdown inventories.
  * Skipped Projects keep actionable identities with their reasons;
  * warnings stay visible. Complete evidence belongs to history (US-012). */
 export function uninstallReceiptDocument(
   result: UninstallApplicationResult,
 ): PresentationDocument {
-  const removedCount = result.completed.length;
+  const whole = result.completed.filter((entry) => entry.removedHosts === undefined);
+  const partials = result.completed.filter((entry) => entry.removedHosts !== undefined);
+  const removedCount = whole.length;
   const skippedCount = result.skipped.length;
+  const partialGroups = new Map<string, readonly UninstallCompletedProject[]>();
+  for (const entry of partials) {
+    const key = [...entry.removedHosts!].sort().join(", ");
+    partialGroups.set(key, [...(partialGroups.get(key) ?? []), entry]);
+  }
+  const outcomeLines: string[] = [];
+  if (removedCount > 0) {
+    outcomeLines.push(
+      `Removed proven Agent Profile Kit-owned output from ${plural(removedCount, "Project")} and forgot ${removedCount === 1 ? "its" : "their"} recorded selection.`,
+    );
+  }
+  for (const [hosts, entries] of [...partialGroups.entries()].sort()) {
+    outcomeLines.push(
+      `Removed Host ${hosts} from ${plural(entries.length, "Project")}; the remaining Hosts keep working with their shared output preserved.`,
+    );
+  }
   const nodes: PresentationNode[] = [{
     kind: "notice",
     severity: "success",
     nodes: [{
       kind: "prose",
-      parts: [removedCount === 0
+      parts: [outcomeLines.length === 0
         ? skippedCount === 0
           ? "No Agent Profile Kit-owned output was installed for the selected scope."
           : `Removed no Agent Profile Kit-owned output; skipped ${plural(skippedCount, "Project")} below.`
-        : `Removed proven Agent Profile Kit-owned output from ${plural(removedCount, "Project")} and forgot ${removedCount === 1 ? "its" : "their"} recorded selection.`],
+        : outcomeLines.join(" ")],
     }],
   }];
   for (const warning of result.warnings) {

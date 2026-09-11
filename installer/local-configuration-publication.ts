@@ -55,6 +55,37 @@ interface RangedYamlNode {
 }
 
 /**
+ * Replace one binding entry's Host list in place (partial Host removal
+ * narrows the remembered selection without forgetting the Project). The
+ * caller holds the Local Configuration lock and verified the entry index
+ * under it. Like install's replacement path this serializes through the
+ * YAML Document, keeping one canonical binding-edit boundary with
+ * bind-project.
+ */
+export function updateBindingHostsSourceEntry(
+  source: string,
+  document: {
+    readonly get: (key: string, keepScalar?: boolean) => unknown;
+    readonly toString: () => string;
+  },
+  bindingsNode: {
+    readonly items: readonly unknown[];
+  },
+  index: number,
+  hosts: readonly string[],
+): string {
+  const bindingNode = bindingsNode.items[index] as
+    | { readonly set: (key: string, value: unknown) => void; flow?: boolean }
+    | undefined;
+  if (bindingNode === undefined || typeof bindingNode.set !== "function") {
+    throw new Error("Local Configuration bindings entry must be a mapping");
+  }
+  bindingNode.set("hosts", [...hosts]);
+  if ("flow" in bindingNode) bindingNode.flow = false;
+  return preserveSourceNewlines(source, document.toString());
+}
+
+/**
  * Remove only the selected bindings entry by source range. YAML Document
  * serialization normalizes untouched flow/inline formatting, so byte-range
  * removal is the deliberate preservation path for binding removal; its flow,

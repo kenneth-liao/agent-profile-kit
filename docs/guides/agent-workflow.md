@@ -71,8 +71,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    needs `--replace-changed`/`--remove-changed`. After installing, continue
    with validate/status/update. To remove selected installations, use
    `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all`
-   (explicit scope plus `--auto-confirm` non-interactively, with `--profile`
-   and `--remove-changed` as needed); it forgets each fully removed Project's
+   (explicit scope plus `--auto-confirm` non-interactively, with `--profile`,
+   `--host`, and `--remove-changed` as needed); it forgets each fully removed Project's
    recorded selection so a later update does not reinstall it, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. To keep generated files in place instead, remove the

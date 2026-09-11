@@ -612,7 +612,7 @@ It reports current, not installed, stale source, drifted output (including wholl
 owned output), malformed ownership, and blocked installations, while keeping Host
 configuration warnings visible.
 
-Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>` and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
+Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>`, `--host <host>`, and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. `--host <host>` (repeatable) removes only those Hosts within the scope while the remaining Hosts keep working. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
 
 To stop managing a Project but keep its Git-owned files in place, remove its entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next `update` reconciles the leftovers. Neither path modifies personal/global Host configuration or repository-owned files.
 
