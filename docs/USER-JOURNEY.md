@@ -164,19 +164,30 @@ deterministic close-match suggestion when available, otherwise only point to
 
 `list` is the read-only inventory entrypoint: without a topic it names each
 available inventory topic once with one human description. `list projects`
-presents one aligned row per Project with its short identity, Profile, Hosts,
-and configuration state, followed by a summary footer:
+prints the `Projects:` heading and one row per Project carrying the view's
+shortest-unambiguous identity, Profile, Hosts, and configuration state; the
+count appears once, in the summary footer (US-013, ADR-0042):
 
 ```
 $ apkit list projects
-Projects (2):
+Projects:
 
-<project>  example  codex   configured
-<project>  example  claude  configured
+demo   example  codex   configured
+other  example  claude  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
 ```
+
+Each Project is named by the shortest trailing path segments no other Project
+in the same view shares, so `~/projects/demo` and `~/projects/other` render as
+`demo` and `other` while two Projects named `api` keep their distinguishing
+parents. Below an 80-column terminal, and whenever a row group cannot fit the
+measure, the same fields render as separated compact entries with one blank
+line between Projects. A configured binding that cannot be resolved shows the
+short `problem` state in its row, and its complete sentence with the repair
+locator renders once after the entries. `--verbose`, `apkit details`, and
+`--json` keep the full home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
 `list hosts` leads with the canonical Hosts supported for configured Projects
@@ -473,10 +484,12 @@ exclusive, compose with fleet, `--here`, and explicit Project scope, and
 select the same Projects for reports and update writes (shown in stage 10).
 Each selected view states one primary next action naming the selected scope
 (US-007), and every copyable command argument is executable as printed: the
-Project identity renders home-relative or absolute — never the cwd-relative
+Project argument renders home-relative or absolute — never the cwd-relative
 alias, never middle-elided — as one shell-quoted POSIX token, so a path
 containing spaces survives the shell that runs it and the printed action
-never dead-ends.
+never dead-ends. The surrounding prose names the Project by this view's
+shortest-unambiguous identity (US-013, ADR-0042); the command keeps the
+runnable path.
 
 ```
 $ apkit status --stale

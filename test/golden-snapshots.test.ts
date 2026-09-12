@@ -936,9 +936,18 @@ describe("rendered atomicity mutation evidence from real captures", () => {
       ),
     ).toThrow(/fragmented/);
 
-    // Fragmentation across three or more lines.
+    // Fragmentation across three or more lines, split inside the Project
+    // argument the capture actually carries.
+    const fragment = command.slice("apkit update ".length);
+    const split = Math.max(1, Math.floor(fragment.length / 2));
     expect(() =>
-      checkAtomicRendering(mutated("Next: apkit\n  update ~/pro\n  jects/demo\n"), stabilized, corpus),
+      checkAtomicRendering(
+        mutated(
+          `Next: apkit\n  update ${fragment.slice(0, split)}\n  ${fragment.slice(split)}\n`,
+        ),
+        stabilized,
+        corpus,
+      ),
     ).toThrow(/fragmented/);
 
     // A path argument split mid-token inside an intact command prefix.
@@ -1003,16 +1012,19 @@ describe("rendered atomicity mutation evidence from real captures", () => {
   });
 
   test("a colored committed baseline guards its decoded styled paths", () => {
+    // The scan views now carry shortest-unambiguous identities (US-013), so
+    // the guarded styled path is the project-relative generated path in the
+    // blocked status capture.
     const colorKey =
-      "rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1";
+      "rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-color 1";
     const colorBaseline = baselineStream(snapshotBodies.get(colorKey)!, "stdout");
     const corpus = goldenCorpus();
     checkAtomicRendering(colorBaseline, colorBaseline, corpus);
-    const styledPathLine = colorBaseline.split("\n").find((line) => line.includes("~/projects/demo"));
+    const styledPathLine = colorBaseline.split("\n").find((line) => line.includes(".codex/hooks.json"));
     expect(styledPathLine).toBeDefined();
     expect(() =>
       checkAtomicRendering(
-        colorBaseline.replace("~/projects/demo", "~/projects/de\n      mo"),
+        colorBaseline.replace(".codex/hooks.json", ".codex/hoo\n      ks.json"),
         colorBaseline,
         corpus,
       ),

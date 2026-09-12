@@ -25,7 +25,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 
 4. **Blocker Containment.** Blockers are contained concisely within the status view. Project-scoped and global Blocker evidence (problem, requirement, remedy, scope) is presented without suppressing the primary cause partition of the remaining fleet.
 
-5. **Shared Fleet Identity Policy.** In fleet context (`LocationDisplayScope: "fleet"`), all Project identities are rendered with home-relative paths (e.g. `~/project-a`), never bare `.` or working-directory aliases.
+5. **Shared Fleet Identity Policy.** In fleet context (`LocationDisplayScope: "fleet"`), all Project identities are rendered with home-relative paths (e.g. `~/project-a`), never bare `.` or working-directory aliases. *Amended by ADR-0042:* a scanning view (concise `status`, default receipts, `list projects`) now renders each Project by the shortest-unambiguous identity among the Projects that view names, and requested evidence (`--verbose`, `apkit details`, `--json`) keeps the stable home-relative or absolute path. The prohibition on `.` and working-directory aliases is unchanged and now applies to every human view.
 
 6. **Advisory Warnings Independence.** Advisory host-attention warnings (e.g., missing or outdated Host CLIs per ADR-0025) do not classify an otherwise settled Project into `needs attention`. Warnings render inline directly beside command outcomes without a separate titled `Warnings:` section or empty warning block (DEC-010, US-018).
 

@@ -40,6 +40,12 @@ export type PathPart = {
   readonly canonicalPath: string;
   readonly authoredPath?: string;
   readonly scope: LocationDisplayScope;
+  /**
+   * The shortest-unambiguous identity this view chose for the Project
+   * (US-013, DEC-009). Display only: the machine-text projection still
+   * publishes the canonical/authored path.
+   */
+  readonly identity?: string;
 };
 
 /** One inline opaque carried value: atomic, rendered verbatim. */

@@ -16,7 +16,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse, stringify } from "yaml";
 
@@ -207,8 +207,10 @@ describe("fleet-wide synchronization qualification", () => {
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
     // Primary-cause fleet partition renders complete actionable fleet.
-    expect(preview.stdout).toStartWith("Ready to update\n- source changed (12):\n");
-    for (const project of projects) expect(preview.stdout).toContain(project);
+    expect(preview.stdout).toStartWith("Ready to update\n- source changed (12): ");
+    // The scanning view names every Project by its shortest-unambiguous
+    // identity; verbose and JSON below retain the full evidence.
+    for (const project of projects) expect(preview.stdout).toContain(basename(project));
     expect(preview.stdout).not.toContain("Project changes:");
     expect(preview.stdout).not.toContain("Projects: 12");
     // Concise fleet output groups only primary causes and actionable
@@ -742,11 +744,11 @@ describe("integrated fleet recovery qualification", () => {
     const freshEvidence = partialApply.stdout.slice(
       partialApply.stdout.indexOf("Freshly current:"),
     );
-    expect(freshEvidence).toContain(projectA);
-    expect(freshEvidence).toContain(projectC);
-    expect(freshEvidence).toContain(projectD);
-    expect(freshEvidence).toContain(projectE);
-    expect(freshEvidence).not.toContain(projectB);
+    expect(freshEvidence).toContain(basename(projectA));
+    expect(freshEvidence).toContain(basename(projectC));
+    expect(freshEvidence).toContain(basename(projectD));
+    expect(freshEvidence).toContain(basename(projectE));
+    expect(freshEvidence).not.toContain(basename(projectB));
 
     // The blocked Project's Blocker evidence stays visible.
     expect(partialApply.stdout).toContain(projectB.split("/").at(-1)!);

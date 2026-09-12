@@ -96,7 +96,7 @@ Commands separate binding authoring from global reconciliation:
 - `validate` checks the Workspace and Project Bindings without writing state. A successful human result derives its next action from the normalized Project Binding count: zero points to `install`, while one or more points to `status`; warnings remain visible without changing that branch.
 - `info [--json]` reports the engine version and the selected Workspace, Local Configuration, and Installation State locations without enumerating Workspace artifacts, Host state, Project Bindings, or Installation State contents, and never changes state. Its versioned machine payload identifies `current`, `legacy`, or `not-configured` Local Configuration; legacy input is reported as migration-required rather than as an unconfigured Workspace.
 - `list` prints the available read-only inventory topics and descriptions from one canonical topic table. Focused human inventory presents instructional usage rather than an optional or redundant `Next:` action; JSON remains unchanged.
-  - `list projects` reads the normalized Local Configuration model and renders one aligned row per Project carrying short Project identity, Profile, normalized Host set, and configuration state, followed by a summary footer; a per-binding path problem is retained in its state cell instead of aborting the inventory. It does not inspect Workspace artifacts.
+  - `list projects` reads the normalized Local Configuration model and renders the `Projects:` heading, one Project row carrying the view's shortest-unambiguous identity, Profile, normalized Host set, and configuration state, and one summary footer carrying the count (ADR-0042). Below `TABLE_MINIMUM_WIDTH` (80), and whenever a row group cannot fit the measure, the rows render as separated compact entries with a blank line between them. A per-binding path problem shows the short `problem` state in its row and renders its complete typed sentence and repair locator once, after the entries, under the same identity instead of aborting the inventory. It does not inspect Workspace artifacts.
   - `list profiles` reads the normalized selected Workspace model and renders every valid Profile ID with selected Context Module and Skill counts in deterministic order. It does not inspect Project roots and fails through Workspace ingestion when its selected source is missing or invalid.
   - `list hosts` reads normalized Host inventory records from capability constants and renders the canonical Hosts supported for configured Projects in its concise human view, with guidance to select a listed Host through `install`, without inspecting PATH, Host versions, configuration, or Project surfaces.
   - `machine list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
@@ -146,11 +146,20 @@ versioned JSON schema and carry no blocker records.
 Human lifecycle presentation in `cli/presentation.ts` has three explicit
 boundaries over the same ReconciliationReport. Every human surface selects an
 explicit location-display scope: application-wide and fleet surfaces use a
-stable home-relative Project identity, while a single-Project surface may use
-cwd-relative identity. An invalid relative path on a fleet surface is labeled
-as a relative path instead of being rendered as `.`, `..`, or `../…`. Authored
-Project identity must survive aggregation so presentation never substitutes a
-canonical path where the authored identity is available. Concise output
+stable home-relative Project identity, while a single-Project surface may use a
+strictly-inside-the-working-directory spelling — a Project root is never named
+as `.`, `..`, or `../…`, and an invalid relative path is labeled as a relative
+path instead (ADR-0042). Authored Project identity must survive aggregation so
+presentation never substitutes a canonical path where the authored identity is
+available. Scanning views (concise `status`, default receipts and their
+failure/exception views, `list projects`, and `machine list temporary`) render
+each Project by the shortest-unambiguous identity among the Projects that view names — computed
+once per document through `projectIdentityLookup` and carried as an `identity`
+on path nodes and parts, so no two references in one view disagree — while
+requested evidence (`--verbose`, `apkit details`, `--json`), the changed-file
+consent review, and every executable command argument keep the stable spelling. An identity is display-only and
+never elided; when it exceeds the measure it wraps at path-segment boundaries
+(ADR-0042). Concise output
 presents the outcome notice, partitions actionable Projects by primary cause
 (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`,
 `source changed`) with complete wrapped Project identities, summarizes non-actionable

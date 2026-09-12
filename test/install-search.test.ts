@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { runInstallCommand } from "../cli/install-command.js";
@@ -137,8 +137,9 @@ describe("guided install collects only missing choices", () => {
       env: { PATH: "" },
     });
 
-    // The bare install names its current-directory Project target first.
-    await waitForOutput(streams.humanText, projectPath);
+    // The bare install names its current-directory Project target first, by
+    // the shortest-unambiguous identity this view renders (US-013).
+    await waitForOutput(streams.humanText, basename(projectPath));
     // Searchable Profile choice: filter and submit.
     await waitForOutput(streams.humanText, "Which Profile?");
     input.write("cod");
