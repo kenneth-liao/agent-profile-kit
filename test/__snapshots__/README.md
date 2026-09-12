@@ -63,3 +63,16 @@ clean-tree gate.
 
 Snapshot files are created and changed only on a maintainer machine. CI never
 enables snapshot updating; an uncommitted snapshot fails the clean-tree gate.
+
+## Accepted content change: compact lifecycle receipts (#502, ADR-0040)
+
+US-011 deliberately replaces the default `update` receipt with one
+outcome-first impact statement and one completed-operation
+`Details: apkit details` route, and adds that route to the already-compact
+`install`/`uninstall` receipts; `update`'s per-file inventory moves to
+`--verbose` and to the retained operation. The affected baselines changed facts
+on purpose, and the accepted diff is reviewed on the #502 change request. This
+note exists so the bounded-diff rule above stays about accidental presentation
+drift rather than blocking an accepted requirement change. The complete
+per-file receipt stays covered by the verbose-update unit tests and the
+retained-operation suite.

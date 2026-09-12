@@ -15,7 +15,11 @@
  */
 import type { Readable, Writable } from "node:stream";
 
-import { writeHumanDocument, type PresentationDocument } from "./presentation-document.js";
+import {
+  writeHumanDocument,
+  type PresentationDocument,
+  type PresentationNode,
+} from "./presentation-document.js";
 import { errorDiagnosticDocument } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
@@ -64,6 +68,7 @@ import {
   recordProjectedOutcome,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
+import { writeLifecycleReport } from "./operation-history-presentation.js";
 import { detectInstalledHosts, SUPPORTED_HOSTS } from "../adapters/registry.js";
 import {
   executeInstall,
@@ -486,23 +491,25 @@ async function runInstallCommandWithRecording(
     };
     if (answer.kind === "cancelled") {
       recording.collect(installCancelledRecording("cancelled", previewIdentity));
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
         installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
         stderrContext,
+        recording,
       );
       return { exitCode: 1 };
     }
     const normalized = answer.value.trim().toLowerCase();
     if (normalized !== "y" && normalized !== "yes") {
       recording.collect(installCancelledRecording("declined", previewIdentity));
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
         installDeclinedDocument(
           normalized === "" ? "default" : "declined",
           fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
         ),
         stderrContext,
+        recording,
       );
       return { exitCode: 1 };
     }
@@ -541,37 +548,27 @@ async function runInstallCommandWithRecording(
     if (parsed.json) {
       request.stdout.write(formatInstallJson(result.applied));
     } else {
-      writeHumanDocument(
-        request.stdout,
-        installReceiptDocument(installReceiptInput(result)),
-        stdoutContext,
-      );
-      // Advisory report warnings (absent Host CLIs and the like) stay
-      // visible on the install path that replaces the old bind+update
-      // sequence; they never block and never change the outcome.
-      const warnings = installWarningNodes(result.applied.resultingState);
-      if (warnings.length > 0) {
-        writeHumanDocument(request.stdout, warnings, stdoutContext);
-      }
+      const reportDocument: PresentationNode[] = [
+        ...installReceiptDocument(installReceiptInput(result)),
+        // Advisory report warnings (absent Host CLIs and the like) stay
+        // visible on the install path that replaces the old bind+update
+        // sequence; they never block and never change the outcome.
+        ...installWarningNodes(result.applied.resultingState),
+      ];
       if (acceptedScope !== undefined) {
-        writeHumanDocument(
-          request.stdout,
-          installReplacementCommandDocument(
-            fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope), preview),
-          ),
-          stdoutContext,
-        );
+        reportDocument.push(...installReplacementCommandDocument(
+          fullySpecifiedInstallArguments(parsed, cwd, answeringScope(parsed, acceptedScope, acceptedScope), preview),
+        ));
       } else if (guided) {
         // A guided install always leaves its executable fully specified
         // equivalent (US-006): the picked choices plus the general
         // confirmation answer, with consent flags when the flow authorized
         // them. Explicit installs keep the #494 echo contract.
-        writeHumanDocument(
-          request.stdout,
-          installReplacementCommandDocument(fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
-          stdoutContext,
-        );
+        reportDocument.push(...installReplacementCommandDocument(
+          fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
+        ));
       }
+      writeLifecycleReport(request.stdout, reportDocument, stdoutContext, recording);
     }
     return { exitCode: 0 };
   } catch (error) {
@@ -595,17 +592,6 @@ async function runInstallCommandWithRecording(
     recording.recordNothing("the install refused before any lifecycle write");
     return { exitCode: 1 };
   }
-}
-
-/** Append install recovery evidence to a shared view, writing nothing when
- * the shared view already states the untouched outcome. */
-function writeRecoveryAddendum(
-  stream: Writable & TerminalStream,
-  recovery: InstallRecoveryEvidence,
-  context: TerminalPresentationContext,
-): void {
-  const addendum = installRecoveryAddendum(recovery);
-  if (addendum.length > 0) writeHumanDocument(stream, addendum, context);
 }
 
 /** Map one post-publication install failure to its truthful diagnostic. */
@@ -664,20 +650,23 @@ function installReconcileFailureOutcome(
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
       const scope = answering(confirmer.promptedAcceptedScope());
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
-        applyReplacementDeclinedDocument(
-          cause.reason === "cancelled" ? "cancelled" : confirmer.declinedAnswer(),
-          fullySpecifiedInstallArguments(parsed, cwd, scope, {
-            canonicalProject: failedProject.canonicalProject,
-            authoredProject: failedProject.project,
-          }),
-          scope,
-          "install",
-        ),
+        [
+          ...applyReplacementDeclinedDocument(
+            cause.reason === "cancelled" ? "cancelled" : confirmer.declinedAnswer(),
+            fullySpecifiedInstallArguments(parsed, cwd, scope, {
+              canonicalProject: failedProject.canonicalProject,
+              authoredProject: failedProject.project,
+            }),
+            scope,
+            "install",
+          ),
+          ...installRecoveryAddendum(recovery),
+        ],
         stderrContext,
+        recording,
       );
-      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
@@ -691,19 +680,22 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
-        applyConsentRequiredDocument(
-          cause,
-          fullySpecifiedInstallArguments(parsed, cwd, scope, {
-            canonicalProject: failedProject.canonicalProject,
-            authoredProject: failedProject.project,
-          }),
-          "install",
-        ),
+        [
+          ...applyConsentRequiredDocument(
+            cause,
+            fullySpecifiedInstallArguments(parsed, cwd, scope, {
+              canonicalProject: failedProject.canonicalProject,
+              authoredProject: failedProject.project,
+            }),
+            "install",
+          ),
+          ...installRecoveryAddendum(recovery),
+        ],
         stderrContext,
+        recording,
       );
-      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
@@ -711,24 +703,27 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
-        applyReviewStaleDocument(
-          cause,
-          fullySpecifiedInstallArguments(
-            parsed,
-            cwd,
-            answering(confirmer.promptedAcceptedScope()),
-            {
-              canonicalProject: failedProject.canonicalProject,
-              authoredProject: failedProject.project,
-            },
+        [
+          ...applyReviewStaleDocument(
+            cause,
+            fullySpecifiedInstallArguments(
+              parsed,
+              cwd,
+              answering(confirmer.promptedAcceptedScope()),
+              {
+                canonicalProject: failedProject.canonicalProject,
+                authoredProject: failedProject.project,
+              },
+            ),
+            "install",
           ),
-          "install",
-        ),
+          ...installRecoveryAddendum(recovery),
+        ],
         stderrContext,
+        recording,
       );
-      writeRecoveryAddendum(request.stderr, recovery, stderrContext);
     }
     return { exitCode: 1 };
   }
@@ -736,18 +731,21 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleJson("install", cause.report, recoveryJson));
     } else {
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stdout,
-        installBlockedDocument(
-          cause.report,
-          fullySpecifiedInstallArguments(parsed, cwd, undefined, {
-            canonicalProject: failedProject.canonicalProject,
-            authoredProject: failedProject.project,
-          }),
-        ),
+        [
+          ...installBlockedDocument(
+            cause.report,
+            fullySpecifiedInstallArguments(parsed, cwd, undefined, {
+              canonicalProject: failedProject.canonicalProject,
+              authoredProject: failedProject.project,
+            }),
+          ),
+          ...installRecoveryAddendum(recovery),
+        ],
         stdoutContext,
+        recording,
       );
-      writeRecoveryAddendum(request.stdout, recovery, stdoutContext);
     }
     return { exitCode: lifecycleExitCode(cause.report) };
   }
@@ -767,7 +765,7 @@ function installReconcileFailureOutcome(
         recovery: recoveryJson,
       }));
     } else {
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
         installExecutionFailureDocument({
           detail: cause.detail,
@@ -776,6 +774,7 @@ function installReconcileFailureOutcome(
           retryArguments: retry,
         }),
         stderrContext,
+        recording,
       );
     }
     return { exitCode: 1 };
@@ -790,10 +789,11 @@ function installReconcileFailureOutcome(
         formatApplyVerificationFailureJson(cause.receipt, cause.message, "install", recoveryJson),
       );
     } else {
-      writeHumanDocument(
+      writeLifecycleReport(
         request.stderr,
         installVerificationFailureDocument({ message: cause.message, retryArguments: retry }),
         stderrContext,
+        recording,
       );
     }
     return { exitCode: 1 };
@@ -809,7 +809,7 @@ function installReconcileFailureOutcome(
   if (parsed.json) {
     request.stdout.write(formatLifecycleToolErrorJson("install", detail, recoveryJson));
   } else {
-    writeHumanDocument(
+    writeLifecycleReport(
       request.stderr,
       installExecutionFailureDocument({
         detail,
@@ -818,6 +818,7 @@ function installReconcileFailureOutcome(
         retryArguments: retry,
       }),
       stderrContext,
+      recording,
     );
   }
   return { exitCode: 1 };

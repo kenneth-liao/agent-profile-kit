@@ -277,6 +277,10 @@ describe("uninstall confirmation matrix", () => {
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
     expect(plain(started.streams.errorText())).toContain("nothing was written");
+    // A declined uninstall is a retained cancellation (DEC-008), so its
+    // detail route follows the diagnostic on stderr (ADR-0040).
+    expect(plain(started.streams.errorText())).toContain("Details: apkit details");
+    expect(plain(started.streams.humanText())).not.toContain("Details:");
     snapshotUntouched(home, first, firstOutput);
   });
 
@@ -575,6 +579,39 @@ describe("uninstall confirmation matrix", () => {
       nonInteractiveInput(),
     );
     expect(result.exitCode).toBe(1);
+    snapshotUntouched(home, first, firstOutput);
+  });
+});
+
+describe("uninstall completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
+  test("a successful full uninstall prints the count once and the retained route", async () => {
+    const { home, first, firstOutput } = await setupInstalledPair();
+
+    const result = await runUninstall(
+      home,
+      ["--project", first, "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(firstOutput)).toBe(false);
+    const text = plain(result.streams.humanText());
+    expect(text).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
+    expect(text).toContain("Details: apkit details");
+  });
+
+  test("a zero-match scope prints no detail route", async () => {
+    const { home, first, firstOutput } = await setupInstalledPair();
+
+    const result = await runUninstall(
+      home,
+      ["--profile", "unknown-profile", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(plain(result.streams.humanText())).not.toContain("Details:");
+    expect(plain(result.streams.errorText())).not.toContain("Details:");
     snapshotUntouched(home, first, firstOutput);
   });
 });

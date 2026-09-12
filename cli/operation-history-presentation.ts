@@ -5,6 +5,8 @@
  * JSON is one dedicated family (`schemaVersion: 1`), separate from the
  * reconciliation contract (ADR-0023), and never carries file contents.
  */
+import type { Writable } from "node:stream";
+
 import { COMMAND_NAME } from "../installer/version.js";
 import {
   OPERATION_HISTORY_LIMIT,
@@ -15,10 +17,16 @@ import {
   type OperationHistoryScope,
 } from "../installer/operation-history.js";
 import { diagnosticDocument } from "./diagnostics.js";
+import type { LifecycleOperationRecording } from "./operation-recording.js";
+import {
+  type TerminalPresentationContext,
+  type TerminalStream,
+} from "./terminal-presentation.js";
 import {
   commandPart,
   identifierPart,
   pathPart,
+  writeHumanDocument,
   type CommandArg,
   type InlineContent,
   type PresentationDocument,
@@ -29,6 +37,61 @@ import {
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 export const DETAILS_MACHINE_SCHEMA_VERSION = 1;
+
+/**
+ * The completed-operation detail route (US-011, DEC-007; ADR-0040): one
+ * discoverable `Details: apkit details` line that retrieves the run's retained
+ * evidence. It names the read-only history command, never a re-run of the
+ * lifecycle command, and the write helper below emits it exactly when this run
+ * retained an entry.
+ */
+export function operationDetailsDocument(): PresentationDocument {
+  return [
+    { kind: "verbatim", text: "" },
+    {
+      kind: "key-value",
+      key: "Details",
+      value: { kind: "command", program: COMMAND_NAME, args: [arg("details")] },
+      category: "command",
+    },
+  ];
+}
+
+/**
+ * Write one run's terminal human report and, exactly when the run retained an
+ * operation-history entry, its completed-operation detail route (US-011,
+ * DEC-007; ADR-0040). The route follows the stream that carries the report, so
+ * a declined or failed run keeps its evidence pointer beside its own
+ * diagnostic while a pre-write refusal that records nothing never advertises
+ * `apkit details`. An unsaved entry still prints the route because that run
+ * displayed its complete evidence (DEC-008). Machine JSON callers keep stdout
+ * parseable and never call this. `route` is `false` only for `--verbose`,
+ * which already prints the complete current-run receipt.
+ *
+ * The branch's recording decision is read here, after the branch decided and
+ * before the finish boundary publishes it. A report written before its branch
+ * decided is a developer error and fails loudly here instead of silently
+ * dropping the route later, mirroring the finish boundary's own undecided
+ * guard.
+ */
+export function writeLifecycleReport(
+  stream: Writable & TerminalStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+  recording: LifecycleOperationRecording,
+  route = true,
+): void {
+  const { collected, refusal } = recording;
+  if (collected === undefined && refusal === undefined) {
+    throw new Error(
+      "lifecycle terminal report written before the run's operation-history decision",
+    );
+  }
+  writeHumanDocument(stream, document, context);
+  if (route && collected !== undefined) {
+    writeHumanDocument(stream, operationDetailsDocument(), context);
+  }
+}
 
 /** One entry's persisted identity is present only once the store saved it. */
 export type OperationHistoryEvidence = OperationHistoryEntry | OperationHistoryEntryDraft;
@@ -384,7 +447,14 @@ export function operationHistorySaveFailureDocument(
   return diagnosticDocument({
     severity: "attention",
     happened: ["operation history could not be saved: ", detail],
-    why: [["This run's complete evidence follows; the run itself is unaffected."]],
+    why: [
+      [
+        "This run's entry was not added to operation history, so ",
+        commandPart(COMMAND_NAME, [arg("details")]),
+        " does not include it; this run's complete evidence follows instead.",
+      ],
+      ["The run itself is unaffected."],
+    ],
     whatToType: [
       ["Fix or remove ", pathPart(historyPath, "fleet"), " to resume history recording."],
     ],

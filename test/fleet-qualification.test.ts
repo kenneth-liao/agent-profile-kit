@@ -242,10 +242,13 @@ describe("fleet-wide synchronization qualification", () => {
     const apply = await runCli(home, pathWithHosts, "update");
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Update complete");
-    expect(apply.stdout).toContain("Updated:");
-    // The receipt repeats the same observable operation summary.
-    expect(apply.stdout).toContain("  + 1 generated file addition in");
-    expect(apply.stdout).toContain("  ~ 21 generated file updates in 12 projects");
+    // The receipt states the fleet impact once, without a per-file inventory,
+    // and points at the retained operation (US-011, ADR-0040).
+    expect(humanText(apply.stdout)).toContain("Updated 12 Projects (22 generated files).");
+    expect(humanText(apply.stdout)).toContain("Details: apkit details");
+    expect(apply.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
+      .toEqual([]);
+    expect(apply.stdout).not.toContain("generated file addition in");
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project Binding");
     // Invocation-wide readiness appears once, never per Host scope or per Project,
@@ -731,19 +734,19 @@ describe("integrated fleet recovery qualification", () => {
 
     // The committed Apply Receipt evidence and the blocked Project's evidence
     // render in one view without concealing either.
-    expect(partialApply.stdout).toContain("Updated:");
+    expect(humanText(partialApply.stdout)).toMatch(/Updated \d+ Projects? \(\d+ generated files?\)\./);
     expect(partialApply.stdout).toContain("are tracked by Git");
 
-    // The receipt names the committed Projects and excludes blocked project B
-    const appliedSection = partialApply.stdout.slice(
-      partialApply.stdout.indexOf("Updated:"),
-      partialApply.stdout.indexOf("Blocked:") === -1 ? undefined : partialApply.stdout.indexOf("Blocked:"),
+    // The freshly-current evidence names the committed Projects and excludes
+    // the blocked Project.
+    const freshEvidence = partialApply.stdout.slice(
+      partialApply.stdout.indexOf("Freshly current:"),
     );
-    expect(appliedSection).toContain(projectA);
-    expect(appliedSection).toContain(projectC);
-    expect(appliedSection).toContain(projectD);
-    expect(appliedSection).toContain(projectE);
-    expect(appliedSection).not.toContain(projectB);
+    expect(freshEvidence).toContain(projectA);
+    expect(freshEvidence).toContain(projectC);
+    expect(freshEvidence).toContain(projectD);
+    expect(freshEvidence).toContain(projectE);
+    expect(freshEvidence).not.toContain(projectB);
 
     // The blocked Project's Blocker evidence stays visible.
     expect(partialApply.stdout).toContain(projectB.split("/").at(-1)!);

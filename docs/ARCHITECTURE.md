@@ -174,7 +174,15 @@ the selected scope is current once and emits no Host setup reminder or next
 action; a pending concise `status` does not pre-announce post-update setup.
 
 A changed `update` leads from its Apply Receipt and cannot describe the selected
-Projects as already current when that receipt records work. It renders first-use
+Projects as already current when that receipt records work. The default receipt
+is outcome-first (ADR-0040): it states the affected Project and changed-file
+counts once, keeps only the actionable exception identities — failures,
+skipped or preserved files, remaining work, cleanup problems, and approved
+changed-file replacements or deletions — and closes with the
+`Details: apkit details` route to the run's retained evidence when the
+recording boundary retained an entry. It carries no per-file, per-Project, or
+per-operation inventory, and re-running `update` is never offered as retrieval
+of an earlier run. It renders first-use
 Host setup as one action-grouped note with plain reasons when generated outputs
 are added or transitioned, omitting standing trust and root-launch reminders on
 routine updates and keeping shared-path notes behind `--verbose`. The fresh
@@ -187,8 +195,13 @@ per-Project, generated-path, Git, warning, Blocker, desired-setup, and Host Setu
 Step evidence. Versioned JSON retains the complete structured machine evidence,
 schemas, and exit semantics; human filtering does not alter it.
 
-`uninstall` removes proven generated output and forgets the removed Projects' Project Binding and active Installation Receipt in the same per-Project transition, so a later `update` does not recreate them. Successful `install` and `uninstall` receipts are compact
-task language: they name the short Project identity with the Profile and Hosts,
+`uninstall` removes proven generated output and forgets the removed Projects' Project Binding and active Installation Receipt in the same per-Project transition, so a later `update` does not recreate them. Successful `install`, `update`, and `uninstall` receipts are compact
+outcome-first task language (ADR-0040): `update` states the affected Project
+and changed-file counts once and names any approved changed-file replacement or
+deletion, `install` and `uninstall` keep their established installed/unchanged
+and removed-Project or removed-Host statements, and all three offer the
+retained `apkit details` route; `install` and `uninstall` receipts also name the
+short Project identity with the Profile and Hosts,
 omit the Local Configuration location and redundant canonical-path repetition
 in routine success, and retain recovery detail only for authored-path matches
 where canonical identity or configuration location is actionable. `status` reports a fully removed Project as no longer selected rather than as unsafe unexplained missing output. `status` and `update` select the complete fleet by default, accept `--here`
@@ -376,10 +389,12 @@ Reconciliation also creates one invocation-scoped ownership inspection context (
 Independent per-Project planning and inspection work runs through one invocation-scoped bounded-concurrency scheduler (`installer/project-scheduler.ts`) shared by desired-state planning, reconciliation, and update's preflight and post-commit verification passes. The fixed product-policy limit is four concurrent Project reads (DEC-014); there is no user-facing concurrency setting (OOS-010). The scheduler is a pure executor that holds no Project, Git, or filesystem evidence, so sharing one instance across phases cannot leak facts between passes while each pass still creates fresh inspection contexts. Concurrent results are folded and sorted by canonical Project before report construction, so scheduling order is never observable in human or machine output (DEC-016), and a read failure propagates while global blockers still prevent writes. Update writes, Installation State publication, Repository Exclusion publication, commit sequencing, stale removals, rollback, and failure recovery remain ordered and never pass through the scheduler (DEC-015, OOS-004).
 
 The update presentation keeps the pre-commit receipt distinct from the
-post-commit snapshot in both concise and verbose output: `Updated` labels the
-receipt and `Pending` labels remaining work from the verified snapshot. The
-resulting snapshot is authoritative for whether Profile Installations are
-current; the receipt is the audit of work that was performed.
+post-commit snapshot in both concise and verbose output: the default receipt
+states the committed impact once, and the verbose view separates the receipt's
+`Updated` section from the remaining `Pending` work of the verified snapshot
+(ADR-0040). The resulting snapshot is authoritative for whether Profile
+Installations are current; the receipt is the audit of work that was performed,
+and its complete per-path form is retained by `apkit details`.
 
 Installation State is one durable machine-local ownership document at
 `~/.agents/agent-profile-kit/state/manifest.json`. Its strict JSON is

@@ -1,7 +1,14 @@
 import { expect, test } from "bun:test";
+import { Writable } from "node:stream";
 
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
+import {
+  operationDetailsDocument,
+  writeLifecycleReport,
+} from "../cli/operation-history-presentation.js";
+import { beginLifecycleOperationRecording } from "../cli/operation-recording.js";
+import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
   type CommandArg,
   commandPart,
@@ -471,3 +478,85 @@ function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*m/g, "");
 }
 
+
+test("renders the completed-operation detail route as one copyable command", () => {
+  const document = operationDetailsDocument();
+
+  const plain = renderPresentationDocument(document, redirected);
+  // The route is separated from the receipt above it by one blank line.
+  expect(plain.startsWith("\n")).toBe(true);
+  expect(plain.trim()).toBe("Details: apkit details");
+  expect(plain).not.toMatch(/\u001b/);
+
+  const colored = renderPresentationDocument(document, {
+    color: true,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  // The command stays one whole token on one line whatever the width.
+  const stripped = colored.replace(/\u001b\[[0-9;]*m/g, "");
+  expect(stripped.trim()).toBe("Details: apkit details");
+});
+
+test("writes the retained-operation route onto the report's own stream only for a retained run", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [{ kind: "prose" as const, parts: ["Report."] }];
+
+  const retained = beginLifecycleOperationRecording();
+  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, retained);
+  expect(stream.text()).toContain("Report.");
+  expect(stream.text()).toContain("Details: apkit details");
+
+  // `--verbose` prints the complete current-run receipt and omits the route.
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, retained, false);
+  expect(stream.text()).toContain("Report.");
+  expect(stream.text()).not.toContain("Details:");
+
+  // A deliberate pre-write refusal retained nothing, so nothing is advertised.
+  const refused = beginLifecycleOperationRecording();
+  refused.recordNothing("test refusal");
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, refused);
+  expect(stream.text()).toContain("Report.");
+  expect(stream.text()).not.toContain("Details:");
+
+  // A report written before its branch decided is a developer error: fail
+  // loudly instead of silently dropping the route (INT-2).
+  const undecided = beginLifecycleOperationRecording();
+  expect(() => writeLifecycleReport(stream, document, context, undecided)).toThrow(
+    /before the run's operation-history decision/,
+  );
+});
+
+test("holds the compact receipt impact and its route intact at a narrow width", () => {
+  const document = [
+    { kind: "prose" as const, parts: ["Updated 12 Projects (22 generated files)."] },
+    ...operationDetailsDocument(),
+  ];
+
+  const narrow = renderPresentationDocument(document, {
+    color: false,
+    interactive: true,
+    width: 60,
+    rows: undefined,
+  });
+  // The impact count and the copyable detail command never split.
+  expect(narrow).toContain("Updated 12 Projects (22 generated files).");
+  expect(narrow).toContain("Details: apkit details");
+});

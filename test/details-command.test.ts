@@ -807,7 +807,11 @@ describe("lifecycle operation recording", () => {
     const output = humanText(install.streams.humanText());
     const error = humanText(install.streams.errorText());
     expect(output).toContain("Installed coding");
+    // The run still prints its route (ADR-0040), and the save-failure guard
+    // states that this run is not in the store the route reads (INT-1).
+    expect(output).toContain("Details: apkit details");
     expect(error).toContain("operation history could not be saved");
+    expect(error).toContain("does not include it");
     // The complete run evidence is displayed, not lost with the entry.
     expect(error).toContain("Install (not saved)");
     expect(error).toContain("Committed:");

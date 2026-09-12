@@ -325,6 +325,8 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
         }),
         state: { kind: item.kind, ...(item.reason === undefined ? {} : { reason: item.reason }) },
         outputs: fixture.outputs.filter((output) => canonicalProject(output.project) === key).map((output) => ({
+          ...(output.driftKind === undefined ? {} : { driftKind: output.driftKind }),
+          ...(output.sourceChanged === undefined ? {} : { sourceChanged: output.sourceChanged }),
           consumingHosts: fixture.outputConsumers.find((consumer) =>
             canonicalProject(consumer.project) === key && consumer.path === output.path
           )?.consumingHosts ?? (installation?.hosts ?? []),
@@ -3082,18 +3084,19 @@ describe("status concise terminology", () => {
     }
   });
 
-  test("lists committed paths under the short project identity in the apply receipt", () => {
+  test("the verbose apply receipt names committed paths under the short project identity", () => {
     const project = join(homedir(), "receipt-project");
     const receipt = identityReport(project);
 
-    // The concise receipt summarizes above one Project and names no Project
-    // receipt block; the operation summary and named paths are prose nodes.
+    // The concise receipt states the impact count only; committed paths and
+    // Project identities remain verbose evidence (US-011, DEC-007).
     const concise = applyReportDocument(applyResult(receipt, emptyReport()));
-    expect(headingsIn(concise)).toContain("Updated:");
-    expect(keyValuesIn(concise, "Project")).toEqual([]);
+    expect(headingsIn(concise)).not.toContain("Updated:");
+    expect(flattenPresentationNodes(concise).map(nodeText))
+      .toContain("Updated 1 Project (1 generated file).");
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && nodeText(node).includes("receipt-project")
-    )).toBe(true);
+    )).toBe(false);
 
     // Verbose receipt opens with the Applied section in Projects detail.
     const verbose = applyReportDocument(applyResult(receipt, emptyReport()), { verbose: true });
@@ -3118,7 +3121,7 @@ describe("status concise terminology", () => {
     expect(identityStateLine("~/receipt-project/a.md", "addition (source changed)")).toBe(true);
   });
 
-  test("the concise fleet apply receipt names every operation and affected Project above the former caps", () => {
+  test("the concise fleet apply receipt states affected Project and changed-file counts once", () => {
     const additionProjects = ["/project-alpha", "/project-beta", "/project-gamma", "/project-delta", "/project-epsilon"];
     const updateProject = "/project-zeta";
     const receipt = emptyReport({
@@ -3155,35 +3158,25 @@ describe("status concise terminology", () => {
       ],
     });
 
-    const nodes = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())));
-    const texts = nodes.map(nodeText);
+    const document = applyReportDocument(applyResult(receipt, emptyReport()));
+    const texts = flattenPresentationNodes(document).map(nodeText);
 
-    // Every committed file operation is named with its Project attribution —
-    // no concise path cap, no overflow pointer (US-027, DEC-018).
-    const operationLines = texts.filter((text) => /^[+~-] /.test(text.trim()));
-    for (const project of additionProjects) {
-      for (const path of ["one.md", "two.md", "three.md"]) {
-        expect(operationLines.some((line) =>
-          line.trim().startsWith("+ ") && line.includes(path) && line.includes(project)
-        )).toBe(true);
-      }
-    }
-    expect(operationLines.some((line) =>
-      line.trim().startsWith("~ ") && line.includes("single.md") && line.includes(updateProject)
-    )).toBe(true);
-    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+    // The receipt states the affected Project and changed-file counts once
+    // (US-011, DEC-007).
+    expect(texts.filter((text) => text === "Updated 6 Projects (16 generated files)."))
+      .toHaveLength(1);
 
-    // The affected-Project clause of the operation summary names every affected
-    // Project without the former name cap or an overflow pointer.
-    const additionGroup = texts.find((text) => text.includes("generated file additions in"));
-    expect(additionGroup).toBeDefined();
-    for (const project of additionProjects) {
-      expect(additionGroup).toContain(project);
+    // No per-file, per-Project, per-operation, or Profile inventory in the
+    // default receipt (US-011, DEC-007).
+    expect(texts.filter((text) => /^[+~-] /.test(text.trim()))).toEqual([]);
+    expect(texts.some((text) => text.includes("generated file additions in"))).toBe(false);
+    expect(headingsIn(document)).not.toContain("Updated:");
+    for (const project of [...additionProjects, updateProject]) {
+      expect(texts.some((text) => text.includes(project))).toBe(false);
     }
-    expect(texts.some((text) => text.includes("more Project") || text.includes("see all Projects"))).toBe(false);
   });
 
-  test("the concise single-Project apply receipt names every committed file without the former path cap", () => {
+  test("the concise single-Project apply receipt omits the per-file inventory", () => {
     const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
     const receipt = emptyReport({
       desired: [{
@@ -3200,13 +3193,123 @@ describe("status concise terminology", () => {
 
     const texts = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())))
       .map(nodeText);
-    for (const path of paths) {
-      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
-    }
-    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
   });
 
-  test("the partial-failure apply receipt retains every committed operation above the former path cap", () => {
+  test("the concise apply receipt keeps approved changed-file identities as exceptions", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md", "b.md", "c.md", "d.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [
+        { driftKind: "changed", kind: "update", path: "a.md", project: "/project-a" },
+        { driftKind: "changed", kind: "removal", path: "c.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-a" },
+        { kind: "removal", path: "d.md", project: "/project-a" },
+      ],
+    });
+
+    const document = applyReportDocument(applyResult(receipt, emptyReport()));
+    const texts = flattenPresentationNodes(document).map(nodeText);
+
+    // Routine committed work stays a count; the approved changed-file
+    // replacement and deletion keep their actionable identities (US-011).
+    expect(texts).toContain("Updated 1 Project (4 generated files).");
+    expect(headingsIn(document)).toContain("Replaced changed generated files:");
+    expect(texts).toContain("  ~ a.md (/project-a)");
+    expect(headingsIn(document)).toContain("Removed changed generated files:");
+    expect(texts).toContain("  - c.md (/project-a)");
+    expect(texts.some((text) => text.includes("b.md") || text.includes("d.md"))).toBe(false);
+  });
+
+  test("a receipt-proven input or installation-record change with no file changes still states the impact", () => {
+    for (const project of [
+      // A new desired-input digest with every projection byte-identical.
+      machineProject("/project-a", {
+        state: { kind: "stale source" },
+        sourceInputChanged: true,
+        outputs: [{ consumingHosts: [], kind: "unchanged", path: "a.md" }],
+      }),
+      // An installation-record update with every projection byte-identical.
+      machineProject("/project-a", {
+        state: { kind: "update" },
+        outputs: [
+          { consumingHosts: [], kind: "unchanged", path: "a.md" },
+          { consumingHosts: [], kind: "unchanged", path: "b.md" },
+        ],
+      }),
+    ]) {
+      const document = applyReportDocument(applyResult(machineReport([project]), emptyReport()));
+      const texts = flattenPresentationNodes(document).map(nodeText);
+
+      // The receipt proves committed work; every projection stayed
+      // byte-identical, so the file count is truthfully zero while the
+      // affected Project is still stated once (US-011, ADR-0040).
+      expect(texts).toContain("Updated 1 Project (0 generated files).");
+      expect(texts.some((text) => text.includes("a.md"))).toBe(false);
+    }
+  });
+
+  test("committed exclusion bookkeeping counts its affected Project without printing the delta", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+      repositoryExclusions: [{
+        current: [],
+        installed: false,
+        next: ["/.agent-profile-kit/codex/context.md"],
+        target: "/project-a/.git/info/exclude",
+      }],
+    });
+
+    const document = applyReportDocument(applyResult(receipt, emptyReport()));
+    const texts = flattenPresentationNodes(document).map(nodeText);
+
+    expect(texts).toContain("Updated 1 Project (0 generated files).");
+    // Routine Git exclusion bookkeeping stays out of the default view.
+    expect(texts.some((text) => text.includes(".git/info/exclude"))).toBe(false);
+  });
+
+  test("the verbose apply receipt retains the complete operation inventory", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md", "b.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "update", path: "b.md", project: "/project-a" },
+      ],
+    });
+
+    const verbose = applyReportDocument(applyResult(receipt, emptyReport()), { verbose: true });
+    const texts = flattenPresentationNodes(verbose).map(nodeText);
+    expect(headingsIn(verbose)).toContain("Updated:");
+    expect(texts).toContain("/project-a/a.md: update (source changed)");
+    expect(texts).toContain("/project-a/b.md: update (source changed)");
+  });
+
+  test("the partial-failure apply receipt summarizes committed work and retains the failure identity", () => {
     const paths = Array.from({ length: 12 }, (_, index) => `file-${String(index + 1).padStart(2, "0")}.md`);
     const receipt = emptyReport({
       desired: [{
@@ -3230,10 +3333,10 @@ describe("status concise terminology", () => {
       resultingState: undefined,
     });
     const texts = flattenPresentationNodes(document).map(nodeText);
-    for (const path of paths) {
-      expect(texts.some((text) => text.trim().startsWith("+ ") && text.includes(path))).toBe(true);
-    }
-    expect(texts.some((text) => text.includes("more file") || text.includes("see all paths"))).toBe(false);
+    // Committed work is summarized once; the failed Project keeps its identity.
+    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
+    expect(texts.some((text) => text.includes("/project-b"))).toBe(true);
   });
 
   test("labels remaining and committed update work distinctly", () => {
@@ -3244,11 +3347,12 @@ describe("status concise terminology", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    // Successful changed apply: Applied section with the operation summary,
-    // no already-current statement, no status-style Changes summary.
+    // Successful changed apply: compact impact statement, no already-current
+    // statement, no status-style Changes summary.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const conciseNodes = flattenPresentationNodes(concise);
-    expect(headingsIn(concise)).toContain("Updated:");
+    expect(conciseNodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(headingsIn(concise)).not.toContain("Updated:");
     expect(conciseNodes.some((node) =>
       node.kind === "prose"
     )).toBe(true);
@@ -4108,7 +4212,7 @@ describe("status concise terminology", () => {
     expect(listItemsFrom(nodes, sections[0]! + 1)).toHaveLength(2);
   });
 
-  test("update only expands projects with receipt work", () => {
+  test("update only counts projects with receipt work", () => {
     const desired = [
       {
         canonicalProject: "/changed",
@@ -4144,13 +4248,12 @@ describe("status concise terminology", () => {
       ],
     });
 
-    // Receipt work drives the operation summary; Projects without receipt work
+    // Receipt work drives the impact statement; Projects without receipt work
     // gain no receipt block.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
-    expect(headingsIn(concise)).toContain("Updated:");
-    expect(flattenPresentationNodes(concise).some((node) =>
-      node.kind === "prose" && nodeText(node).includes("/changed")
-    )).toBe(true);
+    expect(flattenPresentationNodes(concise).map(nodeText))
+      .toContain("Updated 1 Project (1 generated file).");
+    expect(headingsIn(concise)).not.toContain("Updated:");
     expect(keyValuesIn(concise, "Project")).toEqual([]);
   });
 
@@ -4262,9 +4365,9 @@ describe("status concise terminology", () => {
     );
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "error" });
     const nodes = flattenPresentationNodes(concise);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(applied).toBeGreaterThan(-1);
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("a.md"))).toBe(true);
+    // The compact receipt follows the error notice: committed work is
+    // summarized once and the message remains the only outcome claim.
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
     // A failure view carries no success-claim notice.
     expect(noticesIn(concise).every((notice) => notice.severity === "error")).toBe(true);
   });
@@ -6210,12 +6313,9 @@ describe("operation-first multi-Project presentation", () => {
     // selected-setup detail stay out of the receipt section.
     const apply = applyReportDocument({ receipt, resultingState });
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(applied).toBeGreaterThan(-1);
-    expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose"
-    )).toBe(true);
-    expect(nodes.slice(applied).some((node) =>
+    expect(nodes.map(nodeText)).toContain("Updated 3 Projects (3 generated files).");
+    expect(nodes.some((node) => node.kind === "heading" && nodeText(node) === "Updated:")).toBe(false);
+    expect(nodes.some((node) =>
       node.kind === "key-value" && node.key === "  State"
     )).toBe(false);
   });
@@ -6393,7 +6493,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(rendered).not.toMatch(/(^|\n)\.: /);
   });
 
-  test("successful update does not print a current-Project matrix before Updated", () => {
+  test("successful update does not print a current-Project matrix before the impact statement", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -6412,16 +6512,13 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
 
-    // Successful changed apply: success notice, operation summary under
-    // Applied, and no per-Project receipt block or state bookkeeping.
+    // Successful changed apply: success notice, one impact statement, and no
+    // per-Project receipt block or state bookkeeping.
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(applied).toBeGreaterThan(-1);
-    // The Applied section carries operation-summary prose; the composed count
-    // wording is golden-covered.
-    expect(nodes.slice(applied).filter((node) => node.kind === "prose").length).toBeGreaterThan(0);
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(headingsIn(apply)).not.toContain("Updated:");
     expect(keyValuesIn(apply, "Project")).toEqual([]);
     expect(keyValuesIn(apply, "  State")).toEqual([]);
   });
@@ -6486,7 +6583,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     });
 
     // Remaining attention renders as a Project group with its State key-value;
-    // the receipt operation summary stays present.
+    // the compact impact statement stays first.
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
@@ -6495,12 +6592,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(stateNodes).toHaveLength(1);
     expect(stateNodes[0]!.value).toMatchObject({ kind: "prose" });
     expect(nodeText(stateNodes[0]!.value)).toContain("a.md");
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(applied).toBeGreaterThan(-1);
-    expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose"
-    )).toBe(true);
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("a.md"))).toBe(true);
+    const impact = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Updated 1 Project (1 generated file).");
+    expect(impact).toBeGreaterThan(-1);
+    expect(nodes.findIndex((node) => node.kind === "key-value" && node.key === "  State"))
+      .toBeGreaterThan(impact);
   });
 
   test("multi-project update preserves remaining attention across projects", () => {
@@ -6544,23 +6639,22 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       ],
     });
 
-    // Remaining attention appears only for the drifted Project; the receipt
-    // covers both Projects' updates.
+    // Remaining attention appears only for the drifted Project; the compact
+    // receipt counts both Projects' updates.
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(applied).toBeGreaterThan(-1);
-    expect(nodes.slice(applied).some((node) =>
-      node.kind === "prose"
-    )).toBe(true);
+    expect(nodes.map(nodeText)).toContain("Updated 2 Projects (2 generated files).");
+    expect(headingsIn(apply)).not.toContain("Updated:");
     const projectNodes = keyValuesIn(apply, "Project");
     expect(projectNodes).toHaveLength(1);
     expect(projectNodes[0]!.value).toMatchObject({ kind: "path", canonicalPath: "/project-b" });
     const stateNodes = keyValuesIn(apply, "  State");
     expect(stateNodes).toHaveLength(1);
     expect(stateNodes[0]!.value).toMatchObject({ kind: "prose" });
-    expect(nodes.slice(applied).some((node) => node.kind === "prose" && nodeText(node).includes("b.md"))).toBe(true);
+    // Remaining attention keeps its Project identity and cause; routine
+    // generated paths stay out of the default receipt (US-011).
+    expect(nodeText(stateNodes[0]!.value)).toBe("drifted output");
   });
 
   test("no-op update preserves adapter warnings", () => {
@@ -6587,7 +6681,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
   });
 
 
-  test("blocked multi-project update retains exclusion-only apply receipt", () => {
+  test("blocked multi-project update keeps routine exclusion bookkeeping out of the default view", () => {
     const receipt = emptyReport({
       desired: [
         {
@@ -6635,14 +6729,20 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       outputs: [{ kind: "addition", path: "b.md", project: "/project-b" }],
     });
 
-    // Blocked apply retains the exclusion-only receipt: Applied section with
-    // the completed exclusion clause, then the committed evidence suffix.
+    // Blocked apply: routine successful Git-exclusion bookkeeping is verbose
+    // evidence, so the default view carries its Blocker without an exclusion
+    // inventory (US-011, ADR-0020).
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "error" });
-    const applied = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(applied).toBeGreaterThan(-1);
-    expect(nodes.some((node) => node.kind === "prose" && nodeText(node).includes("/project-a"))).toBe(true);
+    expect(headingsIn(apply)).not.toContain("Updated:");
+    expect(nodes.some((node) => node.kind === "prose" && nodeText(node).includes(".git/info/exclude"))).toBe(false);
+
+    const verbose = flattenPresentationNodes(
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    );
+    expect(verbose.filter((node) => node.kind === "list-item").map((node) => inlineIdentifiers([node])))
+      .toContainEqual(["/project-a/.git/info/exclude", "/.agent-profile-kit/codex/context.md"]);
   });
 
   test("readiness groups Projects that share Profile, Hosts, and setup condition", () => {
@@ -6690,8 +6790,9 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // the trailing prose node; the composed readiness wording (and any
     // Project list) is golden-covered.
     expect(concise.map(shape)).toEqual([
-      "notice:success", "blank", "heading", "prose", "prose", "prose",
-      "blank", "heading", "list-item", "blank", "prose", "prose",
+      "notice:success", "blank", "prose",
+      "blank", "heading", "list-item",
+      "blank", "prose", "prose",
     ]);
   });
 
@@ -6751,8 +6852,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     expect(concise.map(shape)).toEqual([
-      "notice:success", "blank", "heading", "prose", "prose", "prose", "prose",
-      "blank", "prose", "prose",
+      "notice:success", "blank", "prose", "blank", "prose", "prose",
     ]);
   });
 
@@ -6826,8 +6926,6 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(concise.map(shape)).toEqual([
       "notice:success",
       "blank",
-      "heading",
-      "prose",
       "prose",
       "blank",
       "prose",
@@ -7178,16 +7276,8 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toHaveLength(1);
     expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "success" });
     const nodes = flattenPresentationNodes(document);
-    const appliedIndex = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "Updated:");
-    expect(appliedIndex).toBeGreaterThan(-1);
-    expect(nodes.slice(appliedIndex).some((node) =>
-      node.kind === "prose"
-    )).toBe(true);
-    // The per-Project operation line binds the fixture identity; the
-    // readiness statement closes the receipt as its trailing prose node.
-    expect(nodes.slice(appliedIndex).some((node) =>
-      node.kind === "prose" && nodeText(node).includes("a.md") && nodeText(node).includes("/project-a")
-    )).toBe(true);
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(headingsIn(document)).not.toContain("Updated:");
     expect(nodes.at(-1)).toMatchObject({ kind: "prose" });
     expect(commandsIn(document)).toEqual([]);
   });
@@ -7267,11 +7357,11 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toHaveLength(1);
     expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "error" });
     const nodes = flattenPresentationNodes(document);
-    // Failed identity and empty pending scope precede any Applied operations.
-    expect(document.slice(0, 4).map(shape)).toEqual(["notice:error", "prose", "prose", "heading"]);
+    // Failed identity and empty pending scope precede the compact receipt.
+    expect(document.slice(0, 4).map(shape)).toEqual(["notice:error", "prose", "prose", "prose"]);
     expect(nodeText(document[1]!)).toContain("/project-a");
     expect(nodeText(document[2]!)).not.toContain("/project-a");
-    expect(document[3]).toMatchObject({ kind: "heading", text: "Updated:" });
+    expect(nodeText(document[3]!)).toBe("Updated 1 Project (1 generated file).");
   });
 
   test("verification failure carries the task message as an error notice and receipt evidence", () => {
@@ -7292,7 +7382,7 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toEqual([
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Verification failed."] }] },
     ]);
-    expect(headingsIn(document)).toContain("Updated:");
+    expect(flattenPresentationNodes(document).map(nodeText)).toContain("Updated 1 Project (1 generated file).");
   });
 });
 
