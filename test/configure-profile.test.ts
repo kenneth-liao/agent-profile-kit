@@ -5,7 +5,7 @@
  * per supplied category; omitted categories stay unchanged.
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -323,6 +323,30 @@ describe("configureProfileMembership", () => {
       expect(failure).toBeInstanceOf(InstallerToolError);
       expect((failure as InstallerToolError).fact.kind).toBe("profile-without-artifacts");
       expect(readFileSync(profileFile, "utf8")).toBe(before);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("writes through the ingested Profile path, including profiles/ subdirectories", async () => {
+    const home = await initializedHome();
+    try {
+      await createSkill({ home, name: "review-pr" });
+      const nestedDirectory = join(realpathSync(workspacePath(home)), "profiles", "team");
+      mkdirSync(nestedDirectory, { recursive: true });
+      const nestedFile = join(nestedDirectory, "nested.yaml");
+      writeFileSync(nestedFile, "id: nested\ncontext:\n  - example-context\nskills: []\n");
+
+      const result = await configureProfileMembership({
+        home,
+        profile: "nested",
+        skills: ["review-pr"],
+      });
+
+      expect(result.changed).toBe(true);
+      expect(result.path).toBe(nestedFile);
+      expect(readFileSync(nestedFile, "utf8")).toContain("review-pr");
+      expect(existsSync(join(realpathSync(workspacePath(home)), "profiles", "nested.yaml"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

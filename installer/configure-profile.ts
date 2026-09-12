@@ -1,5 +1,5 @@
 import { chmod, lstat, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { parseProfile, requireArtifactId } from "../schemas/context-profile.js";
 import { ingestSelectedWorkspace } from "./local-configuration.js";
@@ -7,8 +7,6 @@ import { preserveSourceNewlines } from "./local-configuration-publication.js";
 import { requireProfile } from "./profile-selection.js";
 import { InstallerToolError } from "./tool-errors.js";
 import { isMap, isSeq, parseDocument } from "yaml";
-
-const PROFILE_EXTENSION = ".yaml";
 
 export interface ConfigureProfileMembershipOptions {
   readonly home: string;
@@ -49,6 +47,74 @@ function sameMembership(left: readonly string[], right: readonly string[]): bool
   return left.length === right.length && left.every((name, index) => name === right[index]);
 }
 
+export interface ConfigureMembershipPlan {
+  readonly nextContexts: readonly string[];
+  readonly nextSkills: readonly string[];
+  readonly contextsChanged: boolean;
+  readonly skillsChanged: boolean;
+}
+
+/** The one membership plan both the CLI preview and the write path share. */
+export function planConfigureMembership(input: {
+  readonly profile: string;
+  readonly file: string;
+  readonly existingContexts: readonly string[];
+  readonly existingSkills: readonly string[];
+  readonly availableContexts: ReadonlySet<string>;
+  readonly availableSkills: ReadonlySet<string>;
+  readonly contexts?: readonly string[];
+  readonly skills?: readonly string[];
+}): ConfigureMembershipPlan {
+  const availableContextNames = [...input.availableContexts].sort();
+  const availableSkillNames = [...input.availableSkills].sort();
+  const nextContexts = input.contexts === undefined
+    ? [...input.existingContexts]
+    : canonicalOrder(input.contexts);
+  const nextSkills = input.skills === undefined
+    ? [...input.existingSkills]
+    : canonicalOrder(input.skills);
+  if (nextContexts.length === 0 && nextSkills.length === 0) {
+    throw new InstallerToolError({
+      kind: "profile-without-artifacts",
+      profile: input.profile,
+      availableContexts: availableContextNames,
+      availableSkills: availableSkillNames,
+    });
+  }
+  if (input.contexts !== undefined) {
+    for (const contextId of nextContexts) {
+      if (!input.availableContexts.has(contextId)) {
+        throw new InstallerToolError({
+          kind: "missing-context-reference",
+          profile: input.profile,
+          contextId,
+          file: input.file,
+          available: availableContextNames,
+        });
+      }
+    }
+  }
+  if (input.skills !== undefined) {
+    for (const skillId of nextSkills) {
+      if (!input.availableSkills.has(skillId)) {
+        throw new InstallerToolError({
+          kind: "missing-skill-reference",
+          profile: input.profile,
+          skillId,
+          file: input.file,
+          available: availableSkillNames,
+        });
+      }
+    }
+  }
+  return {
+    nextContexts,
+    nextSkills,
+    contextsChanged: !sameMembership([...input.existingContexts].sort(), nextContexts),
+    skillsChanged: !sameMembership([...input.existingSkills].sort(), nextSkills),
+  };
+}
+
 /**
  * Change one Profile's Context and Skill membership through the single
  * validated publication path shared by the explicit and interactive
@@ -67,54 +133,18 @@ export async function configureProfileMembership(
   const id = requireArtifactId(options.profile, "configure profile name");
   const workspace = await ingestSelectedWorkspace(options.home);
   const existing = requireProfile(workspace.profiles, id);
-
-  const availableContexts = [...workspace.contexts.keys()].sort();
-  const availableSkills = [...workspace.skills.keys()].sort();
-
-  const nextContexts = options.contexts === undefined
-    ? [...existing.context]
-    : canonicalOrder(options.contexts);
-  const nextSkills = options.skills === undefined
-    ? [...existing.skills]
-    : canonicalOrder(options.skills);
-
-  if (nextContexts.length === 0 && nextSkills.length === 0) {
-    throw new InstallerToolError({
-      kind: "profile-without-artifacts",
-      profile: id,
-      availableContexts,
-      availableSkills,
-    });
-  }
-  const relativePath = `profiles/${id}${PROFILE_EXTENSION}`;
-  if (options.contexts !== undefined) {
-    for (const contextId of nextContexts) {
-      if (!workspace.contexts.has(contextId)) {
-        throw new InstallerToolError({
-          kind: "missing-context-reference",
-          profile: id,
-          contextId,
-          file: relativePath,
-          available: availableContexts,
-        });
-      }
-    }
-  }
-  if (options.skills !== undefined) {
-    for (const skillId of nextSkills) {
-      if (!workspace.skills.has(skillId)) {
-        throw new InstallerToolError({
-          kind: "missing-skill-reference",
-          profile: id,
-          skillId,
-          file: relativePath,
-          available: availableSkills,
-        });
-      }
-    }
-  }
-
-  const profileFile = join(workspace.path, "profiles", `${id}${PROFILE_EXTENSION}`);
+  const plan = planConfigureMembership({
+    profile: id,
+    file: existing.path,
+    existingContexts: existing.context,
+    existingSkills: existing.skills,
+    availableContexts: new Set(workspace.contexts.keys()),
+    availableSkills: new Set(workspace.skills.keys()),
+    ...(options.contexts === undefined ? {} : { contexts: options.contexts }),
+    ...(options.skills === undefined ? {} : { skills: options.skills }),
+  });
+  const { nextContexts, nextSkills, contextsChanged, skillsChanged } = plan;
+  const profileFile = join(workspace.path, existing.path);
   const base = {
     id,
     path: profileFile,
@@ -123,12 +153,6 @@ export async function configureProfileMembership(
     contexts: nextContexts,
     skills: nextSkills,
   };
-
-  // Per-category set comparison: an unchanged category keeps its authored
-  // node (and hand ordering) byte-identical; only a changed set is
-  // renormalized to canonical order.
-  const contextsChanged = !sameMembership([...existing.context].sort(), nextContexts);
-  const skillsChanged = !sameMembership([...existing.skills].sort(), nextSkills);
   if (!contextsChanged && !skillsChanged) {
     return { ...base, changed: false };
   }
@@ -139,7 +163,7 @@ export async function configureProfileMembership(
   const preflight = ["id: " + JSON.stringify(id)];
   preflight.push(nextContexts.length === 0 ? "context: []" : `context:\n${nextContexts.map((name) => `  - ${JSON.stringify(name)}\n`).join("")}`);
   preflight.push(nextSkills.length === 0 ? "skills: []" : `skills:\n${nextSkills.map((name) => `  - ${JSON.stringify(name)}\n`).join("")}`);
-  parseProfile(`${preflight.join("\n")}\n`, relativePath);
+  parseProfile(`${preflight.join("\n")}\n`, existing.path);
 
   const entry = await lstat(profileFile).catch((error: unknown) => {
     if (hasErrorCode(error, "ENOENT")) return undefined;
@@ -164,8 +188,11 @@ export async function configureProfileMembership(
   }
   const source = await readFile(profileFile, "utf8");
 
-  // CST edit of only the changed membership nodes: comments, key order,
-  // the `id` line, and unchanged categories survive byte-identical.
+  // CST edit of the changed membership nodes. yaml Document.toString
+  // normalizes quoting and indent of unrelated keys (same limitation as
+  // publishBindingUnderLock host updates); comment text, key order, and
+  // the id value survive. An unchanged category is not .set(), so its
+  // membership set is untouched even when formatting around it reflows.
   const document = parseDocument(source);
   const contents: unknown = document.contents;
   if (!isMap(contents)) {
@@ -195,7 +222,10 @@ export async function configureProfileMembership(
   // Atomic replacement through a staging sibling: the staging file takes
   // the source mode so a rename never changes permissions, and every
   // failure removes it so no probe litters the profiles directory.
-  const staging = `${profileFile}.apkit-configure-${process.pid}`;
+  const staging = join(
+    dirname(profileFile),
+    `.apkit-configure-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+  );
   try {
     await writeFile(staging, nextSource);
     await chmod(staging, entry.mode & 0o777);

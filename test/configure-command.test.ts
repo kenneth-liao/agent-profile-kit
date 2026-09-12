@@ -252,7 +252,7 @@ describe("explicit configure profile", () => {
 
     expect(outcome.exitCode).toBe(0);
     const payload = JSON.parse(streams.humanText());
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(1);
     expect(payload.command).toBe("configure");
     expect(payload.outcome).toBe("clean");
     expect(payload.profile).toBe("coding");
@@ -281,10 +281,11 @@ describe("explicit configure profile", () => {
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const payload = JSON.parse(streams.humanText());
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(1);
     expect(payload.command).toBe("configure");
     expect(payload.outcome).toBe("error");
     expect(typeof payload.error).toBe("string");
+    expect(payload.globalBlockers).toBeUndefined();
     expect(streams.errorText()).toBe("");
   });
 
@@ -301,7 +302,7 @@ describe("explicit configure profile", () => {
 
     expect(outcome.exitCode).toBe(1);
     const payload = JSON.parse(streams.humanText());
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(1);
     expect(payload.command).toBe("configure");
     expect(payload.outcome).toBe("error");
     expect(typeof payload.error).toBe("string");
@@ -386,6 +387,7 @@ describe("configure profile argument errors", () => {
       ["profile", "coding", "--host", "codex"],
       ["profile", "coding", "--context", "team-rules", "--context", "team-rules"],
       ["profile", "coding", "extra", "--context", "team-rules"],
+      ["profile", "coding", "--context", "team-rules", "extra"],
     ]) {
       const streams = capturedStreams();
       const outcome = await runConfigureCommand({
@@ -613,5 +615,50 @@ describe("interactive configure profile", () => {
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     expect(plain(streams.errorText())).toContain("cancelled before any write");
+  });
+});
+
+describe("configure profile review-cycle pins", () => {
+  test("a trailing positional after a single-value flag is the Profile name", async () => {
+    const home = await setupHome();
+    const streams = capturedStreams();
+    const outcome = await runConfigureCommand({
+      home,
+      arguments: ["profile", "--skill", "review-pr", "coding", "--auto-confirm"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(outcome.exitCode).toBe(0);
+    expect(plain(streams.humanText())).toContain("coding");
+    const workspace = await ingestSelectedWorkspace(home);
+    expect(workspace.profiles.get("coding")!.skills).toEqual(["review-pr"]);
+  });
+
+  test("an omitted category keeps authored order in the receipt", async () => {
+    const home = await setupHome();
+    await createSkill({ home, name: "alpha-skill" });
+    mkdirSync(join(workspacePath(home), "context"), { recursive: true });
+    writeFileSync(
+      join(workspacePath(home), "context", "extra-rules.md"),
+      "---\nid: extra-rules\ndependencies: []\n---\nExtra.\n",
+    );
+    const profileFile = join(workspacePath(home), "profiles", "coding.yaml");
+    writeFileSync(
+      profileFile,
+      "id: coding\ncontext:\n  - team-rules\n  - extra-rules\nskills:\n  - review-pr\n",
+    );
+    const streams = capturedStreams();
+    const outcome = await runConfigureCommand({
+      home,
+      arguments: ["profile", "coding", "--skill", "alpha-skill", "--auto-confirm"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(outcome.exitCode).toBe(0);
+    const text = plain(streams.humanText());
+    expect(text).not.toContain("team-rules →");
+    expect(text).toContain("review-pr → alpha-skill");
   });
 });

@@ -25,16 +25,20 @@ with no new prompt kinds. Configure never installs or updates Projects.
   configure-profile) is the single home for publication: ingest through
   the shared Workspace boundary, validate selections against it
   (existing missing-reference facts), preflight through the canonical
-  Profile schema, then rewrite only the changed `context`/`skills` value
-  nodes of the canonical Profile file through a YAML CST edit —
-  comments, key order, and the `id` line survive. Validation completes
-  before any mutation, so invalid requests leave the source
-  byte-identical; a changed-underfoot re-read refuses instead of
-  overwriting a concurrent edit. Symlinked Profile files are never
-  written through. Changed categories renormalize to canonical sorted
-  order (the bind-project Host precedent); an unchanged category keeps
-  its authored node byte-identical, and a fully matching request reports
-  `changed: false` without writing.
+  Profile schema, then rewrite the changed `context`/`skills`
+  value nodes through a YAML CST edit. Comment text, key order, and
+  the `id` value survive. `document.toString()` may normalize quoting
+  and indent of unrelated keys (the same limitation
+  `publishBindingUnderLock` records for Host updates); an unchanged
+  category is not `.set()`, so its membership set is untouched. The
+  Profile file is the ingested path (`existing.path`), including
+  `profiles/` subdirectories. Validation completes before any mutation,
+  so invalid requests leave the source byte-identical; a
+  changed-underfoot re-read refuses instead of overwriting a concurrent
+  edit. Symlinked Profile files are never written through. Changed
+  categories renormalize to canonical sorted order (the bind-project Host
+  precedent); a fully matching request reports `changed: false` without
+  writing.
 - **DEC-002 collect-only-missing, DEC-004 general confirmation.** A bare
   invocation defaults to the `profile` object; a missing name opens the
   searchable Profile picker (existing IDs only — configure never
@@ -48,12 +52,16 @@ with no new prompt kinds. Configure never installs or updates Projects.
   equivalent before any write. Cancellation or decline writes nothing.
   A request matching the recorded membership reports it honestly with no
   prompt and no write.
-- **Lifecycle machine shape, no new version.** `--json` success publishes
-  `{schemaVersion: 15, command: "configure", outcome: "clean", profile,
-  changed, previous, membership, equivalent}`; refusals use the shared
-  lifecycle error envelope. Completion prints the executable explicit
-  equivalent and `apkit update` as the next action. No operation-history
-  entry is recorded (DEC-008 covers install/update/uninstall).
+- **Configure is its own machine family at version 1.** ADR-0023: each
+  family version carries that family's whole JSON contract. Configure is
+  not reconciliation, so it does not reuse lifecycle schema 15. `--json`
+  success publishes `{schemaVersion: 1, command: "configure", outcome:
+  "clean", profile, changed, previous, membership, equivalent}`; refusals
+  use the same family with `outcome: "error"` and no Project records.
+  Completion prints the executable explicit equivalent and `apkit update`
+  as the next action. No operation-history entry is recorded (DEC-008
+  covers install/update/uninstall). `--context`/`--skill` take one value
+  per occurrence (repeat to accumulate; a bare flag empties).
 
 ## Consequences
 

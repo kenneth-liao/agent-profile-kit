@@ -170,7 +170,9 @@ import {
 } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 
-export type LifecycleCommand = "update" | "status" | "install" | "uninstall" | "configure";
+export type LifecycleCommand = "update" | "status" | "install" | "uninstall";
+/** Machine JSON commands: the reconciliation set plus configure, which is its own family. */
+export type MachineCommand = LifecycleCommand | "configure";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -5054,9 +5056,11 @@ export function formatApplyJson(result: ApplyReconciliationResult): string {
   );
 }
 
-/** The machine payload for one successful `configure profile`: the
- * lifecycle envelope (schemaVersion, command, outcome) with the Profile
- * membership result. Refusals use the shared lifecycle error envelope. */
+/** Configure is its own machine family (ADR-0023 / ADR-0038): version 1
+ * of this family is the membership payload, not lifecycle schema 15. */
+const CONFIGURE_MACHINE_SCHEMA_VERSION = 1 as const;
+
+/** The machine payload for one successful `configure profile`. */
 export interface ConfigureMachineResult {
   readonly profile: string;
   readonly changed: boolean;
@@ -5070,7 +5074,7 @@ export interface ConfigureMachineResult {
 
 export function formatConfigureJson(result: ConfigureMachineResult): string {
   return serializeMachinePayload({
-    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    schemaVersion: CONFIGURE_MACHINE_SCHEMA_VERSION,
     command: "configure",
     outcome: "clean",
     profile: result.profile,
@@ -5078,6 +5082,16 @@ export function formatConfigureJson(result: ConfigureMachineResult): string {
     previous: { context: [...result.previousContexts], skills: [...result.previousSkills] },
     membership: { context: [...result.contexts], skills: [...result.skills] },
     equivalent: result.equivalent,
+  });
+}
+
+/** Configure-family error envelope: command + outcome + error, no lifecycle Project records. */
+export function formatConfigureToolErrorJson(message: string): string {
+  return serializeMachinePayload({
+    schemaVersion: CONFIGURE_MACHINE_SCHEMA_VERSION,
+    command: "configure",
+    outcome: "error",
+    error: message,
   });
 }
 

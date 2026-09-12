@@ -27,7 +27,7 @@ import {
   configureNameRequiredDocument,
   configurePickerCancelledDocument,
   formatConfigureJson,
-  formatLifecycleToolErrorJson,
+  formatConfigureToolErrorJson,
 } from "./presentation.js";
 import { configureReceiptDocument } from "./receipts.js";
 import {
@@ -41,7 +41,7 @@ import {
   isInteractiveInput,
   type PromptClock,
 } from "./prompts.js";
-import { configureProfileMembership } from "../installer/configure-profile.js";
+import { configureProfileMembership, planConfigureMembership } from "../installer/configure-profile.js";
 import { ingestSelectedWorkspace } from "../installer/local-configuration.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
@@ -63,7 +63,7 @@ export interface ParsedConfigureArguments {
 /**
  * Parse `configure profile [name] [--context <id> ...] [--skill <id> ...]
  * [--auto-confirm] [--json]`. Each `--context`/`--skill` flag consumes its
- * following non-flag tokens (zero or more): repeating a flag appends its
+ * following non-flag token (zero or one): repeating a flag appends its
  * values, and a flag with no values explicitly empties that category. An
  * omitted flag leaves its category unchanged; missing membership is
  * reported as absent, not an error, so an interactive invocation collects
@@ -90,13 +90,12 @@ export function parseConfigureArguments(
   let autoConfirm = false;
   let json = false;
   let index = 1;
-  const takeValues = (): string[] => {
-    const values: string[] = [];
-    while (index + 1 < tokens.length && !tokens[index + 1]!.startsWith("-")) {
+  const takeOneValue = (): string[] => {
+    if (index + 1 < tokens.length && !tokens[index + 1]!.startsWith("-")) {
       index += 1;
-      values.push(tokens[index]!);
+      return [tokens[index]!];
     }
-    return values;
+    return [];
   };
   const appendUnique = (selected: string[], values: readonly string[], label: string): void => {
     for (const value of values) {
@@ -110,13 +109,13 @@ export function parseConfigureArguments(
     const argument = tokens[index]!;
     if (argument === "--context") {
       contextsPresent = true;
-      appendUnique(contexts, takeValues(), "Context Module");
+      appendUnique(contexts, takeOneValue(), "Context Module");
       index += 1;
       continue;
     }
     if (argument === "--skill") {
       skillsPresent = true;
-      appendUnique(skills, takeValues(), "Skill");
+      appendUnique(skills, takeOneValue(), "Skill");
       index += 1;
       continue;
     }
@@ -234,7 +233,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     // here — every flag value and positional rejects a leading dash.
     const message = error instanceof Error ? error.message : String(error);
     if (request.arguments.includes("--json")) {
-      request.stdout.write(formatLifecycleToolErrorJson("configure", message));
+      request.stdout.write(formatConfigureToolErrorJson(message));
     } else {
       writeHumanDocument(request.stderr, configureArgumentErrorDiagnostic(error), stderrContext);
     }
@@ -243,7 +242,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
 
   const fail = (document: PresentationDocument, message: string): ConfigureCommandOutcome => {
     if (parsed.json) {
-      request.stdout.write(formatLifecycleToolErrorJson("configure", message));
+      request.stdout.write(formatConfigureToolErrorJson(message));
     } else {
       writeHumanDocument(request.stderr, document, stderrContext);
     }
@@ -372,18 +371,13 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
       skills = [...answer.values];
     }
   }
-  // An omitted category resolves to the recorded membership: REPLACE per
-  // supplied category means unchanged inputs echo through every receipt.
-  if (contexts === undefined) contexts = [...existing.context];
-  if (skills === undefined) skills = [...existing.skills];
-  if (contexts === undefined || skills === undefined) {
-    // Unreachable: the fill above resolves every omitted category and each
-    // interactive picker either fills its choice or cancels. Fail
-    // closed instead of smuggling undefined into the operation.
-    return failWith(new Error("configure guided flow left a missing choice unfilled"));
-  }
-  const resolvedContexts = contexts;
-  const resolvedSkills = skills;
+  // Omitted categories stay undefined for the write path so an untouched
+  // category keeps authored order. Equivalents and confirmation still echo
+  // the recorded membership for that category.
+  const requestedContexts = contexts;
+  const requestedSkills = skills;
+  const resolvedContexts = requestedContexts ?? [...existing.context];
+  const resolvedSkills = requestedSkills ?? [...existing.skills];
 
   // A request that matches the recorded membership changes nothing: report
   // it honestly without prompting or writing.
@@ -424,39 +418,19 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
   // preview-then-confirm): typos surface before any prompt, with the same
   // typed facts the write path enforces. Picker-resolved values are valid
   // by construction; only supplied values can fail here.
-  if (parsed.contexts !== undefined) {
-    for (const contextId of resolvedContexts) {
-      if (!workspace.contexts.has(contextId)) {
-        return failWith(new InstallerToolError({
-          kind: "missing-context-reference",
-          profile: name,
-          contextId,
-          file: `profiles/${name}.yaml`,
-          available: availableContexts,
-        }));
-      }
-    }
-  }
-  if (parsed.skills !== undefined) {
-    for (const skillId of resolvedSkills) {
-      if (!workspace.skills.has(skillId)) {
-        return failWith(new InstallerToolError({
-          kind: "missing-skill-reference",
-          profile: name,
-          skillId,
-          file: `profiles/${name}.yaml`,
-          available: availableSkills,
-        }));
-      }
-    }
-  }
-  if (resolvedContexts.length === 0 && resolvedSkills.length === 0) {
-    return failWith(new InstallerToolError({
-      kind: "profile-without-artifacts",
+  try {
+    planConfigureMembership({
       profile: name,
-      availableContexts,
-      availableSkills,
-    }));
+      file: existing.path,
+      existingContexts: existing.context,
+      existingSkills: existing.skills,
+      availableContexts: new Set(workspace.contexts.keys()),
+      availableSkills: new Set(workspace.skills.keys()),
+      ...(requestedContexts === undefined ? {} : { contexts: requestedContexts }),
+      ...(requestedSkills === undefined ? {} : { skills: requestedSkills }),
+    });
+  } catch (error) {
+    return failWith(error);
   }
 
   if (!parsed.json) {
@@ -514,8 +488,8 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     result = await configureProfileMembership({
       home: request.home,
       profile: name,
-      contexts: [...resolvedContexts],
-      skills: [...resolvedSkills],
+      ...(requestedContexts === undefined ? {} : { contexts: [...requestedContexts] }),
+      ...(requestedSkills === undefined ? {} : { skills: [...requestedSkills] }),
     });
   } catch (error) {
     return failWith(error);
