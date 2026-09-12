@@ -470,7 +470,6 @@ function interactiveEquivalentCommand(
  * picked Project — a single combined line cannot express per-Project
  * narrowing). */
 function interactiveRemainingCommands(
-  parsed: ParsedUninstallArguments,
   targets: readonly InteractiveUninstallTarget[],
   options: {
     readonly includeAutoConfirm: boolean;
@@ -514,7 +513,7 @@ function writeInteractiveScopeChanged(
         ? ["No Project or setting was changed."]
         : ["Remaining Projects were not attempted."]],
       intro: "Re-run to review the current scope (one command per Project):",
-      commands: interactiveRemainingCommands(parsed, remaining, {
+      commands: interactiveRemainingCommands(remaining, {
         includeAutoConfirm: false,
         removeChanged: parsed.removeChanged,
         replaceChanged: parsed.replaceChanged,
@@ -714,8 +713,15 @@ async function runInteractiveUninstall(
       return { exitCode: 1 };
     }
     const wholeEntry = whole.projects.find((candidate) => candidate.project === entry.project);
-    if (wholeEntry === undefined) {
-      // The binding moved between pick and review: fail closed (INT-2).
+    const fleetEntry = fleetByProject.get(entry.project);
+    if (wholeEntry === undefined ||
+      fleetEntry === undefined ||
+      interactiveFleetScopeKey(wholeEntry) !== interactiveFleetScopeKey(fleetEntry)) {
+      // The binding vanished or changed between the picker inventory and
+      // this review: fail
+      // closed before any review or write. The retry preserves the picked
+      // Host narrowing (PROD-2) and omits `--auto-confirm` (RE-1), so
+      // re-running reviews the current scope instead of widening it.
       writeInteractiveScopeChanged(request, stderrContext, parsed, [], picked.map((scope) => ({
         preview: {
           project: scope.project,
@@ -724,6 +730,7 @@ async function runInteractiveUninstall(
             : { canonicalProject: scope.canonicalProject }),
           profile: scope.profile,
           hosts: [...scope.hosts],
+          ...(hostMode ? { removeHosts: [...narrowingHosts] } : {}),
           missing: false,
         },
       })));
@@ -800,14 +807,22 @@ async function runInteractiveUninstall(
       ? expectedFleetKeys
       : [...expectedFleetKeys.slice(0, at), ...expectedFleetKeys.slice(at + 1)];
     if (target.preview.removeHosts !== undefined) {
-      expectedFleetKeys = [...expectedFleetKeys, interactiveFleetScopeKey({
-        ...(target.preview.canonicalProject === undefined
-          ? {}
-          : { canonicalProject: target.preview.canonicalProject }),
-        project: target.preview.project,
-        profile: target.preview.profile,
-        hosts: [...survivingHostsForRemoval(target.preview.hosts, target.preview.removeHosts)],
-      })].sort();
+      // The executor routes a zero-survivor Host removal through the
+      // complete-uninstall path (isPartialWorkItem): the binding drops,
+      // so no narrowed key is expected — re-adding one would phantom-trip
+      // the next guard. Single home for the rule: ask the survivor set
+      // the executor itself derives (INT-1).
+      const survivors = survivingHostsForRemoval(target.preview.hosts, target.preview.removeHosts);
+      if (survivors.length > 0) {
+        expectedFleetKeys = [...expectedFleetKeys, interactiveFleetScopeKey({
+          ...(target.preview.canonicalProject === undefined
+            ? {}
+            : { canonicalProject: target.preview.canonicalProject }),
+          project: target.preview.project,
+          profile: target.preview.profile,
+          hosts: [...survivors],
+        })].sort();
+      }
     }
   };
 
@@ -838,7 +853,7 @@ async function runInteractiveUninstall(
           happened,
           why: [["No Project or setting was changed."]],
           intro: "To proceed without asking, run (one command per Project):",
-          commands: interactiveRemainingCommands(parsed, targets, {
+          commands: interactiveRemainingCommands(targets, {
             includeAutoConfirm: true,
             removeChanged: parsed.removeChanged,
             replaceChanged: parsed.replaceChanged,
@@ -877,19 +892,48 @@ async function runInteractiveUninstall(
   const warnings: string[] = [];
   for (const [index, target] of targets.entries()) {
     const remaining = targets.slice(index);
-    // The fleet re-resolution fails the remaining batch closed when a
-    // concurrent change widened or narrowed it (INT-2 for picks):
-    // unshown scope is never removed.
-    if (await fleetMoved()) {
-      writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
-      return { exitCode: 1 };
-    }
     const remainingCommands = (options: {
       readonly includeAutoConfirm: boolean;
       readonly removeChanged: boolean;
       readonly replaceChanged: boolean;
     }): readonly (readonly CommandArg[])[] =>
-      interactiveRemainingCommands(parsed, remaining, options);
+      interactiveRemainingCommands(remaining, options);
+    // The fleet re-resolution fails the remaining batch closed when a
+    // concurrent change widened or narrowed it (INT-2 for picks):
+    // unshown scope is never removed.
+    let fleetChanged: boolean;
+    try {
+      fleetChanged = await fleetMoved();
+    } catch (error) {
+      // The guard itself failed (e.g. Local Configuration unreadable
+      // mid-batch): fail closed with the same completed / unattempted /
+      // per-Project retry report as every other mid-batch failure mode,
+      // instead of escaping without one (INT-2).
+      writeHumanDocument(
+        request.stderr,
+        uninstallInteractiveCommandsDocument({
+          happened: [formatError(error)],
+          why: [[
+            completed.length === 0
+              ? "No Project or setting was changed."
+              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`,
+            " The remaining picked Projects were not attempted.",
+          ]],
+          intro: "After resolving the cause, retry the same scope (one command per Project):",
+          commands: remainingCommands({
+            includeAutoConfirm: true,
+            removeChanged: parsed.removeChanged,
+            replaceChanged: parsed.replaceChanged,
+          }),
+        }),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+    if (fleetChanged) {
+      writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
+      return { exitCode: 1 };
+    }
     try {
       const result = await executeUninstall(request.home, {
         project: target.preview.project,
@@ -1059,7 +1103,7 @@ async function runInteractiveUninstall(
   writeHumanDocument(
     request.stdout,
     uninstallInteractiveEquivalentDocument(
-      interactiveRemainingCommands(parsed, targets, {
+      interactiveRemainingCommands(targets, {
         includeAutoConfirm: true,
         removeChanged: parsed.removeChanged || acceptedScope?.remove === true,
         replaceChanged: parsed.replaceChanged || acceptedScope?.replace === true,

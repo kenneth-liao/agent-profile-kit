@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { runUninstallCommand } from "../cli/uninstall-command.js";
 import { APPLY_REPLACEMENT_QUESTION } from "../cli/presentation.js";
 import { executeInstall } from "../installer/install-application.js";
@@ -198,6 +198,18 @@ async function setupInstalledPair(): Promise<{
     firstOutput: join(first, firstReceipt.outputs[0]!.path),
     secondOutput: join(second, secondReceipt.outputs[0]!.path),
   };
+}
+
+/** Rewrite one binding's Hosts in Local Configuration (a concurrent
+ * rebinding between two prompt answers in a test). */
+function rebindHosts(home: string, project: string, hosts: readonly string[]): void {
+  const parsed = parseYaml(readFileSync(configPath(home), "utf8")) as {
+    readonly bindings: { readonly project: string; hosts: string[] }[];
+  };
+  const binding = parsed.bindings.find((entry) => entry.project === project);
+  if (binding === undefined) throw new Error(`no binding for ${project}`);
+  binding.hosts = [...hosts];
+  writeFileSync(configPath(home), stringifyYaml(parsed));
 }
 
 function bindingHosts(home: string, project: string): string[] {
@@ -402,6 +414,32 @@ describe("bare interactive uninstall Project selection", () => {
     expect(readFileSync(configPath(home), "utf8")).not.toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
   });
+
+  test("a fleet-guard read failure mid-batch keeps the completed/unattempted report", async () => {
+    // Local Configuration becomes unreadable after the review: the guard
+    // itself fails, so the batch fails closed with the same
+    // completed/unattempted/per-Project-retry report as every other
+    // mid-batch mode instead of escaping without one.
+    const { home, firstOutput } = await setupInstalledPair();
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, [], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    rmSync(configPath(home));
+    mkdirSync(configPath(home));
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(1);
+    const err = plain(started.streams.errorText());
+    expect(err).toContain("were not attempted");
+    expect(err).toContain("uninstall --project");
+    expect(existsSync(firstOutput)).toBe(true);
+  });
 });
 
 describe("interactive Host-only routing and removal mode", () => {
@@ -499,6 +537,125 @@ describe("interactive Host-only routing and removal mode", () => {
     expect(result.exitCode).toBe(0);
     expect(bindingHosts(home, first)).toEqual(["codex"]);
     expect(bindingHosts(home, second)).toEqual(["codex"]);
+  });
+
+  test("Host mode covering every bound Host removes each picked Project completely", async () => {
+    // INT-1 regression: a zero-survivor Host removal takes the complete
+    // path per Project, so the fleet guard must drop — not narrow — each
+    // completed key, or the second Project aborts on a phantom change.
+    const home = await setupHome();
+    const first = projectDirectory();
+    const second = projectDirectory();
+    await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: first });
+    await executeInstall(home, { profile: "engineering", hosts: ["codex"], project: second });
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, [], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    input.write(" ");
+    await settle(150);
+    input.write("[B");
+    await settle(150);
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    input.write("[B");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Which Hosts");
+    input.write("codex");
+    await waitForOutput(started.streams.humanText, "Filtered results for: codex");
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(0);
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).not.toContain(first);
+    expect(config).not.toContain(second);
+  });
+
+  test("declining the proposed Host mode removes whole and omits --host", async () => {
+    // A carried --host proposes Host mode (listed first): one arrow down
+    // declines the proposal, so removal is whole and its equivalent names
+    // no Host. Pins the carried-order contract against silent inversion.
+    const home = await setupHome();
+    const project = projectDirectory();
+    await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, ["--host", "codex"], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    const suffix = project.slice(-6);
+    input.write(suffix);
+    await waitForOutput(started.streams.humanText, `Filtered results for: ${suffix}`);
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    expect(plain(started.streams.humanText())).toContain("Selected Hosts (codex)");
+    input.write("[B");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Uninstall as listed?");
+    const review = plain(started.streams.humanText());
+    const scope = review.slice(review.lastIndexOf("Uninstall:"));
+    expect(scope).toContain("Profile engineering");
+    expect(scope).not.toContain("remove codex");
+    input.write("y\n");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).not.toContain(project);
+    const echo = plain(started.streams.humanText());
+    expect(echo).toContain("--project");
+    expect(echo).not.toContain("--host");
+  });
+
+  test("a rebinding between pick and review halts with Host-narrowed retries", async () => {
+    // PROD-2: the binding changes after the picker inventory (codex
+    // unbound elsewhere). Resolution fails closed before any review or
+    // write, and the retry preserves the picked Host narrowing instead of
+    // widening to whole removal.
+    const home = await setupHome();
+    const project = projectDirectory();
+    await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+    const state = await readInstallationState(home);
+    const { realpathSync } = await import("node:fs");
+    const receipt = ordinaryReceipts(state).find((entry) => entry.project === realpathSync(project));
+    if (receipt === undefined || receipt.outputs.length === 0) {
+      throw new Error("fixture install produced no output");
+    }
+    const projectOutput = join(project, receipt.outputs[0]!.path);
+    const input = fakeInteractiveInput();
+    const started = startUninstall(home, [], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    const suffix = project.slice(-6);
+    input.write(suffix);
+    await waitForOutput(started.streams.humanText, `Filtered results for: ${suffix}`);
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    input.write("[B");
+    await settle(150);
+    input.write("\r");
+    await waitForOutput(started.streams.humanText, "Which Hosts");
+    rebindHosts(home, project, ["pi"]);
+    input.write("codex");
+    await waitForOutput(started.streams.humanText, "Filtered results for: codex");
+    input.write(" ");
+    await settle(150);
+    input.write("\r");
+    const result = await started.pending;
+    expect(result.exitCode).toBe(1);
+    const err = plain(started.streams.errorText());
+    expect(err).toContain("scope changed during confirmation");
+    expect(err).toContain("--host codex");
+    expect(err).toContain("--project");
+    expect(err).not.toContain("--auto-confirm");
+    expect(bindingHosts(home, project)).toEqual(["pi"]);
+    expect(existsSync(projectOutput)).toBe(true);
   });
 });
 

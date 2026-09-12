@@ -377,6 +377,29 @@ describe("uninstall confirmation matrix", () => {
     expect(confirmPayload.error).toContain("confirmation");
   });
 
+  test("TTY plus --json refuses the missing scope as machine JSON without prompting", async () => {
+    // PROD-4 (ticket #499): the interactive picker branch requires a TTY
+    // *without* --json, so a TTY carrying --json still refuses through the
+    // versioned envelope and never opens the picker.
+    const { home, first, firstOutput } = await setupInstalledPair();
+    const input = fakeInteractiveInput();
+    const result = await runUninstall(home, ["--json"], input);
+    expect(result.exitCode).toBe(1);
+    expect(result.streams.errorText()).toBe("");
+    const payload = JSON.parse(result.streams.humanText()) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      error: string;
+    };
+    expect(payload.schemaVersion).toBe(15);
+    expect(payload.command).toBe("uninstall");
+    expect(payload.outcome).toBe("error");
+    expect(payload.error).toContain("explicit scope");
+    expect(plain(result.streams.humanText())).not.toContain("Which Projects");
+    snapshotUntouched(home, first, firstOutput);
+  });
+
   test("--json success carries schemaVersion and outcome", async () => {
     const { home, first } = await setupInstalledPair();
     const result = await runUninstall(home, ["--project", first, "--auto-confirm", "--json"], nonInteractiveInput());

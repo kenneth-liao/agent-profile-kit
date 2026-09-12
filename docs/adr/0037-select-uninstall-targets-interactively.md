@@ -52,7 +52,9 @@ scope on an interactive human stream.
   Keyboard behavior (toggle, filter, submit, cancel) and 60/80-column
   rendering are exercised through the `pty.fork` controller with human
   keystroke timing; the TEST-004 consent matrix covers the picked partial
-  path (accept, decline, and missing-flag refusal with zero writes).
+  path (accept and decline with zero writes — the picked flow is always
+  interactive, so missing-flag refusal without prompting belongs to the
+  non-interactive explicit path it funnels into, not the picker itself).
 
 ## Consequences
 
