@@ -34,6 +34,7 @@ import {
   reportOutputs,
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
+import { projectedSkillDocument } from "./support/generated-notice.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -165,7 +166,9 @@ describe("Claude project Skill packages", () => {
     const asset = packageOutput.members.find((member) => member.path === "assets/glyph.bin");
     expect(skillMd).toMatchObject({ mode: 0o644, path: "SKILL.md", type: "file" });
     expect(Buffer.from((skillMd as { bytes: string | Uint8Array }).bytes).toString("utf8")).toBe(
-      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+      projectedSkillDocument(
+        "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+      ),
     );
     expect(script).toMatchObject({ mode: 0o755, path: "scripts/run.sh", type: "file" });
     expect(packageOutput.members.some((member) => member.path === "scripts" && member.type === "directory"))
@@ -371,7 +374,9 @@ describe("Claude project Skill packages", () => {
     mkdirSync(join(project, ".claude", "skills", "write-notes"), { recursive: true });
     writeFileSync(
       join(project, ".claude", "skills", "write-notes", "SKILL.md"),
-      "---\nname: write-notes\ndescription: Skill write-notes.\n---\n\n# write-notes\n",
+      projectedSkillDocument(
+        "---\nname: write-notes\ndescription: Skill write-notes.\n---\n\n# write-notes\n",
+      ),
     );
 
     writeFileSync(
@@ -382,7 +387,9 @@ describe("Claude project Skill packages", () => {
     expect(reportItems(drifted).some((item) => item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".claude", "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# review-pr\n",
+      projectedSkillDocument(
+        "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# review-pr\n",
+      ),
     );
 
     writeFileSync(

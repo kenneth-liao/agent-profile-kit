@@ -77,3 +77,17 @@ continues to coalesce only exact output equality and records all consuming Hosts
 outside portable Skill metadata. Antigravity checks `.agents/skills` only when
 Skills are selected, does not inspect effective Host inventories, and emits no
 standing `shared-path` notice.
+
+## Amendment: carry the generated-source notice in the projected body
+
+Ticket #503 (spec #491, US-021, DEC-014) extends this policy with one generated
+body line. Every qualified consumer's projected `SKILL.md` carries the
+generated-source notice as the first body line after frontmatter
+(`adapters/generated-notice.ts`), including allowed-invocation Skills that
+previously reached output byte-identical to their canonical source. Frontmatter
+remains first and unchanged except for the existing disabled-policy projection
+and its explanatory comments; body bytes after the notice, supporting members,
+the omitted sidecar, the untouched Codex policy file, and the coalescing rule
+are unchanged. This is the accepted exception to "portable members keep source
+bytes": the notice is projection-owned generated text, not Skill content or
+policy, and it grants no ownership. See ADR-0041 for the whole notice policy.

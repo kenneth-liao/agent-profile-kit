@@ -19,6 +19,7 @@ import {
   SHARED_SKILL_OPENAI_YAML,
   SHARED_SKILLS_DISCOVERY_ROOT,
 } from "../adapters/shared-skill.js";
+import { generatedMarkdownNotice } from "../adapters/generated-notice.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import type { Skill } from "../schemas/skill.js";
@@ -178,7 +179,7 @@ describe("shared .agents Skill projector", () => {
     });
   });
 
-  test("allowed invocation preserves the portable package without generated restrictions", async () => {
+  test("allowed invocation adds only the generated-source notice and no restriction", async () => {
     const source = temporaryDirectory("apk-shared-skill-allowed-");
     const sourceSkill =
       "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n";
@@ -198,9 +199,12 @@ describe("shared .agents Skill projector", () => {
     const openAiMember = output.members.find((member) => member.path === "agents/openai.yaml");
     if (!skillMember || skillMember.type !== "file") throw new Error("expected SKILL.md");
     if (!openAiMember || openAiMember.type !== "file") throw new Error("expected openai.yaml");
-    expect(Buffer.from(skillMember.bytes).toString("utf8")).toBe(sourceSkill);
+    expect(Buffer.from(skillMember.bytes).toString("utf8")).toBe(
+      `---\nname: review-pr\ndescription: Review a pull request.\n---\n${generatedMarkdownNotice()}\n\n# Review\n`,
+    );
     expect(Buffer.from(openAiMember.bytes).toString("utf8")).toBe(existingOpenAi);
     expect(output.members.some((member) => member.path === "disable-model-invocation")).toBe(false);
+    expect(Buffer.from(skillMember.bytes).toString("utf8")).not.toContain("disable-model-invocation");
     expect(output.requirements).toEqual(["qualified shared Skill package"]);
   });
 
@@ -221,7 +225,8 @@ describe("shared .agents Skill projector", () => {
     if (!skillMember || skillMember.type !== "file") throw new Error("expected SKILL.md");
     const generatedSkill = Buffer.from(skillMember.bytes).toString("utf8");
     expect(generatedSkill).toBe(
-      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# Review\n\nPreserved body bytes.\n",
+      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
+        `${generatedMarkdownNotice()}\n\n# Review\n\nPreserved body bytes.\n`,
     );
   });
 });

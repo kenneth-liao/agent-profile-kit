@@ -1,3 +1,5 @@
+import { generatedMarkdownNotice } from "./generated-notice.js";
+
 /** Stable first line prefix of every canonical Profile Context envelope. */
 export const CONTEXT_ENVELOPE_PREFIX = "# Agent Profile Kit Context";
 
@@ -11,6 +13,7 @@ export interface ContextModuleSource {
 export function composeContextEnvelopeHeader(profileId: string): string {
   return [
     `${CONTEXT_ENVELOPE_PREFIX} — Profile: ${profileId}`,
+    generatedMarkdownNotice(),
     "Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.",
   ].join("\n");
 }

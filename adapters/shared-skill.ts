@@ -3,6 +3,7 @@ import { parseDocument, isMap, isScalar, Pair, Scalar, YAMLMap } from "yaml";
 import type { Document } from "yaml";
 
 import { capabilityFailure } from "./capability.js";
+import { composeSkillEntryDocument } from "./generated-notice.js";
 import {
   identifierPart,
   type ProposedDirectoryFileMember,
@@ -141,12 +142,17 @@ function appendGeneratedBooleanField(
   mapping.add(pair);
 }
 
+/**
+ * Project one SKILL.md for a qualified `.agents` consumer: the generated-source
+ * notice becomes the first body line, and disabled policy adds the Host-native
+ * top-level restriction with its explanatory comment after the frontmatter.
+ * Frontmatter stays first and body bytes after the notice are preserved.
+ */
 function emitSharedSkillMarkdown(
   skillId: string,
   source: string,
   modelInvocation: ModelInvocationPolicy,
 ): string {
-  if (modelInvocation === "allowed") return source;
   const delimiter = "---\n";
   if (!source.startsWith(delimiter)) {
     throw new Error(`Skill '${skillId}' SKILL.md must start with YAML frontmatter`);
@@ -154,6 +160,10 @@ function emitSharedSkillMarkdown(
   const closing = source.indexOf(delimiter, delimiter.length);
   if (closing === -1) {
     throw new Error(`Skill '${skillId}' SKILL.md must close its YAML frontmatter`);
+  }
+  const body = source.slice(closing + delimiter.length);
+  if (modelInvocation === "allowed") {
+    return composeSkillEntryDocument(source.slice(0, closing + delimiter.length), body);
   }
   const document = parseDocument(source.slice(delimiter.length, closing));
   if (document.errors.length > 0 || !isMap(document.contents)) {
@@ -170,8 +180,10 @@ function emitSharedSkillMarkdown(
     "disable-model-invocation",
     SKILL_INVOCATION_COMMENT,
   );
-  const body = source.slice(closing + delimiter.length);
-  return `${delimiter}${document.toString().trimEnd()}\n---\n${body}`;
+  return composeSkillEntryDocument(
+    `${delimiter}${document.toString().trimEnd()}\n---\n`,
+    body,
+  );
 }
 
 function addCodexPolicy(document: Document): string {
@@ -306,16 +318,14 @@ export function projectSharedSkillMembers(
   );
   const projected = packageMembers.map((member) => {
     if (member.type !== "file" || member.path !== "SKILL.md") return member;
-    return skill.modelInvocation === "disabled"
-      ? {
-          ...member,
-          bytes: emitSharedSkillMarkdown(
-            skill.id,
-            memberBytesAsString(member.bytes),
-            skill.modelInvocation,
-          ),
-        }
-      : member;
+    return {
+      ...member,
+      bytes: emitSharedSkillMarkdown(
+        skill.id,
+        memberBytesAsString(member.bytes),
+        skill.modelInvocation,
+      ),
+    };
   });
   if (decision.action === "leave") return projected;
 
@@ -373,5 +383,5 @@ export async function planSharedSkillPackageDirectory(
   );
 }
 
-/** Shared frontmatter projection for qualified `.agents` consumers. */
+/** Generated-source-noticed SKILL.md projection for qualified `.agents` consumers. */
 export { emitSharedSkillMarkdown };

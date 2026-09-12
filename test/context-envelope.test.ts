@@ -5,7 +5,10 @@ import {
   composeContextEnvelopeHeader,
   composeContextModuleBoundary,
 } from "../adapters/context-envelope.js";
+import { generatedMarkdownNotice } from "../adapters/generated-notice.js";
 import { parseContextModule } from "../schemas/context-profile.js";
+
+const NOTICE = generatedMarkdownNotice();
 
 const PRECEDENCE =
   "Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.";
@@ -15,10 +18,12 @@ function moduleSource(id: string, body: string): string {
 }
 
 describe("composeContextEnvelopeHeader", () => {
-  test("emits compact Profile identity and repository-instruction precedence", () => {
-    expect(composeContextEnvelopeHeader("engineering")).toBe(
-      `# Agent Profile Kit Context — Profile: engineering\n${PRECEDENCE}`,
+  test("emits compact Profile identity, generated-source guidance, and repository-instruction precedence", () => {
+    const header = composeContextEnvelopeHeader("engineering");
+    expect(header).toBe(
+      `# Agent Profile Kit Context — Profile: engineering\n${NOTICE}\n${PRECEDENCE}`,
     );
+    expect(header.split("\n")[1]).toBe(NOTICE);
   });
 });
 
@@ -33,13 +38,13 @@ describe("composeContextEnvelope", () => {
       "context/engineering.md",
     );
     expect(composeContextEnvelope("engineering", [first, second])).toBe(
-      `# Agent Profile Kit Context — Profile: engineering\n${PRECEDENCE}\n\n` +
+      `# Agent Profile Kit Context — Profile: engineering\n${NOTICE}\n${PRECEDENCE}\n\n` +
         "# Communication and Behavior\nBe concise.\n" +
         "# Engineering Principles\nShip small.\n",
     );
   });
 
-  test("contains no YAML frontmatter or generated module boundary markers", () => {
+  test("contains no YAML frontmatter or generated module boundary markers beyond the notice", () => {
     const first = parseContextModule(
       moduleSource("team-rules", "Stand-up at ten.\n"),
       "context/team-rules.md",
@@ -48,7 +53,9 @@ describe("composeContextEnvelope", () => {
     expect(composed).not.toMatch(/^---/m);
     expect(composed).not.toContain("id:");
     expect(composed).not.toContain("dependencies:");
-    expect(composed).not.toContain("<!--");
+    expect(composed).not.toMatch(/<!-- (End )?Context Module:/);
+    expect(composed.match(/<!--/g)).toEqual(["<!--"]);
+    expect(composed.split(NOTICE).length - 1).toBe(1);
     expect(composed).toContain("Stand-up at ten.");
   });
 
@@ -99,7 +106,7 @@ describe("composeContextEnvelope", () => {
 
   test("preserves empty-module selection producing only the compact envelope", () => {
     expect(composeContextEnvelope("coding", [])).toBe(
-      `# Agent Profile Kit Context — Profile: coding\n${PRECEDENCE}\n`,
+      `# Agent Profile Kit Context — Profile: coding\n${NOTICE}\n${PRECEDENCE}\n`,
     );
   });
 });

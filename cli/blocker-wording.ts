@@ -1,4 +1,5 @@
 import { COMMAND_NAME } from "../installer/version.js";
+import { OPENCODE_UNCLAIMED_CONFIG_LOCATIONS } from "../adapters/opencode.js";
 
 import {
   INSTALLATION_OWNERSHIP,
@@ -476,7 +477,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
       ];
       if (blocker.remedyKey === "opencode-config-occupied") {
         const remedy = compact([
-          "Move your OpenCode configuration to opencode.json or .opencode/opencode.json " +
+          `Move your OpenCode configuration to ${OPENCODE_UNCLAIMED_CONFIG_LOCATIONS.join(" or ")} ` +
             "yourself, then run ",
           apkit("update", quoted(blocker.project!)),
           ...uninstallAlternative(blocker.project!),
