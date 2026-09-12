@@ -11,6 +11,7 @@ import {
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
+import { generatedSourceGuidance } from "./generated-notice.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
@@ -67,6 +68,27 @@ export const OPENCODE_PROJECT_SKILLS_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
 
 /** Owned OpenCode JSONC configuration file path (project-relative). */
 export const OPENCODE_CONFIG_PATH = posix.join(".opencode", "opencode.jsonc");
+
+/**
+ * Project-scope OpenCode configuration slots Agent Profile Kit never claims.
+ * `opencode.json` and `.opencode/opencode.json` stay user-owned, so they are the
+ * supported destination for configuration apkit's claimed file cannot hold.
+ */
+export const OPENCODE_UNCLAIMED_CONFIG_LOCATIONS = [
+  "opencode.json",
+  ".opencode/opencode.json",
+] as const;
+
+/**
+ * Adapter-authored source-location guidance for the claimed configuration file.
+ * It names project-scope alternatives and keeps project-specific settings out of
+ * personal or global OpenCode configuration.
+ */
+const OPENCODE_CONFIG_SOURCE_GUIDANCE =
+  "Keep your own OpenCode settings in the project configuration files this " +
+  `generator does not claim: ${OPENCODE_UNCLAIMED_CONFIG_LOCATIONS.join(" or ")}. ` +
+  "Project-specific settings stay in the Project, not in personal or global " +
+  "OpenCode configuration.";
 
 /** Owned composed Profile Context path for OpenCode (project-relative). */
 export const OPENCODE_CONTEXT_PATH = posix.join(
@@ -326,6 +348,39 @@ export function assertOpenCodeProfileSupported(
   if (firstFailure) throw firstFailure;
 }
 
+/** Widest rendered JSONC comment line the notice wraps to. */
+const OPENCODE_CONFIG_COMMENT_WIDTH = 92;
+
+/** Wrap generated guidance into deterministic JSONC line comments. */
+function jsoncComments(guidance: string): string {
+  const width = OPENCODE_CONFIG_COMMENT_WIDTH - "// ".length;
+  const lines: string[] = [];
+  let current = "";
+  for (const word of guidance.split(" ")) {
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (candidate.length > width && current.length > 0) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) lines.push(current);
+  return `${lines.map((line) => `// ${line}`).join("\n")}\n`;
+}
+
+/**
+ * The generated-source notice for OpenCode's claimed JSONC configuration: the
+ * explanatory notice, the project-scope alternative configuration locations this
+ * file cannot provide, and the explicit changed-file consent statement. The
+ * notice adds comments only, so the configuration document an OpenCode version
+ * parses stays byte-identical and no ownership, key merge, or unrelated
+ * user-owned configuration is introduced.
+ */
+function openCodeConfigurationNotice(): string {
+  return jsoncComments(generatedSourceGuidance(OPENCODE_CONFIG_SOURCE_GUIDANCE));
+}
+
 function openCodeConfiguration(options: {
   readonly contextPath?: string | undefined;
   readonly disabledSkills?: readonly Skill[] | undefined;
@@ -348,7 +403,7 @@ function openCodeConfiguration(options: {
       skill: skillPermissions,
     };
   }
-  return `${JSON.stringify(config, null, 2)}\n`;
+  return `${openCodeConfigurationNotice()}${JSON.stringify(config, null, 2)}\n`;
 }
 
 function contextOutput(

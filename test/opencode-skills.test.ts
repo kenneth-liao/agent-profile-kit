@@ -58,6 +58,11 @@ import {
   blockerWording,
   opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
+import {
+  parseGeneratedJsonc,
+  projectedSkillDocument,
+} from "./support/generated-notice.js";
+
 const temporaryDirectories: string[] = [];
 
 afterAll(() => {
@@ -319,7 +324,7 @@ describe("OpenCode Skills planning", () => {
     expect(configOutput.requirements).toEqual([
       "OpenCode blocks model-selected Skill loading while native Skill commands remain available for explicit activation",
     ]);
-    const parsedConfig = JSON.parse(configOutput.bytes as string) as {
+    const parsedConfig = parseGeneratedJsonc(configOutput.bytes as string) as {
       $schema?: string;
       instructions?: readonly string[];
       permission?: {
@@ -390,7 +395,7 @@ describe("OpenCode Skills planning", () => {
       throw new Error("expected config file output");
     }
 
-    const parsedConfig = JSON.parse(configOutput.bytes as string) as {
+    const parsedConfig = parseGeneratedJsonc(configOutput.bytes as string) as {
       permission?: {
         skill?: Record<string, string>;
       };
@@ -428,7 +433,7 @@ describe("OpenCode Skills planning", () => {
       throw new Error("expected config file output");
     }
 
-    const parsedConfig = JSON.parse(configOutput.bytes as string) as {
+    const parsedConfig = parseGeneratedJsonc(configOutput.bytes as string) as {
       $schema?: string;
       instructions?: readonly string[];
       permission?: { skill?: Record<string, string> };
@@ -603,7 +608,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     // File on disk assertions
     const configFile = join(project, ".opencode", "opencode.jsonc");
     expect(existsSync(configFile)).toBe(true);
-    const configContent = JSON.parse(readFileSync(configFile, "utf8")) as {
+    const configContent = parseGeneratedJsonc(readFileSync(configFile, "utf8")) as {
       $schema?: string;
       permission?: { skill?: Record<string, string> };
     };
@@ -760,7 +765,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(Buffer.from(claudeSkillMd.bytes).toString("utf8")).toBe(
       Buffer.from(opencodeSkillMd.bytes).toString("utf8"),
     );
-    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toBe(skillContent);
+    expect(Buffer.from(opencodeSkillMd.bytes).toString("utf8")).toBe(
+      projectedSkillDocument(skillContent),
+    );
   });
 
   test("produces identical candidate SKILL.md documents across Claude and OpenCode discovery roots for disabled-invocation Skills", async () => {

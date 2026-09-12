@@ -49,6 +49,7 @@ import { humanText } from "./support/human-text.js";
 import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive } from "./support/package-archive.js";
+import { projectedSkillDocument } from "./support/generated-notice.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
@@ -13649,7 +13650,7 @@ describe("packed CLI new skill", () => {
     const projectPath = gitRepository();
     expectExitCode(await runCli(home, "install", "engineering", projectPath, "--host", "codex", "--auto-confirm"), 0);
     const installed = readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8");
-    expect(installed).toBe(readFileSync(skillFile, "utf8"));
+    expect(installed).toBe(projectedSkillDocument(readFileSync(skillFile, "utf8")));
   });
 
   test("new skill never prompts on an interactive terminal and completes without input", async () => {

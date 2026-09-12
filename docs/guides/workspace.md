@@ -415,7 +415,13 @@ new `install`.
 Generated output is owned whole: complete files and artifact directories whose
 Installation Receipt proves Agent Profile Kit ownership, with the receipt's
 recorded hashes providing the continuity evidence that extant material is what
-Agent Profile Kit last published. Unrelated project files,
+Agent Profile Kit last published. Generated instructions open with a short
+notice stating that apkit generated them, that lasting edits belong in the
+Workspace, and that `install`, `update`, and `uninstall` replace or remove an
+independently changed generated file only with your explicit consent. The
+claimed OpenCode configuration file carries the same generated-source notice
+with project-file guidance instead of the Workspace pointer. Supporting Skill
+resources keep their bytes. See ADR-0041. Unrelated project files,
 repository-owned instructions, global Host configuration, authentication, trust,
 approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
 merge selected fields into Host or repository configuration, install a watcher or
@@ -453,8 +459,10 @@ non-empty Antigravity plan, but unproven trust never blocks safe writes.
 
 Antigravity also discovers selected Skills through the qualified shared
 `.agents/skills/<Artifact ID>/` projection used by Codex and Pi. The complete
-package preserves standard members and, for disabled Skills, both the generated
-`disable-model-invocation: true` field and Codex `agents/openai.yaml` policy.
+package preserves standard members — with the generated-source notice opening
+each `SKILL.md` body after frontmatter (ADR-0041) — and, for disabled Skills,
+both the generated `disable-model-invocation: true` field and Codex
+`agents/openai.yaml` policy.
 Antigravity's native discovery, trust, settings, and effective inventory remain
 Host-owned.
 
@@ -487,8 +495,9 @@ proves that `.pi` and the append-system destination are compatible before
 Context writes; Skill-bearing Profiles instead prove the shared `.agents` and
 `.agents/skills` surfaces. Profiles with portable Skills receive one shared
 package per resolved Artifact ID under `.agents/skills/<Artifact ID>/`;
-standard package bytes and modes are preserved and `agent-profile-kit.yaml` is
-omitted. Codex and Pi co-own one normalized package when both are selected;
+standard package bytes and modes are preserved apart from the generated-source
+notice that opens each projected `SKILL.md` body (ADR-0041), and
+`agent-profile-kit.yaml` is omitted. Codex and Pi co-own one normalized package when both are selected;
 the package carries every required Host policy field without adding consumer
 metadata to Skill source. Pi owns Skill resolution across personal, project,
 ancestor, package, extension, and configured sources. Disabled

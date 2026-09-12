@@ -33,6 +33,7 @@ import {
   CODEX_MINIMUM_CLI_VERSION_FOR_DISABLED_MODEL_INVOCATION,
 } from "../adapters/codex.js";
 import { emitSharedSkillMarkdown } from "../adapters/shared-skill.js";
+import { generatedMarkdownNotice } from "../adapters/generated-notice.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import {
   applyReconciliation,
@@ -175,17 +176,22 @@ describe("Skill model-invocation policy", () => {
     );
   });
 
-  test("shared invocation emitter projects disable-model-invocation only when disabled while preserving authored comments and formatting", () => {
+  test("shared invocation emitter notices every document and projects disable-model-invocation only when disabled", () => {
     const allowedSource =
       "---\nname: to-spec\ndescription: Turn conversation into a spec.\n---\n\n# To spec\n";
-    expect(emitSharedSkillMarkdown("to-spec", allowedSource, "allowed")).toBe(allowedSource);
+    const allowedProjection = emitSharedSkillMarkdown("to-spec", allowedSource, "allowed");
+    expect(allowedProjection).toBe(
+      `---\nname: to-spec\ndescription: Turn conversation into a spec.\n---\n${generatedMarkdownNotice()}\n\n# To spec\n`,
+    );
+    expect(allowedProjection).not.toContain("disable-model-invocation");
 
     const authoredSource =
       "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n\nPreserve body bytes.\n";
 
     const projected = emitSharedSkillMarkdown("to-spec", authoredSource, "disabled");
     expect(projected).toBe(
-      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# To spec\n\nPreserve body bytes.\n",
+      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
+        `${generatedMarkdownNotice()}\n\n# To spec\n\nPreserve body bytes.\n`,
     );
   });
 
@@ -310,8 +316,11 @@ describe("Skill model-invocation policy", () => {
     }
     const claudeMd = claudePkg.members.find((member) => member.path === "SKILL.md");
     if (!claudeMd || claudeMd.type !== "file") throw new Error("expected SKILL.md");
-    expect(Buffer.from(claudeMd.bytes).toString("utf8")).toBe(body);
-    expect(Buffer.from(claudeMd.bytes).toString("utf8")).not.toContain("disable-model-invocation");
+    const claudeDocument = Buffer.from(claudeMd.bytes).toString("utf8");
+    expect(claudeDocument).toBe(
+      `---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n${generatedMarkdownNotice()}\n\n# To spec\n`,
+    );
+    expect(claudeDocument).not.toContain("disable-model-invocation");
     expect(codexPkg.members.some((member) => member.path === "agents/openai.yaml")).toBe(false);
   });
 

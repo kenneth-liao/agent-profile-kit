@@ -37,7 +37,7 @@ An Agent Host's native discovery, precedence, deduplication, and collision behav
 _Avoid_: Adapter-owned resolver, emulated Host inventory
 
 **Installer**:
-The mechanism that reads the Workspace and Project Bindings, combines Adapter output plans, and reconciles Profile Installations. Portable Skills are copied without changing their canonical content.
+The mechanism that reads the Workspace and Project Bindings, combines Adapter output plans, and reconciles Profile Installations. Portable Skills keep their canonical package content apart from the Adapter-owned generated-source notice and Host-native model-invocation projection (ADR-0018, ADR-0041).
 _Avoid_: Adapter, runtime router
 
 **Profile Installation**:

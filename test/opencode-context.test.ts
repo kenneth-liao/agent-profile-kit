@@ -55,6 +55,8 @@ import {
   blockerWording,
   opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
+import { parseGeneratedJsonc } from "./support/generated-notice.js";
+
 const temporaryDirectories: string[] = [];
 
 afterAll(() => {
@@ -143,7 +145,7 @@ describe("OpenCode Context Adapter planning", () => {
       { id: "coding-style", type: "context" },
     ]);
 
-    const parsedConfig = JSON.parse(configOutput.bytes as string) as {
+    const parsedConfig = parseGeneratedJsonc(configOutput.bytes as string) as {
       $schema?: string;
       instructions?: readonly string[];
     };
@@ -341,7 +343,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(contextContent).toContain("Follow project conventions.");
 
     const configContent = readFileSync(configFileOnDisk, "utf8");
-    const parsedConfig = JSON.parse(configContent) as {
+    const parsedConfig = parseGeneratedJsonc(configContent) as {
       $schema?: string;
       instructions?: readonly string[];
     };
@@ -765,7 +767,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(existsSync(join(tempProject, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(tempProject, ".agents", "skills", "deploy", "SKILL.md"))).toBe(true);
 
-    const configParsed = JSON.parse(
+    const configParsed = parseGeneratedJsonc(
       readFileSync(join(tempProject, ".opencode", "opencode.jsonc"), "utf8"),
     ) as { instructions?: readonly string[]; permission?: { skill?: Record<string, string> } };
     expect(configParsed.instructions).toEqual([".agent-profile-kit/opencode/context.md"]);

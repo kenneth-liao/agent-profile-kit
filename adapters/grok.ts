@@ -15,6 +15,7 @@ import {
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
+import { composeSkillEntryDocument } from "./generated-notice.js";
 import { invokeExecutable } from "./services/executable.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
@@ -794,14 +795,15 @@ export function grokProjectSkillPath(skillId: string): string {
   return posix.join(GROK_SKILLS_DISCOVERY_ROOT, skillId);
 }
 
-/** Emit Grok Host SKILL.md with disable-model-invocation when policy is disabled. */
+/**
+ * Emit one Grok Host SKILL.md: the generated-source notice opens the body, and
+ * disabled policy adds Host-native `disable-model-invocation` frontmatter.
+ */
 export function emitGrokSkillMarkdown(
   skillId: string,
   source: string,
   modelInvocation: ModelInvocationPolicy,
 ): string {
-  if (modelInvocation === "allowed") return source;
-
   const delimiter = "---\n";
   if (!source.startsWith(delimiter)) {
     throw new Error(`Skill '${skillId}' SKILL.md must start with YAML frontmatter`);
@@ -809,6 +811,10 @@ export function emitGrokSkillMarkdown(
   const closing = source.indexOf(delimiter, delimiter.length);
   if (closing === -1) {
     throw new Error(`Skill '${skillId}' SKILL.md must close its YAML frontmatter`);
+  }
+  const body = source.slice(closing + delimiter.length);
+  if (modelInvocation === "allowed") {
+    return composeSkillEntryDocument(source.slice(0, closing + delimiter.length), body);
   }
   const header = requireMapping(
     parseYaml(
@@ -818,8 +824,10 @@ export function emitGrokSkillMarkdown(
     `Skill '${skillId}' SKILL.md frontmatter`,
   );
   header["disable-model-invocation"] = true;
-  const body = source.slice(closing + delimiter.length);
-  return `${delimiter}${stringify(header).trimEnd()}\n---\n${body}`;
+  return composeSkillEntryDocument(
+    `${delimiter}${stringify(header).trimEnd()}\n---\n`,
+    body,
+  );
 }
 
 /** Grok-owned Skill package projection (Host-native model-invocation mapping). */

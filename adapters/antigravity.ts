@@ -9,6 +9,7 @@ import {
   composeContextModuleBoundary,
   type ContextModuleSource,
 } from "./context-envelope.js";
+import { generatedMarkdownNotice } from "./generated-notice.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
@@ -341,7 +342,11 @@ function moduleOutput(
   index: number,
 ): ProposedProjectFileOutput {
   const path = rulePath(index, module.id);
-  const bytes = ruleBytes(composeContextModuleBoundary(module));
+  // Each always-on rule explains its own generated source, exactly as the
+  // envelope rule does through the composed Context header.
+  const bytes = ruleBytes(
+    `${generatedMarkdownNotice()}\n${composeContextModuleBoundary(module)}`,
+  );
   assertRuleSize(path, bytes);
   return {
     bytes,

@@ -34,6 +34,7 @@ import {
   reportItems,
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
+import { projectedSkillDocument } from "./support/generated-notice.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -298,7 +299,9 @@ describe("Pi Adapter", () => {
     );
     if (!skillMarkdown || skillMarkdown.type !== "file") throw new Error("expected Skill markdown");
     expect(Buffer.from(skillMarkdown.bytes).toString("utf8")).toBe(
-      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+      projectedSkillDocument(
+        "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+      ),
     );
     expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
   });
@@ -307,7 +310,9 @@ describe("Pi Adapter", () => {
     const source =
       "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n";
 
-    expect(emitSharedSkillMarkdown("review-pr", source, "allowed")).toBe(source);
+    expect(emitSharedSkillMarkdown("review-pr", source, "allowed")).toBe(
+      projectedSkillDocument(source),
+    );
     const projected = emitSharedSkillMarkdown("review-pr", source, "disabled");
 
     expect(projected).toContain("name: review-pr");
@@ -536,7 +541,9 @@ describe("Pi Adapter", () => {
     expect(reportItems(drift).some((item) => item.project === project && item.kind === "drifted output")).toBe(true);
     writeFileSync(
       join(project, ".agents", "skills", "top-skill", "SKILL.md"),
-      "---\nname: top-skill\ndescription: top-skill Skill.\n---\n\n# top-skill\n",
+      projectedSkillDocument(
+        "---\nname: top-skill\ndescription: top-skill Skill.\n---\n\n# top-skill\n",
+      ),
     );
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
