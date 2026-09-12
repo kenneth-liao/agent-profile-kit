@@ -328,6 +328,31 @@ describe("configureProfileMembership", () => {
     }
   });
 
+  test("an omitted multi-entry category in non-sorted authored order keeps its comments", async () => {
+    const home = await initializedHome();
+    try {
+      await createSkill({ home, name: "review-pr" });
+      await createContextModule({ home, name: "extra-rules" });
+      const profileFile = join(realpathSync(workspacePath(home)), "profiles", "example.yaml");
+      writeFileSync(
+        profileFile,
+        "id: example\ncontext:\n  - extra-rules  # keep me\n  - example-context\nskills: []\n",
+      );
+      const result = await configureProfileMembership({
+        home,
+        profile: "example",
+        skills: ["review-pr"],
+      });
+      expect(result.changed).toBe(true);
+      expect(result.contexts).toEqual(["extra-rules", "example-context"]);
+      const after = readFileSync(profileFile, "utf8");
+      expect(after).toContain("# keep me");
+      expect(after.indexOf("extra-rules")).toBeLessThan(after.indexOf("example-context"));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("writes through the ingested Profile path, including profiles/ subdirectories", async () => {
     const home = await initializedHome();
     try {

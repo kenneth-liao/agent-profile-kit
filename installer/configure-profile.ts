@@ -110,8 +110,10 @@ export function planConfigureMembership(input: {
   return {
     nextContexts,
     nextSkills,
-    contextsChanged: !sameMembership([...input.existingContexts].sort(), nextContexts),
-    skillsChanged: !sameMembership([...input.existingSkills].sort(), nextSkills),
+    contextsChanged: input.contexts !== undefined
+      && !sameMembership([...input.existingContexts].sort(), nextContexts),
+    skillsChanged: input.skills !== undefined
+      && !sameMembership([...input.existingSkills].sort(), nextSkills),
   };
 }
 

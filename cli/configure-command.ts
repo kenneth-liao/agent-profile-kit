@@ -44,7 +44,6 @@ import {
 import { configureProfileMembership, planConfigureMembership } from "../installer/configure-profile.js";
 import { ingestSelectedWorkspace } from "../installer/local-configuration.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
-import { InstallerToolError } from "../installer/tool-errors.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import type { CommandArg } from "./inline-content.js";
 
