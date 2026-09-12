@@ -1,0 +1,26 @@
+Ready to apply
+Projects:
+<SANDBOX>/projects/my-app: addition
+State explanations:
+- addition: The Project is not installed yet; apply will create its generated files managed by Agent
+  Profile Kit.
+Outputs:
+<SANDBOX>/projects/my-app/.agent-profile-kit/codex/context.md: addition
+  (source changed)
+<SANDBOX>/projects/my-app/.agents/skills/review-pr: addition (source
+  changed)
+<SANDBOX>/projects/my-app/.claude/rules/agent-profile-kit.md: addition
+  (source changed)
+<SANDBOX>/projects/my-app/.claude/skills/review-pr: addition (source
+  changed)
+<SANDBOX>/projects/my-app/.codex/hooks.json: addition (source changed)
+Git exclusions:
+- <SANDBOX>/projects/my-app/.git/info/exclude: add
+  /.agent-profile-kit/codex/context.md, /.agents/skills/review-pr,
+  /.claude/rules/agent-profile-kit.md, /.claude/skills/review-pr, /.codex/hooks.json
+Host setup:
+- Review and approve the generated SessionStart hook when Codex asks.
+  Consequence: Declining the hook prevents Profile Context from loading.
+Standing Host setup:
+- Trust the bound project in Codex.
+  Consequence: Profile Context does not load until the project is trusted.

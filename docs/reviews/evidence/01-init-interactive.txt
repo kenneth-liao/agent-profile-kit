@@ -1,0 +1,28 @@
+A Profile is a named selection of Context and Skills to adapt for your projects.
+? Set up your first Profile now? › (y/N)✔ Set up your first Profile now? … yes
+? What should the Profile be named? › ? What should the Profile be named? › e? What should the Profile be named? › en? What should the Profile be named? › eng? What should the Profile be named? › engi? What should the Profile be named? › engin? What should the Profile be named? › engine? What should the Profile be named? › enginee? What should the Profile be named? › engineer? What should the Profile be named? › engineeri? What should the Profile be named? › engineerin? What should the Profile be named? › engineering✔ What should the Profile be named? … engineering
+? Which Context Modules? ›  
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    a: Toggle all
+    enter/return: Complete answer
+◯   example-context? Which Context Modules? ›  
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    a: Toggle all
+    enter/return: Complete answer
+◉   example-context✔ Which Context Modules? › example-context
+Initialized Agent Profile Kit Workspace and settings at ~/.agents/agent-profile-kit/workspace
+A Profile is a named selection of Context and Skills to adapt for your projects.
+Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
+Next: from the project you want to try, run apkit bind example --host antigravity
+Created Profile engineering at
+  <SANDBOX>/home/.agents/agent-profile-kit/workspace/profiles/engineering.yaml
+  Context: example-context
+Available Context Modules: example-context
+Available Skills: none
+Next: run apkit validate, then bind the Profile to a Project
+Run the same Profile creation without the prompt:
+  apkit new profile engineering --context example-context

@@ -1,0 +1,22 @@
+Ready to apply
+- not installed yet (16):
+  <SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v2,
+  <SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3,
+  <SANDBOX>/projects/fleet/api,
+  <SANDBOX>/projects/fleet/data-lake-egress,
+  <SANDBOX>/projects/fleet/data-lake-ingest,
+  <SANDBOX>/projects/fleet/docs,
+  <SANDBOX>/projects/fleet/infra-terraform-modules-shared,
+  <SANDBOX>/projects/fleet/mobile-android,
+  <SANDBOX>/projects/fleet/mobile-ios,
+  <SANDBOX>/projects/fleet/platform-gateway-service-core,
+  <SANDBOX>/projects/fleet/platform-gateway-service-edge,
+  <SANDBOX>/projects/fleet/sandbox-experiments-2024-q4-archive,
+  <SANDBOX>/projects/fleet/sandbox-experiments-2025-q1-archive,
+  <SANDBOX>/projects/fleet/tools,
+  <SANDBOX>/projects/fleet/web,
+  <SANDBOX>/projects/fleet/worker
+- settled (1)
+Next: apkit apply
+
+Details: apkit status --verbose
