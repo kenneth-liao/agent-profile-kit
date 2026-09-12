@@ -1,0 +1,7 @@
+Changed generated files:
+  ~ .claude/rules/agent-profile-kit.md (<SANDBOX>/projects/my-app)
+Replacing overwrites these files with current Workspace content.
+? Replace these generated files with current Workspace content? (y/N) › ✔ Replace these generated files with current Workspace content? (y/N) … 
+apkit: apply kept the changed generated files; nothing was written
+No Project or setting was changed; your edits to the named generated files are preserved.
+To replace changed generated files without asking, run apkit apply --all --replace-changed

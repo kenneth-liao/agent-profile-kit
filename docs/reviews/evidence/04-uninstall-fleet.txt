@@ -1,0 +1,34 @@
+Removed proven Agent Profile Kit-owned output from 16 Projects.
+
+Project: <SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v2
+  Removed generated paths:
+  - .agents/rules/agent-profile-kit-000-envelope.md
+  - .agents/rules/agent-profile-kit-010-writing-style.md
+  - .claude/rules/agent-profile-kit.md
+  Cleaned Git exclusions:
+  - /.agents/rules/agent-profile-kit-000-envelope.md
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v2/.git/info/exclude)
+  - /.agents/rules/agent-profile-kit-010-writing-style.md
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v2/.git/info/exclude)
+  - /.claude/rules/agent-profile-kit.md
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v2/.git/info/exclude)
+
+Project: <SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3
+  Removed generated paths:
+  - .agent-profile-kit/codex/context.md
+  - .agents/skills/review-pr
+  - .claude/rules/agent-profile-kit.md
+  - .claude/skills/review-pr
+  - .codex/hooks.json
+  Cleaned Git exclusions:
+  - /.agent-profile-kit/codex/context.md
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3/.git/info/exclude)
+  - /.agents/skills/review-pr
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3/.git/info/exclude)
+  - /.claude/rules/agent-profile-kit.md
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3/.git/info/exclude)
+  - /.claude/skills/review-pr
+    (<SANDBOX>/projects/fleet/acme-internal-analytics-pipeline-v3/.git/info/exclude)
+  - /.codex/hooks.json
+
+[truncated: 231 further lines of the same shape, one block per Project]

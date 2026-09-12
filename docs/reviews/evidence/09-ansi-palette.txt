@@ -1,0 +1,39 @@
+Raw ANSI bytes captured from a PTY at 100 columns (cat -v rendering).
+Method: byte-level inspection of the escape sequences, not a screenshot.
+
+apkit --help
+  ^[[1;34mUsage: ^[[36mapkit <command> [arguments]^[[0m^[[0m
+  ^[[1;34mCommon commands:^[[0m
+  ^[[36m  init^[[0m
+  ^[[2mFor deeper Workspace authoring guidance ...^[[0m
+
+apkit info
+  ^[[35mEngine version: 0.173.3^[[0m
+  Workspace: ^[[35m~/.agents/agent-profile-kit/workspace^[[0m
+
+apkit status  (pending)
+  ^[[32mReady to apply^[[0m
+  - not installed yet (1): <SANDBOX>/projects/my-app
+  ^[[36mNext: ^[[36mapkit apply^[[0m^[[0m
+  ^[[2mDetails: ...^[[0m
+
+apkit validate  (missing reference)
+  ^[[31mapkit: Profile 'engineering' in profiles/engineering.yaml selects missing Context Module^[[0m
+  ^[[31m  'review-standard'.^[[0m
+  ^[[31mAvailable Context Modules: example-context, review-standards.^[[0m
+  ^[[31mDid you mean 'review-standards'?^[[0m
+  Restore the Context Module, or remove or update Profile 'engineering'.
+
+apply decline  (exit code 0)
+  ^[[31mapkit: apply kept the changed generated files; nothing was written^[[0m
+  ^[[31mNo Project or setting was changed; your edits to the named generated files are preserved.^[[0m
+
+Role mapping observed:
+  bold blue (1;34)  section headings, Usage label
+  cyan (36)         commands and next actions
+  magenta (35)      machine values (versions, paths in `info`)
+  dim (2)           deferred detail
+  green (32)        success / ok outcome
+  yellow (33)       not-set-up notice
+  red (31)          errors, and also the non-error decline receipt
+NO_COLOR=1 removed every escape sequence (0 bytes of ESC in the captured stream).

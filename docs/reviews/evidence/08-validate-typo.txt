@@ -1,0 +1,6 @@
+apkit: Profile 'engineering' in profiles/engineering.yaml selects missing Context Module
+  'review-standard'.
+Available Context Modules: example-context, review-standards.
+Did you mean 'review-standards'?
+Restore the Context Module, or remove or update Profile 'engineering'.
+Correct profiles/engineering.yaml, then run apkit validate.

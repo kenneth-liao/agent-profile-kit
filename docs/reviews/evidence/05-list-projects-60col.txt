@@ -1,0 +1,69 @@
+Projects (16):
+
+Project: /…<SANDBOX>/projects/my-app
+Profile: engineering
+Hosts: claude, codex
+State: configured
+Project: /…/fleet/acme-internal-analytics-pipeline-v2
+Profile: writing
+Hosts: antigravity, claude
+State: configured
+Project: /…/fleet/acme-internal-analytics-pipeline-v3
+Profile: engineering
+Hosts: claude, codex
+State: configured
+Project: /…/apkit-review/projects/fleet/data-lake-egress
+Profile: writing
+Hosts: grok, opencode
+State: configured
+Project: /…/apkit-review/projects/fleet/data-lake-ingest
+Profile: engineering
+Hosts: opencode, pi
+State: configured
+Project: <SANDBOX>/projects/fleet/docs
+Profile: engineering
+Hosts: antigravity, pi
+State: configured
+Project: /…/projects/fleet/infra-terraform-modules-shared
+Profile: writing
+Hosts: antigravity, claude
+State: configured
+Project: /…/apkit-review/projects/fleet/mobile-android
+Profile: engineering
+Hosts: claude, codex
+State: configured
+Project: /…/apkit-review/projects/fleet/mobile-ios
+Profile: engineering
+Hosts: codex, grok
+State: configured
+Project: /…/projects/fleet/platform-gateway-service-core
+Profile: writing
+Hosts: grok, opencode
+State: configured
+Project: /…/projects/fleet/platform-gateway-service-edge
+Profile: engineering
+Hosts: opencode, pi
+State: configured
+Project: /…/fleet/sandbox-experiments-2024-q4-archive
+Profile: engineering
+Hosts: antigravity, pi
+State: configured
+Project: /…/fleet/sandbox-experiments-2025-q1-archive
+Profile: writing
+Hosts: antigravity, claude
+State: configured
+Project: <SANDBOX>/projects/fleet/tools
+Profile: engineering
+Hosts: claude, codex
+State: configured
+Project: <SANDBOX>/projects/fleet/web
+Profile: engineering
+Hosts: codex, grok
+State: configured
+Project: <SANDBOX>/projects/fleet/worker
+Profile: writing
+Hosts: grok, opencode
+State: configured
+
+16 Projects configured.
+Use apkit status to inspect Project lifecycle diagnostics.
