@@ -571,6 +571,33 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
+    test: "configure membership",
+    snapshot: "configure-membership",
+    commandId: "configure",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      const skillDirectory = join(workspacePath(home), "skills", "review-pr");
+      mkdirSync(skillDirectory, { recursive: true });
+      writeFileSync(
+        join(skillDirectory, "SKILL.md"),
+        "---\nname: review-pr\ndescription: Review fixture.\n---\nFixture content.\n",
+      );
+      return {
+        home,
+        args: [
+          "configure",
+          "profile",
+          AUTHORING_EXAMPLES.profile.id,
+          "--context",
+          AUTHORING_EXAMPLES.context.id,
+          "--skill",
+          "review-pr",
+          "--auto-confirm",
+        ],
+      };
+    },
+  },
+  {
     test: "status current",
     snapshot: "status-current",
     commandId: "status",

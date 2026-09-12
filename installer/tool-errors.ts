@@ -209,6 +209,11 @@ export type InstallerToolErrorFact =
       readonly detail: string;
       readonly cleanupFailed?: boolean;
     }
+  | {
+      readonly kind: "profile-file-symlink";
+      readonly profile: string;
+      readonly path: string;
+    }
   | ConfiguredPathErrorFact
   | WorkspaceIngestionErrorFact;
 

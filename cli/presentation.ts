@@ -170,7 +170,7 @@ import {
 } from "./inventory-topics.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 
-export type LifecycleCommand = "update" | "status" | "install" | "uninstall";
+export type LifecycleCommand = "update" | "status" | "install" | "uninstall" | "configure";
 
 const HOST_SETUP_STEP_ORDER: readonly HostSetupStepKind[] = [
   "approval-required",
@@ -3975,6 +3975,151 @@ export function installConfirmationRequiredDocument(
   });
 }
 
+/** The Profile-name picker question for one guided configure (US-009):
+ * a searchable choice over existing Profiles, never free text — configure
+ * never creates a Profile. */
+export const CONFIGURE_PROFILE_QUESTION = "Which Profile to configure?";
+
+/** The membership picker questions for one guided configure (US-005/
+ * US-009): searchable multi-selects preselected from current membership. */
+export const CONFIGURE_CONTEXTS_QUESTION = "Which Context Modules?";
+export const CONFIGURE_SKILLS_QUESTION = "Which Skills?";
+
+/** The general-confirmation question for one configure (DEC-004): an
+ * explicit yes saves; anything else keeps the Profile unchanged. */
+export const CONFIGURE_CONFIRMATION_QUESTION = "Save these membership changes? (y/N)";
+
+function membershipSummary(names: readonly string[]): string {
+  return names.length === 0 ? "(none)" : names.join(", ");
+}
+
+/** The current-membership notice (US-018, DEC-002): the reusable Profile's
+ * Context and Skill selections as recorded, shown before anything is
+ * asked or written. */
+export function configureCurrentMembershipDocument(input: {
+  readonly profile: string;
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+}): PresentationDocument {
+  return [{
+    kind: "prose",
+    parts: [`Current membership of reusable Profile '${input.profile}': Context ${membershipSummary(input.contexts)}, Skills ${membershipSummary(input.skills)}.`],
+  }];
+}
+
+function membershipChangeLine(
+  label: string,
+  previous: readonly string[],
+  next: readonly string[],
+): string {
+  const before = membershipSummary(previous);
+  const after = membershipSummary(next);
+  return before === after ? `  ${label}: ${after}` : `  ${label}: ${before} → ${after}`;
+}
+
+/** The pre-save changing statement (US-009): names the reusable Profile
+ * changing with per-category old → new, and states that only the reusable
+ * definition is saved — installations update separately. Doubles as the
+ * general-confirmation review (DEC-004). */
+export function configureChangingDocument(input: {
+  readonly profile: string;
+  readonly previousContexts: readonly string[];
+  readonly previousSkills: readonly string[];
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+}): PresentationDocument {
+  return [
+    { kind: "heading", text: "Configure:" },
+    {
+      kind: "prose",
+      parts: [`  Reusable Profile '${input.profile}' membership: Context ${membershipSummary(input.contexts)}, Skills ${membershipSummary(input.skills)}.`],
+    },
+    {
+      kind: "prose",
+      parts: [membershipChangeLine("Context", input.previousContexts, input.contexts)],
+    },
+    {
+      kind: "prose",
+      parts: [membershipChangeLine("Skills", input.previousSkills, input.skills)],
+    },
+    { kind: "prose", parts: ["Saves only to the reusable Profile definition; installations update separately."] },
+  ];
+}
+
+/** How the general-confirmation answer was given: an explicit no, the
+ * default no, or cancellation. */
+export type ConfigureDeclinedAnswer = "cancelled" | "default" | "declined";
+
+/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
+ * what happened and the executable command that answers it. Rendered with
+ * neutral styling: declining is a safe choice, not an error. */
+export function configureDeclinedDocument(
+  reason: ConfigureDeclinedAnswer,
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [reason === "cancelled"
+      ? "configure was cancelled before any write"
+      : reason === "default"
+        ? "configure kept the Profile unchanged; nothing was written (default answer no)"
+        : "configure kept the Profile unchanged; nothing was written (you answered no)"],
+    why: [["The Profile definition was not changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments),
+    ]],
+    severity: "info",
+  });
+}
+
+/** A picker cancelled before the membership resolved (DEC-004): nothing
+ * was chosen, so no equivalent command can be printed — only the refusal
+ * itself, with neutral styling. */
+export function configurePickerCancelledDocument(): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["configure was cancelled before any write"],
+    why: [["The Profile definition was not changed."]],
+    severity: "info",
+  });
+}
+
+/** The missing general-confirmation refusal diagnostic (DEC-004): a
+ * non-interactive (or machine-JSON) configure without `--auto-confirm`
+ * refuses before any Profile write, with the runnable command that
+ * answers it. */
+export function configureConfirmationRequiredDocument(
+  commandArguments: readonly CommandArg[],
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["configure needs explicit confirmation before any write"],
+    why: [["The Profile definition was not changed."]],
+    whatToType: [[
+      "To proceed without asking, run ",
+      commandPart(COMMAND_NAME, commandArguments),
+    ]],
+  });
+}
+
+/** The missing-membership refusal diagnostic (US-009): a non-interactive
+ * (or machine-JSON) configure with neither membership flag refuses rather
+ * than guessing a selection, before any write. */
+export function configureMembershipRequiredDocument(usage: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["configure profile requires at least one of --context <id> or --skill <id>"],
+    usage,
+  });
+}
+
+/** The missing-name refusal diagnostic (US-009): a non-interactive (or
+ * machine-JSON) configure without a Profile name refuses rather than
+ * guessing, before any write. */
+export function configureNameRequiredDocument(usage: string): PresentationDocument {
+  return diagnosticDocument({
+    happened: ["configure profile requires a Profile name"],
+    usage,
+  });
+}
+
 /** The install follow-up warnings (Host capability and other advisory
  * report warnings) for one installed Project: advisory only, never
  * blocking, reusing the shared warning rendering. Empty when none. */
@@ -4907,6 +5052,33 @@ export function formatApplyJson(result: ApplyReconciliationResult): string {
   return serializeMachinePayload(
     canonicalLifecycleMachinePayload("update", result.resultingState, result.receipt),
   );
+}
+
+/** The machine payload for one successful `configure profile`: the
+ * lifecycle envelope (schemaVersion, command, outcome) with the Profile
+ * membership result. Refusals use the shared lifecycle error envelope. */
+export interface ConfigureMachineResult {
+  readonly profile: string;
+  readonly changed: boolean;
+  readonly previousContexts: readonly string[];
+  readonly previousSkills: readonly string[];
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+  /** The executable explicit equivalent, as one shell line. */
+  readonly equivalent: string;
+}
+
+export function formatConfigureJson(result: ConfigureMachineResult): string {
+  return serializeMachinePayload({
+    schemaVersion: LIFECYCLE_MACHINE_SCHEMA_VERSION,
+    command: "configure",
+    outcome: "clean",
+    profile: result.profile,
+    changed: result.changed,
+    previous: { context: [...result.previousContexts], skills: [...result.previousSkills] },
+    membership: { context: [...result.contexts], skills: [...result.skills] },
+    equivalent: result.equivalent,
+  });
 }
 
 /** The machine payload for one successful `install`: the same reconciliation

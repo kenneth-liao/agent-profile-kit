@@ -535,6 +535,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       const extra = fact.cleanupFailed ? "; opener cleanup failed" : "";
       return [`Could not open Workspace at ${fact.path}: ${fact.detail}${extra}`];
     }
+    case "profile-file-symlink":
+      return [`Profile '${fact.profile}' at ${fact.path} is a symlink; configure never writes through links`];
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":
@@ -695,6 +697,11 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         ]],
       };
     }
+    case "profile-file-symlink":
+      return {
+        happened: [`Profile '${fact.profile}' at ${fact.path} is a symlink; configure never writes through links`],
+        whatToType: [["Replace the link with a regular file, or edit its target directly, then re-run configure."]],
+      };
     case "workspace-missing-manifest":
     case "workspace-manifest-not-file":
     case "workspace-dangling-category":

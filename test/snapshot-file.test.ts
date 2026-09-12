@@ -70,7 +70,7 @@ describe("bun snapshot v1 boundary parser", () => {
   test("parses the committed golden baseline corpus", () => {
     const path = new URL("./__snapshots__/golden-snapshots.test.ts.snap", import.meta.url);
     const bodies = readSnapshotBodies(path);
-    expect(bodies.size).toBe(67);
+    expect(bodies.size).toBe(68);
     const rootHelp = bodies.get("golden snapshots of every human view root help: root-help 1");
     expect(rootHelp).toBeDefined();
     expect(rootHelp!.startsWith("--- stdout ---")).toBe(true);

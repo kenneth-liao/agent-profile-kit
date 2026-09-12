@@ -295,6 +295,60 @@ export function installReceiptDocument(
   return nodes;
 }
 
+export interface ConfigureReceiptInput {
+  readonly profile: string;
+  readonly previousContexts: readonly string[];
+  readonly previousSkills: readonly string[];
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+  readonly changed: boolean;
+  /** The executable explicit equivalent, as command arguments. */
+  readonly equivalent: readonly CommandArg[];
+}
+
+/** The receipt document for one `configure profile` invocation (US-009):
+ * the saved membership, its executable explicit equivalent, and update as
+ * the next action. An unchanged membership says so instead of claiming
+ * an update. */
+export function configureReceiptDocument(
+  input: ConfigureReceiptInput,
+): PresentationDocument {
+  const change = (previous: readonly string[], next: readonly string[]): string => {
+    const before = previous.length === 0 ? "(none)" : previous.join(", ");
+    const after = next.length === 0 ? "(none)" : next.join(", ");
+    return before === after ? after : `${before} → ${after}`;
+  };
+  const nodes: PresentationNode[] = [{
+    kind: "sentence",
+    parts: [input.changed
+      ? `Updated reusable Profile '${input.profile}'.`
+      : `Reusable Profile '${input.profile}' already has exactly this membership.`],
+    category: "success",
+  }];
+  nodes.push(
+    {
+      kind: "key-value",
+      key: "  Context",
+      value: { kind: "identifier", value: change(input.previousContexts, input.contexts) },
+      category: "path",
+    },
+    {
+      kind: "key-value",
+      key: "  Skills",
+      value: { kind: "identifier", value: change(input.previousSkills, input.skills) },
+      category: "path",
+    },
+    {
+      kind: "key-value",
+      key: "Equivalent",
+      value: { kind: "command", program: COMMAND_NAME, args: [...input.equivalent] },
+      category: "command",
+    },
+  );
+  nodes.push(nextCommandNode("update"));
+  return nodes;
+}
+
 /** The `Next:` line as one atomic command (the sibling receipt convention). */
 function nextCommandNode(arguments_: string): PresentationNode {
   return {

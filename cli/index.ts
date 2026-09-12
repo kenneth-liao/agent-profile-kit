@@ -55,6 +55,7 @@ import {
   validationResultDocument,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
+import { runConfigureCommand } from "./configure-command.js";
 import { runInstallCommand } from "./install-command.js";
 import { runUninstallCommand } from "./uninstall-command.js";
 import { runInitCommand } from "./init-command.js";
@@ -995,6 +996,17 @@ async function main(): Promise<void> {
       );
       process.exitCode = 1;
     }
+    return;
+  }
+  if (arguments_.length >= 1 && arguments_[0] === "configure") {
+    const outcome = await runConfigureCommand({
+      home,
+      arguments: arguments_.slice(1),
+      stdout: process.stdout,
+      stderr: process.stderr,
+      input: process.stdin,
+    });
+    process.exitCode = outcome.exitCode;
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "open") {

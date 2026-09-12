@@ -10,7 +10,10 @@
  * - `multi`: searchable multi choice over three Hosts (none pre-selected).
  * - `install <home> <cwd>`: bare guided `install` in the given Project.
  * - `uninstall <home>`: bare interactive `uninstall` over bound Projects.
+ * - `configure <home> <profile>`: interactive `configure profile` for the
+ *   named Profile (ticket #500).
  */
+import { runConfigureCommand } from "../../cli/configure-command.js";
 import { runInstallCommand } from "../../cli/install-command.js";
 import { runUninstallCommand } from "../../cli/uninstall-command.js";
 import {
@@ -64,6 +67,18 @@ if (mode === "select") {
   const outcome = await runUninstallCommand({
     home,
     arguments: [],
+    stdout: process.stdout,
+    stderr: process.stderr,
+    input: process.stdin,
+  });
+  process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
+  process.exit(outcome.exitCode);
+} else if (mode === "configure") {
+  const home = process.argv[3] ?? "";
+  const profile = process.argv[4] ?? "";
+  const outcome = await runConfigureCommand({
+    home,
+    arguments: ["profile", profile],
     stdout: process.stdout,
     stderr: process.stderr,
     input: process.stdin,
