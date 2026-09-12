@@ -398,6 +398,25 @@ describe("typed Installer tool errors", () => {
     expect(machine).toBe("Could not open Workspace at /path/to/workspace: Command failed with exit code 1");
   });
 
+  test("profile-file-symlink refuses link writes with a runnable remedy", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "profile-file-symlink",
+      profile: "example",
+      path: "/workspace/profiles/example.yaml",
+    };
+    const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+    expect(flatInlineText(diagnostic.happened)).toBe(
+      "Profile 'example' at /workspace/profiles/example.yaml is a symlink; configure never writes through links",
+    );
+    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe(
+      "Replace the link with a regular file, or edit its target directly, then re-run configure.",
+    );
+    const machine = flatInlineText(formatInstallerToolError(fact));
+    expect(machine).toBe(
+      "Profile 'example' at /workspace/profiles/example.yaml is a symlink; configure never writes through links",
+    );
+  });
+
   test("workspace-open-failed preserves cleanupFailed evidence in why and machine projection", () => {
     const fact: InstallerToolErrorFact = {
       kind: "workspace-open-failed",

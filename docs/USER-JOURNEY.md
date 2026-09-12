@@ -70,7 +70,7 @@ than duplicating it.
 | 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
-| 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
+| 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
@@ -321,6 +321,14 @@ suggestion, and zero selections are refused with the same guidance. The
 focused guide topics show that a Profile selects material through its context
 and skills lists, that a Context Module's identity is frontmatter `id`, and
 that a Skill's `name` is its Artifact ID without requiring the full guide.
+`apkit configure profile` changes an existing Profile's Context and Skill
+membership through the same validated write path in both modes: explicit
+`--context`/`--skill` flags replace the supplied category, and a bare
+interactive invocation opens searchable pickers preselected from current
+membership, then prints the executable equivalent and `apkit update` as the
+next action. Direct file editing remains supported; configure never installs
+or updates Projects (US-009, US-005, ADR-0038).
+
 `apkit open` opens the configured Workspace in the system file manager as an
 explicit command (US-047, DEC-027); artifact creation never opens it as a
 side effect.

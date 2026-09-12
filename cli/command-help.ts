@@ -109,6 +109,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: ["Run ", invocation("status"), "."],
   },
   {
+    name: "configure",
+    group: "common",
+    syntax: "configure profile [name] [--context <id> ...] [--skill <id> ...] [--auto-confirm] [--json]",
+    summary: "Change a reusable Profile's Context and Skill membership without editing files",
+    examples: COMMAND_EXAMPLES.configure,
+    writes: "Updates only the named Profile's definition in the Workspace; never installs or updates Projects.",
+    next: ["Run ", invocation("update"), " to refresh installations from the Workspace."],
+  },
+  {
     name: "info",
     group: "machine",
     syntax: "info [--json]",
