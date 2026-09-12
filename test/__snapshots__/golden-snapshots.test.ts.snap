@@ -1050,7 +1050,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.184.0
+Engine version: 0.185.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1073,10 +1073,10 @@ Inventory topics:
 
 exports[`golden snapshots of every human view list projects: list-projects 1`] = `
 "--- stdout ---
-Projects (2):
+Projects:
 
-~/projects/demo   example  codex  configured
-~/projects/other  example  codex  configured
+demo   example  codex  configured
+other  example  codex  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -1168,7 +1168,7 @@ Next: select the Context Module from a Profile, then run apkit validate
 
 exports[`golden snapshots of every human view install success: install-success 1`] = `
 "--- stdout ---
-Installed example for ~/projects/demo
+Installed example for demo
   Profile: example
   Hosts: codex
 Next: apkit status
@@ -1218,7 +1218,7 @@ All Projects are current (1 Project)
 exports[`golden snapshots of every human view status pending: status-pending 1`] = `
 "--- stdout ---
 Ready to update
-- not installed yet (1): ~/projects/demo
+- not installed yet (1): demo
 Next: apkit update '~/projects/demo'
 
 Details: apkit status '~/projects/demo' --verbose
@@ -1230,7 +1230,7 @@ exports[`golden snapshots of every human view status blocked: status-blocked 1`]
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/blocked
+  blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
       write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1258,7 +1258,7 @@ exports[`golden snapshots of every human view status tracked counts grouped-twel
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1288,7 +1288,7 @@ exports[`golden snapshots of every human view status tracked counts eleven-no-ca
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1316,7 +1316,7 @@ exports[`golden snapshots of every human view status tracked counts root-immedia
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
       Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1346,7 +1346,7 @@ exports[`golden snapshots of every human view status tracked counts overlapping-
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
       Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1375,7 +1375,7 @@ exports[`golden snapshots of every human view status tracked counts deterministi
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1405,7 +1405,7 @@ exports[`golden snapshots of every human view status tracked counts large-60-60-
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/tracked-counts
+  tracked-counts
     Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1453,7 +1453,7 @@ exports[`golden snapshots of every human view status blocked filter: status-bloc
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/blocked
+  blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
       write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1491,9 +1491,9 @@ First use:
 
 Profile example will load the next time you launch a configured Host from a
   bound Project root.
-To check that codex loaded Profile example, start a new codex session in
-  ~/projects/demo and ask codex what Profile material it loaded; the installed
-  material should appear in its answer.
+To check that codex loaded Profile example, start a new codex session in demo
+  and ask codex what Profile material it loaded; the installed material should
+  appear in its answer.
 
 Now author your own:
   apkit new skill <skill>
@@ -1519,7 +1519,7 @@ exports[`golden snapshots of every human view update blocked: update-blocked 1`]
 "--- stdout ---
 Update blocked
 
-Project: ~/projects/blocked
+Project: blocked
   Profile: example
   Hosts: codex
   Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
@@ -1564,7 +1564,7 @@ exports[`golden snapshots of every human view install-temp: install-temp 1`] = `
 Installed temporary Profile
   Profile: example
   Host: codex
-  Project: ~/projects/temporary
+  Project: temporary
   Temporary installation: 00000000-0000-4000-8000-000000000000
 Codex setup:
 - Review and approve the generated SessionStart hook when Codex asks.
@@ -1580,7 +1580,7 @@ exports[`golden snapshots of every human view remove-temp: remove-temp 1`] = `
 "--- stdout ---
 Removed temporary Profile
   Temporary installation: 00000000-0000-4000-8000-000000000000
-  Project: ~/projects/temporary-remove
+  Project: temporary-remove
 --- stderr ---
 "
 `;
@@ -1908,7 +1908,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.184.0
+Engine version: 0.185.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1918,7 +1918,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.184.0\x1B[0m
+\x1B[35mEngine version: 0.185.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1928,7 +1928,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.184.0
+Engine version: 0.185.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1938,7 +1938,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.184.0\x1B[0m
+\x1B[35mEngine version: 0.185.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -1948,13 +1948,14 @@ Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Projects (2):
+Projects:
 
-Project: ~/projects/demo
+Project: demo
 Profile: example
 Hosts: codex
 State: configured
-Project: ~/projects/other
+
+Project: other
 Profile: example
 Hosts: codex
 State: configured
@@ -1970,13 +1971,14 @@ Use
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1;34mProjects (2):\x1B[0m
+\x1B[1;34mProjects:\x1B[0m
 
-Project: ~/projects/demo
+Project: demo
 Profile: example
 Hosts: codex
 State: configured
-Project: ~/projects/other
+
+Project: other
 Profile: example
 Hosts: codex
 State: configured
@@ -1992,10 +1994,10 @@ Use
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Projects (2):
+Projects:
 
-~/projects/demo   example  codex  configured
-~/projects/other  example  codex  configured
+demo   example  codex  configured
+other  example  codex  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -2005,10 +2007,10 @@ Use apkit status to inspect Project lifecycle diagnostics.
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1;34mProjects (2):\x1B[0m
+\x1B[1;34mProjects:\x1B[0m
 
-~/projects/demo   example  codex  configured
-~/projects/other  example  codex  configured
+demo   example  codex  configured
+other  example  codex  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -2020,7 +2022,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/blocked
+  blocked
     Blocker: .codex/hooks.json is
       tracked by Git, so Agent Profile
       Kit cannot write to it.
@@ -2056,7 +2058,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 \x1B[31mCannot update\x1B[0m
 - needs attention (1):
-  ~/projects/blocked
+  blocked
 \x1B[31m    Blocker: .codex/hooks.json is\x1B[0m
 \x1B[31m      tracked by Git, so Agent Profile\x1B[0m
 \x1B[31m      Kit cannot write to it.\x1B[0m
@@ -2092,7 +2094,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 Cannot update
 - needs attention (1):
-  ~/projects/blocked
+  blocked
     Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated files; Git-tracked
         paths cannot be replaced.
@@ -2117,7 +2119,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 "--- stdout ---
 \x1B[31mCannot update\x1B[0m
 - needs attention (1):
-  ~/projects/blocked
+  blocked
 \x1B[31m    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.\x1B[0m
       Requirement: Agent Profile Kit must exclusively manage its generated files; Git-tracked
         paths cannot be replaced.

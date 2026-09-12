@@ -159,7 +159,10 @@ import {
   absoluteAuthoredPath,
   displayPath,
   displayProjectPath,
+  projectIdentityLookup,
   type LocationDisplayScope,
+  type ProjectIdentityLookup,
+  type ViewProjectLocation,
 } from "./display-path.js";
 
 export { displayPath, displayProjectPath };
@@ -444,11 +447,12 @@ export function primaryCauseGroupNode(
   label: string,
   projects: readonly ReconciliationProjectRecord[],
   scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
 ): PresentationNode {
   const parts: InlineContent[] = [`${label} (${projects.length}): `];
   projects.forEach((record, index) => {
     if (index > 0) parts.push(", ");
-    parts.push(pathPart(record.canonicalProject, scope, record.project));
+    parts.push(projectLocationPart(record, scope, identities));
   });
   return {
     kind: "list-item",
@@ -461,6 +465,7 @@ function needsAttentionCauseNodes(
   projects: readonly ReconciliationProjectRecord[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
 ): PresentationNode[] {
   const nodes: PresentationNode[] = [{
     kind: "list-item",
@@ -469,9 +474,9 @@ function needsAttentionCauseNodes(
   for (const project of projects) {
     nodes.push({
       kind: "prose",
-      parts: ["  ", pathPart(project.canonicalProject, scope, project.project)],
+      parts: ["  ", projectLocationPart(project, scope, identities)],
     });
-    const displayProject = displayProjectPath(project.canonicalProject, project.project, scope);
+    const displayProject = identities(project);
     for (const blocker of project.blockers) {
       nodes.push(...conciseBlockerNodes(
         blocker,
@@ -508,18 +513,46 @@ interface ProjectGroup extends ProjectIdentity {
   readonly blockers: ReconciliationBlocker[];
   readonly items: ReconciliationItem[];
   readonly outputs: OutputReconciliationItem[];
+  /** This view's shortest-unambiguous identity for the Project (US-013). */
+  readonly displayIdentity: string;
 }
 
 function presentProject(
   project: ProjectIdentity,
-  scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
 ): string {
-  return displayProjectPath(project.canonicalProject, project.project, scope);
+  // Requested evidence exposes the full stable path (US-013, DEC-009); a
+  // scanning view supplies its own view identity through `identities`.
+  return identities === undefined
+    ? displayProjectPath(project.canonicalProject, project.project, "fleet")
+    : identities(project);
+}
+
+/**
+ * The identity one Project has when it is the whole view (US-013): the
+ * shortest-unambiguous label for a single-Project view.
+ */
+export function singleProjectIdentity(project: ViewProjectLocation): string {
+  return projectIdentityLookup([project])(project);
+}
+
+/** One Project location as inline content carrying this view's identity. */
+function projectLocationPart(
+  project: ViewProjectLocation,
+  scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
+): InlineContent {
+  const canonicalProject = project.canonicalProject ?? project.project;
+  const part = pathPart(canonicalProject, scope, project.project);
+  if (identities === undefined) return part;
+  return { ...part, identity: identities(project) };
 }
 
 interface GroupedProjects {
   readonly groups: ProjectGroup[];
   readonly unscopedItems: ReconciliationItem[];
+  /** This view's Project identity lookup, computed once per document. */
+  readonly identities: ProjectIdentityLookup;
 }
 
 const DEFAULT_OUTPUT_PATH_LIMIT = 10;
@@ -794,11 +827,7 @@ function projectInventoryStateNode(problem: InstallerToolErrorFact | null): Pres
   if (problem === null) {
     return { kind: "identifier", value: "configured" };
   }
-  return {
-    kind: "prose",
-    parts: formatInstallerToolError(problem),
-    category: "attention",
-  };
+  return { kind: "identifier", value: "problem", category: "attention" };
 }
 
 function projectInventorySummary(projects: readonly ProjectInventoryRecord[]): string {
@@ -837,8 +866,14 @@ export function projectInventoryDocument(
     ];
   }
 
+  const location = (project: ProjectInventoryRecord): ViewProjectLocation => ({
+    canonicalProject: project.canonicalProject,
+    project: project.project,
+  });
+  const identities = projectIdentityLookup(projects.map(location), cwd, home);
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: `Projects (${projects.length}):` },
+    // The count lives once, in the summary below (US-013).
+    { kind: "heading", text: "Projects:" },
     spacerNode(),
   ];
   for (const project of projects) {
@@ -847,7 +882,12 @@ export function projectInventoryDocument(
       cells: [
         {
           column: "Project",
-          content: projectPathNode(project.canonicalProject ?? project.project, project.project, "fleet"),
+          content: projectPathNode(
+            project.canonicalProject ?? project.project,
+            project.project,
+            "fleet",
+            identities(location(project)),
+          ),
         },
         {
           column: "Profile",
@@ -864,8 +904,22 @@ export function projectInventoryDocument(
       ],
     });
   }
+  nodes.push(spacerNode());
+  // A configuration problem renders its complete typed sentence and repair
+  // locator once, after the rows, under the same identity the row carries.
+  for (const project of projects) {
+    if (project.problem === null) continue;
+    nodes.push({
+      kind: "list-item",
+      parts: [
+        projectLocationPart(location(project), "fleet", identities),
+        ": ",
+        ...formatInstallerToolError(project.problem),
+      ],
+      category: "attention",
+    });
+  }
   nodes.push(
-    spacerNode(),
     {
       kind: "prose",
       parts: [projectInventorySummary(projects)],
@@ -1127,6 +1181,14 @@ export function temporaryInventoryDocument(
     ];
   }
 
+  const identities = projectIdentityLookup(
+    installations.map((installation) => ({
+      canonicalProject: installation.project,
+      project: installation.project,
+    })),
+    cwd,
+    home,
+  );
   const nodes: PresentationNode[] = [
     {
       kind: "heading",
@@ -1145,7 +1207,12 @@ export function temporaryInventoryDocument(
       {
         kind: "key-value",
         key: "  Project",
-        value: projectPathNode(installation.project, installation.project, "fleet"),
+        value: projectPathNode(
+          installation.project,
+          installation.project,
+          "fleet",
+          identities({ canonicalProject: installation.project, project: installation.project }),
+        ),
       },
       {
         kind: "key-value",
@@ -1303,6 +1370,14 @@ export function uninstallConfirmationDocument(preview: {
     readonly removeHosts?: readonly string[];
   }[];
 }, options: { readonly fleetProfile?: string } = {}): PresentationDocument {
+  const identities = projectIdentityLookup(
+    preview.projects.map((entry) => ({
+      canonicalProject: entry.canonicalProject ?? entry.project,
+      project: entry.project,
+    })),
+  );
+  const present = (entry: { readonly canonicalProject?: string; readonly project: string }): string =>
+    identities({ canonicalProject: entry.canonicalProject ?? entry.project, project: entry.project });
   return [
     { kind: "heading", text: "Uninstall:" },
     ...(options.fleetProfile === undefined ? [] : [{
@@ -1313,8 +1388,8 @@ export function uninstallConfirmationDocument(preview: {
       kind: "prose",
       parts: [
         entry.removeHosts === undefined
-          ? `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
-          : `  ${displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
+          ? `  ${present(entry)} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
+          : `  ${present(entry)} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
       ],
     })),
     {
@@ -1412,6 +1487,12 @@ export function uninstallReceiptDocument(
     const key = [...entry.removedHosts!].sort().join(", ");
     partialGroups.set(key, [...(partialGroups.get(key) ?? []), entry]);
   }
+  const identities = projectIdentityLookup(
+    [...result.completed, ...result.skipped].map((entry) => ({
+      canonicalProject: entry.canonicalProject ?? entry.project,
+      project: entry.project,
+    })),
+  );
   const outcomeLines: string[] = [];
   if (removedCount > 0) {
     outcomeLines.push(
@@ -1456,7 +1537,15 @@ export function uninstallReceiptDocument(
         {
           kind: "key-value",
           key: "Project",
-          value: projectPathNode(skipped.canonicalProject ?? skipped.project, skipped.project, "fleet"),
+          value: projectPathNode(
+            skipped.canonicalProject ?? skipped.project,
+            skipped.project,
+            "fleet",
+            identities({
+              canonicalProject: skipped.canonicalProject ?? skipped.project,
+              project: skipped.project,
+            }),
+          ),
         },
         { kind: "prose", parts: [`  - ${renderItemReason(skipped.reason)}`], category: "error" },
       );
@@ -1873,17 +1962,26 @@ function shortenProjectReferences(
   message: string,
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  display: "identity" | "stable",
 ): string {
   const references = groups.flatMap((group) => {
     const authoredAbsolute = absoluteAuthoredPath(group.project, homedir());
-    const replacement = displayProjectPath(group.canonicalProject, group.project, scope);
+    const replacement = display === "identity"
+      ? group.displayIdentity
+      : displayProjectPath(group.canonicalProject, group.project, "fleet");
     return [...new Set([group.canonicalProject, authoredAbsolute])].map((project) => ({ project, replacement }));
   }).sort((left, right) =>
     right.project.length - left.project.length || left.project.localeCompare(right.project)
   );
+  // A path beneath a Project renders in the view's register: requested
+  // evidence keeps the stable spelling, and a scanning view may use the
+  // working-directory-relative spelling when the path is strictly inside it.
+  // Neither ever renders a `.` or `..` alias.
+  const deeperPath = (text: string): string =>
+    displayPath(text, text, display === "identity" ? "project" : "fleet", process.cwd(), homedir());
   return references.reduce(
     (rendered, reference) =>
-      replaceProjectReference(rendered, reference.project, reference.replacement),
+      replaceProjectReference(rendered, reference.project, reference.replacement, deeperPath),
     message,
   );
 }
@@ -1897,6 +1995,7 @@ function replaceProjectReference(
   message: string,
   project: string,
   replacement: string,
+  deeperPath: (text: string) => string,
 ): string {
   let cursor = 0;
   let formatted = "";
@@ -1913,9 +2012,18 @@ function replaceProjectReference(
       cursor = index + 1;
       continue;
     }
-    const cwdChild = replacement === "." && next === "/";
-    formatted += message.slice(cursor, index) + (cwdChild ? "" : replacement);
-    cursor = index + project.length + (cwdChild ? 1 : 0);
+    // A Project reference renders as the view's chosen label; a path beneath
+    // it keeps its own location spelling, never the Project's alias (US-013).
+    if (next === "/") {
+      let end = index + project.length + 1;
+      while (end < message.length && !/[\s)"':;,`]/.test(message[end]!)) end += 1;
+      const pathText = message.slice(index, end);
+      formatted += message.slice(cursor, index) + deeperPath(pathText);
+      cursor = end;
+      continue;
+    }
+    formatted += message.slice(cursor, index) + replacement;
+    cursor = index + project.length;
   }
   return formatted;
 }
@@ -1995,9 +2103,11 @@ function trackedPathGroupLines(
 
 
 function groupProjects(report: ReconciliationReport): GroupedProjects {
+  const identities = projectIdentityLookup(report.projects);
   const groups = report.projects.map((record): ProjectGroup => ({
     blockers: [...record.blockers],
     canonicalProject: record.canonicalProject,
+    displayIdentity: identities(record),
     items: [{ ...record.state, project: record.project }],
     outputs: record.outputs.map((output) => ({
       kind: output.kind,
@@ -2009,7 +2119,7 @@ function groupProjects(report: ReconciliationReport): GroupedProjects {
     left.canonicalProject,
     right.canonicalProject,
   ));
-  return { groups, unscopedItems: [] };
+  return { groups, identities, unscopedItems: [] };
 }
 
 function desiredInstallation(report: ReconciliationReport, project: string): PresentedDesired | undefined {
@@ -2074,6 +2184,7 @@ function isNoOpApply(
 function stillPendingProjects(
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
 ): readonly string[] {
   return report.projects
     .filter((project) =>
@@ -2084,7 +2195,7 @@ function stillPendingProjects(
         project.repositoryExclusions.length > 0
       )
     )
-    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
+    .map((project) => presentProject(project, identities));
 }
 
 
@@ -2303,7 +2414,7 @@ function presentedSetupSteps(
       }
       const message = setupStepMessage(
         step,
-        displayProjectPath(project.canonicalProject, project.project, scope),
+        displayProjectPath(project.canonicalProject, project.project, "fleet"),
       );
       steps.push({
         canonicalProject: project.canonicalProject,
@@ -2383,11 +2494,11 @@ function setupProjectScope(
 ): string {
   if (projects.length === 1) return "";
   if (verbose || projects.length <= PROJECT_SCOPE_LIMIT) {
-    return ` (${projects.map((project) => presentProject(project, scope)).join(", ")})`;
+    return ` (${projects.map((project) => presentProject(project)).join(", ")})`;
   }
   const visible = projects
     .slice(0, PROJECT_SCOPE_LIMIT)
-    .map((project) => presentProject(project, scope));
+    .map((project) => presentProject(project));
   return ` (${visible.join(", ")}, … ${plural(projects.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
 }
 
@@ -2609,11 +2720,11 @@ function readinessLines(
 
 function nextActionScope(
   projects: ReadonlyArray<{ readonly authored: string; readonly canonical: string }>,
-  scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
 ): string {
   if (projects.length <= 1) return "";
   const presented = projects.map((project) =>
-    displayProjectPath(project.canonical, project.authored, scope),
+    identities({ canonicalProject: project.canonical, project: project.authored }),
   );
   if (presented.length <= PROJECT_SCOPE_LIMIT) {
     return ` (${presented.join(", ")})`;
@@ -2628,6 +2739,7 @@ function nextActionNodes(
   surface: {
     readonly groups: readonly ProjectGroup[];
     readonly unscopedItems: readonly ReconciliationItem[];
+    readonly identities: ProjectIdentityLookup;
   },
   options: LifecycleHumanOptions,
 ): PresentationNode[] {
@@ -2717,12 +2829,18 @@ function nextActionNodes(
     if (uniqueProjects.length === 1) {
       const project = uniqueProjects[0]!;
       return [
-        pathPart(project.canonical, scope, project.authored),
+        {
+          ...pathPart(project.canonical, scope, project.authored),
+          identity: surface.identities({
+            canonicalProject: project.canonical,
+            project: project.authored,
+          }),
+        },
         ": ",
         ...entry.parts,
       ];
     }
-    return [...entry.parts, nextActionScope(uniqueProjects, scope)];
+    return [...entry.parts, nextActionScope(uniqueProjects, surface.identities)];
   });
 
   if (items.length === 0) return [];
@@ -2816,11 +2934,11 @@ function operationScopeClause(
   }
   const limit = projectLimit ?? group.projects.length;
   if (group.projects.length <= limit) {
-    return `in ${group.projects.map((project) => presentProject(project, scope)).join(", ")}`;
+    return `in ${group.projects.map((project) => presentProject(project)).join(", ")}`;
   }
   const visible = group.projects
     .slice(0, limit)
-    .map((project) => presentProject(project, scope));
+    .map((project) => presentProject(project));
   return `in ${visible.join(", ")}, … ${plural(group.projects.length - limit, "more Project")}; ` +
     "use --verbose to see all Projects";
 }
@@ -2861,6 +2979,7 @@ function operationAttentionNodes(
   report: ReconciliationReport,
   scope: LocationDisplayScope,
   includeRemovals = false,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
   const exceptions = report.projects.filter((project) => {
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
@@ -2878,7 +2997,7 @@ function operationAttentionNodes(
   for (const project of exceptions) {
     nodes.push({
       kind: "prose",
-      parts: [`  ${displayProjectPath(project.canonicalProject, project.project, scope)}:`],
+      parts: [`  ${presentProject(project, identities)}:`],
     });
     const hasPlannedOutput = project.outputs.some((output) => isPlannedOutputOperation(output.kind));
     if (
@@ -3043,6 +3162,7 @@ function changedOutputExceptionNodes(
   operation: ChangedOutputOperation,
   heading: string,
   scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
   const lines = committed.flatMap(({ outputs, project }) =>
     outputs
@@ -3053,7 +3173,7 @@ function changedOutputExceptionNodes(
         const line = outputPathLine(output);
         return line === undefined
           ? []
-          : [`  ${line} (${displayProjectPath(project.canonicalProject, project.project, scope)})`];
+          : [`  ${line} (${presentProject(project, identities)})`];
       })
   );
   return lines.length === 0
@@ -3081,6 +3201,7 @@ function changedOutputExceptionNodes(
 function compactReceiptNodes(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
   const committed: readonly CommittedReceiptProject[] = receipt.projects
     .slice()
@@ -3103,8 +3224,8 @@ function compactReceiptNodes(
         `(${plural(fileCount, DEFAULT_VIEW_LEXICON.generatedOutput.singular)}).`,
       ],
     },
-    ...changedOutputExceptionNodes(committed, "replace", "Replaced changed generated files:", scope),
-    ...changedOutputExceptionNodes(committed, "remove", "Removed changed generated files:", scope),
+    ...changedOutputExceptionNodes(committed, "replace", "Replaced changed generated files:", scope, identities),
+    ...changedOutputExceptionNodes(committed, "remove", "Removed changed generated files:", scope, identities),
   ];
 }
 
@@ -3155,8 +3276,9 @@ function committedApplyEvidenceNodes(
   receipt: ReconciliationReport,
   postState: ReconciliationReport,
   scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
-  const nodes: PresentationNode[] = compactReceiptNodes(receipt, scope);
+  const nodes: PresentationNode[] = compactReceiptNodes(receipt, scope, identities);
   const appliedProjects = new Set(
     receipt.projects.map((project) => project.canonicalProject),
   );
@@ -3164,7 +3286,7 @@ function committedApplyEvidenceNodes(
     .filter((project) =>
       project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
     )
-    .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
+    .map((project) => presentProject(project, identities));
   if (freshlyCurrent.length > 0) {
     nodes.push({ kind: "prose", parts: [`Freshly current: ${freshlyCurrent.join(", ")}`] });
   }
@@ -3175,8 +3297,9 @@ function committedApplyEvidenceNodes(
 function stillPendingNodes(
   report: ReconciliationReport,
   scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
 ): PresentationNode[] {
-  const pending = stillPendingProjects(report, scope);
+  const pending = stillPendingProjects(report, scope, identities);
   if (pending.length === 0) return [];
   return [{ kind: "prose", parts: [`Still pending: ${pending.join(", ")}`] }];
 }
@@ -3210,7 +3333,7 @@ function readinessNodes(
 function hostLoadingVerificationNodes(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
-  scope: LocationDisplayScope,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
   const profiles = appliedProfiles(report, receipt);
   if (profiles.length === 0) return [];
@@ -3248,7 +3371,10 @@ function hostLoadingVerificationNodes(
       kind: "prose",
       parts: [
         `To check that ${hostList} loaded ${subject}, ${session} in `,
-        pathPart(firstChanged.canonicalProject, scope, firstChanged.project),
+        {
+          ...pathPart(firstChanged.canonicalProject, "fleet", firstChanged.project),
+          ...(identities === undefined ? {} : { identity: identities(firstChanged) }),
+        },
         ` and ${ask}; ${evidence}.`,
       ],
     }];
@@ -3285,7 +3411,7 @@ function conciseApplyDocument(
   }
 
   if (!blocked && !noOpApply && receipt !== undefined) {
-    const appliedNodes = compactReceiptNodes(receipt, scope);
+    const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities);
     if (appliedNodes.length > 0) nodes.push(spacerNode(), ...appliedNodes);
   }
 
@@ -3300,7 +3426,7 @@ function conciseApplyDocument(
         {
           kind: "key-value",
           key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-          value: projectPathNode(group.canonicalProject, group.project, scope),
+          value: projectPathNode(group.canonicalProject, group.project, scope, group.displayIdentity),
         },
       );
       const desired = desiredInstallation(report, group.canonicalProject);
@@ -3321,13 +3447,7 @@ function conciseApplyDocument(
       }
       if (blocked) {
         nodes.push(...group.blockers.flatMap((blocker) =>
-          conciseBlockerNodes(
-            blocker,
-            displayProjectPath(group.canonicalProject, group.project, scope),
-            groups,
-            "  ",
-            scope,
-          ),
+          conciseBlockerNodes(blocker, group.displayIdentity, groups, "  ", scope),
         ));
         continue;
       }
@@ -3347,19 +3467,13 @@ function conciseApplyDocument(
         nodes.push(...outputLines.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })));
       }
       for (const blocker of group.blockers) {
-        nodes.push(...conciseBlockerNodes(
-          blocker,
-          displayProjectPath(group.canonicalProject, group.project, scope),
-          groups,
-          "  ",
-          scope,
-        ));
+        nodes.push(...conciseBlockerNodes(blocker, group.displayIdentity, groups, "  ", scope));
       }
     }
   }
 
   if (blocked) {
-    const pending = stillPendingNodes(report, scope);
+    const pending = stillPendingNodes(report, scope, grouped.identities);
     if (pending.length > 0) nodes.push(spacerNode(), ...pending);
   }
 
@@ -3388,6 +3502,7 @@ function conciseApplyDocument(
 
   const next = nextActionNodes("update", report, {
     groups,
+    identities: grouped.identities,
     unscopedItems: grouped.unscopedItems,
   }, options);
   if (next.length > 0) nodes.push(spacerNode(), ...next);
@@ -3395,7 +3510,7 @@ function conciseApplyDocument(
   if (blocked && receipt !== undefined) {
     nodes.push(
       spacerNode(),
-      ...committedApplyEvidenceNodes(receipt, report, scope),
+      ...committedApplyEvidenceNodes(receipt, report, scope, grouped.identities),
     );
   }
   if (!blocked && !noOpApply && receipt !== undefined) {
@@ -3404,7 +3519,7 @@ function conciseApplyDocument(
       nodes.push(spacerNode(), ...readiness);
       // The check fires exactly where the readiness statement fires: both
       // key off the same applied evidence, and the check follows it.
-      nodes.push(...hostLoadingVerificationNodes(report, receipt, scope));
+      nodes.push(...hostLoadingVerificationNodes(report, receipt, grouped.identities));
     }
   }
   return nodes;
@@ -3439,7 +3554,8 @@ function verboseApplyDocument(
     const readiness = readinessNodes(result.resultingState, result.receipt);
     if (readiness.length > 0) {
       nodes.push(...readiness);
-      nodes.push(...hostLoadingVerificationNodes(result.resultingState, result.receipt, scope));
+      // Verbose evidence retains the full stable path for the Project.
+      nodes.push(...hostLoadingVerificationNodes(result.resultingState, result.receipt));
     }
   }
   return nodes;
@@ -3543,13 +3659,15 @@ export function applyExecutionFailureDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, failure.receipt);
+  const grouped = groupProjects(failure.resultingState ?? failure.receipt);
+  const identities = options.verbose === true ? undefined : grouped.identities;
   const failedProject = failure.failedProject === undefined
     ? undefined
-    : presentProject(failure.failedProject, scope);
+    : presentProject(failure.failedProject, identities);
   const reports = failure.resultingState !== undefined
     ? [failure.resultingState, failure.receipt]
     : failure.receipt;
-  const groups = groupProjects(failure.resultingState ?? failure.receipt).groups;
+  const groups = grouped.groups;
   const warningItems = options.verbose === true
     ? verboseWarningNodes(reports, groups, scope)
     : warningNodes(reports, groups, scope);
@@ -3573,9 +3691,9 @@ export function applyExecutionFailureDocument(
     kind: "prose",
     parts: [`Still pending: ${failure.pendingProjects.length === 0
       ? "none"
-      : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`],
+      : failure.pendingProjects.map((project) => presentProject(project, identities)).join(", ")}`],
   });
-  nodes.push(...compactReceiptNodes(failure.receipt, scope));
+  nodes.push(...compactReceiptNodes(failure.receipt, scope, identities));
   if (failure.resultingState !== undefined) {
     const appliedProjects = new Set(
       failure.receipt.projects.map((project) => project.canonicalProject),
@@ -3584,7 +3702,7 @@ export function applyExecutionFailureDocument(
       .filter((project) =>
         project.state.kind === "current" && appliedProjects.has(project.canonicalProject)
       )
-      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope));
+      .map((project) => presentProject(project, identities));
     if (current.length > 0) {
       nodes.push({ kind: "prose", parts: [`Freshly current: ${current.join(", ")}`] });
     }
@@ -3608,6 +3726,8 @@ export function applyReplacementConfirmationDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope: LocationDisplayScope = options.selection.kind === "all" ? "fleet" : "project";
+  // The authorization gate names each changed Project by its full stable path
+  // so the user authorizes exactly what will be discarded (US-013, DEC-009).
   const lines = request.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
@@ -3615,11 +3735,11 @@ export function applyReplacementConfirmationDocument(
       ...project.changedOutputs
         .slice()
         .sort(compareCanonicalStrings)
-        .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`),
+        .map((path) => `  ~ ${path} (${displayProjectPath(project.canonicalProject, project.project, "fleet")})`),
       ...project.removedOutputs
         .slice()
         .sort(compareCanonicalStrings)
-        .map((path) => `  - ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`),
+        .map((path) => `  - ${path} (${displayProjectPath(project.canonicalProject, project.project, "fleet")})`),
     ]);
   const hasReplacements = request.projects.some((project) => project.changedOutputs.length > 0);
   const hasRemovals = request.projects.some((project) => project.removedOutputs.length > 0);
@@ -3878,7 +3998,10 @@ export function installTargetDocument(target: {
   return [
     {
       kind: "prose",
-      parts: [`Installing into ${displayProjectPath(target.canonicalProject, target.authoredProject, scope)}.`],
+      parts: [`Installing into ${singleProjectIdentity({
+        canonicalProject: target.canonicalProject,
+        project: target.authoredProject,
+      })}.`],
     },
     ...(target.previous === undefined ? [] : [{
       kind: "prose",
@@ -3898,7 +4021,10 @@ export function installConfirmationDocument(preview: {
 }): PresentationDocument {
   const scope = "project" as const;
   const lines = [
-    `  Project: ${displayProjectPath(preview.canonicalProject, preview.authoredProject, scope)}`,
+    `  Project: ${singleProjectIdentity({
+      canonicalProject: preview.canonicalProject,
+      project: preview.authoredProject,
+    })}`,
     preview.previous !== undefined && preview.previous.profile !== preview.profile
       ? `  Profile: ${preview.previous.profile} → ${preview.profile}`
       : `  Profile: ${preview.profile}`,
@@ -4118,7 +4244,8 @@ export function installBlockedDocument(
   commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   const scope = "project" as const;
-  const groups = groupProjects(report).groups;
+  const grouped = groupProjects(report);
+  const groups = grouped.groups;
   const nodes: PresentationNode[] = [{
     kind: "notice",
     severity: "error",
@@ -4129,7 +4256,7 @@ export function installBlockedDocument(
   }
   for (const project of report.projects) {
     if (project.blockers.length === 0) continue;
-    const displayProject = displayProjectPath(project.canonicalProject, project.project, scope);
+    const displayProject = grouped.identities(project);
     for (const blocker of project.blockers) {
       nodes.push(...conciseBlockerNodes(blocker, displayProject, groups, "", scope));
     }
@@ -4208,11 +4335,7 @@ export function installExecutionFailureDocument(input: {
 }): PresentationDocument {
   const failed = input.failedProject === undefined
     ? undefined
-    : displayProjectPath(
-      input.failedProject.canonicalProject,
-      input.failedProject.project,
-      "project",
-    );
+    : singleProjectIdentity(input.failedProject);
   return diagnosticDocument({
     happened: [failed === undefined
       ? `install failed: ${input.detail}`
@@ -4271,7 +4394,8 @@ export function applyVerificationFailureDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, receipt);
-  const groups = groupProjects(receipt).groups;
+  const grouped = groupProjects(receipt);
+  const groups = grouped.groups;
   const warningItems = options.verbose === true
     ? verboseWarningNodes(receipt, groups, scope)
     : warningNodes(receipt, groups, scope);
@@ -4289,7 +4413,7 @@ export function applyVerificationFailureDocument(
   const nodes: PresentationNode[] = [
     { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
     ...warningItems,
-    ...compactReceiptNodes(receipt, scope),
+    ...compactReceiptNodes(receipt, scope, grouped.identities),
   ];
   const setup = conciseFirstUseNodes(
     presentedSetupSteps("update", receipt, receipt, false, scope),
@@ -4305,22 +4429,33 @@ function shortenInlinePart(
   part: InlineContent,
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  display: "identity" | "stable",
 ): InlineContent {
   if (typeof part === "string") {
-    return shortenProjectReferences(part, groups, scope);
+    return shortenProjectReferences(part, groups, scope, display);
   }
   if (part.kind === "identifier") {
-    return identifierPart(shortenProjectReferences(part.value, groups, scope));
+    return identifierPart(shortenProjectReferences(part.value, groups, scope, display));
   }
   if (part.kind === "path") {
+    if (display === "identity") {
+      // Only a known Project root takes this view's identity; every other
+      // carried path (an output path, a relative location) keeps its own
+      // spelling.
+      const group = groups.find((candidate) => candidate.canonicalProject === part.canonicalPath);
+      if (group !== undefined) return { ...part, identity: group.displayIdentity };
+      return part;
+    }
     return pathPart(
-      shortenProjectReferences(part.canonicalPath, groups, scope),
+      shortenProjectReferences(part.canonicalPath, groups, scope, display),
       part.scope,
-      part.authoredPath === undefined ? undefined : shortenProjectReferences(part.authoredPath, groups, scope),
+      part.authoredPath === undefined
+        ? undefined
+        : shortenProjectReferences(part.authoredPath, groups, scope, display),
     );
   }
   if (part.kind === "text") {
-    return textPart(shortenProjectReferences(part.value, groups, scope));
+    return textPart(shortenProjectReferences(part.value, groups, scope, display));
   }
   return part;
 }
@@ -4333,8 +4468,9 @@ function shortenInlineProjectReferences(
   content: readonly InlineContent[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  display: "identity" | "stable",
 ): readonly InlineContent[] {
-  return content.map((part) => shortenInlinePart(part, groups, scope));
+  return content.map((part) => shortenInlinePart(part, groups, scope, display));
 }
 
 /** The typed concise Blocker evidence for one Blocker (legacy indent kept). */
@@ -4354,7 +4490,7 @@ function conciseBlockerNodes(
     return [
       {
         kind: "prose",
-        parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope),
+        parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope, "identity"),
         category: "error",
       },
       { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
@@ -4372,7 +4508,7 @@ function conciseBlockerNodes(
   return [
     {
       kind: "prose",
-      parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope),
+      parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope, "identity"),
       category: "error",
     },
     { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
@@ -4392,11 +4528,11 @@ function verboseBlockerNodes(
   scope: LocationDisplayScope,
 ): PresentationNode[] {
   const project = blocker.scope === "project"
-    ? presentProject(requireProjectGroup(groups, blocker.project!), scope)
+    ? presentProject(requireProjectGroup(groups, blocker.project!))
     : undefined;
   const wording = humanBlockerWording(blocker);
   const nodes: PresentationNode[] = [
-    { kind: "list-item", parts: shortenInlineProjectReferences(wording.problem, groups, scope) },
+    { kind: "list-item", parts: shortenInlineProjectReferences(wording.problem, groups, scope, "stable") },
     { kind: "prose", parts: ["  Requirement: ", ...wording.requirement] },
     { kind: "prose", parts: ["  Remedy: ", ...wording.remedy] },
     { kind: "prose", parts: [`  Scope: ${blockerScopeText(blocker, project)}`] },
@@ -4524,12 +4660,14 @@ function projectPathNode(
   canonicalProject: string,
   authoredProject: string,
   scope: LocationDisplayScope,
+  identity?: string,
 ): PresentationNode {
   return {
     kind: "path",
     canonicalPath: canonicalProject,
     authoredPath: authoredProject,
     scope,
+    ...(identity === undefined ? {} : { identity }),
   };
 }
 
@@ -4538,8 +4676,9 @@ function formatWarningGroupParts(
   group: WarningPresentationGroup,
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  display: "identity" | "stable",
 ): readonly InlineContent[] {
-  return shortenInlineProjectReferences(group.parts, groups, scope);
+  return shortenInlineProjectReferences(group.parts, groups, scope, display);
 }
 
 function warningNodes(
@@ -4552,7 +4691,7 @@ function warningNodes(
   return warningGroups.map((group) => ({
     kind: "list-item" as const,
     parts: [
-      ...formatWarningGroupParts(group, groups, scope),
+      ...formatWarningGroupParts(group, groups, scope, "identity"),
       ` (${plural(group.projects.length, "Project")})`,
     ],
     category: "attention" as const,
@@ -4568,12 +4707,12 @@ function verboseWarningNodes(
   if (warningGroups.length === 0) return [];
   return warningGroups.map((group) => {
     const projectList = group.projects
-      .map((project) => displayProjectPath(project.canonicalProject, project.project, scope))
+      .map((project) => displayProjectPath(project.canonicalProject, project.project, "fleet"))
       .join(", ");
     return {
       kind: "list-item" as const,
       parts: [
-        ...formatWarningGroupParts(group, groups, scope),
+        ...formatWarningGroupParts(group, groups, scope, "stable"),
         ` (${projectList})`,
       ],
       category: "attention" as const,
@@ -4594,7 +4733,7 @@ function verboseLifecycleSections(
   options: VerboseSectionOptions,
 ): PresentationNode[] {
   const groups = groupProjects(report).groups;
-  const shorten = (text: string): string => shortenProjectReferences(text, groups, options.scope);
+  const shorten = (text: string): string => shortenProjectReferences(text, groups, options.scope, "stable");
   const blockers = reportBlockers(report);
   const nodes: PresentationNode[] = [];
   if (blockers.length > 0) {
@@ -4787,10 +4926,16 @@ function conciseStatusDocument(
         causeProjects,
         groups,
         scope,
+        grouped.identities,
       ));
       continue;
     }
-    nodes.push(primaryCauseGroupNode(PRIMARY_CAUSE_LABELS[cause], causeProjects, scope));
+    nodes.push(primaryCauseGroupNode(
+      PRIMARY_CAUSE_LABELS[cause],
+      causeProjects,
+      scope,
+      grouped.identities,
+    ));
   }
   if (partition.settledCount > 0 && partition.totalActionableCount > 0) {
     nodes.push(settledCountNode(partition.settledCount));
@@ -4811,6 +4956,7 @@ function conciseStatusDocument(
     }
     nodes.push(spacerNode(), ...nextActionNodes("status", report, {
       groups,
+      identities: grouped.identities,
       unscopedItems: grouped.unscopedItems,
     }, options));
     return nodes;
@@ -5234,7 +5380,12 @@ export function temporaryInstallationDocument(
   }
   const projectValue = receipt.project === undefined
     ? undefined
-    : projectPathNode(receipt.project, receipt.project, "project");
+    : projectPathNode(
+      receipt.project,
+      receipt.project,
+      "project",
+      singleProjectIdentity({ canonicalProject: receipt.project, project: receipt.project }),
+    );
   if (command === "install-temp") {
     const nodes: PresentationNode[] = [
       // Severity is the receipt outcome fact: the temporary Profile was installed.
@@ -5281,10 +5432,12 @@ export function temporaryInstallationDocument(
             left.message.localeCompare(right.message)
           )
           .flatMap((step) => {
+            // A Host setup instruction names an exact filesystem location to
+            // act on, so it keeps the stable path rather than a scanning alias.
             const message = setupStepMessage(step, displayProjectPath(
               receipt.project!,
               receipt.project!,
-              "project",
+              "fleet",
               cwd,
               home,
             ));
@@ -5369,7 +5522,7 @@ export function temporaryBlockedMessagesDocument(
     .sort((left, right) => right.length - left.length || left.localeCompare(right));
   const replaceReferences = (line: string): string =>
     references.reduce(
-      (reduced, project) => replaceProjectReference(reduced, project, presented),
+      (reduced, project) => replaceProjectReference(reduced, project, presented, (text) => text),
       line,
     );
   const replaceReferencesInParts = (content: readonly InlineContent[]): readonly InlineContent[] =>

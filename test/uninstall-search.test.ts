@@ -22,7 +22,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -530,7 +530,9 @@ describe("interactive Host-only routing and removal mode", () => {
     // review heading so the picker inventory above cannot satisfy this.
     const review = plain(started.streams.humanText());
     const scope = review.slice(review.lastIndexOf("Uninstall:"));
-    expect(scope).toContain(first);
+    // The confirmation review names each Project by its shortest-unambiguous
+    // identity (US-013), never a squeezed full path.
+    expect(scope).toContain(basename(first));
     expect(scope).not.toContain(second);
     input.write("y\n");
     const result = await started.pending;

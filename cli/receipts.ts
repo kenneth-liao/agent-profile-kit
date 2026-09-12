@@ -3,12 +3,13 @@ import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import type { CreationArtifactType } from "../installer/tool-errors.js";
-import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
+import { capitalize, DEFAULT_VIEW_LEXICON, singleProjectIdentity } from "./presentation.js";
 import { displayPath, displayProjectPath } from "./display-path.js";
 import {
   commandPart,
   identifierPart,
   pathPart,
+  type PathPart,
   type CommandArg,
   type PresentationDocument,
   type PresentationNode,
@@ -238,11 +239,19 @@ export type InstallReceiptInput = {
 export function installReceiptDocument(
   input: InstallReceiptInput,
 ): PresentationDocument {
-  const project = pathPart(
-    input.canonicalProject,
-    "fleet",
-    displayProjectPath(input.canonicalProject, input.project, "fleet"),
-  );
+  // The installed Project is this receipt's whole view, so its
+  // shortest-unambiguous identity is the label it carries (US-013).
+  const project: PathPart = {
+    ...pathPart(
+      input.canonicalProject,
+      "fleet",
+      displayProjectPath(input.canonicalProject, input.project, "fleet"),
+    ),
+    identity: singleProjectIdentity({
+      canonicalProject: input.canonicalProject,
+      project: input.project,
+    }),
+  };
   const nodes: PresentationNode[] = [];
   if (input.outcome === "unchanged") {
     nodes.push({

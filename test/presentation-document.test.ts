@@ -560,3 +560,88 @@ test("holds the compact receipt impact and its route intact at a narrow width", 
   expect(narrow).toContain("Updated 12 Projects (22 generated files).");
   expect(narrow).toContain("Details: apkit details");
 });
+
+test("renders a view identity without eliding it and wraps it at segment boundaries", () => {
+  const identity = "group-b/nested-nested-nested/nested-nested/app";
+  const text = renderPresentationDocument(
+    [{
+      kind: "path",
+      canonicalPath: "/tmp/places/app",
+      authoredPath: "/tmp/places/app",
+      scope: "fleet",
+      identity,
+    }],
+    { color: false, interactive: true, width: 24, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.every((line) => line.length <= 24)).toBe(true);
+  expect(lines.join("")).toBe(identity);
+  expect(text).not.toContain("…");
+});
+
+test("wraps an identity value under its key instead of overflowing", () => {
+  const identity = "group-b/nested-nested-nested/app";
+  const text = renderPresentationDocument(
+    [{
+      kind: "key-value",
+      key: "Project",
+      value: {
+        kind: "path",
+        canonicalPath: "/tmp/places/app",
+        authoredPath: "/tmp/places/app",
+        scope: "fleet",
+        identity,
+      },
+    }],
+    { color: false, interactive: true, width: 24, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines[0]!.startsWith("Project: ")).toBe(true);
+  expect(lines.slice(1).every((line) => line.startsWith("  "))).toBe(true);
+  expect(lines.every((line) => line.length <= 24)).toBe(true);
+  expect(
+    lines[0]!.replace("Project: ", "") +
+      lines.slice(1).map((line) => line.trimStart()).join(""),
+  ).toBe(identity);
+});
+
+test("wraps an inline identity at segment boundaries", () => {
+  const identity = "group-b/nested-nested-nested/app";
+  const text = renderPresentationDocument(
+    [{
+      kind: "list-item",
+      parts: [{ kind: "path", canonicalPath: "/tmp/places/app", scope: "fleet", identity }],
+    }],
+    { color: false, interactive: true, width: 20, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines[0]!.startsWith("- ")).toBe(true);
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.every((line) => line.length <= 20)).toBe(true);
+  expect(
+    lines[0]!.slice(2) +
+      lines.slice(1).map((line) => line.slice(2)).join(""),
+  ).toBe(identity);
+});
+
+test("separates compact entries below the table minimum width", () => {
+  const rows = ["alpha", "beta"].map((name) => ({
+    kind: "row" as const,
+    cells: [{ column: "project", content: { kind: "identifier" as const, value: name } }],
+  }));
+  const narrow = renderPresentationDocument(rows, {
+    color: false,
+    interactive: true,
+    width: 60,
+    rows: undefined,
+  });
+  expect(narrow).toBe("project: alpha\n\nproject: beta");
+  const normal = renderPresentationDocument(rows, {
+    color: false,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  expect(normal).toBe("alpha\nbeta");
+});

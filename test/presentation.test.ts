@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/project-plan.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
@@ -2265,11 +2265,12 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
         trailing === undefined ? [] : [trailing],
         context(width),
       );
-      // The whole path — including its repeated spaces — sits on one line;
-      // a split or normalized path would not match the full string. The
-      // atomic run may occupy its own continuation line.
+      // The whole identity — including its repeated spaces — sits on one
+      // line; a split or normalized value would not match the full string.
+      // The atomic run may occupy its own continuation line. This concise
+      // view names the single Project by its shortest-unambiguous identity.
       const pathLines = rendered.split("\n").filter((line) =>
-        line.includes("My Demo Space/project one  two")
+        line.includes("project one  two")
       );
       expect(pathLines).toHaveLength(1);
     }
@@ -2327,6 +2328,35 @@ describe("temporary-installation Project identity in documents", () => {
       warnings: [],
     };
   }
+
+  test("keeps a bound-project setup instruction's stable path inside the working directory", () => {
+    // A Host setup instruction names an exact location to act on, so it keeps
+    // the stable path even when the Project root sits inside the working
+    // directory and a scanning label would be shorter (US-013, ADR-0042).
+    const project = join(process.cwd(), "scratch-setup-project");
+    const document = temporaryInstallationDocument(
+      "install-temp",
+      receiptFixture(project, [{
+        host: "codex",
+        kind: "launch-constraint",
+        message: "Launch Codex from the exact bound project root:",
+        path: "bound-project",
+        provenance: "standing",
+      }]),
+    );
+
+    const step = flattenPresentationNodes(document).find((node) =>
+      node.kind === "list-item" && nodeText(node).startsWith("Launch Codex from")
+    ) as Extract<PresentationNode, { kind: "list-item" }>;
+    const instruction = nodeText(step).replace(
+      "Launch Codex from the exact bound project root: ",
+      "",
+    );
+    // The stable spelling (home-relative or absolute), never the bare name.
+    expect(instruction).toContain("/");
+    expect(instruction).toContain(basename(project));
+    expect(instruction).not.toBe(basename(project));
+  });
 
   test("presents bound-project Host Setup Steps through the canonical path presenter", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-temp-home-"));
@@ -2946,7 +2976,7 @@ describe("status concise terminology", () => {
     );
   });
 
-  test("identifies the working-directory project as dot", () => {
+  test("names the working-directory project by its stable identity, never a dot alias", () => {
     const project = process.cwd();
     const report = identityReport(project);
 
@@ -2958,12 +2988,17 @@ describe("status concise terminology", () => {
     const projectsIndex = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Projects:");
     expect(projectsIndex).toBeGreaterThan(-1);
-    // The identity is a typed identifier part carrying the cwd alias.
-    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).toEqual(["."]);
-    expect(presentationTexts(verbose).some((text) => text.includes(project))).toBe(false);
+    const stable = project === homedir()
+      ? "~"
+      : project.startsWith(`${homedir()}/`)
+      ? `~/${project.slice(homedir().length + 1)}`
+      : project;
+    // Requested details expose the full stable path, never the cwd alias.
+    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).toEqual([stable]);
+    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).not.toEqual(["."]);
   });
 
-  test("identifies an ancestor project relative to the working directory", () => {
+  test("names an ancestor project by its stable identity, never a parent alias", () => {
     const project = dirname(process.cwd());
     const report = identityReport(project);
 
@@ -2975,8 +3010,13 @@ describe("status concise terminology", () => {
     const projectsIndex = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Projects:");
     expect(projectsIndex).toBeGreaterThan(-1);
-    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).toEqual([".."]);
-    expect(presentationTexts(verbose).some((text) => text.includes(project))).toBe(false);
+    const stable = project === homedir()
+      ? "~"
+      : project.startsWith(`${homedir()}/`)
+      ? `~/${project.slice(homedir().length + 1)}`
+      : project;
+    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).toEqual([stable]);
+    expect(inlineIdentifiers([nodes[projectsIndex + 1]!])).not.toEqual([".."]);
   });
 
   test("fleet status names the working-directory Project by home-relative identity", () => {
@@ -3037,7 +3077,7 @@ describe("status concise terminology", () => {
     expect(presentationTexts(verbose).some((text) => text.includes(project))).toBe(false);
   });
 
-  test("keeps canonical paths short through symlinked home and working-directory aliases", () => {
+  test("keeps canonical paths short through symlinked home without a working-directory alias", () => {
     const physicalHome = mkdtempSync(join(tmpdir(), "agent-profile-kit-display-home-"));
     const logicalHome = `${physicalHome}-alias`;
     const physicalProjects = join(physicalHome, "projects");
@@ -3052,28 +3092,33 @@ describe("status concise terminology", () => {
       expect(displayPath(canonicalProject, canonicalProject, "project", "/outside", logicalHome)).toBe(
         "~/projects/project",
       );
-      expect(displayPath(canonicalProject, canonicalProject, "project", logicalCwd, logicalHome)).toBe("..");
+      expect(displayPath(canonicalProject, canonicalProject, "project", logicalCwd, logicalHome)).toBe(
+        "~/projects/project",
+      );
     } finally {
       rmSync(logicalHome, { force: true });
       rmSync(physicalHome, { force: true, recursive: true });
     }
   });
 
-  test("fleet scope keeps a stable home-relative identity instead of a cwd alias", () => {
+  test("names a Project root by its stable home-relative identity instead of a cwd alias", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-display-scope-"));
     try {
       const project = join(home, "projects", "alpha");
       mkdirSync(join(project, "nested"), { recursive: true });
       const nested = join(project, "nested");
 
-      expect(displayPath(project, project, "project", project, home)).toBe(".");
-      expect(displayPath(project, project, "project", nested, home)).toBe("..");
+      // A Project root is never named by the cwd-relative alias `.` or `..`
+      // (US-013): only a location strictly inside the working directory keeps
+      // a short relative spelling.
+      expect(displayPath(project, project, "project", project, home)).toBe("~/projects/alpha");
+      expect(displayPath(project, project, "project", nested, home)).toBe("~/projects/alpha");
       expect(displayPath(project, project, "fleet", project, home)).toBe("~/projects/alpha");
       expect(displayPath(project, project, "fleet", nested, home)).toBe("~/projects/alpha");
       expect(displayProjectPath(project, project, "fleet", project, home)).toBe(
         "~/projects/alpha",
       );
-      expect(displayProjectPath(project, project, "project", project, home)).toBe(".");
+      expect(displayProjectPath(project, project, "project", project, home)).toBe("~/projects/alpha");
       for (const relativePath of [".", "..", "../alpha"]) {
         expect(displayPath(relativePath, relativePath, "fleet", project, home)).toBe(
           `relative path ${JSON.stringify(relativePath)}`,
@@ -3227,6 +3272,32 @@ describe("status concise terminology", () => {
     expect(headingsIn(document)).toContain("Removed changed generated files:");
     expect(texts).toContain("  - c.md (/project-a)");
     expect(texts.some((text) => text.includes("b.md") || text.includes("d.md"))).toBe(false);
+  });
+
+  test("the verification-failure receipt names its Project by the same view identity as its exceptions", () => {
+    // Non-verbose verification failure: the receipt exceptions and the
+    // document's other Project references must agree on this view's identity
+    // (US-013; CRAFT-7), rather than one showing the full stable path.
+    const project = join(homedir(), "verify", "project");
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: project,
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project,
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project }],
+      outputs: [{ driftKind: "changed", kind: "update", path: "a.md", project }],
+    });
+
+    const document = applyVerificationFailureDocument(receipt, "Verification failed.");
+    const texts = flattenPresentationNodes(document).map(nodeText);
+
+    expect(headingsIn(document)).toContain("Replaced changed generated files:");
+    expect(texts).toContain("  ~ a.md (project)");
+    expect(texts.some((text) => text.includes("(~/verify/project)"))).toBe(false);
   });
 
   test("a receipt-proven input or installation-record change with no file changes still states the impact", () => {
@@ -5156,9 +5227,12 @@ describe("standalone view presentation documents (#389)", () => {
       "blank",
       "row",
       "blank",
+      "list-item",
       "prose",
       "prose",
     ]);
+    const heading = document[0] as Extract<PresentationNode, { kind: "heading" }>;
+    expect(heading.text).toBe("Projects:");
     const row = document.find((node) => node.kind === "row") as Extract<PresentationNode, { kind: "row" }>;
     expect(row).toBeDefined();
     expect(row.cells).toHaveLength(4);
@@ -5168,6 +5242,7 @@ describe("standalone view presentation documents (#389)", () => {
       canonicalPath: project,
       authoredPath: project,
       scope: "fleet",
+      identity: "a-very-long-project-identity",
     });
     expect(row.cells[1]!.content).toEqual({
       category: "path",
@@ -5178,12 +5253,29 @@ describe("standalone view presentation documents (#389)", () => {
       kind: "identifier",
       value: "claude, codex",
     });
-    expect(nodeText(row.cells[3]!.content)).toContain(
-      "Configured project root does not exist on this machine and cannot be reconciled.",
+    expect(row.cells[3]!.content).toEqual({
+      category: "attention",
+      kind: "identifier",
+      value: "problem",
+    });
+    // The machine projection keeps the canonical/authored path; the human
+    // view renders the same exception under this view's identity.
+    const exception = document[4] as Extract<PresentationNode, { kind: "list-item" }>;
+    expect(nodeText(exception)).toBe(
+      `${project}: Configured project root does not exist on this machine and cannot be reconciled.`,
     );
-    const summary = document[4] as Extract<PresentationNode, { kind: "prose" }>;
+    const rendered = renderPresentationDocument(document, {
+      color: false,
+      interactive: true,
+      width: 100,
+      rows: undefined,
+    }, { home: "/home", cwd: "/work" });
+    expect(rendered).toContain(
+      "- a-very-long-project-identity: Configured project root does not exist on this machine and cannot be",
+    );
+    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
     expect(nodeText(summary)).toBe("1 Project: 1 problem.");
-    const guidance = document[5] as Extract<PresentationNode, { kind: "prose" }>;
+    const guidance = document[6] as Extract<PresentationNode, { kind: "prose" }>;
     expect(nodeText(guidance)).toContain("apkit status");
   });
 
@@ -5257,8 +5349,8 @@ describe("standalone view presentation documents (#389)", () => {
   }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
-    // lines: [ "Projects (2):", "", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
-    expect(lines[0]).toBe("Projects (2):");
+    // lines: [ "Projects:", "", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
+    expect(lines[0]).toBe("Projects:");
     const row1 = lines[2]!;
     const row2 = lines[3]!;
     expect(row1).toBeDefined();
@@ -5308,14 +5400,22 @@ describe("standalone view presentation documents (#389)", () => {
   }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
-    expect(rendered).toContain("Project: ~/projects/alpha");
+    // Each entry is separated by a blank line; the identity is the shortest
+    // unambiguous label for this view and the typed problem sentence stays in
+    // the exception item below the entries.
+    expect(rendered).toContain("Project: alpha");
     expect(rendered).toContain("Profile: engineering");
     expect(rendered).toContain("Hosts: codex");
     expect(rendered).toContain("State: configured");
-    expect(rendered).toContain("Project: ~/projects/beta");
+    expect(rendered).toContain("Project: beta");
     expect(rendered).toContain("Profile: devops");
     expect(rendered).toContain("Hosts: claude");
     expect(rendered).toContain("2 Projects configured.");
+    const alphaIndex = lines.indexOf("Profile: engineering");
+    expect(lines[alphaIndex - 1]).toBe("Project: alpha");
+    expect(lines[alphaIndex + 1]).toBe("Hosts: codex");
+    expect(lines[alphaIndex + 3]).toBe("");
+    expect(lines[alphaIndex + 4]).toBe("Project: beta");
   });
 
   test("project inventory preserves canonical diagnostic evidence and repair locators", () => {
@@ -5403,7 +5503,20 @@ describe("standalone view presentation documents (#389)", () => {
         "/home",
       );
       const row = document.find((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row")!;
-      expect(nodeText(row.cells[3]!.content)).toBe(expected);
+      expect(nodeText(row.cells[3]!.content)).toBe("problem");
+      const exception = document.find(
+        (node): node is Extract<PresentationNode, { kind: "list-item" }> => node.kind === "list-item",
+      )!;
+      // The machine projection keeps the authored spelling; the human view
+      // renders the identity this view chose for the Project.
+      expect(nodeText(exception)).toBe(`~/projects/test: ${expected}`);
+      const rendered = renderPresentationDocument(document, {
+        color: false,
+        interactive: true,
+        width: 200,
+        rows: undefined,
+      }, { home: "/home", cwd: "/home" });
+      expect(rendered).toContain(`- test: ${expected}`);
     }
   });
 
@@ -5451,12 +5564,15 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rows).toHaveLength(2);
 
     // Row 0 is alpha-broken, but its state carries bindings[1] locator from configuration
-    expect(nodeText(rows[0]!.cells[3]!.content)).toContain("bindings[1]");
-    expect(nodeText(rows[0]!.cells[3]!.content)).toContain("dangling symlink");
+    const exceptions = document.filter(
+      (node): node is Extract<PresentationNode, { kind: "list-item" }> => node.kind === "list-item",
+    );
+    expect(nodeText(exceptions[0]!)).toContain("bindings[1]");
+    expect(nodeText(exceptions[0]!)).toContain("dangling symlink");
 
     // Row 1 is zeta-broken, but its state carries bindings[0] locator from configuration
-    expect(nodeText(rows[1]!.cells[3]!.content)).toContain("bindings[0]");
-    expect(nodeText(rows[1]!.cells[3]!.content)).toContain("must be an existing directory");
+    expect(nodeText(exceptions[1]!)).toContain("bindings[0]");
+    expect(nodeText(exceptions[1]!)).toContain("must be an existing directory");
   });
 
   test("project inventory accurately reports existing non-directory file without claiming absence", () => {
@@ -5485,10 +5601,21 @@ describe("standalone view presentation documents (#389)", () => {
 
     const row = document.find((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row")!;
     const stateText = nodeText(row.cells[3]!.content);
-    expect(stateText).toBe(
-      "Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[0] project '~/projects/charlie-file' must be an existing directory",
+    const exception = document.find(
+      (node): node is Extract<PresentationNode, { kind: "list-item" }> => node.kind === "list-item",
+    )!;
+    expect(nodeText(exception)).toBe(
+      "~/projects/charlie-file: Local Configuration /home/.agents/agent-profile-kit/config.yaml bindings[0] project '~/projects/charlie-file' must be an existing directory",
     );
-    expect(stateText).not.toContain("missing directory;");
+    expect(stateText).toBe("problem");
+    expect(nodeText(exception)).not.toContain("missing directory;");
+    const rendered = renderPresentationDocument(document, {
+      color: false,
+      interactive: true,
+      width: 200,
+      rows: undefined,
+    }, { home: "/home", cwd: "/home" });
+    expect(rendered).toContain("- charlie-file: Local Configuration");
   });
 
   test("project inventory labels invalid relative paths through the canonical presenter", () => {
@@ -5517,6 +5644,7 @@ describe("standalone view presentation documents (#389)", () => {
         canonicalPath: project,
         authoredPath: project,
         scope: "fleet",
+        identity: `relative path ${JSON.stringify(project)}`,
       });
     }
   });
@@ -5602,6 +5730,7 @@ describe("standalone view presentation documents (#389)", () => {
       canonicalPath: project,
       authoredPath: project,
       scope: "fleet",
+      identity: "temporary-project",
     });
   });
 
@@ -5764,6 +5893,7 @@ describe("standalone view presentation documents (#389)", () => {
       canonicalPath: "/project-a",
       authoredPath: "/project-a",
       scope: "fleet",
+      identity: "/project-a",
     });
   });
 
@@ -5918,6 +6048,7 @@ describe("standalone view presentation documents (#389)", () => {
       canonicalPath: "/project-a",
       authoredPath: "/project-a",
       scope: "project",
+      identity: "/project-a",
     });
     const next = keyValuesIn(document, "Next")[0]!;
     expect(next.value).toEqual({
@@ -6455,7 +6586,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     ]);
   });
 
-  test("fleet next actions name the working-directory Project by home-relative identity", () => {
+  test("fleet status names the working-directory Project by its shortest-unambiguous identity", () => {
     const current = process.cwd();
     const other = join(homedir(), "other-fleet-project");
     const homeRelative = current === homedir()
@@ -6463,6 +6594,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       : current.startsWith(`${homedir()}/`)
       ? `~/${current.slice(homedir().length + 1)}`
       : current;
+    const identity = current === homedir() ? "~" : basename(current);
     const report = emptyReport({
       desired: [current, other].map((project) => ({
         canonicalProject: project,
@@ -6489,7 +6621,10 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       { paths: [], commands: ["apkit status"] },
     ]);
     const rendered = renderBoundary(status, defaultRenderContext);
-    expect(rendered).toContain(homeRelative);
+    // The scanning view names the Project by its shortest-unambiguous identity;
+    // the full stable path stays for requested details and commands.
+    expect(rendered).toContain(identity);
+    expect(rendered).not.toContain(homeRelative);
     expect(rendered).not.toMatch(/(^|\n)\.: /);
   });
 
@@ -8626,6 +8761,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           canonicalPath: projectPath,
           scope: "fleet",
           authoredPath: "~/projects/demo",
+          identity: "demo",
         },
       ],
       category: "success",
@@ -8647,6 +8783,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           canonicalPath: projectPath,
           scope: "fleet",
           authoredPath: "~/projects/demo",
+          identity: "demo",
         },
       ],
     });
@@ -8668,6 +8805,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           canonicalPath: projectPath,
           scope: "fleet",
           authoredPath: "~/projects/demo",
+          identity: "demo",
         },
       ],
       category: "success",
@@ -9725,15 +9863,17 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
         expect(rendered).toContain("- not installed yet (1):");
         expect(rendered).toContain("- settled (1)");
         expect(rendered).not.toContain("Scope: Project");
-        expect(proseOccurrences(document, "/project-beta")).toBe(1);
-        expect(proseOccurrences(document, "/project-alpha")).toBe(1);
-        expect((rendered.match(/\/project-removal/g) || []).length).toBe(1);
-        expect((rendered.match(/\/project-pending/g) || []).length).toBe(1);
-        expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
+        // Each Project is named once by its shortest-unambiguous identity;
+        // copyable paths inside a Project keep their own spelling.
+        expect(proseOccurrences(document, "project-beta")).toBe(1);
+        expect(proseOccurrences(document, "project-alpha")).toBe(1);
+        expect((rendered.match(/project-removal/g) || []).length).toBe(1);
+        expect((rendered.match(/project-pending/g) || []).length).toBe(1);
+        expect((rendered.match(/project-settled/g) || []).length).toBe(0);
 
-        const betaStart = rendered.indexOf("/project-beta");
-        const alphaStart = rendered.indexOf("/project-alpha");
-        const removalStart = rendered.indexOf("/project-removal");
+        const betaStart = rendered.indexOf("project-beta");
+        const alphaStart = rendered.indexOf("project-alpha");
+        const removalStart = rendered.indexOf("project-removal");
         expect(betaStart).toBeGreaterThan(-1);
         expect(alphaStart).toBeGreaterThan(betaStart);
         expect(removalStart).toBeGreaterThan(alphaStart);

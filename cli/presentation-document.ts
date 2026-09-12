@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import type { Writable } from "node:stream";
 
-import { displayPath, type LocationDisplayScope } from "./display-path.js";
+import { displayPath, projectIdentityChunks, wrapProjectIdentity, type LocationDisplayScope } from "./display-path.js";
 import {
   commandPart,
   flatInlineText,
@@ -40,6 +40,7 @@ export type {
 };
 import {
   styleSemanticText,
+  TABLE_MINIMUM_WIDTH,
   type SemanticCategory,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
@@ -88,6 +89,12 @@ export type PathNode = {
   readonly canonicalPath: string;
   readonly authoredPath?: string;
   readonly scope: LocationDisplayScope;
+  /**
+   * The shortest-unambiguous identity this view chose for the Project
+   * (US-013, DEC-009). When present it is the displayed value: it is never
+   * elided, and it wraps at path-segment boundaries rather than overflowing.
+   */
+  readonly identity?: string;
   readonly category?: SemanticCategory;
 };
 
@@ -225,37 +232,46 @@ function renderNode(
       return styleLines(node.text, node.category ?? "heading", context.color);
     case "identifier":
       return styleLines(node.value, node.category ?? inheritedCategory, context.color);
-    case "path":
-      return styleLines(
-        displayPath(
+    case "path": {
+      const category = node.category ?? inheritedCategory ?? "path";
+      // A view identity renders whole and wraps at path-segment boundaries: it
+      // is already the shortest unambiguous label, so eliding it could collide
+      // with a sibling identity (US-013, DEC-009).
+      const lines = node.identity === undefined
+        ? [displayPath(
           node.canonicalPath,
           node.authoredPath ?? node.canonicalPath,
           node.scope,
           environment.cwd,
           environment.home,
           context.width,
-        ),
-        node.category ?? inheritedCategory ?? "path",
-        context.color,
-      );
+        )]
+        : wrapProjectIdentity(node.identity, context.width);
+      return lines.map((line) => styleSemanticText(line, category, context.color));
+    }
     case "command":
       return styleLines(
         renderCommand(node, environment),
         node.category ?? inheritedCategory ?? "command",
         context.color,
       );
-    case "key-value":
-      return styleLines(
-        `${node.key}: ${renderNode(
-          node.value,
-          // The rendered prefix is part of the line: values such as commands
-          // elide against the width that remains after the key (INT-2).
-          withWidth(environment, Math.max(1, context.width - node.key.length - 2)),
-          inheritedCategory,
-        ).join(" ")}`,
-        node.category ?? inheritedCategory,
-        context.color,
+    case "key-value": {
+      const valueLines = renderNode(
+        node.value,
+        // The rendered prefix is part of the line: values such as commands
+        // elide against the width that remains after the key (INT-2).
+        withWidth(environment, Math.max(1, context.width - node.key.length - 2)),
+        inheritedCategory,
       );
+      // An identity value wraps under its key; every other value keeps the
+      // established single-line joining.
+      const lines = node.value.kind === "path" && node.value.identity !== undefined
+        ? valueLines.map((line, index) => index === 0 ? `${node.key}: ${line}` : `  ${line}`)
+        : [`${node.key}: ${valueLines.join(" ")}`];
+      return lines.map((line) =>
+        styleSemanticText(line, node.category ?? inheritedCategory, context.color)
+      );
+    }
     case "list-item": {
       return wrapInlineNode(
         ["- ", ...node.parts],
@@ -317,6 +333,11 @@ function renderRowGroup(
   environment: RenderEnvironment,
   inheritedCategory?: SemanticCategory,
 ): readonly string[] {
+  // Below the table minimum the inventory uses separated compact entries
+  // instead of a squeezed table (US-013), whatever the content would fit.
+  if (environment.context.width < TABLE_MINIMUM_WIDTH) {
+    return renderStackedRows(rows, environment, inheritedCategory);
+  }
   const columns: string[] = [];
   const numeric = new Map<string, boolean>();
   for (const row of rows) {
@@ -326,14 +347,21 @@ function renderRowGroup(
     }
   }
   const rendered = rows.map((row) => {
-    const values = new Map<string, string>();
+    const values = new Map<string, readonly string[]>();
     for (const cell of row.cells) {
-      values.set(cell.column, renderCellContent(cell.content, environment, inheritedCategory));
+      values.set(cell.column, renderCellLines(cell.content, environment, inheritedCategory));
     }
     return values;
   });
+  // A cell that needs more than one line cannot sit in an aligned row without
+  // corrupting its value, so the group uses compact entries instead.
+  if (rendered.some((values) =>
+    [...values.values()].some((lines) => lines.length > 1)
+  )) {
+    return renderStackedRows(rows, environment, inheritedCategory);
+  }
   const widths = columns.map((column) =>
-    Math.max(0, ...rendered.map((values) => values.get(column)?.length ?? 0)),
+    Math.max(0, ...rendered.map((values) => values.get(column)?.[0]?.length ?? 0)),
   );
   const alignedWidth =
     widths.reduce((sum, width) => sum + width, 0) + COLUMN_GAP * Math.max(0, columns.length - 1);
@@ -344,7 +372,7 @@ function renderRowGroup(
     styleSemanticText(
       columns
         .map((column, index) => {
-          const value = values.get(column) ?? "";
+          const value = values.get(column)?.[0] ?? "";
           const width = widths[index] ?? 0;
           const padded = numeric.get(column) === true
             ? value.padStart(width)
@@ -359,44 +387,52 @@ function renderRowGroup(
   );
 }
 
+/**
+ * One compact entry per row: field lines separated by a blank line so entries
+ * stay visibly distinct, and an identity value wraps under its field label
+ * instead of overflowing or being elided into ambiguity (US-013).
+ */
 function renderStackedRows(
   rows: readonly RowNode[],
   environment: RenderEnvironment,
   inheritedCategory?: SemanticCategory,
 ): readonly string[] {
   const lines: string[] = [];
-  for (const row of rows) {
+  rows.forEach((row, rowIndex) => {
+    if (rowIndex > 0) lines.push("");
     for (const cell of row.cells) {
       const inlinePrefix = `${cell.column}: `;
-      const inlineValue = renderCellContent(
+      const inlineValue = renderCellLines(
         cell.content,
         withWidth(environment, Math.max(1, environment.context.width - inlinePrefix.length)),
         inheritedCategory,
       );
-      const inline = `${inlinePrefix}${inlineValue}`;
-      if (inline.length <= environment.context.width) {
+      const inline = `${inlinePrefix}${inlineValue[0] ?? ""}`;
+      if (inlineValue.length === 1 && inline.length <= environment.context.width) {
         lines.push(styleSemanticText(inline, inheritedCategory, environment.context.color));
         continue;
       }
       lines.push(styleSemanticText(cell.column, inheritedCategory, environment.context.color));
       const indent = "  ";
-      const value = renderCellContent(
+      const valueLines = renderCellLines(
         cell.content,
         withWidth(environment, Math.max(1, environment.context.width - indent.length)),
         inheritedCategory,
       );
-      lines.push(styleSemanticText(`${indent}${value}`, inheritedCategory, environment.context.color));
+      for (const valueLine of valueLines) {
+        lines.push(styleSemanticText(`${indent}${valueLine}`, inheritedCategory, environment.context.color));
+      }
     }
-  }
+  });
   return lines;
 }
 
-function renderCellContent(
+function renderCellLines(
   content: PresentationNode,
   environment: RenderEnvironment,
   inheritedCategory?: SemanticCategory,
-): string {
-  return renderNode(content, unstyled(environment), inheritedCategory).join(" ");
+): readonly string[] {
+  return renderNode(content, unstyled(environment), inheritedCategory);
 }
 
 function withWidth(
@@ -467,7 +503,7 @@ function renderInlinePart(part: InlinePart, environment: RenderEnvironment): str
         environment,
       );
     case "path":
-      return displayPath(
+      return part.identity ?? displayPath(
         part.canonicalPath,
         part.authoredPath ?? part.canonicalPath,
         part.scope,
@@ -484,6 +520,12 @@ type InlineRun = {
   readonly text: string;
   /** A run led by (or containing) an inline command part: lifecycle promotes it. */
   readonly command: boolean;
+  /**
+   * True when this run continues the previous one with no separator. Identity
+   * chunks carry it so a long identity may break at a path-segment boundary
+   * without gaining or losing a character.
+   */
+  readonly glue: boolean;
 };
 
 function wrapInlineParts(
@@ -521,7 +563,13 @@ function inlineRuns(
   line: string,
   prefixLength: number,
 ): readonly InlineRun[] {
-  const tokens: { text: string; atomic: boolean; command: boolean; glued: boolean }[] = [];
+  const tokens: {
+    text: string;
+    atomic: boolean;
+    command: boolean;
+    glued: boolean;
+    glue: boolean;
+  }[] = [];
   let offset = 0;
   parts.forEach((part, index) => {
     const text = rendered[index] ?? "";
@@ -539,11 +587,33 @@ function inlineRuns(
           command: false,
           glued: tokenStart > prefixLength && tokenStart > 0 &&
             !/\s/.test(line.charAt(tokenStart - 1)),
+          glue: false,
         });
       }
       return;
     }
     if (start + text.length <= prefixLength) return; // inside the prefix
+    if (part.kind === "path" && part.identity !== undefined) {
+      // One token per identity segment: the run may break between segments
+      // (never inside a copyable value) and each later segment continues the
+      // identity without a separator.
+      let chunkStart = start;
+      for (const chunk of projectIdentityChunks(text)) {
+        const chunkEnd = chunkStart + chunk.length;
+        if (chunkEnd > prefixLength) {
+          tokens.push({
+            text: chunkStart < prefixLength ? chunk.slice(prefixLength - chunkStart) : chunk,
+            atomic: true,
+            command: false,
+            glued: chunkStart > prefixLength && chunkStart > 0 &&
+              !/\s/.test(line.charAt(chunkStart - 1)),
+            glue: chunkStart > start,
+          });
+        }
+        chunkStart = chunkEnd;
+      }
+      return;
+    }
     tokens.push({
       text: start < prefixLength
         ? text.slice(prefixLength - start)
@@ -551,19 +621,23 @@ function inlineRuns(
       atomic: true,
       command: part.kind === "command",
       glued: start > prefixLength && start > 0 && !/\s/.test(line.charAt(start - 1)),
+      glue: false,
     });
   });
   const runs: InlineRun[] = [];
   for (const token of tokens) {
-    if (token.glued && runs.length > 0) {
+    // An identity chunk that continues a previous chunk must stay its own run
+    // so the wrapper may break at a path-segment boundary.
+    if (token.glued && !token.glue && runs.length > 0) {
       const run = runs.at(-1)!;
       runs[runs.length - 1] = {
         text: run.text + token.text,
         command: run.command || token.command,
+        glue: run.glue,
       };
       continue;
     }
-    runs.push({ text: token.text, command: token.command });
+    runs.push({ text: token.text, command: token.command, glue: token.glue });
   }
   return runs;
 }
@@ -587,12 +661,27 @@ function wrapRuns(
       lines.push(run.text);
       continue;
     }
-    const candidate = current.length === 0 ? run.text : `${current} ${run.text}`;
-    if (current.length > 0 && candidate.length > measure) {
-      flush();
-      current = run.text;
-    } else {
-      current = candidate;
+    let remainder = run.text;
+    while (remainder.length > 0) {
+      const separator = current.length === 0 ? "" : run.glue ? "" : " ";
+      if (current.length + separator.length + remainder.length <= measure) {
+        current += separator + remainder;
+        break;
+      }
+      if (current.length > 0) {
+        flush();
+        continue;
+      }
+      if (run.glue) {
+        // A path segment wider than the measure cannot fit whole; split it at
+        // the measure so the identity stays complete without overflowing.
+        lines.push(remainder.slice(0, measure));
+        remainder = remainder.slice(measure);
+        continue;
+      }
+      // Other over-measure runs keep their established whole-line behaviour.
+      lines.push(remainder);
+      break;
     }
   }
   flush();

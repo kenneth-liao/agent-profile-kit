@@ -8,6 +8,14 @@ export const MIN_HUMAN_WIDTH = 40;
 export const MAX_HUMAN_WIDTH = 100;
 
 /**
+ * The narrowest measure that still renders a row group as an aligned table
+ * (US-013, DEC-009). Below it — and whenever content cannot fit — human views
+ * render one separated compact entry per row instead of a squeezed table.
+ * It is the default human measure, so redirected output stays a table.
+ */
+export const TABLE_MINIMUM_WIDTH = DEFAULT_HUMAN_WIDTH;
+
+/**
  * Width context for human CLI presentation. Root help, focused human guides,
  * lifecycle reports, temporary-installation reports, focused command help,
  * inventory, info, validation, authoring, teardown, and error surfaces all

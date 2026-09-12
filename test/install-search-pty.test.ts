@@ -214,10 +214,11 @@ describe("guided install under a real PTY", () => {
     const projectPath = projectDirectory();
     const session = await startPty(["install", home, projectPath], 60);
     try {
-      // The bare install names its current-directory Project target first,
-      // even wrapped at 60 columns.
-      const target = await waitForTranscript(session, projectPath);
-      expect(squashed(target)).toContain(projectPath.replace(/\s+/g, ""));
+      // The bare install names its current-directory Project target first by
+      // the shortest-unambiguous identity this view renders (US-013), even
+      // wrapped at 60 columns.
+      const target = await waitForTranscript(session, projectPath.split("/").at(-1)!);
+      expect(squashed(target)).toContain(projectPath.split("/").at(-1)!);
       await waitForTranscript(session, "Which Profile?");
       session.write("cod");
       await sleep(600);

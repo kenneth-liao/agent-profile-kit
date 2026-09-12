@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
@@ -729,7 +729,7 @@ describe("project-bound release candidate", () => {
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (5):\n");
+    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (5): ");
 
     const reapply = await runCli(home, ["update"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
@@ -1224,7 +1224,7 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (2):\n");
+    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (2): ");
     const reapply = await runCli(home, ["update"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
     expect(
@@ -1688,15 +1688,18 @@ describe("project-bound release candidate", () => {
     // One appearance per Project: group counts plus the settled count account
     // for all seven Projects exactly once, and the settled Project is not
     // listed (TEST-004).
+    // The scanning view names each Project by its shortest-unambiguous
+    // identity (US-013); the full path stays in verbose and JSON evidence.
+    const identity = (project: string): string => basename(project);
     for (const listed of [changed, multi, missing, source, neverInstalled]) {
-      expect(countOccurrences(status.stdout, listed)).toBe(1);
+      expect(countOccurrences(status.stdout, identity(listed))).toBe(1);
     }
-    expect(status.stdout).not.toContain(settled);
+    expect(status.stdout).not.toContain(identity(settled));
     expect(status.stdout).toContain("Projects: 7 · Blockers: 1");
 
     // Fact-once (US-008, TEST-012): the multi-cause Project appears once in
     // the default view under its primary cause, never twice.
-    expect(countOccurrences(status.stdout, multi)).toBe(1);
+    expect(countOccurrences(status.stdout, identity(multi))).toBe(1);
     expect(countOccurrences(status.stdout, "drifted output")).toBe(0);
 
     // US-007: the actionable composed view offers exactly one primary next
@@ -1730,19 +1733,19 @@ describe("project-bound release candidate", () => {
     const stale = await runCliDefaultScope(home, ["status", "--stale"], { path: gitOnlyPath });
     expectExitCode(stale, 0);
     for (const selected of [changed, multi, missing, source]) {
-      expect(stale.stdout).toContain(selected);
+      expect(stale.stdout).toContain(identity(selected));
     }
     for (const excluded of [blocked, neverInstalled, settled]) {
-      expect(stale.stdout).not.toContain(excluded);
+      expect(stale.stdout).not.toContain(identity(excluded));
     }
     expect(countOccurrences(stale.stdout, "Next:")).toBe(1);
     expect(stale.stdout).toContain("Next: apkit update --stale");
 
     const blockedView = await runCliDefaultScope(home, ["status", "--blocked"], { path: gitOnlyPath });
     expectExitCode(blockedView, 2);
-    expect(blockedView.stdout).toContain(blocked);
+    expect(blockedView.stdout).toContain(identity(blocked));
     for (const excluded of [changed, multi, missing, source, neverInstalled, settled]) {
-      expect(blockedView.stdout).not.toContain(excluded);
+      expect(blockedView.stdout).not.toContain(identity(excluded));
     }
 
     const staleJson = JSON.parse(
