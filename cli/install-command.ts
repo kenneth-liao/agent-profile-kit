@@ -55,6 +55,14 @@ import {
   type TerminalStream,
 } from "./terminal-presentation.js";
 import { createTextPrompt, createSearchableMultiSelectPrompt, createSearchableSelectPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
+import {
+  beginLifecycleOperationRecording,
+  finishLifecycleOperationRecording,
+  installCancelledRecording,
+  installFailureRecording,
+  installSuccessRecording,
+  type LifecycleOperationRecording,
+} from "./operation-recording.js";
 import { detectInstalledHosts, SUPPORTED_HOSTS } from "../adapters/registry.js";
 import {
   executeInstall,
@@ -353,7 +361,29 @@ async function collectMissingInstallChoices(
   return { parsed: { ...parsed, profile, hosts: [...hosts] }, target };
 }
 
-export async function runInstallCommand(request: InstallCommandRequest): Promise<InstallCommandOutcome> {
+export async function runInstallCommand(
+  request: InstallCommandRequest,
+): Promise<InstallCommandOutcome> {
+  // One recording boundary per invocation: the body collects the run's one
+  // terminal outcome, and this wrapper publishes or reports it exactly once.
+  const startedAt = Date.now();
+  const recording = beginLifecycleOperationRecording();
+  const outcome = await runInstallCommandWithRecording(request, recording);
+  await finishLifecycleOperationRecording({
+    recording,
+    home: request.home,
+    command: "install",
+    startedAt,
+    finishedAt: Date.now(),
+    stderr: request.stderr,
+  });
+  return outcome;
+}
+
+async function runInstallCommandWithRecording(
+  request: InstallCommandRequest,
+  recording: LifecycleOperationRecording,
+): Promise<InstallCommandOutcome> {
   const stderrContext = terminalPresentationContext(request.stderr);
 
   let parsed: ParsedInstallArguments;
@@ -439,7 +469,14 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     });
     writeHumanDocument(request.stdout, installConfirmationDocument(preview), stdoutContext);
     const answer = await prompt(INSTALL_CONFIRMATION_QUESTION);
+    const previewIdentity = {
+      canonicalProject: preview.canonicalProject,
+      project: preview.authoredProject,
+      ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
+      hosts: [...(parsed.hosts ?? [])],
+    };
     if (answer.kind === "cancelled") {
+      recording.collect(installCancelledRecording("cancelled", previewIdentity));
       writeHumanDocument(
         request.stderr,
         installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
@@ -449,6 +486,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     }
     const normalized = answer.value.trim().toLowerCase();
     if (normalized !== "y" && normalized !== "yes") {
+      recording.collect(installCancelledRecording("declined", previewIdentity));
       writeHumanDocument(
         request.stderr,
         installDeclinedDocument(
@@ -477,6 +515,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
     removeChanged: parsed.removeChanged,
     selection,
   });
+  recording.collectReviewsFrom(() => confirmer.reviewedChangedOutputs());
   try {
     const result = await executeInstall(request.home, {
       profile: parsed.profile,
@@ -488,6 +527,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
       ...(parsed.removeChanged ? { removeChanged: true as const } : {}),
       ...(confirmer.confirm === undefined ? {} : { confirmChangedOutputReplacement: confirmer.confirm }),
     });
+    recording.collect(installSuccessRecording(result));
     const acceptedScope = confirmer.promptedAcceptedScope();
     if (parsed.json) {
       request.stdout.write(formatInstallJson(result.applied));
@@ -532,6 +572,7 @@ export async function runInstallCommand(request: InstallCommandRequest): Promise
         parsed,
         error,
         confirmer,
+        recording,
         cwd,
         {
           canonicalProject: preview.canonicalProject,
@@ -563,12 +604,22 @@ function installReconcileFailureOutcome(
   parsed: ParsedInstallArguments,
   failure: InstallExecutionError,
   confirmer: ChangedOutputConfirmer,
+  recording: LifecycleOperationRecording,
   cwd: string,
   failedProject: ProjectIdentity,
   stdoutContext: TerminalPresentationContext,
   stderrContext: TerminalPresentationContext,
 ): InstallCommandOutcome {
   const cause = failure.failure.cause;
+  // One collected outcome for this run (DEC-008): the projection refuses the
+  // fail-closed no-entry causes (missing non-interactive consent or a stale
+  // review) and carries the cancelled/blocked/failed evidence otherwise.
+  recording.collect(installFailureRecording(failure, {
+    canonicalProject: failedProject.canonicalProject,
+    project: failedProject.project,
+    ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
+    hosts: [...(parsed.hosts ?? [])],
+  }));
   const answering = (prompted: ChangedFileAnsweringScope | undefined): ChangedFileAnsweringScope =>
     answeringScope(parsed, prompted, confirmer.requestedScope());
   // Every remedy below names the resolved Project, so the printed command

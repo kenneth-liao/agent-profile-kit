@@ -44,16 +44,22 @@ placement of that new diagnostic data category before any code stores it.
   atomically renaming it over the destination. Concurrent writers therefore
   cannot lose a retained entry or observe a torn document; a writer never
   overwrites a history file it could not parse.
-- **Recording boundary.** An entry is recorded when a lifecycle operation was
-  authorized and attempted — including no-ops, partial outcomes, blocked
-  outcomes, execution and verification failures — and when the user
-  declines or cancels at an authorization prompt (the install/uninstall
-  general confirmation or the interactive changed-file consent). Invalid or
-  unauthorized invocations record nothing: argument and usage errors, missing
-  interactive choices, missing non-interactive flags (including the missing
+- **Recording boundary: work committed is evidence retained.** An entry is
+  recorded when a lifecycle operation was authorized and attempted — including
+  no-ops, partial outcomes, blocked outcomes, execution and verification
+  failures — and when the user declines or cancels at an authorization prompt
+  (the install/uninstall general confirmation or the interactive changed-file
+  consent). An invocation that stops after committing work retains that
+  evidence whatever stopped it: an interactive uninstall batch that commits
+  earlier picks and then stops on a moved scope, a late authorization refusal,
+  or an unexpected error records those completed Projects beside the remaining
+  ones. An invocation that committed nothing records nothing: argument and
+  usage errors, missing interactive choices, missing non-interactive flags
+  (including the missing
   `--auto-confirm`/`--replace-changed`/`--remove-changed` fail-closed
-  refusals), stale-review refusals, an uninstall that matches nothing, and
-  every read-only, `configure`, and machine-namespace command.
+  refusals), a stale-review or changed-scope refusal before any write, an
+  uninstall that matches nothing, and every read-only, `configure`, and
+  machine-namespace command.
 - **Reads never mutate.** `apkit details` — latest, `--list`, one ID, or
   `--json` — reads the stored entries and renders them without touching the
   file, and without rerunning any lifecycle planning or write. The latest

@@ -63,6 +63,18 @@ import {
   ApplyReviewStaleError,
   ApplyVerificationError,
 } from "../installer/reconcile.js";
+import {
+  beginLifecycleOperationRecording,
+  finishLifecycleOperationRecording,
+  lateAuthorizationStopRecording,
+  recordingScopeForSelection,
+  updateBlockedRecording,
+  updateCancelledRecording,
+  updateExecutionFailureRecording,
+  updateSuccessRecording,
+  updateVerificationFailureRecording,
+  type LifecycleOperationRecording,
+} from "./operation-recording.js";
 
 export interface ApplyCommandRequest {
   readonly home: string;
@@ -124,6 +136,26 @@ export function fullySpecifiedApplyArguments(
 }
 
 export async function runApplyCommand(request: ApplyCommandRequest): Promise<ApplyCommandOutcome> {
+  // One recording boundary per invocation (US-012, DEC-008): the body
+  // collects one terminal outcome; this wrapper publishes it once.
+  const startedAt = Date.now();
+  const recording = beginLifecycleOperationRecording();
+  const outcome = await runApplyCommandWithRecording(request, recording);
+  await finishLifecycleOperationRecording({
+    recording,
+    home: request.home,
+    command: "update",
+    startedAt,
+    finishedAt: Date.now(),
+    stderr: request.stderr,
+  });
+  return outcome;
+}
+
+async function runApplyCommandWithRecording(
+  request: ApplyCommandRequest,
+  recording: LifecycleOperationRecording,
+): Promise<ApplyCommandOutcome> {
   const stdoutContext = presentationContext(request.stdout);
   const stderrContext = presentationContext(request.stderr);
   const humanOptions: LifecycleHumanOptions = {
@@ -145,6 +177,9 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
   const promptedAcceptedScope = (): ApplyAnsweringScope | undefined =>
     confirmer.promptedAcceptedScope();
   const declinedAnswer = (): ApplyDeclinedAnswer => confirmer.declinedAnswer();
+  // The finish boundary reads the reviews the gate performed, so a committed,
+  // failed, or cancelled run all carry the same reviewed identities.
+  recording.collectReviewsFrom(() => confirmer.reviewedChangedOutputs());
   // The answering scope one equivalent command must carry: flags already
   // given plus the operations the prompt authorized or is asked to authorize.
   const equivalentScope = (prompted: ApplyAnsweringScope | undefined): ApplyAnsweringScope =>
@@ -158,6 +193,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
         ? {}
         : { confirmChangedOutputReplacement }),
     });
+    recording.collect(updateSuccessRecording(applied, request.selection));
     if (request.json) {
       request.stdout.write(formatApplyJson(applied));
     } else {
@@ -177,6 +213,9 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
     return { exitCode: lifecycleExitCode(applied.resultingState) };
   } catch (error) {
     if (error instanceof ApplyDeclinedError) {
+      recording.collect(updateCancelledRecording(error.reason, request.selection, {
+        projects: confirmer.reviewedProjects(),
+      }));
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
@@ -194,6 +233,13 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: 1 };
     }
     if (error instanceof ApplyConsentRequiredError) {
+      // A late stop that committed earlier Projects keeps that partial
+      // evidence; a pre-write refusal records nothing.
+      recording.collect(lateAuthorizationStopRecording(
+        error,
+        recordingScopeForSelection(request.selection),
+        formatError(error),
+      ));
       // The remedy stays runnable: already-supplied flags are kept and the
       // missing operations are added, so re-running answers the whole scope.
       const scope: ApplyAnsweringScope = {
@@ -215,6 +261,11 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: 1 };
     }
     if (error instanceof ApplyReviewStaleError) {
+      recording.collect(lateAuthorizationStopRecording(
+        error,
+        recordingScopeForSelection(request.selection),
+        formatError(error),
+      ));
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
@@ -233,6 +284,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: 1 };
     }
     if (error instanceof ApplyBlockedError) {
+      recording.collect(updateBlockedRecording(error.report, request.selection));
       if (request.json) {
         request.stdout.write(formatBlockedApplyJson(error.report));
       } else {
@@ -245,6 +297,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: lifecycleExitCode(error.report) };
     }
     if (error instanceof ApplyExecutionError) {
+      recording.collect(updateExecutionFailureRecording(error, request.selection));
       if (request.json) {
         request.stdout.write(formatApplyExecutionFailureJson(error));
       } else {
@@ -257,6 +310,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
       return { exitCode: 1 };
     }
     if (error instanceof ApplyVerificationError) {
+      recording.collect(updateVerificationFailureRecording(error, request.selection));
       if (request.json) {
         request.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
       } else {

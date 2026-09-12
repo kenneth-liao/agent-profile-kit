@@ -2042,7 +2042,13 @@ function fullyCurrentProjectCount(report: ReconciliationReport): number | undefi
   return new Set(reportItems(report).map((item) => item.project)).size;
 }
 
-function reportHasReconciliationWork(report: ReconciliationReport): boolean {
+/**
+ * Whether one reconciliation snapshot records any work at all: blockers,
+ * output change, non-current state, or exclusion bookkeeping. The canonical
+ * reader for "did this run do anything", shared by presentation and the
+ * operation-history recorder so no-op detection has one home.
+ */
+export function reportHasReconciliationWork(report: ReconciliationReport): boolean {
   return (
     reportBlockers(report).length > 0 ||
     changeCount(summarizeOutputs(reportOutputs(report))) > 0 ||

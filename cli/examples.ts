@@ -34,6 +34,7 @@ export const COMMAND_EXAMPLES = {
     "update --remove-changed",
     "update --json",
   ],
+  details: ["details", "details --list", "details op-000001", "details --json"],
   status: [
     "status",
     "status --here",

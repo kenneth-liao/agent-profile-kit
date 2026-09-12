@@ -31,6 +31,7 @@ import {
   requireCurrentApplicationConfiguration,
   resolveWorkspaceRoot,
 } from "./local-configuration.js";
+import { applicationDirectory } from "./application-directory.js";
 import {
   DEFAULT_LOCK_TIMEOUT_MS,
   defaultFileSystem,
@@ -357,7 +358,7 @@ async function initializeWorkspaceAt(
   authored: string,
   ensureConfiguration: boolean,
 ): Promise<InitializationResult> {
-  const applicationRoot = join(home, ".agents", "agent-profile-kit");
+  const applicationRoot = applicationDirectory(home);
   const destination = await assertWorkspaceSelectionPath(home, authored);
   const workspaceState = await inspectWorkspace(destination);
 

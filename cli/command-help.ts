@@ -154,6 +154,15 @@ export const COMMANDS: readonly CommandHelp[] = [
     next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
   },
   {
+    name: "details",
+    group: "common",
+    syntax: "details [--list | <operation-id>] [--json]",
+    summary: "Show retained lifecycle operation history: the latest run, a compact list, or one run by identity",
+    examples: COMMAND_EXAMPLES.details,
+    writes: "Nothing; this command is read-only.",
+    next: ["Run ", invocation("status"), " for the current plan of the selected Projects."],
+  },
+  {
     name: "uninstall",
     group: "teardown",
     syntax: "uninstall [--here | --project <path> | --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]",

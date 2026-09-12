@@ -77,7 +77,7 @@ than duplicating it.
 | 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the Apply Receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
-| 11 | Recover | `status`, `update`, `uninstall` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies |
+| 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
 | 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; `--host` removes only those Hosts within the scope; a later update does not reinstall them |
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-021) |
 
@@ -748,6 +748,22 @@ During a narrowed or fleet update, Project-scoped blocked Projects remain
 untouched while healthy Projects commit sequentially and freshly verify; a
 partial blocker result exits `2` and retains the committed `Updated:` receipt
 before remaining blockers, so writes are never hidden.
+
+**Retained operation evidence.** Routine receipts stay task-focused, so the
+complete record of an earlier run is retrieved without repeating its writes:
+`apkit details` shows the latest retained operation, `apkit details --list` the
+compact newest-first history of the latest 200 runs, and `apkit details
+<operation-id>` one run — each naming its command, time, requested scope,
+outcome, committed generated paths, and failed, skipped, or remaining work.
+`--json` publishes the same structured evidence, and an operation that
+stopped after committing part of its scope keeps that committed evidence. The document lives at
+`~/.agents/agent-profile-kit/operation-history.json`, holds no file contents,
+grants no ownership, and is never desired state; reading it changes nothing on
+the machine. An empty history, an unknown or evicted identity, an unreadable
+document, and invalid arguments each say what happened and what to do next, and
+long human detail pages on an interactive terminal. A run whose entry cannot be
+saved still reports its own complete evidence with a warning, and its committed
+work stays committed.
 
 ### 12. Tear down
 

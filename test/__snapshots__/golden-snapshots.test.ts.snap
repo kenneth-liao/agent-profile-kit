@@ -39,6 +39,9 @@ Common commands:
       containing Project, or one explicit Project
   update
     Sync the complete fleet, the containing Project, or one explicit Project
+  details
+    Show retained lifecycle operation history: the latest run, a compact list,
+      or one run by identity
 
 More commands:
   Inventory:
@@ -1000,9 +1003,45 @@ visibility.
 "
 `;
 
+exports[`golden snapshots of every human view details empty: details-empty 1`] = `
+"--- stdout ---
+No lifecycle operations are recorded yet.
+Install, update, and uninstall record automatically; run one, then run
+  apkit details.
+History: ~/.agents/agent-profile-kit/operation-history.json
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view details list: details-list 1`] = `
+"--- stdout ---
+Operation history (1):
+op-000001  2026-01-01T00:00:00Z  install  succeeded  one Project
+Run apkit details <operation-id> for one operation's complete evidence.
+--- stderr ---
+"
+`;
+
+exports[`golden snapshots of every human view details latest: details-latest 1`] = `
+"--- stdout ---
+Install op-000001
+Time: 2026-01-01T00:00:00Z → 2026-01-01T00:00:00Z
+Scope: one Project
+Profile: example
+Hosts: codex
+Outcome: succeeded
+
+Committed:
+  ~/projects/demo
+    + .agent-profile-kit/codex/context.md
+    + .codex/hooks.json
+--- stderr ---
+"
+`;
+
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.181.0
+Engine version: 0.182.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1611,6 +1650,10 @@ Common commands:
     Sync the complete fleet, the
       containing Project, or one
       explicit Project
+  details
+    Show retained lifecycle operation
+      history: the latest run, a compact
+      list, or one run by identity
 
 More commands:
   Inventory:
@@ -1695,6 +1738,10 @@ Agent Profile Kit composes reusable
     Sync the complete fleet, the
       containing Project, or one
       explicit Project
+\x1B[36m  details\x1B[0m
+    Show retained lifecycle operation
+      history: the latest run, a compact
+      list, or one run by identity
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
@@ -1760,6 +1807,9 @@ Common commands:
       explicit Project
   update
     Sync the complete fleet, the containing Project, or one explicit Project
+  details
+    Show retained lifecycle operation history: the latest run, a compact list, or one run by
+      identity
 
 More commands:
   Inventory:
@@ -1817,6 +1867,9 @@ Agent Profile Kit composes reusable agent material into host-native projects.
       explicit Project
 \x1B[36m  update\x1B[0m
     Sync the complete fleet, the containing Project, or one explicit Project
+\x1B[36m  details\x1B[0m
+    Show retained lifecycle operation history: the latest run, a compact list, or one run by
+      identity
 
 \x1B[1;34mMore commands:\x1B[0m
 \x1B[1;34m  Inventory:\x1B[0m
@@ -1839,7 +1892,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.181.0
+Engine version: 0.182.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1849,7 +1902,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.181.0\x1B[0m
+\x1B[35mEngine version: 0.182.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1859,7 +1912,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.181.0
+Engine version: 0.182.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1869,7 +1922,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.181.0\x1B[0m
+\x1B[35mEngine version: 0.182.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
