@@ -15,8 +15,8 @@ vocabulary (`CONTEXT.md`), or settled decisions (`docs/adr/`).
 gap register was removed from this document; git history is its provenance.
 Spec #373 recaptured this map against the delivered task-sufficient surface
 (fleet-default lifecycle commands, cause-grouped default views, `--stale` and
-`--blocked` narrowing, focused `--verbose` diagnostics, complete update
-receipts, bare-invocation setup state, `apkit new`/`apkit open` authoring
+`--blocked` narrowing, focused `--verbose` diagnostics, compact lifecycle
+receipts with the retained-evidence route, bare-invocation setup state, `apkit new`/`apkit open` authoring
 commands, changed-output confirmation, and the first-run authoring handoff),
 and ticket #461 re-proved the recaptured journey end to end: the integrated
 daily-loop journey and the integrated newcomer journey below were executed
@@ -29,7 +29,8 @@ against sandbox `HOME`s, not derived from source. Coverage: the integrated
 daily-loop journey (a seven-Project fleet carrying all five primary causes plus
 one multi-cause Project and one Git-tracked Blocker, default-view grouping and
 fact-once checks, `--stale`/`--blocked` narrowing with human/machine
-agreement, narrowed and full non-interactive applies with complete receipts,
+agreement, narrowed and full non-interactive applies with compact receipts and
+the retained-evidence route,
 the executed tracked-output Blocker remedy, wholly settled status, and
 whole-invocation cancellation through the delivered confirmation gate); and
 the integrated newcomer journey (isolated machine, present and absent
@@ -74,7 +75,7 @@ than duplicating it.
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
-| 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, a complete receipt of every committed operation, and on an interactive terminal a confirmation before any changed generated file is replaced |
+| 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the retained-evidence route, and on an interactive terminal a confirmation before any changed generated file is replaced |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the Apply Receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
@@ -341,6 +342,8 @@ Installed example for <project>
   Profile: example
   Hosts: codex
 Next: apkit status
+
+Details: apkit details
 ```
 
 ```
@@ -349,6 +352,8 @@ Replaced installation ops for <project>
   Profile: example → ops
   Hosts: codex → claude, codex
 Next: apkit status
+
+Details: apkit details
 ```
 
 An interactive `install` shows the proposed scope and asks for confirmation
@@ -533,19 +538,19 @@ still-pending Project work.
 the Workspace; it does not upgrade the `apkit` executable itself.
 
 The Apply Receipt is the authoritative record of what update actually did,
-distinct from the resulting-state report (US-027, DEC-018): it names every
-committed file operation with its Project attribution, including replacement
-of a changed generated file, in every invocation mode (US-028):
+distinct from the resulting-state report (ADR-0040, US-011, DEC-007): the
+default view states the affected Project and changed-file counts once, keeps
+only the actionable exception identities — failures, skipped or preserved
+files, remaining work, cleanup problems, and any approved changed-file
+replacement or deletion — and closes with the `apkit details` route to the run's
+retained evidence. Per-file, per-Project, and per-operation inventories belong
+to `--verbose` and to `apkit details`: it never suggests re-running update to
+retrieve an earlier run.
 
 ```
 $ apkit update
 Update complete
-
-Updated:
-  + 3 generated file additions in 2 projects
-  + .agent-profile-kit/codex/context.md (<project>)
-  + .claude/rules/agent-profile-kit.md (<project>)
-  + .codex/hooks.json (<project>)
+Updated 2 Projects (3 generated files).
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
@@ -557,6 +562,8 @@ Profile example will load the next time you launch a configured Host from a
 To check that claude and codex loaded Profile example, start a new session of
   each configured Host in each updated Project and ask each Host what Profile
   material it loaded; the installed material should appear in the answers.
+
+Details: apkit details
 ```
 
 The first-run example update closes with a concrete handoff to authoring real
@@ -570,16 +577,19 @@ Now author your own:
 ```
 
 A non-interactive update with the explicit answering flag replaces a
-hand-edited generated file and prompts nothing (US-007, DEC-005, TEST-004):
+hand-edited generated file and prompts nothing (US-007, DEC-005, TEST-004). The
+approved replacement keeps its identity in the receipt, because that discard is
+the exception the user authorized:
 
 ```
 $ apkit update <project> --replace-changed
 Update complete
+Updated 1 Project (1 generated file).
 
-Updated:
-  ~ 1 generated file update in 1 project
+Replaced changed generated files:
   ~ .agent-profile-kit/codex/context.md (<project>)
-…
+
+Details: apkit details
 ```
 
 Without the applicable flag, a non-interactive update refuses before any
@@ -621,12 +631,12 @@ To replace changed generated files without asking, run
   apkit update <project> --replace-changed
 ```
 
-Verbose update retains the full per-Project inventory, and machine JSON keeps
-its keys and meanings (US-060). The receipt is grouped and
-preview-consistent: `Updated:` lists the same operation groups with the same
-symbols and counts as the preceding preview, and is followed by
-change-relevant first-use guidance and the invocation-wide next-launch
-readiness (once per update invocation, never split by Host or Project set).
+Verbose update retains the complete per-Project, per-path inventory, and
+machine JSON keeps its keys and meanings (US-060); the completed operation's
+complete evidence is one `apkit details` away, never a re-run. The default
+receipt states its impact once and is followed by change-relevant first-use
+guidance and the invocation-wide next-launch readiness (once per update
+invocation, never split by Host or Project set).
 
 ### 9. Use
 
@@ -704,9 +714,9 @@ Update complete
 - Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the
   CLI before checking status or updating the Profile (1 Project)
 
-Updated:
-  + 1 generated file addition in <project>
-  …
+Updated 1 Project (1 generated file).
+
+Details: apkit details
 ```
 
 The historical excerpt below showed these conditions as Blockers with
@@ -746,10 +756,11 @@ why, then one or more commands to run (US-022, DEC-014).
 
 During a narrowed or fleet update, Project-scoped blocked Projects remain
 untouched while healthy Projects commit sequentially and freshly verify; a
-partial blocker result exits `2` and retains the committed `Updated:` receipt
+partial blocker result exits `2` and retains the committed receipt evidence
 before remaining blockers, so writes are never hidden.
 
-**Retained operation evidence.** Routine receipts stay task-focused, so the
+**Retained operation evidence.** Routine receipts stay task-focused and close
+with `Details: apkit details` whenever the run retained an entry, so the
 complete record of an earlier run is retrieved without repeating its writes:
 `apkit details` shows the latest retained operation, `apkit details --list` the
 compact newest-first history of the latest 200 runs, and `apkit details
@@ -774,6 +785,26 @@ Scope is explicit: `--here`, `--project <path>`, and `--all` are mutually exclus
 On an interactive terminal `uninstall` confirms the selected scope before any write, even with fully supplied arguments; `--auto-confirm` answers that general confirmation only, never changed-file consent. Deleting independently changed generated files needs `--remove-changed` (or interactive consent); missing consent or cancellation leaves every selected Project untouched.
 
 Each selected Project commits in order: Projects with known Blockers are skipped while healthy Projects proceed, and an unexpected write failure stops further work. Completed Projects stay completed, a failed Project restores its previous selection and output where possible (a restoration failure is reported explicitly), and the outcome reports completed, failed, and unattempted Projects with a concrete scope-preserving retry.
+
+The removal receipt is outcome-first (ADR-0040): a successful removal states
+its removed Project count once, a partial Host removal names the removed Host
+and the affected Project count, routine Git-exclusion bookkeeping stays out of
+the default view, skipped Projects and relevant cleanup warnings keep their
+actionable identities, and the run closes with `Details: apkit details`:
+
+```
+$ apkit uninstall <project> --auto-confirm
+Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
+  recorded selection.
+
+Details: apkit details
+
+$ apkit uninstall <project> --host codex --auto-confirm
+Removed Host codex from 1 Project; the remaining Hosts keep working with
+  their shared output preserved.
+
+Details: apkit details
+```
 
 Public `unbind` is retired: `apkit unbind` exits with `unbind was replaced by uninstall`.
 

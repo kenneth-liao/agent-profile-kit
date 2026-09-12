@@ -1041,7 +1041,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.182.0
+Engine version: 0.183.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1163,6 +1163,8 @@ Installed example for ~/projects/demo
   Profile: example
   Hosts: codex
 Next: apkit status
+
+Details: apkit details
 --- stderr ---
 "
 `;
@@ -1470,10 +1472,7 @@ exports[`golden snapshots of every human view update receipt: update-receipt 1`]
 "--- stdout ---
 Update complete
 
-Updated:
-  + 2 generated file additions in 1 project
-  + .agent-profile-kit/codex/context.md (~/projects/demo)
-  + .codex/hooks.json (~/projects/demo)
+Updated 1 Project (2 generated files).
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
@@ -1491,6 +1490,8 @@ Now author your own:
   apkit new skill <skill>
   apkit new context <context>
   apkit new profile <profile> --context <context> --skill <skill>
+
+Details: apkit details
 --- stderr ---
 "
 `;
@@ -1499,6 +1500,8 @@ exports[`golden snapshots of every human view update no-op: update-noop 1`] = `
 "--- stdout ---
 Update complete
 All Projects were already current.
+
+Details: apkit details
 --- stderr ---
 "
 `;
@@ -1531,6 +1534,8 @@ Next:
 - Resolve the reported blocker, then run
   apkit update '~/projects/blocked'
   again.
+
+Details: apkit details
 --- stderr ---
 "
 `;
@@ -1539,6 +1544,8 @@ exports[`golden snapshots of every human view uninstall: uninstall 1`] = `
 "--- stdout ---
 Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
   recorded selection.
+
+Details: apkit details
 --- stderr ---
 "
 `;
@@ -1892,7 +1899,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.182.0
+Engine version: 0.183.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1902,7 +1909,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.182.0\x1B[0m
+\x1B[35mEngine version: 0.183.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1912,7 +1919,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.182.0
+Engine version: 0.183.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1922,7 +1929,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.182.0\x1B[0m
+\x1B[35mEngine version: 0.183.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

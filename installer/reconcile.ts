@@ -186,7 +186,6 @@ export interface ReconciliationProjectOutput
   extends Omit<OutputReconciliationItem, "project"> {
   readonly consumingHosts: readonly string[];
 }
-
 export interface ReconciliationProjectRecord {
   /** Canonical Project identity and deterministic report ordering key. */
   readonly canonicalProject: string;
@@ -336,6 +335,20 @@ export interface ChangedOutputConsentRequest {
 }
 
 export type ChangedOutputConsentAnswer = "accepted" | "declined" | "cancelled";
+
+/**
+ * Which discard of independently changed bytes the shared consent gate
+ * authorizes for one reconciled output: replacing the changed file or deleting
+ * it. The gate's review scope and the receipt's approved-discard identities
+ * both derive from this one classifier, so presentation can never name a
+ * discard the gate would not review or silently omit one it would.
+ */
+export function changedOutputDiscard(
+  output: Pick<OutputReconciliationItem, "driftKind" | "kind">,
+): ChangedOutputOperation | undefined {
+  if (output.driftKind !== "changed") return undefined;
+  return output.kind === "removal" ? "remove" : "replace";
+}
 
 /**
  * Raised before any write when the invocation's changed-output replacement
@@ -1633,10 +1646,10 @@ export async function resolveChangedOutputConsent(
   for (const project of report.projects) {
     if (blockedProjects.has(project.canonicalProject)) continue;
     const changedOutputs = replaceAuthorized ? [] : project.outputs
-      .filter((output) => output.driftKind === "changed" && output.kind !== "removal")
+      .filter((output) => changedOutputDiscard(output) === "replace")
       .map((output) => output.path);
     const removedOutputs = removeAuthorized ? [] : project.outputs
-      .filter((output) => output.driftKind === "changed" && output.kind === "removal")
+      .filter((output) => changedOutputDiscard(output) === "remove")
       .map((output) => output.path);
     if (changedOutputs.length > 0 || removedOutputs.length > 0) {
       pendingConsentScope.push({

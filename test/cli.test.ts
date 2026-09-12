@@ -2669,10 +2669,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const apply = await runCli(home, "update");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Updated:");
-    expect(humanText(apply.stdout)).toContain(
-      humanText("~ 12 generated file updates in 12 projects"),
-    );
+    expect(humanText(apply.stdout)).toContain("Updated 12 Projects (12 generated files).");
+    expect(humanText(apply.stdout)).toContain("Details: apkit details");
+    expect(apply.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
+      .toEqual([]);
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project: ");
     expect(humanText(apply.stdout).match(/will load the next time you launch/g)).toHaveLength(1);
@@ -3098,8 +3098,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.startsWith("Update complete\n")).toBe(true);
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
-    expect(result.stdout).toContain("Updated:");
-    expect(result.stdout).toContain("+ 2 generated file additions in 1 project");
+    expect(result.stdout).toContain("Updated 1 Project (2 generated files).");
     expect(result.stdout).toContain("First use:");
     expect(result.stdout).not.toContain("Host setup:");
     expect(result.stdout).not.toContain("Standing Host setup:");
@@ -3122,11 +3121,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     // US-041 (DEC-025, OOS-009): the readiness promise is followed by the
     // concrete Project-local check for Host loading.
-    expect(humanText(result.stdout)).toEndWith(
+    expect(humanText(result.stdout)).toContain(
       humanText(
         `To check that codex loaded Profile coding, start a new codex session in ${projectPath} and ask codex what Profile material it loaded; the installed material should appear in its answer.`,
       ),
     );
+    expect(humanText(result.stdout)).toEndWith("Details: apkit details");
     expect(result.stdout).not.toContain("Selected setup:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
@@ -3178,8 +3178,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "update");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Updated:");
-    expect(result.stdout).toContain("~ 1 generated file update in 1 project");
+    expect(humanText(result.stdout)).toContain("Updated 1 Project (1 generated file).");
     expect(result.stdout).not.toContain("All Projects were already current.");
     expect(humanText(result.stdout)).not.toContain(humanText(`Project: ${projectPath}`));
     expect(result.stdout).not.toContain("State: current");
@@ -3219,7 +3218,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const later = await runCli(home, "update");
     expectExitCode(later, 0);
-    expect(later.stdout).toContain("Updated:");
+    expect(humanText(later.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(later.stdout).not.toContain("First use:");
     expect(later.stdout).not.toContain("Trust the bound project in Codex");
     expect(later.stdout).not.toContain("Launch Codex from the exact bound project root");
@@ -3252,7 +3251,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "update");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain("Updated: ~ 1 generated file update");
+    // The receipt counts only the Project whose committed work it records.
+    expect(humanText(result.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(humanText(result.stdout)).toContain(humanText(changedProject));
     expect(humanText(result.stdout)).not.toContain(humanText(untouchedProject));
   });
@@ -3650,7 +3650,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applyStale = await runCli(home, "update", stale, "--stale", "--replace-changed");
 
     expectExitCode(applyStale, 0);
-    expect(applyStale.stdout).toContain("Updated:");
+    expect(humanText(applyStale.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(
       readFileSync(join(stale, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Scoped composition change.");
@@ -5321,10 +5321,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: drifted output`));
     expectExitCode(repaired, 0);
     expect(repaired.stderr).toBe("");
-    // The replacement is a recorded write: even concise output names the
-    // affected file and Project, never silently (#380).
-    expect(repaired.stdout).toContain("Updated:");
-    expect(humanText(repaired.stdout)).toContain("~ 1 generated file update in 1 project");
+    // The approved replacement is a recorded write: even concise output names
+    // the affected file and Project, never silently (#380, US-011).
+    expect(repaired.stdout).toContain("Replaced changed generated files:");
+    expect(humanText(repaired.stdout)).toContain("Updated 1 Project (1 generated file).");
     expect(humanText(repaired.stdout)).toContain(`~ .codex/hooks.json (${projectPath})`);
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
@@ -5349,18 +5349,22 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const driftedPath = (projectRoot: string): string => join(projectRoot, ".codex", "hooks.json");
 
-    // Concise fleet: the replacement is named with its Project attribution,
-    // and the receipt does not infer who changed the file (US-028, DEC-018).
+    // Concise fleet: the approved replacement keeps its identity with its
+    // Project attribution, and the receipt does not infer who changed the file
+    // (US-028, US-011, DEC-018).
     writeFileSync(driftedPath(projectAlpha), "hand edit\n");
     const concise = await runCli(home, "update", "--all", "--replace-changed");
     expectExitCode(concise, 0);
-    const appliedSection = concise.stdout.slice(
-      concise.stdout.indexOf("Updated:"),
-      concise.stdout.indexOf("First use:") === -1 ? undefined : concise.stdout.indexOf("First use:"),
-    );
-    const appliedText = humanText(appliedSection);
+    const appliedText = humanText(concise.stdout);
+    expect(appliedText).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(appliedText).toContain("Replaced changed generated files:");
     expect(appliedText).toContain(`~ .codex/hooks.json (${projectAlpha})`);
-    expect(appliedText).not.toMatch(/\b(you|your|someone|author|owner)\b/i);
+    // The replacement identity line never infers who changed the file.
+    const replacementLine = concise.stdout
+      .split("\n")
+      .find((line) => line.includes(".codex/hooks.json"));
+    expect(replacementLine).toBeDefined();
+    expect(humanText(replacementLine!)).not.toMatch(/\b(you|your|someone|author|owner)\b/i);
 
     // Verbose: the drifted replacement is distinguishable as changed bytes.
     writeFileSync(driftedPath(projectAlpha), "hand edit again\n");
@@ -5432,12 +5436,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const failed = await runCli(home, "update", "--all", "--replace-changed");
       expectExitCode(failed, 1);
       const evidence = humanText(failed.stderr);
-      // Complete committed-operation evidence, including the replaced changed
-      // generated file, under the Applied heading.
-      expect(evidence).toContain("Updated:");
-      expect(evidence).toContain(
-        `- ${projectAlpha}: ~ .agent-profile-kit/codex/context.md ~ .codex/hooks.json`,
-      );
+      // Committed-operation evidence stays compact and keeps the approved
+      // replacement identity; failed and pending state stay distinct.
+      expect(evidence).toContain("Updated 1 Project (2 generated files).");
+      expect(evidence).toContain("Replaced changed generated files:");
+      expect(evidence).toContain(`~ .codex/hooks.json (${projectAlpha})`);
       // Failed and pending resulting state stay distinct from committed work.
       expect(evidence).toContain(`Failed Project: ${projectBeta}`);
       expect(evidence).toContain("Still pending: none");
@@ -6589,7 +6592,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(stateDirectory, 0o755);
     expectExitCode(failed, 1);
     expect(humanText(failed.stderr)).toContain(`Update failed at ${projectPath}`);
-    expect(failed.stderr).toContain("Updated: none.");
+    // Nothing committed: no receipt heading and no filler inventory.
+    expect(humanText(failed.stderr)).not.toContain("Updated:");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
     expectExitCode(await runCli(home, "update"), 0);
@@ -6666,7 +6670,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 2);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Update completed with blockers");
-    expect(result.stdout).toContain("Updated:");
+    expect(humanText(result.stdout)).toContain("Updated 1 Project (2 generated files).");
     expect(result.stdout).toContain("Freshly current:");
     expect(humanText(result.stdout)).toContain(humanText(healthy));
     expect(readFileSync(join(blocked, ".codex", "hooks.json"), "utf8")).toBe("project-owned\n");
@@ -6754,8 +6758,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "update", "--all", "--stale");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Updated:");
-    expect(humanText(result.stdout)).toContain(humanText(stale));
+    // The receipt counts the selected committed write once; the never-installed
+    // Project is outside the selected write scope (US-011).
+    expect(humanText(result.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     // The never-installed Project is outside the selected write scope.
     expect(existsSync(join(never, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(never, ".codex"))).toBe(false);
@@ -6972,11 +6977,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     chmodSync(second, 0o755);
     expectExitCode(failed, 1);
     const failureText = failed.stderr.replace(/\s+/g, " ");
-    expect(failureText).toContain(`Updated: - ${first}:`);
+    expect(failureText).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(failureText).toContain(`Failed Project: ${second}`);
     expect(failureText).toContain("Still pending: none");
-    expect(failed.stderr).toContain("Updated:");
     expect(failed.stderr).toContain("Freshly current:");
+    // The failure report goes to stderr, and the route for its retained entry
+    // follows it there (ADR-0040).
+    expect(failureText).toContain("Details: apkit details");
+    expect(failed.stdout).not.toContain("Details:");
 
     const rerun = await runCli(home, "update");
     expectExitCode(rerun, 0);
@@ -14405,5 +14413,129 @@ describe("apkit details (retained operation history)", () => {
       "op-000002",
       "op-000001",
     ]);
+  });
+});
+
+describe("compact lifecycle receipts and the retained-operation detail route (US-011, DEC-007, ADR-0040)", () => {
+  async function installedGitProject(): Promise<{ home: string; projectPath: string }> {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = gitRepository("agent-profile-kit-receipt-");
+    writeContextProfile(home);
+    const install = await runCli(
+      home,
+      "install",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
+    expectExitCode(install, 0);
+    // Ruling: install already states its outcome compactly and offers the
+    // same completed-operation route as update and uninstall.
+    expect(humanText(install.stdout)).toContain("Details: apkit details");
+    return { home, projectPath };
+  }
+
+  test("a successful update states the impact once, omits the per-file inventory, and offers retained evidence", async () => {
+    const { home, projectPath } = await installedGitProject();
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nUpdated standing instruction.\n",
+    );
+
+    const update = await runCli(home, "update", projectPath);
+
+    expectExitCode(update, 0);
+    const text = humanText(update.stdout);
+    expect(text).toContain("Updated 1 Project (1 generated file).");
+    expect(text).not.toContain("Updated:");
+    // No per-file, per-Project, or per-operation inventory in the default receipt.
+    expect(update.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
+      .toEqual([]);
+    expect(text).not.toContain("generated file update in");
+    // The completed operation is retrieved without repeating its write.
+    expect(text).toContain("Details: apkit details");
+    const details = await runCli(home, "details", "--json");
+    expectExitCode(details, 0);
+    const payload = JSON.parse(details.stdout) as {
+      entries: readonly {
+        readonly command: string;
+        readonly projects: readonly { readonly written?: readonly string[] }[];
+      }[];
+    };
+    expect(payload.entries[0]!.command).toBe("update");
+    expect(payload.entries[0]!.projects[0]!.written).toContain(".agent-profile-kit/codex/context.md");
+  });
+
+  test("a no-op update still offers its retained entry", async () => {
+    const { home, projectPath } = await installedGitProject();
+
+    const update = await runCli(home, "update", projectPath);
+
+    expectExitCode(update, 0);
+    expect(humanText(update.stdout)).toContain("All Projects were already current.");
+    expect(humanText(update.stdout)).toContain("Details: apkit details");
+  });
+
+  test("a successful uninstall reports its Project count once and omits exclusion bookkeeping", async () => {
+    const { home, projectPath } = await installedGitProject();
+
+    const uninstall = await runCli(home, "uninstall", "--project", projectPath, "--auto-confirm");
+
+    expectExitCode(uninstall, 0);
+    const text = humanText(uninstall.stdout);
+    expect(text).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
+    expect(text).not.toContain("Git exclusion");
+    expect(text).not.toContain(".git/info/exclude");
+    expect(text).toContain("Details: apkit details");
+    // The outcome count renders once.
+    expect(uninstall.stdout.split("Removed proven Agent Profile Kit-owned output from 1 Project"))
+      .toHaveLength(2);
+  });
+
+  test("NO_COLOR keeps the compact receipt and its route free of control bytes", async () => {
+    const { home, projectPath } = await installedGitProject();
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nAnother standing instruction.\n",
+    );
+
+    const update = await runCliWithEnvironment(home, { NO_COLOR: "1" }, "update", projectPath);
+
+    expectExitCode(update, 0);
+    expect(update.stdout).not.toMatch(/\u001b/);
+    expect(humanText(update.stdout)).toContain("Updated 1 Project (1 generated file).");
+    expect(humanText(update.stdout)).toContain("Details: apkit details");
+  });
+
+  test("the verbose update keeps the complete receipt and omits the default route", async () => {
+    const { home, projectPath } = await installedGitProject();
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nVerbose-only instruction.\n",
+    );
+
+    const update = await runCli(home, "update", projectPath, "--verbose");
+
+    expectExitCode(update, 0);
+    // Tier 2 shows the complete current-run inventory and needs no route.
+    expect(update.stdout).toContain("Updated:");
+    expect(update.stdout).not.toContain("Details: apkit details");
+  });
+
+  test("machine JSON stays parseable and carries no human route", async () => {
+    const { home, projectPath } = await installedGitProject();
+    writeFileSync(
+      join(workspacePath(home), "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nMachine-only instruction.\n",
+    );
+
+    const update = await runCli(home, "update", projectPath, "--json");
+
+    expectExitCode(update, 0);
+    expect(() => JSON.parse(update.stdout)).not.toThrow();
+    expect(update.stdout).not.toContain("Details: apkit details");
   });
 });

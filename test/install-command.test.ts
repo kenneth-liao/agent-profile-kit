@@ -299,6 +299,10 @@ describe("install general confirmation", () => {
 
     expect(exitCode).toBe(1);
     expect(plain(streams.errorText())).toContain("you answered no");
+    // A declined install is a retained cancellation (DEC-008), so its
+    // detail route follows the diagnostic on stderr (ADR-0040).
+    expect(plain(streams.errorText())).toContain("Details: apkit details");
+    expect(plain(streams.humanText())).not.toContain("Details:");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -701,5 +705,74 @@ describe("install changed-installation scope", () => {
 
     expect(exitCode).toBe(0);
     expect(readFileSync(configPath(home), "utf8")).toContain("profile: coding");
+  });
+});
+
+describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
+  test("a successful install prints the retained-operation route once", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(0);
+    const text = plain(streams.humanText());
+    expect(text).toContain("Details: apkit details");
+    expect(text.split("Details: apkit details")).toHaveLength(2);
+  });
+
+  test("an unchanged install still prints the route for its retained no-op entry", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    expect((await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    )).exitCode).toBe(0);
+    const unchanged = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(unchanged.exitCode).toBe(0);
+    const text = plain(unchanged.streams.humanText());
+    expect(text).toContain("Installation unchanged for");
+    expect(text).toContain("Details: apkit details");
+  });
+
+  test("a pre-write refusal prints no detail route", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(plain(streams.humanText())).not.toContain("Details:");
+    expect(plain(streams.errorText())).not.toContain("Details:");
+  });
+
+  test("machine JSON stays parseable and carries no human route", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm", "--json"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(() => JSON.parse(plain(streams.humanText()))).not.toThrow();
+    expect(plain(streams.humanText())).not.toContain("Details: apkit details");
   });
 });

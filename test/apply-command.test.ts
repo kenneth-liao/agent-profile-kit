@@ -116,8 +116,8 @@ describe("update replacement confirmation command", () => {
     expect(output).toContain("Changed generated files:");
     expect(output).toContain(".agent-profile-kit/codex/context.md");
     expect(output).toContain("(y/N)");
-    // The committed receipt names the replacement.
-    expect(output).toContain("Updated:");
+    // The committed receipt keeps the approved replacement identity.
+    expect(output).toContain("Replaced changed generated files:");
     expect(output).toContain(".agent-profile-kit/codex/context.md");
     // The completed flow prints the equivalent fully specified command.
     expect(output).toContain("--replace-changed");
@@ -138,7 +138,7 @@ describe("update replacement confirmation command", () => {
     const stdout = humanText(invocation.stdout.text());
     const stderr = humanText(invocation.stderr.text());
     expect(stdout).toContain("Changed generated files:");
-    expect(stdout).not.toContain("Updated:");
+    expect(stdout).not.toContain("Replaced changed generated files:");
     // The happened/why/what-to-type diagnostic names the explicit command.
     expect(stderr).toContain("nothing was written");
     expect(stderr).toContain("--replace-changed");
@@ -195,7 +195,7 @@ describe("update replacement confirmation command", () => {
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).toContain("Updated:");
+    expect(stdout).toContain("Updated 1 Project (1 generated file).");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
@@ -207,7 +207,7 @@ describe("update replacement confirmation command", () => {
     expect(exitCode).toBe(1);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).not.toContain("Updated:");
+    expect(stdout).not.toContain("Updated 1 Project");
     const stderr = humanText(invocation.stderr.text());
     expect(stderr).toContain("--replace-changed");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toBe(fleet.driftedBytes);
@@ -226,7 +226,7 @@ describe("update replacement confirmation command", () => {
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).toContain("Updated:");
+    expect(stdout).toContain("Replaced changed generated files:");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 
@@ -529,5 +529,44 @@ describe("update replacement confirmation command", () => {
       .toEqual(["update", "--all", "--replace-changed", "--remove-changed"]);
     expect(fullySpecifiedApplyArguments({ kind: "all" }, { replace: false, remove: true }))
       .toEqual(["update", "--all", "--remove-changed"]);
+  });
+});
+
+describe("completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
+  test("a successful update prints the retained-operation route once", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-route");
+    const invocation = invoke(fleet, [fleet.driftedProject, "--replace-changed"]);
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(0);
+    const output = invocation.stdout.text();
+    expect(humanText(output)).toContain("Details: apkit details");
+    // The route never suggests re-running update as historical evidence.
+    expect(humanText(output)).not.toContain("update --verbose");
+  });
+
+  test("a pre-write consent refusal prints no detail route", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-route-refusal");
+    const invocation = invoke(fleet, [fleet.driftedProject], undefined, { interactive: false });
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    expect(humanText(invocation.stdout.text())).not.toContain("Details:");
+    expect(humanText(invocation.stderr.text())).not.toContain("Details:");
+  });
+
+  test("an interactive decline prints the retained cancellation route", async () => {
+    const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-route-decline");
+    const invocation = invoke(
+      fleet,
+      [fleet.driftedProject],
+      (input) => input.write("n\n"),
+      { feedAfterQuestion: true },
+    );
+    const { exitCode } = await invocation.outcome;
+    expect(exitCode).toBe(1);
+    expect(humanText(invocation.stderr.text())).toContain("you answered no");
+    // A declined interactive run is a retained cancellation (DEC-008), so the
+    // detail route follows the report on its own stream (ADR-0040).
+    expect(humanText(invocation.stderr.text())).toContain("Details: apkit details");
+    expect(humanText(invocation.stdout.text())).not.toContain("Details:");
   });
 });

@@ -5,6 +5,8 @@
  * JSON is one dedicated family (`schemaVersion: 1`), separate from the
  * reconciliation contract (ADR-0023), and never carries file contents.
  */
+import type { Writable } from "node:stream";
+
 import { COMMAND_NAME } from "../installer/version.js";
 import {
   OPERATION_HISTORY_LIMIT,
@@ -16,9 +18,14 @@ import {
 } from "../installer/operation-history.js";
 import { diagnosticDocument } from "./diagnostics.js";
 import {
+  type TerminalPresentationContext,
+  type TerminalStream,
+} from "./terminal-presentation.js";
+import {
   commandPart,
   identifierPart,
   pathPart,
+  writeHumanDocument,
   type CommandArg,
   type InlineContent,
   type PresentationDocument,
@@ -29,6 +36,45 @@ import {
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 export const DETAILS_MACHINE_SCHEMA_VERSION = 1;
+
+/**
+ * The completed-operation detail route (US-011, DEC-007; ADR-0040): one
+ * discoverable `Details: apkit details` line that retrieves the run's retained
+ * evidence. It names the read-only history command, never a re-run of the
+ * lifecycle command, and the write helper below emits it exactly when this run
+ * retained an entry.
+ */
+export function operationDetailsDocument(): PresentationDocument {
+  return [
+    { kind: "verbatim", text: "" },
+    {
+      kind: "key-value",
+      key: "Details",
+      value: { kind: "command", program: COMMAND_NAME, args: [arg("details")] },
+      category: "command",
+    },
+  ];
+}
+
+/**
+ * Write one run's terminal human report and, exactly when the run retained an
+ * operation-history entry, its completed-operation detail route (US-011,
+ * DEC-007; ADR-0040). The route follows the stream that carries the report, so
+ * a declined or failed run keeps its evidence pointer beside its own
+ * diagnostic while a pre-write refusal that records nothing never advertises
+ * `apkit details`. An unsaved entry still prints the route because that run
+ * displayed its complete evidence (DEC-008). Machine JSON callers keep stdout
+ * parseable and never call this.
+ */
+export function writeLifecycleReport(
+  stream: Writable & TerminalStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+  retained: boolean,
+): void {
+  writeHumanDocument(stream, document, context);
+  if (retained) writeHumanDocument(stream, operationDetailsDocument(), context);
+}
 
 /** One entry's persisted identity is present only once the store saved it. */
 export type OperationHistoryEvidence = OperationHistoryEntry | OperationHistoryEntryDraft;

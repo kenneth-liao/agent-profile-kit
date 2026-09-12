@@ -222,7 +222,10 @@ export function parseUninstallArguments(
 
 import type { Readable, Writable } from "node:stream";
 
-import { writeHumanDocument } from "./presentation-document.js";
+import {
+  writeHumanDocument,
+  type PresentationDocument,
+} from "./presentation-document.js";
 import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
@@ -277,6 +280,7 @@ import {
   uninstallRecording,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
+import { writeLifecycleReport } from "./operation-history-presentation.js";
 import type { OperationHistoryScope } from "../installer/operation-history.js";
 import { displayProjectPath } from "./display-path.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
@@ -524,8 +528,9 @@ function writeInteractiveScopeChanged(
   parsed: ParsedUninstallArguments,
   completed: readonly UninstallCompletedProject[],
   remaining: readonly InteractiveUninstallTarget[],
+  recording: LifecycleOperationRecording,
 ): void {
-  writeHumanDocument(
+  writeUninstallReport(
     request.stderr,
     uninstallInteractiveCommandsDocument({
       happened: completed.length === 0
@@ -542,7 +547,21 @@ function writeInteractiveScopeChanged(
       }),
     }),
     stderrContext,
+    recording,
   );
+}
+
+/** Write one uninstall terminal human report plus its retained-operation
+ * detail route exactly when this run retained an entry (US-011, DEC-007;
+ * ADR-0040). The route follows the report's own stream, so a declined or
+ * failed uninstall keeps the pointer beside its diagnostic. */
+function writeUninstallReport(
+  stream: Writable & TerminalStream,
+  document: PresentationDocument,
+  context: TerminalPresentationContext,
+  recording: LifecycleOperationRecording,
+): void {
+  writeLifecycleReport(stream, document, context, recording.collected !== undefined);
 }
 
 async function runInteractiveUninstall(
@@ -768,7 +787,7 @@ async function runInteractiveUninstall(
           ...(hostMode ? { removeHosts: [...narrowingHosts] } : {}),
           missing: false,
         },
-      })));
+      })), recording);
       recording.recordNothing("the picked scope changed before the review");
       return { exitCode: 1 };
     }
@@ -891,7 +910,7 @@ async function runInteractiveUninstall(
         scope,
         unattemptedProjectsFromPreview(targets.map((target) => target.preview)),
       ));
-      writeHumanDocument(
+      writeUninstallReport(
         request.stderr,
         uninstallInteractiveCommandsDocument({
           happened,
@@ -905,6 +924,7 @@ async function runInteractiveUninstall(
           severity: "info",
         }),
         stderrContext,
+        recording,
       );
       return { exitCode: 1 };
     }
@@ -977,8 +997,10 @@ async function runInteractiveUninstall(
       // The guard itself failed (e.g. Local Configuration unreadable
       // mid-batch): fail closed with the same completed / unattempted /
       // per-Project retry report as every other mid-batch failure mode,
-      // instead of escaping without one (INT-2).
-      writeHumanDocument(
+      // instead of escaping without one (INT-2). The recording decision
+      // precedes the report so its retained-entry route follows it.
+      collectCommittedStop(formatError(error));
+      writeUninstallReport(
         request.stderr,
         uninstallInteractiveCommandsDocument({
           happened: [formatError(error)],
@@ -996,13 +1018,13 @@ async function runInteractiveUninstall(
           }),
         }),
         stderrContext,
+        recording,
       );
-      collectCommittedStop(formatError(error));
       return { exitCode: 1 };
     }
     if (fleetChanged) {
       collectCommittedStop("the selected scope changed while removing the picked Projects");
-      writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
+      writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining, recording);
       return { exitCode: 1 };
     }
     try {
@@ -1044,7 +1066,7 @@ async function runInteractiveUninstall(
           unattempted,
           warnings: [],
         }, scope));
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           uninstallInteractiveCommandsDocument({
             happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
@@ -1080,6 +1102,7 @@ async function runInteractiveUninstall(
             ],
           }),
           stderrContext,
+          recording,
         );
         return { exitCode: 1 };
       }
@@ -1094,7 +1117,7 @@ async function runInteractiveUninstall(
     } catch (error) {
       if (error instanceof UninstallScopeChangedError) {
         collectCommittedStop(formatError(error));
-        writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
+        writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining, recording);
         return { exitCode: 1 };
       }
       if (error instanceof ApplyDeclinedError) {
@@ -1109,7 +1132,7 @@ async function runInteractiveUninstall(
             ...unattemptedProjectsFromPreview(targets.slice(index).map((entry) => entry.preview)),
           ],
         ));
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           uninstallInteractiveCommandsDocument({
             happened: [declined === "cancelled"
@@ -1129,12 +1152,13 @@ async function runInteractiveUninstall(
             severity: "info",
           }),
           stderrContext,
+          recording,
         );
         return { exitCode: 1 };
       }
       if (error instanceof ApplyConsentRequiredError) {
         collectCommittedStop(formatError(error));
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           uninstallInteractiveCommandsDocument({
             happened: [formatError(error)],
@@ -1150,12 +1174,13 @@ async function runInteractiveUninstall(
             }),
           }),
           stderrContext,
+          recording,
         );
         return { exitCode: 1 };
       }
       if (error instanceof ApplyReviewStaleError) {
         collectCommittedStop(formatError(error));
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           uninstallInteractiveCommandsDocument({
             happened: [formatError(error)],
@@ -1170,11 +1195,12 @@ async function runInteractiveUninstall(
             }),
           }),
           stderrContext,
+          recording,
         );
         return { exitCode: 1 };
       }
       collectCommittedStop(formatError(error));
-      writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      writeUninstallReport(request.stderr, errorDiagnosticDocument(error), stderrContext, recording);
       return { exitCode: 1 };
     }
   }
@@ -1186,21 +1212,24 @@ async function runInteractiveUninstall(
     warnings: [...new Set(warnings)].sort(),
   };
   recording.collect(uninstallRecording(aggregate, scope));
-  writeHumanDocument(request.stdout, uninstallReceiptDocument(aggregate), stdoutContext);
   // A picked run always leaves its executable repeat (US-006 parity with
   // the guided-install echo): the picked scope with the general
   // confirmation answered, carrying consent the flow actually authorized.
   const acceptedScope = confirmer.promptedAcceptedScope();
-  writeHumanDocument(
+  writeUninstallReport(
     request.stdout,
-    uninstallInteractiveEquivalentDocument(
-      interactiveRemainingCommands(targets, {
-        includeAutoConfirm: true,
-        removeChanged: parsed.removeChanged || acceptedScope?.remove === true,
-        replaceChanged: parsed.replaceChanged || acceptedScope?.replace === true,
-      }),
-    ),
+    [
+      ...uninstallReceiptDocument(aggregate),
+      ...uninstallInteractiveEquivalentDocument(
+        interactiveRemainingCommands(targets, {
+          includeAutoConfirm: true,
+          removeChanged: parsed.removeChanged || acceptedScope?.remove === true,
+          replaceChanged: parsed.replaceChanged || acceptedScope?.replace === true,
+        }),
+      ),
+    ],
     stdoutContext,
+    recording,
   );
   // Exit 2 when known Blockers skipped healthy work (the lifecycle
   // blocker matrix); exit 0 when every picked Project completed.
@@ -1391,10 +1420,11 @@ async function runUninstallCommandWithRecording(
         recordingScope,
         unattemptedProjectsFromPreview(preview.projects),
       ));
-      writeHumanDocument(
+      writeUninstallReport(
         request.stderr,
         uninstallDeclinedDocument("cancelled", fullySpecifiedUninstallArguments(parsed, preview)),
         stderrContext,
+        recording,
       );
       return { exitCode: 1 };
     }
@@ -1405,13 +1435,14 @@ async function runUninstallCommandWithRecording(
         recordingScope,
         unattemptedProjectsFromPreview(preview.projects),
       ));
-      writeHumanDocument(
+      writeUninstallReport(
         request.stderr,
         uninstallDeclinedDocument(
           normalized === "" ? "default" : "declined",
           fullySpecifiedUninstallArguments(parsed, preview),
         ),
         stderrContext,
+        recording,
       );
       return { exitCode: 1 };
     }
@@ -1460,7 +1491,7 @@ async function runUninstallCommandWithRecording(
       if (parsed.json) {
         request.stdout.write(formatUninstallJson(result));
       } else {
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           uninstallExecutionFailureDocument({
             failed: result.failed,
@@ -1469,6 +1500,7 @@ async function runUninstallCommandWithRecording(
             retryArguments: retry,
           }),
           stderrContext,
+          recording,
         );
       }
       return { exitCode: 1 };
@@ -1477,24 +1509,27 @@ async function runUninstallCommandWithRecording(
     if (parsed.json) {
       request.stdout.write(formatUninstallJson(result));
     } else {
-      writeHumanDocument(request.stdout, uninstallReceiptDocument(result), stdoutContext);
       const acceptedScope = confirmer.promptedAcceptedScope();
-      if (acceptedScope !== undefined) {
-        writeHumanDocument(
-          request.stdout,
-          uninstallReplacementCommandDocument(
-            fullySpecifiedUninstallArguments(
-              {
-                ...parsed,
-                removeChanged: parsed.removeChanged || acceptedScope.remove === true,
-                replaceChanged: parsed.replaceChanged || acceptedScope.replace === true,
-              },
-              preview,
-            ),
-          ),
-          stdoutContext,
-        );
-      }
+      writeUninstallReport(
+        request.stdout,
+        [
+          ...uninstallReceiptDocument(result),
+          ...(acceptedScope === undefined
+            ? []
+            : uninstallReplacementCommandDocument(
+                fullySpecifiedUninstallArguments(
+                  {
+                    ...parsed,
+                    removeChanged: parsed.removeChanged || acceptedScope.remove === true,
+                    replaceChanged: parsed.replaceChanged || acceptedScope.replace === true,
+                  },
+                  preview,
+                ),
+              )),
+        ],
+        stdoutContext,
+        recording,
+      );
     }
     // Exit 2 when known Blockers skipped healthy work (the lifecycle
     // blocker matrix); exit 0 when every selected Project completed.
@@ -1538,7 +1573,7 @@ async function runUninstallCommandWithRecording(
       if (parsed.json) {
         request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           applyReplacementDeclinedDocument(
             error.reason === "cancelled" ? "cancelled" : confirmer.declinedAnswer(),
@@ -1547,6 +1582,7 @@ async function runUninstallCommandWithRecording(
             "uninstall",
           ),
           stderrContext,
+          recording,
         );
       }
       return { exitCode: 1 };
@@ -1583,7 +1619,7 @@ async function runUninstallCommandWithRecording(
       if (parsed.json) {
         request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           applyConsentRequiredDocument(
             error,
@@ -1600,6 +1636,7 @@ async function runUninstallCommandWithRecording(
             "uninstall",
           ),
           stderrContext,
+          recording,
         );
       }
       return { exitCode: 1 };
@@ -1624,7 +1661,7 @@ async function runUninstallCommandWithRecording(
       if (parsed.json) {
         request.stdout.write(formatUninstallToolErrorJson(formatError(error), progress));
       } else {
-        writeHumanDocument(
+        writeUninstallReport(
           request.stderr,
           applyReviewStaleDocument(
             error,
@@ -1632,6 +1669,7 @@ async function runUninstallCommandWithRecording(
             "uninstall",
           ),
           stderrContext,
+          recording,
         );
       }
       return { exitCode: 1 };

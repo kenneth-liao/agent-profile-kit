@@ -1758,9 +1758,10 @@ describe("project-bound release candidate", () => {
 
     // 3. Narrowed apply writes exactly the selected Projects (TEST-007):
     // non-interactive completion with the explicit answering flag replaces
-    // the changed generated files, names every operation with its Project
-    // attribution, and prompts nothing (US-007, DEC-005, TEST-004).
-    // Without the flag the same scope refuses before any write (DEC-005).
+    // the changed generated files, states the impact once, keeps the approved
+    // replacement identities, and prompts nothing (US-007, US-011, DEC-005,
+    // TEST-004, ADR-0040). Without the flag the same scope refuses before any
+    // write (DEC-005).
     const staleRefused = await runCliDefaultScope(home, ["update", "--stale"], { path: gitOnlyPath });
     expectExitCode(staleRefused, 1);
     expect(staleRefused.stderr).toContain("--replace-changed");
@@ -1771,9 +1772,14 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(staleApply, 0);
     expect(staleApply.stdout).toContain("Update complete");
-    for (const committed of [changed, multi, missing, source]) {
-      expect(staleApply.stdout).toContain(committed);
+    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
+    // The approved changed replacements keep their Project identities; the
+    // routine restored and source-updated Projects stay a count.
+    for (const replaced of [changed, multi]) {
+      expect(staleApply.stdout).toContain(replaced);
     }
+    expect(staleApply.stdout).not.toContain(missing);
+    expect(staleApply.stdout).not.toContain(source);
     // The receipt names the replaced changed generated file without wording
     // that infers who changed it (US-028, TEST-013).
     expect(staleApply.stdout).toContain(".agent-profile-kit/codex/context.md");
@@ -1799,7 +1805,7 @@ describe("project-bound release candidate", () => {
     const fleetApply = await runCliDefaultScope(home, ["update"], { path: gitOnlyPath });
     expectExitCode(fleetApply, 2);
     expect(fleetApply.stdout).toContain("Update complete");
-    expect(fleetApply.stdout).toContain(neverInstalled);
+    expect(humanText(fleetApply.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(existsSync(join(neverInstalled, ".agent-profile-kit/codex/context.md"))).toBe(true);
     // The Blocked Project was left untouched: its tracked generated files are
     // still on disk and its Installation State stays machine-local.
@@ -2099,7 +2105,8 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Update complete");
-    expect(apply.stdout).toContain("Updated:");
+    expect(humanText(apply.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(humanText(apply.stdout)).toContain("Details: apkit details");
     const humanApply = humanText(apply.stdout);
     expect(humanApply).toContain(
       "To check that codex loaded Profile example, start a new codex session in",
@@ -2146,7 +2153,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(restore, 0);
-    expect(restore.stdout).toContain("Updated:");
+    expect(humanText(restore.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(restore.stdout).toContain("To check that codex loaded Profile example");
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
@@ -2169,7 +2176,7 @@ describe("project-bound release candidate", () => {
     );
     const maintenance = await runCli(home, ["update", boundProject, "--replace-changed"], { path: pathWithHosts });
     expectExitCode(maintenance, 0);
-    expect(maintenance.stdout).toContain("Updated:");
+    expect(humanText(maintenance.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(maintenance.stdout).toContain("To check that claude and codex loaded Profile example");
     expect(maintenance.stdout).not.toContain("Now author your own:");
     expect(maintenance.stdout).not.toContain("apkit new ");

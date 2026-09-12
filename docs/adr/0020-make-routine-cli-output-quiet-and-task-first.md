@@ -63,6 +63,18 @@ completion, so the disclosure routes are first-use apply guidance, verbose
 status, focused guidance, and native Host prompts. Persisting or detecting Host
 trust remains out of scope.
 
+### Amendment: the default receipt shape and its detail route (ADR-0040)
+
+Tier 1's rule that concise output omits routine generated paths and Repository
+Exclusion bookkeeping is carried by ADR-0040 for the lifecycle receipts: the
+default `update` receipt states its affected Project and changed-file counts
+once and names any approved changed-file replacement or deletion, `install` and
+`uninstall` keep their established compact statements, and every default
+receipt whose run retained an operation-history entry closes with
+`Details: apkit details` on the report's own stream. The complete per-path
+receipt stays tier 2, and re-running a lifecycle command is never offered as
+retrieval of an earlier run. Tiers 2 and 3 are unchanged.
+
 ## Superseded decisions
 
 This ADR supersedes only the conflicting default-view rules below; the remaining

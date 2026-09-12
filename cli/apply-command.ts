@@ -76,6 +76,7 @@ import {
   updateVerificationFailureRecording,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
+import { writeLifecycleReport } from "./operation-history-presentation.js";
 
 export interface ApplyCommandRequest {
   readonly home: string;
@@ -163,6 +164,26 @@ async function runApplyCommandWithRecording(
     selection: request.selection,
     ...(request.verbose ? { verbose: true } : {}),
   };
+  /**
+   * Write one terminal human report, then this run's retained-operation detail
+   * route exactly when the run retained an entry and the default (non-verbose)
+   * view is showing (US-011, DEC-007; ADR-0040). The route follows the report's
+   * own stream, so a declined or failed run keeps the pointer beside its
+   * diagnostic, and a pre-write refusal that records nothing advertises
+   * nothing.
+   */
+  const writeReport = (
+    stream: Writable & TerminalStream,
+    document: PresentationDocument,
+    context: TerminalPresentationContext,
+  ): void => {
+    writeLifecycleReport(
+      stream,
+      document,
+      context,
+      request.verbose !== true && recording.collected !== undefined,
+    );
+  };
   // Update has no general confirmation (DEC-004): the prompt exists only for
   // unauthored changed-file scope, through the one shared consent loop.
   const confirmer = createChangedOutputConfirmer({
@@ -198,16 +219,20 @@ async function runApplyCommandWithRecording(
     if (request.json) {
       request.stdout.write(formatApplyJson(applied));
     } else {
-      writeHumanDocument(request.stdout, applyReportDocument(applied, humanOptions), stdoutContext);
-      if (promptedAcceptedScope() !== undefined) {
-        writeHumanDocument(
-          request.stdout,
-          applyReplacementCommandDocument(
-            fullySpecifiedApplyArguments(request.selection, equivalentScope(promptedAcceptedScope())).map(arg),
-          ),
-          stdoutContext,
-        );
-      }
+      const reportDocument = applyReportDocument(applied, humanOptions);
+      const prompted = promptedAcceptedScope();
+      writeReport(
+        request.stdout,
+        prompted === undefined
+          ? reportDocument
+          : [
+              ...reportDocument,
+              ...applyReplacementCommandDocument(
+                fullySpecifiedApplyArguments(request.selection, equivalentScope(prompted)).map(arg),
+              ),
+            ],
+        stdoutContext,
+      );
     }
     // Exit 0 whenever update completed without blockers, including remaining
     // non-current work (outcome "attention"). Gate on blockers only.
@@ -221,7 +246,7 @@ async function runApplyCommandWithRecording(
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
         const scope = equivalentScope(promptedAcceptedScope());
-        writeHumanDocument(
+        writeReport(
           request.stderr,
           applyReplacementDeclinedDocument(
             error.reason === "cancelled" ? "cancelled" : declinedAnswer(),
@@ -250,7 +275,7 @@ async function runApplyCommandWithRecording(
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
-        writeHumanDocument(
+        writeReport(
           request.stderr,
           applyConsentRequiredDocument(
             error,
@@ -270,7 +295,7 @@ async function runApplyCommandWithRecording(
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
-        writeHumanDocument(
+        writeReport(
           request.stderr,
           applyReviewStaleDocument(
             error,
@@ -289,7 +314,7 @@ async function runApplyCommandWithRecording(
       if (request.json) {
         request.stdout.write(formatBlockedApplyJson(error.report));
       } else {
-        writeHumanDocument(
+        writeReport(
           request.stdout,
           blockedApplyReportDocument(error.report, humanOptions),
           stdoutContext,
@@ -302,7 +327,7 @@ async function runApplyCommandWithRecording(
       if (request.json) {
         request.stdout.write(formatApplyExecutionFailureJson(error));
       } else {
-        writeHumanDocument(
+        writeReport(
           request.stderr,
           applyExecutionFailureDocument(error, humanOptions),
           stderrContext,
@@ -315,7 +340,7 @@ async function runApplyCommandWithRecording(
       if (request.json) {
         request.stdout.write(formatApplyVerificationFailureJson(error.receipt, error.message));
       } else {
-        writeHumanDocument(
+        writeReport(
           request.stdout,
           applyVerificationFailureDocument(error.receipt, error.message, humanOptions),
           stdoutContext,

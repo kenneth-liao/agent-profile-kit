@@ -46,10 +46,12 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
 import type { ChangedOutputComparison } from "../installer/changed-output-review.js";
 import {
+  changedOutputDiscard,
   type ApplyConsentRequiredError,
   type ApplyReconciliationResult,
   type ApplyReviewStaleError,
   type ChangedOutputConsentRequest,
+  type ChangedOutputOperation,
   type ProjectIdentity,
   type BlockedReconciliationReport,
   type OutputReconciliationItem,
@@ -2769,13 +2771,6 @@ function reportProjects(report: ReconciliationReport): readonly string[] {
   return report.projects.map((project) => project.canonicalProject).sort(compareCanonicalStrings);
 }
 
-/** Fleet grouping is based only on observable work and Project scope. */
-function useOperationSummary(report: ReconciliationReport, blocked: boolean): boolean {
-  return !blocked &&
-    reportProjects(report).length > 1 &&
-    reportOutputs(report).some((output) => isPlannedOutputOperation(output.kind));
-}
-
 interface OperationPresentationGroup {
   readonly operation: PlannedOutputOperation;
   readonly projects: readonly ProjectIdentity[];
@@ -2853,8 +2848,8 @@ function operationSummaryNodes(
     { kind: "heading", text: "Project changes:" },
     ...groups.map((group) => ({
       kind: "prose" as const,
-      // Status keeps the concise affected-Project cap; only Apply Receipts
-      // render every affected Project (US-027, DEC-018).
+      // Status keeps the concise affected-Project cap; committed receipts
+      // state their impact once and never enumerate Projects (ADR-0040).
       parts: [`  ${operationGroupLine(group, report, scope, PROJECT_SCOPE_LIMIT)}`],
     })),
     ...operationAttentionNodes(report, scope),
@@ -2936,14 +2931,21 @@ function conciseStatusOperationLine(
 }
 
 function statusAffectedProjects(report: ReconciliationReport): readonly string[] {
-  return report.projects
-    .filter((project) =>
-      project.state.kind !== "current" ||
-      project.outputs.some((output) => isPlannedOutputOperation(output.kind)) ||
-      project.repositoryExclusions.length > 0
-    )
-    .map((project) => project.canonicalProject)
-    .sort(compareCanonicalStrings);
+  return report.projects.filter(receiptProjectHasWork).map((project) => project.canonicalProject).sort(compareCanonicalStrings);
+}
+
+/**
+ * Whether one receipt record proves work this run committed: a planned
+ * generated-output operation, a committed non-current state (including a new
+ * desired-input digest or an installation-record update that left every
+ * projection byte-identical), or committed Repository Exclusion bookkeeping.
+ * The one reader shared by resulting-state affected-Project evidence and the
+ * default receipt's impact statement (US-011, DEC-007; ADR-0040).
+ */
+function receiptProjectHasWork(project: ReconciliationProjectRecord): boolean {
+  return project.outputs.some((output) => isPlannedOutputOperation(output.kind)) ||
+    project.state.kind !== "current" ||
+    project.repositoryExclusions.length > 0;
 }
 
 function readyStatusImpactLines(
@@ -3020,35 +3022,90 @@ function locationDisplayScope(
 }
 
 
+/** One Project's committed receipt work: its planned output operations. */
+interface CommittedReceiptProject {
+  readonly outputs: readonly (ReconciliationProjectOutput & {
+    readonly kind: PlannedOutputOperation;
+  })[];
+  readonly project: ReconciliationProjectRecord;
+}
+
 /**
- * One named path line per affected generated file in the Apply Receipt, with
- * its Project attribution, ordered by operation, Project, then path, and
- * never capped: the receipt names every write it committed (DEC-018).
+ * One approved changed-file exception block: an independently changed
+ * generated file that this run replaced or deleted keeps its identity in the
+ * default receipt, because the user authorized discarding that specific edit
+ * and the receipt is the record of what was discarded (US-011, DEC-007).
+ * Routine committed work never enumerates here. The exception set is exactly
+ * the shared consent gate's review scope (`changedOutputDiscard`).
  */
-function operationReceiptPathLines(
+function changedOutputExceptionNodes(
+  committed: readonly CommittedReceiptProject[],
+  operation: ChangedOutputOperation,
+  heading: string,
+  scope: LocationDisplayScope,
+): PresentationNode[] {
+  const lines = committed.flatMap(({ outputs, project }) =>
+    outputs
+      .filter((output) => changedOutputDiscard(output) === operation)
+      .slice()
+      .sort((left, right) => compareCanonicalStrings(left.path, right.path))
+      .flatMap((output) => {
+        const line = outputPathLine(output);
+        return line === undefined
+          ? []
+          : [`  ${line} (${displayProjectPath(project.canonicalProject, project.project, scope)})`];
+      })
+  );
+  return lines.length === 0
+    ? []
+    : [
+        spacerNode(),
+        { kind: "heading", text: heading },
+        ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
+      ];
+}
+
+/**
+ * The default lifecycle receipt (US-011, DEC-007; ADR-0040): the affected
+ * Project count and changed-generated-file count stated once, without a
+ * per-file, per-Project, per-operation, or Profile inventory. A Project the
+ * receipt proves it updated — any committed non-current state (planned output
+ * work, a new desired-input digest, or an installation-record change that left
+ * every projection byte-identical) or committed Repository Exclusion
+ * bookkeeping — is counted even when no generated file changed. Approved changed-file replacements and deletions keep their actionable
+ * identities below; routine committed additions, updates, and removals stay a
+ * count. The complete current-run evidence remains `--verbose`, and the
+ * completed run's evidence is retained by `apkit details` — never by re-running
+ * the command.
+ */
+function compactReceiptNodes(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
-): readonly string[] {
-  return receipt.projects
+): PresentationNode[] {
+  const committed: readonly CommittedReceiptProject[] = receipt.projects
     .slice()
     .sort((left, right) => compareCanonicalStrings(left.canonicalProject, right.canonicalProject))
-    .flatMap((project) =>
-      project.outputs
-        .filter((output): output is ReconciliationProjectOutput & { readonly kind: PlannedOutputOperation } =>
-          isPlannedOutputOperation(output.kind)
-        )
-        .flatMap((output) => {
-          const path = outputPathLine(output);
-          return path === undefined ? [] : [{
-            operation: PLANNED_OUTPUT_OPERATION_ORDER.indexOf(output.kind),
-            line: `  ${path} (${displayProjectPath(project.canonicalProject, project.project, scope)})`,
-          }];
-        }),
-    )
-    .sort((left, right) =>
-      left.operation - right.operation || compareCanonicalStrings(left.line, right.line)
-    )
-    .map((entry) => entry.line);
+    .map((project) => ({
+      outputs: project.outputs.filter(
+        (output): output is ReconciliationProjectOutput & { readonly kind: PlannedOutputOperation } =>
+          isPlannedOutputOperation(output.kind),
+      ),
+      project,
+    }))
+    .filter(({ project }) => receiptProjectHasWork(project));
+  if (committed.length === 0) return [];
+  const fileCount = committed.reduce((count, entry) => count + entry.outputs.length, 0);
+  return [
+    {
+      kind: "prose",
+      parts: [
+        `Updated ${plural(committed.length, "Project")} ` +
+        `(${plural(fileCount, DEFAULT_VIEW_LEXICON.generatedOutput.singular)}).`,
+      ],
+    },
+    ...changedOutputExceptionNodes(committed, "replace", "Replaced changed generated files:", scope),
+    ...changedOutputExceptionNodes(committed, "remove", "Removed changed generated files:", scope),
+  ];
 }
 
 
@@ -3092,97 +3149,14 @@ function applyOutcomeNotice(
 
 /** The typed Apply Receipt operation summary: counted operations, then the
  * named affected paths with their Project attribution (#380). */
-function operationReceiptNodes(
-  receipt: ReconciliationReport,
-  fleetScope: ReconciliationReport,
-  scope: LocationDisplayScope,
-  includeExclusions = true,
-): PresentationNode[] {
-  const groups = groupOutputOperations(receipt);
-  const exclusionClause = includeExclusions ? repositoryExclusionClause(receipt, true) : undefined;
-  if (groups.length === 0 && exclusionClause === undefined) return [];
-  const nodes: PresentationNode[] = [
-    { kind: "heading", text: "Updated:" },
-    ...groups.map((group) => ({
-      kind: "prose" as const,
-      parts: [`  ${operationGroupLine(group, fleetScope, scope)}`],
-    })),
-    ...operationReceiptPathLines(receipt, scope).map((line) => ({
-      kind: "prose" as const,
-      parts: [line],
-    })),
-  ];
-  if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
-  }
-  return nodes;
-}
-
-/** The typed Apply Receipt: applied evidence per Project, or the operation
- * summary above one Project, or the explicit no-change outcome. */
-function applyReceiptNodes(
-  receipt: ReconciliationReport,
-  scope: LocationDisplayScope,
-  summarizeFleet = false,
-  fleetScope: ReconciliationReport = receipt,
-): PresentationNode[] {
-  if (summarizeFleet || useOperationSummary(receipt, false)) {
-    return operationReceiptNodes(receipt, fleetScope, scope);
-  }
-  const grouped = groupProjects(receipt);
-  const entries: PresentationNode[] = grouped.groups.flatMap((group) => {
-    // The receipt names every committed file operation; the concise cap
-    // belongs to pending resulting-state views, not committed evidence.
-    const paths = outputPathLines(group.outputs, Infinity);
-    if (paths.length > 0) {
-      return [
-        {
-          kind: "prose" as const,
-          parts: [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}:`],
-        },
-        ...paths.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })),
-      ];
-    }
-    const workKinds = [...new Set(
-      group.items
-        .filter((item) => item.kind !== "current")
-        .map((item) => item.kind === "update"
-          ? `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} update`
-          : `${DEFAULT_VIEW_LEXICON.reconciliation.noun} ${item.kind}`),
-    )];
-    return workKinds.length > 0
-      ? [{
-        kind: "prose" as const,
-        parts: [`- ${displayProjectPath(group.canonicalProject, group.project, scope)}: ${workKinds.join(", ")}`],
-      }]
-      : [];
-  });
-  const exclusionClause = repositoryExclusionClause(receipt, true);
-  if (entries.length === 0 && exclusionClause === undefined) {
-    return [{ kind: "prose", parts: ["Updated: none."] }];
-  }
-  const nodes: PresentationNode[] = [
-    { kind: "heading", text: "Updated:" },
-    ...(entries.length > 0
-      ? entries
-      : [{ kind: "prose" as const, parts: [`- No ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} changes`] }]),
-  ];
-  if (exclusionClause !== undefined) {
-    nodes.push(spacerNode(), { kind: "prose", parts: [exclusionClause] });
-  }
-  return nodes;
-}
 
 /** The committed Apply Receipt plus the Projects it made current, as typed nodes. */
 function committedApplyEvidenceNodes(
   receipt: ReconciliationReport,
   postState: ReconciliationReport,
-  summarizeFleet: boolean,
   scope: LocationDisplayScope,
 ): PresentationNode[] {
-  const nodes: PresentationNode[] = [
-    ...applyReceiptNodes(receipt, scope, summarizeFleet, postState),
-  ];
+  const nodes: PresentationNode[] = compactReceiptNodes(receipt, scope);
   const appliedProjects = new Set(
     receipt.projects.map((project) => project.canonicalProject),
   );
@@ -3311,7 +3285,7 @@ function conciseApplyDocument(
   }
 
   if (!blocked && !noOpApply && receipt !== undefined) {
-    const appliedNodes = operationReceiptNodes(receipt, report, scope, false);
+    const appliedNodes = compactReceiptNodes(receipt, scope);
     if (appliedNodes.length > 0) nodes.push(spacerNode(), ...appliedNodes);
   }
 
@@ -3421,7 +3395,7 @@ function conciseApplyDocument(
   if (blocked && receipt !== undefined) {
     nodes.push(
       spacerNode(),
-      ...committedApplyEvidenceNodes(receipt, report, report.projects.length > 1, scope),
+      ...committedApplyEvidenceNodes(receipt, report, scope),
     );
   }
   if (!blocked && !noOpApply && receipt !== undefined) {
@@ -3601,7 +3575,7 @@ export function applyExecutionFailureDocument(
       ? "none"
       : failure.pendingProjects.map((project) => presentProject(project, scope)).join(", ")}`],
   });
-  nodes.push(...applyReceiptNodes(failure.receipt, scope));
+  nodes.push(...compactReceiptNodes(failure.receipt, scope));
   if (failure.resultingState !== undefined) {
     const appliedProjects = new Set(
       failure.receipt.projects.map((project) => project.canonicalProject),
@@ -4315,7 +4289,7 @@ export function applyVerificationFailureDocument(
   const nodes: PresentationNode[] = [
     { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
     ...warningItems,
-    ...applyReceiptNodes(receipt, scope),
+    ...compactReceiptNodes(receipt, scope),
   ];
   const setup = conciseFirstUseNodes(
     presentedSetupSteps("update", receipt, receipt, false, scope),
