@@ -20,8 +20,13 @@ import { terminalPresentationContext, type TerminalStream } from "./terminal-pre
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type {
   ChangedOutputConsentAnswer,
+  ChangedOutputConsentProject,
   ChangedOutputConsentRequest,
 } from "../installer/reconcile.js";
+import {
+  historyRecordFor,
+  type ChangedOutputHistoryRecord,
+} from "../installer/changed-output-review.js";
 
 export interface ChangedOutputConfirmerOptions {
   readonly input: Readable;
@@ -51,6 +56,13 @@ export interface ChangedOutputConfirmer {
   requestedScope(): ChangedFileAnsweringScope;
   /** How the declined answer was given. */
   declinedAnswer(): ApplyDeclinedAnswer;
+  /**
+   * The Projects the consent gate reviewed, in review order (DEC-008): the one
+   * diagnostic projection an entry carries, never file contents.
+   */
+  reviewedProjects(): readonly ChangedOutputConsentProject[];
+  /** History-safe changed-output records (identity and paths only). */
+  reviewedChangedOutputs(): readonly ChangedOutputHistoryRecord[];
 }
 
 export function createChangedOutputConfirmer(
@@ -71,9 +83,13 @@ export function createChangedOutputConfirmer(
   let promptedScope: ChangedFileAnsweringScope | undefined;
   let requested: ChangedFileAnsweringScope = { replace: false, remove: false };
   let declined: ApplyDeclinedAnswer = "declined";
+  const reviewedProjects: ChangedOutputConsentProject[] = [];
+  const reviewedChangedOutputs: ChangedOutputHistoryRecord[] = [];
   const confirm = prompt === undefined
     ? undefined
     : async (consentRequest: ChangedOutputConsentRequest): Promise<ChangedOutputConsentAnswer> => {
+      reviewedProjects.push(...consentRequest.projects);
+      reviewedChangedOutputs.push(...consentRequest.comparisons.map(historyRecordFor));
       let diffPage = 0;
       requested = {
         remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
@@ -116,6 +132,8 @@ export function createChangedOutputConfirmer(
     promptedAcceptedScope: () => promptedScope,
     requestedScope: () => requested,
     declinedAnswer: () => declined,
+    reviewedProjects: () => reviewedProjects,
+    reviewedChangedOutputs: () => reviewedChangedOutputs,
   };
 }
 

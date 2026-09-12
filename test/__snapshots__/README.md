@@ -2,7 +2,9 @@
 
 These snapshots are the measuring apparatus for human rendering. They capture
 the packed-CLI output baseline from before the presentation document model
-landed.
+landed. Volatile values that are not part of the reviewed rendering are
+stabilized before capture: home paths, installation identities, and retained
+operation times.
 
 When a later change updates a snapshot, the accepted diff is limited to:
 

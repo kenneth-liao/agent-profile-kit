@@ -14316,3 +14316,94 @@ describe("packed CLI install missing-argument errors (#494, US-001, US-006)", ()
     expect(readFileSync(configPath(home), "utf8")).toContain(realpathSync(projectPath));
   });
 });
+
+describe("apkit details (retained operation history)", () => {
+  test("the packed CLI records install and update and details reads them back", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const projectPath = project();
+
+    const installed = await runCli(
+      home,
+      "install",
+      "coding",
+      projectPath,
+      "--host",
+      "codex",
+      "--auto-confirm",
+    );
+    expectExitCode(installed, 0);
+    expectExitCode(await runCli(home, "update", "--all"), 0);
+
+    const list = await runCli(home, "details", "--list");
+    expectExitCode(list, 0);
+    expect(humanText(list.stdout)).toContain("Operation history (2)");
+    const listPayload = JSON.parse((await runCli(home, "details", "--list", "--json")).stdout) as {
+      entries: readonly { readonly id: string }[];
+    };
+    expect(listPayload.entries.map((entry) => entry.id)).toEqual(["op-000002", "op-000001"]);
+
+    const byId = await runCli(home, "details", "op-000001");
+    expectExitCode(byId, 0);
+    expect(humanText(byId.stdout)).toContain("Install op-000001");
+    expect(humanText(byId.stdout)).toContain(".codex/hooks.json");
+
+    const payload = JSON.parse((await runCli(home, "details", "--json")).stdout) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      entries: readonly { readonly id: string; readonly command: string }[];
+    };
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.command).toBe("details");
+    expect(payload.outcome).toBe("clean");
+    expect(payload.entries.map((entry) => entry.id)).toEqual(["op-000002"]);
+    expect(payload.entries[0]!.command).toBe("update");
+
+    const missing = await runCli(home, "details", "op-000009");
+    expectExitCode(missing, 1);
+    expect(humanText(missing.stderr)).toContain("op-000009");
+  });
+
+  test("a machine with no retained history reports it without failing", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+
+    const empty = await runCli(home, "details");
+    expectExitCode(empty, 0);
+    expect(humanText(empty.stdout)).toContain("No lifecycle operations are recorded yet");
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "operation-history.json"))).toBe(false);
+
+    // Read-only commands never create the retained document.
+    expectExitCode(await runCli(home, "status", "--all"), 0);
+    expect(existsSync(join(home, ".agents", "agent-profile-kit", "operation-history.json"))).toBe(false);
+  });
+
+  test("concurrent packed-CLI runs retain every report without losing an entry", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+
+    const [first, second, third] = await Promise.all([
+      runCli(home, "update", "--all"),
+      runCli(home, "update", "--all"),
+      runCli(home, "update", "--all"),
+    ]);
+    expectExitCode(first, 0);
+    expectExitCode(second, 0);
+    expectExitCode(third, 0);
+
+    const list = await runCli(home, "details", "--list", "--json");
+    expectExitCode(list, 0);
+    const payload = JSON.parse(list.stdout) as {
+      entries: readonly { readonly id: string }[];
+    };
+    expect(payload.entries.map((entry) => entry.id)).toEqual([
+      "op-000003",
+      "op-000002",
+      "op-000001",
+    ]);
+  });
+});

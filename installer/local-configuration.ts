@@ -21,6 +21,7 @@ import {
   type ParsedProjectBinding,
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
+import { applicationDirectory } from "./application-directory.js";
 import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
@@ -34,11 +35,11 @@ import {
 } from "./tool-errors.js";
 
 export function localConfigurationPath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", LOCAL_CONFIGURATION_FILE);
+  return join(applicationDirectory(home), LOCAL_CONFIGURATION_FILE);
 }
 
 export function stateDirectory(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "state");
+  return join(applicationDirectory(home), "state");
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

@@ -6,6 +6,7 @@ import {
   parseWorkspaceManifest,
   WORKSPACE_MANIFEST_FILE,
 } from "../schemas/workspace-manifest.js";
+import { applicationDirectory } from "./application-directory.js";
 import { InstallerToolError } from "./tool-errors.js";
 
 export const WORKSPACE_ARTIFACT_DIRECTORIES = [
@@ -19,7 +20,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 }
 
 export function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(applicationDirectory(home), "workspace");
 }
 
 /** Read one filesystem entry without following symlinks; absence is undefined. */

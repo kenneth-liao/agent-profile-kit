@@ -18,6 +18,7 @@ The tool repository owns the CLI, schemas, Installer, Adapters, and product docu
 │   ├── context/
 │   └── skills/
 ├── config.yaml                # Machine-local explicit Workspace selection + Project Bindings
+├── operation-history.json     # Bounded diagnostic lifecycle history (latest 200 runs)
 └── state/                     # Durable ownership evidence and staging state
 ```
 
@@ -110,6 +111,13 @@ Commands separate binding authoring from global reconciliation:
   verification failure exits `1` and retains committed-work evidence. `--json`
   includes both the resulting-state snapshot and an `applied` receipt snapshot.
 - `status` is the complete update-equivalent read-only plan. It reports current, not installed, stale source, drifted output (including wholly absent owned output), malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; and warnings. It performs no Agent Host process execution (DEC-015): Host capability probing happens only during `update`, where a missing or outdated Host CLI produces one advisory warning per Host per invocation (DEC-014) — naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages — and never gates planning, writing, or the outcome. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A bound Project with no ordinary Installation Receipt is not installed and eligible for `update`; no separate teardown intent is inferred or consulted. A fully current concise status states that fact once with no setup reminder, Project list, or next action; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `update`.
+- `details [--list | <operation-id>] [--json]` reads the one machine-local
+  operation-history document without writing anything or rerunning lifecycle
+  planning: no argument shows the latest retained run, `--list` the compact
+  newest-first history, one identity its complete entry, and `--json` the
+  versioned details family. An absent history, an unknown or evicted identity,
+  an unreadable document, and invalid arguments each report clearly, and long
+  human detail pages on an interactive terminal through the shared pager.
 - `uninstall` keeps its own exit semantics outside the lifecycle machine surface: exit `2` when known Blockers skip healthy work and `0` when every selected Project completes. Exclusion cleanup is best-effort: entries are removed when they can be and the removal continues when they cannot. Temporary Profile Installation receipts are preserved.
 - `machine install-temp <profile> <project> --host <host>` (machine-facing namespace, DEC-019) installs one Profile temporarily into one explicit Project for one Host marked Temporary-eligible by the canonical Host catalog (`supportsTemporaryProfileInstallation`). It reuses Adapter planning, ownership preflight, transactional publication, and best-effort Repository Exclusion bookkeeping, writes a durable temporary receipt before owned project mutations can be orphaned, and never creates a Project Binding or runs global reconciliation. Concise human success prints the exact `apkit machine remove-temp <actual-id>` command from that durable identity; `--json` continues to emit the shape-unchanged versioned temporary-installation receipt (now at `schemaVersion: 9`, ADR-0023). Failures after the first visible owned mutation report `removalRequired` with the recoverable `temporaryInstallationId`; predictable validation and ownership blockers still occur before writes and require no removal. Temporary and ordinary Installer publication share an exclusive Installation State lifecycle lock so concurrent operations cannot interleave conflicting ownership writes.
 - `machine remove-temp <temporary-installation-id>` removes only that Temporary Profile Installation's owned outputs and exclusion entries. Temporary-owned roots are intentionally disposable: removal discards content drift and unexpected members inside complete recorded directories without traversing adjacent unowned paths. Cleanup commits before the terminal state write so an interrupted remove remains retryable. A successful removal leaves a terminal removed identity so repeated calls remain idempotent. Linked worktrees are distinct Projects that may hold independent Temporary Profile Installations; each removal rewrites the shared exclusion target's owned section from the receipts that remain, as best-effort bookkeeping.
@@ -410,6 +418,28 @@ a different Project later created at the same path, so they fail closed.
 Unsupported entry types (such as symlinks) inside a proven root, root type
 confusion, unreadable output, and unsafe parents also fail closed and remain
 Blockers; no member tree is persisted or reconstructed.
+
+Lifecycle operation history is one durable machine-local diagnostic document at
+`~/.agents/agent-profile-kit/operation-history.json` — separate from Local
+Configuration and Installation State, and never an ownership or desired-state
+authority (ADR-0039). `install`, `update`, and `uninstall` append at most one
+structured entry per attempted run: operation id, command, start/finish times,
+requested scope, outcome, per-Project committed and removed generated paths,
+failed and remaining work, and consent-reviewed changed-output identities and
+review ids (never file contents, never rendered report prose), evicting the
+oldest entries only beyond the 200-entry cap so the retained window always
+holds the latest 200 runs. Every append and eviction re-reads, appends, evicts,
+and atomically replaces the document under its own exclusive kernel lock, so
+concurrent writers cannot lose a retained report or expose a torn document; a
+document the production reader cannot accept fails closed instead of being
+overwritten. Any invocation that stopped after committing work keeps that
+evidence, and an invocation that committed nothing records nothing; the
+complete recording boundary lives once in ADR-0039. A run cancelled or declined
+at an interactive authorization prompt records its cancellation, carrying work
+that already committed earlier in the same invocation. When an entry cannot
+be saved, the command warns and displays that run's complete evidence on
+stderr while the committed lifecycle work stays committed, and `details` reads
+the stored entries without mutating them.
 
 Ordinary and Temporary Profile Installations use the same active receipt shape.
 Bindings own ordinary desired lifetime; a temporary receipt owns temporary

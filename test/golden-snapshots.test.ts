@@ -43,6 +43,9 @@ let snapshotBodies: Map<string, string>;
 const UUID_PATTERN =
   /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const STABLE_UUID = "00000000-0000-4000-8000-000000000000";
+/** Retained operation evidence carries real times; rendering is what is reviewed. */
+const OPERATION_TIME_PATTERN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/g;
+const STABLE_OPERATION_TIME = "2026-01-01T00:00:00Z";
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
@@ -92,7 +95,9 @@ function stabilize(text: string, home: string): string {
   for (const path of replacements) {
     next = next.split(path).join(sameLengthPlaceholder(path));
   }
-  return next.replace(UUID_PATTERN, STABLE_UUID);
+  return next
+    .replace(UUID_PATTERN, STABLE_UUID)
+    .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME);
 }
 
 function snapshotBody(result: ProcessResult, home: string): string {
@@ -450,6 +455,35 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     snapshot: "agent-guide",
     commandId: "guide",
     prepare: async () => ({ home: isolatedHome(), args: ["guide", "--agent"] }),
+  },
+  {
+    test: "details empty",
+    snapshot: "details-empty",
+    commandId: "details",
+    prepare: async () => {
+      const { home } = await initializedHome();
+      return { home, args: ["details"] };
+    },
+  },
+  {
+    test: "details list",
+    snapshot: "details-list",
+    commandId: "details",
+    prepare: async () => {
+      const { home, project } = await initializedHome();
+      await installExample(home, project);
+      return { home, args: ["details", "--list"] };
+    },
+  },
+  {
+    test: "details latest",
+    snapshot: "details-latest",
+    commandId: "details",
+    prepare: async () => {
+      const { home, project } = await initializedHome();
+      await installExample(home, project);
+      return { home, args: ["details"] };
+    },
   },
   {
     test: "info",
