@@ -7,11 +7,14 @@
  *
  * Scope is explicit: `--here`, `--project <path>`, or `--all` (mutually
  * exclusive), intersected by `--profile`. An absent non-interactive scope
- * never implies all Projects, and a bare interactive invocation refuses
- * instead of widening (interactive selection belongs to #499). `--host`
+ * never implies all Projects, and a bare interactive invocation collects
+ * its scope through the searchable Project picker instead of widening
+ * (ticket #499). `--host`
  * narrows removal to those Hosts within the selected scope (#498): a
  * Host-only invocation still needs an explicit Project scope (a `--profile`
- * selector provides one). `--replace-changed` authorizes only the
+ * selector provides one) on non-interactive and machine-JSON input, while
+ * Host-only interactive input routes into Project selection with its Hosts
+ * proposed. `--replace-changed` authorizes only the
  * survivor-rewrite portion of a `--host` partial removal; whole-removal
  * stays deletion-only and keeps rejecting it.
  */
@@ -232,8 +235,12 @@ import {
   uninstallConfirmationRequiredDocument,
   uninstallDeclinedDocument,
   uninstallExecutionFailureDocument,
+  uninstallInteractiveCommandsDocument,
+  uninstallInteractiveEquivalentDocument,
+  uninstallInteractivePickedDocument,
   uninstallMissingScopeDocument,
   uninstallNoMatchDocument,
+  uninstallPickerNoopDocument,
   uninstallReceiptDocument,
   uninstallReplacementCommandDocument,
   uninstallScopeChangedDocument,
@@ -250,14 +257,30 @@ import {
   type TerminalPresentationContext,
   type TerminalStream,
 } from "./terminal-presentation.js";
-import { createTextPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
+import {
+  createSearchableMultiSelectPrompt,
+  createSelectPrompt,
+  createTextPrompt,
+  isInteractiveInput,
+  type PromptClock,
+} from "./prompts.js";
 import type { CommandArg } from "./inline-content.js";
+import { displayProjectPath } from "./display-path.js";
+import { SUPPORTED_HOSTS } from "../adapters/registry.js";
 import { ProjectTargetError, type ProjectBindingSelection } from "../installer/local-configuration.js";
 import {
   executeUninstall,
+  normalizeUninstallHosts,
   previewUninstall,
+  survivingHostsForRemoval,
   UninstallScopeChangedError,
+  type UninstallApplicationResult,
+  type UninstallCompletedProject,
+  type UninstallFailedProject,
   type UninstallPreview,
+  type UninstallPreviewProject,
+  type UninstallSkippedProject,
+  type UninstallUnattemptedProject,
 } from "../installer/uninstall-application.js";
 import {
   ApplyConsentRequiredError,
@@ -355,6 +378,744 @@ function uninstallProgressIdentity(entry: {
   };
 }
 
+/**
+ * Interactive uninstall selection (ticket #499, spec #491 US-003/US-004/
+ * US-005, DEC-003–DEC-005): the searchable Project picker, the per-flow
+ * whole-versus-Host removal mode, and the Host picker — all on the shared
+ * #495 carriage seam, no second prompt framework. Picks are choices, never
+ * authority: the batch reviews its complete scope, answers the general
+ * confirmation (DEC-004), authorizes changed discards through the shared
+ * #493 loop (DEC-005), and commits each Project through the existing
+ * explicit contract with its own single-resolution guard (INT-2).
+ */
+const UNINSTALL_PROJECTS_QUESTION = "Which Projects to uninstall?";
+const UNINSTALL_REMOVAL_MODE_QUESTION =
+  "Whole installations or selected Hosts? (mix modes by repeating this command)";
+const UNINSTALL_HOSTS_QUESTION = "Which Hosts to remove?";
+
+type InteractiveHost = UninstallPreviewProject["hosts"][number];
+
+/** One picked Project with its reviewed single-Project scope. */
+interface InteractiveUninstallTarget {
+  readonly preview: UninstallPreviewProject;
+}
+
+/** Fleet identity for the pick-to-commit comparison (INT-2 for picks):
+ * canonical identity, Profile, and bound Hosts — anything the picker
+ * inventory showed. A binding added, removed, or rebound anywhere in the
+ * fleet fails the remaining batch closed, so unshown scope is never
+ * removed. */
+function interactiveFleetScopeKey(entry: {
+  readonly canonicalProject?: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly hosts: readonly string[];
+}): string {
+  return JSON.stringify([
+    entry.canonicalProject ?? entry.project,
+    entry.profile,
+    [...entry.hosts].sort(),
+  ]);
+}
+
+/** One picked Project as explicit equivalent arguments: the same removal
+ * with its scope, consent flags, and (unless omitted for a scope-change
+ * retry, RE-1) the general-confirmation answer explicit. The Project
+ * travels as a `--project` path argument so the renderer shell-quotes it
+ * as one POSIX token. */
+function interactiveEquivalentCommand(
+  scope: {
+    readonly project: string;
+    readonly canonicalProject?: string;
+    readonly removeHosts?: readonly string[];
+  },
+  options: {
+    readonly includeAutoConfirm: boolean;
+    readonly removeChanged: boolean;
+    readonly replaceChanged: boolean;
+  },
+): readonly CommandArg[] {
+  const scopePreview: UninstallPreview = {
+    projects: [{
+      ...(scope.canonicalProject === undefined
+        ? {}
+        : { canonicalProject: scope.canonicalProject }),
+      project: scope.project,
+      profile: "",
+      hosts: [],
+      ...(scope.removeHosts === undefined ? {} : { removeHosts: [...scope.removeHosts] as InteractiveHost[] }),
+      missing: false,
+    }],
+  };
+  return fullySpecifiedUninstallArguments(
+    {
+      project: scope.project,
+      projectFlag: true,
+      here: false,
+      all: false,
+      ...(scope.removeHosts === undefined ? {} : { hosts: [...scope.removeHosts] }),
+      autoConfirm: options.includeAutoConfirm,
+      removeChanged: options.removeChanged,
+      // Whole-removal performs no replacements (DEC-005): never render
+      // an inapplicable `--replace-changed` on a whole-removal line.
+      replaceChanged: scope.removeHosts === undefined ? false : options.replaceChanged,
+      json: false,
+    },
+    scopePreview,
+    options.includeAutoConfirm,
+  );
+}
+
+/** Per-Project equivalents for the remaining batch (one runnable line per
+ * picked Project — a single combined line cannot express per-Project
+ * narrowing). */
+function interactiveRemainingCommands(
+  targets: readonly InteractiveUninstallTarget[],
+  options: {
+    readonly includeAutoConfirm: boolean;
+    readonly removeChanged: boolean;
+    readonly replaceChanged: boolean;
+  },
+): readonly (readonly CommandArg[])[] {
+  return targets.map((target) =>
+    interactiveEquivalentCommand(
+      {
+        project: target.preview.project,
+        ...(target.preview.canonicalProject === undefined
+          ? {}
+          : { canonicalProject: target.preview.canonicalProject }),
+        ...(target.preview.removeHosts === undefined
+          ? {}
+          : { removeHosts: [...target.preview.removeHosts] }),
+      },
+      options,
+    )
+  );
+}
+
+/** The scope-changed halt for the remaining picked batch: nothing further
+ * is removed, and every retry omits `--auto-confirm` so the changed scope
+ * is reviewed, not removed unseen (RE-1). */
+function writeInteractiveScopeChanged(
+  request: UninstallCommandRequest,
+  stderrContext: TerminalPresentationContext,
+  parsed: ParsedUninstallArguments,
+  completed: readonly UninstallCompletedProject[],
+  remaining: readonly InteractiveUninstallTarget[],
+): void {
+  writeHumanDocument(
+    request.stderr,
+    uninstallInteractiveCommandsDocument({
+      happened: completed.length === 0
+        ? ["uninstall stopped before any write: the selected scope changed during confirmation"]
+        : [`uninstall stopped: the selected scope changed during confirmation; completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`],
+      why: [completed.length === 0
+        ? ["No Project or setting was changed."]
+        : ["Remaining Projects were not attempted."]],
+      intro: "Re-run to review the current scope (one command per Project):",
+      commands: interactiveRemainingCommands(remaining, {
+        includeAutoConfirm: false,
+        removeChanged: parsed.removeChanged,
+        replaceChanged: parsed.replaceChanged,
+      }),
+    }),
+    stderrContext,
+  );
+}
+
+async function runInteractiveUninstall(
+  request: UninstallCommandRequest,
+  parsed: ParsedUninstallArguments,
+  cwd: string,
+  stderrContext: TerminalPresentationContext,
+): Promise<UninstallCommandOutcome> {
+  const stdoutContext: TerminalPresentationContext = terminalPresentationContext(request.stdout);
+  const promptOptions = {
+    input: request.input,
+    output: request.stdout,
+    ...(request.clock === undefined ? {} : { clock: request.clock }),
+  };
+
+  // The picker inventory reads Local Configuration bindings without
+  // resolving the Workspace — the same boundary as the explicit preview —
+  // so listing never writes and never needs valid source.
+  let fleet: UninstallPreview;
+  try {
+    fleet = await previewUninstall(request.home, { all: true });
+  } catch (error) {
+    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    return { exitCode: 1 };
+  }
+  if (fleet.projects.length === 0) {
+    writeHumanDocument(
+      request.stderr,
+      uninstallNoMatchDocument("any bound Project"),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+
+  // A carried `--host` filter is validated before any picker opens (fail
+  // fast): unknown Hosts fail through the shared normalization boundary
+  // with zero writes, before the user picks anything.
+  let carriedHosts: readonly InteractiveHost[] | undefined;
+  if (parsed.hosts !== undefined) {
+    try {
+      carriedHosts = normalizeUninstallHosts(parsed.hosts);
+    } catch (error) {
+      writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      return { exitCode: 1 };
+    }
+  }
+
+  // Bare interactive uninstall starts with no Projects selected (DEC-003):
+  // nothing is pre-checked, so bound Projects are never silently picked.
+  // Titles stay bare identities so typing filters the choice, never
+  // evidence text (the #495 seam contract); Profile and Hosts appear in
+  // the pre-execution review instead.
+  const projectsAnswer = await createSearchableMultiSelectPrompt(promptOptions)(
+    UNINSTALL_PROJECTS_QUESTION,
+    fleet.projects.map((entry) => ({
+      title: displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet"),
+      value: entry.project,
+    })),
+  );
+  if (projectsAnswer.kind === "cancelled") {
+    writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+    return { exitCode: 1 };
+  }
+  if (projectsAnswer.values.length === 0) {
+    // Empty never widens to all Projects: a no-op with zero writes.
+    writeHumanDocument(
+      request.stderr,
+      uninstallPickerNoopDocument("empty-projects"),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+  const fleetByProject = new Map(fleet.projects.map((entry) => [entry.project, entry]));
+  const picked = [...new Set(projectsAnswer.values)]
+    .map((project) => fleetByProject.get(project))
+    .filter((entry) => entry !== undefined);
+  if (picked.length === 0) {
+    writeHumanDocument(
+      request.stderr,
+      uninstallPickerNoopDocument("empty-projects"),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+  // The selected count stays visible with the picked identities (US-005),
+  // ahead of the mode question; the pre-execution review repeats the
+  // complete scope with Profile and Hosts before any confirmation.
+  writeHumanDocument(
+    request.stdout,
+    uninstallInteractivePickedDocument(
+      picked.map((entry) =>
+        displayProjectPath(entry.canonicalProject ?? entry.project, entry.project, "fleet")
+      ),
+    ),
+    stdoutContext,
+  );
+
+  // A carried `--host` filter proposes Host-mode removal of those Hosts —
+  // reviewed at the mode question and again at the confirmation — never
+  // silently applied.
+
+  // One removal mode per flow (US-004): mixed whole+partial needs are
+  // served by repeat runs, stated in the question framing. The carried
+  // Hosts open with Host removal first and named, so the proposal is
+  // reviewed here and again at the confirmation.
+  const modeAnswer = await createSelectPrompt(promptOptions)(
+    UNINSTALL_REMOVAL_MODE_QUESTION,
+    carriedHosts === undefined
+      ? [
+        { title: "Whole installations", value: "whole" as const },
+        { title: "Selected Hosts", value: "hosts" as const },
+      ]
+      : [
+        { title: `Selected Hosts (${carriedHosts.join(", ")})`, value: "hosts" as const },
+        { title: "Whole installations", value: "whole" as const },
+      ],
+  );
+  if (modeAnswer.kind === "cancelled") {
+    writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+    return { exitCode: 1 };
+  }
+  const hostMode = modeAnswer.value === "hosts";
+
+  // Host removal offers the union of the picked Projects' bound Hosts in
+  // catalog order; carried Hosts stay pre-selected. A Project with no host
+  // intersection drops below — the explicit `--host` rule — while the mode
+  // stays visible per Project in the review.
+  let pickedHosts: readonly InteractiveHost[] | undefined;
+  if (hostMode) {
+    const union = SUPPORTED_HOSTS.filter((host) =>
+      picked.some((entry) => (entry.hosts as readonly string[]).includes(host)));
+    const hostsAnswer = await createSearchableMultiSelectPrompt(promptOptions)(
+      UNINSTALL_HOSTS_QUESTION,
+      union.map((host) => ({
+        title: host,
+        value: host as InteractiveHost,
+        ...(carriedHosts !== undefined &&
+          (carriedHosts as readonly string[]).includes(host)
+          ? { selected: true as const }
+          : {}),
+      })),
+    );
+    if (hostsAnswer.kind === "cancelled") {
+      writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+      return { exitCode: 1 };
+    }
+    if (hostsAnswer.values.length === 0) {
+      writeHumanDocument(
+        request.stderr,
+        uninstallPickerNoopDocument("empty-hosts"),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+    pickedHosts = [...new Set(hostsAnswer.values)];
+  }
+  // Total from here: whole mode narrows nothing, while Host mode always
+  // carries a non-empty selection (its cancel/empty paths return above).
+  // Fail closed with a diagnostic — before any write — rather than crash
+  // if that ever stops holding.
+  const narrowingHosts: readonly InteractiveHost[] = pickedHosts ?? [];
+  if (hostMode && narrowingHosts.length === 0) {
+    writeHumanDocument(
+      request.stderr,
+      errorDiagnosticDocument(new Error("interactive uninstall Host mode left no Host selection")),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+
+  // Resolve the picked scope without writing: a whole preview per picked
+  // Project (a vanished binding reports truthfully instead of removing
+  // around it), narrowed per Project in Host mode. The review below shows
+  // the complete picked scope — every selected Project with its mode —
+  // before any confirmation.
+  const targets: InteractiveUninstallTarget[] = [];
+  for (const entry of picked) {
+    let whole: UninstallPreview;
+    try {
+      whole = await previewUninstall(request.home, { project: entry.project });
+    } catch (error) {
+      writeHumanDocument(
+        request.stderr,
+        errorDiagnosticDocument(
+          error,
+          error instanceof ProjectTargetError ? { usage: uninstallCommandSyntax } : undefined,
+        ),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+    const wholeEntry = whole.projects.find((candidate) => candidate.project === entry.project);
+    const fleetEntry = fleetByProject.get(entry.project);
+    if (wholeEntry === undefined ||
+      fleetEntry === undefined ||
+      interactiveFleetScopeKey(wholeEntry) !== interactiveFleetScopeKey(fleetEntry)) {
+      // The binding vanished or changed between the picker inventory and
+      // this review: fail
+      // closed before any review or write. The retry preserves the picked
+      // Host narrowing (PROD-2) and omits `--auto-confirm` (RE-1), so
+      // re-running reviews the current scope instead of widening it.
+      writeInteractiveScopeChanged(request, stderrContext, parsed, [], picked.map((scope) => ({
+        preview: {
+          project: scope.project,
+          ...(scope.canonicalProject === undefined
+            ? {}
+            : { canonicalProject: scope.canonicalProject }),
+          profile: scope.profile,
+          hosts: [...scope.hosts],
+          ...(hostMode ? { removeHosts: [...narrowingHosts] } : {}),
+          missing: false,
+        },
+      })));
+      return { exitCode: 1 };
+    }
+    if (!hostMode) {
+      targets.push({ preview: wholeEntry });
+      continue;
+    }
+    let narrowed: UninstallPreview;
+    try {
+      narrowed = await previewUninstall(request.home, {
+        project: entry.project,
+        hosts: [...narrowingHosts],
+      });
+    } catch (error) {
+      writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      return { exitCode: 1 };
+    }
+    const narrowedEntry = narrowed.projects.find(
+      (candidate) => candidate.project === entry.project,
+    );
+    // A Project with no host intersection drops — the explicit `--host`
+    // rule — while picked Projects with one keep their narrowed scope.
+    if (narrowedEntry !== undefined) targets.push({ preview: narrowedEntry });
+  }
+  if (targets.length === 0) {
+    // Reachable only in Host mode when no picked Project binds a picked
+    // Host (whole mode resolves every pick or fails closed above, and an
+    // empty Host selection is refused above): report no match with no
+    // writes, never broaden. Via the picker this needs a concurrent
+    // rebinding between the Host pick and this resolution, since picks
+    // come from the offered bound-Host union.
+    if (!hostMode || narrowingHosts.length === 0) {
+      writeHumanDocument(
+        request.stderr,
+        errorDiagnosticDocument(new Error("interactive uninstall resolved no removal scope")),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+    const description = `the selected scope for Hosts '${narrowingHosts.join(", ")}'`;
+    writeHumanDocument(request.stderr, uninstallNoMatchDocument(description), stderrContext);
+    return { exitCode: 1 };
+  }
+  const reviewed: UninstallPreview = { projects: targets.map((target) => target.preview) };
+
+  const fleetSnapshot = fleet.projects.map(interactiveFleetScopeKey).sort();
+  // Expected fleet keys evolve as the batch commits: a completed whole
+  // removal drops its binding, a completed partial removal narrows its
+  // Hosts. Any other movement — an unrelated binding added, removed, or
+  // rebound — fails the remainder closed, so unshown scope is never
+  // removed. Commit-time skips change nothing, so the expectation stands.
+  let expectedFleetKeys = fleetSnapshot;
+  const fleetMoved = async (): Promise<boolean> => {
+    const fresh = await previewUninstall(request.home, { all: true });
+    const keys = fresh.projects.map(interactiveFleetScopeKey).sort();
+    return keys.length !== expectedFleetKeys.length ||
+      keys.some((key, index) => key !== expectedFleetKeys[index]);
+  };
+  const forgetCompletedFleetKey = (target: InteractiveUninstallTarget): void => {
+    const before = interactiveFleetScopeKey({
+      ...(target.preview.canonicalProject === undefined
+        ? {}
+        : { canonicalProject: target.preview.canonicalProject }),
+      project: target.preview.project,
+      profile: target.preview.profile,
+      hosts: [...target.preview.hosts],
+    });
+    // Keys are unique per bound path in practice; remove one occurrence so
+    // a hypothetical duplicate spelling keeps its surviving twin expected.
+    const at = expectedFleetKeys.indexOf(before);
+    expectedFleetKeys = at === -1
+      ? expectedFleetKeys
+      : [...expectedFleetKeys.slice(0, at), ...expectedFleetKeys.slice(at + 1)];
+    if (target.preview.removeHosts !== undefined) {
+      // The executor routes a zero-survivor Host removal through the
+      // complete-uninstall path (isPartialWorkItem): the binding drops,
+      // so no narrowed key is expected — re-adding one would phantom-trip
+      // the next guard. Single home for the rule: ask the survivor set
+      // the executor itself derives (INT-1).
+      const survivors = survivingHostsForRemoval(target.preview.hosts, target.preview.removeHosts);
+      if (survivors.length > 0) {
+        expectedFleetKeys = [...expectedFleetKeys, interactiveFleetScopeKey({
+          ...(target.preview.canonicalProject === undefined
+            ? {}
+            : { canonicalProject: target.preview.canonicalProject }),
+          project: target.preview.project,
+          profile: target.preview.profile,
+          hosts: [...survivors],
+        })].sort();
+      }
+    }
+  };
+
+  if (!parsed.autoConfirm) {
+    // The general confirmation answers no missing choice and no
+    // changed-file scope (DEC-004/DEC-005); declining leaves everything
+    // untouched with neutral styling.
+    const prompt = createTextPrompt(promptOptions);
+    writeHumanDocument(
+      request.stdout,
+      uninstallConfirmationDocument(reviewed),
+      stdoutContext,
+    );
+    const answer = await prompt(UNINSTALL_CONFIRMATION_QUESTION);
+    const normalized = answer.kind === "cancelled" ? "" : answer.value.trim().toLowerCase();
+    if (answer.kind === "cancelled" || (normalized !== "y" && normalized !== "yes")) {
+      const reason = answer.kind === "cancelled"
+        ? "cancelled" as const
+        : normalized === "" ? "default" as const : "declined" as const;
+      const happened = reason === "cancelled"
+        ? ["uninstall was cancelled before any write"]
+        : reason === "default"
+          ? ["uninstall kept the current state; nothing was written (default answer no)"]
+          : ["uninstall kept the current state; nothing was written (you answered no)"];
+      writeHumanDocument(
+        request.stderr,
+        uninstallInteractiveCommandsDocument({
+          happened,
+          why: [["No Project or setting was changed."]],
+          intro: "To proceed without asking, run (one command per Project):",
+          commands: interactiveRemainingCommands(targets, {
+            includeAutoConfirm: true,
+            removeChanged: parsed.removeChanged,
+            replaceChanged: parsed.replaceChanged,
+          }),
+          severity: "info",
+        }),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+  } else {
+    // `--auto-confirm` answers the general confirmation only, never the
+    // picks above — but the reviewed scope is still shown, so the run
+    // stays reviewable without a second answer.
+    writeHumanDocument(
+      request.stdout,
+      uninstallConfirmationDocument(reviewed),
+      stdoutContext,
+    );
+  }
+
+  // Changed-file consent consumes the one shared loop (DEC-005, US-020),
+  // across the sequential batch: the review above authorized the scope,
+  // this gate authorizes only actual planned discards.
+  const confirmer = createChangedOutputConfirmer({
+    input: request.input,
+    output: request.stdout,
+    ...(request.clock === undefined ? {} : { clock: request.clock }),
+    json: false,
+    replaceChanged: parsed.replaceChanged,
+    removeChanged: parsed.removeChanged,
+    selection: { kind: "all" },
+  });
+  const completed: UninstallCompletedProject[] = [];
+  const skipped: UninstallSkippedProject[] = [];
+  const warnings: string[] = [];
+  for (const [index, target] of targets.entries()) {
+    const remaining = targets.slice(index);
+    const remainingCommands = (options: {
+      readonly includeAutoConfirm: boolean;
+      readonly removeChanged: boolean;
+      readonly replaceChanged: boolean;
+    }): readonly (readonly CommandArg[])[] =>
+      interactiveRemainingCommands(remaining, options);
+    // The fleet re-resolution fails the remaining batch closed when a
+    // concurrent change widened or narrowed it (INT-2 for picks):
+    // unshown scope is never removed.
+    let fleetChanged: boolean;
+    try {
+      fleetChanged = await fleetMoved();
+    } catch (error) {
+      // The guard itself failed (e.g. Local Configuration unreadable
+      // mid-batch): fail closed with the same completed / unattempted /
+      // per-Project retry report as every other mid-batch failure mode,
+      // instead of escaping without one (INT-2).
+      writeHumanDocument(
+        request.stderr,
+        uninstallInteractiveCommandsDocument({
+          happened: [formatError(error)],
+          why: [[
+            completed.length === 0
+              ? "No Project or setting was changed."
+              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`,
+            " The remaining picked Projects were not attempted.",
+          ]],
+          intro: "After resolving the cause, retry the same scope (one command per Project):",
+          commands: remainingCommands({
+            includeAutoConfirm: true,
+            removeChanged: parsed.removeChanged,
+            replaceChanged: parsed.replaceChanged,
+          }),
+        }),
+        stderrContext,
+      );
+      return { exitCode: 1 };
+    }
+    if (fleetChanged) {
+      writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
+      return { exitCode: 1 };
+    }
+    try {
+      const result = await executeUninstall(request.home, {
+        project: target.preview.project,
+        ...(target.preview.removeHosts === undefined
+          ? {}
+          : { hosts: [...target.preview.removeHosts] }),
+        cwd,
+        // The executed scope is the reviewed scope: re-resolution inside
+        // fails closed when a concurrent change moved it (INT-2).
+        confirmedPreview: { projects: [target.preview] },
+        ...(parsed.removeChanged ? { removeChanged: true as const } : {}),
+        ...(parsed.replaceChanged ? { replaceChanged: true as const } : {}),
+        ...(confirmer.confirm === undefined
+          ? {}
+          : { confirmChangedOutputReplacement: confirmer.confirm }),
+      });
+      if (result.failed !== undefined) {
+        const failed: UninstallFailedProject = result.failed;
+        const unattempted: UninstallUnattemptedProject[] = [
+          ...targets.slice(index + 1).map((entry) => ({
+            ...(entry.preview.canonicalProject === undefined
+              ? {}
+              : { canonicalProject: entry.preview.canonicalProject }),
+            project: entry.preview.project,
+            profile: entry.preview.profile,
+          })),
+        ];
+        const restoration = failed.restoreError !== undefined
+          ? `Previous selection/output restore failed: ${failed.restoreError}`
+          : failed.selectionRestored
+            ? "The previous selection and output were restored where possible."
+            : "The previous selection could not be restored.";
+        writeHumanDocument(
+          request.stderr,
+          uninstallInteractiveCommandsDocument({
+            happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
+            why: [[
+              completed.length === 0 && result.completed.length === 0
+                ? "No Project was completed before the failure."
+                : `Completed Projects stay completed: ${[...completed, ...result.completed].map((entry) => entry.project).join(", ")}.`,
+              ` ${restoration}`,
+              unattempted.length === 0
+                ? ""
+                : ` Unattempted Projects remain untouched: ${unattempted.map((entry) => entry.project).join(", ")}.`,
+            ]],
+            intro: "After resolving the cause, retry the same scope (one command per Project):",
+            commands: [
+              interactiveEquivalentCommand({
+                project: failed.project,
+                ...(failed.canonicalProject === undefined
+                  ? {}
+                  : { canonicalProject: failed.canonicalProject }),
+                ...(target.preview.removeHosts === undefined
+                  ? {}
+                  : { removeHosts: [...target.preview.removeHosts] }),
+              }, {
+                includeAutoConfirm: true,
+                removeChanged: parsed.removeChanged,
+                replaceChanged: parsed.replaceChanged,
+              }),
+              ...remainingCommands({
+                includeAutoConfirm: true,
+                removeChanged: parsed.removeChanged,
+                replaceChanged: parsed.replaceChanged,
+              }).slice(1),
+            ],
+          }),
+          stderrContext,
+        );
+        return { exitCode: 1 };
+      }
+      completed.push(...result.completed);
+      skipped.push(...result.skipped);
+      warnings.push(...result.warnings);
+      // The committed removal moved the fleet exactly as reviewed:
+      // expect it, so the next guard trips only on concurrent movement.
+      // (A commit-time skip changes nothing, so the expectation stands.)
+      if (result.completed.length > 0) forgetCompletedFleetKey(target);
+      continue;
+    } catch (error) {
+      if (error instanceof UninstallScopeChangedError) {
+        writeInteractiveScopeChanged(request, stderrContext, parsed, completed, remaining);
+        return { exitCode: 1 };
+      }
+      if (error instanceof ApplyDeclinedError) {
+        const declined = error.reason === "cancelled"
+          ? "cancelled" as const
+          : confirmer.declinedAnswer();
+        writeHumanDocument(
+          request.stderr,
+          uninstallInteractiveCommandsDocument({
+            happened: [declined === "cancelled"
+              ? "uninstall was cancelled before any write"
+              : declined === "default"
+                ? "uninstall kept the current state; nothing was written (default answer no)"
+                : "uninstall kept the current state; nothing was written (you answered no)"],
+            why: [[completed.length === 0
+              ? "No Project or setting was changed."
+              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}. Remaining Projects were not attempted.`]],
+            intro: "To proceed without asking, run (one command per Project):",
+            commands: remainingCommands({
+              includeAutoConfirm: true,
+              removeChanged: parsed.removeChanged,
+              replaceChanged: parsed.replaceChanged,
+            }),
+            severity: "info",
+          }),
+          stderrContext,
+        );
+        return { exitCode: 1 };
+      }
+      if (error instanceof ApplyConsentRequiredError) {
+        writeHumanDocument(
+          request.stderr,
+          uninstallInteractiveCommandsDocument({
+            happened: [formatError(error)],
+            why: [[completed.length === 0
+              ? "No Project or setting was changed."
+              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}. Remaining Projects were not attempted.`]],
+            intro: "To authorize the planned change, run (one command per Project):",
+            commands: remainingCommands({
+              includeAutoConfirm: true,
+              removeChanged: parsed.removeChanged || error.requiredOperations.includes("remove"),
+              replaceChanged: parsed.replaceChanged ||
+                error.requiredOperations.includes("replace"),
+            }),
+          }),
+          stderrContext,
+        );
+        return { exitCode: 1 };
+      }
+      if (error instanceof ApplyReviewStaleError) {
+        writeHumanDocument(
+          request.stderr,
+          uninstallInteractiveCommandsDocument({
+            happened: [formatError(error)],
+            why: [[completed.length === 0
+              ? "No Project or setting was changed."
+              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}. Remaining Projects were not attempted.`]],
+            intro: "Re-run to review the current change (one command per Project):",
+            commands: remainingCommands({
+              includeAutoConfirm: true,
+              removeChanged: parsed.removeChanged,
+              replaceChanged: parsed.replaceChanged,
+            }),
+          }),
+          stderrContext,
+        );
+        return { exitCode: 1 };
+      }
+      writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      return { exitCode: 1 };
+    }
+  }
+
+  const aggregate: UninstallApplicationResult = {
+    completed,
+    skipped,
+    unattempted: [],
+    warnings: [...new Set(warnings)].sort(),
+  };
+  writeHumanDocument(request.stdout, uninstallReceiptDocument(aggregate), stdoutContext);
+  // A picked run always leaves its executable repeat (US-006 parity with
+  // the guided-install echo): the picked scope with the general
+  // confirmation answered, carrying consent the flow actually authorized.
+  const acceptedScope = confirmer.promptedAcceptedScope();
+  writeHumanDocument(
+    request.stdout,
+    uninstallInteractiveEquivalentDocument(
+      interactiveRemainingCommands(targets, {
+        includeAutoConfirm: true,
+        removeChanged: parsed.removeChanged || acceptedScope?.remove === true,
+        replaceChanged: parsed.replaceChanged || acceptedScope?.replace === true,
+      }),
+    ),
+    stdoutContext,
+  );
+  // Exit 2 when known Blockers skipped healthy work (the lifecycle
+  // blocker matrix); exit 0 when every picked Project completed.
+  return { exitCode: skipped.length > 0 ? 2 : 0 };
+}
+
 export async function runUninstallCommand(
   request: UninstallCommandRequest,
 ): Promise<UninstallCommandOutcome> {
@@ -384,15 +1145,25 @@ export async function runUninstallCommand(
   const interactive = isInteractiveInput(request.input);
   // A `--host` filter narrows removal within a scope but never provides
   // one (DEC-003): Host-only non-interactive use requires an explicit
-  // Project scope, and Host-only interactive use refuses here — Project
-  // selection belongs to #499. The missing-scope equivalent below carries
-  // the requested Hosts through fullySpecifiedUninstallArguments.
+  // Project scope, while Host-only interactive use routes into Project
+  // selection with its Hosts proposed (#499). A `--profile` selector
+  // provides scope and keeps the explicit flow untouched. The refusal below
+  // carries the requested Hosts through fullySpecifiedUninstallArguments.
   const hasScope = parsed.here || parsed.all || parsed.project !== undefined ||
     parsed.profile !== undefined;
   if (!hasScope) {
+    if (interactive && !parsed.json) {
+      // Bare or Host-only interactive input collects its scope through
+      // the searchable Project picker (#499, US-003/US-004/US-005):
+      // nothing is pre-selected, and `--auto-confirm` answers only the
+      // later general confirmation, never the picks (DEC-004).
+      // Non-interactive and machine-JSON input keep the refusal below —
+      // missing choices stay missing there.
+      return runInteractiveUninstall(request, parsed, cwd, stderrContext);
+    }
     // Missing choices stay missing (DEC-004/US-006): an absent scope never
-    // implies all Projects, on any input stream. Interactive selection
-    // belongs to #499; this refusal names the explicit fleet equivalent.
+    // implies all Projects, on any non-interactive input stream; this
+    // refusal names the explicit fleet equivalent.
     if (parsed.json) {
       request.stdout.write(formatUninstallToolErrorJson(
         "uninstall needs an explicit scope before any write; an absent scope never implies all Projects",

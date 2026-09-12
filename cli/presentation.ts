@@ -1511,6 +1511,89 @@ export function uninstallScopeChangedDocument(
   });
 }
 
+/** How an interactive uninstall pick ended with no removal: the picker was
+ * cancelled, or it was submitted with no Projects (or no Hosts) selected.
+ * Empty never widens to all Projects (DEC-003): it ends here with zero
+ * writes and a way back to the picker, never a fleet-wide equivalent. */
+export function uninstallPickerNoopDocument(
+  kind: "cancelled" | "empty-projects" | "empty-hosts",
+): PresentationDocument {
+  return diagnosticDocument({
+    happened: [kind === "cancelled"
+      ? "uninstall was cancelled before any write"
+      : kind === "empty-projects"
+        ? "uninstall kept the current state; nothing was written (no Projects selected)"
+        : "uninstall kept the current state; nothing was written (no Hosts selected)"],
+    why: [["No Project or setting was changed."]],
+    whatToType: [[
+      "To choose again, run ",
+      commandPart(COMMAND_NAME, [arg("uninstall")]),
+    ]],
+    severity: "info",
+  });
+}
+
+/** The picked-Project notice (ticket #499, US-005): the selected count
+ * stays visible with the picked identities right after the picker — the
+ * pre-execution review then repeats the complete scope with Profile and
+ * Hosts before any confirmation. Titles stay bare identities so the
+ * notice never renames a choice the filter matched. */
+export function uninstallInteractivePickedDocument(
+  displayProjects: readonly string[],
+): PresentationDocument {
+  return [
+    { kind: "heading", text: `Picked ${plural(displayProjects.length, "Project")}:` },
+    ...displayProjects.map((display): PresentationNode => ({
+      kind: "prose",
+      parts: [`  ${display}`],
+    })),
+  ];
+}
+
+/** One interactive-picked uninstall outcome with per-Project equivalents
+ * (ticket #499): a single combined line cannot express per-Project
+ * narrowing, so every picked Project gets its own runnable command — the
+ * same removal with its scope, consent flags, and (unless omitted for a
+ * scope-change retry, RE-1) the general-confirmation answer explicit. */
+export function uninstallInteractiveCommandsDocument(input: {
+  readonly happened: readonly string[];
+  readonly why?: readonly (readonly string[])[];
+  readonly intro: string;
+  readonly commands: readonly (readonly CommandArg[])[];
+  readonly severity?: NoticeSeverity;
+}): PresentationDocument {
+  return diagnosticDocument({
+    happened: [...input.happened],
+    ...(input.why === undefined ? {} : { why: [...input.why] }),
+    whatToType: [
+      [input.intro],
+      ...input.commands.map((commandArguments) => [
+        commandPart(COMMAND_NAME, commandArguments),
+      ]),
+    ],
+    ...(input.severity === undefined ? {} : { severity: input.severity }),
+  });
+}
+
+/** The executable repeat of one interactive-picked removal (ticket #499):
+ * one runnable command per picked Project, mirroring the guided-install
+ * echo contract — a single combined line cannot express per-Project
+ * narrowing or per-Project retries. */
+export function uninstallInteractiveEquivalentDocument(
+  commands: readonly (readonly CommandArg[])[],
+): PresentationDocument {
+  return [
+    {
+      kind: "prose",
+      parts: ["Run the same removal without the prompt (one command per Project):"],
+    },
+    ...commands.map((commandArguments): PresentationNode => ({
+      kind: "prose",
+      parts: [commandPart(COMMAND_NAME, commandArguments)],
+    })),
+  ];
+}
+
 /** Machine progress for one uninstall error: what the run removed before
  * stopping, what failed with its recovery evidence, and what was never
  * attempted — so scripted fleet runs never lose the deletion record. */

@@ -253,13 +253,18 @@ describe("uninstall confirmation matrix", () => {
     snapshotUntouched(home, first, firstOutput);
   });
 
-  test("bare interactive uninstall refuses instead of widening, with zero writes", async () => {
+  test("bare interactive uninstall opens Project selection instead of refusing", async () => {
+    // Ticket #499 replaces the bare-interactive refusal with the picker
+    // flow: the picker opens with zero writes, and cancelling it changes
+    // nothing (full picker behavior lives in uninstall-search.test.ts).
     const { home, first, firstOutput } = await setupInstalledPair();
     const input = fakeInteractiveInput();
-    const pending = runUninstall(home, [], input);
-    const result = await pending;
+    const started = startUninstall(home, [], input);
+    await waitForOutput(started.streams.humanText, "Which Projects");
+    input.end();
+    const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(result.streams.errorText())).toContain("--all");
+    expect(plain(started.streams.errorText())).toContain("cancelled");
     snapshotUntouched(home, first, firstOutput);
   });
 
@@ -370,6 +375,29 @@ describe("uninstall confirmation matrix", () => {
     const confirmPayload = JSON.parse(needsConfirm.streams.humanText()) as { outcome: string; error: string };
     expect(confirmPayload.outcome).toBe("error");
     expect(confirmPayload.error).toContain("confirmation");
+  });
+
+  test("TTY plus --json refuses the missing scope as machine JSON without prompting", async () => {
+    // PROD-4 (ticket #499): the interactive picker branch requires a TTY
+    // *without* --json, so a TTY carrying --json still refuses through the
+    // versioned envelope and never opens the picker.
+    const { home, first, firstOutput } = await setupInstalledPair();
+    const input = fakeInteractiveInput();
+    const result = await runUninstall(home, ["--json"], input);
+    expect(result.exitCode).toBe(1);
+    expect(result.streams.errorText()).toBe("");
+    const payload = JSON.parse(result.streams.humanText()) as {
+      schemaVersion: number;
+      command: string;
+      outcome: string;
+      error: string;
+    };
+    expect(payload.schemaVersion).toBe(15);
+    expect(payload.command).toBe("uninstall");
+    expect(payload.outcome).toBe("error");
+    expect(payload.error).toContain("explicit scope");
+    expect(plain(result.streams.humanText())).not.toContain("Which Projects");
+    snapshotUntouched(home, first, firstOutput);
   });
 
   test("--json success carries schemaVersion and outcome", async () => {

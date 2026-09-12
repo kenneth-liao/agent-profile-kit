@@ -9,8 +9,10 @@
  * - `select`: searchable single choice over three Profiles.
  * - `multi`: searchable multi choice over three Hosts (none pre-selected).
  * - `install <home> <cwd>`: bare guided `install` in the given Project.
+ * - `uninstall <home>`: bare interactive `uninstall` over bound Projects.
  */
 import { runInstallCommand } from "../../cli/install-command.js";
+import { runUninstallCommand } from "../../cli/uninstall-command.js";
 import {
   createSearchableMultiSelectPrompt,
   createSearchableSelectPrompt,
@@ -54,6 +56,17 @@ if (mode === "select") {
     stderr: process.stderr,
     input: process.stdin,
     cwd,
+  });
+  process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
+  process.exit(outcome.exitCode);
+} else if (mode === "uninstall") {
+  const home = process.argv[3] ?? "";
+  const outcome = await runUninstallCommand({
+    home,
+    arguments: [],
+    stdout: process.stdout,
+    stderr: process.stderr,
+    input: process.stdin,
   });
   process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
   process.exit(outcome.exitCode);
