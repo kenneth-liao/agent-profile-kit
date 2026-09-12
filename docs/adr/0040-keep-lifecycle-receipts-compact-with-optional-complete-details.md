@@ -48,10 +48,12 @@ route for every lifecycle receipt.
   retains — including no-ops and interactive cancellations or declines — and
   absent for pre-write refusals that retain nothing. It is written to the same
   stream as the report it closes, so a declined or failed run keeps the pointer
-  beside its own diagnostic, and it follows the run's own recording decision at
-  the command's terminal branch. A run whose entry could not be saved still
-  prints the route, because that run displayed its complete evidence
-  (ADR-0039); machine JSON never carries it.
+  beside its own diagnostic, and the terminal branch hands the run's recording
+  to that writer, which reads its one decision and fails loudly when a report
+  is written before its branch decided. A run whose entry could not be saved
+  still prints the route, and the save-failure diagnostic states that this run
+  is not in the store the route reads while that run's complete evidence
+  follows; machine JSON never carries the route.
 - **Re-running the command is never the evidence route.** `apkit details`
   reads retained evidence; `apkit update --verbose` plans and describes the
   current run and is never offered as retrieval of an earlier one (DEC-007).

@@ -491,7 +491,7 @@ async function runInstallCommandWithRecording(
     };
     if (answer.kind === "cancelled") {
       recording.collect(installCancelledRecording("cancelled", previewIdentity));
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
         stderrContext,
@@ -502,7 +502,7 @@ async function runInstallCommandWithRecording(
     const normalized = answer.value.trim().toLowerCase();
     if (normalized !== "y" && normalized !== "yes") {
       recording.collect(installCancelledRecording("declined", previewIdentity));
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         installDeclinedDocument(
           normalized === "" ? "default" : "declined",
@@ -568,7 +568,7 @@ async function runInstallCommandWithRecording(
           fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
         ));
       }
-      writeInstallReport(request.stdout, reportDocument, stdoutContext, recording);
+      writeLifecycleReport(request.stdout, reportDocument, stdoutContext, recording);
     }
     return { exitCode: 0 };
   } catch (error) {
@@ -592,19 +592,6 @@ async function runInstallCommandWithRecording(
     recording.recordNothing("the install refused before any lifecycle write");
     return { exitCode: 1 };
   }
-}
-
-/** Write one install terminal human report plus its retained-operation detail
- * route exactly when this run retained an entry (US-011, DEC-007; ADR-0040).
- * The route follows the report's own stream, so a declined or failed install
- * keeps the pointer beside its diagnostic. */
-function writeInstallReport(
-  stream: Writable & TerminalStream,
-  document: PresentationDocument,
-  context: TerminalPresentationContext,
-  recording: LifecycleOperationRecording,
-): void {
-  writeLifecycleReport(stream, document, context, recording.collected !== undefined);
 }
 
 /** Map one post-publication install failure to its truthful diagnostic. */
@@ -663,7 +650,7 @@ function installReconcileFailureOutcome(
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
       const scope = answering(confirmer.promptedAcceptedScope());
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         [
           ...applyReplacementDeclinedDocument(
@@ -693,7 +680,7 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         [
           ...applyConsentRequiredDocument(
@@ -716,7 +703,7 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleToolErrorJson("install", formatError(cause), recoveryJson));
     } else {
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         [
           ...applyReviewStaleDocument(
@@ -744,7 +731,7 @@ function installReconcileFailureOutcome(
     if (parsed.json) {
       request.stdout.write(formatLifecycleJson("install", cause.report, recoveryJson));
     } else {
-      writeInstallReport(
+      writeLifecycleReport(
         request.stdout,
         [
           ...installBlockedDocument(
@@ -778,7 +765,7 @@ function installReconcileFailureOutcome(
         recovery: recoveryJson,
       }));
     } else {
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         installExecutionFailureDocument({
           detail: cause.detail,
@@ -802,7 +789,7 @@ function installReconcileFailureOutcome(
         formatApplyVerificationFailureJson(cause.receipt, cause.message, "install", recoveryJson),
       );
     } else {
-      writeInstallReport(
+      writeLifecycleReport(
         request.stderr,
         installVerificationFailureDocument({ message: cause.message, retryArguments: retry }),
         stderrContext,
@@ -822,7 +809,7 @@ function installReconcileFailureOutcome(
   if (parsed.json) {
     request.stdout.write(formatLifecycleToolErrorJson("install", detail, recoveryJson));
   } else {
-    writeInstallReport(
+    writeLifecycleReport(
       request.stderr,
       installExecutionFailureDocument({
         detail,

@@ -7,6 +7,7 @@ import {
   operationDetailsDocument,
   writeLifecycleReport,
 } from "../cli/operation-history-presentation.js";
+import { beginLifecycleOperationRecording } from "../cli/operation-recording.js";
 import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
   type CommandArg,
@@ -514,15 +515,33 @@ test("writes the retained-operation route onto the report's own stream only for 
   const context = terminalPresentationContext(stream);
   const document = [{ kind: "prose" as const, parts: ["Report."] }];
 
+  const retained = beginLifecycleOperationRecording();
+  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
   stream.chunks.length = 0;
-  writeLifecycleReport(stream, document, context, true);
+  writeLifecycleReport(stream, document, context, retained);
   expect(stream.text()).toContain("Report.");
   expect(stream.text()).toContain("Details: apkit details");
 
+  // `--verbose` prints the complete current-run receipt and omits the route.
   stream.chunks.length = 0;
-  writeLifecycleReport(stream, document, context, false);
+  writeLifecycleReport(stream, document, context, retained, false);
   expect(stream.text()).toContain("Report.");
   expect(stream.text()).not.toContain("Details:");
+
+  // A deliberate pre-write refusal retained nothing, so nothing is advertised.
+  const refused = beginLifecycleOperationRecording();
+  refused.recordNothing("test refusal");
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, refused);
+  expect(stream.text()).toContain("Report.");
+  expect(stream.text()).not.toContain("Details:");
+
+  // A report written before its branch decided is a developer error: fail
+  // loudly instead of silently dropping the route (INT-2).
+  const undecided = beginLifecycleOperationRecording();
+  expect(() => writeLifecycleReport(stream, document, context, undecided)).toThrow(
+    /before the run's operation-history decision/,
+  );
 });
 
 test("holds the compact receipt impact and its route intact at a narrow width", () => {

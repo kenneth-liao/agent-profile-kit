@@ -177,12 +177,7 @@ async function runApplyCommandWithRecording(
     document: PresentationDocument,
     context: TerminalPresentationContext,
   ): void => {
-    writeLifecycleReport(
-      stream,
-      document,
-      context,
-      request.verbose !== true && recording.collected !== undefined,
-    );
+    writeLifecycleReport(stream, document, context, recording, request.verbose !== true);
   };
   // Update has no general confirmation (DEC-004): the prompt exists only for
   // unauthored changed-file scope, through the one shared consent loop.
