@@ -269,6 +269,8 @@ import {
   beginLifecycleOperationRecording,
   finishLifecycleOperationRecording,
   lateAuthorizationStopRecording,
+  operationOutcome,
+  recordProjectedOutcome,
   unattemptedProjectsFromPreview,
   uninstallCancelledRecording,
   uninstallProjects,
@@ -566,6 +568,7 @@ async function runInteractiveUninstall(
     fleet = await previewUninstall(request.home, { all: true });
   } catch (error) {
     writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    recording.recordNothing("the bound Project inventory could not be read");
     return { exitCode: 1 };
   }
   if (fleet.projects.length === 0) {
@@ -574,6 +577,7 @@ async function runInteractiveUninstall(
       uninstallNoMatchDocument("any bound Project"),
       stderrContext,
     );
+    recording.recordNothing("no Project is bound");
     return { exitCode: 1 };
   }
 
@@ -586,6 +590,7 @@ async function runInteractiveUninstall(
       carriedHosts = normalizeUninstallHosts(parsed.hosts);
     } catch (error) {
       writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      recording.recordNothing("the requested Agent Host is unsupported");
       return { exitCode: 1 };
     }
   }
@@ -604,6 +609,7 @@ async function runInteractiveUninstall(
   );
   if (projectsAnswer.kind === "cancelled") {
     writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+    recording.recordNothing("the Project choice was cancelled");
     return { exitCode: 1 };
   }
   if (projectsAnswer.values.length === 0) {
@@ -613,6 +619,7 @@ async function runInteractiveUninstall(
       uninstallPickerNoopDocument("empty-projects"),
       stderrContext,
     );
+    recording.recordNothing("no Project was selected");
     return { exitCode: 1 };
   }
   const fleetByProject = new Map(fleet.projects.map((entry) => [entry.project, entry]));
@@ -625,6 +632,7 @@ async function runInteractiveUninstall(
       uninstallPickerNoopDocument("empty-projects"),
       stderrContext,
     );
+    recording.recordNothing("no Project was selected");
     return { exitCode: 1 };
   }
   // The selected count stays visible with the picked identities (US-005),
@@ -662,6 +670,7 @@ async function runInteractiveUninstall(
   );
   if (modeAnswer.kind === "cancelled") {
     writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+    recording.recordNothing("the removal mode was cancelled");
     return { exitCode: 1 };
   }
   const hostMode = modeAnswer.value === "hosts";
@@ -687,6 +696,7 @@ async function runInteractiveUninstall(
     );
     if (hostsAnswer.kind === "cancelled") {
       writeHumanDocument(request.stderr, uninstallPickerNoopDocument("cancelled"), stderrContext);
+      recording.recordNothing("the Host choice was cancelled");
       return { exitCode: 1 };
     }
     if (hostsAnswer.values.length === 0) {
@@ -695,6 +705,7 @@ async function runInteractiveUninstall(
         uninstallPickerNoopDocument("empty-hosts"),
         stderrContext,
       );
+      recording.recordNothing("no Host was selected");
       return { exitCode: 1 };
     }
     pickedHosts = [...new Set(hostsAnswer.values)];
@@ -710,6 +721,7 @@ async function runInteractiveUninstall(
       errorDiagnosticDocument(new Error("interactive uninstall Host mode left no Host selection")),
       stderrContext,
     );
+    recording.recordNothing("the interactive Host mode resolved no Host selection");
     return { exitCode: 1 };
   }
 
@@ -732,6 +744,7 @@ async function runInteractiveUninstall(
         ),
         stderrContext,
       );
+      recording.recordNothing("the picked Project could not be re-resolved");
       return { exitCode: 1 };
     }
     const wholeEntry = whole.projects.find((candidate) => candidate.project === entry.project);
@@ -756,6 +769,7 @@ async function runInteractiveUninstall(
           missing: false,
         },
       })));
+      recording.recordNothing("the picked scope changed before the review");
       return { exitCode: 1 };
     }
     if (!hostMode) {
@@ -770,6 +784,7 @@ async function runInteractiveUninstall(
       });
     } catch (error) {
       writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+      recording.recordNothing("the picked Host scope could not be re-resolved");
       return { exitCode: 1 };
     }
     const narrowedEntry = narrowed.projects.find(
@@ -792,10 +807,12 @@ async function runInteractiveUninstall(
         errorDiagnosticDocument(new Error("interactive uninstall resolved no removal scope")),
         stderrContext,
       );
+      recording.recordNothing("the picked scope resolved no removal");
       return { exitCode: 1 };
     }
     const description = `the selected scope for Hosts '${narrowingHosts.join(", ")}'`;
     writeHumanDocument(request.stderr, uninstallNoMatchDocument(description), stderrContext);
+    recording.recordNothing("no picked Project binds the selected Hosts");
     return { exitCode: 1 };
   }
   const reviewed: UninstallPreview = { projects: targets.map((target) => target.preview) };
@@ -925,9 +942,17 @@ async function runInteractiveUninstall(
     // evidence (US-012: partial outcomes), while a stop with nothing
     // committed remains a refusal that records nothing.
     const collectCommittedStop = (failure: string): void => {
-      if (completed.length === 0) return;
+      if (completed.length === 0) {
+        recording.recordNothing(failure);
+        return;
+      }
       recording.collect({
-        outcome: "partial",
+        outcome: operationOutcome({
+          committed: completed.length,
+          outstanding: remaining.length,
+          failed: true,
+          noWork: false,
+        }),
         scope,
         projects: [
           ...uninstallProjects({ completed, skipped, unattempted: [], warnings: [] }),
@@ -1224,6 +1249,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("the uninstall arguments were rejected");
     return { exitCode: 1 };
   }
 
@@ -1261,6 +1287,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("uninstall needs an explicit scope");
     return { exitCode: 1 };
   }
 
@@ -1289,6 +1316,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("the uninstall preview refused before any write");
     return { exitCode: 1 };
   }
 
@@ -1314,6 +1342,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("no installation matched the selected scope");
     return { exitCode: 1 };
   }
 
@@ -1331,6 +1360,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("uninstall needs explicit non-interactive confirmation");
     return { exitCode: 1 };
   }
   if (!parsed.autoConfirm) {
@@ -1471,6 +1501,7 @@ async function runUninstallCommandWithRecording(
     return { exitCode: result.skipped.length > 0 ? 2 : 0 };
   } catch (error) {
     if (error instanceof UninstallScopeChangedError) {
+      recording.recordNothing("the reviewed scope changed before any write");
       // The selection moved between confirmation and commit: nothing was
       // written, and the current scope reports as unattempted (INT-2). The
       // retry deliberately omits --auto-confirm: following it must review
@@ -1523,11 +1554,11 @@ async function runUninstallCommandWithRecording(
     if (error instanceof ApplyConsentRequiredError) {
       // A late stop that committed earlier Projects keeps that partial
       // evidence; a pre-write refusal records nothing.
-      recording.collect(lateAuthorizationStopRecording(
-        error,
-        recordingScope,
-        formatError(error),
-      ));
+      recordProjectedOutcome(
+        recording,
+        lateAuthorizationStopRecording(error, recordingScope, formatError(error)),
+        "uninstall refused before any write",
+      );
       // The remedy stays runnable: precisely the missing authorizations
       // named by the gate are added (a changed deletion names only
       // `--remove-changed`, a changed survivor-rewrite only
@@ -1574,11 +1605,11 @@ async function runUninstallCommandWithRecording(
       return { exitCode: 1 };
     }
     if (error instanceof ApplyReviewStaleError) {
-      recording.collect(lateAuthorizationStopRecording(
-        error,
-        recordingScope,
-        formatError(error),
-      ));
+      recordProjectedOutcome(
+        recording,
+        lateAuthorizationStopRecording(error, recordingScope, formatError(error)),
+        "uninstall refused before any write",
+      );
       const progress: UninstallErrorProgress = {
         completed: error.completedProjects.map((name) => ({ canonicalProject: name, project: name })),
         failed: {
@@ -1617,6 +1648,7 @@ async function runUninstallCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("uninstall refused before any lifecycle write");
     return { exitCode: 1 };
   }
 }

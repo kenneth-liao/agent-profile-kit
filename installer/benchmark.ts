@@ -2,6 +2,8 @@ import { appendFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 
+import { applicationDirectory } from "./application-directory.js";
+
 import {
   applyApplication,
   statusApplication,
@@ -63,7 +65,7 @@ const DEFAULT_COMMANDS: readonly LifecycleBenchmarkCommand[] = [
 
 /** Path of the shared Skill's canonical SKILL.md within the isolated Workspace. */
 function skillMarkdownPath(home: string, skillId: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace", "skills", skillId, "SKILL.md");
+  return join(applicationDirectory(home), "workspace", "skills", skillId, "SKILL.md");
 }
 
 /**

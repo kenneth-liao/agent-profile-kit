@@ -13,6 +13,8 @@ import { PassThrough, type Writable } from "node:stream";
 
 import { runApplyCommand } from "../cli/apply-command.js";
 import {
+  beginLifecycleOperationRecording,
+  finishLifecycleOperationRecording,
   installFailureRecording,
   lateAuthorizationStopRecording,
 } from "../cli/operation-recording.js";
@@ -543,25 +545,70 @@ describe("lifecycle operation recording", () => {
     expect(humanText(rendered.output)).toContain("committed generated output (paths not enumerated)");
   });
 
-  test("invalid invocations and fail-closed refusals record nothing", async () => {
+  test("invalid invocations and fail-closed refusals record nothing and decide explicitly", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-
-    // Missing non-interactive confirmation, an argument error, and a missing
-    // Profile choice are refusals before any attempt.
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex"]).outcome).exitCode).toBe(1);
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm", "--bogus"]).outcome).exitCode).toBe(1);
-    expect((await invokeInstall(home, [projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(1);
-    // A zero-match uninstall never attempts removal.
-    expect((await invokeUninstall(home, ["--profile", "nosuch", "--all", "--auto-confirm"]).outcome).exitCode).toBe(1);
+    const refusals = [
+      // Missing non-interactive confirmation, an argument error, and a
+      // missing Profile choice are refusals before any attempt.
+      await invokeInstall(home, ["coding", projectPath, "--host", "codex"]),
+      await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm", "--bogus"]),
+      await invokeInstall(home, [projectPath, "--host", "codex", "--auto-confirm"]),
+      // A zero-match uninstall never attempts removal.
+      await invokeUninstall(home, ["--profile", "nosuch", "--all", "--auto-confirm"]),
+    ];
+    for (const refusal of refusals) {
+      expect((await refusal.outcome).exitCode).toBe(1);
+      // A refusal is an explicit decision, never an undecided internal error.
+      expect(humanText(refusal.streams.errorText())).not.toContain(
+        "recorded no operation-history decision",
+      );
+    }
     expect(existsSync(operationHistoryPath(home))).toBe(false);
 
     // Missing non-interactive changed-file consent refuses before any write.
     expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
     const before = historyBytes(home);
-    expect((await invokeUpdate(home, ["--all"]).outcome).exitCode).toBe(1);
+    const withheld = invokeUpdate(home, ["--all"]);
+    expect((await withheld.outcome).exitCode).toBe(1);
+    expect(humanText(withheld.streams.errorText())).not.toContain(
+      "recorded no operation-history decision",
+    );
     expect(historyBytes(home)).toBe(before);
+  });
+
+  test("every invocation must decide: a refusal is explicit and an undecided run is reported", async () => {
+    const home = await setupHome();
+
+    const refusedStreams = capturedStreams();
+    const refused = beginLifecycleOperationRecording();
+    refused.recordNothing("a test refusal");
+    expect(await finishLifecycleOperationRecording({
+      recording: refused,
+      home,
+      command: "update",
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+      stderr: refusedStreams.stderr,
+    })).toBe("refused");
+    expect(refusedStreams.errorText()).toBe("");
+    expect(existsSync(operationHistoryPath(home))).toBe(false);
+
+    const undecidedStreams = capturedStreams();
+    expect(await finishLifecycleOperationRecording({
+      recording: beginLifecycleOperationRecording(),
+      home,
+      command: "update",
+      startedAt: Date.now(),
+      finishedAt: Date.now(),
+      stderr: undecidedStreams.stderr,
+    })).toBe("unrecorded");
+    expect(humanText(undecidedStreams.errorText())).toContain(
+      "recorded no operation-history decision",
+    );
+    expect(humanText(undecidedStreams.errorText())).toContain("this run itself is unaffected");
+    expect(existsSync(operationHistoryPath(home))).toBe(false);
   });
 
   test("an interactive batch stopped after committed removals keeps that partial evidence", async () => {

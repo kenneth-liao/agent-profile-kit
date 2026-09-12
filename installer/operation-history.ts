@@ -351,7 +351,8 @@ function parseEntry(value: unknown, path?: string): OperationHistoryEntry {
 
 /**
  * Parse one history document exactly as this module publishes it: exact fields,
- * bounded entry count, unique identities in strictly decreasing sequence order.
+ * unique identities in strictly decreasing sequence order, and at most the
+ * retained entry cap (older entries beyond it are dropped, never reinterpreted).
  * Anything else fails closed so a foreign or corrupt file is never interpreted
  * as this store's evidence — and never overwritten by an append.
  */
@@ -371,10 +372,12 @@ export function parseOperationHistory(source: string, path?: string): OperationH
     );
   }
   if (!Array.isArray(parsed.entries)) invalid("entries must be an array", path);
-  if (parsed.entries.length > OPERATION_HISTORY_LIMIT) {
-    invalid(`entries exceed the retained limit of ${OPERATION_HISTORY_LIMIT}`, path);
-  }
-  const entries = parsed.entries.map((entry) => parseEntry(entry, path));
+  // The retained window is a bound, not a shape violation: a document written
+  // by an engine with a larger cap (or a future reduction of this one) reads as
+  // its newest entries instead of becoming permanently unreadable.
+  const entries = parsed.entries
+    .map((entry) => parseEntry(entry, path))
+    .slice(0, OPERATION_HISTORY_LIMIT);
   for (let index = 1; index < entries.length; index += 1) {
     const previous = operationSequence(entries[index - 1]!.id)!;
     const current = operationSequence(entries[index]!.id)!;
@@ -496,15 +499,18 @@ async function publishHistory(
   fileSystem: OperationHistoryFileSystem,
 ): Promise<void> {
   const source = formatOperationHistory(history);
-  // Publication is allowed only when the production reader accepts the exact bytes.
+  // Publication is allowed only when the production reader accepts the exact
+  // bytes. That pre-write proof is the whole proof: installation-state
+  // publication re-reads after the rename because ownership evidence must fail
+  // closed, while a diagnostic history re-read under the held lock could only
+  // fail spuriously and would report an entry as unsaved after writing it.
   parseOperationHistory(source, path);
   const directory = dirname(path);
   await fileSystem.mkdir(directory, { recursive: true });
   const temporary = join(directory, `.operation-history-${process.pid}-${Date.now()}.tmp`);
-  await fileSystem.writeFile(temporary, source, { flag: "wx" });
+  await fileSystem.writeFile(temporary, source, { flag: "wx", mode: 0o600 });
   try {
     await fileSystem.rename(temporary, path);
-    parseOperationHistory(await fileSystem.readFile(path, "utf8"), path);
   } finally {
     await fileSystem.rm(temporary, { force: true }).catch(() => undefined);
   }
@@ -537,7 +543,6 @@ export async function appendOperationHistory(
         id: nextEntryId(current),
         ...draft,
       });
-      parseOperationHistory(formatOperationHistory({ ...emptyHistory(), entries: [entry] }), path);
       const next: OperationHistory = {
         schemaVersion: OPERATION_HISTORY_SCHEMA_VERSION,
         entries: [entry, ...current.entries].slice(0, OPERATION_HISTORY_LIMIT),

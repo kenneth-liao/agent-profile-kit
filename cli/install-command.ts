@@ -61,6 +61,7 @@ import {
   installCancelledRecording,
   installFailureRecording,
   installSuccessRecording,
+  recordProjectedOutcome,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
 import { detectInstalledHosts, SUPPORTED_HOSTS } from "../adapters/registry.js";
@@ -391,6 +392,7 @@ async function runInstallCommandWithRecording(
     parsed = parseInstallArguments(request.arguments);
   } catch (error) {
     writeHumanDocument(request.stderr, installArgumentErrorDiagnostic(error), stderrContext);
+    recording.recordNothing("the install arguments were rejected");
     return { exitCode: 1 };
   }
 
@@ -413,7 +415,10 @@ async function runInstallCommandWithRecording(
     !parsed.json
   ) {
     const completed = await collectMissingInstallChoices(request, parsed, cwd, stderrContext);
-    if (completed === undefined) return { exitCode: 1 };
+    if (completed === undefined) {
+      recording.recordNothing("the interactive install choice was cancelled");
+      return { exitCode: 1 };
+    }
     parsed = completed.parsed;
     guidedTarget = completed.target;
     guided = true;
@@ -421,10 +426,12 @@ async function runInstallCommandWithRecording(
 
   if (parsed.profile === undefined) {
     writeHumanDocument(request.stderr, missingProfileDiagnostic(), stderrContext);
+    recording.recordNothing("install needs a Profile");
     return { exitCode: 1 };
   }
   if (parsed.hosts === undefined) {
     writeHumanDocument(request.stderr, missingHostsDiagnostic(), stderrContext);
+    recording.recordNothing("install needs an Agent Host");
     return { exitCode: 1 };
   }
 
@@ -436,6 +443,7 @@ async function runInstallCommandWithRecording(
       ),
       stderrContext,
     );
+    recording.recordNothing("install needs explicit non-interactive confirmation");
     return { exitCode: 1 };
   }
 
@@ -454,6 +462,7 @@ async function runInstallCommandWithRecording(
     });
   } catch (error) {
     writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    recording.recordNothing("the install preview refused before any write");
     return { exitCode: 1 };
   }
 
@@ -583,6 +592,7 @@ async function runInstallCommandWithRecording(
       );
     }
     writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    recording.recordNothing("the install refused before any lifecycle write");
     return { exitCode: 1 };
   }
 }
@@ -614,12 +624,16 @@ function installReconcileFailureOutcome(
   // One collected outcome for this run (DEC-008): the projection refuses the
   // fail-closed no-entry causes (missing non-interactive consent or a stale
   // review) and carries the cancelled/blocked/failed evidence otherwise.
-  recording.collect(installFailureRecording(failure, {
-    canonicalProject: failedProject.canonicalProject,
-    project: failedProject.project,
-    ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
-    hosts: [...(parsed.hosts ?? [])],
-  }));
+  recordProjectedOutcome(
+    recording,
+    installFailureRecording(failure, {
+      canonicalProject: failedProject.canonicalProject,
+      project: failedProject.project,
+      ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
+      hosts: [...(parsed.hosts ?? [])],
+    }),
+    "the install refused before any generated-output write",
+  );
   const answering = (prompted: ChangedFileAnsweringScope | undefined): ChangedFileAnsweringScope =>
     answeringScope(parsed, prompted, confirmer.requestedScope());
   // Every remedy below names the resolved Project, so the printed command

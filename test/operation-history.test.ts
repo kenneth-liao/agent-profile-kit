@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 
 import {
   appendOperationHistory,
+  formatOperationHistory,
   operationHistoryLockPath,
   operationHistoryPath,
   parseOperationHistory,
@@ -171,6 +172,31 @@ describe("operation history store", () => {
     await readOperationHistory(home);
     await readOperationHistory(home);
     expect(readFileSync(operationHistoryPath(home))).toEqual(before);
+  });
+
+  test("reads an over-cap document as its newest entries instead of failing closed", async () => {
+    const home = isolatedHome();
+    const overflow = OPERATION_HISTORY_LIMIT + 5;
+    const entries = Array.from({ length: overflow }, (_, index) => ({
+      id: `op-${String(index + 1).padStart(6, "0")}`,
+      command: "update" as const,
+      startedAt: "2026-09-10T10:00:00.000Z",
+      finishedAt: "2026-09-10T10:00:01.000Z",
+      outcome: "no-op" as const,
+      scope: { selection: "all" as const },
+      projects: [],
+    })).reverse();
+    const path = operationHistoryPath(home);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(
+      path,
+      formatOperationHistory({ schemaVersion: OPERATION_HISTORY_SCHEMA_VERSION, entries }),
+    );
+
+    const history = await readOperationHistory(home);
+    expect(history.entries).toHaveLength(OPERATION_HISTORY_LIMIT);
+    expect(history.entries[0]!.id).toBe(`op-${String(overflow).padStart(6, "0")}`);
+    expect(history.entries.at(-1)!.id).toBe("op-000006");
   });
 
   test("an invalid document fails closed instead of being overwritten", async () => {

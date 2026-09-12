@@ -50,6 +50,7 @@ import type {
 import {
   operationHistoryEntryDocument,
   operationHistorySaveFailureDocument,
+  operationHistoryUnrecordedDocument,
 } from "./operation-history-presentation.js";
 import { reportHasReconciliationWork } from "./presentation.js";
 import { writeHumanDocument } from "./presentation-document.js";
@@ -69,12 +70,16 @@ export interface OperationRecordingFacts {
 
 /**
  * One invocation's collector. A run has exactly one terminal outcome, so the
- * first collected facts win; a run that reaches no recording point (refusal,
- * usage error, or missing non-interactive authorization) collects nothing and
- * records nothing.
+ * first decision wins. Every terminal branch must make exactly one decision:
+ * `collect` for an attempt (including cancellations), or `recordNothing` for a
+ * refusal that records nothing. A run that reaches neither is reported as an
+ * undecided internal error, so a branch that forgets its decision is visible
+ * instead of indistinguishable from a deliberate refusal.
  */
 export interface LifecycleOperationRecording {
   collect(facts: OperationRecordingFacts | undefined): void;
+  /** Declare a deliberate refusal; `reason` names the refusal class for developers. */
+  recordNothing(reason: string): void;
   /**
    * Register the invocation's consent-review source. Reviews happen while the
    * operation runs, so the finish boundary reads them once and every recorded
@@ -85,11 +90,14 @@ export interface LifecycleOperationRecording {
   /** The invocation's deduplicated consent-review evidence. */
   reviewed(): readonly ChangedOutputHistoryRecord[];
   readonly collected: OperationRecordingFacts | undefined;
+  readonly refusal: string | undefined;
 }
 
 export function beginLifecycleOperationRecording(): LifecycleOperationRecording {
   let facts: OperationRecordingFacts | undefined;
+  let refusal: string | undefined;
   let reviewSource: (() => readonly ChangedOutputHistoryRecord[]) | undefined;
+  const decided = (): boolean => facts !== undefined || refusal !== undefined;
   const reviewed = (): readonly ChangedOutputHistoryRecord[] => {
     const unique = new Map<string, ChangedOutputHistoryRecord>();
     for (const record of reviewSource?.() ?? []) {
@@ -99,7 +107,12 @@ export function beginLifecycleOperationRecording(): LifecycleOperationRecording 
   };
   return {
     collect(next) {
-      if (facts === undefined) facts = next;
+      if (next === undefined || decided()) return;
+      facts = next;
+    },
+    recordNothing(reason) {
+      if (decided()) return;
+      refusal = reason;
     },
     collectReviewsFrom(source) {
       reviewSource = source;
@@ -108,14 +121,65 @@ export function beginLifecycleOperationRecording(): LifecycleOperationRecording 
     get collected() {
       return facts;
     },
+    get refusal() {
+      return refusal;
+    },
   };
+}
+
+/**
+ * Record one projected outcome, or declare the refusal an undefined projection
+ * represents (a stop that committed nothing), so no call site can silently
+ * omit both decisions.
+ */
+export function recordProjectedOutcome(
+  recording: LifecycleOperationRecording,
+  facts: OperationRecordingFacts | undefined,
+  refusal: string,
+): void {
+  if (facts === undefined) recording.recordNothing(refusal);
+  else recording.collect(facts);
 }
 
 function isoTime(milliseconds: number): string {
   return new Date(milliseconds).toISOString();
 }
 
-export type OperationRecordingFinish = "saved" | "skipped" | "unsaved";
+/**
+ * The one lifecycle outcome ladder (US-012): `noWork` means the run's receipt
+ * recorded nothing to do, `failed` means the terminal failure was not a
+ * blocker, and `outstanding` counts Projects whose selected work was skipped or
+ * never attempted. Every recording projection derives its outcome here so the
+ * ladder cannot drift between commands.
+ */
+export function operationOutcome(input: {
+  readonly committed: number;
+  readonly outstanding: number;
+  readonly failed: boolean;
+  readonly noWork: boolean;
+}): OperationHistoryOutcome {
+  // A failure dominates the ladder: "nothing to do" cannot describe a run that
+  // failed on its only selected Project.
+  if (input.failed) return input.committed > 0 ? "partial" : "failed";
+  if (input.noWork) return "no-op";
+  if (input.outstanding > 0) return input.committed > 0 ? "partial" : "blocked";
+  return "succeeded";
+}
+
+/** Projects whose selected work a run already did, and whose it did not. */
+function projectCounts(projects: readonly OperationHistoryProject[]): {
+  readonly committed: number;
+  readonly outstanding: number;
+} {
+  return {
+    committed: projects.filter((project) => project.result === "completed").length,
+    outstanding: projects.filter((project) =>
+      project.result === "skipped" || project.result === "unattempted"
+    ).length,
+  };
+}
+
+export type OperationRecordingFinish = "saved" | "refused" | "unrecorded" | "unsaved";
 
 export interface FinishOperationRecordingInput {
   readonly recording: LifecycleOperationRecording;
@@ -129,16 +193,28 @@ export interface FinishOperationRecordingInput {
 }
 
 /**
- * Publish one collected entry at the command boundary. Returns `skipped` when
- * the run recorded nothing, `saved` on success, and `unsaved` when the entry
- * could not be published — in which case the warning and the complete run
- * evidence are written to stderr (DEC-008).
+ * Publish one collected entry at the command boundary. Returns `refused` for a
+ * declared refusal, `unrecorded` for a run whose branches decided nothing (an
+ * internal error, reported loudly and never fatal), `saved` on success, and
+ * `unsaved` when the entry could not be published — in which case the warning
+ * and the complete run evidence are written to stderr (DEC-008).
  */
 export async function finishLifecycleOperationRecording(
   input: FinishOperationRecordingInput,
 ): Promise<OperationRecordingFinish> {
   const facts = input.recording.collected;
-  if (facts === undefined) return "skipped";
+  if (facts === undefined) {
+    if (input.recording.refusal !== undefined) return "refused";
+    // A developer error, never a lifecycle failure: every terminal branch
+    // must decide, and a forgotten decision would otherwise drop the run's
+    // evidence silently.
+    writeHumanDocument(
+      input.stderr,
+      operationHistoryUnrecordedDocument(),
+      terminalPresentationContext(input.stderr),
+    );
+    return "unrecorded";
+  }
   const reviewed = input.recording.reviewed();
   const draft: OperationHistoryEntryDraft = {
     command: input.command,
@@ -308,19 +384,15 @@ export function updateSuccessRecording(
       state: record,
     })
   );
-  const committed = projects.filter((project) => project.result === "completed").length;
   // "unchanged" is settled work, not outstanding work: a mixed fleet that
   // committed every selected Project's actual work succeeded.
-  const outstanding = projects.filter((project) =>
-    project.result === "skipped" || project.result === "unattempted"
-  ).length;
-  const noWork = !reportHasReconciliationWork(applied.receipt);
+  const counts = projectCounts(projects);
   return {
-    outcome: noWork
-      ? "no-op"
-      : outstanding === 0
-        ? "succeeded"
-        : committed > 0 ? "partial" : "blocked",
+    outcome: operationOutcome({
+      ...counts,
+      failed: false,
+      noWork: !reportHasReconciliationWork(applied.receipt),
+    }),
     scope: recordingScopeForSelection(selection),
     projects,
   };
@@ -367,9 +439,12 @@ export function updateExecutionFailureRecording(
   for (const pending of error.pendingProjects) {
     projects.push(unattemptedProject(pending));
   }
-  const committed = projects.filter((project) => project.result === "completed").length;
   return {
-    outcome: committed > 0 ? "partial" : "failed",
+    outcome: operationOutcome({
+      ...projectCounts(projects),
+      failed: true,
+      noWork: false,
+    }),
     scope: recordingScopeForSelection(selection),
     projects,
     failure: error.detail,
@@ -385,9 +460,12 @@ export function updateVerificationFailureRecording(
   const projects = error.receipt.projects.map((record) =>
     projectRecord(record, { receipt: receipt.get(record.canonicalProject) })
   );
-  const committed = projects.filter((project) => project.result === "completed").length;
   return {
-    outcome: committed > 0 ? "partial" : "failed",
+    outcome: operationOutcome({
+      ...projectCounts(projects),
+      failed: true,
+      noWork: false,
+    }),
     scope: recordingScopeForSelection(selection),
     projects,
     failure: error.message,
@@ -457,7 +535,11 @@ export function installSuccessRecording(
     projectRecord(record, { receipt: receipt.get(record.canonicalProject) })
   );
   return {
-    outcome: reportHasReconciliationWork(result.applied.receipt) ? "succeeded" : "no-op",
+    outcome: operationOutcome({
+      ...projectCounts(projects),
+      failed: false,
+      noWork: !reportHasReconciliationWork(result.applied.receipt),
+    }),
     scope: recordingScopeForProject(result.preview),
     projects,
   };
@@ -611,15 +693,14 @@ export function uninstallRecording(
 ): OperationRecordingFacts {
   const projects = uninstallProjects(result);
   const committed = result.completed.length;
-  const outcome: OperationHistoryOutcome = result.failed !== undefined
-    ? (committed > 0 ? "partial" : "failed")
-    : result.skipped.length > 0
-      ? (committed > 0 ? "partial" : "blocked")
-      : result.unattempted.length > 0
-        ? "partial"
-        : committed > 0 ? "succeeded" : "no-op";
+  const outstanding = result.skipped.length + result.unattempted.length;
   return {
-    outcome,
+    outcome: operationOutcome({
+      committed,
+      outstanding,
+      failed: result.failed !== undefined,
+      noWork: committed === 0 && outstanding === 0,
+    }),
     scope,
     projects,
     ...(result.failed === undefined

@@ -391,6 +391,25 @@ export function operationHistorySaveFailureDocument(
   });
 }
 
+/**
+ * The non-fatal internal diagnostic for a lifecycle run whose branches made no
+ * recording decision: the run's own report and exit code are untouched, and
+ * the missing decision is reported once (DEC-008: history never fails the
+ * lifecycle).
+ */
+export function operationHistoryUnrecordedDocument(): PresentationDocument {
+  return diagnosticDocument({
+    severity: "attention",
+    happened: ["internal: this run recorded no operation-history decision"],
+    why: [[
+      "Every lifecycle terminal branch records its outcome or an explicit refusal; this run itself is unaffected.",
+    ]],
+    whatToType: [
+      ["Run ", commandPart(COMMAND_NAME, [arg("details")]), " to see the retained history."],
+    ],
+  });
+}
+
 export interface DetailsJsonInput {
   readonly selection: "id" | "latest" | "list";
   readonly entries: readonly OperationHistoryEntry[];

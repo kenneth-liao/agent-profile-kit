@@ -67,6 +67,7 @@ import {
   beginLifecycleOperationRecording,
   finishLifecycleOperationRecording,
   lateAuthorizationStopRecording,
+  recordProjectedOutcome,
   recordingScopeForSelection,
   updateBlockedRecording,
   updateCancelledRecording,
@@ -235,11 +236,11 @@ async function runApplyCommandWithRecording(
     if (error instanceof ApplyConsentRequiredError) {
       // A late stop that committed earlier Projects keeps that partial
       // evidence; a pre-write refusal records nothing.
-      recording.collect(lateAuthorizationStopRecording(
-        error,
-        recordingScopeForSelection(request.selection),
-        formatError(error),
-      ));
+      recordProjectedOutcome(
+        recording,
+        lateAuthorizationStopRecording(error, recordingScopeForSelection(request.selection), formatError(error)),
+        "update refused before any write",
+      );
       // The remedy stays runnable: already-supplied flags are kept and the
       // missing operations are added, so re-running answers the whole scope.
       const scope: ApplyAnsweringScope = {
@@ -261,11 +262,11 @@ async function runApplyCommandWithRecording(
       return { exitCode: 1 };
     }
     if (error instanceof ApplyReviewStaleError) {
-      recording.collect(lateAuthorizationStopRecording(
-        error,
-        recordingScopeForSelection(request.selection),
-        formatError(error),
-      ));
+      recordProjectedOutcome(
+        recording,
+        lateAuthorizationStopRecording(error, recordingScopeForSelection(request.selection), formatError(error)),
+        "update refused before any write",
+      );
       if (request.json) {
         request.stdout.write(formatLifecycleToolErrorJson("update", formatError(error)));
       } else {
@@ -336,6 +337,7 @@ async function runApplyCommandWithRecording(
         stderrContext,
       );
     }
+    recording.recordNothing("update refused before any lifecycle write");
     return { exitCode: 1 };
   }
 }
