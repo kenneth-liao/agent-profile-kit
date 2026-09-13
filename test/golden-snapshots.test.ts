@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -24,7 +25,7 @@ import {
   checkAtomicRendering,
   collectSpellings,
 } from "./support/rendered-atomicity.js";
-import { obtainPackageArchive } from "./support/package-archive.js";
+import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import { installControlledHosts } from "./support/fleet-fixture.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -36,7 +37,7 @@ import {
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
-let cliPath = join(repositoryRoot, "dist", "cli.js");
+let cliPath = "";
 let authoredVerbatimLines: readonly string[] = [];
 let snapshotBodies: Map<string, string>;
 
@@ -52,11 +53,11 @@ const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
 };
 
 beforeAll(async () => {
-  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-golden-pack-");
+  const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-golden-pack-");
   packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-golden-packed-"));
   temporaryDirectories.push(extracted);
-  execFileSync("tar", ["-xzf", archive.path, "-C", extracted]);
+  await extractPackageArchive(archive.path, extracted);
   cliPath = join(extracted, "package", "dist", "cli.js");
   // Verbatim regions are matched line-consecutively, so blank lines stay in
   // the corpus; authored example and guide bodies are reproduced verbatim.

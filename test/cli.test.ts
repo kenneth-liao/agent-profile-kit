@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -48,7 +49,7 @@ import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
 import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
-import { obtainPackageArchive } from "./support/package-archive.js";
+import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -61,18 +62,18 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FOCUSED_GUIDE_MAX_LINES = 30;
 const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
-let cliPath = join(repositoryRoot, "dist", "cli.js");
+let cliPath = "";
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
 };
 
-beforeAll(() => {
-  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-suite-pack-");
+beforeAll(async () => {
+  const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-suite-pack-");
   packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-suite-packed-"));
   temporaryDirectories.push(extracted);
-  execFileSync("tar", ["-xzf", archive.path, "-C", extracted]);
+  await extractPackageArchive(archive.path, extracted);
   cliPath = join(extracted, "package", "dist", "cli.js");
 });
 

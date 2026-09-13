@@ -228,6 +228,10 @@ test("runs fleet-scale regressions in a separate job without raising the fast de
   expect(fleetCommands).not.toContain("bun test");
   expect(fleetCommands).not.toContain("--timeout");
   expect(fleetCommands).not.toContain("--update-snapshots");
+  expect(fleetCommands).not.toContain("build:bundle");
   expect(fleetSteps.some((step) => step.name === "Install dependencies")).toBe(true);
-  expect(fleetSteps.some((step) => step.name === "Build production CLI")).toBe(true);
+  // The fleet job's canonical qualification prepares its own candidate through
+  // the invocation: one typecheck, bundle, and pack inside `test:fleet`, so no
+  // prebundling step may duplicate it.
+  expect(fleetSteps.some((step) => step.name === "Build production CLI")).toBe(false);
 });

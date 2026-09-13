@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -45,9 +46,10 @@ import {
 } from "../installer/reconcile.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import { humanText } from "./support/human-text.js";
-import { ensureProductionBundle } from "./support/package-archive.js";
 import {
-  FLEET_CLI_PATH,
+  releaseFleetCliPath,
+  cleanupFleetResources,
+  resolveFleetCliPath,
   runFleetCli,
   runFleetCliWithExplicitPath,
   withFleetScope,
@@ -82,13 +84,21 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const FLEET_TEST_TIMEOUT_MS = 120_000;
 const temporaryDirectories: string[] = [];
 
-beforeAll(() => {
-  ensureProductionBundle(repositoryRoot);
+let fleetCliPath = "";
+
+beforeAll(async () => {
+  // The fleet launch path is the invocation candidate resolved through the
+  // canonical package consumer boundary; the extraction directory is owned
+  // here and released in afterAll.
+  fleetCliPath = await resolveFleetCliPath();
 });
 
-afterAll(() => {
-  cleanupFleetFixtures();
-  for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
+afterAll(async () => {
+  await cleanupFleetResources([
+    cleanupFleetFixtures,
+    ...temporaryDirectories.map((directory) => () => rmSync(directory, { recursive: true, force: true })),
+    releaseFleetCliPath,
+  ]);
 });
 
 function isolatedHome(): string {
@@ -136,7 +146,7 @@ async function runCliInPtyRaw(
     "exec",
     ...[
       process.env.NODE_BINARY ?? "node",
-      FLEET_CLI_PATH,
+      fleetCliPath,
       ...withFleetScope(arguments_),
     ].map(shellQuote),
   ].join(" ");
@@ -486,7 +496,7 @@ describe("fleet-wide synchronization qualification", () => {
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [FLEET_CLI_PATH, "status", "--all"],
+      arguments_: [fleetCliPath, "status", "--all"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",
@@ -503,7 +513,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const json = await runProcess({
       executable: process.env.NODE_BINARY ?? "node",
-      arguments_: [FLEET_CLI_PATH, "status", "--all", "--json"],
+      arguments_: [fleetCliPath, "status", "--all", "--json"],
       environment: {
         ...process.env,
         APKIT_TEST_CODEX_DELAY: "1.2",

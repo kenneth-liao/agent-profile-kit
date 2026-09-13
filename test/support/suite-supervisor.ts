@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,9 +14,33 @@ import { fileURLToPath } from "node:url";
 
 import { parse as parseToml } from "smol-toml";
 
-import { runProcess, type ProcessResult } from "../../process/process-executor.js";
+import {
+  TEST_CHILD_DEADLINE_MS,
+  describeProcessResult,
+  runProcess,
+  type ProcessResult,
+} from "../../process/process-executor.js";
 import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./corpus-inventory.js";
 import { parseBunJunitEvidence } from "./junit-evidence.js";
+import {
+  PackagePreparationStageError,
+  PREPARED_PACKAGE_ARCHIVE_ENV,
+  preparedPackageArchive,
+  removePathBounded,
+  SUPERVISED_INVOCATION_ENV,
+  supervisedInvocationActive,
+  systemPackageArchiveCommands,
+  type PackageArchiveCommands,
+} from "./package-archive.js";
+import {
+  createPackageRequestChannel,
+  filedPackageRequests,
+  PACKAGE_REQUEST_CHANNEL_ENV,
+  PACKAGE_REQUEST_WAIT_ENV,
+  publishPackageChannelResponse,
+  removePackageChannel,
+  type PackageRequestChannel,
+} from "./package-request-channel.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -29,7 +54,7 @@ import { parseBunJunitEvidence } from "./junit-evidence.js";
 
 export type SuiteMode = "full" | "focused" | "stress";
 
-/** Bun's per-test timeout; the single canonical policy value. */
+/** Minimum Bun watchdog; a supervised runner grants at least its preparation budget. */
 export const PER_TEST_TIMEOUT_MS = 10_000;
 /**
  * Measured default policy, selected from retained measurement rather than a
@@ -138,6 +163,12 @@ export interface SuiteSupervisorOptions {
   readonly cleanupGraceMs?: number;
   /** Called as each run completes, before the next run starts. */
   readonly onRunComplete?: (run: SupervisedRun) => void;
+  /**
+   * Test seam: replace the bounded package preparation commands (for example
+   * an injected command pair that produces a real tarball). Canonical
+   * invocations always run the system build and pack stages.
+   */
+  readonly packageCommands?: PackageArchiveCommands;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -301,7 +332,44 @@ export interface SuiteSupervisorResult {
   readonly aggregateExhausted: boolean;
   /** True when the run was interrupted through the abort signal. */
   readonly interrupted: boolean;
+  /** Invocation-package preparation evidence for this invocation. */
+  readonly preparation: PreparationEvidence;
 }
+
+/**
+ * One invocation's package preparation evidence. Preparation is lazy and
+ * supervisor-owned: the status resolves by the end of the invocation —
+ * prepared (one fresh immutable candidate was built and packed on the first
+ * actual consumer request), supplied (an operator-supplied archive passed
+ * through with zero preparation), none (no consumer requested the package),
+ * failed (the requested preparation failed; diagnostics retained in
+ * `preparation.log`), or interrupted (the abort signal stopped a preparation
+ * that a consumer had requested). `requests` counts the consumer requests the
+ * channel received, so a green invocation with `requests: 0` is the proof
+ * that no consumer executed. The prepared candidate's directory — recorded in
+ * `candidateDirectory` — is removed after the invocation through the bounded
+ * executor with its duration reported; supplied archives are never touched.
+ * `childCleanupFailed`/`childCleanupDurationMs` carry a preparation child's
+ * own bounded cleanup evidence separately from the directory cleanup's.
+ */
+export interface PreparationEvidence {
+  readonly status: "prepared" | "supplied" | "none" | "failed" | "interrupted";
+  readonly requests: number;
+  readonly durationMs: number;
+  readonly cleanupDurationMs: number;
+  readonly cleanupFailed: boolean;
+  readonly archivePath?: string;
+  readonly candidateDirectory?: string;
+  readonly failure?: string;
+  readonly cleanupFailure?: string;
+  readonly childCleanupFailed?: boolean;
+  readonly childCleanupDurationMs?: number;
+  /** Retained stage output for a failed or interrupted preparation. */
+  readonly diagnostics?: string;
+}
+
+/** The filename of a failed or interrupted preparation's retained diagnostics. */
+export const PREPARATION_LOG_FILENAME = "preparation.log";
 
 function isMode(value: string): value is SuiteMode {
   return value === "full" || value === "focused" || value === "stress";
@@ -321,7 +389,12 @@ function validate(options: SuiteSupervisorOptions): BudgetPolicy {
 
 function suiteProcessEnvironment(
   environment: NodeJS.ProcessEnv,
-  bunArguments?: readonly string[],
+  bunArguments: readonly string[] | undefined,
+  canonicalRunner: boolean,
+  preparedArchivePath: string | undefined,
+  suppliedArchivePath: string | undefined,
+  channel: PackageRequestChannel | null,
+  runDeadlineMs: number,
 ): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment[DIAGNOSTICS_DIR_ENV];
@@ -330,6 +403,30 @@ function suiteProcessEnvironment(
   delete childEnvironment[PER_RUN_DEADLINE_ENV];
   delete childEnvironment[AGGREGATE_DEADLINE_ENV];
   delete childEnvironment[MAX_RUNS_ENV];
+  // Only canonically supervised children carry the supervised-invocation
+  // marker: an injected test-seam command manages its own execution and must
+  // not claim supervision (nor inherit an ambient marker from a nesting
+  // supervised run).
+  delete childEnvironment[SUPERVISED_INVOCATION_ENV];
+  if (canonicalRunner) {
+    childEnvironment[SUPERVISED_INVOCATION_ENV] = "1";
+  }
+  // The archive and channel environment is written explicitly, never
+  // inherited: a child of a nested invocation must not receive the parent
+  // invocation's candidate or channel as if they were this invocation's own,
+  // and an operator-supplied archive is passed through untouched (its bytes
+  // are never rewritten or removed here).
+  delete childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV];
+  delete childEnvironment[PACKAGE_REQUEST_CHANNEL_ENV];
+  delete childEnvironment[PACKAGE_REQUEST_WAIT_ENV];
+  if (preparedArchivePath !== undefined) {
+    childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV] = preparedArchivePath;
+  } else if (suppliedArchivePath !== undefined) {
+    childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV] = suppliedArchivePath;
+  } else if (canonicalRunner && channel !== null) {
+    childEnvironment[PACKAGE_REQUEST_CHANNEL_ENV] = channel.directory;
+    childEnvironment[PACKAGE_REQUEST_WAIT_ENV] = String(runDeadlineMs);
+  }
   if (bunArguments?.includes(UPDATE_SNAPSHOTS_FLAG) === true) {
     childEnvironment[UPDATE_SNAPSHOTS_ENV] = "1";
   }
@@ -367,6 +464,8 @@ export interface PreparedSuiteInvocation {
 
 /** Which corpus files the invocation requires and which policy removes. */
 export interface SelectionPlan {
+  /** Every corpus test file before the exclusion policy, POSIX-relative to `base`. */
+  readonly files: readonly string[];
   /** Required selection, POSIX-relative to the corpus base. */
   readonly selected: readonly string[];
   /** Files removed by the exclusion policy, POSIX-relative to the corpus base. */
@@ -457,6 +556,12 @@ function rejectSilentSelectionConfig(base: string): void {
  * arguments naming corpus files count as named selections; the rest are
  * filters and are never treated as missing coverage.
  */
+/**
+ * The consumer capability declarations travel with the files that carry them;
+ * fixture corpora declare through the same marker module as the repository
+ * corpus, so no registry is consulted and no base-identity check is needed.
+ */
+
 function deriveSelectionPlan(
   mode: SuiteMode,
   base: string,
@@ -471,6 +576,7 @@ function deriveSelectionPlan(
       .map((argument) => normalizeRelativePath(base, argument))
       .filter((normalized) => inventory.files.includes(normalized));
     return {
+      files: inventory.files,
       selected: inventory.selected,
       excluded: inventory.excluded,
       named,
@@ -489,7 +595,13 @@ function deriveSelectionPlan(
       `suite supervisor ${mode} mode: required selection cannot be empty after exclusions (${inventory.excluded.join(", ")})`,
     );
   }
-  return { selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
+  return {
+    files: inventory.files,
+    selected: inventory.selected,
+    excluded: inventory.excluded,
+    named: [],
+    nameFilterActive: false,
+  };
 }
 
 /**
@@ -502,7 +614,8 @@ export function prepareSuiteInvocation(options: SuiteSupervisorOptions): Prepare
   const base = corpusBase(options);
   if (options.suiteCommand !== undefined) {
     // Test seam only: an injected command is not the runner whose selection is
-    // being proven, so identity and selection gates do not apply to it.
+    // being proven, so identity and selection gates do not apply to it, and
+    // it manages its own execution, so no request channel is created for it.
     return {
       policy,
       base,
@@ -634,6 +747,7 @@ function writeRunLog(
   logDir: string,
   runNumber: number,
   invocation: PreparedSuiteInvocation,
+  preparation: PreparationEvidence,
   result: ProcessResult,
   coverage?: SelectionCoverage,
 ): string {
@@ -652,6 +766,11 @@ function writeRunLog(
     `=== suite run ${runNumber}/${policy.maxRuns} (${policy.mode}) ===`,
     ...invocation.runtimeHeader,
     `effective-policy: mode=${policy.mode} per-run=${policy.perRunDeadlineMs}ms aggregate=${policy.aggregateDeadlineMs}ms max-runs=${policy.maxRuns}`,
+    preparationLogLine(preparation),
+    // The lazy model's truth in one line: candidates are prepared on the
+    // first actual consumer request, and a green run with `requests=0`
+    // exercised no consumer at all.
+    `preparation-model: lazy — prepared on the first supervised consumer request; no request means no preparation`,
     `command: ${result.commandLabel}`,
     `kind: ${result.kind}`,
     `exitCode: ${result.exitCode ?? "null"}`,
@@ -673,12 +792,352 @@ function writeRunLog(
 }
 
 /**
+ * The lazy, supervisor-owned package preparation for one invocation. A request
+ * channel is owned for the whole invocation; a watcher polls it concurrently
+ * with the runs, and the first actual consumer request triggers one bounded
+ * preparation — the same build and pack stages through the shared bounded
+ * executor, sharing one finite preparation budget (the per-run deadline, or
+ * the stress aggregate, whose clock started before any run), honoring the
+ * abort signal throughout. The terminal response — success or failure — is
+ * published once for every waiting consumer, so a known preparation failure
+ * never leaves a consumer polling until timeout. The watcher is closed and
+ * its preparation settled before any owned resource is removed.
+ */
+
+interface PreparedCandidateOutcome {
+  readonly evidence: PreparationEvidence;
+  readonly candidateDirectory: string | null;
+  readonly archivePath: string | null;
+}
+
+/** The bounded stage sequence: one build plus one script-disabled pack. */
+async function prepareCandidateStages(
+  invocation: PreparedSuiteInvocation,
+  options: SuiteSupervisorOptions,
+  abortSignal: AbortSignal | undefined,
+  startedAt: number,
+  budgetMs: number,
+): Promise<PreparedCandidateOutcome> {
+  const commands = options.packageCommands ?? systemPackageArchiveCommands;
+  // Directory creation sits inside the evidence-owning try: a failure to
+  // create the candidate directory is a preparation failure with retained
+  // diagnostics, never an unstructured throw.
+  let candidateDirectory: string | null = null;
+  try {
+    candidateDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-invocation-candidate-"));
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    return {
+      evidence: {
+        status: "failed",
+        requests: 0,
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        failure,
+        diagnostics: failure,
+      },
+      candidateDirectory: null,
+      archivePath: null,
+    };
+  }
+  // One abort reader for every stage boundary: TS control-flow narrowing does
+  // not invalidate across awaits, so each check must read the live signal
+  // rather than a value narrowed by an earlier check.
+  const preparationAborted = (signal: AbortSignal | undefined): boolean =>
+    signal?.aborted === true;
+  // Transfer the directory to the invocation owner on every outcome. Only
+  // that owner's bounded finally removes it, after all writers have settled.
+  const failedOutcome = (
+    status: "failed" | "interrupted",
+    detail: { failure?: string; diagnostics?: string },
+    stageError?: PackagePreparationStageError,
+  ): PreparedCandidateOutcome => ({
+      candidateDirectory,
+      archivePath: null,
+      evidence: {
+        status,
+        requests: 0,
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        candidateDirectory,
+        ...(stageError === undefined
+          ? {}
+          : {
+              // The preparation child's own bounded cleanup evidence travels
+              // separately from the directory cleanup's: a cancelled child
+              // whose process group could not be confirmed terminated is
+              // visible even though the archive directory was removed.
+              childCleanupFailed: stageError.result.cleanupFailed,
+              childCleanupDurationMs: stageError.result.cleanupDurationMs,
+            }),
+        ...detail,
+      },
+    });
+  try {
+    const remainingMs = () => budgetMs - (Date.now() - startedAt);
+    const assertBudgetRemaining = (stage: string): void => {
+      if (remainingMs() <= 0) {
+        throw new Error(
+          `package preparation budget (${budgetMs}ms) exhausted before the ${stage} stage`,
+        );
+      }
+    };
+    assertBudgetRemaining("build");
+    await commands.build({
+      repositoryRoot: invocation.base,
+      deadlineMs: remainingMs(),
+      signal: abortSignal,
+    });
+    if (preparationAborted(abortSignal)) {
+      return failedOutcome("interrupted", { failure: "interrupted during the build stage", diagnostics: "interrupted during the build stage" });
+    }
+    assertBudgetRemaining("pack");
+    const filename = await commands.createScriptDisabledArchive(
+      { repositoryRoot: invocation.base, deadlineMs: remainingMs(), signal: abortSignal },
+      candidateDirectory,
+    );
+    if (preparationAborted(abortSignal)) {
+      return failedOutcome("interrupted", { failure: "interrupted during the pack stage", diagnostics: "interrupted during the pack stage" });
+    }
+    const archivePath = realpathSync(join(candidateDirectory, filename));
+    return {
+      candidateDirectory,
+      archivePath,
+      evidence: {
+        status: "prepared",
+        requests: 0,
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        archivePath,
+        candidateDirectory,
+      },
+    };
+  } catch (error) {
+    const stageError = error instanceof PackagePreparationStageError ? error : undefined;
+    const failure = error instanceof Error ? error.message : String(error);
+    const diagnostics =
+      stageError !== undefined
+        ? [
+            `--- ${stageError.stage} result ---`,
+            describeProcessResult(stageError.result),
+            `childCleanupFailed: ${stageError.result.cleanupFailed}`,
+            `childCleanupDurationMs: ${stageError.result.cleanupDurationMs}`,
+            "--- stdout ---",
+            stageError.result.stdout,
+            "--- stderr ---",
+            stageError.result.stderr,
+          ].join("\n")
+        : error instanceof Error && error.stack !== undefined
+          ? error.stack
+          : failure;
+    if (abortSignal?.aborted === true || stageError?.result.cancelled === true) {
+      const cause = `interrupted during the ${stageError?.stage ?? "package preparation"} stage`;
+      return failedOutcome("interrupted", { failure: cause, diagnostics: `${cause}\n${diagnostics}` }, stageError);
+    }
+    return failedOutcome("failed", { failure, diagnostics }, stageError);
+  }
+}
+
+/** One abort-aware sleep for the watcher's poll interval. */
+function sleepAbortable(ms: number, abortSignal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    abortSignal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/** The watcher's poll interval; a request waits at most this long to be seen. */
+const REQUEST_POLL_INTERVAL_MS = 100;
+
+/**
+ * The supervisor's channel watcher: one pass over the invocation-private
+ * channel per interval, preparing the candidate exactly once on the first
+ * actual consumer request and publishing one terminal response for every
+ * waiting consumer. `stop()` resolves only after the watcher loop has ended
+ * and any in-flight preparation has settled, so the caller can remove the
+ * channel (and the candidate) with no writer left behind.
+ */
+interface PackageRequestWatcher {
+  /** Current preparation evidence; the final cleanup fields are merged later. */
+  readonly evidence: () => PreparationEvidence;
+  readonly beginRun: (deadlineMs: number) => void;
+  readonly endRun: () => void;
+  /** Settles after the loop ends and the preparation (if any) has settled. */
+  readonly stop: () => Promise<void>;
+}
+
+function watchPackageRequests(
+  invocation: PreparedSuiteInvocation,
+  channel: PackageRequestChannel,
+  options: SuiteSupervisorOptions,
+  abortSignal: AbortSignal | undefined,
+  startedAt: number,
+  onPrepared: (archivePath: string) => void,
+): PackageRequestWatcher {
+  const preparationController = new AbortController();
+  const cancelPreparation = () => preparationController.abort();
+  if (abortSignal?.aborted) cancelPreparation();
+  else abortSignal?.addEventListener("abort", cancelPreparation, { once: true });
+  let runDeadlineAt = startedAt + invocation.policy.perRunDeadlineMs;
+  let status: PreparationEvidence["status"] = "none";
+  let requests = 0;
+  let durationMs = 0;
+  let candidateDirectory: string | null = null;
+  let archivePath: string | null = null;
+  let failure: string | undefined;
+  let diagnostics: string | undefined;
+  let childCleanupFailed: boolean | undefined;
+  let childCleanupDurationMs: number | undefined;
+  let responsePublished = false;
+  let stopRequested = false;
+
+  const prepareOnce = async (): Promise<void> => {
+    const preparedAt = Date.now();
+    const outcome = await prepareCandidateStages(
+      invocation,
+      options,
+      preparationController.signal,
+      preparedAt,
+      Math.max(runDeadlineAt - preparedAt, 1),
+    );
+    durationMs = outcome.evidence.durationMs;
+    candidateDirectory = outcome.candidateDirectory;
+    archivePath = outcome.archivePath;
+    childCleanupFailed = outcome.evidence.childCleanupFailed;
+    childCleanupDurationMs = outcome.evidence.childCleanupDurationMs;
+    if (outcome.evidence.status === "prepared" && outcome.archivePath !== null) {
+      status = "prepared";
+      failure = undefined;
+      diagnostics = undefined;
+      onPrepared(outcome.archivePath);
+      publishPackageChannelResponse(channel.directory, {
+        status: "prepared",
+        archivePath: outcome.archivePath,
+      });
+    } else {
+      status = outcome.evidence.status;
+      failure = outcome.evidence.failure;
+      diagnostics = outcome.evidence.diagnostics;
+      // Terminal failure is published for every waiting consumer: no
+      // consumer ever polls until timeout after a known preparation failure.
+      publishPackageChannelResponse(
+        channel.directory,
+        outcome.evidence.failure === undefined
+          ? { status: "failed" }
+          : { status: "failed", failure: outcome.evidence.failure },
+      );
+    }
+    responsePublished = true;
+  };
+
+  const loop = (async () => {
+    while (!stopRequested && abortSignal?.aborted !== true) {
+      if (!responsePublished) {
+        const filed = filedPackageRequests(channel.directory);
+        if (filed.length > 0) {
+          requests = Math.max(requests, filed.length);
+          await prepareOnce();
+          continue;
+        }
+      }
+      await sleepAbortable(REQUEST_POLL_INTERVAL_MS, abortSignal);
+    }
+  })();
+  const settledLoop = loop.catch((error: unknown) => {
+    // The watcher must never throw past its own boundary: a watcher defect is
+    // recorded as a failed preparation so no consumer can hang waiting.
+    status = "failed";
+    failure = [failure, String(error)].filter(Boolean).join("; ");
+    diagnostics = [diagnostics, error instanceof Error ? error.stack : String(error)].filter(Boolean).join("\n");
+    if (!responsePublished) {
+      try {
+        publishPackageChannelResponse(channel.directory, { status: "failed", failure });
+        responsePublished = true;
+      } catch {
+        // The channel is already gone; consumers cannot wait on it.
+      }
+    }
+  });
+
+  return {
+    beginRun: (deadlineMs) => { runDeadlineAt = Date.now() + deadlineMs; },
+    endRun: () => {
+      if (requests > 0 && status === "none") preparationController.abort();
+    },
+    evidence: () => ({
+      status,
+      requests,
+      durationMs,
+      cleanupDurationMs: 0,
+      cleanupFailed: false,
+      ...(archivePath === null ? {} : { archivePath }),
+      ...(candidateDirectory === null ? {} : { candidateDirectory }),
+      ...(failure === undefined ? {} : { failure }),
+      ...(childCleanupFailed === undefined ? {} : { childCleanupFailed }),
+      ...(childCleanupDurationMs === undefined ? {} : { childCleanupDurationMs }),
+      ...(diagnostics === undefined ? {} : { diagnostics }),
+    }),
+    stop: async () => {
+      stopRequested = true;
+      preparationController.abort();
+      abortSignal?.removeEventListener("abort", cancelPreparation);
+      await settledLoop;
+    },
+  };
+}
+
+/** Retain one failed or interrupted preparation's complete diagnostics. */
+function writePreparationLog(logDir: string, evidence: PreparationEvidence): string {
+  mkdirSync(logDir, { recursive: true });
+  const logPath = join(logDir, PREPARATION_LOG_FILENAME);
+  const lines = [
+    "=== invocation package preparation ===",
+    `status: ${evidence.status}`,
+    `requests: ${evidence.requests}`,
+    `durationMs: ${evidence.durationMs}`,
+    `cleanupDurationMs: ${evidence.cleanupDurationMs}`,
+    `cleanupFailed: ${evidence.cleanupFailed}`,
+    `childCleanupFailed: ${evidence.childCleanupFailed ?? "null"}`,
+    `childCleanupDurationMs: ${evidence.childCleanupDurationMs ?? "null"}`,
+    `failure: ${evidence.failure ?? "null"}`,
+    ...(evidence.diagnostics === undefined ? [] : ["--- stage output ---", evidence.diagnostics]),
+  ];
+  writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
+  return logPath;
+}
+
+/** The `preparation:` evidence line shared by every retained run log. */
+function preparationLogLine(evidence: PreparationEvidence): string {
+  const parts = [
+    `status=${evidence.status}`,
+    `requests=${evidence.requests}`,
+    `durationMs=${evidence.durationMs}`,
+    ...(evidence.archivePath === undefined ? [] : [`archive=${evidence.archivePath}`]),
+  ];
+  return `preparation: ${parts.join(" ")}`;
+}
+
+/**
  * Run one or more supervised suites. `full` and `focused` perform exactly one
  * run; `stress` runs sequentially up to `maxRuns` green runs, stopping at the
  * first failure or timeout. Its final run uses the smaller of the per-run and
  * remaining aggregate budgets, so useful aggregate time is not discarded. On
  * timeout or interruption the bounded executor cleans up the complete child
- * process group before resolving.
+ * process group before resolving. Package preparation is lazy: an
+ * invocation-private request channel carries the first actual consumer
+ * request to a supervisor-owned preparation, memoized for the whole
+ * invocation (including later stress runs), and no consumer request means no
+ * preparation at all.
  */
 export async function runSupervisedSuite(
   options: SuiteSupervisorOptions,
@@ -699,89 +1158,293 @@ export async function runSupervisedSuite(
   // Structured execution evidence is retained next to the run logs; the
   // evidence directory must exist before the child starts.
   mkdirSync(logDir, { recursive: true });
+  // The invocation clock covers preparation, runs, and cleanup: every owned
+  // stage consumes it, and its exhaustion is incomplete qualification.
   const startedAt = Date.now();
-  const runs: SupervisedRun[] = [];
-  let interrupted = false;
-  let aggregateExhausted = false;
 
-  while (runs.length < maxRuns) {
-    if (abortSignal?.aborted === true) {
-      interrupted = true;
-      break;
-    }
-    let runDeadline = perRun;
-    let aggregateLimitedRun = false;
-    if (mode === "stress") {
-      const remainingAggregate = aggregate - (Date.now() - startedAt);
-      if (remainingAggregate <= 0) {
-        aggregateExhausted = true;
-        break;
+  // An ambient archive is operator-supplied only outside a supervised parent:
+  // inside a supervised child (a nested invocation) the ambient archive belongs
+  // to the parent invocation, and a nested invocation always owns its own fresh
+  // candidate — reusing the parent's archive across the invocation boundary
+  // would be exactly the cross-command reuse this design forbids. The parent's
+  // archive bytes are never touched either way.
+  const ambient = supervisedInvocationActive(process.env)
+    ? undefined
+    : process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+  let suppliedArchivePath: string | undefined;
+  if (ambient !== undefined) {
+    try {
+      const archivePath = preparedPackageArchive(process.env);
+      if (archivePath === null) {
+        throw new Error(`${PREPARED_PACKAGE_ARCHIVE_ENV} was set but resolved to nothing`);
       }
-      runDeadline = Math.min(perRun, remainingAggregate);
-      aggregateLimitedRun = runDeadline < perRun;
-    }
-    const runNumber = runs.length + 1;
-    const junitPath = junitEvidencePath(logDir, runNumber);
-    // A reused diagnostics directory may hold evidence from an earlier
-    // invocation; only this run's own evidence may complete it. Deleting the
-    // planned path first makes a green run that fails to write evidence fail
-    // closed instead of parsing stale files as executed coverage.
-    rmSync(junitPath, { force: true });
-    // The structured-evidence reporter is part of the canonical selection
-    // contract: an injected test-seam command manages its own output, so it
-    // receives no reporter arguments.
-    const reporterArguments =
-      invocation.plan === null
-        ? []
-        : ["--reporter=junit", `--reporter-outfile=${junitPath}`];
-    const result = await runProcess(
-      {
-        executable: suiteCommand[0],
-        arguments_: [
-          ...suiteCommand.slice(1),
-          "--timeout",
-          String(PER_TEST_TIMEOUT_MS),
-          ...reporterArguments,
-          ...(mode === "focused"
-            ? (options.bunArguments ?? [])
-            : (invocation.plan?.selected ?? [])),
-        ],
-        cwd: invocation.base,
-        deadlineMs: runDeadline,
-        environment: suiteProcessEnvironment(process.env, options.bunArguments),
-        ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
-        commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
-      },
-      abortSignal,
-    );
-    if (result.cancelled) {
-      interrupted = true;
-    }
-    if (aggregateLimitedRun && result.kind === "timeout") {
-      aggregateExhausted = true;
-    }
-    // Coverage gates defend the only remaining misleading-pass window: a
-    // green exit. Non-green runs are already incomplete by their own kind.
-    const coverage =
-      invocation.plan !== null && isGreen(result)
-        ? evaluateRunCoverage(invocation, junitPath)
-        : undefined;
-    const logPath = writeRunLog(logDir, runNumber, invocation, result, coverage);
-    const run: SupervisedRun = {
-      runNumber,
-      result,
-      logPath,
-      ...(coverage === undefined ? {} : { coverage }),
-    };
-    runs.push(run);
-    options.onRunComplete?.(run);
-    if (!runComplete(run)) {
-      break;
+      suppliedArchivePath = archivePath;
+    } catch (error) {
+      // A malformed supplied archive is a preparation failure with retained
+      // diagnostics; the channel is never created and no consumer can hang.
+      const evidence: PreparationEvidence = {
+        status: "failed",
+        requests: 0,
+        durationMs: 0,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        failure: `supplied package archive rejected: ${error instanceof Error ? error.message : String(error)}`,
+      };
+      writePreparationLog(logDir, evidence);
+      return {
+        mode,
+        ok: false,
+        attemptedRuns: 0,
+        completedRuns: 0,
+        maxRuns,
+        runs: [],
+        aggregateDurationMs: Date.now() - startedAt,
+        logDir,
+        firstFailure: null,
+        aggregateExhausted: false,
+        interrupted: false,
+        preparation: evidence,
+      };
     }
   }
 
+  // Owned resources, acquired before the run loop and released in the finally:
+  // the invocation-private request channel and, once a consumer has requested
+  // it, the prepared candidate's directory. The archive path the children
+  // receive is injected directly once preparation has settled, so later runs
+  // (and any consumer in them) never touch the channel again.
+  let preparedArchivePath: string | undefined;
+  const channel =
+    suppliedArchivePath === undefined && invocation.plan !== null
+      ? createPackageRequestChannel()
+      : null;
+  const watcher =
+    channel === null
+      ? null
+      : watchPackageRequests(invocation, channel, options, abortSignal, startedAt, (archivePath) => {
+          preparedArchivePath = archivePath;
+        });
+
+  const runs: SupervisedRun[] = [];
+  let interrupted = false;
+  let aggregateExhausted = false;
+  let candidateDirectory: string | null = null;
+  let cleanupDurationMs = 0;
+  let cleanupFailed = false;
+  let cleanupFailure: string | undefined;
+  let invocationError: unknown;
+
+  try {
+    while (runs.length < maxRuns) {
+      if (abortSignal?.aborted === true) {
+        interrupted = true;
+        break;
+      }
+      let runDeadline = perRun;
+      let aggregateLimitedRun = false;
+      if (mode === "stress") {
+        const remainingAggregate = aggregate - (Date.now() - startedAt);
+        if (remainingAggregate <= 0) {
+          aggregateExhausted = true;
+          break;
+        }
+        runDeadline = Math.min(perRun, remainingAggregate);
+        aggregateLimitedRun = runDeadline < perRun;
+      }
+      const runNumber = runs.length + 1;
+      const junitPath = junitEvidencePath(logDir, runNumber);
+      // A reused diagnostics directory may hold evidence from an earlier
+      // invocation; only this run's own evidence may complete it. Deleting the
+      // planned path first makes a green run that fails to write evidence fail
+      // closed instead of parsing stale files as executed coverage.
+      rmSync(junitPath, { force: true });
+      // The structured-evidence reporter is part of the canonical selection
+      // contract: an injected test-seam command manages its own output, so it
+      // receives no reporter arguments.
+      const reporterArguments =
+        invocation.plan === null
+          ? []
+          : ["--reporter=junit", `--reporter-outfile=${junitPath}`];
+      watcher?.beginRun(runDeadline);
+      const result = await runProcess(
+        {
+          executable: suiteCommand[0],
+          arguments_: [
+            ...suiteCommand.slice(1),
+            "--timeout",
+            String(Math.max(PER_TEST_TIMEOUT_MS, runDeadline)),
+            ...reporterArguments,
+            ...(mode === "focused"
+              ? (options.bunArguments ?? [])
+              : (invocation.plan?.selected ?? [])),
+          ],
+          cwd: invocation.base,
+          deadlineMs: runDeadline,
+          environment: suiteProcessEnvironment(
+            process.env,
+            options.bunArguments,
+            invocation.plan !== null,
+            preparedArchivePath,
+            suppliedArchivePath,
+            channel,
+            runDeadline,
+          ),
+          ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
+          commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
+        },
+        abortSignal,
+      );
+      watcher?.endRun();
+      if (result.cancelled) {
+        interrupted = true;
+      }
+      if (aggregateLimitedRun && result.kind === "timeout") {
+        aggregateExhausted = true;
+      }
+      // Coverage gates defend the only remaining misleading-pass window: a
+      // green exit. Non-green runs are already incomplete by their own kind.
+      const coverage =
+        invocation.plan !== null && isGreen(result)
+          ? evaluateRunCoverage(invocation, junitPath)
+          : undefined;
+      const logPath = writeRunLog(logDir, runNumber, invocation, watcher?.evidence() ?? {
+        status: suppliedArchivePath === undefined ? "none" : "supplied",
+        requests: 0,
+        durationMs: 0,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        ...(suppliedArchivePath === undefined ? {} : { archivePath: suppliedArchivePath }),
+      }, result, coverage);
+      const run: SupervisedRun = {
+        runNumber,
+        result,
+        logPath,
+        ...(coverage === undefined ? {} : { coverage }),
+      };
+      runs.push(run);
+      options.onRunComplete?.(run);
+      if (!runComplete(run)) {
+        break;
+      }
+    }
+  } catch (error) {
+    invocationError = error;
+  } finally {
+    // Close the watcher first: its preparation (if any) must settle before any
+    // owned resource is removed, so nothing is written after its directory is
+    // gone. The finally owns cleanup on every exit — run completion, timeout,
+    // interruption, and any exception between acquisition and here — and the
+    // original error propagates after cleanup with its diagnostics retained.
+    if (watcher !== null) {
+      await watcher.stop();
+      const evidence = watcher.evidence();
+      candidateDirectory = evidence.candidateDirectory ?? null;
+    }
+    // Bounded cleanup of every resource this invocation owned: the prepared
+    // candidate's directory and the request channel. Each removal runs through
+    // the shared bounded executor against the remaining invocation budget,
+    // with a finite floor so an exhausted budget cannot skip cleanup, and
+    // every failure is reported, never treated as successful. The retained
+    // preparation log is written after removal so diagnostic I/O cannot skip
+    // cleanup; stage output is already retained in the watcher evidence.
+    const removalTargets = [candidateDirectory, channel?.directory ?? null];
+    for (const removalPath of removalTargets) {
+      if (removalPath === null) continue;
+      const cleanupStartedAt = Date.now();
+      const removalDeadlineMs = Math.max((mode === "stress" ? aggregate : perRun) - (cleanupStartedAt - startedAt), TEST_CHILD_DEADLINE_MS);
+      try {
+        // The removal is bounded by its deadline and deliberately not tied to
+        // the invocation's abort signal: an aborted invocation still owns its
+        // resources, so cleanup proceeds and only the bounded deadline can
+        // stop it. A failed removal is reported, never treated as successful.
+        await removePathBounded(removalPath, removalDeadlineMs, undefined);
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupFailure = [cleanupFailure, String(error)].filter(Boolean).join("; ");
+      }
+      cleanupDurationMs = cleanupDurationMs + (Date.now() - cleanupStartedAt);
+    }
+    const finalPreparationSnapshot = watcher?.evidence();
+    if (finalPreparationSnapshot !== undefined && (finalPreparationSnapshot.status === "failed" || finalPreparationSnapshot.status === "interrupted")) {
+      try {
+        writePreparationLog(logDir, { ...finalPreparationSnapshot, cleanupDurationMs, cleanupFailed,
+          ...(cleanupFailure === undefined ? {} : { cleanupFailure }) });
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupFailure = [cleanupFailure, `preparation diagnostics not written: ${String(error)}`].filter(Boolean).join("; ");
+      }
+    }
+    // The retained run log carries the complete preparation lifecycle,
+    // including cleanup evidence.
+    if (runs.length > 0 && (cleanupDurationMs > 0 || cleanupFailed)) {
+      const lastRunLog = runs[runs.length - 1]!.logPath;
+      const cleanupLines = [
+        `preparation-cleanup: durationMs=${cleanupDurationMs} failed=${cleanupFailed}`,
+        ...(cleanupFailure === undefined ? [] : [`preparation-cleanup-failure: ${cleanupFailure}`]),
+      ];
+      try {
+        writeFileSync(lastRunLog, `${readFileSync(lastRunLog, "utf8")}${cleanupLines.join("\n")}\n`, {
+          mode: 0o600,
+        });
+      } catch (error) {
+        // A log-append failure must not mask the original run outcome; the
+        // cleanup failure stays reported on the evidence either way.
+        cleanupFailed = true;
+        cleanupFailure = cleanupFailure ?? `run-log cleanup evidence not appended: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    }
+  }
+
+  // Final preparation evidence: the watcher's outcome merged with the owned
+  // cleanup's evidence.
+  const watcherEvidence = watcher?.evidence();
+  const finalPreparation: PreparationEvidence = {
+    status: watcher === null && suppliedArchivePath !== undefined ? "supplied" : (watcherEvidence?.status ?? "none"),
+    requests: watcherEvidence?.requests ?? 0,
+    durationMs: watcherEvidence?.durationMs ?? 0,
+    cleanupDurationMs,
+    cleanupFailed,
+    ...(preparedArchivePath === undefined ? {} : { archivePath: preparedArchivePath }),
+    ...(suppliedArchivePath === undefined || preparedArchivePath !== undefined
+      ? {}
+      : { archivePath: suppliedArchivePath }),
+    ...(candidateDirectory === null ? {} : { candidateDirectory }),
+    ...(watcherEvidence?.failure === undefined ? {} : { failure: watcherEvidence.failure }),
+    ...(watcherEvidence?.childCleanupFailed === undefined
+      ? {}
+      : { childCleanupFailed: watcherEvidence.childCleanupFailed }),
+    ...(watcherEvidence?.childCleanupDurationMs === undefined
+      ? {}
+      : { childCleanupDurationMs: watcherEvidence.childCleanupDurationMs }),
+    ...(watcherEvidence?.diagnostics === undefined ? {} : { diagnostics: watcherEvidence.diagnostics }),
+    ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
+  };
+  if (invocationError !== undefined) {
+    throw Object.assign(new AggregateError(
+      [invocationError, ...(cleanupFailure === undefined ? [] : [new Error(cleanupFailure)])],
+      [String(invocationError), cleanupFailure].filter(Boolean).join("; "),
+      { cause: invocationError },
+    ), { preparation: finalPreparation });
+  }
+  interrupted ||= finalPreparation.status === "interrupted";
   const completedRuns = runs.filter(runComplete).length;
-  const ok = runs.length === maxRuns && completedRuns === maxRuns;
+  // Failed candidate cleanup is never a complete qualification, even when
+  // every run was green: a resource the invocation owned could not be freed.
+  // The final aggregate check includes the awaited cleanup work: a stress
+  // invocation whose last child and cleanup ran past the aggregate is
+  // incomplete, with its cleanup diagnostics retained.
+  let finalAggregateExhausted = aggregateExhausted;
+  if (mode === "stress" && Date.now() - startedAt >= aggregate) {
+    finalAggregateExhausted = true;
+  }
+  const ok =
+    runs.length === maxRuns &&
+    completedRuns === maxRuns &&
+    finalAggregateExhausted === false &&
+    cleanupFailed === false &&
+    finalPreparation.status !== "failed" &&
+    finalPreparation.status !== "interrupted" &&
+    finalPreparation.childCleanupFailed !== true;
   const firstFailure = runs.find((run) => !runComplete(run)) ?? null;
   return {
     mode,
@@ -793,11 +1456,11 @@ export async function runSupervisedSuite(
     aggregateDurationMs: Date.now() - startedAt,
     logDir,
     firstFailure,
-    aggregateExhausted,
+    aggregateExhausted: finalAggregateExhausted,
     interrupted,
+    preparation: finalPreparation,
   };
 }
-
 function describeOutcome(result: ProcessResult): string {
   switch (result.kind) {
     case "exit":
@@ -826,17 +1489,48 @@ function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * The invocation's preparation segment for the summary: omitted when nothing
+ * was prepared (no need or an injected test-seam command), otherwise one
+ * truthful clause — prepared, supplied, or the failure with its log pointer.
+ */
+function formatPreparationSegment(preparation: PreparationEvidence): string {
+  switch (preparation.status) {
+    case "none":
+      return "";
+    case "prepared":
+      return `preparation: prepared candidate in ${formatSeconds(preparation.durationMs)}, `;
+    case "supplied":
+      return "preparation: supplied archive, ";
+    case "failed":
+      return `preparation: failed (${preparation.failure ?? "unspecified"}) in ${formatSeconds(
+        preparation.durationMs,
+      )} — preparation log: ${PREPARATION_LOG_FILENAME} — `;
+    case "interrupted":
+      return `preparation: interrupted in ${formatSeconds(preparation.durationMs)} — preparation log: ${PREPARATION_LOG_FILENAME} — `;
+  }
+}
+
 export function formatSuiteSummary(
   result: SuiteSupervisorResult,
   interruptedBy: string | null,
 ): string {
   const duration = formatSeconds(result.aggregateDurationMs);
   if (result.mode === "stress") {
+    if (result.runs.length === 0) {
+      if (result.preparation.status === "failed") {
+        return `suite stress: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
+      }
+      if (result.preparation.status === "interrupted" || result.interrupted) {
+        return `suite stress: interrupted (${interruptedBy ?? "abort"}) ${result.preparation.status === "interrupted" ? "during preparation" : "before run 1"} in ${duration} — logs: ${result.logDir}`;
+      }
+      return `suite stress: aggregate deadline reached after 0/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
+    }
     if (interruptedBy !== null) {
-      return `suite stress: interrupted (${interruptedBy}) after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
+      return `suite stress: ${formatPreparationSegment(result.preparation)}interrupted (${interruptedBy}) after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
     }
     if (result.ok) {
-      return `suite stress: ${result.completedRuns}/${result.maxRuns} runs green in ${duration} — logs: ${result.logDir}`;
+      return `suite stress: ${formatPreparationSegment(result.preparation)}${result.completedRuns}/${result.maxRuns} runs green in ${duration} — logs: ${result.logDir}`;
     }
     if (result.aggregateExhausted) {
       const failure = result.firstFailure;
@@ -844,17 +1538,38 @@ export function formatSuiteSummary(
         ? `suite stress: aggregate deadline reached after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`
         : `suite stress: aggregate deadline reached during run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
     }
-    const failure = result.firstFailure!;
-    return `suite stress: failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
+    // A failed candidate cleanup fails the invocation even when every run was
+    // green, so the failure may carry no incomplete run to point at.
+    if (result.preparation.cleanupFailed) {
+      return `suite stress: failed (candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"}) after ${result.completedRuns}/${result.maxRuns} green runs in ${duration} — logs: ${result.logDir}`;
+    }
+    const failure = result.firstFailure;
+    if (failure === null) {
+      return `suite stress: ${formatPreparationSegment(result.preparation)}incomplete after ${result.completedRuns}/${result.maxRuns} green runs in ${duration} — logs: ${result.logDir}`;
+    }
+    return `suite stress: ${formatPreparationSegment(result.preparation)}failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
+  }
+  if (result.runs.length === 0) {
+    if (result.preparation.status === "failed") {
+      return `suite ${result.mode}: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
+    }
+    return `suite ${result.mode}: interrupted (${interruptedBy ?? "abort"}) ${result.preparation.status === "interrupted" ? "during preparation" : "before run 1"} in ${duration} — logs: ${result.logDir}`;
   }
   const run = result.runs[0]!;
+  // One shape for the cleanup-failure fact across modes: a failed cleanup is
+  // the invocation's outcome, whether or not a run also failed.
+  const cleanupFailure = result.preparation.cleanupFailed
+    ? `candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"}`
+    : null;
   const outcome =
     interruptedBy !== null
       ? `interrupted (${interruptedBy})`
-      : result.ok
-        ? describeRunOutcome(run)
-        : `failed (${describeRunOutcome(run)})`;
-  return `suite ${result.mode}: 1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
+      : result.preparation.cleanupFailed
+        ? `failed (${cleanupFailure})`
+        : result.ok
+          ? describeRunOutcome(run)
+          : `failed (${describeRunOutcome(run)})`;
+  return `suite ${result.mode}: ${formatPreparationSegment(result.preparation)}1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
 }
 
 function diagnosticsDirFromEnvironment(environment: NodeJS.ProcessEnv): string | undefined {

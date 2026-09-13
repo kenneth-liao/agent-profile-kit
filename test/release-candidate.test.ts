@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
@@ -25,7 +26,7 @@ import {
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
-import { obtainPackageArchive } from "./support/package-archive.js";
+import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
@@ -115,7 +116,7 @@ let nodeBinary = "";
 let minimumNodeMajor = 0;
 let enginesNodeRange = "";
 
-beforeAll(() => {
+beforeAll(async () => {
   const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
     engines?: { node?: unknown };
   };
@@ -124,13 +125,13 @@ beforeAll(() => {
   enginesNodeRange = requirement.range;
   nodeBinary = resolveNodeBinary(minimumNodeMajor, enginesNodeRange);
 
-  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-rc-pack-");
+  const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-rc-pack-");
   packageArchive = archive.path;
   packageArchiveCleanup = archive.cleanup;
   const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-rc-packed-"));
   temporaryDirectories.push(extracted);
 
-  execFileSync("tar", ["-xzf", packageArchive, "-C", extracted]);
+  await extractPackageArchive(archive.path, extracted);
   packageRoot = join(extracted, "package");
   const packedManifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf8")) as {
     version: string;
