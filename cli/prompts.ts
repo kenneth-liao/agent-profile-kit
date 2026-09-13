@@ -322,7 +322,7 @@ export function createMultiSelectPrompt(options: ConfirmPromptOptions) {
  * Profile/Host/Project inventories stay in their canonical order while
  * typing narrows them. An empty query returns every choice.
  */
-function searchableSuggest(
+export function searchableSuggest(
   input: string,
   choices: readonly { readonly title: string; readonly value?: unknown }[],
 ): Promise<readonly { readonly title: string; readonly value?: unknown }[]> {

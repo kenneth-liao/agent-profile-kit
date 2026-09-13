@@ -9,14 +9,25 @@ pty master and appends all pty output to the transcript file.
 Usage:
     pty-controller.py <transcript> <cols> <watchdog-secs> <command...>
 
-The watchdog is absolute: on expiry the child is SIGKILLed and the
-controller exits 124, so no probe can orphan a PTY child.
+Lifecycle contract (#542 review):
+- The watchdog is absolute and measured in SECONDS: on expiry the child is
+  SIGKILLed, reaped, the `PTY-CONTROLLER-WATCHDOG` marker is recorded, and
+  the controller exits 124 — no probe can orphan a PTY child.
+- Exactly one authoritative ownership record decides cleanup: the child is
+  unreaped until ANY successful wait, and once reaped no signal is ever sent
+  to the numeric PID again (OS pid reuse makes a blind second kill unsafe).
+  TERM, watchdog, and finally cleanup are idempotent through that record.
+- A natural child exit drains master output until EOF or a single finite
+  drain deadline, records `PTY-CONTROLLER-EXIT status=<n> signals=<k>`, and
+  propagates the child's own outcome as this controller's exit status — the
+  child is never reported as a false 0.
 """
 
 import fcntl
 import os
 import pty
 import select
+import signal
 import struct
 import sys
 import termios
@@ -41,26 +52,101 @@ def main() -> int:
         os.execvp(command[0], command)
         os._exit(127)
 
+    # Single authoritative ownership record for the owned PTY child. The pid
+    # is unsafe to signal once reaped (the OS may reuse it), so every cleanup
+    # path consults this record and never signals a reaped child.
+    ownership = {"reaped": False, "status": None}
+    signals = 0
+    state = {"terminating": False}
+    def decoded_status(raw_status: int) -> int:
+        if os.WIFEXITED(raw_status):
+            return os.WEXITSTATUS(raw_status)
+        if os.WIFSIGNALED(raw_status):
+            return 128 + os.WTERMSIG(raw_status)
+        return raw_status
+
+    def reap(block: bool):
+        """The one reap boundary. Returns None when still alive, otherwise
+        the child's decoded terminal status. Any successful wait clears
+        ownership; later calls observe the recorded status without waiting."""
+        if ownership["reaped"]:
+            return ownership["status"]
+        try:
+            waited, raw_status = os.waitpid(
+                pid, 0 if block else os.WNOHANG
+            )
+        except ChildProcessError:
+            # Already reaped by another path of this controller; ownership
+            # was cleared there. Never touch the numeric pid again.
+            ownership["reaped"] = True
+            return ownership["status"]
+        if not block and waited == 0:
+            return None
+        ownership["reaped"] = True
+        ownership["status"] = decoded_status(raw_status)
+        return ownership["status"]
+
+    def kill_and_reap_child():
+        nonlocal signals
+        if not ownership["reaped"]:
+            signals += 1
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        reap(block=True)
+
+    def on_term(_signum, _frame):
+        # Python may dispatch this between kernel waitpid and publication of
+        # ownership. Only request shutdown: all waits and signals stay in the
+        # main/finally flow, so cleanup cannot reenter that critical interval.
+        state["terminating"] = True
+
+    signal.signal(signal.SIGTERM, on_term)
+
     stdin_fd = sys.stdin.fileno()
     transcript = open(transcript_path, "ab", buffering=0)
     stdin_open = True
-    child_gone = False
-    drain_until = 0.0
+    master_open = True
+    drain_deadline = None
 
     try:
         while True:
             if time.monotonic() > deadline:
+                kill_and_reap_child()
                 transcript.write(b"\nPTY-CONTROLLER-WATCHDOG\n")
-                try:
-                    os.kill(pid, 9)
-                except ProcessLookupError:
-                    pass
                 return 124
-            if child_gone and time.monotonic() > drain_until:
-                return 0
-            readable, _, _ = select.select(
-                ([stdin_fd] if stdin_open else []) + [master], [], [], 0.1
-            )
+            if state["terminating"]:
+                kill_and_reap_child()
+                transcript.write(b"\nPTY-CONTROLLER-TERMINATED\n")
+                return 143
+            if drain_deadline is not None:
+                if time.monotonic() > drain_deadline:
+                    status = ownership["status"]
+                    if status is None:
+                        # Defensive: ownership cleared without a recorded
+                        # status can only mean an external reap; report it.
+                        transcript.write(
+                            b"\nPTY-CONTROLLER-EXIT status=unknown\n"
+                        )
+                        return 1
+                    transcript.write(
+                        f"\nPTY-CONTROLLER-EXIT status={status} signals={signals}\n".encode()
+                    )
+                    if status == 0:
+                        return 0
+                    # Propagate the child's own outcome — never a false 0.
+                    # (Watchdog 124 and TERM 143 are controller-owned
+                    # contracts, recorded by their own markers.)
+                    return status
+            readable = []
+            if stdin_open:
+                readable.append(stdin_fd)
+            if master_open:
+                # Stop polling a closed master: after EOF/EIO there is no
+                # further output to drain.
+                readable.append(master)
+            readable, _, _ = select.select(readable, [], [], 0.1)
             for fd in readable:
                 if fd == stdin_fd:
                     try:
@@ -78,17 +164,24 @@ def main() -> int:
                     try:
                         output = os.read(master, 65536)
                     except OSError:
+                        # macOS raises EIO once the slave side is closed.
                         output = b""
                     if output == b"":
-                        child_gone = True
-                        drain_until = time.monotonic() + 0.5
+                        master_open = False
+                        if drain_deadline is None:
+                            drain_deadline = time.monotonic() + 0.5
                     else:
                         transcript.write(output)
-            waited, _status = os.waitpid(pid, os.WNOHANG)
-            if waited == pid:
-                child_gone = True
-                drain_until = time.monotonic() + 0.5
+            wait_result = reap(block=False)
+            if wait_result is not None:
+                # Reaped now (or ownership already cleared): the child is
+                # terminal; start the one finite drain window.
+                if drain_deadline is None:
+                    drain_deadline = time.monotonic() + 0.5
     finally:
+        # Best-effort owned-child cleanup on any exceptional exit path;
+        # never signals a child that any successful wait already reaped.
+        kill_and_reap_child()
         transcript.close()
         try:
             os.close(master)

@@ -8,6 +8,7 @@ import {
   type InteractiveExecution,
   type PagerExecutionResult,
 } from "../cli/pager.js";
+import type { InteractiveStdin } from "../process/process-executor.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
 
 /** A writable that records everything written to it. */
@@ -160,10 +161,10 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
   const longContext = { color: false, interactive: true, width: 80, rows: 24 };
 
   function executorReturning(result: PagerExecutionResult): {
-    calls: { stdin: string; environment: NodeJS.ProcessEnv | undefined }[];
+    calls: { stdin: InteractiveStdin; environment: NodeJS.ProcessEnv | undefined }[];
     execute: InteractiveExecution;
   } {
-    const calls: { stdin: string; environment: NodeJS.ProcessEnv | undefined }[] = [];
+    const calls: { stdin: InteractiveStdin; environment: NodeJS.ProcessEnv | undefined }[] = [];
     const execute: InteractiveExecution = async (options) => {
       calls.push({ stdin: options.stdin, environment: options.environment });
       return result;
@@ -205,7 +206,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
     const { out, exitCode } = await page({ execute });
     expect(exitCode).toBe(0);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.stdin).toBe(renderedText);
+    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: renderedText });
     expect(out.text).toBe("");
   });
 
@@ -336,10 +337,10 @@ describe("guidance writing (#448, US-050)", () => {
   const redirectContext = { color: false, interactive: false, width: 80, rows: undefined };
 
   function executorRecording(): {
-    calls: { stdin: string }[];
+    calls: { stdin: InteractiveStdin }[];
     execute: InteractiveExecution;
   } {
-    const calls: { stdin: string }[] = [];
+    const calls: { stdin: InteractiveStdin }[] = [];
     const execute: InteractiveExecution = async (options) => {
       calls.push({ stdin: options.stdin });
       return {
@@ -402,7 +403,7 @@ describe("guidance writing (#448, US-050)", () => {
     const { calls, execute } = executorRecording();
     const { out, exitCode } = await guidanceWriter({ context: longContext, execute });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.stdin).toBe(longText);
+    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: longText });
     expect(out.text).toBe("");
     expect(exitCode).toBe(0);
   });
