@@ -1,4 +1,4 @@
-import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,20 @@ import {
   PACKAGE_REQUEST_WAIT_ENV,
   requestInvocationPackage,
 } from "./package-request-channel.js";
+import {
+  InvalidProvenanceError,
+  PackagePreparationStageError,
+  createPackageCandidate,
+  digestBytes,
+  readPackageIdentityRecord,
+  removePathBounded,
+  UNSUPERVISED_CANDIDATE_DEADLINE_MS,
+  type PackageIdentityRecord,
+} from "./package-identity.js";
+
+export { PackagePreparationStageError } from "./package-identity.js";
+
+
 
 /**
  * The canonical consumer boundary for the invocation package candidate:
@@ -49,6 +63,17 @@ export interface PackageArchive {
 }
 
 /**
+ * One pack stage's product: the archive filename plus the files it actually
+ * packed (paths relative to the package root, files only, JSON-safe). The
+ * packed-input guard consumes this list, not archive text, so NUL-safe and
+ * newline-containing paths cannot corrupt it.
+ */
+export interface PackedArchive {
+  readonly filename: string;
+  readonly files: readonly string[];
+}
+
+/**
  * One bounded preparation stage's inputs. `deadlineMs` is the remaining share
  * of the caller's single finite preparation budget (stages consume remaining
  * time, never each a fresh full budget); `signal` carries the caller's abort
@@ -65,7 +90,7 @@ export interface PackageArchiveCommands {
   readonly createScriptDisabledArchive: (
     stage: PackageStageContext,
     destination: string,
-  ) => Promise<string>;
+  ) => Promise<PackedArchive>;
 }
 
 export interface PackageArchiveOptions {
@@ -104,29 +129,31 @@ export function packagePackStage(
   };
 }
 
-/** A bounded preparation or extraction stage that did not exit green. */
-export class PackagePreparationStageError extends Error {
-  readonly stage: string;
-  readonly result: ProcessResult;
-
-  constructor(stage: string, result: ProcessResult) {
-    super(`${stage} failed — ${describeProcessResult(result)}`);
-    this.name = "PackagePreparationStageError";
-    this.stage = stage;
-    this.result = result;
-  }
-}
-
 function assertStageExit(commandLabel: string, result: ProcessResult): void {
   if (result.kind === "exit" && result.exitCode === 0) return;
   throw new PackagePreparationStageError(commandLabel, result);
 }
 
-/** Parse `npm pack --json` output (npm may print notices before the array). */
-export function packedArchiveFilename(packStdout: string): string {
+/**
+ * Parse `npm pack --json` output (npm may print notices before the array):
+ * the packed filename and the files it actually packed (paths relative to the
+ * package root, files only) — the guard's authority on the packed input.
+ */
+export function packedArchiveMetadata(packStdout: string): PackedArchive {
   const output = packStdout.slice(packStdout.indexOf("["));
-  const metadata = JSON.parse(output) as readonly [{ readonly filename: string }];
-  return metadata[0]!.filename;
+  const metadata = JSON.parse(output) as readonly [{
+    readonly filename: string;
+    readonly files?: readonly { readonly path: string }[];
+  }];
+  if (metadata[0]!.files === undefined) {
+    throw new Error(
+      "npm pack reported no file list; the packed-input guard requires it, so the pack stage fails closed instead of guarding nothing",
+    );
+  }
+  return {
+    filename: metadata[0]!.filename,
+    files: metadata[0]!.files.map((file) => file.path),
+  };
 }
 
 /** Single-homed stage identities: the diagnostic label and the error prefix share them. */
@@ -148,17 +175,18 @@ export const systemPackageArchiveCommands: PackageArchiveCommands = {
       stage.signal,
     );
     assertStageExit(PACK_STAGE_LABEL, result);
-    return packedArchiveFilename(result.stdout);
+    return packedArchiveMetadata(result.stdout);
   },
 };
 
 /**
- * Hang bound for the unsupervised local fallback's whole build+pack budget
- * (stages consume the remaining share). Measured build+pack completes far
- * inside it; the value bounds a hung child, it is not a completion target.
+ * Hang bound for the unsupervised local fallback's whole create budget
+ * (pre-capture, build, pack, post-capture, and the packed-input guard share
+ * it, each stage consuming the remaining time). Measured build+pack completes
+ * far inside it; the value bounds a hung child, it is not a completion target.
  * Under the canonical supervised commands the supervisor owns the budget.
  */
-export const UNSUPERVISED_PREPARATION_DEADLINE_MS = 120_000;
+export const UNSUPERVISED_PREPARATION_DEADLINE_MS = UNSUPERVISED_CANDIDATE_DEADLINE_MS;
 
 export function preparedPackageArchive(
   environment: NodeJS.ProcessEnv = process.env,
@@ -225,14 +253,34 @@ export async function extractPackageArchive(
   archivePath: string,
   destination: string,
 ): Promise<void> {
-  const result = await runProcess({
-    executable: "tar",
-    arguments_: ["-xzf", archivePath, "-C", destination],
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "package archive extraction",
-  });
-  if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new PackagePreparationStageError("package archive extraction", result);
+  // The validated extraction boundary: the archive is read exactly once, the
+  // record beside it names the digest those bytes must carry, and extraction
+  // consumes the staged copy of the verified bytes — so a substitution after
+  // validation can never change what a consumer runs. The staged copy lives
+  // only inside the extraction, owned and removed by this boundary.
+  const bytes = readFileSync(archivePath);
+  const digest = digestBytes(bytes);
+  const record: PackageIdentityRecord = readPackageIdentityRecord(archivePath);
+  if (digest !== record.archiveDigest) {
+    throw new InvalidProvenanceError(
+      "digest-mismatch",
+      `the candidate archive's actual bytes (${digest}) do not match its record's artifact digest (${record.archiveDigest}); the archive was substituted or replaced after its record was written`,
+    );
+  }
+  const stagedInput = join(destination, ".validated-archive-input.tgz");
+  writeFileSync(stagedInput, bytes);
+  try {
+    const result = await runProcess({
+      executable: "tar",
+      arguments_: ["-xzf", stagedInput, "-C", destination],
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "package archive extraction",
+    });
+    if (!(result.kind === "exit" && result.exitCode === 0)) {
+      throw new PackagePreparationStageError("package archive extraction", result);
+    }
+  } finally {
+    rmSync(stagedInput, { force: true });
   }
 }
 
@@ -252,26 +300,10 @@ let supervisedRunCandidate: string | null = null;
  * a bounded child operation like any other, so a stalled filesystem cannot
  * block the supervisor or its signal handling beyond the deadline. A failed
  * removal throws with its captured diagnostics; the caller reports it and
- * never treats it as successful.
+ * never treats it as successful. Single-homed in package-identity; re-exported
+ * here for the existing supervisor import path.
  */
-export async function removePathBounded(
-  path: string,
-  deadlineMs: number,
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  const result = await runProcess(
-    {
-      executable: "rm",
-      arguments_: ["-rf", path],
-      deadlineMs,
-      commandLabel: "bounded path removal",
-    },
-    signal,
-  );
-  if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new PackagePreparationStageError("bounded path removal", result);
-  }
-}
+export { removePathBounded };
 
 /**
  * Resolve the package archive one consumer executes. Order of authority:
@@ -311,25 +343,15 @@ export async function obtainPackageArchive(
   const commands = options.commands ?? systemPackageArchiveCommands;
   const packageDirectory = mkdtempSync(join(tmpdir(), prefix));
   try {
-    const startedAt = Date.now();
-    const stage = (stageDeadline: number): PackageStageContext => {
-      if (stageDeadline <= 0) {
-        throw new Error(
-          `unsupervised package preparation budget (${UNSUPERVISED_PREPARATION_DEADLINE_MS}ms) exhausted before a stage could run`,
-        );
-      }
-      return { repositoryRoot, deadlineMs: stageDeadline, signal: undefined };
-    };
-    await commands.build(
-      stage(UNSUPERVISED_PREPARATION_DEADLINE_MS - (Date.now() - startedAt)),
-    );
-    const filename = await commands.createScriptDisabledArchive(
-      stage(UNSUPERVISED_PREPARATION_DEADLINE_MS - (Date.now() - startedAt)),
-      packageDirectory,
-    );
-    const path = realpathSync(join(packageDirectory, filename));
+    const created = await createPackageCandidate({
+      repositoryRoot,
+      destinationDirectory: packageDirectory,
+      deadlineMs: UNSUPERVISED_PREPARATION_DEADLINE_MS,
+      signal: undefined,
+      commands,
+    });
     return {
-      path,
+      path: created.archivePath,
       cleanup: () => rmSync(packageDirectory, { recursive: true, force: true }),
     };
   } catch (error) {

@@ -1,10 +1,13 @@
+import { execFileSync } from "node:child_process";
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
 import { pinnedBunVersion } from "./support/suite-supervisor.js";
+import { runProcess } from "../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workflowSource = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
@@ -181,36 +184,57 @@ test("fails CI when a snapshot is created or changed without being committed", (
   expect(workflowSource).not.toMatch(/update-snapshots/);
 });
 
-test("orchestrates typecheck, bundle, archive, and the supervised suite exactly once", () => {
+test("orchestrates the candidate creator and the supervised suite exactly once", () => {
   const fast = workflow.jobs?.["macos-supported-platform"];
   const steps = fast?.steps ?? [];
   const commands = steps.map((step) => step.run ?? "").join("\n");
   const count = (command: string): number => commands.split(command).length - 1;
 
-  expect(count("bun run typecheck")).toBe(1);
-  expect(count("bun run build:bundle")).toBe(1);
-  expect(count("npm pack")).toBe(1);
+  // One canonical stage sequence: the creator's single bounded build owns
+  // typecheck and bundling once, so the workflow must not run a transitive
+  // duplicate (the old standalone Typecheck step) nor duplicate build/pack.
+  expect(count("bun run typecheck")).toBe(0);
+  expect(count("bun run build:bundle")).toBe(0);
+  expect(count("npm pack")).toBe(0);
   expect(count("bun run test\n")).toBe(1);
   expect(commands).not.toContain("bun run test:fleet");
-  expect(commands).not.toContain("bun run build\n");
   expect(commands).not.toContain("bun test");
   expect(commands).not.toContain("--timeout");
 
-  const archive = steps.find((step) => step.name === "Create package archive")?.run ?? "";
-  expect(archive).toContain("npm pack --silent --ignore-scripts");
-  expect(archive).toContain("APKIT_TEST_PACKAGE_ARCHIVE=");
-  expect(archive).toContain("$GITHUB_ENV");
-  expect(archive).not.toContain("--dry-run");
+  const creation = steps.find((step) => step.name === "Create package candidate")?.run ?? "";
+  // The record is written at the actual build/pack boundary by the same
+  // from-source creator the supervisor and fallback use — never stamped onto
+  // a pre-existing archive.
+  expect(creation).toContain("scripts/create-package-candidate.ts");
+  expect(creation).toContain("APKIT_TEST_PACKAGE_ARCHIVE=");
+  expect(creation).toContain("$GITHUB_ENV");
+  expect(creation).not.toContain("npm pack");
 
   const stepNames = steps.map((step) => step.name);
-  expect(stepNames.indexOf("Typecheck")).toBeLessThan(stepNames.indexOf("Build production CLI"));
-  expect(stepNames.indexOf("Build production CLI")).toBeLessThan(
-    stepNames.indexOf("Create package archive"),
-  );
-  expect(stepNames.indexOf("Create package archive")).toBeLessThan(
+  expect(stepNames.indexOf("Install dependencies")).toBeLessThan(stepNames.indexOf("Create package candidate"));
+  expect(stepNames.indexOf("Create package candidate")).toBeLessThan(
     stepNames.indexOf("Run test suite"),
   );
+  expect(stepNames.some((name) => name?.startsWith("Build production CLI") ?? false)).toBe(false);
+  expect(stepNames.some((name) => name === "Typecheck")).toBe(false);
 });
+
+test("the candidate creation entry writes one record beside the archive from source", () => {
+  const entry = readFileSync(
+    resolve(repositoryRoot, "scripts/create-package-candidate.ts"),
+    "utf8",
+  );
+  // One home: the entry invokes the shared creator with the system stage
+  // commands; it never packs or digests an archive on its own.
+  expect(entry).toContain("createPackageCandidate");
+  expect(entry).toContain("systemPackageArchiveCommands");
+  expect(entry).not.toContain("npm pack");
+  expect(entry).not.toContain("tar");
+  // The candidate's destination comes from the caller; the record is written
+  // by the creator, not by this entry.
+  expect(entry).not.toContain("provenance.json");
+});
+
 
 test("runs fleet-scale regressions in a separate job without raising the fast deadline", () => {
   const fast = workflow.jobs?.["macos-supported-platform"];
@@ -234,4 +258,67 @@ test("runs fleet-scale regressions in a separate job without raising the fast de
   // the invocation: one typecheck, bundle, and pack inside `test:fleet`, so no
   // prebundling step may duplicate it.
   expect(fleetSteps.some((step) => step.name === "Build production CLI")).toBe(false);
+});
+
+test("the candidate creation entry executes an exported temporary checkout with truthful stage counts", async () => {
+  const { createRepositoryPackageCandidate } = await import("../scripts/create-package-candidate.js");
+  const { captureSourceFingerprint } = await import("./support/package-identity.js");
+  const root = mkdtempSync(join(tmpdir(), "apkit-ci-entry-repo-"));
+  const destination = mkdtempSync(join(tmpdir(), "apkit-ci-entry-dest-"));
+  const unrelated = mkdtempSync(join(tmpdir(), "apkit-ci-entry-control-"));
+  try {
+    writeFileSync(join(unrelated, "control"), "unrelated invocation");
+    execFileSync("git", ["-C", root, "init", "-q"]);
+    execFileSync("git", ["-C", root, "config", "user.email", "tests@example.com"]);
+    execFileSync("git", ["-C", root, "config", "user.name", "Agent Profile Kit Tests"]);
+    writeFileSync(join(root, ".gitignore"), "dist/\n");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "agent-profile-kit-entry-fixture", version: "0.0.0-entry" }));
+    writeFileSync(join(root, "src.txt"), "source\n");
+    execFileSync("git", ["-C", root, "add", "."]);
+    execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+    const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+    const staging = mkdtempSync(join(tmpdir(), "apkit-ci-entry-staging-"));
+    const calls: string[] = [];
+    mkdirSync(join(staging, "package", "dist"), { recursive: true });
+    writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("ENTRY-CLI");\n');
+    const created = await createRepositoryPackageCandidate(destination, {
+      repositoryRoot: root,
+      commands: {
+        build: async (stage) => {
+          calls.push(`build:${stage.repositoryRoot}`);
+          writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("ENTRY-CLI");\n');
+        },
+        createScriptDisabledArchive: async (stage, directory) => {
+          calls.push(`pack:${stage.repositoryRoot}`);
+          const result = await runProcess({
+            executable: "tar",
+            arguments_: ["-czf", join(directory, "entry.tgz"), "-C", staging, "package"],
+            deadlineMs: 10_000,
+            commandLabel: "fixture pack",
+          });
+          if (!(result.kind === "exit" && result.exitCode === 0)) {
+            throw new Error(`fixture pack failed: ${result.kind}`);
+          }
+          return { filename: "entry.tgz", files: ["dist/cli.js"] };
+        },
+      },
+    });
+    // The actual stage counts across the entry boundary: one build, one pack,
+    // both against the exported temporary checkout, never the module checkout.
+    expect(calls).toEqual([`build:${root}`, `pack:${root}`]);
+    // The record binds the temporary checkout's source identity and head —
+    // not the module checkout's.
+    const expected = await captureSourceFingerprint({ repositoryRoot: root, deadlineMs: 20_000, signal: undefined });
+    expect(created.record.sourceFingerprint).toBe(expected.digest);
+    expect(created.record.repositoryHead).toBe(head);
+    // Isolation from the real checkout: an unrelated control directory outside
+    // the creator's boundary survives untouched.
+    expect(readFileSync(join(unrelated, "control"), "utf8")).toBe("unrelated invocation");
+    const record = JSON.parse(readFileSync(created.recordPath, "utf8")) as { schema: number };
+    expect(record.schema).toBe(1);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(destination, { recursive: true, force: true });
+    rmSync(unrelated, { recursive: true, force: true });
+  }
 });

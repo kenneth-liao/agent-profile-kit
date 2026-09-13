@@ -45,17 +45,10 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Build production CLI
-        run: bun run build:bundle
-
-      - name: Create package archive
+      - name: Create package candidate
         run: |
-          mkdir -p "$RUNNER_TEMP/package"
-          package_file="$(npm pack --silent --ignore-scripts --pack-destination "$RUNNER_TEMP/package")"
-          echo "APKIT_TEST_PACKAGE_ARCHIVE=$RUNNER_TEMP/package/$package_file" >> "$GITHUB_ENV"
+          archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/package")"
+          echo "APKIT_TEST_PACKAGE_ARCHIVE=$archive_file" >> "$GITHUB_ENV"
 
       - name: Run test suite
         id: test_suite

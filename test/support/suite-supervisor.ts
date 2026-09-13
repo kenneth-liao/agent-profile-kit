@@ -23,7 +23,6 @@ import {
 import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./corpus-inventory.js";
 import { parseBunJunitEvidence } from "./junit-evidence.js";
 import {
-  PackagePreparationStageError,
   PREPARED_PACKAGE_ARCHIVE_ENV,
   preparedPackageArchive,
   removePathBounded,
@@ -41,6 +40,15 @@ import {
   removePackageChannel,
   type PackageRequestChannel,
 } from "./package-request-channel.js";
+import {
+  InvalidProvenanceError,
+  PackagePreparationStageError,
+  UnsupportedSourceError,
+  UnstableSourceError,
+  createPackageCandidate,
+  pinValidatedSuppliedCandidate,
+  validateSuppliedPackageCandidate,
+} from "./package-identity.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -169,6 +177,13 @@ export interface SuiteSupervisorOptions {
    * invocations always run the system build and pack stages.
    */
   readonly packageCommands?: PackageArchiveCommands;
+  /**
+   * Test seam: replace the admitted-identity pinning step. Canonical
+   * invocations always pin through `pinValidatedSuppliedCandidate`.
+   */
+  readonly pinSuppliedCandidate?: (
+    ...args: Parameters<typeof pinValidatedSuppliedCandidate>
+  ) => ReturnType<typeof pinValidatedSuppliedCandidate> | Promise<ReturnType<typeof pinValidatedSuppliedCandidate>>;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -876,42 +891,30 @@ async function prepareCandidateStages(
       },
     });
   try {
-    const remainingMs = () => budgetMs - (Date.now() - startedAt);
-    const assertBudgetRemaining = (stage: string): void => {
-      if (remainingMs() <= 0) {
-        throw new Error(
-          `package preparation budget (${budgetMs}ms) exhausted before the ${stage} stage`,
-        );
-      }
-    };
-    assertBudgetRemaining("build");
-    await commands.build({
+    // One from-source candidate creator owns the whole bounded stage sequence:
+    // pre-capture, fresh build-output replacement, the caller's build and pack
+    // stages (injected in tests, the system stages otherwise), digest of the
+    // exact packed bytes, post-capture (unequal means unstable source: the
+    // candidate is disqualified), the packed-input guard, and the atomic
+    // identity record beside the archive — the same creator and record shape
+    // supplied candidates are validated against.
+    const created = await createPackageCandidate({
       repositoryRoot: invocation.base,
-      deadlineMs: remainingMs(),
+      destinationDirectory: candidateDirectory,
+      deadlineMs: budgetMs,
       signal: abortSignal,
+      commands,
     });
-    if (preparationAborted(abortSignal)) {
-      return failedOutcome("interrupted", { failure: "interrupted during the build stage", diagnostics: "interrupted during the build stage" });
-    }
-    assertBudgetRemaining("pack");
-    const filename = await commands.createScriptDisabledArchive(
-      { repositoryRoot: invocation.base, deadlineMs: remainingMs(), signal: abortSignal },
-      candidateDirectory,
-    );
-    if (preparationAborted(abortSignal)) {
-      return failedOutcome("interrupted", { failure: "interrupted during the pack stage", diagnostics: "interrupted during the pack stage" });
-    }
-    const archivePath = realpathSync(join(candidateDirectory, filename));
     return {
       candidateDirectory,
-      archivePath,
+      archivePath: created.archivePath,
       evidence: {
         status: "prepared",
         requests: 0,
         durationMs: Date.now() - startedAt,
         cleanupDurationMs: 0,
         cleanupFailed: false,
-        archivePath,
+        archivePath: created.archivePath,
         candidateDirectory,
       },
     };
@@ -1111,6 +1114,8 @@ function writePreparationLog(logDir: string, evidence: PreparationEvidence): str
     `childCleanupDurationMs: ${evidence.childCleanupDurationMs ?? "null"}`,
     `failure: ${evidence.failure ?? "null"}`,
     ...(evidence.diagnostics === undefined ? [] : ["--- stage output ---", evidence.diagnostics]),
+    ...(evidence.cleanupFailure === undefined ? [] : ["--- cleanup failure ---", evidence.cleanupFailure]),
+    ...(evidence.candidateDirectory === undefined ? [] : [`candidateDirectory: ${evidence.candidateDirectory}`]),
   ];
   writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
   return logPath;
@@ -1172,23 +1177,127 @@ export async function runSupervisedSuite(
     ? undefined
     : process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
   let suppliedArchivePath: string | undefined;
+  let pinnedDirectory: string | null = null;
+  let suppliedDurationMs = 0;
+  const validationStartedAt = Date.now();
   if (ambient !== undefined) {
     try {
       const archivePath = preparedPackageArchive(process.env);
       if (archivePath === null) {
         throw new Error(`${PREPARED_PACKAGE_ARCHIVE_ENV} was set but resolved to nothing`);
       }
-      suppliedArchivePath = archivePath;
+      // The provenance gate runs before qualification: a supplied archive
+      // qualifies only the source identity its record demonstrably
+      // represents, checked here against the consuming checkout — before any
+      // consumer can report qualification for a different source. The gate
+      // shares the invocation's remaining budget and abort signal, and its
+      // duration is retained truthfully in the preparation evidence.
+      const remainingValidationMs = mode === "stress"
+        ? Math.min(perRun, aggregate - (validationStartedAt - startedAt))
+        : perRun - (validationStartedAt - startedAt);
+      if (remainingValidationMs <= 0) {
+        throw new Error(
+          `the invocation budget is exhausted before supplied provenance validation (remaining ${remainingValidationMs}ms)`,
+        );
+      }
+      const validated = await (async () => {
+        const resolved = preparedPackageArchive(process.env);
+        if (resolved === null) {
+          throw new Error(`${PREPARED_PACKAGE_ARCHIVE_ENV} was set but resolved to nothing`);
+        }
+        return validateSuppliedPackageCandidate(resolved, {
+          repositoryRoot: invocation.base,
+          deadlineMs: remainingValidationMs,
+          signal: abortSignal,
+        });
+      })();
+      // Pin the admitted identity: the invocation consumes an immutable copy
+      // of the exact verified bytes plus the admitted record, so a later
+      // replacement of the mutable external pair (archive and record) can
+      // never change what any consumer executes. The external originals stay
+      // untouched; the pinned directory joins the invocation's owned cleanup.
+      pinnedDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-supplied-pinned-"));
+      const pinned = await (options.pinSuppliedCandidate ?? pinValidatedSuppliedCandidate)(validated, pinnedDirectory);
+      suppliedArchivePath = pinned.archivePath;
+      suppliedDurationMs = Date.now() - validationStartedAt;
+      if (mode !== "stress" && Date.now() - startedAt >= perRun) {
+        // Admission consumed the whole per-run budget: no run can start
+        // inside the policy, so this is a failed admission with zero runs —
+        // never a run granted time the budget no longer holds.
+        throw new Error(
+          `the invocation budget is exhausted after supplied provenance validation (per-run ${perRun}ms)`,
+        );
+      }
     } catch (error) {
-      // A malformed supplied archive is a preparation failure with retained
-      // diagnostics; the channel is never created and no consumer can hang.
+      // A pin failure leaves an invocation-owned directory behind: the early
+      // return cannot reach the invocation's finally, so this path removes it
+      // boundedly and retains the owning outcome. The admission duration is
+      // frozen before cleanup starts — cleanup time is owned cleanup
+      // evidence, never admission time — and the cleanup duration is measured
+      // for both outcomes, so a delayed successful removal reports its real
+      // cost instead of a zero default. A failed removal keeps the owned path.
+      const admissionDurationMs = Date.now() - validationStartedAt;
+      let pinCleanupDurationMs = 0;
+      let pinCleanupFailed = false;
+      let pinCleanupFailure: string | undefined;
+      if (pinnedDirectory !== null) {
+        const pinCleanupStartedAt = Date.now();
+        try {
+          await removePathBounded(pinnedDirectory, Math.max(TEST_CHILD_DEADLINE_MS, perRun), undefined);
+          pinnedDirectory = null;
+        } catch (cleanupError) {
+          pinCleanupFailed = true;
+          const typedCleanup = cleanupError instanceof PackagePreparationStageError ? cleanupError : undefined;
+          pinCleanupFailure = [
+            `owned pin directory '${pinnedDirectory}' could not be removed`,
+            typedCleanup !== undefined
+              ? describeProcessResult(typedCleanup.result)
+              : cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          ].join(" — ")
+            + (typedCleanup === undefined
+              ? ""
+              : `\n--- cleanup stdout ---\n${typedCleanup.result.stdout}\n--- cleanup stderr ---\n${typedCleanup.result.stderr}`);
+        } finally {
+          pinCleanupDurationMs = Date.now() - pinCleanupStartedAt;
+        }
+      }
+      const interrupted = abortSignal?.aborted === true;
+      // A rejected supplied archive, an aborted validation, or a failed pin
+      // is an incomplete qualification with retained diagnostics; the channel
+      // is never created and no consumer can hang or qualify. A typed stage
+      // failure keeps its complete child result in the evidence.
+      const stageError = error instanceof PackagePreparationStageError ? error : undefined;
+      const reason = error instanceof Error ? error.message : String(error);
+      const prefix = interrupted
+        ? "supplied provenance validation interrupted"
+        : "supplied package archive rejected";
+      const admissionFailure = pinCleanupFailure === undefined
+        ? reason
+        : `${reason}; ${pinCleanupFailure.split("\n")[0]}`;
       const evidence: PreparationEvidence = {
-        status: "failed",
+        status: interrupted ? "interrupted" : "failed",
         requests: 0,
-        durationMs: 0,
-        cleanupDurationMs: 0,
-        cleanupFailed: false,
-        failure: `supplied package archive rejected: ${error instanceof Error ? error.message : String(error)}`,
+        durationMs: admissionDurationMs,
+        cleanupDurationMs: pinCleanupDurationMs,
+        cleanupFailed: pinCleanupFailed,
+        ...(pinCleanupFailure === undefined ? {} : { cleanupFailure: pinCleanupFailure }),
+        // A failed removal keeps the owned path visible in the evidence.
+        ...(pinCleanupFailed && pinnedDirectory !== null ? { candidateDirectory: pinnedDirectory } : {}),
+        ...(stageError === undefined
+          ? {}
+          : {
+              childCleanupFailed: stageError.result.cleanupFailed,
+              childCleanupDurationMs: stageError.result.cleanupDurationMs,
+              diagnostics: [
+                `--- ${stageError.stage} result ---`,
+                describeProcessResult(stageError.result),
+                "--- stdout ---",
+                stageError.result.stdout,
+                "--- stderr ---",
+                stageError.result.stderr,
+              ].join("\n"),
+            }),
+        failure: `${prefix}${prefix.endsWith("interrupted") ? " " : ": "}${admissionFailure}`,
       };
       writePreparationLog(logDir, evidence);
       return {
@@ -1202,15 +1311,16 @@ export async function runSupervisedSuite(
         logDir,
         firstFailure: null,
         aggregateExhausted: false,
-        interrupted: false,
+        interrupted,
         preparation: evidence,
       };
     }
   }
 
   // Owned resources, acquired before the run loop and released in the finally:
-  // the invocation-private request channel and, once a consumer has requested
-  // it, the prepared candidate's directory. The archive path the children
+  // the invocation-private request channel, the pinned supplied candidate's
+  // directory, and once a consumer has requested it the prepared candidate's
+  // directory. The archive path the children
   // receive is injected directly once preparation has settled, so later runs
   // (and any consumer in them) never touch the channel again.
   let preparedArchivePath: string | undefined;
@@ -1241,6 +1351,14 @@ export async function runSupervisedSuite(
         break;
       }
       let runDeadline = perRun;
+      if (mode !== "stress" && runs.length === 0) {
+        // The invocation clock covers admission: the single full/focused run
+        // receives the per-run budget minus time already spent (supplied
+        // validation and pinning), so a child can never overrun the policy it
+        // was admitted under. Stress runs already share the remaining
+        // aggregate budget below.
+        runDeadline = perRun - (Date.now() - startedAt);
+      }
       let aggregateLimitedRun = false;
       if (mode === "stress") {
         const remainingAggregate = aggregate - (Date.now() - startedAt);
@@ -1310,7 +1428,7 @@ export async function runSupervisedSuite(
       const logPath = writeRunLog(logDir, runNumber, invocation, watcher?.evidence() ?? {
         status: suppliedArchivePath === undefined ? "none" : "supplied",
         requests: 0,
-        durationMs: 0,
+        durationMs: suppliedDurationMs,
         cleanupDurationMs: 0,
         cleanupFailed: false,
         ...(suppliedArchivePath === undefined ? {} : { archivePath: suppliedArchivePath }),
@@ -1347,7 +1465,7 @@ export async function runSupervisedSuite(
     // every failure is reported, never treated as successful. The retained
     // preparation log is written after removal so diagnostic I/O cannot skip
     // cleanup; stage output is already retained in the watcher evidence.
-    const removalTargets = [candidateDirectory, channel?.directory ?? null];
+    const removalTargets = [candidateDirectory, pinnedDirectory, channel?.directory ?? null];
     for (const removalPath of removalTargets) {
       if (removalPath === null) continue;
       const cleanupStartedAt = Date.now();
@@ -1401,7 +1519,7 @@ export async function runSupervisedSuite(
   const finalPreparation: PreparationEvidence = {
     status: watcher === null && suppliedArchivePath !== undefined ? "supplied" : (watcherEvidence?.status ?? "none"),
     requests: watcherEvidence?.requests ?? 0,
-    durationMs: watcherEvidence?.durationMs ?? 0,
+    durationMs: watcher === null && suppliedArchivePath !== undefined ? suppliedDurationMs : (watcherEvidence?.durationMs ?? 0),
     cleanupDurationMs,
     cleanupFailed,
     ...(preparedArchivePath === undefined ? {} : { archivePath: preparedArchivePath }),

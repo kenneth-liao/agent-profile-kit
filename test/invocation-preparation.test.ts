@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,6 +17,13 @@ import {
   PACKAGE_REQUEST_CHANNEL_ENV,
   PACKAGE_REQUEST_WAIT_ENV,
 } from "./support/package-request-channel.js";
+import {
+  captureSourceFingerprint,
+  createPackageCandidate,
+  digestBytes,
+  packageIdentityRecordPath,
+  type PackageIdentityRecord,
+} from "./support/package-identity.js";
 import {
   PREPARATION_LOG_FILENAME,
   formatSuiteSummary,
@@ -105,6 +112,51 @@ test("${name} executes the invocation candidate", async () => {
 `;
 
 /**
+ * The record-capturing consumer: identical to the standard consumer, plus a
+ * marker carrying the record beside the archive it was given, so tests can
+ * assert the admitted identity at its live boundary (the pinned candidate
+ * directory dies with the invocation's owned cleanup).
+ */
+const recordConsumerSource = (name: string, markerName: string): string => `
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("${name} executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "${markerName}-archive"), archive.path);
+  writeFileSync(join(markers, "${markerName}-record"), readFileSync(archive.path + ".provenance.json", "utf8"));
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    writeFileSync(join(markers, "${markerName}-output"), output);
+    if (result.kind !== "exit" || result.exitCode !== 0 || !output.includes("CANDIDATE-CLI-MARKER")) {
+      throw new Error(\`the consumer did not execute the invocation candidate: \${result.kind} \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+  }
+});
+`;
+
+/**
  * The fleet consumer fixture: the canonical fleet launch entry resolves its
  * executable through the consumer boundary and executes it under Node. The
  * fixture root may carry a deliberately different or absent dist — neither can
@@ -165,9 +217,19 @@ function fixtureCorpus(files: readonly CorpusFile[]): string {
     ...files,
     { path: "test/fleet-qualification.test.ts", body: pureSource("fleet-placeholder") },
   ];
+  // Run-local artifacts (consumer markers, run logs, junit evidence) are
+  // ignored, so the candidate creator's source fingerprint — captured against
+  // this Git repository — covers the relevant source only and stays stable
+  // while runs execute.
+  writeFileSync(join(base, ".gitignore"), "markers/\nlogs/\ndist/\n");
   for (const file of corpus) {
     writeFileSync(join(base, file.path), file.body.replaceAll("${BASE}", base));
   }
+  execFileSync("git", ["-C", base, "init", "-q"]); 
+  execFileSync("git", ["-C", base, "config", "user.email", "tests@example.com"]);
+  execFileSync("git", ["-C", base, "config", "user.name", "Agent Profile Kit Tests"]);
+  execFileSync("git", ["-C", base, "add", "."]);
+  execFileSync("git", ["-C", base, "commit", "-qm", "fixture corpus"]);
   return base;
 }
 
@@ -203,7 +265,7 @@ function realCandidateCommands(token: string, calls: string[]): PackageArchiveCo
       if (!(result.kind === "exit" && result.exitCode === 0)) {
         throw new Error(`fixture pack failed: ${result.kind}`);
       }
-      return "candidate.tgz";
+      return { filename: "candidate.tgz", files: ["dist/cli.js"] };
     },
   };
 }
@@ -419,56 +481,49 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
   });
 
   test("an operator-supplied archive passes through untouched with zero preparation", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: recordConsumerSource("consumer A", "a") },
+    ]);
     const suppliedRoot = tempDir("apkit-supplied-");
-    const suppliedArchive = join(suppliedRoot, "operator.tgz");
-    // A real tarball so the consumer can extract and execute it.
-    mkdirSync(join(suppliedRoot, "package", "dist"), { recursive: true });
-    writeFileSync(
-      join(suppliedRoot, "package", "dist", "cli.js"),
-      'console.log("CANDIDATE-CLI-MARKER-supplied");\n',
-    );
-    const packed = await runProcess({
-      executable: "tar",
-      arguments_: ["-czf", join(suppliedRoot, "operator.tgz"), "-C", suppliedRoot, "package"],
-      deadlineMs: 10_000,
-      commandLabel: "supplied fixture pack",
+    // The operator-supplied candidate is created by the one from-source
+    // creator against the consuming fixture repository, so its record binds
+    // the exact archive bytes and the relevant source at the real boundary.
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
     });
-    expect(packed.kind).toBe("exit");
-
-    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
     const calls: string[] = [];
-    const previousArchive = process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
-    const previousMarker = process.env[SUPERVISED_INVOCATION_ENV];
-    process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = suppliedArchive;
-    // A top-level operator invocation runs outside any supervised parent, so
-    // the nested-invocation marker must be absent for this invocation.
-    delete process.env[SUPERVISED_INVOCATION_ENV];
-    try {
+    await withSuppliedArchive(created.archivePath, async () => {
       const result = await runFullCorpus(base, {
         packageCommands: realCandidateCommands("never", calls),
       });
-      expect(result.ok).toBe(true);
+      expect(result.ok, result.runs[0]?.result.stderr.slice(-800)).toBe(true);
       expect(result.preparation.status).toBe("supplied");
-      expect(result.preparation.durationMs).toBe(0);
-      expect(result.preparation.archivePath).toBe(realpathSync(suppliedArchive));
+      // The gate's duration is retained truthfully (real Git children ran).
+      expect(result.preparation.durationMs).toBeGreaterThan(0);
+      // The children received the invocation-owned pinned copy, not the
+      // external archive; its record binds the admitted identity.
+      const consumedArchive = readFileSync(join(base, "markers", "a-archive"), "utf8");
+      expect(consumedArchive.startsWith(join(realpathSync(tmpdir()), "agent-profile-kit-supplied-pinned-"))).toBe(true);
+      const pinnedRecord: PackageIdentityRecord = JSON.parse(
+        readFileSync(join(base, "markers", "a-record"), "utf8"),
+      ) as PackageIdentityRecord;
+      expect(pinnedRecord.sourceFingerprint).toBe(created.record.sourceFingerprint);
       expect(calls).toEqual([]);
-      // The operator's archive bytes were never rewritten or removed.
-      expect(existsSync(suppliedArchive)).toBe(true);
+      // The operator's archive and record were never rewritten or removed.
+      expect(existsSync(created.archivePath)).toBe(true);
+      expect(existsSync(created.recordPath)).toBe(true);
       expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain(
         "CANDIDATE-CLI-MARKER-supplied",
       );
-    } finally {
-      if (previousArchive === undefined) {
-        delete process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
-      } else {
-        process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = previousArchive;
-      }
-      if (previousMarker === undefined) {
-        delete process.env[SUPERVISED_INVOCATION_ENV];
-      } else {
-        process.env[SUPERVISED_INVOCATION_ENV] = previousMarker;
-      }
-    }
+      // The pinned directory died with the invocation's owned cleanup.
+      expect(
+        readdirSync(tmpdir()).filter((entry) => entry.startsWith("agent-profile-kit-supplied-pinned-")),
+      ).toEqual([]);
+    });
   });
 
   test("sequential invocations own fresh candidates with no cross-invocation reuse", async () => {
@@ -939,3 +994,647 @@ test("fleet cleanup failure propagates", async () => {
     expect(calls).toEqual([]);
   });
 });
+/**
+ * Provenance gate: one canonical identity contract for prepared and supplied
+ * candidates (TEST-002, #538). A supplied archive qualifies only the source
+ * identity its record demonstrably represents; missing, stale, mismatched, or
+ * substituted provenance is rejected before qualification, and the prepared
+ * candidate is created through the same from-source creator.
+ */
+
+
+/** Creator commands for the supplied-identity fixtures: one real tarball. */
+function suppliedCreatorCommands(root: string, marker: string): PackageArchiveCommands {
+  const staging = tempDir("apkit-supplied-staging-");
+  return {
+    build: async () => {
+      mkdirSync(join(staging, "package", "dist"), { recursive: true });
+      writeFileSync(join(staging, "package", "dist", "cli.js"), `console.log("${marker}");\n`);
+    },
+    createScriptDisabledArchive: async (_stage, destination) => {
+      const result = await runProcess({
+        executable: "tar",
+        arguments_: ["-czf", join(destination, "supplied.tgz"), "-C", staging, "package"],
+        deadlineMs: 10_000,
+        commandLabel: "supplied fixture pack",
+      });
+      if (!(result.kind === "exit" && result.exitCode === 0)) {
+        throw new Error(`fixture pack failed: ${result.kind}`);
+      }
+      return { filename: "supplied.tgz", files: ["dist/cli.js"] };
+    },
+  };
+}
+
+async function withSuppliedArchive(archive: string, run: () => Promise<void>): Promise<void> {
+  const previousArchive = process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+  const previousMarker = process.env[SUPERVISED_INVOCATION_ENV];
+  process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = archive;
+  delete process.env[SUPERVISED_INVOCATION_ENV];
+  try {
+    await run();
+  } finally {
+    if (previousArchive === undefined) {
+      delete process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+    } else {
+      process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = previousArchive;
+    }
+    if (previousMarker === undefined) {
+      delete process.env[SUPERVISED_INVOCATION_ENV];
+    } else {
+      process.env[SUPERVISED_INVOCATION_ENV] = previousMarker;
+    }
+  }
+}
+
+describe("supplied candidate provenance", () => {
+  test("a supplied archive with no record is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    rmSync(created.recordPath);
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("failed");
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("a substituted supplied archive is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    writeFileSync(created.archivePath, "substituted bytes");
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("a stale supplied record is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    writeFileSync(join(base, "test", "consumer-a.test.ts"), "mutated after capture\n");
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+});
+
+describe("prepared candidate provenance", () => {
+  test("the prepared candidate carries an identity record created from source", async () => {
+    // The candidate directory dies with the invocation, so the record is
+    // observed at its live boundary: the consumer reads the record beside the
+    // archive before its validated extraction, and the qualification is green
+    // — extraction already proved the digest bound held.
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("consumer A executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "record"), readFileSync(archive.path + ".provenance.json", "utf8"));
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    if (result.kind !== "exit" || result.exitCode !== 0 || !output.includes("CANDIDATE-CLI-MARKER")) {
+      throw new Error(\`the consumer did not execute the invocation candidate: \${result.kind} \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+  }
+});
+` }]);
+    const commands = realCandidateCommands("recorded", []);
+    const result = await runFullCorpus(base, { packageCommands: commands });
+    expect(result.ok).toBe(true);
+    const record = JSON.parse(readFileSync(join(base, "markers", "record"), "utf8")) as {
+      schema: number;
+      archiveDigest: string;
+      sourceFingerprint: string;
+    };
+    expect(record.schema).toBe(1);
+    expect(record.archiveDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(record.sourceFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("source mutated between capture and pack disqualifies the candidate", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+      { path: PURE_FILE, body: pureSource("pure") },
+    ]);
+    const calls: string[] = [];
+    const commands = realCandidateCommands("unstable", calls);
+    const result = await runFullCorpus(base, {
+      packageCommands: {
+        ...commands,
+        build: async (stage) => {
+          await commands.build(stage);
+          writeFileSync(join(base, PURE_FILE), "mutated during preparation\n");
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.preparation.status).toBe("failed");
+    expect(result.preparation.failure).toContain("unstable source");
+    expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
+  });
+});
+
+/**
+ * Review-driven regressions (independent merge review at 1c9f9ad): the
+ * admitted supplied identity is pinned through consumption, the supplied
+ * gate shares the invocation's budget and signal with truthful lifecycle
+ * evidence, and new Git/dist stages retain the #537 typed stage evidence.
+ */
+
+describe("supplied candidate admission pinning", () => {
+  test("a candidate pair replaced after admission is not consumed: consumers execute the admitted bytes", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import {
+  createPackageCandidate,
+} from ${JSON.stringify(seamImport("package-identity.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("consumer A executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "a-archive"), archive.path);
+  writeFileSync(join(markers, "pinned-record"), readFileSync(archive.path + ".provenance.json", "utf8"));
+  // After admission, replace the ENTIRE external candidate pair (archive and
+  // its record) with a legitimately created source-B candidate: the shared
+  // creator builds a real B archive whose bytes and record are self-consistent.
+  const externalArchive = readFileSync(join(markers, "external"), "utf8");
+  const bRoot = mkdtempSync(join(tmpdir(), "apkit-swap-b-dest-"));
+  const staging = mkdtempSync(join(tmpdir(), "apkit-swap-b-staging-"));
+  mkdirSync(join(staging, "package", "dist"), { recursive: true });
+  writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("CANDIDATE-CLI-MARKER-B");\\n');
+  const b = await createPackageCandidate({
+    repositoryRoot: process.cwd(),
+    destinationDirectory: bRoot,
+    deadlineMs: 30_000,
+    signal: undefined,
+    commands: {
+      build: async () => {
+        writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("CANDIDATE-CLI-MARKER-B");\\n');
+      },
+      createScriptDisabledArchive: async (_stage, destination) => {
+        const result = await runProcess({
+          executable: "tar",
+          arguments_: ["-czf", join(destination, "b.tgz"), "-C", staging, "package"],
+          deadlineMs: 10_000,
+          commandLabel: "fixture B pack",
+        });
+        if (!(result.kind === "exit" && result.exitCode === 0)) {
+          throw new Error(\`fixture B pack failed: \${result.kind}\`);
+        }
+        return { filename: "b.tgz", files: ["dist/cli.js"] };
+      },
+    },
+  });
+  // Replace both external files after admission.
+  writeFileSync(externalArchive, readFileSync(b.archivePath));
+  writeFileSync(externalArchive + ".provenance.json", readFileSync(b.recordPath));
+  writeFileSync(join(markers, "replaced"), "1");
+  // The consumer must execute the admitted (pinned) bytes, never the
+  // replacement pair.
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    writeFileSync(join(markers, "a-output"), output);
+    if (!output.includes("CANDIDATE-CLI-MARKER-A") || output.includes("CANDIDATE-CLI-MARKER-B")) {
+      throw new Error(\`the consumer executed a replacement candidate: \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+    rmSync(bRoot, { recursive: true, force: true });
+    rmSync(staging, { recursive: true, force: true });
+  }
+});
+` }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-A"),
+    });
+    // The external archive path is known to the fixture before the invocation.
+    writeFileSync(join(base, "markers", "external"), created.archivePath);
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok, result.runs[0]?.result.stderr.slice(-800)).toBe(true);
+      // The external pair really was replaced after admission: its digest no
+      // longer matches the admitted record's artifact digest, yet the pinned
+      // record (captured during the run) still binds the admitted bytes.
+      expect(existsSync(join(base, "markers", "replaced"))).toBe(true);
+      const pinnedRecord: PackageIdentityRecord = JSON.parse(
+        readFileSync(join(base, "markers", "pinned-record"), "utf8"),
+      ) as PackageIdentityRecord;
+      expect(digestBytes(readFileSync(created.archivePath))).not.toBe(pinnedRecord.archiveDigest);
+      // The consumer executed the admitted bytes.
+      expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain("CANDIDATE-CLI-MARKER-A");
+    });
+  });
+});
+
+describe("supplied validation lifecycle", () => {
+  test("an aborted invocation classifies supplied validation as interrupted with truthful duration", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {}, controller.signal);
+      // The gate shares the invocation's signal: an aborted invocation cannot
+      // wait out the validation children's fixed deadline.
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("interrupted");
+      expect(result.preparation.durationMs).toBeGreaterThan(0);
+      expect(result.preparation.failure).toContain("interrupted");
+    });
+  }, 15_000);
+
+  test("a failed Git capture stage retains the typed #537 evidence", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    // Make the dist removal stage unremovable: the typed stage error carries
+    // the complete child result, and the evidence keeps its cleanup fields.
+    const dist = join(base, "dist");
+    mkdirSync(dist, { recursive: true });
+    const flag = await runProcess({
+      executable: "chflags", arguments_: ["uchg", dist], deadlineMs: 2000,
+      commandLabel: "fixture chflags",
+    });
+    expect(flag.kind).toBe("exit");
+    let recovered = false;
+    try {
+      const created = await createPackageCandidate({
+        repositoryRoot: base,
+        destinationDirectory: suppliedRoot,
+        deadlineMs: 30_000,
+        signal: undefined,
+        commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+      });
+      void created;
+      throw new Error("expected the creator to fail on the unremovable dist stage");
+    } catch (error) {
+      expect(String(error)).toContain("build-output replacement");
+      const stageError = error as { result?: { cleanupFailed?: boolean; stdout?: string; stderr?: string; kind?: string } };
+      expect(stageError.result).toBeDefined();
+      expect(stageError.result!.kind).toBeDefined();
+      expect(typeof stageError.result!.stdout).toBe("string");
+      // Cleanup evidence fields exist on the typed result.
+      expect(stageError.result!.cleanupFailed).toBe(false);
+    } finally {
+      const recovery = await runProcess({
+        executable: "chflags", arguments_: ["-R", "nouchg", dist], deadlineMs: 2000,
+      });
+      recovered = recovery.kind === "exit" && recovery.exitCode === 0;
+    }
+    expect(recovered).toBe(true);
+  });
+});
+
+/**
+ * Re-review regressions (independent review at 6dd95f1): admission work is
+ * deducted from the first run's budget, Git captures settle sequentially
+ * through one shared deadline, and a failed partial-pin cleanup retains its
+ * owned path, cause, and duration in the zero-run evidence.
+ */
+
+describe("admission budget accounting", () => {
+  test("admission duration is deducted from the first run's budget", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test } from "bun:test";
+test("consumer A executes the invocation candidate", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+});
+` }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    // Every admission Git child sleeps 300ms: three sequential captures make
+    // admission cost ~900ms of the 2000ms policy. The 1400ms child completes
+    // inside a fresh perRun budget but outside the remaining share after
+    // admission — with the deduction the run is bounded and incomplete,
+    // without it the invocation overruns the policy and reports success.
+    // (The run's recorded duration includes the executor's kill grace after
+    // the deadline fires, so the bound is asserted against perRun, not
+    // against the deducted share.)
+    const shim = tempDir("apkit-admission-shim-");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shim, "git"), `#!/bin/sh\nsleep 0.3\nexec ${JSON.stringify(realGit)} "$@"\n`);
+    chmodSync(join(shim, "git"), 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      await withSuppliedArchive(created.archivePath, async () => {
+        const result = await runFullCorpus(base, { perRunDeadlineMs: 2000 });
+        expect(result.ok).toBe(false);
+        expect(result.attemptedRuns).toBe(1);
+        expect(result.runs[0]!.result.kind).toBe("timeout");
+        expect(result.runs[0]!.result.durationMs).toBeLessThan(2000);
+        expect(result.preparation.durationMs).toBeGreaterThan(0);
+      });
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 30_000);
+
+  test("an invocation budget exhausted before validation fails the gate with zero runs", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, { perRunDeadlineMs: 5 });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("failed");
+      const evidence = `${result.preparation.failure ?? ""} ${result.preparation.diagnostics ?? ""}`;
+      expect(evidence).toMatch(/exhausted|source capture/);
+    });
+  }, 20_000);
+});
+
+describe("sequential bounded source capture", () => {
+  function gitShim(
+    directory: string,
+    realGit: string,
+    mode: "all" | "fail-second",
+  ): string {
+    mkdirSync(directory, { recursive: true });
+    const script = mode === "all"
+      ? `#!/bin/sh\nprintf 'x\\n' >> "${join(directory, "count")}"\nsleep 0.3\nexec ${JSON.stringify(realGit)} "$@"\n`
+      : `#!/bin/sh\nprintf '%s\\n' "$$" >> "${join(directory, "count")}"\nif [ -f "${join(directory, "second")}" ]; then\n  sleep 0.4\n  echo INJECTED-GIT-FAILURE >&2\n  exit 1\nfi\ntouch "${join(directory, "second")}"\nexec ${JSON.stringify(realGit)} "$@"\n`;
+    writeFileSync(join(directory, "git"), script);
+    chmodSync(join(directory, "git"), 0o755);
+    return directory;
+  }
+
+  test("capture children run sequentially inside one shared deadline and all settle before return", async () => {
+    const root = fixtureCorpus([]);
+    const shim = gitShim(tempDir("apkit-identity-shim-"), execFileSync("which", ["git"], { encoding: "utf8" }).trim(), "all");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const startedAt = Date.now();
+      const capture = await captureSourceFingerprint({ repositoryRoot: root, deadlineMs: 30_000, signal: undefined });
+      const elapsed = Date.now() - startedAt;
+      // One child at a time: three sequential Git children each slept 300ms.
+      expect(readdirSync(shim).filter((entry) => entry === "count").length).toBe(1);
+      expect(readFileSync(join(shim, "count"), "utf8").split("\n").filter((line) => line.length > 0)).toHaveLength(3);
+      expect(capture.entryCount).toBeGreaterThan(0);
+      expect(elapsed).toBeGreaterThanOrEqual(900);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 20_000);
+
+  test("a failing capture child settles before the capture returns and later children never start", async () => {
+    const root = fixtureCorpus([]);
+    const shim = gitShim(tempDir("apkit-identity-shim-"), execFileSync("which", ["git"], { encoding: "utf8" }).trim(), "fail-second");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const startedAt = Date.now();
+      await expect(
+        captureSourceFingerprint({ repositoryRoot: root, deadlineMs: 30_000, signal: undefined }),
+      ).rejects.toThrow(/source capture failed/);
+      // The capture returned only after the failing child settled.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
+      // The third child never started.
+      const count = readFileSync(join(shim, "count"), "utf8").split("\n").filter((line) => line.length > 0);
+      expect(count).toHaveLength(2);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 20_000);
+});
+
+describe("partial-pin cleanup evidence", () => {
+  test("a failed pin retains the owned path, cause, and cleanup duration in zero-run evidence", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    const pinCalls: string[] = [];
+    // A controlled removal command fails the owned pin-directory cleanup.
+    const shim = tempDir("apkit-pin-rm-shim-");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, "rm"), "#!/bin/sh\necho INJECTED-CLEANUP-FAILURE >&2\nexit 7\n");
+    execFileSync("chmod", ["+x", join(shim, "rm")]);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    let leftover = "";
+    try {
+      let result: SuiteSupervisorResult | undefined;
+      await withSuppliedArchive(created.archivePath, async () => {
+        result = await runFullCorpus(base, {
+          packageCommands: realCandidateCommands("never", pinCalls),
+          pinSuppliedCandidate: async () => {
+            throw new Error("INJECTED-PIN-WRITE-FAILURE");
+          },
+        });
+      });
+      const completed = result!;
+      expect(completed.ok).toBe(false);
+      expect(completed.attemptedRuns).toBe(0);
+      // The cleanup outcome is owning evidence, not defaults: truthful
+      // duration, failure flag, cause, and the retained owned path.
+      expect(completed.preparation.cleanupFailed).toBe(true);
+      expect(completed.preparation.cleanupDurationMs).toBeGreaterThan(0);
+      expect(completed.preparation.cleanupFailure).toContain("INJECTED-CLEANUP-FAILURE");
+      expect(completed.preparation.cleanupFailure).toContain("agent-profile-kit-supplied-pinned-");
+      // The zero-run summary and the retained preparation log carry the
+      // cleanup cause and path, not only the original pin error.
+      const summary = formatSuiteSummary(completed, null);
+      expect(summary).toContain("INJECTED-PIN-WRITE-FAILURE");
+      expect(summary).toContain("INJECTED-CLEANUP-FAILURE");
+      const log = readFileSync(join(completed.logDir, PREPARATION_LOG_FILENAME), "utf8");
+      expect(log).toContain("cleanupFailed: true");
+      expect(log).toContain("INJECTED-CLEANUP-FAILURE");
+      const pathMatch = log.match(/owned pin directory '([^']+)'/);
+      expect(pathMatch).not.toBeNull();
+      leftover = pathMatch![1]!;
+      // Ownership is not cleared on failed removal: the path stays retained.
+      expect(existsSync(leftover)).toBe(true);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      // The probe-owned leftover is removed after inspection.
+      if (leftover !== "") rmSync(leftover, { recursive: true, force: true });
+    }
+  }, 20_000);
+
+  test("delayed pin cleanup measures both outcomes without double-counting admission", async () => {
+    for (const failCleanup of [true, false]) {
+      const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+      const suppliedRoot = tempDir("apkit-supplied-");
+      const created = await createPackageCandidate({
+        repositoryRoot: base,
+        destinationDirectory: suppliedRoot,
+        deadlineMs: 30_000,
+        signal: undefined,
+        commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+      });
+      // Every removal sleeps 200ms before succeeding or failing: a delayed
+      // successful cleanup must report its real cost (never a zero default),
+      // and the admission duration must exclude cleanup on both paths.
+      const shim = tempDir("apkit-pin-rm-shim-");
+      writeFileSync(
+        join(shim, "rm"),
+        `#!/bin/sh\n/bin/sleep 0.2\n${failCleanup ? "echo INJECTED-CLEANUP-FAILURE >&2\nexit 7\n" : 'exec /bin/rm "$@"\n'}`,
+      );
+      chmodSync(join(shim, "rm"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${shim}:${previousPath}`;
+      let leftover = "";
+      try {
+        let result: SuiteSupervisorResult | undefined;
+        await withSuppliedArchive(created.archivePath, async () => {
+          result = await runFullCorpus(base, {
+            perRunDeadlineMs: 2000,
+            pinSuppliedCandidate: async (validation, directory) => {
+              // A partial pin: owned bytes land before the failure.
+              writeFileSync(join(directory, "partial.tgz"), validation.bytes);
+              throw new Error("INJECTED-PIN-WRITE-FAILURE");
+            },
+          });
+        });
+        const completed = result!;
+        expect(completed.ok).toBe(false);
+        expect(completed.attemptedRuns).toBe(0);
+        expect(completed.preparation.failure).toContain("INJECTED-PIN-WRITE-FAILURE");
+        // The 200ms removal delay is reported on both outcomes.
+        expect(completed.preparation.cleanupDurationMs).toBeGreaterThanOrEqual(150);
+        // Non-overlap oracle: admission and cleanup partition the wall time,
+        // so their sum cannot exceed the aggregate (plus timer granularity).
+        expect(completed.preparation.durationMs + completed.preparation.cleanupDurationMs)
+          .toBeLessThanOrEqual(completed.aggregateDurationMs + 10);
+        if (failCleanup) {
+          expect(completed.preparation.cleanupFailed).toBe(true);
+          expect(completed.preparation.cleanupFailure).toContain("INJECTED-CLEANUP-FAILURE");
+          const pathMatch = (completed.preparation.cleanupFailure ?? "").match(/owned pin directory '([^']+)'/);
+          expect(pathMatch).not.toBeNull();
+          leftover = pathMatch![1]!;
+          expect(existsSync(leftover)).toBe(true);
+        } else {
+          expect(completed.preparation.cleanupFailed).toBe(false);
+          expect(completed.preparation.cleanupFailure).toBeUndefined();
+          expect(completed.preparation.candidateDirectory).toBeUndefined();
+        }
+      } finally {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        if (leftover !== "") rmSync(leftover, { recursive: true, force: true });
+      }
+    }
+  }, 60_000);
+});
+
