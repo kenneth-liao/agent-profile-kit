@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { Writable } from "node:stream";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -393,7 +394,7 @@ describe("runInteractiveProcess (#448)", () => {
     const result = await runInteractiveProcess({
       executable: shell,
       arguments_: ["-c", "cat; exit 0"],
-      stdin: "interactive guidance body\n",
+      stdin: { kind: "payload", content: "interactive guidance body\n" },
       stdoutMode: "ignore",
       commandLabel: "interactive stdin fixture",
     });
@@ -413,7 +414,7 @@ describe("runInteractiveProcess (#448)", () => {
     const result = await runInteractiveProcess({
       executable: shell,
       arguments_: ["-c", "sleep 0.4; exit 0"],
-      stdin: "",
+      stdin: { kind: "payload", content: "" },
       stdoutMode: "ignore",
       commandLabel: "interactive no-deadline fixture",
     });
@@ -429,7 +430,7 @@ describe("runInteractiveProcess (#448)", () => {
       {
         executable: shell,
         arguments_: ["-c", "sleep 30"],
-        stdin: "",
+        stdin: { kind: "payload", content: "" },
         stdoutMode: "ignore",
         cleanupGraceMs: 200,
         commandLabel: "interactive cancel fixture",
@@ -461,7 +462,7 @@ describe("runInteractiveProcess (#448)", () => {
             "-c",
             `echo $$ > '${pidFile}'; sleep 30 & echo $! > '${descendantFile}'; wait`,
           ],
-          stdin: "",
+          stdin: { kind: "payload", content: "" },
           stdoutMode: "ignore",
           cleanupGraceMs: 200,
           commandLabel: "interactive owned-pid fixture",
@@ -527,7 +528,7 @@ describe("runInteractiveProcess (#448)", () => {
       {
         executable: shell,
         arguments_: ["-c", "trap '' TERM; sleep 30"],
-        stdin: "",
+        stdin: { kind: "payload", content: "" },
         stdoutMode: "ignore",
         cleanupGraceMs: 200,
         commandLabel: "interactive TERM-resistant fixture",
@@ -548,7 +549,7 @@ describe("runInteractiveProcess (#448)", () => {
       {
         executable: shell,
         arguments_: ["-c", "sleep 30"],
-        stdin: "",
+        stdin: { kind: "payload", content: "" },
         stdoutMode: "ignore",
         cleanupGraceMs: 200,
         commandLabel: "interactive repeated-abort fixture",
@@ -566,7 +567,7 @@ describe("runInteractiveProcess (#448)", () => {
     const result = await runInteractiveProcess({
       executable: "/nonexistent/agent-profile-kit-interactive-fixture",
       arguments_: [],
-      stdin: "",
+      stdin: { kind: "payload", content: "" },
       commandLabel: "interactive spawn-error fixture",
     });
     expect(result.kind).toBe("spawn-error");
@@ -580,7 +581,7 @@ describe("runInteractiveProcess (#448)", () => {
     const result = await runInteractiveProcess({
       executable: shell,
       arguments_: ["-c", "exit 0"],
-      stdin: "body the pager never reads\n".repeat(2000),
+      stdin: { kind: "payload", content: "body the pager never reads\n".repeat(2000) },
       stdoutMode: "ignore",
       commandLabel: "interactive early-quit fixture",
     });
@@ -606,7 +607,7 @@ describe("runInteractiveProcess (#448)", () => {
       const result = await runInteractiveProcess({
         executable: shell,
         arguments_: ["-c", `ps -o pgid= -p "$$" > '${pgidFile}'`],
-        stdin: "",
+        stdin: { kind: "payload", content: "" },
         commandLabel: "interactive foreground fixture",
       });
       expect(result.kind).toBe("exit");
@@ -617,5 +618,90 @@ describe("runInteractiveProcess (#448)", () => {
     } finally {
       rmSync(fixtureDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("runInteractiveProcess streaming stdin (#542)", () => {
+  test("stream mode delivers caller-driven writes until the caller ends stdin", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-interactive-stream-"));
+    try {
+      const capturedFile = join(fixtureDir, "captured.txt");
+      let ownedStdin: Writable | undefined;
+      const result = await runInteractiveProcess({
+        executable: shell,
+        arguments_: ["-c", `cat > '${capturedFile}'`],
+        stdin: {
+          kind: "stream",
+          onStarted: (owned) => {
+            ownedStdin = owned.stdin;
+            owned.stdin.write("first keystrokes\n");
+            // The caller owns EOF: ending stdin is what lets `cat` finish.
+            owned.stdin.end();
+          },
+        },
+        stdoutMode: "ignore",
+        commandLabel: "interactive stream fixture",
+      });
+      expect(ownedStdin).toBeDefined();
+      expect(result.kind).toBe("exit");
+      if (result.kind === "exit") {
+        expect(result.exitCode).toBe(0);
+      }
+      expect(result.cleanupFailed).toBe(false);
+      expect(readFileSync(capturedFile, "utf8")).toContain("first keystrokes");
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a throwing onStarted callback settles cancelled through the cleanup lifecycle", async () => {
+    const controller = new AbortController();
+    const callbackError = new Error("onStarted fixture failure");
+    const result = await runInteractiveProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "sleep 30"],
+        stdin: {
+          kind: "stream",
+          onStarted: () => {
+            throw callbackError;
+          },
+        },
+        stdoutMode: "ignore",
+        cleanupGraceMs: 200,
+        commandLabel: "interactive stream callback-error fixture",
+      },
+      controller.signal,
+    );
+    expect(result.kind).toBe("cancelled");
+    expect(result.error).toBe(callbackError);
+    expect(result.cleanupFailed).toBe(false);
+    // The spawned child was terminated through the bounded cleanup lifecycle.
+    expect(result.cleanupDurationMs).toBeGreaterThan(0);
+  });
+
+  test("an abort signalled before start settles cancelled without invoking onStarted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    let started = false;
+    const result = await runInteractiveProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "sleep 30"],
+        stdin: {
+          kind: "stream",
+          onStarted: () => {
+            started = true;
+          },
+        },
+        stdoutMode: "ignore",
+        cleanupGraceMs: 200,
+        commandLabel: "interactive stream prestart-abort fixture",
+      },
+      controller.signal,
+    );
+    expect(started).toBe(false);
+    expect(result.kind).toBe("cancelled");
+    expect(result.cleanupFailed).toBe(false);
   });
 });

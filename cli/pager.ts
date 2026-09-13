@@ -222,7 +222,7 @@ export async function pageGuidanceDocument(input: PageGuidanceInput): Promise<nu
       {
         executable: pager.executable,
         arguments_: [...pager.args],
-        stdin: input.text,
+        stdin: { kind: "payload", content: input.text },
         // Explicit LESS authority: any value present — including empty — is
         // preserved; the FRX default applies only when LESS is unset.
         environment: environment.LESS !== undefined

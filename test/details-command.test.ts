@@ -869,7 +869,9 @@ describe("lifecycle operation recording", () => {
     expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     const calls: string[] = [];
     const pagerExecution: InteractiveExecution = async (options) => {
-      calls.push(options.stdin);
+      calls.push(
+        options.stdin.kind === "payload" ? options.stdin.content : "",
+      );
       return {
         kind: "exit",
         exitCode: 0,

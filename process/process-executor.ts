@@ -481,13 +481,37 @@ export async function runProcess(
   });
 }
 
+/**
+ * Where an interactive child's stdin comes from. The union makes an invalid
+ * hanging state unrepresentable: payload mode writes once and closes (the
+ * pager contract); stream mode hands the owned stdin to the caller exactly
+ * once after spawn, for sessions that write keystrokes across their lifetime
+ * (#542). Exactly one mode is always present.
+ */
+export type InteractiveStdin =
+  | { readonly kind: "payload"; readonly content: string }
+  | {
+      readonly kind: "stream";
+      /**
+       * Invoked exactly once after a successful spawn with the owned child's
+       * pid and stdin. Throwing from this callback, or an abort signal that
+       * already fired before it can run, settles the result through the
+       * bounded cleanup lifecycle — never an unsettled promise, never an
+       * unhandled rejection.
+       */
+      readonly onStarted: (owned: {
+        readonly pid: number;
+        readonly stdin: Writable;
+      }) => void;
+    };
+
 export interface InteractiveExecutorOptions {
   readonly executable: string;
   readonly arguments_: readonly string[];
   readonly environment?: NodeJS.ProcessEnv;
   readonly cwd?: string;
-  /** Content written to the child's stdin, then closed (EOF). */
-  readonly stdin: string;
+  /** stdin source: one payload delivery or a streamed interactive session. */
+  readonly stdin: InteractiveStdin;
   /** Defaults to "inherit": screen output belongs on the terminal, uncaptured. */
   readonly stdoutMode?: "inherit" | "pipe" | "ignore";
   readonly stderrMode?: "inherit" | "pipe" | "ignore";
@@ -576,6 +600,8 @@ export async function runInteractiveProcess(
     let observedCode: number | null = null;
     let observedSignal: string | null = null;
     let stdinError: Error | null = null;
+    /** A stream-mode `onStarted` failure, attached to the settled result. */
+    let startedError: Error | null = null;
     let onAbort: (() => void) | undefined;
 
     const finish = (result: InteractiveProcessResult) => {
@@ -650,7 +676,7 @@ export async function runInteractiveProcess(
         kind: "cancelled",
         exitCode: observedCode,
         signal: observedSignal,
-        error: null,
+        error: startedError,
         cleanupFailed,
         cleanupDurationMs,
         durationMs: elapsed(),
@@ -681,8 +707,24 @@ export async function runInteractiveProcess(
       }
     }
 
-    child.stdin?.write(options.stdin);
-    child.stdin?.end();
+    if (options.stdin.kind === "payload") {
+      child.stdin?.write(options.stdin.content);
+      child.stdin?.end();
+      return;
+    }
+    // Stream mode: the caller owns writes and EOF. A pre-start abort or a
+    // throwing callback must still settle through the bounded cleanup
+    // lifecycle — the child is running and owned.
+    if (terminalCause !== null) return;
+    try {
+      options.stdin.onStarted({
+        pid: child.pid as number,
+        stdin: child.stdin as Writable,
+      });
+    } catch (error) {
+      startedError = error instanceof Error ? error : new Error(String(error));
+      beginCleanup("cancelled");
+    }
   });
 }
 
