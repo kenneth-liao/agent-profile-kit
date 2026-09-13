@@ -19,6 +19,7 @@ import {
 } from "./support/package-request-channel.js";
 import {
   PREPARATION_LOG_FILENAME,
+  formatSuiteSummary,
   runSupervisedSuite,
   type SuiteSupervisorResult,
 } from "./support/suite-supervisor.js";
@@ -501,6 +502,38 @@ test("caught consumer", async () => {
     expect(result.completedRuns).toBe(1);
     expect(result.preparation.status).toBe("failed");
     expect(result.ok).toBe(false);
+  });
+
+  test.each(["failed", "interrupted"] as const)("stress summary reports %s preparation with a green child", async (status) => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test, expect } from "bun:test";
+import { obtainPackageArchive } from ${JSON.stringify(seamImport("package-archive.js"))};
+test("caught consumer", async () => {
+  await expect(obtainPackageArchive(process.cwd(), "unused-")).rejects.toThrow();
+});` }]);
+    const result = await runFullCorpus(base, {
+      mode: "stress", maxRuns: 1, aggregateDeadlineMs: 30000,
+      packageCommands: {
+        build: async () => {
+          if (status === "failed") throw new Error("fixture build failed");
+          const controller = new AbortController();
+          controller.abort();
+          const cancelled = await runProcess({ executable: process.execPath, arguments_: ["-e", ""], deadlineMs: 1000 }, controller.signal);
+          throw new PackagePreparationStageError("build", cancelled);
+        },
+        createScriptDisabledArchive: async () => { throw new Error("unexpected pack"); },
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.completedRuns).toBe(1);
+    expect(result.firstFailure).toBeNull();
+    expect(result.preparation.status).toBe(status);
+    const summary = formatSuiteSummary(result, null);
+    expect(summary).toContain(`preparation: ${status}`);
+    expect(summary).toContain("after 1/1 green runs");
+    expect(summary).toContain(PREPARATION_LOG_FILENAME);
+    expect(summary).toContain(result.logDir);
+    expect(summary).not.toContain("failed at run");
   });
 
   test("an abort during preparation is interrupted with owned resources cleaned", async () => {

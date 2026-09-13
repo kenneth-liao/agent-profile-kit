@@ -1507,7 +1507,7 @@ function formatPreparationSegment(preparation: PreparationEvidence): string {
         preparation.durationMs,
       )} — preparation log: ${PREPARATION_LOG_FILENAME} — `;
     case "interrupted":
-      return `preparation: interrupted in ${formatSeconds(preparation.durationMs)}, `;
+      return `preparation: interrupted in ${formatSeconds(preparation.durationMs)} — preparation log: ${PREPARATION_LOG_FILENAME} — `;
   }
 }
 
@@ -1543,7 +1543,10 @@ export function formatSuiteSummary(
     if (result.preparation.cleanupFailed) {
       return `suite stress: failed (candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"}) after ${result.completedRuns}/${result.maxRuns} green runs in ${duration} — logs: ${result.logDir}`;
     }
-    const failure = result.firstFailure!;
+    const failure = result.firstFailure;
+    if (failure === null) {
+      return `suite stress: ${formatPreparationSegment(result.preparation)}incomplete after ${result.completedRuns}/${result.maxRuns} green runs in ${duration} — logs: ${result.logDir}`;
+    }
     return `suite stress: ${formatPreparationSegment(result.preparation)}failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
   }
   if (result.runs.length === 0) {
