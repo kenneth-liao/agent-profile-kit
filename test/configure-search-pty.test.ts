@@ -7,9 +7,11 @@
  * preselected-across-filter behavior in this instantiation: a selected
  * member filtered out of view stays selected on submit.
  *
- * Key timing rule: filter keystrokes and Enter travel in separate writes
- * with a settle delay between them, matching human typing (see
- * install-search-pty.test.ts).
+ * Synchronization rule (#542): input is sent only after the required
+ * prompt/redraw state is OBSERVED — the transcript offset is captured
+ * immediately before each triggering write, filter Enter waits for the
+ * filter echo ("Filtered results for: <input>"), toggles for the selected-
+ * marker redraw (◉) — never a fixed settle delay.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
@@ -19,7 +21,7 @@ import { join } from "node:path";
 import { createContextModule } from "../installer/create-context-module.js";
 import { createSkill } from "../installer/create-skill.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { PER_TEST_TIMEOUT_MS } from "./support/suite-supervisor.js";
+import { startPtySession, squash } from "./support/pty-session.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -61,124 +63,39 @@ async function setupHome(): Promise<string> {
   return home;
 }
 
-/** Strip ANSI styling for structural matching. */
-function plain(text: string): string {
-  return text.replace(/\[[0-9;?]*[ -/]*[@-~]/g, "");
-}
-
-/** Collapse all whitespace so wrapped terminal lines still match. */
-function squashed(text: string): string {
-  return plain(text).replace(/\s+/g, "");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-interface PtySession {
-  write(data: string): void;
-  transcript(): string;
-  close(): Promise<void>;
-}
-
-/**
- * Start the PTY driver on a real pseudo-terminal at the requested width.
- * Keystrokes go through `write` in separate macrotasks; callers settle
- * after filter text before sending Enter (see the file header). The
- * controller's own watchdog (the canonical per-test policy) kills the
- * driver if the test itself is ever timed out, so no probe can orphan
- * a PTY child.
- */
-async function startPty(
-  driverArguments: readonly string[],
-  columns: number,
-): Promise<PtySession> {
-  if (Bun.which("python3") === null) {
-    throw new Error("PTY tests require python3 for the pty-controller");
-  }
-  const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-configure-pty-run-"));
-  temporaryDirectories.push(directory);
-  const transcriptPath = join(directory, "transcript.log");
-  const controllerPath = join(import.meta.dir, "support", "pty-controller.py");
-  const driverPath = join(import.meta.dir, "support", "searchable-pty-driver.ts");
-  const child = Bun.spawn(
-    ["python3", controllerPath, transcriptPath, String(columns), String(PER_TEST_TIMEOUT_MS), process.execPath, driverPath, ...driverArguments],
-    { stdin: "pipe", stdout: "ignore", stderr: "ignore", env: process.env },
-  );
-  return {
-    write(data: string): void {
-      child.stdin.write(data);
-    },
-    transcript(): string {
-      try {
-        return readFileSync(transcriptPath, "utf8");
-      } catch {
-        return "";
-      }
-    },
-    async close(): Promise<void> {
-      try {
-        child.stdin.end();
-      } catch {
-        // The driver may already have exited.
-      }
-      const exited = await Promise.race([
-        child.exited.then(() => true),
-        sleep(5000).then(() => false),
-      ]);
-      if (!exited) child.kill("SIGKILL" as const);
-      await child.exited.catch(() => undefined);
-    },
-  };
-}
-
-// Transcript waits derive from the canonical per-test timeout policy
-// (PER_TEST_TIMEOUT_MS): the diagnostic below stays reachable because bun
-// kills the test only after this deadline passes.
-const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
-
-async function waitForTranscript(
-  session: PtySession,
-  fragment: string,
-  deadlineMs = TRANSCRIPT_DEADLINE_MS,
-): Promise<string> {
-  const wanted = fragment.replace(/\s+/g, "");
-  const deadline = Date.now() + deadlineMs;
-  for (;;) {
-    const text = session.transcript();
-    if (squashed(text).includes(wanted)) return text;
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for PTY fragment: ${fragment}\n--- transcript ---\n${plain(text).slice(-2000)}`);
-    }
-    await sleep(100);
-  }
-}
-
 describe("interactive configure under a real PTY", () => {
   test("filtered pickers keep preselected membership and keyboard submit saves", async () => {
     const home = await setupHome();
-    const session = await startPty(["configure", home, "coding"], 80);
+    const session = await startPtySession(["configure", home, "coding"], 80);
+    temporaryDirectories.push(session.runDirectory);
     try {
       // Current membership is shown before the pickers open.
-      await waitForTranscript(session, "Current membership of reusable Profile 'coding'");
+      await session.waitForTranscript("Current membership of reusable Profile 'coding'");
       // Filter the Context picker so the selected member leaves the view,
       // then submit with Enter: the hidden selection persists.
-      await waitForTranscript(session, "Which Context Modules?");
+      await session.waitForTranscript("Which Context Modules?");
+      const contextFilterOffset = session.transcriptLength();
       session.write("extra");
-      await sleep(600);
+      await session.waitForTranscript("Filtered results for: extra", { after: contextFilterOffset });
+      const contextEnterOffset = session.transcriptLength();
       session.write("\r");
-      // Skills picker: filter, Space toggles the match on, Enter submits.
-      await waitForTranscript(session, "Which Skills?");
+      // Skills picker: filter, observe the filter echo, observe the toggle
+      // marker on the match, then submit.
+      await session.waitForTranscript("Which Skills?", { after: contextEnterOffset });
+      const skillsFilterOffset = session.transcriptLength();
       session.write("review");
-      await sleep(600);
+      await session.waitForTranscript("Filtered results for: review", { after: skillsFilterOffset });
+      const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await sleep(300);
+      await session.waitForTranscript("◉review-pr", { after: toggleOffset });
+      const skillsEnterOffset = session.transcriptLength();
       session.write("\r");
       // The pre-save statement names the reusable Profile; confirm.
-      await waitForTranscript(session, "Reusable Profile 'coding'");
-      await waitForTranscript(session, "(y/N)");
+      await session.waitForTranscript("Reusable Profile 'coding'", { after: skillsEnterOffset });
+      await session.waitForTranscript("(y/N)");
+      const confirmOffset = session.transcriptLength();
       session.write("y\r");
-      await waitForTranscript(session, "RESULT exitCode=0");
+      await session.waitForTranscript("RESULT exitCode=0", { after: confirmOffset });
     } finally {
       await session.close();
     }
@@ -189,7 +106,7 @@ describe("interactive configure under a real PTY", () => {
     expect(profile).toContain("team-rules");
     expect(profile).not.toContain("extra-rules");
     expect(profile).toContain("review-pr");
-    const text = squashed(session.transcript());
+    const text = squash(session.transcript());
     expect(text).toContain("apkitconfigureprofilecoding");
     expect(text).toContain("apkitupdate");
   });

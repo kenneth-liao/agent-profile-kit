@@ -5,19 +5,23 @@
  * width through a genuine pseudo-terminal allocated by
  * `test/support/pty-controller.py` (pty.fork) — never callbacks alone.
  *
- * Key timing rule: filter keystrokes and Enter travel in separate writes
- * with a settle delay between them, matching human typing. The underlying
- * single-select filter resolves asynchronously, so pasting filter text and
- * Enter in one chunk can submit the pre-filter highlight; that upstream
- * type-ahead race is out of scope for this seam.
+ * Synchronization rule (#542): input is sent only after the required
+ * prompt/redraw state is OBSERVED — the transcript offset is captured
+ * immediately before each triggering write, and each wait matches only
+ * content appended after it. Filter-text Enter waits for the filter-
+ * resolution render (`›<typed>` + reduced list), arrows for the pointer or
+ * highlight redraw, toggles for the selected-marker redraw — never a fixed
+ * settle delay. The upstream type-ahead race (filter text and Enter in one
+ * chunk can submit the pre-filter highlight) is why Enter must observe the
+ * resolution; that race itself is out of scope for this seam.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { PER_TEST_TIMEOUT_MS } from "./support/suite-supervisor.js";
+import { startPtySession, squash } from "./support/pty-session.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -67,141 +71,67 @@ async function setupHome(profile = "coding"): Promise<string> {
   return home;
 }
 
-/** Strip ANSI styling for structural matching. */
-function plain(text: string): string {
-  return text.replace(/\[[0-9;?]*[ -/]*[@-~]/g, "");
-}
-
-/** Collapse all whitespace so wrapped terminal lines still match. */
-function squashed(text: string): string {
-  return plain(text).replace(/\s+/g, "");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-interface PtySession {
-  write(data: string): void;
-  transcript(): string;
-  close(): Promise<void>;
-}
-
-/**
- * Start the PTY driver on a real pseudo-terminal at the requested width.
- * Keystrokes go through `write` in separate macrotasks; callers settle
- * after filter text before sending Enter (see the file header). The
- * controller's own watchdog (the canonical per-test policy) kills the
- * driver if the test itself is ever timed out, so no probe can orphan
- * a PTY child.
- */
-async function startPty(
-  driverArguments: readonly string[],
-  columns: number,
-): Promise<PtySession> {
-  if (Bun.which("python3") === null) {
-    throw new Error("PTY tests require python3 for the pty-controller");
-  }
-  const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-pty-run-"));
-  temporaryDirectories.push(directory);
-  const transcriptPath = join(directory, "transcript.log");
-  const controllerPath = join(import.meta.dir, "support", "pty-controller.py");
-  const driverPath = join(import.meta.dir, "support", "searchable-pty-driver.ts");
-  const child = Bun.spawn(
-    ["python3", controllerPath, transcriptPath, String(columns), String(PER_TEST_TIMEOUT_MS), process.execPath, driverPath, ...driverArguments],
-    { stdin: "pipe", stdout: "ignore", stderr: "ignore", env: process.env },
-  );
-  return {
-    write(data: string): void {
-      child.stdin.write(data);
-    },
-    transcript(): string {
-      try {
-        return readFileSync(transcriptPath, "utf8");
-      } catch {
-        return "";
-      }
-    },
-    async close(): Promise<void> {
-      try {
-        child.stdin.end();
-      } catch {
-        // The driver may already have exited.
-      }
-      const exited = await Promise.race([
-        child.exited.then(() => true),
-        sleep(5000).then(() => false),
-      ]);
-      if (!exited) child.kill("SIGKILL" as const);
-      await child.exited.catch(() => undefined);
-    },
-  };
-}
-
-// Transcript waits derive from the canonical per-test timeout policy
-// (PER_TEST_TIMEOUT_MS): the diagnostic below stays reachable because bun
-// kills the test only after this deadline passes.
-const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
-
-async function waitForTranscript(
-  session: PtySession,
-  fragment: string,
-  deadlineMs = TRANSCRIPT_DEADLINE_MS,
-): Promise<string> {
-  const wanted = fragment.replace(/\s+/g, "");
-  const deadline = Date.now() + deadlineMs;
-  for (;;) {
-    const text = session.transcript();
-    if (squashed(text).includes(wanted)) return text;
-    if (Date.now() > deadline) {
-      throw new Error(`timed out waiting for PTY fragment: ${fragment}\n--- transcript ---\n${plain(text).slice(-2000)}`);
-    }
-    await sleep(100);
-  }
-}
-
 describe("searchable prompts under a real PTY", () => {
   test("typing filters the single choice and Enter selects the match", async () => {
-    const session = await startPty(["select"], 80);
+    const session = await startPtySession(["select"], 80);
+    temporaryDirectories.push(session.runDirectory);
     try {
-      await waitForTranscript(session, "Which Profile?");
+      await session.waitForTranscript("Which Profile?");
+      const filterOffset = session.transcriptLength();
       session.write("writ");
-      // Settle so the async filter applies before Enter (human timing).
-      await sleep(600);
+      // Enter only after the OBSERVED filter-resolution render (the `›` + typed
+      // value redraw with the reduced list) — pending renders show `…` and the
+      // stale full list.
+      await session.waitForTranscript("›writ", { after: filterOffset });
+      const enterOffset = session.transcriptLength();
       session.write("\r");
-      const text = await waitForTranscript(session, '"value":"writing"');
-      expect(squashed(text)).toContain('"value":"writing"');
+      const { text } = await session.waitForTranscript('"value":"writing"', { after: enterOffset });
+      expect(squash(text)).toContain('"value":"writing"');
     } finally {
       await session.close();
     }
   });
 
   test("arrow navigation with Space toggles and Enter submits the multi choice", async () => {
-    const session = await startPty(["multi"], 80);
+    const session = await startPtySession(["multi"], 80);
+    temporaryDirectories.push(session.runDirectory);
     try {
-      await waitForTranscript(session, "Which Agent Hosts?");
+      await session.waitForTranscript("Which Agent Hosts?");
+      // Each arrow is observed through the highlight redraw (the underlined
+      // row is styling — raw matching preserves the ANSI evidence).
+      const firstArrowOffset = session.transcriptLength();
       session.write("\x1b[B");
-      await sleep(250);
+      await session.waitForTranscript("\x1b[36m\x1b[4mcodex", { after: firstArrowOffset, raw: true });
+      const secondArrowOffset = session.transcriptLength();
       session.write("\x1b[B");
-      await sleep(250);
+      await session.waitForTranscript("\x1b[36m\x1b[4mpi", { after: secondArrowOffset, raw: true });
+      const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await sleep(300);
+      // The selected marker (◉) next to the highlighted title is the toggle
+      // redraw; unselected rows render ◯.
+      await session.waitForTranscript("◉pi", { after: toggleOffset });
+      const enterOffset = session.transcriptLength();
       session.write("\r");
-      const text = await waitForTranscript(session, '"values":["pi"]');
-      expect(squashed(text)).toContain('"values":["pi"]');
+      const { text } = await session.waitForTranscript('"values":["pi"]', { after: enterOffset });
+      expect(squash(text)).toContain('"values":["pi"]');
     } finally {
       await session.close();
     }
   });
   test("arrow navigation highlights and Enter selects the single choice", async () => {
-    const session = await startPty(["select"], 80);
+    const session = await startPtySession(["select"], 80);
+    temporaryDirectories.push(session.runDirectory);
     try {
-      await waitForTranscript(session, "Which Profile?");
+      await session.waitForTranscript("Which Profile?");
+      const arrowOffset = session.transcriptLength();
       session.write("\x1b[B");
-      await sleep(400);
+      // The pointer (❯) re-emitted before the newly highlighted title is the
+      // arrow redraw.
+      await session.waitForTranscript("❯ops", { after: arrowOffset });
+      const enterOffset = session.transcriptLength();
       session.write("\r");
-      const text = await waitForTranscript(session, '"value":"ops"');
-      expect(squashed(text)).toContain('"value":"ops"');
+      const { text } = await session.waitForTranscript('"value":"ops"', { after: enterOffset });
+      expect(squash(text)).toContain('"value":"ops"');
     } finally {
       await session.close();
     }
@@ -212,26 +142,33 @@ describe("guided install under a real PTY", () => {
   test("a bare install at 60 columns names the target and installs the picked selection", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const session = await startPty(["install", home, projectPath], 60);
+    const session = await startPtySession(["install", home, projectPath], 60);
+    temporaryDirectories.push(session.runDirectory);
     try {
       // The bare install names its current-directory Project target first by
       // the shortest-unambiguous identity this view renders (US-013), even
       // wrapped at 60 columns.
-      const target = await waitForTranscript(session, projectPath.split("/").at(-1)!);
-      expect(squashed(target)).toContain(projectPath.split("/").at(-1)!);
-      await waitForTranscript(session, "Which Profile?");
+      const target = await session.waitForTranscript(basename(projectPath));
+      expect(squash(target.text)).toContain(basename(projectPath));
+      await session.waitForTranscript("Which Profile?");
+      const filterOffset = session.transcriptLength();
       session.write("cod");
-      await sleep(600);
+      await session.waitForTranscript("›cod", { after: filterOffset });
+      const profileEnterOffset = session.transcriptLength();
       session.write("\r");
-      await waitForTranscript(session, "Which Agent Hosts?");
+      await session.waitForTranscript("Which Agent Hosts?", { after: profileEnterOffset });
+      const hostFilterOffset = session.transcriptLength();
       session.write("codex");
-      await sleep(600);
+      await session.waitForTranscript("Filtered results for: codex", { after: hostFilterOffset });
+      const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await sleep(300);
+      await session.waitForTranscript("◉codex", { after: toggleOffset });
+      const hostEnterOffset = session.transcriptLength();
       session.write("\r");
-      await waitForTranscript(session, "(y/N)");
+      await session.waitForTranscript("(y/N)", { after: hostEnterOffset });
+      const confirmOffset = session.transcriptLength();
       session.write("y\r");
-      await waitForTranscript(session, "RESULTexitCode=0");
+      await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
     } finally {
       await session.close();
     }
@@ -248,12 +185,14 @@ describe("guided install under a real PTY", () => {
   test("Ctrl-C during picking cancels with zero lifecycle changes", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const session = await startPty(["install", home, projectPath], 80);
+    const session = await startPtySession(["install", home, projectPath], 80);
+    temporaryDirectories.push(session.runDirectory);
     try {
-      await waitForTranscript(session, "Which Profile?");
+      await session.waitForTranscript("Which Profile?");
+      const cancelOffset = session.transcriptLength();
       session.write("\x03");
-      const text = await waitForTranscript(session, "RESULTexitCode=1");
-      expect(plain(text)).toContain("cancelled");
+      const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
+      expect(text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")).toContain("cancelled");
     } finally {
       await session.close();
     }

@@ -56,11 +56,13 @@ export interface PtySession {
    * Capture the offset with `transcriptLength()` immediately before the
    * triggering input write; never reuse a wait's completion as the next
    * offset — unrelated output emitted between polls must stay visible to
-   * later waits.
+   * later waits. With `raw: true` the fragment is matched against the raw
+   * bytes (ANSI preserved) — for observables that live only in styling,
+   * such as a multiselect highlight move.
    */
   waitForTranscript(
     fragment: string,
-    options?: { readonly after?: number; readonly deadlineMs?: number },
+    options?: { readonly after?: number; readonly deadlineMs?: number; readonly raw?: boolean },
   ): Promise<{ readonly text: string }>;
   /**
    * Polite close: end owned stdin, wait a bounded window, then abort so the
@@ -158,13 +160,24 @@ export async function startPtySession(
       const wanted = squash(fragment);
       const deadline = Date.now() + (options.deadlineMs ?? TRANSCRIPT_DEADLINE_MS);
       for (;;) {
-        const bytes = readFileSync(transcriptPath).subarray(options.after ?? 0);
+        // The controller opens the transcript after pty.fork; until then the
+        // file is absent — a normal pre-first-output state to poll through.
+        let bytes: Buffer;
+        try {
+          bytes = readFileSync(transcriptPath).subarray(options.after ?? 0);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+          bytes = Buffer.alloc(0);
+        }
         // A trailing incomplete escape sequence must not leak its bytes into
         // the matchable text; completed sequences strip in squash anyway.
         const fresh = bytes
           .toString("utf8")
           .replace(/\x1b(?:\[[0-9;?]*[ -/]*)?$/, "");
-        if (squash(fresh).includes(wanted)) return { text: readTranscript() };
+        const matched = options.raw === true
+          ? fresh.includes(fragment)
+          : squash(fresh).includes(wanted);
+        if (matched) return { text: readTranscript() };
         if (Date.now() > deadline) {
           throw new Error(
             `timed out waiting for PTY fragment: ${fragment}\n--- transcript ---\n${plain(readTranscript()).slice(-2000)}`,

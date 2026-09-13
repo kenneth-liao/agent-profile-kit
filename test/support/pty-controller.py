@@ -121,7 +121,11 @@ def main() -> int:
                         drain_until = time.monotonic() + 0.5
                     else:
                         transcript.write(output)
-            waited, _status = os.waitpid(pid, os.WNOHANG)
+            try:
+                waited, _status = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                # Already reaped (the first WNOHANG succeeded); nothing owed.
+                waited, _status = 0, 0
             if waited == pid:
                 child_gone = True
                 drain_until = time.monotonic() + 0.5
