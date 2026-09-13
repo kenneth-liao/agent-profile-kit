@@ -274,7 +274,7 @@ describe("package candidate creator (one from-source creator)", () => {
       repositoryRoot: root,
       ...CAPTURE_BUDGET,
     });
-    expect(validated.archiveDigest).toBe(record.archiveDigest);
+    expect(validated.record.archiveDigest).toBe(record.archiveDigest);
   });
 
   test("freshly replaces the ignored build output before the build stage", async () => {
@@ -428,7 +428,7 @@ describe("supplied candidate provenance validation", () => {
       repositoryRoot: root,
       ...CAPTURE_BUDGET,
     });
-    expect(stillValid.archiveDigest).toBe(created.record.archiveDigest);
+    expect(stillValid.record.archiveDigest).toBe(created.record.archiveDigest);
     // Relevant source changed after capture: stale provenance.
     writeFileSync(join(root, "src/tracked.txt"), "changed after capture\n");
 

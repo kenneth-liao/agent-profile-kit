@@ -1,10 +1,11 @@
 import { createHash, type Hash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, basename, join } from "node:path";
 
 import {
   describeProcessResult,
   runProcess,
+  type ProcessResult,
 } from "../../process/process-executor.js";
 import type {
   PackageArchiveCommands,
@@ -50,6 +51,24 @@ export interface SourceFingerprint {
   /** Relevant paths present in the worktree (tracked or untracked non-ignored). */
   readonly relevantPaths: ReadonlySet<string>;
   readonly entryCount: number;
+}
+
+/**
+ * One bounded preparation or capture stage's typed outcome: the complete
+ * child ProcessResult (kind, exit, cancellation, cleanup duration and
+ * failure, captured stdout/stderr) travels with the stage label, so the
+ * supervisor's #537 evidence path retains everything for these stages too.
+ */
+export class PackagePreparationStageError extends Error {
+  readonly stage: string;
+  readonly result: ProcessResult;
+
+  constructor(stage: string, result: ProcessResult) {
+    super(`${stage} failed — ${describeProcessResult(result)}`);
+    this.name = "PackagePreparationStageError";
+    this.stage = stage;
+    this.result = result;
+  }
 }
 
 /** Source material the identity contract does not support; never silent. */
@@ -108,9 +127,7 @@ async function gitChild(
     context.signal,
   );
   if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new Error(
-      `git ${arguments_.join(" ")} in ${context.repositoryRoot} failed: ${describeProcessResult(result)}`,
-    );
+    throw new PackagePreparationStageError("source capture", result);
   }
   return result.stdout;
 }
@@ -307,9 +324,14 @@ export function readPackageIdentityRecord(archivePath: string): PackageIdentityR
   return parsed as PackageIdentityRecord;
 }
 
-/** The sha256 digest of an archive's exact bytes. */
+/** The sha256 digest of exact bytes; the one home of this algorithm. */
+export function digestBytes(bytes: Buffer): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
+/** The sha256 digest of an archive's exact bytes, read once. */
 export function digestArchiveBytes(archivePath: string): string {
-  return createHash("sha256").update(readFileSync(archivePath)).digest("hex");
+  return digestBytes(readFileSync(archivePath));
 }
 
 /** Provenance validation context: the consuming repository and bounded budgets. */
@@ -327,12 +349,25 @@ export interface ProvenanceValidationContext {
  * record's (stale or mismatched source rejection). The archive bytes are never
  * rewritten; ownership stays external.
  */
+/**
+ * One supplied candidate's admitted identity: the validated record plus the
+ * archive's exact verified bytes, read once at the admission boundary. The
+ * bytes are what the invocation pins; nothing re-reads the mutable external
+ * archive as authority afterwards.
+ */
+export interface SuppliedValidation {
+  readonly archivePath: string;
+  readonly record: PackageIdentityRecord;
+  readonly bytes: Buffer;
+}
+
 export async function validateSuppliedPackageCandidate(
   archivePath: string,
   context: ProvenanceValidationContext,
-): Promise<PackageIdentityRecord> {
+): Promise<SuppliedValidation> {
   const record = readPackageIdentityRecord(archivePath);
-  const actualDigest = digestArchiveBytes(archivePath);
+  const bytes = readFileSync(archivePath);
+  const actualDigest = digestBytes(bytes);
   if (actualDigest !== record.archiveDigest) {
     throw new InvalidProvenanceError(
       "digest-mismatch",
@@ -346,7 +381,33 @@ export async function validateSuppliedPackageCandidate(
       `the supplied archive's record describes source fingerprint ${record.sourceFingerprint}, but the consuming checkout's relevant source is now ${current.digest}; the provenance is stale or mismatched`,
     );
   }
-  return record;
+  return { archivePath, record, bytes };
+}
+
+/**
+ * Pin the admitted identity into an invocation-owned immutable candidate: the
+ * exact verified bytes read at admission and the validated record beside
+ * them. From here the invocation consumes only this pinned authority — the
+ * mutable external pair (archive and record) can be replaced by any later
+ * writer without changing what any consumer executes — while the external
+ * originals stay untouched. The pinned record is written atomically from the
+ * validated record; the caller owns the destination directory's lifetime.
+ */
+export function pinValidatedSuppliedCandidate(
+  validation: SuppliedValidation,
+  destinationDirectory: string,
+): {
+  readonly archivePath: string;
+  readonly recordPath: string;
+} {
+  const destination = join(destinationDirectory, basename(validation.archivePath));
+  writeFileSync(destination, validation.bytes);
+  const archivePath = realpathSync(destination);
+  const recordPath = packageIdentityRecordPath(archivePath);
+  const staged = `${recordPath}.publishing`;
+  writeFileSync(staged, `${JSON.stringify(validation.record)}\n`, { mode: 0o600 });
+  renameSync(staged, recordPath);
+  return { archivePath, recordPath };
 }
 
 /** One creation stage's remaining budget context, shared across the sequence. */
@@ -385,7 +446,7 @@ export async function removePathBounded(
     signal,
   );
   if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new Error(`bounded path removal of '${path}' failed: ${result.kind} exit=${result.exitCode} ${result.stderr}`);
+    throw new PackagePreparationStageError("bounded path removal", result);
   }
 }
 
@@ -444,11 +505,20 @@ export async function createPackageCandidate(
     deadlineMs: assertBudgetRemaining(budget, "pre-capture"),
     signal: context.signal,
   });
-  await removePathBounded(
-    join(context.repositoryRoot, PACKAGE_BUILD_OUTPUT_DIRECTORY),
-    assertBudgetRemaining(budget, "build-output replacement"),
-    context.signal,
-  );
+  try {
+    await removePathBounded(
+      join(context.repositoryRoot, PACKAGE_BUILD_OUTPUT_DIRECTORY),
+      assertBudgetRemaining(budget, "build-output replacement"),
+      context.signal,
+    );
+  } catch (error) {
+    // The stage label names the preparation stage; the child's complete typed
+    // result (cancellation, cleanup evidence, captured output) travels with it.
+    if (error instanceof PackagePreparationStageError) {
+      throw new PackagePreparationStageError("build-output replacement", error.result);
+    }
+    throw error;
+  }
   await context.commands.build(
     {
       repositoryRoot: context.repositoryRoot,

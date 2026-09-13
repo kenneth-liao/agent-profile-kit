@@ -17,6 +17,7 @@ import {
   PACKAGE_REQUEST_CHANNEL_ENV,
   PACKAGE_REQUEST_WAIT_ENV,
 } from "./support/package-request-channel.js";
+import { digestBytes } from "./support/package-identity.js";
 import {
   PREPARATION_LOG_FILENAME,
   formatSuiteSummary,
@@ -84,6 +85,51 @@ test("${name} executes the invocation candidate", async () => {
   }
   const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
   writeFileSync(join(markers, "${markerName}-archive"), archive.path);
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    writeFileSync(join(markers, "${markerName}-output"), output);
+    if (result.kind !== "exit" || result.exitCode !== 0 || !output.includes("CANDIDATE-CLI-MARKER")) {
+      throw new Error(\`the consumer did not execute the invocation candidate: \${result.kind} \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+  }
+});
+`;
+
+/**
+ * The record-capturing consumer: identical to the standard consumer, plus a
+ * marker carrying the record beside the archive it was given, so tests can
+ * assert the admitted identity at its live boundary (the pinned candidate
+ * directory dies with the invocation's owned cleanup).
+ */
+const recordConsumerSource = (name: string, markerName: string): string => `
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("${name} executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "${markerName}-archive"), archive.path);
+  writeFileSync(join(markers, "${markerName}-record"), readFileSync(archive.path + ".provenance.json", "utf8"));
   const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
   try {
     await extractPackageArchive(archive.path, extracted);
@@ -429,7 +475,9 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
   });
 
   test("an operator-supplied archive passes through untouched with zero preparation", async () => {
-    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: recordConsumerSource("consumer A", "a") },
+    ]);
     const suppliedRoot = tempDir("apkit-supplied-");
     // The operator-supplied candidate is created by the one from-source
     // creator against the consuming fixture repository, so its record binds
@@ -446,16 +494,29 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
       const result = await runFullCorpus(base, {
         packageCommands: realCandidateCommands("never", calls),
       });
-      expect(result.ok).toBe(true);
+      expect(result.ok, result.runs[0]?.result.stderr.slice(-800)).toBe(true);
       expect(result.preparation.status).toBe("supplied");
-      expect(result.preparation.durationMs).toBe(0);
-      expect(result.preparation.archivePath).toBe(created.archivePath);
+      // The gate's duration is retained truthfully (real Git children ran).
+      expect(result.preparation.durationMs).toBeGreaterThan(0);
+      // The children received the invocation-owned pinned copy, not the
+      // external archive; its record binds the admitted identity.
+      const consumedArchive = readFileSync(join(base, "markers", "a-archive"), "utf8");
+      expect(consumedArchive.startsWith(join(realpathSync(tmpdir()), "agent-profile-kit-supplied-pinned-"))).toBe(true);
+      const pinnedRecord: PackageIdentityRecord = JSON.parse(
+        readFileSync(join(base, "markers", "a-record"), "utf8"),
+      ) as PackageIdentityRecord;
+      expect(pinnedRecord.sourceFingerprint).toBe(created.record.sourceFingerprint);
       expect(calls).toEqual([]);
-      // The operator's archive bytes were never rewritten or removed.
+      // The operator's archive and record were never rewritten or removed.
       expect(existsSync(created.archivePath)).toBe(true);
+      expect(existsSync(created.recordPath)).toBe(true);
       expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain(
         "CANDIDATE-CLI-MARKER-supplied",
       );
+      // The pinned directory died with the invocation's owned cleanup.
+      expect(
+        readdirSync(tmpdir()).filter((entry) => entry.startsWith("agent-profile-kit-supplied-pinned-")),
+      ).toEqual([]);
     });
   });
 
@@ -1132,5 +1193,190 @@ test("consumer A executes the invocation candidate", async () => {
     expect(result.preparation.status).toBe("failed");
     expect(result.preparation.failure).toContain("unstable source");
     expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
+  });
+});
+
+/**
+ * Review-driven regressions (independent merge review at 1c9f9ad): the
+ * admitted supplied identity is pinned through consumption, the supplied
+ * gate shares the invocation's budget and signal with truthful lifecycle
+ * evidence, and new Git/dist stages retain the #537 typed stage evidence.
+ */
+
+describe("supplied candidate admission pinning", () => {
+  test("a candidate pair replaced after admission is not consumed: consumers execute the admitted bytes", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import {
+  createPackageCandidate,
+} from ${JSON.stringify(seamImport("package-identity.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("consumer A executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "a-archive"), archive.path);
+  writeFileSync(join(markers, "pinned-record"), readFileSync(archive.path + ".provenance.json", "utf8"));
+  // After admission, replace the ENTIRE external candidate pair (archive and
+  // its record) with a legitimately created source-B candidate: the shared
+  // creator builds a real B archive whose bytes and record are self-consistent.
+  const externalArchive = readFileSync(join(markers, "external"), "utf8");
+  const bRoot = mkdtempSync(join(tmpdir(), "apkit-swap-b-dest-"));
+  const staging = mkdtempSync(join(tmpdir(), "apkit-swap-b-staging-"));
+  mkdirSync(join(staging, "package", "dist"), { recursive: true });
+  writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("CANDIDATE-CLI-MARKER-B");\\n');
+  const b = await createPackageCandidate({
+    repositoryRoot: process.cwd(),
+    destinationDirectory: bRoot,
+    deadlineMs: 30_000,
+    signal: undefined,
+    commands: {
+      build: async () => {
+        writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("CANDIDATE-CLI-MARKER-B");\\n');
+      },
+      createScriptDisabledArchive: async (_stage, destination) => {
+        const result = await runProcess({
+          executable: "tar",
+          arguments_: ["-czf", join(destination, "b.tgz"), "-C", staging, "package"],
+          deadlineMs: 10_000,
+          commandLabel: "fixture B pack",
+        });
+        if (!(result.kind === "exit" && result.exitCode === 0)) {
+          throw new Error(\`fixture B pack failed: \${result.kind}\`);
+        }
+        return { filename: "b.tgz", files: ["dist/cli.js"] };
+      },
+    },
+  });
+  // Replace both external files after admission.
+  writeFileSync(externalArchive, readFileSync(b.archivePath));
+  writeFileSync(externalArchive + ".provenance.json", readFileSync(b.recordPath));
+  writeFileSync(join(markers, "replaced"), "1");
+  // The consumer must execute the admitted (pinned) bytes, never the
+  // replacement pair.
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    writeFileSync(join(markers, "a-output"), output);
+    if (!output.includes("CANDIDATE-CLI-MARKER-A") || output.includes("CANDIDATE-CLI-MARKER-B")) {
+      throw new Error(\`the consumer executed a replacement candidate: \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+    rmSync(bRoot, { recursive: true, force: true });
+    rmSync(staging, { recursive: true, force: true });
+  }
+});
+` }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-A"),
+    });
+    // The external archive path is known to the fixture before the invocation.
+    writeFileSync(join(base, "markers", "external"), created.archivePath);
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok, result.runs[0]?.result.stderr.slice(-800)).toBe(true);
+      // The external pair really was replaced after admission: its digest no
+      // longer matches the admitted record's artifact digest, yet the pinned
+      // record (captured during the run) still binds the admitted bytes.
+      expect(existsSync(join(base, "markers", "replaced"))).toBe(true);
+      const pinnedRecord: PackageIdentityRecord = JSON.parse(
+        readFileSync(join(base, "markers", "pinned-record"), "utf8"),
+      ) as PackageIdentityRecord;
+      expect(digestBytes(readFileSync(created.archivePath))).not.toBe(pinnedRecord.archiveDigest);
+      // The consumer executed the admitted bytes.
+      expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain("CANDIDATE-CLI-MARKER-A");
+    });
+  });
+});
+
+describe("supplied validation lifecycle", () => {
+  test("an aborted invocation classifies supplied validation as interrupted with truthful duration", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    const controller = new AbortController();
+    controller.abort();
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {}, controller.signal);
+      // The gate shares the invocation's signal: an aborted invocation cannot
+      // wait out the validation children's fixed deadline.
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("interrupted");
+      expect(result.preparation.durationMs).toBeGreaterThan(0);
+      expect(result.preparation.failure).toContain("interrupted");
+    });
+  }, 15_000);
+
+  test("a failed Git capture stage retains the typed #537 evidence", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    // Make the dist removal stage unremovable: the typed stage error carries
+    // the complete child result, and the evidence keeps its cleanup fields.
+    const dist = join(base, "dist");
+    mkdirSync(dist, { recursive: true });
+    const flag = await runProcess({
+      executable: "chflags", arguments_: ["uchg", dist], deadlineMs: 2000,
+      commandLabel: "fixture chflags",
+    });
+    expect(flag.kind).toBe("exit");
+    let recovered = false;
+    try {
+      const created = await createPackageCandidate({
+        repositoryRoot: base,
+        destinationDirectory: suppliedRoot,
+        deadlineMs: 30_000,
+        signal: undefined,
+        commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+      });
+      void created;
+      throw new Error("expected the creator to fail on the unremovable dist stage");
+    } catch (error) {
+      expect(String(error)).toContain("build-output replacement");
+      const stageError = error as { result?: { cleanupFailed?: boolean; stdout?: string; stderr?: string; kind?: string } };
+      expect(stageError.result).toBeDefined();
+      expect(stageError.result!.kind).toBeDefined();
+      expect(typeof stageError.result!.stdout).toBe("string");
+      // Cleanup evidence fields exist on the typed result.
+      expect(stageError.result!.cleanupFailed).toBe(false);
+    } finally {
+      const recovery = await runProcess({
+        executable: "chflags", arguments_: ["-R", "nouchg", dist], deadlineMs: 2000,
+      });
+      recovered = recovery.kind === "exit" && recovery.exitCode === 0;
+    }
+    expect(recovered).toBe(true);
   });
 });

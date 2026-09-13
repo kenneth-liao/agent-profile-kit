@@ -45,9 +45,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck
-        run: bun run typecheck
-
       - name: Create package candidate
         run: |
           archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/package")"

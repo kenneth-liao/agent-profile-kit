@@ -23,15 +23,23 @@ import {
 
 export async function createRepositoryPackageCandidate(
   destination: string,
-  commands = systemPackageArchiveCommands,
+  options: {
+    readonly commands?: PackageArchiveCommands;
+    /**
+     * The checkout the candidate is created from. The canonical entry uses
+     * this module's own repository (the CI checkout); test fixtures export a
+     * temporary Git checkout so they never touch the module checkout.
+     */
+    readonly repositoryRoot?: string;
+  } = {},
 ): Promise<CreatedPackageCandidate> {
   mkdirSync(destination, { recursive: true });
   return createPackageCandidate({
-    repositoryRoot: packageArchiveRepositoryRoot(),
+    repositoryRoot: options.repositoryRoot ?? packageArchiveRepositoryRoot(),
     destinationDirectory: destination,
     deadlineMs: UNSUPERVISED_CANDIDATE_DEADLINE_MS,
     signal: undefined,
-    commands,
+    commands: options.commands ?? systemPackageArchiveCommands,
   });
 }
 

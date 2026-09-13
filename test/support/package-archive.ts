@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
@@ -18,12 +17,16 @@ import {
 } from "./package-request-channel.js";
 import {
   InvalidProvenanceError,
+  PackagePreparationStageError,
   createPackageCandidate,
+  digestBytes,
   readPackageIdentityRecord,
   removePathBounded,
   UNSUPERVISED_CANDIDATE_DEADLINE_MS,
   type PackageIdentityRecord,
 } from "./package-identity.js";
+
+export { PackagePreparationStageError } from "./package-identity.js";
 
 
 
@@ -124,19 +127,6 @@ export function packagePackStage(
     deadlineMs,
     commandLabel: PACK_STAGE_LABEL,
   };
-}
-
-/** A bounded preparation or extraction stage that did not exit green. */
-export class PackagePreparationStageError extends Error {
-  readonly stage: string;
-  readonly result: ProcessResult;
-
-  constructor(stage: string, result: ProcessResult) {
-    super(`${stage} failed — ${describeProcessResult(result)}`);
-    this.name = "PackagePreparationStageError";
-    this.stage = stage;
-    this.result = result;
-  }
 }
 
 function assertStageExit(commandLabel: string, result: ProcessResult): void {
@@ -269,7 +259,7 @@ export async function extractPackageArchive(
   // validation can never change what a consumer runs. The staged copy lives
   // only inside the extraction, owned and removed by this boundary.
   const bytes = readFileSync(archivePath);
-  const digest = createHash("sha256").update(bytes).digest("hex");
+  const digest = digestBytes(bytes);
   const record: PackageIdentityRecord = readPackageIdentityRecord(archivePath);
   if (digest !== record.archiveDigest) {
     throw new InvalidProvenanceError(
