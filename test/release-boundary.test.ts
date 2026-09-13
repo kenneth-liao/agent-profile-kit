@@ -6,7 +6,7 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
-import { obtainPackageArchive } from "./support/package-archive.js";
+import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -25,16 +25,16 @@ function filesUnder(root: string): readonly string[] {
   return files.sort();
 }
 
-function packedFiles(): {
+async function packedFiles(): Promise<{
   readonly root: string;
   readonly files: readonly string[];
   readonly cleanup: () => void;
-} {
-  const archive = obtainPackageArchive(repositoryRoot, "agent-profile-kit-boundary-pack-");
+}> {
+  const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-boundary-pack-");
   const extractedDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-boundary-extracted-"));
 
   try {
-    execFileSync("tar", ["-xzf", archive.path, "-C", extractedDirectory]);
+    await extractPackageArchive(archive.path, extractedDirectory);
     const root = join(extractedDirectory, "package");
     return {
       root,
@@ -151,8 +151,8 @@ test("private release artifact cannot publish to npm", () => {
   expect(manifest.publishConfig).toBeUndefined();
 });
 
-test("packed npm artifacts exclude personal, legacy, and generated content", () => {
-  const packed = packedFiles();
+test("packed npm artifacts exclude personal, legacy, and generated content", async () => {
+  const packed = await packedFiles();
 
   try {
     // Keep this allowlist exact: intentional package growth must update this gate with the release boundary.

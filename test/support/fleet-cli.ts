@@ -1,18 +1,91 @@
-import { join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   runProcess,
   type ExecutorOptions,
   type ProcessResult,
 } from "../../process/process-executor.js";
-
-const repositoryRoot = resolve(fileURLToPath(new URL("../..", import.meta.url)));
-
-/** The packed CLI bundle every fleet qualification launch executes. */
-export const FLEET_CLI_PATH = join(repositoryRoot, "dist", "cli.js");
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  packageArchiveRepositoryRoot,
+} from "./package-archive.js";
 
 export type FleetProcessExecutor = typeof runProcess;
+
+/**
+ * The candidate CLI path every fleet qualification launch executes, resolved
+ * through the canonical package consumer boundary: the invocation's prepared
+ * or supplied archive is obtained through `obtainPackageArchive` and extracted
+ * once into a private directory this module owns. There is no repository
+ * bundle fallback: a fleet launch always executes the candidate it was given,
+ * so a deliberately different `dist/cli.js` in the repository cannot be
+ * executed, and supplied archives work when the repository build output is
+ * absent.
+ */
+interface ResolvedCandidateCli {
+  readonly cliPath: string;
+  /** The private extraction directory this module owns until release. */
+  readonly directory: string;
+}
+
+let resolvedCandidate: ResolvedCandidateCli | null = null;
+let resolutionInFlight: Promise<ResolvedCandidateCli> | null = null;
+
+async function resolveCandidateCli(): Promise<ResolvedCandidateCli> {
+  const archive = await obtainPackageArchive(
+    packageArchiveRepositoryRoot(),
+    "agent-profile-kit-fleet-cli-",
+  );
+  const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-fleet-cli-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, directory);
+    const cliPath = realpathSync(join(directory, "package", "dist", "cli.js"));
+    return { cliPath, directory };
+  } catch (error) {
+    // An extraction failure leaves no extraction directory behind; the
+    // in-flight promise is reset by the caller so a later launch can retry.
+    rmSync(directory, { recursive: true, force: true });
+    throw error;
+  }
+}
+
+/**
+ * The candidate CLI path for fleet launches, resolved once per process: the
+ * first call obtains and extracts the invocation archive, later calls reuse
+ * it, and a failed resolution cleans its extraction directory and resets the
+ * in-flight promise so a retry is possible without leaking temporary state.
+ */
+export async function resolveFleetCliPath(): Promise<string> {
+  if (resolvedCandidate !== null) return resolvedCandidate.cliPath;
+  if (resolutionInFlight === null) {
+    resolutionInFlight = (async () => {
+      try {
+        const resolved = await resolveCandidateCli();
+        resolvedCandidate = resolved;
+        return resolved;
+      } finally {
+        resolutionInFlight = null;
+      }
+    })();
+  }
+  return (await resolutionInFlight).cliPath;
+}
+
+/**
+ * Release the resolved candidate's extraction directory and reset the
+ * memoization. The fleet qualification file calls this from `afterAll` so the
+ * extraction lifetime is owned and released deterministically per run process
+ * (each supervised stress run is a fresh process, so nothing crosses runs).
+ */
+export function releaseFleetCliPath(): void {
+  if (resolvedCandidate !== null) {
+    rmSync(resolvedCandidate.directory, { recursive: true, force: true });
+  }
+  resolvedCandidate = null;
+  resolutionInFlight = null;
+}
 
 /**
  * One shared fleet child-deadline policy for both packed-CLI launch paths.
@@ -29,10 +102,11 @@ function fleetExecutorOptions(options: {
   readonly pathValue: string;
   readonly arguments_: readonly string[];
   readonly executable: string;
+  readonly cliPath: string;
 }): ExecutorOptions {
   return {
     executable: options.executable,
-    arguments_: [FLEET_CLI_PATH, ...withFleetScope(options.arguments_)],
+    arguments_: [options.cliPath, ...withFleetScope(options.arguments_)],
     environment: { ...process.env, HOME: options.home, PATH: options.pathValue },
     deadlineMs: FLEET_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
@@ -55,14 +129,13 @@ export async function runFleetCli(
   arguments_: readonly string[],
   executor: FleetProcessExecutor = runProcess,
 ): Promise<ProcessResult> {
-  return executor(
-    fleetExecutorOptions({
-      home,
-      pathValue,
-      arguments_,
-      executable: process.env.NODE_BINARY ?? "node",
-    }),
-  );
+  return fleetLaunch({
+    home,
+    pathValue,
+    arguments_,
+    executable: process.env.NODE_BINARY ?? "node",
+    cliPath: await resolveFleetCliPath(),
+  }, executor);
 }
 
 /**
@@ -75,12 +148,44 @@ export async function runFleetCliWithExplicitPath(
   arguments_: readonly string[],
   executor: FleetProcessExecutor = runProcess,
 ): Promise<ProcessResult> {
-  return executor(
-    fleetExecutorOptions({
-      home,
-      pathValue,
-      arguments_,
-      executable: process.env.NODE_BINARY ?? process.execPath,
-    }),
+  return fleetLaunch({
+    home,
+    pathValue,
+    arguments_,
+    executable: process.env.NODE_BINARY ?? process.execPath,
+    cliPath: await resolveFleetCliPath(),
+  }, executor);
+}
+
+/**
+ * Test seam: one fleet packed-CLI launch whose candidate path is supplied
+ * explicitly, so the child-deadline and fleet-scope policy tests prove their
+ * policy without resolving the real package seam (and without an environment
+ * override). Canonical fleet launches always go through {@link runFleetCli},
+ * which resolves the path through the consumer boundary.
+ */
+export async function runFleetCliWithCandidate(
+  home: string,
+  pathValue: string,
+  cliPath: string,
+  arguments_: readonly string[],
+  executor: FleetProcessExecutor = runProcess,
+): Promise<ProcessResult> {
+  return fleetLaunch(
+    { home, pathValue, arguments_, executable: process.env.NODE_BINARY ?? "node", cliPath },
+    executor,
   );
+}
+
+function fleetLaunch(
+  options: {
+    readonly home: string;
+    readonly pathValue: string;
+    readonly arguments_: readonly string[];
+    readonly executable: string;
+    readonly cliPath: string;
+  },
+  executor: FleetProcessExecutor,
+): Promise<ProcessResult> {
+  return executor(fleetExecutorOptions(options));
 }

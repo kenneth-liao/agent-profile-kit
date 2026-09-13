@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -13,9 +14,27 @@ import { fileURLToPath } from "node:url";
 
 import { parse as parseToml } from "smol-toml";
 
-import { runProcess, type ProcessResult } from "../../process/process-executor.js";
+import {
+  describeProcessResult,
+  runProcess,
+  type ProcessResult,
+} from "../../process/process-executor.js";
 import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./corpus-inventory.js";
 import { parseBunJunitEvidence } from "./junit-evidence.js";
+import {
+  packageArchiveRepositoryRoot,
+  PackagePreparationStageError,
+  PREPARED_PACKAGE_ARCHIVE_ENV,
+  preparedPackageArchive,
+  SUPERVISED_INVOCATION_ENV,
+  supervisedInvocationActive,
+  systemPackageArchiveCommands,
+  type PackageArchiveCommands,
+} from "./package-archive.js";
+import {
+  deriveInvocationPackageNeed,
+  type InvocationPackageNeed,
+} from "./invocation-candidate.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -138,6 +157,18 @@ export interface SuiteSupervisorOptions {
   readonly cleanupGraceMs?: number;
   /** Called as each run completes, before the next run starts. */
   readonly onRunComplete?: (run: SupervisedRun) => void;
+  /**
+   * Test seam: replace the registered invocation-package consumer paths for
+   * this invocation (fixture corpora are not the repository corpus, so the
+   * registry does not describe them). Canonical invocations never set it.
+   */
+  readonly packageConsumers?: readonly string[];
+  /**
+   * Test seam: replace the bounded package preparation commands (for example
+   * an injected command pair that produces a real tarball). Canonical
+   * invocations always run the system build and pack stages.
+   */
+  readonly packageCommands?: PackageArchiveCommands;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -301,7 +332,37 @@ export interface SuiteSupervisorResult {
   readonly aggregateExhausted: boolean;
   /** True when the run was interrupted through the abort signal. */
   readonly interrupted: boolean;
+  /** Invocation-package preparation evidence for this invocation. */
+  readonly preparation: PreparationEvidence;
 }
+
+/**
+ * One invocation's package preparation evidence. `status` is prepared (the
+ * supervisor built and packed one fresh immutable candidate), supplied (an
+ * operator-supplied archive passed through with zero preparation), none (no
+ * package need or an injected test-seam command), failed (preparation failed
+ * before any run; diagnostics retained in `preparation.log`), or interrupted
+ * (the abort signal stopped preparation; the candidate was cleaned, no runs).
+ * `candidateDirectory` records the private directory that held the prepared
+ * candidate — removed after the invocation with its duration reported, never
+ * present for supplied archives, whose bytes are never touched.
+ */
+export interface PreparationEvidence {
+  readonly need: "package" | "none";
+  readonly status: "prepared" | "supplied" | "none" | "failed" | "interrupted";
+  readonly durationMs: number;
+  readonly cleanupDurationMs: number;
+  readonly cleanupFailed: boolean;
+  readonly archivePath?: string;
+  readonly candidateDirectory?: string;
+  readonly failure?: string;
+  readonly cleanupFailure?: string;
+  /** Retained stage output for a failed or interrupted preparation. */
+  readonly diagnostics?: string;
+}
+
+/** The filename of a failed or interrupted preparation's retained diagnostics. */
+export const PREPARATION_LOG_FILENAME = "preparation.log";
 
 function isMode(value: string): value is SuiteMode {
   return value === "full" || value === "focused" || value === "stress";
@@ -321,7 +382,10 @@ function validate(options: SuiteSupervisorOptions): BudgetPolicy {
 
 function suiteProcessEnvironment(
   environment: NodeJS.ProcessEnv,
-  bunArguments?: readonly string[],
+  bunArguments: readonly string[] | undefined,
+  canonicalRunner: boolean,
+  preparedArchivePath: string | undefined,
+  suppliedArchivePath: string | undefined,
 ): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment[DIAGNOSTICS_DIR_ENV];
@@ -330,6 +394,24 @@ function suiteProcessEnvironment(
   delete childEnvironment[PER_RUN_DEADLINE_ENV];
   delete childEnvironment[AGGREGATE_DEADLINE_ENV];
   delete childEnvironment[MAX_RUNS_ENV];
+  // Only canonically supervised children carry the supervised-invocation
+  // marker: an injected test-seam command manages its own execution and must
+  // not claim supervision (nor inherit an ambient marker from a nesting
+  // supervised run).
+  delete childEnvironment[SUPERVISED_INVOCATION_ENV];
+  if (canonicalRunner) {
+    childEnvironment[SUPERVISED_INVOCATION_ENV] = "1";
+  }
+  // The archive environment is written explicitly, never inherited: a child of
+  // a nested invocation must not receive the parent invocation's candidate as
+  // if it were this invocation's own, and an operator-supplied archive is
+  // passed through untouched (its bytes are never rewritten or removed here).
+  delete childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV];
+  if (preparedArchivePath !== undefined) {
+    childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV] = preparedArchivePath;
+  } else if (suppliedArchivePath !== undefined) {
+    childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV] = suppliedArchivePath;
+  }
   if (bunArguments?.includes(UPDATE_SNAPSHOTS_FLAG) === true) {
     childEnvironment[UPDATE_SNAPSHOTS_ENV] = "1";
   }
@@ -361,12 +443,19 @@ export interface PreparedSuiteInvocation {
   readonly base: string;
   /** Derived corpus selection; null only for injected test-seam commands. */
   readonly plan: SelectionPlan | null;
+  /**
+   * Derived invocation-package need; null only for injected test-seam
+   * commands, which manage their own execution and are never prepared for.
+   */
+  readonly packageNeed: InvocationPackageNeed | null;
   /** Invocation-level evidence lines prefixed to every retained run log. */
   readonly runtimeHeader: readonly string[];
 }
 
 /** Which corpus files the invocation requires and which policy removes. */
 export interface SelectionPlan {
+  /** Every corpus test file before the exclusion policy, POSIX-relative to `base`. */
+  readonly files: readonly string[];
   /** Required selection, POSIX-relative to the corpus base. */
   readonly selected: readonly string[];
   /** Files removed by the exclusion policy, POSIX-relative to the corpus base. */
@@ -457,6 +546,21 @@ function rejectSilentSelectionConfig(base: string): void {
  * arguments naming corpus files count as named selections; the rest are
  * filters and are never treated as missing coverage.
  */
+/**
+ * The consumer registry is corpus-relative to this module's own repository, so
+ * it applies only when the supervised corpus base is that repository. Fixture
+ * corpora (different base) derive need from an explicitly injected consumer
+ * list instead — the registry would not describe their files, and validating
+ * repository entries against a fixture corpus would be meaningless.
+ */
+function registryAppliesTo(base: string): boolean {
+  try {
+    return realpathSync(base) === realpathSync(packageArchiveRepositoryRoot());
+  } catch {
+    return false;
+  }
+}
+
 function deriveSelectionPlan(
   mode: SuiteMode,
   base: string,
@@ -471,6 +575,7 @@ function deriveSelectionPlan(
       .map((argument) => normalizeRelativePath(base, argument))
       .filter((normalized) => inventory.files.includes(normalized));
     return {
+      files: inventory.files,
       selected: inventory.selected,
       excluded: inventory.excluded,
       named,
@@ -489,7 +594,13 @@ function deriveSelectionPlan(
       `suite supervisor ${mode} mode: required selection cannot be empty after exclusions (${inventory.excluded.join(", ")})`,
     );
   }
-  return { selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
+  return {
+    files: inventory.files,
+    selected: inventory.selected,
+    excluded: inventory.excluded,
+    named: [],
+    nameFilterActive: false,
+  };
 }
 
 /**
@@ -502,11 +613,14 @@ export function prepareSuiteInvocation(options: SuiteSupervisorOptions): Prepare
   const base = corpusBase(options);
   if (options.suiteCommand !== undefined) {
     // Test seam only: an injected command is not the runner whose selection is
-    // being proven, so identity and selection gates do not apply to it.
+    // being proven, so identity and selection gates do not apply to it, and
+    // it manages its own execution, so no package need is derived and no
+    // candidate is prepared for it.
     return {
       policy,
       base,
       plan: null,
+      packageNeed: null,
       runtimeHeader: [
         `runtime: ${options.suiteCommand[0]} (test seam — pinned-runner identity not asserted)`,
       ],
@@ -515,10 +629,25 @@ export function prepareSuiteInvocation(options: SuiteSupervisorOptions): Prepare
   assertRunnerIsPinnedBun(pinnedBunVersion(), process.versions.bun);
   rejectSilentSelectionConfig(base);
   const plan = deriveSelectionPlan(policy.mode, base, options.bunArguments);
+  const packageNeed = deriveInvocationPackageNeed({
+    mode: policy.mode,
+    selected: plan.selected,
+    named: plan.named,
+    nameFilterActive: plan.nameFilterActive,
+    inventoryFiles: plan.files,
+    ...(
+      options.packageConsumers === undefined
+        ? registryAppliesTo(base)
+          ? {}
+          : { consumers: [] }
+        : { consumers: options.packageConsumers }
+    ),
+  });
   return {
     policy,
     base,
     plan,
+    packageNeed,
     runtimeHeader: [
       `runtime: bun ${process.versions.bun} (${process.execPath}) ${process.platform} ${process.arch}`,
       ...(policy.mode === "focused"
@@ -634,6 +763,7 @@ function writeRunLog(
   logDir: string,
   runNumber: number,
   invocation: PreparedSuiteInvocation,
+  preparation: PreparationEvidence,
   result: ProcessResult,
   coverage?: SelectionCoverage,
 ): string {
@@ -652,6 +782,7 @@ function writeRunLog(
     `=== suite run ${runNumber}/${policy.maxRuns} (${policy.mode}) ===`,
     ...invocation.runtimeHeader,
     `effective-policy: mode=${policy.mode} per-run=${policy.perRunDeadlineMs}ms aggregate=${policy.aggregateDeadlineMs}ms max-runs=${policy.maxRuns}`,
+    preparationLogLine(preparation),
     `command: ${result.commandLabel}`,
     `kind: ${result.kind}`,
     `exitCode: ${result.exitCode ?? "null"}`,
@@ -670,6 +801,212 @@ function writeRunLog(
   ];
   writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
   return logPath;
+}
+
+/**
+ * Prepare the invocation package candidate when the invocation's derived need
+ * requires one. One candidate per invocation, prepared before the run loop:
+ * the build and pack stages share one finite preparation budget (the per-run
+ * deadline, or the stress aggregate — the aggregate clock starts before
+ * preparation and cleanup durations count in), every stage runs through the
+ * shared bounded executor (or the injected test-seam commands), the abort
+ * signal is active throughout, and an operator-supplied archive passes
+ * through with zero preparation and is never touched by any cleanup.
+ */
+async function prepareInvocationCandidate(
+  invocation: PreparedSuiteInvocation,
+  options: SuiteSupervisorOptions,
+  abortSignal: AbortSignal | undefined,
+): Promise<{ evidence: PreparationEvidence; candidateDirectory: string | null }> {
+  const need = invocation.packageNeed;
+  if (need === null || need.kind === "none") {
+    // An injected test-seam command manages its own execution, and an
+    // invocation without package need owns no candidate.
+    return {
+      candidateDirectory: null,
+      evidence: { need: "none", status: "none", durationMs: 0, cleanupDurationMs: 0, cleanupFailed: false },
+    };
+  }
+  // An ambient archive is operator-supplied only outside a supervised parent:
+  // inside a supervised child (a nested invocation) the ambient archive belongs
+  // to the parent invocation, and a nested invocation always owns its own fresh
+  // candidate — reusing the parent's archive across the invocation boundary
+  // would be exactly the cross-command reuse this design forbids. The parent's
+  // archive bytes are never touched either way.
+  const ambient = supervisedInvocationActive(process.env)
+    ? undefined
+    : process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+  if (ambient !== undefined) {
+    try {
+      const archivePath = preparedPackageArchive(process.env);
+      if (archivePath === null) {
+        throw new Error(`${PREPARED_PACKAGE_ARCHIVE_ENV} was set but resolved to nothing`);
+      }
+      return {
+        candidateDirectory: null,
+        evidence: {
+          need: "package",
+          status: "supplied",
+          durationMs: 0,
+          cleanupDurationMs: 0,
+          cleanupFailed: false,
+          archivePath,
+        },
+      };
+    } catch (error) {
+      return {
+        candidateDirectory: null,
+        evidence: {
+          need: "package",
+          status: "failed",
+          durationMs: 0,
+          cleanupDurationMs: 0,
+          cleanupFailed: false,
+          failure: `supplied package archive rejected: ${error instanceof Error ? error.message : String(error)}`,
+        },
+      };
+    }
+  }
+
+  // The preparation budget is the invocation's single shared budget: stages
+  // consume the remaining time, never each a fresh full deadline. Stress
+  // preparations count toward the aggregate (the clock started before this
+  // call), so the runs inherit a truthful remaining aggregate budget.
+  const budgetMs =
+    invocation.policy.mode === "stress"
+      ? invocation.policy.aggregateDeadlineMs
+      : invocation.policy.perRunDeadlineMs;
+  const commands = options.packageCommands ?? systemPackageArchiveCommands;
+  const startedAt = Date.now();
+  const candidateDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-invocation-candidate-"));
+  // One abort reader for every stage boundary: TS control-flow narrowing does
+  // not invalidate across awaits, so each check must read the live signal
+  // rather than a value narrowed by an earlier check.
+  const preparationAborted = (signal: AbortSignal | undefined): boolean =>
+    signal?.aborted === true;
+  const cleaned = (
+    status: "failed" | "interrupted",
+    detail: { failure?: string; diagnostics?: string },
+  ): { evidence: PreparationEvidence; candidateDirectory: null } => {
+    const cleanupStartedAt = Date.now();
+    let cleanupFailed = false;
+    let cleanupFailure: string | undefined;
+    try {
+      rmSync(candidateDirectory, { recursive: true, force: true });
+    } catch (error) {
+      // A resource cleanup failure is reported as failed, never as successful.
+      cleanupFailed = true;
+      cleanupFailure = error instanceof Error ? error.message : String(error);
+    }
+    return {
+      candidateDirectory: null,
+      evidence: {
+        need: "package",
+        status,
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: Date.now() - cleanupStartedAt,
+        cleanupFailed,
+        candidateDirectory,
+        ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
+        ...detail,
+      },
+    };
+  };
+  try {
+    const remainingMs = () => budgetMs - (Date.now() - startedAt);
+    const assertBudgetRemaining = (stage: string): void => {
+      if (remainingMs() <= 0) {
+        throw new Error(
+          `package preparation budget (${budgetMs}ms) exhausted before the ${stage} stage`,
+        );
+      }
+    };
+    assertBudgetRemaining("build");
+    await commands.build({
+      repositoryRoot: invocation.base,
+      deadlineMs: remainingMs(),
+      signal: abortSignal,
+    });
+    if (preparationAborted(abortSignal)) {
+      return cleaned("interrupted", {});
+    }
+    assertBudgetRemaining("pack");
+    const filename = await commands.createScriptDisabledArchive(
+      { repositoryRoot: invocation.base, deadlineMs: remainingMs(), signal: abortSignal },
+      candidateDirectory,
+    );
+    if (preparationAborted(abortSignal)) {
+      return cleaned("interrupted", {});
+    }
+    const archivePath = realpathSync(join(candidateDirectory, filename));
+    return {
+      candidateDirectory,
+      evidence: {
+        need: "package",
+        status: "prepared",
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        archivePath,
+        candidateDirectory,
+      },
+    };
+  } catch (error) {
+    // A cancelled preparation child is an interruption, not a stage failure:
+    // the invocation was aborted, so the outcome is interrupted with the
+    // candidate cleaned and no runs.
+    const stageCancelled =
+      error instanceof PackagePreparationStageError && error.result.cancelled;
+    if (abortSignal?.aborted === true || stageCancelled) {
+      const stage = error instanceof PackagePreparationStageError ? error.stage : "package preparation";
+      return cleaned("interrupted", { diagnostics: `interrupted during the ${stage} stage` });
+    }
+    const failure = error instanceof Error ? error.message : String(error);
+    const diagnostics =
+      error instanceof PackagePreparationStageError
+        ? [
+            `--- ${error.stage} result ---`,
+            describeProcessResult(error.result),
+            "--- stdout ---",
+            error.result.stdout,
+            "--- stderr ---",
+            error.result.stderr,
+          ].join("\n")
+        : error instanceof Error && error.stack !== undefined
+          ? error.stack
+          : failure;
+    return cleaned("failed", { failure, diagnostics });
+  }
+}
+
+/** Retain one failed or interrupted preparation's complete diagnostics. */
+function writePreparationLog(logDir: string, evidence: PreparationEvidence): string {
+  mkdirSync(logDir, { recursive: true });
+  const logPath = join(logDir, PREPARATION_LOG_FILENAME);
+  const lines = [
+    "=== invocation package preparation ===",
+    `need: ${evidence.need}`,
+    `status: ${evidence.status}`,
+    `durationMs: ${evidence.durationMs}`,
+    `cleanupDurationMs: ${evidence.cleanupDurationMs}`,
+    `cleanupFailed: ${evidence.cleanupFailed}`,
+    `failure: ${evidence.failure ?? "null"}`,
+    ...(evidence.diagnostics === undefined ? [] : ["--- stage output ---", evidence.diagnostics]),
+  ];
+  writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
+  return logPath;
+}
+
+/** The `preparation:` evidence line shared by every retained run log. */
+function preparationLogLine(evidence: PreparationEvidence): string {
+  const parts = [
+    `need=${evidence.need}`,
+    `status=${evidence.status}`,
+    `durationMs=${evidence.durationMs}`,
+    ...(evidence.archivePath === undefined ? [] : [`archive=${evidence.archivePath}`]),
+    ...(evidence.failure === undefined ? [] : [`failure=${evidence.failure}`]),
+  ];
+  return `preparation: ${parts.join(" ")}`;
 }
 
 /**
@@ -699,7 +1036,48 @@ export async function runSupervisedSuite(
   // Structured execution evidence is retained next to the run logs; the
   // evidence directory must exist before the child starts.
   mkdirSync(logDir, { recursive: true });
+  // The aggregate clock starts before preparation: preparation and its cleanup
+  // count toward a stress invocation's aggregate budget.
   const startedAt = Date.now();
+  const preparation = await prepareInvocationCandidate(invocation, options, abortSignal);
+  if (preparation.evidence.status === "failed") {
+    writePreparationLog(logDir, preparation.evidence);
+    return {
+      mode,
+      ok: false,
+      attemptedRuns: 0,
+      completedRuns: 0,
+      maxRuns,
+      runs: [],
+      aggregateDurationMs: Date.now() - startedAt,
+      logDir,
+      firstFailure: null,
+      aggregateExhausted: false,
+      interrupted: false,
+      preparation: preparation.evidence,
+    };
+  }
+  if (preparation.evidence.status === "interrupted") {
+    writePreparationLog(logDir, preparation.evidence);
+    return {
+      mode,
+      ok: false,
+      attemptedRuns: 0,
+      completedRuns: 0,
+      maxRuns,
+      runs: [],
+      aggregateDurationMs: Date.now() - startedAt,
+      logDir,
+      firstFailure: null,
+      aggregateExhausted: false,
+      interrupted: true,
+      preparation: preparation.evidence,
+    };
+  }
+  const preparedArchivePath =
+    preparation.evidence.status === "prepared" ? preparation.evidence.archivePath : undefined;
+  const suppliedArchivePath =
+    preparation.evidence.status === "supplied" ? preparation.evidence.archivePath : undefined;
   const runs: SupervisedRun[] = [];
   let interrupted = false;
   let aggregateExhausted = false;
@@ -748,7 +1126,13 @@ export async function runSupervisedSuite(
         ],
         cwd: invocation.base,
         deadlineMs: runDeadline,
-        environment: suiteProcessEnvironment(process.env, options.bunArguments),
+        environment: suiteProcessEnvironment(
+          process.env,
+          options.bunArguments,
+          invocation.plan !== null,
+          preparedArchivePath,
+          suppliedArchivePath,
+        ),
         ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
         commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
       },
@@ -766,7 +1150,7 @@ export async function runSupervisedSuite(
       invocation.plan !== null && isGreen(result)
         ? evaluateRunCoverage(invocation, junitPath)
         : undefined;
-    const logPath = writeRunLog(logDir, runNumber, invocation, result, coverage);
+    const logPath = writeRunLog(logDir, runNumber, invocation, preparation.evidence, result, coverage);
     const run: SupervisedRun = {
       runNumber,
       result,
@@ -780,8 +1164,48 @@ export async function runSupervisedSuite(
     }
   }
 
+  // The invocation's candidate is removed after the runs (all outcomes,
+  // including timeout and interruption) with its duration reported; an
+  // operator-supplied archive has no candidate directory and is never touched.
+  let preparationEvidence = preparation.evidence;
+  if (preparation.candidateDirectory !== null) {
+    const cleanupStartedAt = Date.now();
+    try {
+      rmSync(preparation.candidateDirectory, { recursive: true, force: true });
+      preparationEvidence = {
+        ...preparationEvidence,
+        cleanupDurationMs: Date.now() - cleanupStartedAt,
+      };
+    } catch (error) {
+      preparationEvidence = {
+        ...preparationEvidence,
+        cleanupDurationMs: Date.now() - cleanupStartedAt,
+        cleanupFailed: true,
+        cleanupFailure: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  if (preparation.candidateDirectory !== null && runs.length > 0) {
+    // The run log was written before cleanup ran; append the cleanup evidence
+    // so the retained log carries the complete preparation lifecycle.
+    const lastRunLog = runs[runs.length - 1]!.logPath;
+    const cleanupLines = [
+      `preparation-cleanup: durationMs=${preparationEvidence.cleanupDurationMs} failed=${preparationEvidence.cleanupFailed}`,
+      ...(preparationEvidence.cleanupFailure === undefined
+        ? []
+        : [`preparation-cleanup-failure: ${preparationEvidence.cleanupFailure}`]),
+    ];
+    writeFileSync(lastRunLog, `${readFileSync(lastRunLog, "utf8")}${cleanupLines.join("\n")}\n`, {
+      mode: 0o600,
+    });
+  }
   const completedRuns = runs.filter(runComplete).length;
-  const ok = runs.length === maxRuns && completedRuns === maxRuns;
+  // Failed candidate cleanup is never a complete qualification, even when
+  // every run was green: a resource the invocation owned could not be freed.
+  const ok =
+    runs.length === maxRuns &&
+    completedRuns === maxRuns &&
+    preparationEvidence.cleanupFailed === false;
   const firstFailure = runs.find((run) => !runComplete(run)) ?? null;
   return {
     mode,
@@ -795,6 +1219,7 @@ export async function runSupervisedSuite(
     firstFailure,
     aggregateExhausted,
     interrupted,
+    preparation: preparationEvidence,
   };
 }
 
@@ -826,17 +1251,48 @@ function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/**
+ * The invocation's preparation segment for the summary: omitted when nothing
+ * was prepared (no need or an injected test-seam command), otherwise one
+ * truthful clause — prepared, supplied, or the failure with its log pointer.
+ */
+function formatPreparationSegment(preparation: PreparationEvidence): string {
+  switch (preparation.status) {
+    case "none":
+      return "";
+    case "prepared":
+      return `preparation: prepared candidate in ${formatSeconds(preparation.durationMs)}, `;
+    case "supplied":
+      return "preparation: supplied archive, ";
+    case "failed":
+      return `preparation: failed (${preparation.failure ?? "unspecified"}) in ${formatSeconds(
+        preparation.durationMs,
+      )} — preparation log: ${PREPARATION_LOG_FILENAME} — `;
+    case "interrupted":
+      return `preparation: interrupted in ${formatSeconds(preparation.durationMs)}, `;
+  }
+}
+
 export function formatSuiteSummary(
   result: SuiteSupervisorResult,
   interruptedBy: string | null,
 ): string {
   const duration = formatSeconds(result.aggregateDurationMs);
   if (result.mode === "stress") {
+    if (result.runs.length === 0) {
+      if (result.preparation.status === "failed") {
+        return `suite stress: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
+      }
+      if (result.interrupted) {
+        return `suite stress: interrupted (${interruptedBy ?? "abort"}) during preparation in ${duration} — logs: ${result.logDir}`;
+      }
+      return `suite stress: aggregate deadline reached after 0/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
+    }
     if (interruptedBy !== null) {
-      return `suite stress: interrupted (${interruptedBy}) after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
+      return `suite stress: ${formatPreparationSegment(result.preparation)}interrupted (${interruptedBy}) after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
     }
     if (result.ok) {
-      return `suite stress: ${result.completedRuns}/${result.maxRuns} runs green in ${duration} — logs: ${result.logDir}`;
+      return `suite stress: ${formatPreparationSegment(result.preparation)}${result.completedRuns}/${result.maxRuns} runs green in ${duration} — logs: ${result.logDir}`;
     }
     if (result.aggregateExhausted) {
       const failure = result.firstFailure;
@@ -845,16 +1301,31 @@ export function formatSuiteSummary(
         : `suite stress: aggregate deadline reached during run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
     }
     const failure = result.firstFailure!;
-    return `suite stress: failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
+    const outcome = result.preparation.cleanupFailed
+      ? `failed (candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"})`
+      : `failed (${describeRunOutcome(failure)})`;
+    return `suite stress: ${formatPreparationSegment(result.preparation)}failed at run ${failure.runNumber}/${result.maxRuns} (${outcome}) in ${duration} — log: ${failure.logPath}`;
+  }
+  if (result.runs.length === 0) {
+    if (result.preparation.status === "failed") {
+      return `suite ${result.mode}: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
+    }
+    return `suite ${result.mode}: interrupted (${interruptedBy ?? "abort"}) during preparation in ${duration} — logs: ${result.logDir}`;
   }
   const run = result.runs[0]!;
+  const cleanupFailure =
+    result.preparation.cleanupFailed && result.preparation.cleanupFailure !== undefined
+      ? `candidate cleanup failed: ${result.preparation.cleanupFailure}`
+      : null;
   const outcome =
     interruptedBy !== null
       ? `interrupted (${interruptedBy})`
-      : result.ok
-        ? describeRunOutcome(run)
-        : `failed (${describeRunOutcome(run)})`;
-  return `suite ${result.mode}: 1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
+      : cleanupFailure !== null
+        ? `failed (${cleanupFailure})`
+        : result.ok
+          ? describeRunOutcome(run)
+          : `failed (${describeRunOutcome(run)})`;
+  return `suite ${result.mode}: ${formatPreparationSegment(result.preparation)}1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
 }
 
 function diagnosticsDirFromEnvironment(environment: NodeJS.ProcessEnv): string | undefined {

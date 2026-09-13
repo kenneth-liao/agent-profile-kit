@@ -2,9 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   FLEET_CHILD_DEADLINE_MS,
-  FLEET_CLI_PATH,
-  runFleetCli,
-  runFleetCliWithExplicitPath,
+  runFleetCliWithCandidate,
 } from "./support/fleet-cli.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -39,28 +37,27 @@ describe("fleet packed-CLI child deadline policy", () => {
     expect(FLEET_CHILD_DEADLINE_MS).toBeGreaterThan(TEST_CHILD_DEADLINE_MS);
   });
 
-  test("runFleetCli launches the packed CLI under the fleet deadline, not the fast-suite deadline", async () => {
+  test("runFleetCliWithCandidate launches the given candidate under the fleet deadline, not the fast-suite deadline", async () => {
     const records: ExecutorOptions[] = [];
-    const result = await runFleetCli("home-dir", "path-dir", ["update", "--all", "--json"], recordingExecutor(records));
+    const result = await runFleetCliWithCandidate(
+      "home-dir",
+      "path-dir",
+      "/fixture-candidate/package/dist/cli.js",
+      ["update", "--all", "--json"],
+      recordingExecutor(records),
+    );
     expect(result.kind).toBe("exit");
     expect(records).toHaveLength(1);
     const launch = records[0]!;
     expect(launch.deadlineMs).toBe(FLEET_CHILD_DEADLINE_MS);
     expect(launch.deadlineMs).not.toBe(TEST_CHILD_DEADLINE_MS);
-    expect(launch.arguments_).toEqual([FLEET_CLI_PATH, "update", "--all", "--json"]);
-    expect(launch.environment?.HOME).toBe("home-dir");
-    expect(launch.environment?.PATH).toBe("path-dir");
-  });
-
-  test("runFleetCliWithExplicitPath launches the packed CLI under the fleet deadline, not the fast-suite deadline", async () => {
-    const records: ExecutorOptions[] = [];
-    const result = await runFleetCliWithExplicitPath("home-dir", "path-dir", ["status", "--all", "--json"], recordingExecutor(records));
-    expect(result.kind).toBe("exit");
-    expect(records).toHaveLength(1);
-    const launch = records[0]!;
-    expect(launch.deadlineMs).toBe(FLEET_CHILD_DEADLINE_MS);
-    expect(launch.deadlineMs).not.toBe(TEST_CHILD_DEADLINE_MS);
-    expect(launch.arguments_).toEqual([FLEET_CLI_PATH, "status", "--all", "--json"]);
+    // The launch executes the candidate it was given, verbatim.
+    expect(launch.arguments_).toEqual([
+      "/fixture-candidate/package/dist/cli.js",
+      "update",
+      "--all",
+      "--json",
+    ]);
     expect(launch.environment?.HOME).toBe("home-dir");
     expect(launch.environment?.PATH).toBe("path-dir");
   });
