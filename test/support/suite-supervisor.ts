@@ -26,10 +26,13 @@ export const PER_TEST_TIMEOUT_MS = 10_000;
  * of the intended non-fleet corpus (all 90 non-fleet test files, 1911 tests)
  * completed in 366.3s through this supervisor, and the fleet file (11 tests)
  * in 17.8s. The per-run default is ~1.6x that measured corpus duration: it
- * bounds a hung or stalled run, not a completion target, and keeps one
- * exhausted run plus CI setup inside CI's 15-minute job ceiling. The stress
- * aggregate is coherent by construction — every one of the sequential runs
- * may use its full per-run deadline inside the aggregate. Final
+ * bounds a hung or stalled run, not a completion target. Containment is
+ * reachable-state arithmetic: measured CI setup before the test step is
+ * ≈7–9s on the macos-15 runner (PR #553 check run), so one exhausted 600s
+ * run plus setup stays well inside CI's 15-minute job ceiling and the
+ * supervisor's bounded timeout — not the job clock — owns a hung run. The
+ * stress aggregate is coherent by construction — every one of the sequential
+ * runs may use its full per-run deadline inside the aggregate. Final
  * equivalent-corpus completion evidence is the integrated-qualification
  * ticket's obligation (#552), not this default.
  */
@@ -280,6 +283,15 @@ function suiteProcessEnvironment(
   return childEnvironment;
 }
 
+/**
+ * Complete qualification is a typed `exit 0` result. Failed cleanup is never
+ * green by construction: the executor's typed results make `cleanupFailed`
+ * unrepresentable on `exit` (literal-false field), so a cleanup failure can
+ * only appear on timeout/output-limit/cancelled kinds, which this predicate
+ * already rejects by kind. No runtime re-check of `cleanupFailed` is added
+ * here — that would assert an impossible state and imply `exit` could carry
+ * cleanup failure; the typecheck at the executor boundary owns that invariant.
+ */
 function isGreen(result: ProcessResult): boolean {
   return result.kind === "exit" && result.exitCode === 0;
 }

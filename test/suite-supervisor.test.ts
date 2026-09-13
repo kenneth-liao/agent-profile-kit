@@ -838,6 +838,47 @@ describe("suite supervisor: finite budget override interface", () => {
     }
   });
 
+  test("budget override variables are stripped from the supervised child environment", async () => {
+    // A real child fixture through the real spawn path: with every override
+    // variable set on the supervisor process, the child must see none of them.
+    const previousPerRun = process.env[PER_RUN_DEADLINE_ENV];
+    const previousAggregate = process.env[AGGREGATE_DEADLINE_ENV];
+    const previousMaxRuns = process.env[MAX_RUNS_ENV];
+    process.env[PER_RUN_DEADLINE_ENV] = "600000";
+    process.env[AGGREGATE_DEADLINE_ENV] = "6000000";
+    process.env[MAX_RUNS_ENV] = "3";
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture(
+          'printf "per-run=%s aggregate=%s max-runs=%s" "${APKIT_TEST_PER_RUN_DEADLINE_MS:-absent}" "${APKIT_TEST_AGGREGATE_DEADLINE_MS:-absent}" "${APKIT_TEST_MAX_RUNS:-absent}"',
+          "child environment fixture",
+        ),
+        perRunDeadlineMs: 2000,
+        logDir: tempDir(),
+      });
+      try {
+        expect(result.ok).toBe(true);
+        expect(result.runs[0]!.result.stdout.trim()).toBe(
+          "per-run=absent aggregate=absent max-runs=absent",
+        );
+      } finally {
+        rmSync(result.logDir, { recursive: true, force: true });
+      }
+    } finally {
+      const restore = (name: string, value: string | undefined) => {
+        if (value === undefined) {
+          delete process.env[name];
+        } else {
+          process.env[name] = value;
+        }
+      };
+      restore(PER_RUN_DEADLINE_ENV, previousPerRun);
+      restore(AGGREGATE_DEADLINE_ENV, previousAggregate);
+      restore(MAX_RUNS_ENV, previousMaxRuns);
+    }
+  });
+
   test("library budgets reject nonfinite, non-integer, and timer-unsafe values", async () => {
     await expect(
       runSupervisedSuite({ mode: "full", perRunDeadlineMs: Number.POSITIVE_INFINITY }),
