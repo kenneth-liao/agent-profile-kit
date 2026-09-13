@@ -127,14 +127,19 @@ if (mode === "select") {
   const gatedSuggest = (
     input: string,
     suggestChoices: readonly { readonly title: string; readonly value?: unknown }[],
-  ): Promise<readonly { readonly title: string; readonly value?: unknown }[]> =>
-    new Promise((resolveGate) => {
+  ): Promise<readonly { readonly title: string; readonly value?: unknown }[]> => {
+    // The initial empty-input resolution passes through (as the real
+    // dependency resolves it immediately), so the prompt holds the stale
+    // full list while a typed filter is gated — exactly the real condition.
+    if (input.trim() === "") return searchableSuggest(input, suggestChoices);
+    return new Promise((resolveGate) => {
       const deliver = (): void => {
         searchableSuggest(input, suggestChoices).then(resolveGate);
       };
       if (gateOpen) deliver();
       else pendingDeliveries.push(deliver);
     });
+  };
   const answer = (await promptsPackage({
     type: "autocomplete",
     name: "answer",

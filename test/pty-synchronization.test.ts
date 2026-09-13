@@ -14,7 +14,7 @@
  *   PTY child through the controller's TERM kill+reap lifecycle, with
  *   evidence in the transcript.
  */
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +88,55 @@ describe("observable PTY synchronization (#542)", () => {
       expect(transcript).toContain("PTY-CONTROLLER-TERMINATED");
       await expectPidGone(session.controllerPid, "pty controller");
       await expectPidGone(driverPid, "PTY driver child");
+    } finally {
+      await session.close();
+    }
+  });
+});
+
+describe("named delayed-output condition — causal discrimination (#542, TEST-004)", () => {
+  test("premature Enter with the filter provably unresolved submits the stale highlight", async () => {
+    const { releaseFile, pidFile } = fixturePaths();
+    const session = await startPtySession(["gated-select", releaseFile, pidFile], 80);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await waitForFile(pidFile);
+      const before = session.transcriptLength();
+      session.write("writ");
+      await session.waitForTranscript("…writ", { after: before });
+      // Enter while the gate stays closed: the filter is causally unresolved
+      // (the release file is never created), so the pre-filter highlight
+      // submits. No timing assumption — the gate cannot open.
+      const enterOffset = session.transcriptLength();
+      session.write("\r");
+      await session.waitForTranscript("RESULT", { after: enterOffset });
+      const text = session.transcript();
+      expect(text).toContain('RESULT "coding"');
+      expect(existsSync(releaseFile)).toBe(false);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("input sent only after the observed resolved render yields the intended result", async () => {
+    const { releaseFile, pidFile } = fixturePaths();
+    const session = await startPtySession(["gated-select", releaseFile, pidFile], 80);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await waitForFile(pidFile);
+      const before = session.transcriptLength();
+      session.write("writ");
+      await session.waitForTranscript("…writ", { after: before });
+      // Open the gate, then synchronize on the OBSERVED resolved render
+      // (the real dependency's `›writ` reduced-list redraw) before Enter.
+      writeFileSync(releaseFile, "release");
+      await session.waitForTranscript("›writ", { after: before });
+      const enterOffset = session.transcriptLength();
+      session.write("\r");
+      await session.waitForTranscript("RESULT", { after: enterOffset });
+      const text = session.transcript();
+      expect(text).toContain('RESULT "writing"');
+      expect(text).not.toContain('"value":"coding"}');
     } finally {
       await session.close();
     }

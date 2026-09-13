@@ -28,9 +28,11 @@ import {
 } from "../../process/process-executor.js";
 import { PER_TEST_TIMEOUT_MS } from "./suite-supervisor.js";
 
-/** Strip ANSI styling for structural matching. */
+/** Strip ANSI styling for structural matching (ESC included — fragments
+ * like `›writ` straddle the `[39m ` boundary that a bracket-only regex
+ * would leave a bare ESC inside of). */
 export function plain(text: string): string {
-  return text.replace(/\[[0-9;?]*[ -/]*[@-~]/g, "");
+  return text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
 
 /** Collapse all whitespace so wrapped terminal lines still match. */
