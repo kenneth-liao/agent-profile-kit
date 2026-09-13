@@ -10,6 +10,11 @@ import {
   type ExecutorOptions,
   type ProcessResult,
 } from "../../process/process-executor.js";
+import {
+  PACKAGE_REQUEST_CHANNEL_ENV,
+  PACKAGE_REQUEST_WAIT_ENV,
+  requestInvocationPackage,
+} from "./package-request-channel.js";
 
 /**
  * The canonical consumer boundary for the invocation package candidate:
@@ -184,10 +189,31 @@ export function supervisedInvocationActive(environment: NodeJS.ProcessEnv = proc
 export class SupervisorPreparationDefectError extends Error {
   constructor() {
     super(
-      `${SUPERVISED_INVOCATION_ENV} is set but no prepared package archive exists (${PREPARED_PACKAGE_ARCHIVE_ENV} is unset): this consumer ran in a supervised invocation that prepared no candidate. Building here would silently hide the cause — either this file declares no consumer capability (import test/support/invocation-package-consumer.ts to declare it) or the selection's execution scope was not statically provable (a name or partial path filter), so no candidate was prepared. Run the consumer by naming its test file explicitly, or run the full suite, to prepare a candidate`,
+      `${SUPERVISED_INVOCATION_ENV} is set but neither a prepared package archive (${PREPARED_PACKAGE_ARCHIVE_ENV}) nor an invocation request channel (${PACKAGE_REQUEST_CHANNEL_ENV}) was delivered: this consumer ran under a supervised invocation that owns no candidate. Building here would silently hide the supervisor defect — deliver the invocation's request channel, or name the consumer's test file explicitly so the invocation prepares its candidate`,
     );
     this.name = "SupervisorPreparationDefectError";
   }
+}
+
+/**
+ * The supervised consumer's request-wait deadline for one child run: the
+ * supervisor derives it from the canonical per-test watchdog and delivers it
+ * beside the channel, so one home (the supervisor's policy) owns the number
+ * and the child never guesses. A missing or malformed value is a supervisor
+ * defect and fails closed rather than guessing a watchdog-sized wait.
+ */
+function resolvePackageRequestWaitDeadline(environment: NodeJS.ProcessEnv): number {
+  const authored = environment[PACKAGE_REQUEST_WAIT_ENV];
+  if (authored === undefined) {
+    throw new Error(
+      `${PACKAGE_REQUEST_WAIT_ENV} was not delivered beside the request channel; the supervised invocation must coordinate the consumer's wait with the per-test watchdog`,
+    );
+  }
+  const parsed = Number(authored);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${PACKAGE_REQUEST_WAIT_ENV} must be a positive number of milliseconds, got '${authored}'`);
+  }
+  return parsed;
 }
 
 /**
@@ -211,14 +237,49 @@ export async function extractPackageArchive(
 }
 
 /**
- * Resolve the package archive one consumer executes. A prepared archive
- * (supervisor injection or an operator-supplied `APKIT_TEST_PACKAGE_ARCHIVE`)
- * is returned untouched with a no-op cleanup: its bytes and lifetime belong
- * to whoever prepared it. Otherwise — an unsupervised direct run — the local
- * fallback builds and packs once through the same bounded preparation stages,
- * owning a fresh private directory that its cleanup removes. Under a
- * supervised marker with no prepared archive the call fails closed: a silent
- * build would hide the supervisor defect.
+ * The candidate one supervised child's consumers share, memoized per run
+ * process: the first consumer's channel request settles once and every later
+ * consumer in the same supervised run reuses it. Not a persistent cache —
+ * it lives only inside this run process, and the invocation's own cleanup
+ * owns the candidate's lifetime.
+ */
+let supervisedRunCandidate: string | null = null;
+
+/**
+ * Remove one owned directory through the shared bounded executor: cleanup is
+ * a bounded child operation like any other, so a stalled filesystem cannot
+ * block the supervisor or its signal handling beyond the deadline. A failed
+ * removal throws with its captured diagnostics; the caller reports it and
+ * never treats it as successful.
+ */
+export async function removePathBounded(
+  path: string,
+  deadlineMs: number,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const result = await runProcess(
+    {
+      executable: "rm",
+      arguments_: ["-rf", path],
+      deadlineMs,
+      commandLabel: "bounded path removal",
+    },
+    signal,
+  );
+  if (!(result.kind === "exit" && result.exitCode === 0)) {
+    throw new PackagePreparationStageError("bounded path removal", result);
+  }
+}
+
+/**
+ * Resolve the package archive one consumer executes. Order of authority:
+ * an operator-supplied or invocation-prepared archive passes through
+ * untouched; under a supervised marker the consumer files one request on the
+ * invocation's channel and waits, bounded, for the supervisor's terminal
+ * response (lazy preparation on first actual consumption — memoized across
+ * the run's consumers); a supervised marker without a channel is a supervisor
+ * defect and fails closed; an unsupervised direct run uses the bounded local
+ * fallback.
  */
 export async function obtainPackageArchive(
   repositoryRoot: string,
@@ -231,9 +292,19 @@ export async function obtainPackageArchive(
     return { path: prepared, cleanup: () => undefined };
   }
   if (supervisedInvocationActive(environment)) {
-    throw new SupervisorPreparationDefectError();
+    if (supervisedRunCandidate !== null) {
+      return { path: supervisedRunCandidate, cleanup: () => undefined };
+    }
+    const channelDirectory = environment[PACKAGE_REQUEST_CHANNEL_ENV];
+    if (channelDirectory === undefined || channelDirectory.length === 0) {
+      throw new SupervisorPreparationDefectError();
+    }
+    supervisedRunCandidate = await requestInvocationPackage(
+      channelDirectory,
+      resolvePackageRequestWaitDeadline(environment),
+    );
+    return { path: supervisedRunCandidate, cleanup: () => undefined };
   }
-
   const commands = options.commands ?? systemPackageArchiveCommands;
   const packageDirectory = mkdtempSync(join(tmpdir(), prefix));
   try {

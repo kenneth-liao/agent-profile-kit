@@ -1,7 +1,5 @@
 import { expect, test } from "bun:test";
 
-// Capability declaration: this file consumes the invocation package candidate.
-import "./support/invocation-package-consumer.js";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

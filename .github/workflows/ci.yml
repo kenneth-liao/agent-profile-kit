@@ -106,9 +106,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Build production CLI
-        run: bun run build:bundle
-
       - name: Run fleet-scale regressions
         id: fleet_suite
         env:

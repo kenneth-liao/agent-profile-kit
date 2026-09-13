@@ -1,7 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-// Capability declaration: this file consumes the invocation package candidate.
-import "./support/invocation-package-consumer.js";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,

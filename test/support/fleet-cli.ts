@@ -32,41 +32,64 @@ interface ResolvedCandidateCli {
 
 let resolvedCandidate: ResolvedCandidateCli | null = null;
 let resolutionInFlight: Promise<ResolvedCandidateCli> | null = null;
+/**
+ * The extraction lifetime's generation: a release advances it, so an in-flight
+ * resolution from an ended lifetime can never repopulate the cache and no
+ * subsequent caller can resolve into a released candidate.
+ */
+let lifetimeGeneration = 0;
 
 async function resolveCandidateCli(): Promise<ResolvedCandidateCli> {
   const archive = await obtainPackageArchive(
     packageArchiveRepositoryRoot(),
     "agent-profile-kit-fleet-cli-",
   );
-  const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-fleet-cli-extracted-"));
+  // The archive's directory is owned for exactly the extraction: released in
+  // a finally (a no-op for prepared or supplied archives, whose lifetime the
+  // invocation owns), including every setup and extraction failure path.
   try {
-    await extractPackageArchive(archive.path, directory);
-    const cliPath = realpathSync(join(directory, "package", "dist", "cli.js"));
-    return { cliPath, directory };
-  } catch (error) {
-    // An extraction failure leaves no extraction directory behind; the
-    // in-flight promise is reset by the caller so a later launch can retry.
-    rmSync(directory, { recursive: true, force: true });
-    throw error;
+    const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-fleet-cli-extracted-"));
+    try {
+      await extractPackageArchive(archive.path, directory);
+      const cliPath = realpathSync(join(directory, "package", "dist", "cli.js"));
+      return { cliPath, directory };
+    } catch (error) {
+      // An extraction failure leaves no extraction directory behind; the
+      // in-flight promise is reset by the caller so a later launch can retry.
+      rmSync(directory, { recursive: true, force: true });
+      throw error;
+    }
+  } finally {
+    archive.cleanup();
   }
 }
 
 /**
- * The candidate CLI path for fleet launches, resolved once per process: the
+ * The candidate CLI path for fleet launches, resolved once per lifetime: the
  * first call obtains and extracts the invocation archive, later calls reuse
- * it, and a failed resolution cleans its extraction directory and resets the
- * in-flight promise so a retry is possible without leaking temporary state.
+ * it, a failed resolution cleans its extraction directory and resets the
+ * in-flight promise so a retry is possible without leaking temporary state,
+ * and a resolution whose lifetime was released while it ran completes without
+ * repopulating the cache (the release owns that result's cleanup).
  */
 export async function resolveFleetCliPath(): Promise<string> {
   if (resolvedCandidate !== null) return resolvedCandidate.cliPath;
   if (resolutionInFlight === null) {
+    const myGeneration = lifetimeGeneration;
     resolutionInFlight = (async () => {
       try {
         const resolved = await resolveCandidateCli();
-        resolvedCandidate = resolved;
+        // Only the current lifetime may cache: a resolution that raced a
+        // release must never hand its (about-to-be-removed) directory to a
+        // later caller through the cache.
+        if (myGeneration === lifetimeGeneration) {
+          resolvedCandidate = resolved;
+        }
         return resolved;
       } finally {
-        resolutionInFlight = null;
+        if (myGeneration === lifetimeGeneration) {
+          resolutionInFlight = null;
+        }
       }
     })();
   }
@@ -74,20 +97,22 @@ export async function resolveFleetCliPath(): Promise<string> {
 }
 
 /**
- * Release the resolved candidate's extraction directory and reset the
- * memoization. If a resolution is still in flight, the release waits for it
- * and removes whatever directory it produced, so no extraction directory
- * outlives the released lifetime and no later caller can reuse a candidate
- * from an ended lifetime (their launch fails loudly instead). The fleet
- * qualification file calls this from `afterAll` so the extraction lifetime is
- * owned and released deterministically per run process (each supervised
- * stress run is a fresh process, so nothing crosses runs).
+ * Release the resolved candidate's extraction directory and end the current
+ * lifetime. A resolution still in flight is awaited first and its product is
+ * removed by this release, so no extraction directory outlives the released
+ * lifetime; the awaiting caller of that ended resolution receives its path
+ * but the cache is never repopulated — its launch fails loudly instead of
+ * silently reusing a released candidate. The fleet qualification file calls
+ * this from `afterAll` so the extraction lifetime is owned and released
+ * deterministically per run process (each supervised stress run is a fresh
+ * process, so nothing crosses runs).
  */
 export async function releaseFleetCliPath(): Promise<void> {
-  const inFlight = resolutionInFlight;
+  lifetimeGeneration += 1;
   const resolved = resolvedCandidate;
-  resolutionInFlight = null;
   resolvedCandidate = null;
+  const inFlight = resolutionInFlight;
+  resolutionInFlight = null;
   const directory =
     resolved?.directory ?? (await inFlight?.catch(() => undefined))?.directory;
   if (directory !== undefined) {

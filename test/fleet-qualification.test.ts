@@ -1,7 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-// Capability declaration: this file consumes the invocation package candidate.
-import "./support/invocation-package-consumer.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -97,12 +95,10 @@ beforeAll(async () => {
 afterAll(async () => {
   cleanupFleetFixtures();
   for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
-  try {
-    await releaseFleetCliPath();
-  } catch (error) {
-    // Release failures are reported, never treated as successful.
-    console.error(error instanceof Error ? error.message : String(error));
-  }
+  // Cleanup failure is qualification failure: the release is propagated, not
+  // logged away, so otherwise green fleet tests cannot report success with a
+  // failed extraction cleanup.
+  await releaseFleetCliPath();
 });
 
 function isolatedHome(): string {
