@@ -472,6 +472,41 @@ export type PackedRuntimeProbe = (context: {
 }) => Promise<PackedRuntimeObservation>;
 
 /**
+ * The complete typed unavailable evidence for one bounded observation child:
+ * the one shared home of the runtime probes' failure contract — captured
+ * output tail, cancellation, cleanup fields, and separate durations — so a
+ * change to the evidence contract cannot drift between the probes (#539/#540).
+ */
+function unavailableObservationFromChild(label: string, result: ProcessResult): {
+  cause: string;
+  diagnostics: string;
+  childCleanupFailed: boolean;
+  childCleanupDurationMs: number;
+  childDurationMs: number;
+  cancelled: boolean;
+} {
+  return {
+    cause: describeProcessResult(result),
+    diagnostics: [
+      `--- ${label} result ---`,
+      describeProcessResult(result),
+      `cancelled: ${result.cancelled}`,
+      `childCleanupFailed: ${result.cleanupFailed}`,
+      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
+      `childDurationMs: ${result.durationMs}`,
+      "--- stdout ---",
+      result.stdout,
+      "--- stderr ---",
+      result.stderr,
+    ].join("\n"),
+    childCleanupFailed: result.cleanupFailed,
+    childCleanupDurationMs: result.cleanupDurationMs,
+    childDurationMs: result.durationMs,
+    cancelled: result.cancelled,
+  };
+}
+
+/**
  * One observed macOS version of the qualification environment (#540). The
  * observed value is what the environment answered — never a runner-label
  * inference (DEC-010). An unavailable observation is retained with its
@@ -525,28 +560,15 @@ export const systemOsVersionProbe: OsVersionProbe = async (context) => {
     },
     context.signal,
   );
-  if (result.kind === "exit" && result.exitCode === 0 && result.stdout.trim().length > 0) {
-    return { kind: "observed", version: result.stdout.trim() };
+  // The recorded identity is what the environment answered in the version
+  // shape; a malformed answer is not a version and is never recorded as one.
+  const version = result.stdout.trim();
+  if (result.kind === "exit" && result.exitCode === 0 && /^\d+(?:\.\d+)*$/.test(version)) {
+    return { kind: "observed", version };
   }
   return {
     kind: "unavailable",
-    cause: describeProcessResult(result),
-    diagnostics: [
-      "--- macOS version observation result ---",
-      describeProcessResult(result),
-      `cancelled: ${result.cancelled}`,
-      `childCleanupFailed: ${result.cleanupFailed}`,
-      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
-      `childDurationMs: ${result.durationMs}`,
-      "--- stdout ---",
-      result.stdout,
-      "--- stderr ---",
-      result.stderr,
-    ].join("\n"),
-    childCleanupFailed: result.cleanupFailed,
-    childCleanupDurationMs: result.cleanupDurationMs,
-    childDurationMs: result.durationMs,
-    cancelled: result.cancelled,
+    ...unavailableObservationFromChild("macOS version observation", result),
   };
 };
 
@@ -574,23 +596,7 @@ export const systemPackedRuntimeProbe: PackedRuntimeProbe = async (context) => {
   return {
     kind: "unavailable",
     executable: context.executable,
-    cause: describeProcessResult(result),
-    diagnostics: [
-      "--- packed CLI runtime observation result ---",
-      describeProcessResult(result),
-      `cancelled: ${result.cancelled}`,
-      `childCleanupFailed: ${result.cleanupFailed}`,
-      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
-      `childDurationMs: ${result.durationMs}`,
-      "--- stdout ---",
-      result.stdout,
-      "--- stderr ---",
-      result.stderr,
-    ].join("\n"),
-    childCleanupFailed: result.cleanupFailed,
-    childCleanupDurationMs: result.cleanupDurationMs,
-    childDurationMs: result.durationMs,
-    cancelled: result.cancelled,
+    ...unavailableObservationFromChild("packed CLI runtime observation", result),
   };
 };
 
