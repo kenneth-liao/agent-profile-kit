@@ -110,7 +110,7 @@ test("installs the pinned Bun from its canonical home in every CI job", () => {
   expect(pinnedBunVersion()).toBe(manifest.engines?.bun ?? "");
 });
 
-test("uploads explicit supervised diagnostics only after unsuccessful test execution", () => {
+test("retains the qualification record and supervised diagnostics on every outcome", () => {
   const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
   const suite = steps.find((step) => step.name === "Run test suite");
   expect(suite).toEqual({
@@ -122,20 +122,29 @@ test("uploads explicit supervised diagnostics only after unsuccessful test execu
     run: "bun run test",
   });
 
-  const upload = steps.find((step) => step.name === "Upload failed suite diagnostics");
-  expect(upload?.if).toBe(
-    "(failure() && steps.test_suite.outcome == 'failure') || (cancelled() && steps.test_suite.outcome == 'cancelled')",
-  );
+  // CI evidence is retained always: success, failure, and cancelled execution
+  // all keep the record that establishes what revision and selection ran.
+  const upload = steps.find((step) => step.name === "Upload supervised suite qualification evidence");
+  expect(upload?.if).toBe("always()");
   expect(upload?.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
   expect(workflowSource).toMatch(
     /uses: actions\/upload-artifact@[0-9a-f]{40} # v\d+(?:\.\d+){1,2}/,
   );
   expect(upload?.with).toEqual({
-    name: "supervised-suite-diagnostics-attempt-${{ github.run_attempt }}",
-    path: "${{ runner.temp }}/suite-diagnostics/*.log",
+    name: "supervised-suite-qualification-attempt-${{ github.run_attempt }}",
+    path: "${{ runner.temp }}/suite-diagnostics/",
     "if-no-files-found": "ignore",
     "retention-days": 7,
   });
+  // Evidence boundary: the artifact contains only what the supervisor wrote.
+  // A failure before the suite step (the candidate creation) leaves no record,
+  // so no artifact can imply a run that did not happen; the failing step's own
+  // log is the evidence for that outcome. The always-on upload step is pinned
+  // by name in both jobs.
+  const uploadSteps = steps.filter((step) =>
+    step.name === "Upload supervised suite qualification evidence",
+  );
+  expect(uploadSteps).toHaveLength(1);
 });
 
 test("package scripts keep local typecheck, build, and supervised tests independently usable", () => {
@@ -244,6 +253,20 @@ test("runs fleet-scale regressions in a separate job without raising the fast de
   expect(fleet?.["runs-on"]).toBe("macos-15");
   expect(fleet?.["timeout-minutes"]).toBe(15);
   expect(fleet?.if).toBe(fast?.if);
+
+  // The fleet job retains its qualification record on every outcome, the same
+  // always-on evidence boundary as the fast job.
+  const fleetUpload = (fleet?.steps ?? []).find(
+    (step) => step.name === "Upload fleet suite qualification evidence",
+  );
+  expect(fleetUpload?.if).toBe("always()");
+  expect(fleetUpload?.uses).toMatch(/^actions\/upload-artifact@[0-9a-f]{40}$/);
+  expect(fleetUpload?.with).toEqual({
+    name: "supervised-fleet-qualification-attempt-${{ github.run_attempt }}",
+    path: "${{ runner.temp }}/suite-diagnostics/",
+    "if-no-files-found": "ignore",
+    "retention-days": 7,
+  });
 
   const fleetSteps = fleet?.steps ?? [];
   const fleetCommands = fleetSteps.map((step) => step.run ?? "").join("\n");

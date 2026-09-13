@@ -38,6 +38,18 @@ export { PackagePreparationStageError } from "./package-identity.js";
  * by the supervisor's invocation preparation and the unsupervised fallback.
  */
 
+/**
+ * The canonical packed consumer's selected executable, single-homed: the
+ * consumer launch paths and the supervisor's packed-runtime observation select
+ * the same Node through this one reader. The `NODE_BINARY` override is the
+ * existing consumer-owned selection; the observation records what was
+ * selected — it is evidence of that selection, never proof that an injected
+ * or unrelated child used Node.
+ */
+export function packedCliNodeExecutable(): string {
+  return process.env.NODE_BINARY ?? "node";
+}
+
 export const PREPARED_PACKAGE_ARCHIVE_ENV = "APKIT_TEST_PACKAGE_ARCHIVE";
 
 /**

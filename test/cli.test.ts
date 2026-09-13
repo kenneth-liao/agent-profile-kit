@@ -49,7 +49,11 @@ import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
 import { humanText } from "./support/human-text.js";
 import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
-import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
+import {
+  obtainPackageArchive,
+  extractPackageArchive,
+  packedCliNodeExecutable,
+} from "./support/package-archive.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -156,7 +160,7 @@ async function runCli(home: string, ...arguments_: string[]) {
 
 async function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
   return runProcess({
-    executable: process.env.NODE_BINARY ?? "node",
+    executable: packedCliNodeExecutable(),
     arguments_: [cliPath, ...arguments_],
     ...(cwd === undefined ? {} : { cwd }),
     environment: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
@@ -171,7 +175,7 @@ async function runCliWithEnvironment(
   ...arguments_: string[]
 ) {
   return runProcess({
-    executable: process.env.NODE_BINARY ?? "node",
+    executable: packedCliNodeExecutable(),
     arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
     environment: {
       ...process.env,
@@ -216,7 +220,7 @@ async function runCliInPtyWithInput(
     `stty cols ${columns};`,
     "exec",
     ...[
-      process.env.NODE_BINARY ?? "node",
+      packedCliNodeExecutable(),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
@@ -253,7 +257,7 @@ async function runCliInPtyCaptured(
     `stty cols ${columns};`,
     "exec",
     ...[
-      process.env.NODE_BINARY ?? "node",
+      packedCliNodeExecutable(),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
@@ -315,7 +319,7 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
     "stty cols 0;",
     "exec",
     ...[
-      process.env.NODE_BINARY ?? "node",
+      packedCliNodeExecutable(),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
@@ -1820,7 +1824,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("chmod", ["+x", join(bin, "codex")]);
 
     const result = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, "validate"],
       environment: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -8371,7 +8375,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("the packed CLI runs the project-bound init contract", async () => {
     const home = isolatedHome();
     const result = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, "init"],
       environment: { ...process.env, HOME: home },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -12817,7 +12821,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
   function runCliWithClaude(home: string, ...arguments_: string[]) {
     const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
     return runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -13142,7 +13146,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
     const outdatedProject = gitRepository("agent-profile-kit-temp-claude-old-");
     const outdated = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "claude", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -13183,7 +13187,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
   function runCliWithOpenCode(home: string, ...arguments_: string[]) {
     const pathValue = `${installFakeOpenCode(home)}:${process.env.PATH ?? ""}`;
     return runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,
@@ -13382,7 +13386,7 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
     const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
     const outdatedProject = gitRepository("agent-profile-kit-temp-opencode-old-");
     const outdated = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "opencode", "--json"],
       environment: { ...process.env, HOME: home, PATH: pathValue },
       deadlineMs: TEST_CHILD_DEADLINE_MS,

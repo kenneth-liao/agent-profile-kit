@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import {
   chmodSync,
   existsSync,
@@ -5,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -25,6 +27,7 @@ import { parseBunJunitEvidence } from "./junit-evidence.js";
 import {
   PREPARED_PACKAGE_ARCHIVE_ENV,
   preparedPackageArchive,
+  packedCliNodeExecutable,
   removePathBounded,
   SUPERVISED_INVOCATION_ENV,
   supervisedInvocationActive,
@@ -45,9 +48,13 @@ import {
   PackagePreparationStageError,
   UnsupportedSourceError,
   UnstableSourceError,
+  captureSourceFingerprint,
   createPackageCandidate,
+  digestBytes,
   pinValidatedSuppliedCandidate,
   validateSuppliedPackageCandidate,
+  type PackageIdentityRecord,
+  type SourceFingerprint,
 } from "./package-identity.js";
 
 /**
@@ -184,6 +191,12 @@ export interface SuiteSupervisorOptions {
   readonly pinSuppliedCandidate?: (
     ...args: Parameters<typeof pinValidatedSuppliedCandidate>
   ) => ReturnType<typeof pinValidatedSuppliedCandidate> | Promise<ReturnType<typeof pinValidatedSuppliedCandidate>>;
+  /**
+   * Test seam: replace the packed-CLI runtime observation. Canonical
+   * invocations always probe the canonical packed consumer's selected
+   * executable through the shared bounded executor.
+   */
+  readonly packedRuntimeProbe?: PackedRuntimeProbe;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -385,6 +398,277 @@ export interface PreparationEvidence {
 
 /** The filename of a failed or interrupted preparation's retained diagnostics. */
 export const PREPARATION_LOG_FILENAME = "preparation.log";
+
+/**
+ * The qualification record's filename beside the retained run evidence (#539):
+ * one compact structured record the supervisor projects from its own canonical
+ * outcome and the predecessor identity contract (`package-identity.ts` — the
+ * only provenance authority). A retained record is written atomically, so it
+ * is always complete; a failed publication leaves no record at all.
+ */
+export const QUALIFICATION_RECORD_FILENAME = "qualification-record.json";
+
+/** The record schema version; a reader meeting another schema rejects it. */
+export const QUALIFICATION_RECORD_SCHEMA = 1;
+
+/**
+ * The invocation's admitted source identity. It is fixed at admission — one
+ * authoritative capture per invocation, taken before any run — or, when a
+ * package candidate was admitted, the candidate's own identity record after it
+ * reconciled against that admission capture. There is no fallback between the
+ * two: a candidate record is consumed from retained admitted authority, never
+ * relabeled from a fresh capture, and an impossible capture is explicit with
+ * its cause, never silently substituted.
+ */
+export type QualificationSourceIdentity =
+  | {
+      readonly kind: "admitted-source";
+      readonly repositoryHead: string | null;
+      readonly sourceFingerprint: string;
+      readonly entryCount: number;
+    }
+  | {
+      readonly kind: "candidate-record";
+      readonly repositoryHead: string | null;
+      readonly sourceFingerprint: string;
+      readonly reconciliation:
+        | "record-validated-against-admission-capture"
+        | "record-equals-admission-capture";
+    }
+  | { readonly kind: "unavailable"; readonly cause: string };
+
+/**
+ * One packed-CLI runtime observation. It is evidence that the canonical packed
+ * consumer's selected Node runtime exists and identifies itself — never proof
+ * that every child of the invocation used it (injected fixture children are
+ * not observed and not claimed).
+ */
+export type PackedRuntimeObservation =
+  | { readonly kind: "probe"; readonly executable: string; readonly version: string }
+  | { readonly kind: "unavailable"; readonly executable: string; readonly cause: string };
+
+export type PackedRuntimeProbe = (context: {
+  readonly executable: string;
+  readonly deadlineMs: number;
+  readonly signal: AbortSignal | undefined;
+}) => Promise<PackedRuntimeObservation>;
+
+/**
+ * The system packed-runtime probe: one bounded `--version` child of the
+ * canonical packed consumer's selected executable, through the shared bounded
+ * executor. Any failure resolves to an explicit `unavailable` observation;
+ * nothing throws past the seam.
+ */
+export const systemPackedRuntimeProbe: PackedRuntimeProbe = async (context) => {
+  const result = await runProcess(
+    {
+      executable: context.executable,
+      arguments_: ["--version"],
+      deadlineMs: context.deadlineMs,
+      commandLabel: "packed CLI runtime observation",
+    },
+    context.signal,
+  );
+  if (result.kind === "exit" && result.exitCode === 0 && result.stdout.trim().length > 0) {
+    return { kind: "probe", executable: context.executable, version: result.stdout.trim() };
+  }
+  return {
+    kind: "unavailable",
+    executable: context.executable,
+    cause: describeProcessResult(result),
+  };
+};
+
+/** One supervised run's projected outcome in the qualification record. */
+export interface QualificationRunRecord {
+  readonly runNumber: number;
+  readonly command: string;
+  readonly kind: ProcessResult["kind"];
+  readonly exitCode: number | null;
+  readonly signal: string | null;
+  readonly timedOut: boolean;
+  readonly cancelled: boolean;
+  readonly cleanupFailed: boolean;
+  readonly cleanupDurationMs: number;
+  readonly durationMs: number;
+  readonly coverage?: SelectionCoverage;
+  readonly logPath: string;
+  /** Present for canonical runs, whose junit execution evidence is retained. */
+  readonly junitPath?: string;
+}
+
+/**
+ * One invocation's qualification record (#539): the compact structured
+ * projection of the canonical supervisor outcome and the admitted identity —
+ * success, failure, and interruption alike. It is a projection of existing
+ * canonical facts (executor results, selection plan, preparation evidence,
+ * retained identity records), never a second mutable fact.
+ */
+export interface QualificationRecord {
+  readonly schema: number;
+  readonly mode: SuiteMode;
+  readonly status: "complete" | "incomplete" | "interrupted";
+  /** Why the invocation is not complete qualification, when status is incomplete. */
+  readonly reason?: string;
+  readonly ok: boolean;
+  readonly source: QualificationSourceIdentity;
+  /** The admitted candidate's archive identity, when one was admitted. */
+  readonly artifact?: { readonly archivePath: string; readonly archiveDigest: string };
+  readonly runtime: {
+    readonly supervisor: {
+      readonly name: string;
+      readonly version: string;
+      readonly executable: string;
+      readonly platform: string;
+      readonly arch: string;
+    };
+    readonly suiteRunner:
+      | { readonly kind: "pinned-bun"; readonly version: string; readonly executable: string }
+      | { readonly kind: "injected-fixture"; readonly executable: string };
+    /** Present only when a candidate was admitted and packed consumers can execute. */
+    readonly packedCli?: PackedRuntimeObservation;
+  };
+  /** The derived selection; null for injected test-seam commands. */
+  readonly selection:
+    | {
+        readonly selectedCount: number;
+        readonly selectionDigest: string;
+        readonly excluded: readonly string[];
+        readonly named: readonly string[];
+        readonly bunArguments?: readonly string[];
+      }
+    | null;
+  readonly policy: {
+    readonly perRunDeadlineMs: number;
+    readonly aggregateDeadlineMs: number;
+    readonly maxRuns: number;
+  };
+  readonly command: string;
+  readonly preparation: {
+    readonly status: PreparationEvidence["status"];
+    readonly requests: number;
+    readonly durationMs: number;
+    readonly cleanupDurationMs: number;
+    readonly cleanupFailed: boolean;
+    readonly archivePath?: string;
+    readonly failure?: string;
+    readonly childCleanupFailed?: boolean;
+    readonly childCleanupDurationMs?: number;
+  };
+  readonly runs: readonly QualificationRunRecord[];
+  readonly attemptedRuns: number;
+  readonly completedRuns: number;
+  readonly durationMs: number;
+  readonly diagnostics: {
+    readonly logDir: string;
+    readonly preparationLog?: string;
+    readonly cleanupFailure?: string;
+  };
+}
+
+/** One shared pure completion evaluation for the result and the record. */
+export interface InvocationCompletion {
+  readonly ok: boolean;
+  readonly status: "complete" | "incomplete" | "interrupted";
+  readonly reason?: string;
+}
+
+/**
+ * The one completion evaluator for a supervised invocation: the result's `ok`
+ * and the qualification record's status/reason are both derived here, so no
+ * second mutable fact can drift. The existing completion conditions are
+ * unchanged; an owed-but-unavailable packed runtime observation is the one new
+ * condition (#539): when a candidate was admitted, the actual packed runtime
+ * evidence is owed, and its unavailability can never yield a complete
+ * qualification.
+ */
+function evaluateInvocationCompletion(facts: {
+  readonly maxRuns: number;
+  readonly attemptedRuns: number;
+  readonly completedRuns: number;
+  readonly aggregateExhausted: boolean;
+  readonly interrupted: boolean;
+  readonly cleanupFailed: boolean;
+  readonly cleanupFailure: string | undefined;
+  readonly preparation: PreparationEvidence;
+  readonly firstFailureDescription: string | null;
+  readonly packedRuntime: PackedRuntimeObservation | undefined;
+  /** A zero-run failure's direct cause (admission rejection, capture failure). */
+  readonly invocationFailure?: string;
+}): { ok: boolean; status: "complete" | "incomplete" | "interrupted"; reason?: string } {
+  const ok =
+    facts.attemptedRuns === facts.maxRuns &&
+    facts.completedRuns === facts.maxRuns &&
+    !facts.aggregateExhausted &&
+    !facts.cleanupFailed &&
+    facts.preparation.status !== "failed" &&
+    facts.preparation.status !== "interrupted" &&
+    facts.preparation.childCleanupFailed !== true &&
+    facts.packedRuntime?.kind !== "unavailable" &&
+    facts.invocationFailure === undefined;
+  const reason = facts.interrupted
+    ? undefined
+    : ok
+      ? undefined
+      : facts.aggregateExhausted
+        ? `the stress aggregate deadline was reached after ${facts.attemptedRuns}/${facts.maxRuns} runs`
+        : facts.cleanupFailed
+          ? (facts.cleanupFailure ?? "owned cleanup failed").split("\n")[0]
+          : facts.preparation.status === "failed" || facts.preparation.status === "interrupted"
+            ? (facts.preparation.failure ?? "unspecified")
+            : facts.preparation.childCleanupFailed === true
+              ? "a preparation child's cleanup could not be confirmed terminated"
+              : facts.packedRuntime?.kind === "unavailable"
+                ? `the packed CLI runtime observation failed: ${facts.packedRuntime.cause}`
+                : facts.invocationFailure !== undefined
+                  ? facts.invocationFailure
+                  : facts.firstFailureDescription !== null
+                    ? facts.firstFailureDescription
+                    : `incomplete after ${facts.completedRuns}/${facts.maxRuns} green runs`;
+  return {
+    ok,
+    status: facts.interrupted ? "interrupted" : ok ? "complete" : "incomplete",
+    ...(reason === undefined ? {} : { reason }),
+  };
+}
+
+/**
+ * Publish the qualification record atomically: the staged file is renamed into
+ * place, so a retained record is always complete. A failed publication removes
+ * only its own staging file and any pre-existing record file (a reused
+ * diagnostics directory must never keep a previous invocation's record as this
+ * one's evidence) and rethrows with the failure diagnostics preserved — the
+ * caller folds them into the cleanup evidence, so the qualification can never
+ * be ok without its record.
+ */
+function writeQualificationRecord(logDir: string, record: QualificationRecord): void {
+  const recordPath = join(logDir, QUALIFICATION_RECORD_FILENAME);
+  const staged = `${recordPath}.publishing`;
+  try {
+    writeFileSync(staged, `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 });
+    renameSync(staged, recordPath);
+  } catch (error) {
+    const removalCauses: string[] = [];
+    try {
+      rmSync(staged, { force: true });
+    } catch (stagingError) {
+      removalCauses.push(
+        `the staging file could not be removed: ${stagingError instanceof Error ? stagingError.message : String(stagingError)}`,
+      );
+    }
+    try {
+      rmSync(recordPath, { force: true });
+    } catch (recordError) {
+      removalCauses.push(
+        `a pre-existing record could not be removed: ${recordError instanceof Error ? recordError.message : String(recordError)}`,
+      );
+    }
+    throw new Error(
+      `the qualification record could not be written: ${error instanceof Error ? error.message : String(error)}`
+        + (removalCauses.length > 0 ? `; ${removalCauses.join("; ")}` : ""),
+    );
+  }
+}
 
 function isMode(value: string): value is SuiteMode {
   return value === "full" || value === "focused" || value === "stress";
@@ -823,6 +1107,8 @@ interface PreparedCandidateOutcome {
   readonly evidence: PreparationEvidence;
   readonly candidateDirectory: string | null;
   readonly archivePath: string | null;
+  /** The created identity record, retained as admitted authority on success. */
+  readonly record?: PackageIdentityRecord;
 }
 
 /** The bounded stage sequence: one build plus one script-disabled pack. */
@@ -832,6 +1118,7 @@ async function prepareCandidateStages(
   abortSignal: AbortSignal | undefined,
   startedAt: number,
   budgetMs: number,
+  admittedSourceFingerprint: string | undefined,
 ): Promise<PreparedCandidateOutcome> {
   const commands = options.packageCommands ?? systemPackageArchiveCommands;
   // Directory creation sits inside the evidence-owning try: a failure to
@@ -905,9 +1192,23 @@ async function prepareCandidateStages(
       signal: abortSignal,
       commands,
     });
+    if (
+      admittedSourceFingerprint !== undefined &&
+      created.record.sourceFingerprint !== admittedSourceFingerprint
+    ) {
+      // The creator's own pre/post captures proved the source stable during
+      // preparation; a record fingerprint different from the invocation's
+      // admitted snapshot means the relevant source changed between admission
+      // and preparation. The candidate is rejected before any consumer
+      // executes it: artifact B is never attributed to invocation A.
+      throw new Error(
+        `the candidate was prepared from source fingerprint ${created.record.sourceFingerprint}, which differs from the invocation's admitted source identity ${admittedSourceFingerprint}; the relevant source changed after admission and the candidate is rejected before any consumer executes it`,
+      );
+    }
     return {
       candidateDirectory,
       archivePath: created.archivePath,
+      record: created.record,
       evidence: {
         status: "prepared",
         requests: 0,
@@ -985,7 +1286,9 @@ function watchPackageRequests(
   options: SuiteSupervisorOptions,
   abortSignal: AbortSignal | undefined,
   startedAt: number,
-  onPrepared: (archivePath: string) => void,
+  admittedSourceFingerprint: string | undefined,
+  observePackedRuntime: () => Promise<void>,
+  onPrepared: (archivePath: string, record: PackageIdentityRecord) => void,
 ): PackageRequestWatcher {
   const preparationController = new AbortController();
   const cancelPreparation = () => preparationController.abort();
@@ -1012,17 +1315,23 @@ function watchPackageRequests(
       preparationController.signal,
       preparedAt,
       Math.max(runDeadlineAt - preparedAt, 1),
+      admittedSourceFingerprint,
     );
     durationMs = outcome.evidence.durationMs;
     candidateDirectory = outcome.candidateDirectory;
     archivePath = outcome.archivePath;
     childCleanupFailed = outcome.evidence.childCleanupFailed;
     childCleanupDurationMs = outcome.evidence.childCleanupDurationMs;
-    if (outcome.evidence.status === "prepared" && outcome.archivePath !== null) {
+    if (outcome.evidence.status === "prepared" && outcome.archivePath !== null && outcome.record !== undefined) {
       status = "prepared";
       failure = undefined;
       diagnostics = undefined;
-      onPrepared(outcome.archivePath);
+      onPrepared(outcome.archivePath, outcome.record);
+      // The candidate is admitted: packed consumers can now execute, so the
+      // packed runtime evidence is owed. An observation failure never blocks
+      // the published response — it is retained evidence that fails the
+      // qualification, not a hidden consumer hang.
+      await observePackedRuntime();
       publishPackageChannelResponse(channel.directory, {
         status: "prepared",
         archivePath: outcome.archivePath,
@@ -1166,6 +1475,62 @@ export async function runSupervisedSuite(
   // The invocation clock covers preparation, runs, and cleanup: every owned
   // stage consumes it, and its exhaustion is incomplete qualification.
   const startedAt = Date.now();
+  // Stale-record hygiene: this invocation owns its qualification-record slot,
+  // so a reused diagnostics directory never presents a previous invocation's
+  // record as this one's evidence.
+  const qualificationRecordPath = join(logDir, QUALIFICATION_RECORD_FILENAME);
+  rmSync(qualificationRecordPath, { force: true });
+  // One remaining-invocation-budget reader for every bounded evidence stage
+  // (the admission capture, the packed runtime observation): each stage
+  // consumes the invocation's own budget — never a fresh deadline floor after
+  // the budget is exhausted or the invocation cancelled.
+  const remainingInvocationBudgetMs = (): number => {
+    const remaining = (mode === "stress" ? aggregate : perRun) - (Date.now() - startedAt);
+    return mode === "stress" ? Math.min(perRun, remaining) : remaining;
+  };
+  const budgetFor = (stage: string): number => {
+    const budget = remainingInvocationBudgetMs();
+    if (budget <= 0) {
+      throw new Error(`the invocation budget is exhausted before ${stage} (remaining ${budget}ms)`);
+    }
+    return budget;
+  };
+  // One abort reader for every admission boundary: TS control-flow narrowing
+  // does not invalidate across awaits, so each check reads the live signal.
+  const invocationAborted = (): boolean => abortSignal?.aborted === true;
+  // The admitted identity state: the admission capture is the one authoritative
+  // snapshot per invocation; an admitted candidate's identity record
+  // reconciles against it and is projected once at finalization from the
+  // retained record object — never reread, never relabeled.
+  let admittedCapture: SourceFingerprint | null = null;
+  let admittedRecord: PackageIdentityRecord | null = null;
+  let packedRuntime: PackedRuntimeObservation | undefined;
+  const observePackedRuntime = async (): Promise<void> => {
+    if (packedRuntime !== undefined) return;
+    const executable = packedCliNodeExecutable();
+    const budget = remainingInvocationBudgetMs();
+    if (budget <= 0) {
+      packedRuntime = {
+        kind: "unavailable",
+        executable,
+        cause: `the invocation budget was exhausted before the packed CLI runtime observation (remaining ${budget}ms)`,
+      };
+      return;
+    }
+    try {
+      packedRuntime = await (options.packedRuntimeProbe ?? systemPackedRuntimeProbe)({
+        executable,
+        deadlineMs: budget,
+        signal: abortSignal,
+      });
+    } catch (error) {
+      packedRuntime = {
+        kind: "unavailable",
+        executable,
+        cause: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
 
   // An ambient archive is operator-supplied only outside a supervised parent:
   // inside a supervised child (a nested invocation) the ambient archive belongs
@@ -1219,6 +1584,9 @@ export async function runSupervisedSuite(
       pinnedDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-supplied-pinned-"));
       const pinned = await (options.pinSuppliedCandidate ?? pinValidatedSuppliedCandidate)(validated, pinnedDirectory);
       suppliedArchivePath = pinned.archivePath;
+      // The validated record is the admitted authority, retained for the
+      // record projection — never reread from the mutable external pair.
+      admittedRecord = validated.record;
       suppliedDurationMs = Date.now() - validationStartedAt;
       if (mode !== "stress" && Date.now() - startedAt >= perRun) {
         // Admission consumed the whole per-run budget: no run can start
@@ -1227,6 +1595,14 @@ export async function runSupervisedSuite(
         throw new Error(
           `the invocation budget is exhausted after supplied provenance validation (per-run ${perRun}ms)`,
         );
+      }
+      // The candidate is admitted; the packed runtime evidence is owed only
+      // when the invocation's own selection can execute packed consumers (an
+      // injected test-seam command never runs the packed CLI, so it claims no
+      // packed runtime). An unobservable runtime is retained evidence that
+      // fails the qualification, never a hidden error.
+      if (invocation.plan !== null) {
+        await observePackedRuntime();
       }
     } catch (error) {
       // A pin failure leaves an invocation-owned directory behind: the early
@@ -1300,20 +1676,98 @@ export async function runSupervisedSuite(
         failure: `${prefix}${prefix.endsWith("interrupted") ? " " : ": "}${admissionFailure}`,
       };
       writePreparationLog(logDir, evidence);
-      return {
-        mode,
-        ok: false,
-        attemptedRuns: 0,
-        completedRuns: 0,
-        maxRuns,
-        runs: [],
-        aggregateDurationMs: Date.now() - startedAt,
+      // One finalization path: the rejected or interrupted admission also
+      // retains its qualification record, with the explicit unavailable source
+      // cause — a zero-run invocation is never represented as a run.
+      return finalizeInvocation({
+        invocation,
         logDir,
-        firstFailure: null,
+        startedAt,
+        suiteCommand,
+        runs: [],
         aggregateExhausted: false,
         interrupted,
+        cleanupFailed: pinCleanupFailed,
+        cleanupFailure: pinCleanupFailure,
+        cleanupDurationMs: pinCleanupDurationMs,
         preparation: evidence,
+        admittedIdentity: {
+          kind: "unavailable",
+          cause: evidence.failure ?? "the supplied candidate was rejected before admission",
+        },
+        admittedRecord: null,
+        archivePath: null,
+        packedRuntime: undefined,
+        preparationLogPath: join(logDir, PREPARATION_LOG_FILENAME),
+        invocationError: undefined,
+        ...(evidence.failure === undefined ? {} : { invocationFailure: evidence.failure }),
+      });
+    }
+  }
+
+  // The admission capture: one authoritative source snapshot per invocation,
+  // taken before any run, under the invocation's remaining budget (the first
+  // run's budget is reduced by it through the existing elapsed-time deduction).
+  // When a candidate was admitted, its identity record — validated against the
+  // consuming checkout at admission — is the retained authority and no second
+  // capture is made. A capture failure stops unqualified execution with zero
+  // runs; a cancelled or pre-aborted capture is an interrupted invocation with
+  // the explicit unavailable cause retained in the record.
+  let admittedIdentity: QualificationSourceIdentity;
+  let admittedSourceFingerprint: string | undefined;
+  if (suppliedArchivePath !== undefined && admittedRecord !== null) {
+    admittedIdentity = {
+      kind: "candidate-record",
+      repositoryHead: admittedRecord.repositoryHead,
+      sourceFingerprint: admittedRecord.sourceFingerprint,
+      reconciliation: "record-validated-against-admission-capture",
+    };
+  } else if (invocationAborted()) {
+    admittedIdentity = {
+      kind: "unavailable",
+      cause: "the invocation was aborted before its source identity could be captured",
+    };
+  } else {
+    try {
+      admittedCapture = await captureSourceFingerprint({
+        repositoryRoot: invocation.base,
+        deadlineMs: budgetFor("the source identity capture"),
+        signal: abortSignal,
+      });
+      admittedSourceFingerprint = admittedCapture.digest;
+      admittedIdentity = {
+        kind: "admitted-source",
+        repositoryHead: admittedCapture.repositoryHead,
+        sourceFingerprint: admittedCapture.digest,
+        entryCount: admittedCapture.entryCount,
       };
+    } catch (error) {
+      const stageError = error instanceof PackagePreparationStageError ? error : undefined;
+      const cancelled = invocationAborted() || stageError?.result.cancelled === true;
+      const cause = error instanceof Error ? error.message : String(error);
+      return finalizeInvocation({
+        invocation,
+        logDir,
+        startedAt,
+        suiteCommand,
+        runs: [],
+        aggregateExhausted: false,
+        interrupted: cancelled,
+        cleanupFailed: false,
+        cleanupFailure: undefined,
+        cleanupDurationMs: 0,
+        preparation: { status: "none", requests: 0, durationMs: 0, cleanupDurationMs: 0, cleanupFailed: false },
+        admittedIdentity: {
+          kind: "unavailable",
+          cause: cancelled ? `interrupted during the source identity capture: ${cause}` : cause,
+        },
+        admittedRecord: null,
+        archivePath: null,
+        packedRuntime: undefined,
+        preparationLogPath: undefined,
+        invocationError: undefined,
+        invocationFailure: cause,
+      });
     }
   }
 
@@ -1324,6 +1778,8 @@ export async function runSupervisedSuite(
   // receive is injected directly once preparation has settled, so later runs
   // (and any consumer in them) never touch the channel again.
   let preparedArchivePath: string | undefined;
+  let preparedRecord: PackageIdentityRecord | null = null;
+  let retainedPreparationLog: string | undefined;
   const channel =
     suppliedArchivePath === undefined && invocation.plan !== null
       ? createPackageRequestChannel()
@@ -1331,9 +1787,27 @@ export async function runSupervisedSuite(
   const watcher =
     channel === null
       ? null
-      : watchPackageRequests(invocation, channel, options, abortSignal, startedAt, (archivePath) => {
-          preparedArchivePath = archivePath;
-        });
+      : watchPackageRequests(
+          invocation,
+          channel,
+          options,
+          abortSignal,
+          startedAt,
+          admittedSourceFingerprint,
+          observePackedRuntime,
+          (archivePath, record) => {
+            preparedArchivePath = archivePath;
+            preparedRecord = record;
+            // The prepared candidate's record reconciled with the admission
+            // capture before publication; it is the admitted authority now.
+            admittedIdentity = {
+              kind: "candidate-record",
+              repositoryHead: record.repositoryHead,
+              sourceFingerprint: record.sourceFingerprint,
+              reconciliation: "record-equals-admission-capture",
+            };
+          },
+        );
 
   const runs: SupervisedRun[] = [];
   let interrupted = false;
@@ -1485,7 +1959,7 @@ export async function runSupervisedSuite(
     const finalPreparationSnapshot = watcher?.evidence();
     if (finalPreparationSnapshot !== undefined && (finalPreparationSnapshot.status === "failed" || finalPreparationSnapshot.status === "interrupted")) {
       try {
-        writePreparationLog(logDir, { ...finalPreparationSnapshot, cleanupDurationMs, cleanupFailed,
+        retainedPreparationLog = writePreparationLog(logDir, { ...finalPreparationSnapshot, cleanupDurationMs, cleanupFailed,
           ...(cleanupFailure === undefined ? {} : { cleanupFailure }) });
       } catch (error) {
         cleanupFailed = true;
@@ -1537,48 +2011,264 @@ export async function runSupervisedSuite(
     ...(watcherEvidence?.diagnostics === undefined ? {} : { diagnostics: watcherEvidence.diagnostics }),
     ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
   };
-  if (invocationError !== undefined) {
-    throw Object.assign(new AggregateError(
-      [invocationError, ...(cleanupFailure === undefined ? [] : [new Error(cleanupFailure)])],
-      [String(invocationError), cleanupFailure].filter(Boolean).join("; "),
-      { cause: invocationError },
-    ), { preparation: finalPreparation });
-  }
-  interrupted ||= finalPreparation.status === "interrupted";
-  const completedRuns = runs.filter(runComplete).length;
-  // Failed candidate cleanup is never a complete qualification, even when
-  // every run was green: a resource the invocation owned could not be freed.
-  // The final aggregate check includes the awaited cleanup work: a stress
-  // invocation whose last child and cleanup ran past the aggregate is
-  // incomplete, with its cleanup diagnostics retained.
-  let finalAggregateExhausted = aggregateExhausted;
   if (mode === "stress" && Date.now() - startedAt >= aggregate) {
-    finalAggregateExhausted = true;
+    aggregateExhausted = true;
   }
-  const ok =
-    runs.length === maxRuns &&
-    completedRuns === maxRuns &&
-    finalAggregateExhausted === false &&
-    cleanupFailed === false &&
-    finalPreparation.status !== "failed" &&
-    finalPreparation.status !== "interrupted" &&
-    finalPreparation.childCleanupFailed !== true;
-  const firstFailure = runs.find((run) => !runComplete(run)) ?? null;
-  return {
-    mode,
-    ok,
-    attemptedRuns: runs.length,
-    completedRuns,
-    maxRuns,
-    runs,
-    aggregateDurationMs: Date.now() - startedAt,
+  // One finalization path: the record is written for every exit — green,
+  // failed, interrupted, and zero-run admissions alike — and the exceptional
+  // run-loop error rethrows only after the evidence is finalized.
+  return finalizeInvocation({
+    invocation,
     logDir,
+    startedAt,
+    suiteCommand,
+    runs,
+    aggregateExhausted,
+    interrupted,
+    cleanupFailed,
+    cleanupFailure,
+    cleanupDurationMs,
+    preparation: finalPreparation,
+    admittedIdentity,
+    admittedRecord: admittedRecord ?? preparedRecord,
+    archivePath: preparedArchivePath ?? suppliedArchivePath ?? null,
+    packedRuntime,
+    preparationLogPath: retainedPreparationLog,
+    invocationError,
+    ...(options.bunArguments === undefined || options.bunArguments.length === 0
+      ? {}
+      : { bunArguments: options.bunArguments }),
+  });
+}
+
+/** The facts one finalization consumes: canonical outcome plus admitted identity. */
+interface FinalizationFacts {
+  readonly invocation: PreparedSuiteInvocation;
+  readonly logDir: string;
+  readonly startedAt: number;
+  readonly suiteCommand: readonly string[];
+  readonly runs: readonly SupervisedRun[];
+  readonly aggregateExhausted: boolean;
+  readonly interrupted: boolean;
+  readonly cleanupFailed: boolean;
+  readonly cleanupFailure: string | undefined;
+  readonly cleanupDurationMs: number;
+  readonly preparation: PreparationEvidence;
+  readonly admittedIdentity: QualificationSourceIdentity;
+  readonly admittedRecord: PackageIdentityRecord | null;
+  readonly archivePath: string | null;
+  readonly packedRuntime: PackedRuntimeObservation | undefined;
+  readonly preparationLogPath: string | undefined;
+  readonly invocationError: unknown;
+  /** A zero-run failure's direct cause (admission rejection, capture failure). */
+  readonly invocationFailure?: string;
+  readonly bunArguments?: readonly string[];
+}
+
+/** One supervised run's projection into the qualification record. */
+function qualificationRunRecord(
+  plan: SelectionPlan | null,
+  logDir: string,
+  run: SupervisedRun,
+): QualificationRunRecord {
+  const result = run.result;
+  return {
+    runNumber: run.runNumber,
+    command: result.commandLabel,
+    kind: result.kind,
+    exitCode: result.exitCode ?? null,
+    signal: result.signal ?? null,
+    timedOut: result.timedOut,
+    cancelled: result.cancelled,
+    cleanupFailed: result.cleanupFailed,
+    cleanupDurationMs: result.cleanupDurationMs,
+    durationMs: result.durationMs,
+    ...(run.coverage === undefined ? {} : { coverage: run.coverage }),
+    logPath: run.logPath,
+    ...(plan === null ? {} : { junitPath: junitEvidencePath(logDir, run.runNumber) }),
+  };
+}
+
+/**
+ * The record projection: canonical facts copied once — executor results,
+ * selection plan, preparation evidence, retained identity records — with no
+ * derivation of its own beyond the shared completion evaluator.
+ */
+function buildQualificationRecord(
+  facts: FinalizationFacts,
+  evaluation: InvocationCompletion,
+  cleanupFailure: string | undefined,
+  completedRuns: number,
+  durationMs: number,
+): QualificationRecord {
+  const policy = facts.invocation.policy;
+  const plan = facts.invocation.plan;
+  return {
+    schema: QUALIFICATION_RECORD_SCHEMA,
+    mode: policy.mode,
+    status: evaluation.status,
+    ...(evaluation.reason === undefined ? {} : { reason: evaluation.reason }),
+    ok: evaluation.ok,
+    source: facts.admittedIdentity,
+    ...(facts.admittedRecord === null || facts.archivePath === null
+      ? {}
+      : {
+          artifact: {
+            archivePath: facts.archivePath,
+            archiveDigest: facts.admittedRecord.archiveDigest,
+          },
+        }),
+    runtime: {
+      supervisor: {
+        name: "bun",
+        version: process.versions.bun,
+        executable: process.execPath,
+        platform: process.platform,
+        arch: process.arch,
+      },
+      // The runtime that actually executed the supervised suite: the pinned
+      // Bun for canonical invocations, the injected seam's executable for
+      // test-seam invocations — never one claimed as the other.
+      suiteRunner:
+        plan === null
+          ? { kind: "injected-fixture", executable: facts.suiteCommand[0] ?? "" }
+          : {
+              kind: "pinned-bun",
+              version: process.versions.bun,
+              executable: facts.suiteCommand[0] ?? "",
+            },
+      // Present only when a candidate was admitted: the observation is
+      // evidence of the canonical packed consumer's selected Node, never a
+      // claim about every child the invocation spawned.
+      ...(facts.packedRuntime === undefined ? {} : { packedCli: facts.packedRuntime }),
+    },
+    selection:
+      plan === null
+        ? null
+        : {
+            selectedCount: plan.selected.length,
+            selectionDigest: digestBytes(Buffer.from([...plan.selected].sort().join("\n"))),
+            excluded: plan.excluded,
+            named: plan.named,
+            ...(facts.bunArguments === undefined || facts.bunArguments.length === 0
+              ? {}
+              : { bunArguments: [...facts.bunArguments] }),
+          },
+    policy: {
+      perRunDeadlineMs: policy.perRunDeadlineMs,
+      aggregateDeadlineMs: policy.aggregateDeadlineMs,
+      maxRuns: policy.maxRuns,
+    },
+    command: facts.suiteCommand.join(" "),
+    preparation: {
+      status: facts.preparation.status,
+      requests: facts.preparation.requests,
+      durationMs: facts.preparation.durationMs,
+      cleanupDurationMs: facts.preparation.cleanupDurationMs,
+      cleanupFailed: facts.preparation.cleanupFailed,
+      ...(facts.preparation.archivePath === undefined ? {} : { archivePath: facts.preparation.archivePath }),
+      ...(facts.preparation.failure === undefined ? {} : { failure: facts.preparation.failure }),
+      ...(facts.preparation.childCleanupFailed === undefined
+        ? {}
+        : { childCleanupFailed: facts.preparation.childCleanupFailed }),
+      ...(facts.preparation.childCleanupDurationMs === undefined
+        ? {}
+        : { childCleanupDurationMs: facts.preparation.childCleanupDurationMs }),
+    },
+    runs: facts.runs.map((run) => qualificationRunRecord(plan, facts.logDir, run)),
+    attemptedRuns: facts.runs.length,
+    completedRuns,
+    durationMs,
+    diagnostics: {
+      logDir: facts.logDir,
+      ...(facts.preparationLogPath === undefined ? {} : { preparationLog: facts.preparationLogPath }),
+      ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
+    },
+  };
+}
+
+/**
+ * The one finalization path for every exit: derive the shared completion
+ * evaluation, write the qualification record, fold any publication failure
+ * into the cleanup evidence, then return the result — or rethrow the
+ * exceptional run-loop error with the finalized preparation attached.
+ */
+function finalizeInvocation(facts: FinalizationFacts): SuiteSupervisorResult {
+  const policy = facts.invocation.policy;
+  const durationMs = Date.now() - facts.startedAt;
+  const completedRuns = facts.runs.filter(runComplete).length;
+  const firstFailure = facts.runs.find((run) => !runComplete(run)) ?? null;
+  const interrupted = facts.interrupted || facts.preparation.status === "interrupted";
+  const firstFailureDescription =
+    firstFailure === null
+      ? null
+      : `run ${firstFailure.runNumber}/${policy.maxRuns} (${describeRunOutcome(firstFailure)})`;
+  // An exceptional run-loop exit is never a complete qualification and its
+  // cause travels into the retained record's reason.
+  const invocationFailure =
+    facts.invocationFailure ??
+    (facts.invocationError === undefined ? undefined : String(facts.invocationError));
+  const evaluate = (cleanupFailed: boolean, cleanupFailure: string | undefined): InvocationCompletion =>
+    evaluateInvocationCompletion({
+      maxRuns: policy.maxRuns,
+      attemptedRuns: facts.runs.length,
+      completedRuns,
+      aggregateExhausted: facts.aggregateExhausted,
+      interrupted,
+      cleanupFailed,
+      cleanupFailure,
+      preparation: facts.preparation,
+      firstFailureDescription,
+      packedRuntime: facts.packedRuntime,
+      ...(invocationFailure === undefined ? {} : { invocationFailure }),
+    });
+  let cleanupFailed = facts.cleanupFailed;
+  let cleanupFailure = facts.cleanupFailure;
+  let evaluation = evaluate(cleanupFailed, cleanupFailure);
+  try {
+    writeQualificationRecord(facts.logDir, buildQualificationRecord(facts, evaluation, cleanupFailure, completedRuns, durationMs));
+  } catch (error) {
+    cleanupFailed = true;
+    cleanupFailure = [facts.cleanupFailure, error instanceof Error ? error.message : String(error)]
+      .filter(Boolean)
+      .join("; ");
+    evaluation = evaluate(cleanupFailed, cleanupFailure);
+  }
+  const finalPreparation: PreparationEvidence =
+    cleanupFailed === facts.cleanupFailed && cleanupFailure === facts.cleanupFailure
+      ? facts.preparation
+      : {
+          ...facts.preparation,
+          cleanupFailed,
+          ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
+        };
+  const result: SuiteSupervisorResult = {
+    mode: policy.mode,
+    ok: evaluation.ok,
+    attemptedRuns: facts.runs.length,
+    completedRuns,
+    maxRuns: policy.maxRuns,
+    runs: facts.runs,
+    aggregateDurationMs: durationMs,
+    logDir: facts.logDir,
     firstFailure,
-    aggregateExhausted: finalAggregateExhausted,
+    aggregateExhausted: facts.aggregateExhausted,
     interrupted,
     preparation: finalPreparation,
   };
+  if (facts.invocationError !== undefined) {
+    throw Object.assign(
+      new AggregateError(
+        [facts.invocationError, ...(cleanupFailure === undefined ? [] : [new Error(cleanupFailure)])],
+        [String(facts.invocationError), cleanupFailure].filter(Boolean).join("; "),
+        { cause: facts.invocationError },
+      ),
+      { preparation: finalPreparation },
+    );
+  }
+  return result;
 }
+
 function describeOutcome(result: ProcessResult): string {
   switch (result.kind) {
     case "exit":

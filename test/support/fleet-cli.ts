@@ -10,6 +10,7 @@ import {
   extractPackageArchive,
   obtainPackageArchive,
   packageArchiveRepositoryRoot,
+  packedCliNodeExecutable,
 } from "./package-archive.js";
 
 export type FleetProcessExecutor = typeof runProcess;
@@ -176,7 +177,7 @@ export async function runFleetCli(
     home,
     pathValue,
     arguments_,
-    executable: process.env.NODE_BINARY ?? "node",
+    executable: packedCliNodeExecutable(),
     cliPath: await resolveFleetCliPath(),
   }, executor);
 }
@@ -215,7 +216,7 @@ export async function runFleetCliWithCandidate(
   executor: FleetProcessExecutor = runProcess,
 ): Promise<ProcessResult> {
   return fleetLaunch(
-    { home, pathValue, arguments_, executable: process.env.NODE_BINARY ?? "node", cliPath },
+    { home, pathValue, arguments_, executable: packedCliNodeExecutable(), cliPath },
     executor,
   );
 }

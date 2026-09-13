@@ -54,6 +54,7 @@ import {
   runFleetCliWithExplicitPath,
   withFleetScope,
 } from "./support/fleet-cli.js";
+import { packedCliNodeExecutable } from "./support/package-archive.js";
 import {
   createFleetFixture,
   cleanupFleetFixtures,
@@ -145,7 +146,7 @@ async function runCliInPtyRaw(
     `stty cols ${columns};`,
     "exec",
     ...[
-      process.env.NODE_BINARY ?? "node",
+      packedCliNodeExecutable(),
       fleetCliPath,
       ...withFleetScope(arguments_),
     ].map(shellQuote),
@@ -495,7 +496,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [fleetCliPath, "status", "--all"],
       environment: {
         ...process.env,
@@ -512,7 +513,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(delayed.stdout).not.toMatch(/\u001b\[/);
 
     const json = await runProcess({
-      executable: process.env.NODE_BINARY ?? "node",
+      executable: packedCliNodeExecutable(),
       arguments_: [fleetCliPath, "status", "--all", "--json"],
       environment: {
         ...process.env,
