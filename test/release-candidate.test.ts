@@ -46,26 +46,34 @@ const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
 
 /**
- * Parse the minimum Node major from package.json engines.node.
+ * Parse the declared Node support line from package.json engines.node.
  * package.json is the sole supported-runtime home; this gate must not hardcode a major.
- * Supported forms: ">=MAJOR", ">=MAJOR.MINOR", ">=MAJOR.MINOR.PATCH" (optional whitespace after >=).
+ * Supported forms: ">=MAJOR", ">=MAJOR.MINOR", ">=MAJOR.MINOR.PATCH", each with an
+ * optional explicit upper bound "<MAJOR" that keeps the manifest from claiming
+ * newer Node lines through an open-ended range (US-007, DEC-010).
  */
-function minimumNodeMajorFromEngines(enginesNode: unknown): { major: number; range: string } {
+function declaredNodeLine(enginesNode: unknown): { major: number; upperMajor: number | null; range: string } {
   if (typeof enginesNode !== "string" || enginesNode.trim() === "") {
     throw new Error("package.json engines.node must be a non-empty string");
   }
   const range = enginesNode.trim();
-  const match = /^(?:>=\s*)(\d+)(?:\.\d+)?(?:\.\d+)?$/.exec(range);
+  const match = /^(?:>=\s*)(\d+)(?:\.\d+)?(?:\.\d+)?(?:\s*<\s*(\d+))?$/.exec(range);
   if (!match?.[1]) {
     throw new Error(
-      `package.json engines.node '${range}' cannot be interpreted by the release-candidate Node probe; use '>=MAJOR' (optionally with .MINOR or .MINOR.PATCH)`,
+      `package.json engines.node '${range}' cannot be interpreted by the release-candidate Node probe; use '>=MAJOR' (optionally with .MINOR or .MINOR.PATCH, and an explicit '<MAJOR' upper bound)`,
     );
   }
   const major = Number(match[1]);
   if (!Number.isInteger(major) || major < 1) {
     throw new Error(`package.json engines.node '${range}' has an invalid major version`);
   }
-  return { major, range };
+  const upperMajor = match[2] === undefined ? null : Number(match[2]);
+  if (upperMajor !== null && (!Number.isInteger(upperMajor) || upperMajor <= major)) {
+    throw new Error(
+      `package.json engines.node '${range}' declares an upper bound that excludes the declared primary line`,
+    );
+  }
+  return { major, upperMajor, range };
 }
 
 /**
@@ -73,7 +81,7 @@ function minimumNodeMajorFromEngines(enginesNode: unknown): { major: number; ran
  * Never fall back to process.execPath under bun test — that would exercise Bun, not the declared runtime (ADR-0008).
  * Override with NODE_BINARY when the supported Node is not first on PATH.
  */
-function resolveNodeBinary(minimumMajor: number, enginesRange: string): string {
+function resolveNodeBinary(minimumMajor: number, upperMajor: number | null, enginesRange: string): string {
   const candidates = process.env.NODE_BINARY ? [process.env.NODE_BINARY] : ["node"];
 
   for (const candidate of candidates) {
@@ -100,6 +108,14 @@ function resolveNodeBinary(minimumMajor: number, enginesRange: string): string {
         `Resolved Node ${identity.node} at ${identity.execPath} is below package engines.node '${enginesRange}'; set NODE_BINARY to a supported Node executable`,
       );
     }
+    // The declared upper bound is qualified support, not an open promise: a
+    // newer Node line is not claimed (US-007/DEC-010), so packed-CLI gates
+    // refuse it instead of silently qualifying an undeclared environment.
+    if (upperMajor !== null && major >= upperMajor) {
+      throw new Error(
+        `Resolved Node ${identity.node} at ${identity.execPath} is outside the declared Node line of package engines.node '${enginesRange}'; set NODE_BINARY to a Node executable on the declared line`,
+      );
+    }
     return identity.execPath;
   }
 
@@ -114,16 +130,18 @@ let cliPath = "";
 let packageVersion = "";
 let nodeBinary = "";
 let minimumNodeMajor = 0;
+let declaredUpperMajor: number | null = null;
 let enginesNodeRange = "";
 
 beforeAll(async () => {
   const rootManifest = JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf8")) as {
     engines?: { node?: unknown };
   };
-  const requirement = minimumNodeMajorFromEngines(rootManifest.engines?.node);
+  const requirement = declaredNodeLine(rootManifest.engines?.node);
   minimumNodeMajor = requirement.major;
+  declaredUpperMajor = requirement.upperMajor;
   enginesNodeRange = requirement.range;
-  nodeBinary = resolveNodeBinary(minimumNodeMajor, enginesNodeRange);
+  nodeBinary = resolveNodeBinary(minimumNodeMajor, declaredUpperMajor, enginesNodeRange);
 
   const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-rc-pack-");
   packageArchive = archive.path;
@@ -139,8 +157,12 @@ beforeAll(async () => {
   };
   packageVersion = packedManifest.version;
   // Packed engines must match the repository source of truth used for the Node probe.
-  const packedRequirement = minimumNodeMajorFromEngines(packedManifest.engines?.node);
-  if (packedRequirement.major !== minimumNodeMajor || packedRequirement.range !== enginesNodeRange) {
+  const packedRequirement = declaredNodeLine(packedManifest.engines?.node);
+  if (
+    packedRequirement.major !== minimumNodeMajor ||
+    packedRequirement.upperMajor !== declaredUpperMajor ||
+    packedRequirement.range !== enginesNodeRange
+  ) {
     throw new Error(
       `Packed package engines.node '${packedRequirement.range}' does not match repository engines.node '${enginesNodeRange}'`,
     );
@@ -494,6 +516,11 @@ describe("project-bound release candidate", () => {
     const identity = JSON.parse(probe.stdout) as { node: string; bun: string | null };
     expect(identity.bun).toBeNull();
     expect(Number(identity.node.split(".")[0])).toBeGreaterThanOrEqual(minimumNodeMajor);
+    if (declaredUpperMajor !== null) {
+      // The qualified upper bound is enforced at the packed boundary: a newer
+      // Node line is refused above, never silently qualified (US-007/DEC-010).
+      expect(Number(identity.node.split(".")[0])).toBeLessThan(declaredUpperMajor);
+    }
   });
 
   test("package manifest is the sole engine version and ownership receipts omit engine provenance", async () => {

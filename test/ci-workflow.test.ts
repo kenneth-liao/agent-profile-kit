@@ -147,6 +147,32 @@ test("retains the qualification record and supervised diagnostics on every outco
   expect(uploadSteps).toHaveLength(1);
 });
 
+test("declares the qualified Node and platform support in one canonical home", () => {
+  const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")) as {
+    engines?: { node?: string };
+    os?: string[];
+  };
+  // Node 22 is the declared primary qualification line; the explicit upper
+  // bound keeps the manifest from claiming every newer Node line through an
+  // open-ended engine range (US-007, DEC-010). macOS-only scope stays
+  // declared; expansion requires an explicit support decision.
+  expect(manifest.engines?.node).toBe(">=22 <23");
+  expect(manifest.os).toEqual(["darwin"]);
+});
+
+// The Node that actually executes the packed CLI is the workflow's selected
+// Node: the record's packed CLI probe and every packed consumer read the same
+// one reader, so no Bun direct-test pass can be mislabeled as Node 22.
+test("installs the declared primary Node line in every CI job", () => {
+  const setupNodes = Object.values(workflow.jobs ?? {})
+    .flatMap((job) => job.steps ?? [])
+    .filter((step) => step.uses?.startsWith("actions/setup-node@"));
+  expect(setupNodes).toHaveLength(2);
+  for (const step of setupNodes) {
+    expect(step.with?.["node-version"]).toBe("22");
+  }
+});
+
 test("package scripts keep local typecheck, build, and supervised tests independently usable", () => {
   const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")) as {
     scripts: Record<string, string>;

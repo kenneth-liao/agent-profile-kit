@@ -1917,13 +1917,14 @@ test("mutating consumer requests the candidate", async () => {
     };
     expect(record.status).toBe("incomplete");
     expect(record.ok).toBe(false);
-    // The bounded capture consumed the invocation's whole budget (no fresh
-    // floor): the cause names the exhausted stage, whether the budget check
-    // or the bounded git child hit it first.
-    expect(record.reason).toMatch(/budget exhausted|source capture failed/);
+    // The bounded admission stages consumed the invocation's whole budget (no
+    // fresh floor): the cause names the exhausted stage — the macOS version
+    // observation probe runs at admission before the capture (#540), so either
+    // the budget check or a bounded child of either stage can hit it first.
+    expect(record.reason).toMatch(/budget is exhausted|source capture failed/);
     // The capture failure stops unqualified execution: no runs, explicit cause.
     expect(record.source.kind).toBe("unavailable");
-    expect(record.source.cause).toMatch(/budget exhausted|source capture failed/);
+    expect(record.source.cause).toMatch(/budget is exhausted|source capture failed/);
     expect(record.preparation.status).toBe("failed");
   });
 

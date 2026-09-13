@@ -4,7 +4,13 @@ Agent Profile Kit composes your Skills and Context into portable Profiles and
 installs them into the projects you choose, as native material for your Agent
 Hosts.
 
-The initial release supports macOS only.
+The initial release supports macOS only, on the Node.js 22 line — the package's
+declared primary Node runtime; no newer Node release line is claimed. The
+actually observed baseline (macOS version, CPU architecture, and Node version)
+is recorded in each supervised qualification run's record, retained as CI
+evidence. Supporting additional environments is an explicit decision backed by
+matching packed installation and lifecycle evidence, never an engine-range
+promise.
 
 Supported Hosts: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 
