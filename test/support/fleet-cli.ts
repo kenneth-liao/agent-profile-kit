@@ -75,16 +75,24 @@ export async function resolveFleetCliPath(): Promise<string> {
 
 /**
  * Release the resolved candidate's extraction directory and reset the
- * memoization. The fleet qualification file calls this from `afterAll` so the
- * extraction lifetime is owned and released deterministically per run process
- * (each supervised stress run is a fresh process, so nothing crosses runs).
+ * memoization. If a resolution is still in flight, the release waits for it
+ * and removes whatever directory it produced, so no extraction directory
+ * outlives the released lifetime and no later caller can reuse a candidate
+ * from an ended lifetime (their launch fails loudly instead). The fleet
+ * qualification file calls this from `afterAll` so the extraction lifetime is
+ * owned and released deterministically per run process (each supervised
+ * stress run is a fresh process, so nothing crosses runs).
  */
-export function releaseFleetCliPath(): void {
-  if (resolvedCandidate !== null) {
-    rmSync(resolvedCandidate.directory, { recursive: true, force: true });
-  }
-  resolvedCandidate = null;
+export async function releaseFleetCliPath(): Promise<void> {
+  const inFlight = resolutionInFlight;
+  const resolved = resolvedCandidate;
   resolutionInFlight = null;
+  resolvedCandidate = null;
+  const directory =
+    resolved?.directory ?? (await inFlight?.catch(() => undefined))?.directory;
+  if (directory !== undefined) {
+    rmSync(directory, { recursive: true, force: true });
+  }
 }
 
 /**

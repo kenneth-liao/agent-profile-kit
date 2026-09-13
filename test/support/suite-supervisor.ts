@@ -22,7 +22,6 @@ import {
 import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./corpus-inventory.js";
 import { parseBunJunitEvidence } from "./junit-evidence.js";
 import {
-  packageArchiveRepositoryRoot,
   PackagePreparationStageError,
   PREPARED_PACKAGE_ARCHIVE_ENV,
   preparedPackageArchive,
@@ -33,7 +32,10 @@ import {
 } from "./package-archive.js";
 import {
   deriveInvocationPackageNeed,
+  deriveInvocationSelectionScope,
+  focusedPositionalArguments,
   type InvocationPackageNeed,
+  type InvocationSelectionScope,
 } from "./invocation-candidate.js";
 
 /**
@@ -157,12 +159,6 @@ export interface SuiteSupervisorOptions {
   readonly cleanupGraceMs?: number;
   /** Called as each run completes, before the next run starts. */
   readonly onRunComplete?: (run: SupervisedRun) => void;
-  /**
-   * Test seam: replace the registered invocation-package consumer paths for
-   * this invocation (fixture corpora are not the repository corpus, so the
-   * registry does not describe them). Canonical invocations never set it.
-   */
-  readonly packageConsumers?: readonly string[];
   /**
    * Test seam: replace the bounded package preparation commands (for example
    * an injected command pair that produces a real tarball). Canonical
@@ -464,6 +460,8 @@ export interface SelectionPlan {
   readonly named: readonly string[];
   /** True when a focused invocation filters by test name (e.g. `-t`). */
   readonly nameFilterActive: boolean;
+  /** How much of the corpus this selection provably executes. */
+  readonly scope: InvocationSelectionScope;
 }
 
 function corpusBase(options: SuiteSupervisorOptions): string {
@@ -547,19 +545,10 @@ function rejectSilentSelectionConfig(base: string): void {
  * filters and are never treated as missing coverage.
  */
 /**
- * The consumer registry is corpus-relative to this module's own repository, so
- * it applies only when the supervised corpus base is that repository. Fixture
- * corpora (different base) derive need from an explicitly injected consumer
- * list instead — the registry would not describe their files, and validating
- * repository entries against a fixture corpus would be meaningless.
+ * The consumer capability declarations travel with the files that carry them;
+ * fixture corpora declare through the same marker module as the repository
+ * corpus, so no registry is consulted and no base-identity check is needed.
  */
-function registryAppliesTo(base: string): boolean {
-  try {
-    return realpathSync(base) === realpathSync(packageArchiveRepositoryRoot());
-  } catch {
-    return false;
-  }
-}
 
 function deriveSelectionPlan(
   mode: SuiteMode,
@@ -579,6 +568,7 @@ function deriveSelectionPlan(
       selected: inventory.selected,
       excluded: inventory.excluded,
       named,
+      scope: deriveInvocationSelectionScope(base, bunArguments ?? []),
       // A name filter intentionally selects fewer tests, and bun's junit
       // evidence reports the filter complement as skipped without
       // distinguishing it from test.skip(); only in that case is the skip
@@ -599,6 +589,7 @@ function deriveSelectionPlan(
     selected: inventory.selected,
     excluded: inventory.excluded,
     named: [],
+    scope: "whole-corpus",
     nameFilterActive: false,
   };
 }
@@ -629,19 +620,22 @@ export function prepareSuiteInvocation(options: SuiteSupervisorOptions): Prepare
   assertRunnerIsPinnedBun(pinnedBunVersion(), process.versions.bun);
   rejectSilentSelectionConfig(base);
   const plan = deriveSelectionPlan(policy.mode, base, options.bunArguments);
+  // The files whose capability declarations are scanned: for exact-file scope
+  // the raw positional arguments (fixtures included — a fixture may declare
+  // the capability through an absolute import); otherwise the files the
+  // runner may execute, which for a flag-only focused selection is the whole
+  // inventory because the runner searches the entire test root.
+  const executableFiles =
+    plan.scope === "exact-files"
+      ? focusedPositionalArguments(options.bunArguments ?? [])
+      : plan.scope === "whole-corpus" && policy.mode === "focused"
+        ? plan.files
+        : plan.selected;
   const packageNeed = deriveInvocationPackageNeed({
     mode: policy.mode,
-    selected: plan.selected,
-    named: plan.named,
-    nameFilterActive: plan.nameFilterActive,
-    inventoryFiles: plan.files,
-    ...(
-      options.packageConsumers === undefined
-        ? registryAppliesTo(base)
-          ? {}
-          : { consumers: [] }
-        : { consumers: options.packageConsumers }
-    ),
+    scope: plan.scope,
+    executableFiles,
+    base,
   });
   return {
     policy,
@@ -783,6 +777,10 @@ function writeRunLog(
     ...invocation.runtimeHeader,
     `effective-policy: mode=${policy.mode} per-run=${policy.perRunDeadlineMs}ms aggregate=${policy.aggregateDeadlineMs}ms max-runs=${policy.maxRuns}`,
     preparationLogLine(preparation),
+    // The derivation's truthful reason travels with the evidence: why a
+    // candidate was prepared (which files declared the capability) or why it
+    // was not (no declaring file, or an unknowable selection scope).
+    `preparation-need: ${invocation.packageNeed?.evidence ?? "none (test seam)"}`,
     `command: ${result.commandLabel}`,
     `kind: ${result.kind}`,
     `exitCode: ${result.exitCode ?? "null"}`,
@@ -878,7 +876,27 @@ async function prepareInvocationCandidate(
       : invocation.policy.perRunDeadlineMs;
   const commands = options.packageCommands ?? systemPackageArchiveCommands;
   const startedAt = Date.now();
-  const candidateDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-invocation-candidate-"));
+  // Directory creation sits inside the evidence-owning try: a failure to
+  // create the candidate directory is a preparation failure with retained
+  // diagnostics, never an unstructured throw.
+  let candidateDirectory: string | null = null;
+  try {
+    candidateDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-invocation-candidate-"));
+  } catch (error) {
+    const failure = error instanceof Error ? error.message : String(error);
+    return {
+      candidateDirectory: null,
+      evidence: {
+        need: "package",
+        status: "failed",
+        durationMs: Date.now() - startedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        failure,
+        diagnostics: failure,
+      },
+    };
+  }
   // One abort reader for every stage boundary: TS control-flow narrowing does
   // not invalidate across awaits, so each check must read the live signal
   // rather than a value narrowed by an earlier check.
@@ -1004,7 +1022,6 @@ function preparationLogLine(evidence: PreparationEvidence): string {
     `status=${evidence.status}`,
     `durationMs=${evidence.durationMs}`,
     ...(evidence.archivePath === undefined ? [] : [`archive=${evidence.archivePath}`]),
-    ...(evidence.failure === undefined ? [] : [`failure=${evidence.failure}`]),
   ];
   return `preparation: ${parts.join(" ")}`;
 }
@@ -1283,8 +1300,8 @@ export function formatSuiteSummary(
       if (result.preparation.status === "failed") {
         return `suite stress: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
       }
-      if (result.interrupted) {
-        return `suite stress: interrupted (${interruptedBy ?? "abort"}) during preparation in ${duration} — logs: ${result.logDir}`;
+      if (result.preparation.status === "interrupted" || result.interrupted) {
+        return `suite stress: interrupted (${interruptedBy ?? "abort"}) ${result.preparation.status === "interrupted" ? "during preparation" : "before run 1"} in ${duration} — logs: ${result.logDir}`;
       }
       return `suite stress: aggregate deadline reached after 0/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`;
     }
@@ -1300,27 +1317,30 @@ export function formatSuiteSummary(
         ? `suite stress: aggregate deadline reached after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`
         : `suite stress: aggregate deadline reached during run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
     }
+    // A failed candidate cleanup fails the invocation even when every run was
+    // green, so the failure may carry no incomplete run to point at.
+    if (result.preparation.cleanupFailed) {
+      return `suite stress: failed (candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"}) after ${result.completedRuns}/${result.maxRuns} green runs in ${duration} — logs: ${result.logDir}`;
+    }
     const failure = result.firstFailure!;
-    const outcome = result.preparation.cleanupFailed
-      ? `failed (candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"})`
-      : `failed (${describeRunOutcome(failure)})`;
-    return `suite stress: ${formatPreparationSegment(result.preparation)}failed at run ${failure.runNumber}/${result.maxRuns} (${outcome}) in ${duration} — log: ${failure.logPath}`;
+    return `suite stress: ${formatPreparationSegment(result.preparation)}failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
   }
   if (result.runs.length === 0) {
     if (result.preparation.status === "failed") {
       return `suite ${result.mode}: preparation failed (${result.preparation.failure ?? "unspecified"}) in ${duration} — preparation log: ${PREPARATION_LOG_FILENAME} — logs: ${result.logDir}`;
     }
-    return `suite ${result.mode}: interrupted (${interruptedBy ?? "abort"}) during preparation in ${duration} — logs: ${result.logDir}`;
+    return `suite ${result.mode}: interrupted (${interruptedBy ?? "abort"}) ${result.preparation.status === "interrupted" ? "during preparation" : "before run 1"} in ${duration} — logs: ${result.logDir}`;
   }
   const run = result.runs[0]!;
-  const cleanupFailure =
-    result.preparation.cleanupFailed && result.preparation.cleanupFailure !== undefined
-      ? `candidate cleanup failed: ${result.preparation.cleanupFailure}`
-      : null;
+  // One shape for the cleanup-failure fact across modes: a failed cleanup is
+  // the invocation's outcome, whether or not a run also failed.
+  const cleanupFailure = result.preparation.cleanupFailed
+    ? `candidate cleanup failed: ${result.preparation.cleanupFailure ?? "unspecified"}`
+    : null;
   const outcome =
     interruptedBy !== null
       ? `interrupted (${interruptedBy})`
-      : cleanupFailure !== null
+      : result.preparation.cleanupFailed
         ? `failed (${cleanupFailure})`
         : result.ok
           ? describeRunOutcome(run)

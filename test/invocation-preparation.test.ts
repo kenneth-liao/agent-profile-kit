@@ -46,19 +46,22 @@ const seamImport = (module: string): string => join(REPOSITORY_ROOT, "test", "su
 const executorImport = join(REPOSITORY_ROOT, "process", "process-executor.js");
 
 const CONSUMER_A = "test/consumer-a.test.ts";
+const PURE_FILE = "test/pure.test.ts";
 const FLEET_CONSUMER = "test/fleet-consumer.test.ts";
 
 /**
- * The consumer fixture: it uses the real seam, asserts the supervised marker,
- * extracts the archive it was given, launches Node against the candidate's
- * CLI, and records the received archive path and the CLI's own output. A
- * candidate whose CLI does not print the marker (for example an unrelated
- * repository bundle) fails this consumer.
+ * The consumer fixture: it declares the consumer capability through the marker
+ * module (absolute import, as a fixture corpus file would), asserts the
+ * supervised marker, extracts the archive it was given, launches Node against
+ * the candidate's CLI, and records the received archive path and the CLI's own
+ * output. A candidate whose CLI does not print the marker (for example an
+ * unrelated repository bundle) fails this consumer.
  */
 const consumerSource = (name: string, markerName: string): string => `
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ${JSON.stringify(seamImport("invocation-package-consumer.js"))};
 import {
   extractPackageArchive,
   obtainPackageArchive,
@@ -103,6 +106,7 @@ const fleetConsumerSource = (markerName: string): string => `
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ${JSON.stringify(seamImport("invocation-package-consumer.js"))};
 import { runFleetCli, releaseFleetCliPath } from ${JSON.stringify(join(REPOSITORY_ROOT, "test", "support", "fleet-cli.js"))};
 
 test("fleet launches execute the invocation candidate", async () => {
@@ -115,8 +119,15 @@ test("fleet launches execute the invocation candidate", async () => {
       throw new Error(\`the fleet launch did not execute the invocation candidate: \${result.kind} \${result.stdout}\`);
     }
   } finally {
-    releaseFleetCliPath();
+    await releaseFleetCliPath();
   }
+});
+`;
+
+const pureSource = (name: string): string => `
+import { writeFileSync } from "node:fs";
+test("${name}", () => {
+  writeFileSync(${JSON.stringify(join("${BASE}", "markers"))} + "/${name}", "1");
 });
 `;
 
@@ -131,23 +142,17 @@ function fixtureCorpus(files: readonly CorpusFile[]): string {
   mkdirSync(join(base, "markers"));
   // The fast-suite exclusion policy names the fleet file; a corpus without it
   // is rejected as a mistyped policy, so every fixture corpus carries the
-  // placeholder (it is policy-excluded and never executes).
+  // placeholder (it is policy-excluded from the derived selection and never
+  // executes under full/stress mode — proven by the absent marker below).
   const corpus = [
     ...files,
-    { path: "test/fleet-qualification.test.ts", body: fleetPlaceholderSource() },
+    { path: "test/fleet-qualification.test.ts", body: pureSource("fleet-placeholder") },
   ];
   for (const file of corpus) {
     writeFileSync(join(base, file.path), file.body.replaceAll("${BASE}", base));
   }
   return base;
 }
-
-const fleetPlaceholderSource = (): string => `
-import { writeFileSync } from "node:fs";
-test("fleet placeholder is policy-excluded", () => {
-  writeFileSync(${JSON.stringify(join("${BASE}", "markers"))}/fleet-placeholder, "1");
-});
-`;
 
 /**
  * Injected preparation commands whose product is a REAL tarball: the build
@@ -211,10 +216,7 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     ]);
     const calls: string[] = [];
     const commands = realCandidateCommands("shared", calls);
-    const result = await runFullCorpus(base, {
-      packageConsumers: [CONSUMER_A, "test/consumer-b.test.ts"],
-      packageCommands: commands,
-    });
+    const result = await runFullCorpus(base, { packageCommands: commands });
     expect(result.ok).toBe(true);
     // Preparation is bounded, derived, and recorded with its shared budget.
     expect(result.preparation.need).toBe("package");
@@ -222,13 +224,15 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     expect(result.preparation.durationMs).toBeGreaterThan(0);
     expect(result.preparation.cleanupFailed).toBe(false);
     // Exactly one build and one pack; the pack's remaining budget share is
-    // smaller than the build's because the stages share one finite budget.
+    // bounded by the build's measured consumption because the stages share
+    // one finite budget (the injected build sleeps at least 25ms).
     expect(calls.filter((call) => call.startsWith("build:"))).toHaveLength(1);
     expect(calls.filter((call) => call.startsWith("pack:"))).toHaveLength(1);
     const buildShare = Number(calls.find((call) => call.startsWith("build:"))!.split(":")[1]);
     const packShare = Number(calls.find((call) => call.startsWith("pack:"))!.split(":")[1]);
     expect(buildShare).toBe(30_000);
-    expect(packShare).toBeLessThan(30_000);
+    expect(packShare).toBeGreaterThan(0);
+    expect(packShare).toBeLessThanOrEqual(30_000 - 25);
     // Both consumers received the same candidate archive and executed its CLI.
     const archiveA = readFileSync(join(base, "markers", "a-archive"), "utf8");
     const archiveB = readFileSync(join(base, "markers", "b-archive"), "utf8");
@@ -244,10 +248,11 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     // copies the consumers made are theirs to clean, the candidate is ours.
     expect(result.preparation.candidateDirectory).toBeDefined();
     expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
-    // The retained run log carries the preparation evidence.
+    // The retained run log carries the preparation evidence and its reason.
     const log = readFileSync(result.runs[0]!.logPath, "utf8");
     expect(log).toContain("preparation: need=package status=prepared");
     expect(log).toContain(`archive=${result.preparation.archivePath}`);
+    expect(log).toContain("declaring the invocation-package consumer capability");
     expect(log).toMatch(/preparation-cleanup: durationMs=\d+ failed=false/);
   });
 
@@ -262,7 +267,6 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
       const calls: string[] = [];
       const token = poisoned ? "poisoned" : "absent";
       const result = await runFullCorpus(base, {
-        packageConsumers: [FLEET_CONSUMER],
         packageCommands: realCandidateCommands(token, calls),
       });
       expect(result.ok).toBe(true);
@@ -273,6 +277,8 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
       expect(readFileSync(join(base, "markers", "fleet-output"), "utf8")).not.toContain(
         "WRONG-BUNDLE-MARKER",
       );
+      // The policy-excluded placeholder never executed in the full run.
+      expect(existsSync(join(base, "markers", "fleet-placeholder"))).toBe(false);
     }
   });
 
@@ -286,10 +292,7 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
         throw new Error("pack must never run after a failed build");
       },
     };
-    const result = await runFullCorpus(base, {
-      packageConsumers: [CONSUMER_A],
-      packageCommands: commands,
-    });
+    const result = await runFullCorpus(base, { packageCommands: commands });
     expect(result.ok).toBe(false);
     expect(result.attemptedRuns).toBe(0);
     expect(result.preparation.status).toBe("failed");
@@ -331,7 +334,6 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     delete process.env[SUPERVISED_INVOCATION_ENV];
     try {
       const result = await runFullCorpus(base, {
-        packageConsumers: [CONSUMER_A],
         packageCommands: realCandidateCommands("never", calls),
       });
       expect(result.ok).toBe(true);
@@ -362,16 +364,10 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
     const calls: string[] = [];
     const commands = realCandidateCommands("fresh", calls);
-    const first = await runFullCorpus(base, {
-      packageConsumers: [CONSUMER_A],
-      packageCommands: commands,
-    });
+    const first = await runFullCorpus(base, { packageCommands: commands });
     expect(first.ok).toBe(true);
     const firstArchive = readFileSync(join(base, "markers", "a-archive"), "utf8");
-    const second = await runFullCorpus(base, {
-      packageConsumers: [CONSUMER_A],
-      packageCommands: commands,
-    });
+    const second = await runFullCorpus(base, { packageCommands: commands });
     expect(second.ok).toBe(true);
     const secondArchive = readFileSync(join(base, "markers", "a-archive"), "utf8");
     expect(secondArchive).not.toBe(firstArchive);
@@ -382,8 +378,12 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
 
   test("an abort during preparation is interrupted with the candidate cleaned and no runs", async () => {
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const calls: string[] = [];
     const commands: PackageArchiveCommands = {
       build: async (stage) => {
+        calls.push(`build:${stage.deadlineMs}:${stage.signal === undefined ? "no-signal" : "signal"}`);
+        // The signal releases this wait; the fallback timer only bounds a
+        // broken signal path, and the proof below asserts propagation.
         await new Promise<void>((resolve) => {
           const timer = setTimeout(resolve, 5_000);
           stage.signal?.addEventListener(
@@ -402,29 +402,110 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     };
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 100);
+    const startedAt = Date.now();
     const result = await runFullCorpus(
       base,
-      { packageConsumers: [CONSUMER_A], packageCommands: commands },
+      { packageCommands: commands },
       controller.signal,
     );
     expect(result.ok).toBe(false);
     expect(result.interrupted).toBe(true);
     expect(result.attemptedRuns).toBe(0);
     expect(result.preparation.status).toBe("interrupted");
+    // The abort signal actually reached the build stage: the stage recorded
+    // receiving the signal and the invocation did not wait out the fallback.
+    expect(calls).toContain("build:30000:signal");
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
     expect(existsSync(join(result.logDir, PREPARATION_LOG_FILENAME))).toBe(true);
   });
 
-  test("an unregistered consumer fails closed instead of building", async () => {
+  test("an undeclared consumer fails closed instead of building", async () => {
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
-    // The consumer file exists in the corpus but is not injected as a
-    // registered consumer: the invocation derives no need, injects no archive,
-    // and the supervised consumer must fail loudly instead of building.
-    const result = await runFullCorpus(base, { packageConsumers: [] });
+    // The consumer file executes in the corpus but declares no capability, so
+    // the invocation derives no need, injects no archive, and the supervised
+    // consumer must fail loudly with the typed remedy instead of building.
+    const undeclaredSource = consumerSource("consumer A", "a").replace(
+      seamImport("invocation-package-consumer.js"),
+      seamImport("package-archive.js"),
+    );
+    writeFileSync(join(base, CONSUMER_A), undeclaredSource.replaceAll("${BASE}", base));
+    const calls: string[] = [];
+    const result = await runFullCorpus(base, {
+      packageCommands: realCandidateCommands("never", calls),
+    });
     expect(result.ok).toBe(false);
     expect(result.attemptedRuns).toBe(1);
     expect(result.preparation.status).toBe("none");
+    expect(calls).toEqual([]);
     expect(result.runs[0]!.result.stderr).toContain("SupervisorPreparationDefectError");
+  });
+
+  test("a pure name-filter selection never builds and runs green", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+      { path: PURE_FILE, body: pureSource("pure-selection-runs") },
+    ]);
+    const calls: string[] = [];
+    const result = await runSupervisedSuite({
+      mode: "focused",
+      bunArguments: ["-t", "pure-selection-runs"],
+      cwd: base,
+      perRunDeadlineMs: 30_000,
+      logDir: join(base, "logs"),
+      packageCommands: realCandidateCommands("never", calls),
+    });
+    // The selection's scope is unknowable, so nothing is prepared: the pure
+    // filter run completes without any build or pack, and the limit is stated
+    // in the retained evidence rather than silently.
+    expect(result.ok).toBe(true);
+    expect(result.preparation.need).toBe("none");
+    expect(result.preparation.status).toBe("none");
+    expect(calls).toEqual([]);
+    expect(existsSync(join(base, "markers", "pure-selection-runs"))).toBe(true);
+    expect(existsSync(join(base, "markers", "a-archive"))).toBe(false);
+    const log = readFileSync(result.runs[0]!.logPath, "utf8");
+    expect(log).toContain("selection scope cannot be proven");
+  });
+
+  test("a consumer-reaching name-filter selection fails closed instead of building", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const calls: string[] = [];
+    const result = await runSupervisedSuite({
+      mode: "focused",
+      bunArguments: ["-t", "consumer A"],
+      cwd: base,
+      perRunDeadlineMs: 30_000,
+      logDir: join(base, "logs"),
+      packageCommands: realCandidateCommands("never", calls),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.preparation.status).toBe("none");
+    expect(calls).toEqual([]);
+    expect(result.runs[0]!.result.stderr).toContain("SupervisorPreparationDefectError");
+  });
+
+  test("a flag-only focused selection executes the whole corpus and prepares", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const calls: string[] = [];
+    const commands = realCandidateCommands("flagonly", calls);
+    const result = await runSupervisedSuite({
+      mode: "focused",
+      bunArguments: ["--update-snapshots"],
+      cwd: base,
+      perRunDeadlineMs: 30_000,
+      logDir: join(base, "logs"),
+      packageCommands: commands,
+    });
+    // Without any positional argument the runner executes the whole test root,
+    // so the consumers run and preparation is owed — a provable need, stated
+    // truthfully in the evidence.
+    expect(result.ok).toBe(true);
+    expect(result.preparation.status).toBe("prepared");
+    expect(calls.filter((call) => call.startsWith("build:"))).toHaveLength(1);
+    expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain(
+      "CANDIDATE-CLI-MARKER-flagonly",
+    );
   });
 
   test("pure focused selections of consumer-seam and policy tests never prepare", async () => {

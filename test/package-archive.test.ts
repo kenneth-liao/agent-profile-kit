@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -118,10 +118,11 @@ describe("package archive consumer seam", () => {
     }
   });
 
-  test("the system commands run bounded build and pack stages and parse the packed filename", async () => {
+  test("the system build stage runs bounded and fails typed on an unreachable repository", async () => {
     // A real repository root is not needed to prove the command wiring: the
-    // stages must fail bounded and typed on a nonexistent repository rather
-    // than hang or swallow the failure.
+    // stage must fail bounded and typed on a nonexistent repository rather
+    // than hang or swallow the failure. The pack stage and filename parsing
+    // have their own proof below.
     const startedAt = Date.now();
     await expect(
       systemPackageArchiveCommands.build({
@@ -129,8 +130,32 @@ describe("package archive consumer seam", () => {
         deadlineMs: 2000,
         signal: undefined,
       }),
-    ).rejects.toThrow(/package build failed/);
+    ).rejects.toThrow(/package preparation build failed/);
     // The failing stage was bounded by its deadline, not left to hang.
     expect(Date.now() - startedAt).toBeLessThan(10_000);
+  });
+
+  test("the system pack stage runs bounded and returns the packed filename", async () => {
+    // A real tarball through the real pack stage: a staged directory with a
+    // minimal package is packed through the shared bounded executor and the
+    // JSON filename is parsed back.
+    const staging = mkdtempSync(join(tmpdir(), "apkit-pack-stage-"));
+    const destination = mkdtempSync(join(tmpdir(), "apkit-pack-dest-"));
+    try {
+      mkdirSync(join(staging, "package", "dist"), { recursive: true });
+      writeFileSync(
+        join(staging, "package", "package.json"),
+        JSON.stringify({ name: "agent-profile-kit-scan-fixture", version: "0.0.0-scan" }),
+      );
+      const filename = await systemPackageArchiveCommands.createScriptDisabledArchive(
+        { repositoryRoot: join(staging, "package"), deadlineMs: 10_000, signal: undefined },
+        destination,
+      );
+      expect(existsSync(join(destination, filename))).toBe(true);
+      expect(filename.startsWith("agent-profile-kit-scan-fixture-")).toBe(true);
+    } finally {
+      rmSync(staging, { recursive: true, force: true });
+      rmSync(destination, { recursive: true, force: true });
+    }
   });
 });

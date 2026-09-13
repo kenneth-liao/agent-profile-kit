@@ -1,27 +1,43 @@
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import type { SuiteMode } from "./suite-supervisor.js";
 
-import { INVOCATION_PACKAGE_CONSUMERS } from "./package-archive.js";
+import { INVOCATION_PACKAGE_CONSUMER_MARKER } from "./invocation-package-consumer.js";
 
 /**
  * One concern: deriving whether a supervised invocation must prepare the
- * invocation package candidate. Need is the intersection of the invocation's
- * mode selection with the explicit consumer registry
- * (`INVOCATION_PACKAGE_CONSUMERS` in `test/support/package-archive.ts`) —
- * never an import-graph inference, so need derivation stays a pure function
- * of the derived selection and the registry. Preparation orchestration lives
- * in the suite supervisor; the consumer seam lives in `package-archive.ts`.
+ * invocation package candidate. Need comes from the consumer capability
+ * declarations carried by the files that may execute in the invocation
+ * (`import ... support/invocation-package-consumer`), intersected with the
+ * invocation's provable selection scope — never an import-graph inference and
+ * never a maintained file registry, so the declaration lives in each consumer
+ * file and no second home duplicates it. Preparation orchestration lives in
+ * the suite supervisor; the consumer seam lives in `package-archive.ts`.
  */
 
+/** How much of the corpus an invocation's selection provably executes. */
+export type InvocationSelectionScope =
+  /** Every positional argument is an existing file path: exactly those run. */
+  | "exact-files"
+  /** No positional argument: the runner executes the whole test root. */
+  | "whole-corpus"
+  /**
+   * A name filter or a partial path filter makes the executed file set
+   * unknowable statically; consumer execution fails closed in such runs.
+   */
+  | "unknown";
+
 /**
- * Why an invocation must (or must not) prepare a candidate. `consumers` lists
- * the registered consumer files that drove a package need; `evidence` is the
- * truthful record of why preparation does or does not run, including the
- * filter-only case's explicit limit.
+ * Why an invocation must (or must not) prepare a candidate. `declared` lists
+ * the files whose capability declaration drove a package need; `evidence` is
+ * the truthful record of why preparation does or does not run, including the
+ * unknowable-scope case's explicit limit.
  */
 export type InvocationPackageNeed =
   | {
       readonly kind: "package";
-      readonly consumers: readonly string[];
+      readonly declared: readonly string[];
       readonly evidence: string;
     }
   | {
@@ -31,100 +47,134 @@ export type InvocationPackageNeed =
 
 export interface InvocationNeedInput {
   readonly mode: SuiteMode;
-  /** Required selection, POSIX-relative to the corpus base. */
-  readonly selected: readonly string[];
-  /** Focused arguments naming corpus files; other arguments are filters. */
-  readonly named: readonly string[];
-  readonly nameFilterActive: boolean;
-  /** Every corpus file before the exclusion policy, for registry validation. */
-  readonly inventoryFiles: readonly string[];
-  /** Overrides the registry (fixture corpora); defaults to the registry. */
-  readonly consumers?: readonly string[];
+  readonly scope: InvocationSelectionScope;
+  /**
+   * Files that may execute in this invocation: the named exact files for
+   * exact-file scope, the derived required selection for full/stress scope,
+   * or the whole inventory for a flag-only focused selection (the runner
+   * searches the whole test root, so policy-excluded files run too).
+   */
+  readonly executableFiles: readonly string[];
+  /** Corpus base the file paths resolve against. */
+  readonly base: string;
+  /** Reads one executable file's source; test injection only. */
+  readonly readSource?: (path: string) => string;
+}
+
+function defaultReadSource(base: string, path: string): string {
+  return readFileSync(resolve(base, path), "utf8");
+}
+
+/**
+ * One structural import scanner for capability declarations: the runtime's own
+ * transpiler parses the source, so only real import statements can declare —
+ * a file that merely mentions the marker in a string (for example a test of
+ * the derivation itself) cannot falsely declare. An import the transpiler
+ * cannot resolve statically is the consumer's own risk: if it is a consumer
+ * import that scans as nothing, the undeclared consumer fails closed at
+ * runtime, never silently building or silently skipping preparation.
+ */
+const capabilityScanner = new Bun.Transpiler({ loader: "ts" });
+
+function declaresInvocationPackageConsumer(source: string): boolean {
+  return capabilityScanner
+    .scanImports(source)
+    .some((imported) => imported.path.includes(INVOCATION_PACKAGE_CONSUMER_MARKER));
 }
 
 /**
  * Derive one invocation's package need.
  *
- * - Full and stress selections intersect the registry with the derived
- *   required selection.
- * - Focused selections with named corpus files intersect the registry with
- *   those named files only: the runner loads only the given files, so a name
- *   filter supplied beside them cannot reach files it did not name.
- * - Filter-only focused selections (no named corpus files but an active name
- *   filter — for example a bare `-t`) conservatively scan the full required
- *   inventory: the runner searched the whole test root, a name filter cannot
- *   name the files a matching test executes in, and the runner loads matching
- *   files fully — hooks included. Measured on the pinned runner (bun 1.4.0):
- *   a `-t` pattern that matches zero tests neither loads file-scoped
- *   `beforeAll` hooks nor exits green, but a matching `-t` loads its file
- *   fully, so preparation is owed whenever registered consumers remain in the
- *   inventory, stated truthfully in the evidence rather than silently.
- * - Focused selections whose arguments name only files outside the corpus
- *   inventory (for example support fixtures) execute only those given files,
- *   which cannot be registered consumers: need is none, stated truthfully.
+ * - Unknown scope cannot prove which files execute, so it never prepares:
+ *   pure selections run green without a candidate and a consumer that
+ *   executes fails closed through the supervised tripwire, with the limit
+ *   stated truthfully in the evidence.
+ * - Whole-corpus scope (full/stress mode, or a focused selection without any
+ *   positional argument, where the runner executes the whole test root) scans
+ *   every executable file's capability declaration.
+ * - Exact-file scope scans the named files; a non-corpus file named there
+ *   (for example a support fixture) may declare the capability too, and the
+ *   runner executes only the given files.
  *
- * Every registry entry must name a file in the current corpus inventory
- * (before the exclusion policy, so a policy-excluded consumer such as the
- * fleet file stays valid); an entry matching nothing is a hard error, the
- * same fail-closed rule as the corpus exclusion patterns, so a stale entry
- * cannot silently stop preparing.
+ * The scan parses each executable file's real import statements for the
+ * marker module (relative and absolute fixture import spellings both
+ * declare); string mentions of the marker that are not import statements
+ * cannot declare, and a consumer that omits the import fails closed at
+ * runtime through the supervised tripwire.
  */
 export function deriveInvocationPackageNeed(input: InvocationNeedInput): InvocationPackageNeed {
-  const consumers = input.consumers ?? INVOCATION_PACKAGE_CONSUMERS;
-  const inventory = new Set(input.inventoryFiles);
-  const stale = consumers.filter((consumer) => !inventory.has(consumer));
-  if (stale.length > 0) {
-    throw new Error(
-      `invocation package consumer registry entry(ies) match nothing in the current corpus inventory: ${stale.join(", ")}`,
-    );
-  }
-  const selectedConsumers = consumers.filter((consumer) => input.selected.includes(consumer));
-  if (input.mode === "focused" && input.named.length > 0) {
-    const namedConsumers = consumers.filter((consumer) => input.named.includes(consumer));
-    if (namedConsumers.length > 0) {
-      return {
-        kind: "package",
-        consumers: namedConsumers,
-        evidence: `focused selection names registered package consumer file(s): ${namedConsumers.join(", ")}`,
-      };
-    }
-    return {
-      kind: "none",
-      evidence: `focused selection names no registered package consumer file (${input.named.join(", ")})`,
-    };
-  }
-  if (input.mode === "focused") {
-    if (input.nameFilterActive) {
-      if (selectedConsumers.length > 0) {
-        return {
-          kind: "package",
-          consumers: selectedConsumers,
-          evidence: `filter-only focused selection cannot name executed files; prepared because registered package consumer file(s) remain in the inventory: ${selectedConsumers.join(", ")}`,
-        };
-      }
-      return {
-        kind: "none",
-        evidence: "filter-only focused selection contains no registered package consumer file",
-      };
-    }
-    // Without a name filter the runner executes only the files the arguments
-    // named, and none of them is in the corpus inventory, so none can be a
-    // registered consumer.
+  if (input.scope === "unknown") {
     return {
       kind: "none",
       evidence:
-        "focused selection names only files outside the corpus inventory, which the runner alone executes and which cannot be registered package consumers",
+        "selection scope cannot be proven (a name or partial path filter reaches an unknown file set); no candidate is prepared, and a consumer that executes fails closed with a typed remedy instead of building silently",
     };
   }
-  if (selectedConsumers.length > 0) {
+  const readSource = input.readSource ?? ((path: string) => defaultReadSource(input.base, path));
+  const declared = input.executableFiles.filter((file) => {
+    try {
+      return declaresInvocationPackageConsumer(readSource(file));
+    } catch {
+      // A file that cannot be read cannot declare the capability; if it is a
+      // consumer it fails closed at runtime, so an unreadable source never
+      // silently hides a consumer behind a preparation.
+      return false;
+    }
+  });
+  if (declared.length > 0) {
     return {
       kind: "package",
-      consumers: selectedConsumers,
-      evidence: `${input.mode} selection includes registered package consumer file(s): ${selectedConsumers.join(", ")}`,
+      declared,
+      evidence: `${input.mode} selection executes file(s) declaring the invocation-package consumer capability: ${declared.join(", ")}`,
     };
   }
   return {
     kind: "none",
-    evidence: `${input.mode} selection includes no registered package consumer file`,
+    evidence: `${input.mode} selection executes no file declaring the invocation-package consumer capability`,
   };
+}
+
+/**
+ * The positional arguments of a focused selection: every argument that is not
+ * a flag, with a `-t <value>` pair collapsed to one flag. The runner treats
+ * positional arguments as path filters; only existing file paths make the
+ * executed set provable.
+ */
+export function focusedPositionalArguments(bunArguments: readonly string[]): readonly string[] {
+  const positional: string[] = [];
+  for (let index = 0; index < bunArguments.length; index += 1) {
+    const argument = bunArguments[index]!;
+    if (argument === "-t") {
+      index += 1;
+      continue;
+    }
+    if (argument.startsWith("-")) continue;
+    positional.push(argument);
+  }
+  return positional;
+}
+
+/**
+ * Derive one focused invocation's provable selection scope from its
+ * arguments. `bun test` executes the whole test root when no positional
+ * argument is given (flags only); it executes exactly the named files when
+ * every positional argument is an existing file path (a name filter beside
+ * them selects within those files); any other argument shape — a name filter
+ * without file paths, or a partial path filter — leaves the executed set
+ * unknowable.
+ */
+export function deriveInvocationSelectionScope(
+  base: string,
+  bunArguments: readonly string[],
+  exists: (path: string) => boolean = (path) => existsSync(resolve(base, path)),
+): InvocationSelectionScope {
+  const positional = focusedPositionalArguments(bunArguments);
+  if (positional.length === 0) {
+    return bunArguments.some(
+      (argument) => argument === "-t" || argument.startsWith("--test-name-pattern"),
+    )
+      ? "unknown"
+      : "whole-corpus";
+  }
+  return positional.every((argument) => exists(argument)) ? "exact-files" : "unknown";
 }

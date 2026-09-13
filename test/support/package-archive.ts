@@ -30,27 +30,9 @@ export const PREPARED_PACKAGE_ARCHIVE_ENV = "APKIT_TEST_PACKAGE_ARCHIVE";
 export const SUPERVISED_INVOCATION_ENV = "APKIT_TEST_SUPERVISED_INVOCATION";
 
 /**
- * The explicit consumer registry: corpus-relative test-file paths that, when
- * executed in a supervised invocation, consume the invocation package. Need
- * derivation intersects this registry with the derived selection (see
- * `test/support/invocation-candidate.ts`); a supervised run that executes an
- * unregistered consumer without a prepared archive fails closed through the
- * supervised-invocation tripwire, so the registry is maintained, never
- * inferred. Entries are validated against the current corpus inventory on
- * every invocation that applies the registry; a stale entry is a hard error.
- */
-export const INVOCATION_PACKAGE_CONSUMERS = [
-  "test/cli.test.ts",
-  "test/golden-snapshots.test.ts",
-  "test/release-boundary.test.ts",
-  "test/release-candidate.test.ts",
-  "test/fleet-qualification.test.ts",
-] as const;
-
-/**
- * The repository root the registry entries are relative to: this module's own
- * repository. The registry describes this corpus only, so a supervisor run
- * over a different corpus base (a fixture) does not apply it.
+ * The repository root the unsupervised fallback builds and packs in: this
+ * module's own repository. Canonical invocations prepare through the suite
+ * supervisor, so this root matters only for a direct unsupervised run.
  */
 export function packageArchiveRepositoryRoot(): string {
   return resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -130,9 +112,9 @@ export class PackagePreparationStageError extends Error {
   }
 }
 
-function assertStageExit(stage: string, result: ProcessResult): void {
+function assertStageExit(commandLabel: string, result: ProcessResult): void {
   if (result.kind === "exit" && result.exitCode === 0) return;
-  throw new PackagePreparationStageError(stage, result);
+  throw new PackagePreparationStageError(commandLabel, result);
 }
 
 /** Parse `npm pack --json` output (npm may print notices before the array). */
@@ -145,18 +127,16 @@ export function packedArchiveFilename(packStdout: string): string {
 /** The system preparation commands: bounded executor children, one home. */
 export const systemPackageArchiveCommands: PackageArchiveCommands = {
   build: async (stage) => {
-    const result = await runProcess(
-      packageBuildStage(stage.repositoryRoot, stage.deadlineMs),
-      stage.signal,
-    );
-    assertStageExit("package build", result);
+    const build = packageBuildStage(stage.repositoryRoot, stage.deadlineMs);
+    // One stage identity per stage: the diagnostic label and the error prefix
+    // derive from the same constant, so they cannot drift.
+    const result = await runProcess(build, stage.signal);
+    assertStageExit(build.commandLabel ?? "package preparation build", result);
   },
   createScriptDisabledArchive: async (stage, destination) => {
-    const result = await runProcess(
-      packagePackStage(stage.repositoryRoot, destination, stage.deadlineMs),
-      stage.signal,
-    );
-    assertStageExit("package pack", result);
+    const pack = packagePackStage(stage.repositoryRoot, destination, stage.deadlineMs);
+    const result = await runProcess(pack, stage.signal);
+    assertStageExit(pack.commandLabel ?? "package preparation pack", result);
     return packedArchiveFilename(result.stdout);
   },
 };
@@ -198,7 +178,7 @@ export function supervisedInvocationActive(environment: NodeJS.ProcessEnv = proc
 export class SupervisorPreparationDefectError extends Error {
   constructor() {
     super(
-      `${SUPERVISED_INVOCATION_ENV} is set but no prepared package archive exists (${PREPARED_PACKAGE_ARCHIVE_ENV} is unset): the supervised invocation did not prepare the package this consumer needs. This is a suite-supervisor defect — a missed need derivation or a consumer file missing from INVOCATION_PACKAGE_CONSUMERS — and building here would silently hide it`,
+      `${SUPERVISED_INVOCATION_ENV} is set but no prepared package archive exists (${PREPARED_PACKAGE_ARCHIVE_ENV} is unset): this consumer ran in a supervised invocation that prepared no candidate. Building here would silently hide the cause — either this file declares no consumer capability (import test/support/invocation-package-consumer.ts to declare it) or the selection's execution scope was not statically provable (a name or partial path filter), so no candidate was prepared. Run the consumer by naming its test file explicitly, or run the full suite, to prepare a candidate`,
     );
     this.name = "SupervisorPreparationDefectError";
   }
