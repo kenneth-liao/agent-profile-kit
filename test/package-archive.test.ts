@@ -1,9 +1,12 @@
+import { execFileSync } from "node:child_process";
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { packageIdentityRecordPath } from "./support/package-identity.js";
 import {
+  extractPackageArchive,
   obtainPackageArchive,
   PREPARED_PACKAGE_ARCHIVE_ENV,
   SUPERVISED_INVOCATION_ENV,
@@ -12,17 +15,57 @@ import {
   type PackageArchiveCommands,
   type PackageStageContext,
 } from "./support/package-archive.js";
+import { runProcess } from "../process/process-executor.js";
 
+/** Pack the staged package into one real tarball through the bounded executor. */
+function runPackStage(destination: string, staging: string) {
+  return runProcess({
+    executable: "tar",
+    arguments_: ["-czf", join(destination, "agent-profile-kit-test.tgz"), "-C", staging, "package"],
+    deadlineMs: 10_000,
+    commandLabel: "fixture pack",
+  });
+}
+
+/**
+ * A real Git repository fixture root with the ignored build-output boundary:
+ * the from-source candidate creator captures fingerprints and replaces the
+ * ignored build output here, so fallback tests exercise the real boundary.
+ */
+function fixtureRepository(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  execFileSync("git", ["-C", root, "init", "-q"]);
+  execFileSync("git", ["-C", root, "config", "user.email", "tests@example.com"]);
+  execFileSync("git", ["-C", root, "config", "user.name", "Agent Profile Kit Tests"]);
+  writeFileSync(join(root, ".gitignore"), "dist/\n");
+  writeFileSync(join(root, "package.json"), JSON.stringify({ name: "agent-profile-kit-fixture", version: "0.0.0-fixture" }));
+  writeFileSync(join(root, "src.txt"), "source\n");
+  execFileSync("git", ["-C", root, "add", "."]);
+  execFileSync("git", ["-C", root, "commit", "-qm", "fixture"]);
+  return root;
+}
+
+/**
+ * Deterministic commands whose product is a real tarball (the packed-input
+ * guard lists the actual archive content, so an injected pack must pack
+ * reality): the build writes one fresh dist bundle; the pack produces the
+ * tarball through the shared bounded executor.
+ */
 function instrumentedCommands(calls: string[]): PackageArchiveCommands {
+  const staging = mkdtempSync(join(tmpdir(), "agent-profile-kit-pack-staging-"));
   return {
     build: async () => {
       calls.push("build");
+      mkdirSync(join(staging, "package", "dist"), { recursive: true });
+      writeFileSync(join(staging, "package", "dist", "cli.js"), 'console.log("FIXTURE-CLI");\n');
     },
     createScriptDisabledArchive: async (_stage: PackageStageContext, destination: string) => {
       calls.push("pack");
-      const filename = "agent-profile-kit-test.tgz";
-      writeFileSync(join(destination, filename), "archive");
-      return filename;
+      const result = await runPackStage(destination, staging);
+      if (result.kind !== "exit" || result.exitCode !== 0) {
+        throw new Error(`fixture pack failed: ${result.kind}`);
+      }
+      return "agent-profile-kit-test.tgz";
     },
   };
 }
@@ -58,7 +101,8 @@ describe("package archive consumer seam", () => {
 
   test("the local fallback performs one safe build followed by one script-disabled pack", async () => {
     const calls: string[] = [];
-    const obtained = await obtainPackageArchive("/repository", "agent-profile-kit-local-archive-", {
+    const root = fixtureRepository("agent-profile-kit-fallback-repo-");
+    const obtained = await obtainPackageArchive(root, "agent-profile-kit-local-archive-", {
       environment: {},
       commands: instrumentedCommands(calls),
     });
@@ -81,8 +125,9 @@ describe("package archive consumer seam", () => {
       },
     };
 
+    const root = fixtureRepository("agent-profile-kit-fallback-repo-");
     await expect(
-      obtainPackageArchive("/repository", prefix, { environment: {}, commands }),
+      obtainPackageArchive(root, prefix, { environment: {}, commands }),
     ).rejects.toThrow("fixture build failed");
     expect(directoriesWithPrefix(prefix).filter((path) => !before.has(path))).toEqual([]);
   });
@@ -156,6 +201,59 @@ describe("package archive consumer seam", () => {
     } finally {
       rmSync(staging, { recursive: true, force: true });
       rmSync(destination, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("validated extraction boundary", () => {
+  test("a candidate archive substituted after its record was written is rejected at extraction", async () => {
+    const root = fixtureRepository("agent-profile-kit-extraction-repo-");
+    const destination = mkdtempSync(join(tmpdir(), "agent-profile-kit-extraction-dest-"));
+    const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-extraction-out-"));
+    try {
+      mkdirSync(join(root, "dist"), { recursive: true });
+      const { createPackageCandidate } = await import("./support/package-identity.js");
+      const created = await createPackageCandidate({
+        repositoryRoot: root,
+        destinationDirectory: destination,
+        deadlineMs: 30_000,
+        signal: undefined,
+        commands: instrumentedCommands([]),
+      });
+      await extractPackageArchive(created.archivePath, extracted);
+      expect(existsSync(join(extracted, "package", "dist", "cli.js"))).toBe(true);
+      // Substitution after the record was written: the extraction boundary
+      // digests the bytes it reads and rejects the mismatch before any
+      // consumer can execute different bytes than the record describes.
+      writeFileSync(created.archivePath, "substituted after validation");
+      await expect(
+        extractPackageArchive(created.archivePath, extracted),
+      ).rejects.toThrow(/substituted or replaced/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(destination, { recursive: true, force: true });
+      rmSync(extracted, { recursive: true, force: true });
+    }
+  });
+
+  test("extraction without a record fails closed", async () => {
+    const root = fixtureRepository("agent-profile-kit-recordless-");
+    const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-recordless-out-"));
+    try {
+      // A real tarball whose record is absent: extraction must fail closed.
+      mkdirSync(join(root, "package"), { recursive: true });
+      writeFileSync(join(root, "package", "cli.js"), 'console.log("X");\n');
+      const staged = join(root, "recordless.tgz");
+      const packed = await runPackStage(root, root);
+      expect(packed.kind).toBe("exit");
+      execFileSync("mv", [join(root, "agent-profile-kit-test.tgz"), staged]);
+      expect(existsSync(packageIdentityRecordPath(staged))).toBe(false);
+      await expect(
+        extractPackageArchive(staged, extracted),
+      ).rejects.toThrow(/no package identity record/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(extracted, { recursive: true, force: true });
     }
   });
 });

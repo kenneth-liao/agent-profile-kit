@@ -165,9 +165,19 @@ function fixtureCorpus(files: readonly CorpusFile[]): string {
     ...files,
     { path: "test/fleet-qualification.test.ts", body: pureSource("fleet-placeholder") },
   ];
+  // Run-local artifacts (consumer markers, run logs, junit evidence) are
+  // ignored, so the candidate creator's source fingerprint — captured against
+  // this Git repository — covers the relevant source only and stays stable
+  // while runs execute.
+  writeFileSync(join(base, ".gitignore"), "markers/\nlogs/\ndist/\n");
   for (const file of corpus) {
     writeFileSync(join(base, file.path), file.body.replaceAll("${BASE}", base));
   }
+  execFileSync("git", ["-C", base, "init", "-q"]); 
+  execFileSync("git", ["-C", base, "config", "user.email", "tests@example.com"]);
+  execFileSync("git", ["-C", base, "config", "user.name", "Agent Profile Kit Tests"]);
+  execFileSync("git", ["-C", base, "add", "."]);
+  execFileSync("git", ["-C", base, "commit", "-qm", "fixture corpus"]);
   return base;
 }
 
@@ -419,56 +429,34 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
   });
 
   test("an operator-supplied archive passes through untouched with zero preparation", async () => {
-    const suppliedRoot = tempDir("apkit-supplied-");
-    const suppliedArchive = join(suppliedRoot, "operator.tgz");
-    // A real tarball so the consumer can extract and execute it.
-    mkdirSync(join(suppliedRoot, "package", "dist"), { recursive: true });
-    writeFileSync(
-      join(suppliedRoot, "package", "dist", "cli.js"),
-      'console.log("CANDIDATE-CLI-MARKER-supplied");\n',
-    );
-    const packed = await runProcess({
-      executable: "tar",
-      arguments_: ["-czf", join(suppliedRoot, "operator.tgz"), "-C", suppliedRoot, "package"],
-      deadlineMs: 10_000,
-      commandLabel: "supplied fixture pack",
-    });
-    expect(packed.kind).toBe("exit");
-
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    // The operator-supplied candidate is created by the one from-source
+    // creator against the consuming fixture repository, so its record binds
+    // the exact archive bytes and the relevant source at the real boundary.
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
     const calls: string[] = [];
-    const previousArchive = process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
-    const previousMarker = process.env[SUPERVISED_INVOCATION_ENV];
-    process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = suppliedArchive;
-    // A top-level operator invocation runs outside any supervised parent, so
-    // the nested-invocation marker must be absent for this invocation.
-    delete process.env[SUPERVISED_INVOCATION_ENV];
-    try {
+    await withSuppliedArchive(created.archivePath, async () => {
       const result = await runFullCorpus(base, {
         packageCommands: realCandidateCommands("never", calls),
       });
       expect(result.ok).toBe(true);
       expect(result.preparation.status).toBe("supplied");
       expect(result.preparation.durationMs).toBe(0);
-      expect(result.preparation.archivePath).toBe(realpathSync(suppliedArchive));
+      expect(result.preparation.archivePath).toBe(created.archivePath);
       expect(calls).toEqual([]);
       // The operator's archive bytes were never rewritten or removed.
-      expect(existsSync(suppliedArchive)).toBe(true);
+      expect(existsSync(created.archivePath)).toBe(true);
       expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain(
         "CANDIDATE-CLI-MARKER-supplied",
       );
-    } finally {
-      if (previousArchive === undefined) {
-        delete process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
-      } else {
-        process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = previousArchive;
-      }
-      if (previousMarker === undefined) {
-        delete process.env[SUPERVISED_INVOCATION_ENV];
-      } else {
-        process.env[SUPERVISED_INVOCATION_ENV] = previousMarker;
-      }
-    }
+    });
   });
 
   test("sequential invocations own fresh candidates with no cross-invocation reuse", async () => {
@@ -937,5 +925,212 @@ test("fleet cleanup failure propagates", async () => {
     expect(result.preparation.status).toBe("none");
     expect(result.preparation.requests).toBe(0);
     expect(calls).toEqual([]);
+  });
+});
+/**
+ * Provenance gate: one canonical identity contract for prepared and supplied
+ * candidates (TEST-002, #538). A supplied archive qualifies only the source
+ * identity its record demonstrably represents; missing, stale, mismatched, or
+ * substituted provenance is rejected before qualification, and the prepared
+ * candidate is created through the same from-source creator.
+ */
+
+import {
+  createPackageCandidate,
+  packageIdentityRecordPath,
+  type PackageIdentityRecord,
+} from "./support/package-identity.js";
+
+/** Creator commands for the supplied-identity fixtures: one real tarball. */
+function suppliedCreatorCommands(root: string, marker: string): PackageArchiveCommands {
+  const staging = tempDir("apkit-supplied-staging-");
+  return {
+    build: async () => {
+      mkdirSync(join(staging, "package", "dist"), { recursive: true });
+      writeFileSync(join(staging, "package", "dist", "cli.js"), `console.log("${marker}");\n`);
+    },
+    createScriptDisabledArchive: async (_stage, destination) => {
+      const result = await runProcess({
+        executable: "tar",
+        arguments_: ["-czf", join(destination, "supplied.tgz"), "-C", staging, "package"],
+        deadlineMs: 10_000,
+        commandLabel: "supplied fixture pack",
+      });
+      if (!(result.kind === "exit" && result.exitCode === 0)) {
+        throw new Error(`fixture pack failed: ${result.kind}`);
+      }
+      return "supplied.tgz";
+    },
+  };
+}
+
+async function withSuppliedArchive(archive: string, run: () => Promise<void>): Promise<void> {
+  const previousArchive = process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+  const previousMarker = process.env[SUPERVISED_INVOCATION_ENV];
+  process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = archive;
+  delete process.env[SUPERVISED_INVOCATION_ENV];
+  try {
+    await run();
+  } finally {
+    if (previousArchive === undefined) {
+      delete process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+    } else {
+      process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = previousArchive;
+    }
+    if (previousMarker === undefined) {
+      delete process.env[SUPERVISED_INVOCATION_ENV];
+    } else {
+      process.env[SUPERVISED_INVOCATION_ENV] = previousMarker;
+    }
+  }
+}
+
+describe("supplied candidate provenance", () => {
+  test("a supplied archive with no record is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    rmSync(created.recordPath);
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("failed");
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("a substituted supplied archive is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    writeFileSync(created.archivePath, "substituted bytes");
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+
+  test("a stale supplied record is rejected before qualification", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    writeFileSync(join(base, "test", "consumer-a.test.ts"), "mutated after capture\n");
+    const calls: string[] = [];
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.failure).toContain("rejected");
+      expect(calls).toEqual([]);
+    });
+  });
+});
+
+describe("prepared candidate provenance", () => {
+  test("the prepared candidate carries an identity record created from source", async () => {
+    // The candidate directory dies with the invocation, so the record is
+    // observed at its live boundary: the consumer reads the record beside the
+    // archive before its validated extraction, and the qualification is green
+    // — extraction already proved the digest bound held.
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  supervisedInvocationActive,
+} from ${JSON.stringify(seamImport("package-archive.js"))};
+import { runProcess } from ${JSON.stringify(executorImport)};
+
+test("consumer A executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "record"), readFileSync(archive.path + ".provenance.json", "utf8"));
+  const extracted = mkdtempSync(join(tmpdir(), "fixture-consumer-extracted-"));
+  try {
+    await extractPackageArchive(archive.path, extracted);
+    const result = await runProcess({
+      executable: "node",
+      arguments_: [join(extracted, "package", "dist", "cli.js")],
+      deadlineMs: 10_000,
+      commandLabel: "candidate consumer",
+    });
+    const output = result.stdout;
+    if (result.kind !== "exit" || result.exitCode !== 0 || !output.includes("CANDIDATE-CLI-MARKER")) {
+      throw new Error(\`the consumer did not execute the invocation candidate: \${result.kind} \${output}\`);
+    }
+  } finally {
+    rmSync(extracted, { recursive: true, force: true });
+  }
+});
+` }]);
+    const commands = realCandidateCommands("recorded", []);
+    const result = await runFullCorpus(base, { packageCommands: commands });
+    expect(result.ok).toBe(true);
+    const record = JSON.parse(readFileSync(join(base, "markers", "record"), "utf8")) as {
+      schema: number;
+      archiveDigest: string;
+      sourceFingerprint: string;
+    };
+    expect(record.schema).toBe(1);
+    expect(record.archiveDigest).toMatch(/^[0-9a-f]{64}$/);
+    expect(record.sourceFingerprint).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test("source mutated between capture and pack disqualifies the candidate", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+      { path: PURE_FILE, body: pureSource("pure") },
+    ]);
+    const calls: string[] = [];
+    const commands = realCandidateCommands("unstable", calls);
+    const result = await runFullCorpus(base, {
+      packageCommands: {
+        ...commands,
+        build: async (stage) => {
+          await commands.build(stage);
+          writeFileSync(join(base, PURE_FILE), "mutated during preparation\n");
+        },
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.preparation.status).toBe("failed");
+    expect(result.preparation.failure).toContain("unstable source");
+    expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
   });
 });

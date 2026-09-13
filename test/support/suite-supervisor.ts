@@ -41,6 +41,13 @@ import {
   removePackageChannel,
   type PackageRequestChannel,
 } from "./package-request-channel.js";
+import {
+  InvalidProvenanceError,
+  UnsupportedSourceError,
+  UnstableSourceError,
+  createPackageCandidate,
+  validateSuppliedPackageCandidate,
+} from "./package-identity.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -876,42 +883,30 @@ async function prepareCandidateStages(
       },
     });
   try {
-    const remainingMs = () => budgetMs - (Date.now() - startedAt);
-    const assertBudgetRemaining = (stage: string): void => {
-      if (remainingMs() <= 0) {
-        throw new Error(
-          `package preparation budget (${budgetMs}ms) exhausted before the ${stage} stage`,
-        );
-      }
-    };
-    assertBudgetRemaining("build");
-    await commands.build({
+    // One from-source candidate creator owns the whole bounded stage sequence:
+    // pre-capture, fresh build-output replacement, the caller's build and pack
+    // stages (injected in tests, the system stages otherwise), digest of the
+    // exact packed bytes, post-capture (unequal means unstable source: the
+    // candidate is disqualified), the packed-input guard, and the atomic
+    // identity record beside the archive — the same creator and record shape
+    // supplied candidates are validated against.
+    const created = await createPackageCandidate({
       repositoryRoot: invocation.base,
-      deadlineMs: remainingMs(),
+      destinationDirectory: candidateDirectory,
+      deadlineMs: budgetMs,
       signal: abortSignal,
+      commands,
     });
-    if (preparationAborted(abortSignal)) {
-      return failedOutcome("interrupted", { failure: "interrupted during the build stage", diagnostics: "interrupted during the build stage" });
-    }
-    assertBudgetRemaining("pack");
-    const filename = await commands.createScriptDisabledArchive(
-      { repositoryRoot: invocation.base, deadlineMs: remainingMs(), signal: abortSignal },
-      candidateDirectory,
-    );
-    if (preparationAborted(abortSignal)) {
-      return failedOutcome("interrupted", { failure: "interrupted during the pack stage", diagnostics: "interrupted during the pack stage" });
-    }
-    const archivePath = realpathSync(join(candidateDirectory, filename));
     return {
       candidateDirectory,
-      archivePath,
+      archivePath: created.archivePath,
       evidence: {
         status: "prepared",
         requests: 0,
         durationMs: Date.now() - startedAt,
         cleanupDurationMs: 0,
         cleanupFailed: false,
-        archivePath,
+        archivePath: created.archivePath,
         candidateDirectory,
       },
     };
@@ -1178,17 +1173,32 @@ export async function runSupervisedSuite(
       if (archivePath === null) {
         throw new Error(`${PREPARED_PACKAGE_ARCHIVE_ENV} was set but resolved to nothing`);
       }
+      // The provenance gate runs before qualification: a supplied archive
+      // qualifies only the source identity its record demonstrably
+      // represents, checked here against the consuming checkout — before any
+      // consumer can report qualification for a different source.
+      await validateSuppliedPackageCandidate(archivePath, {
+        repositoryRoot: invocation.base,
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        signal: undefined,
+      });
       suppliedArchivePath = archivePath;
     } catch (error) {
-      // A malformed supplied archive is a preparation failure with retained
-      // diagnostics; the channel is never created and no consumer can hang.
+      // A malformed or invalid supplied archive is a preparation failure with
+      // retained diagnostics; the channel is never created and no consumer
+      // can hang or qualify.
+      const reason =
+        error instanceof InvalidProvenanceError || error instanceof UnsupportedSourceError || error instanceof UnstableSourceError
+          ? error.message
+          : error instanceof Error ? error.message : String(error);
       const evidence: PreparationEvidence = {
         status: "failed",
         requests: 0,
         durationMs: 0,
         cleanupDurationMs: 0,
         cleanupFailed: false,
-        failure: `supplied package archive rejected: ${error instanceof Error ? error.message : String(error)}`,
+        failure: `supplied package archive rejected: ${reason}`,
+        diagnostics: `supplied package archive rejected: ${reason}`,
       };
       writePreparationLog(logDir, evidence);
       return {

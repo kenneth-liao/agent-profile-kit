@@ -1,4 +1,5 @@
-import { lstatSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,6 +16,16 @@ import {
   PACKAGE_REQUEST_WAIT_ENV,
   requestInvocationPackage,
 } from "./package-request-channel.js";
+import {
+  InvalidProvenanceError,
+  createPackageCandidate,
+  readPackageIdentityRecord,
+  removePathBounded,
+  UNSUPERVISED_CANDIDATE_DEADLINE_MS,
+  type PackageIdentityRecord,
+} from "./package-identity.js";
+
+
 
 /**
  * The canonical consumer boundary for the invocation package candidate:
@@ -153,12 +164,13 @@ export const systemPackageArchiveCommands: PackageArchiveCommands = {
 };
 
 /**
- * Hang bound for the unsupervised local fallback's whole build+pack budget
- * (stages consume the remaining share). Measured build+pack completes far
- * inside it; the value bounds a hung child, it is not a completion target.
+ * Hang bound for the unsupervised local fallback's whole create budget
+ * (pre-capture, build, pack, post-capture, and the packed-input guard share
+ * it, each stage consuming the remaining time). Measured build+pack completes
+ * far inside it; the value bounds a hung child, it is not a completion target.
  * Under the canonical supervised commands the supervisor owns the budget.
  */
-export const UNSUPERVISED_PREPARATION_DEADLINE_MS = 120_000;
+export const UNSUPERVISED_PREPARATION_DEADLINE_MS = UNSUPERVISED_CANDIDATE_DEADLINE_MS;
 
 export function preparedPackageArchive(
   environment: NodeJS.ProcessEnv = process.env,
@@ -225,14 +237,34 @@ export async function extractPackageArchive(
   archivePath: string,
   destination: string,
 ): Promise<void> {
-  const result = await runProcess({
-    executable: "tar",
-    arguments_: ["-xzf", archivePath, "-C", destination],
-    deadlineMs: TEST_CHILD_DEADLINE_MS,
-    commandLabel: "package archive extraction",
-  });
-  if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new PackagePreparationStageError("package archive extraction", result);
+  // The validated extraction boundary: the archive is read exactly once, the
+  // record beside it names the digest those bytes must carry, and extraction
+  // consumes the staged copy of the verified bytes — so a substitution after
+  // validation can never change what a consumer runs. The staged copy lives
+  // only inside the extraction, owned and removed by this boundary.
+  const bytes = readFileSync(archivePath);
+  const digest = createHash("sha256").update(bytes).digest("hex");
+  const record: PackageIdentityRecord = readPackageIdentityRecord(archivePath);
+  if (digest !== record.archiveDigest) {
+    throw new InvalidProvenanceError(
+      "digest-mismatch",
+      `the candidate archive's actual bytes (${digest}) do not match its record's artifact digest (${record.archiveDigest}); the archive was substituted or replaced after its record was written`,
+    );
+  }
+  const stagedInput = join(destination, ".validated-archive-input.tgz");
+  writeFileSync(stagedInput, bytes);
+  try {
+    const result = await runProcess({
+      executable: "tar",
+      arguments_: ["-xzf", stagedInput, "-C", destination],
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "package archive extraction",
+    });
+    if (!(result.kind === "exit" && result.exitCode === 0)) {
+      throw new PackagePreparationStageError("package archive extraction", result);
+    }
+  } finally {
+    rmSync(stagedInput, { force: true });
   }
 }
 
@@ -252,26 +284,10 @@ let supervisedRunCandidate: string | null = null;
  * a bounded child operation like any other, so a stalled filesystem cannot
  * block the supervisor or its signal handling beyond the deadline. A failed
  * removal throws with its captured diagnostics; the caller reports it and
- * never treats it as successful.
+ * never treats it as successful. Single-homed in package-identity; re-exported
+ * here for the existing supervisor import path.
  */
-export async function removePathBounded(
-  path: string,
-  deadlineMs: number,
-  signal: AbortSignal | undefined,
-): Promise<void> {
-  const result = await runProcess(
-    {
-      executable: "rm",
-      arguments_: ["-rf", path],
-      deadlineMs,
-      commandLabel: "bounded path removal",
-    },
-    signal,
-  );
-  if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new PackagePreparationStageError("bounded path removal", result);
-  }
-}
+export { removePathBounded };
 
 /**
  * Resolve the package archive one consumer executes. Order of authority:
@@ -311,25 +327,15 @@ export async function obtainPackageArchive(
   const commands = options.commands ?? systemPackageArchiveCommands;
   const packageDirectory = mkdtempSync(join(tmpdir(), prefix));
   try {
-    const startedAt = Date.now();
-    const stage = (stageDeadline: number): PackageStageContext => {
-      if (stageDeadline <= 0) {
-        throw new Error(
-          `unsupervised package preparation budget (${UNSUPERVISED_PREPARATION_DEADLINE_MS}ms) exhausted before a stage could run`,
-        );
-      }
-      return { repositoryRoot, deadlineMs: stageDeadline, signal: undefined };
-    };
-    await commands.build(
-      stage(UNSUPERVISED_PREPARATION_DEADLINE_MS - (Date.now() - startedAt)),
-    );
-    const filename = await commands.createScriptDisabledArchive(
-      stage(UNSUPERVISED_PREPARATION_DEADLINE_MS - (Date.now() - startedAt)),
-      packageDirectory,
-    );
-    const path = realpathSync(join(packageDirectory, filename));
+    const created = await createPackageCandidate({
+      repositoryRoot,
+      destinationDirectory: packageDirectory,
+      deadlineMs: UNSUPERVISED_PREPARATION_DEADLINE_MS,
+      signal: undefined,
+      commands,
+    });
     return {
-      path,
+      path: created.archivePath,
       cleanup: () => rmSync(packageDirectory, { recursive: true, force: true }),
     };
   } catch (error) {
