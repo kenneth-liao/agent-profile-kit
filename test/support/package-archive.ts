@@ -240,8 +240,10 @@ export async function extractPackageArchive(
  * The candidate one supervised child's consumers share, memoized per run
  * process: the first consumer's channel request settles once and every later
  * consumer in the same supervised run reuses it. Not a persistent cache —
- * it lives only inside this run process, and the invocation's own cleanup
- * owns the candidate's lifetime.
+ * it lives only inside this run process, the invocation's own cleanup owns
+ * the candidate's lifetime, and a caller that passes an explicit environment
+ * (a test simulating another invocation) resolves from its own inputs, never
+ * from this memo.
  */
 let supervisedRunCandidate: string | null = null;
 
@@ -292,7 +294,7 @@ export async function obtainPackageArchive(
     return { path: prepared, cleanup: () => undefined };
   }
   if (supervisedInvocationActive(environment)) {
-    if (supervisedRunCandidate !== null) {
+    if (options.environment === undefined && supervisedRunCandidate !== null) {
       return { path: supervisedRunCandidate, cleanup: () => undefined };
     }
     const channelDirectory = environment[PACKAGE_REQUEST_CHANNEL_ENV];
