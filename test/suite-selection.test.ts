@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   assertRunnerIsPinnedBun,
+  junitEvidencePath,
   runSupervisedSuite,
 } from "./support/suite-supervisor.js";
 import { TEST_CORPUS_ROOT } from "./support/corpus-inventory.js";
@@ -97,13 +98,13 @@ describe("suite selection: full mode through the real supervisor and selected Bu
         missing: [],
         unexpected: [],
       });
-      expect(existsSync(join(result.logDir, "run-1.junit.xml"))).toBe(true);
+      expect(existsSync(junitEvidencePath(result.logDir, 1))).toBe(true);
       const log = readFileSync(run.logPath, "utf8");
       expect(log).toMatch(/^runtime: bun \d+\.\d+\.\d+ \(\S+\) \S+ \S+$/m);
       expect(log).toContain(`selection: mode=full test-root=${TEST_CORPUS_ROOT} selected=1 excluded=1`);
       expect(log).toContain(`selection-excluded: ${FLEET}`);
       expect(log).toContain("coverage: status=complete executed=1 skipped=0 missing=0 unexpected=0");
-      const junit = readFileSync(join(result.logDir, "run-1.junit.xml"), "utf8");
+      const junit = readFileSync(junitEvidencePath(result.logDir, 1), "utf8");
       expect(junit).toContain(`file="${TEST_CORPUS_ROOT}/included.test.ts"`);
       expect(junit).not.toContain(`file="${FLEET}"`);
     } finally {
@@ -132,7 +133,7 @@ describe("suite selection: full mode through the real supervisor and selected Bu
       if (result.firstFailure?.result.kind === "exit") {
         expect(result.firstFailure.result.exitCode).toBe(1);
       }
-      expect(existsSync(join(result.logDir, "run-1.junit.xml"))).toBe(true);
+      expect(existsSync(junitEvidencePath(result.logDir, 1))).toBe(true);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
@@ -214,8 +215,9 @@ describe("suite selection: full mode through the real supervisor and selected Bu
     writeFileSync(join(testRoot, "fleet-qualification.test.ts"), 'export const placeholder = 1;\n');
     try {
       await expect(runFullCorpus(base)).rejects.toThrow(/selection cannot be empty/);
-      // Rejection happens before any run: no logs, no junit evidence.
-      expect(existsSync(join(base, "run-1.junit.xml"))).toBe(false);
+      // Rejection happens before any run: the diagnostics directory (created
+      // before the first run starts) and its evidence never come to exist.
+      expect(existsSync(join(base, "logs"))).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
@@ -264,7 +266,7 @@ describe("suite selection: focused mode evidence", () => {
       expect(explicit.ok).toBe(true);
       expect(explicit.runs[0]!.coverage?.status).toBe("complete");
       expect(explicit.runs[0]!.coverage?.executedFiles).toBe(1);
-      expect(existsSync(join(explicit.logDir, "run-1.junit.xml"))).toBe(true);
+      expect(existsSync(junitEvidencePath(explicit.logDir, 1))).toBe(true);
 
       const filtered = await runSupervisedSuite({
         mode: "focused",
@@ -291,6 +293,147 @@ describe("suite selection: focused mode evidence", () => {
       expect(empty.ok).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("explicitly named policy-excluded files keep a live execution gate and truthful evidence", async () => {
+    const base = mkdtempSync(join(tmpdir(), "apkit-selection-"));
+    const testRoot = join(base, TEST_CORPUS_ROOT);
+    mkdirSync(testRoot);
+    writeFileSync(
+      join(testRoot, "passing.test.ts"),
+      'import { test } from "bun:test";\ntest("passing", () => {});\n',
+    );
+    // The canonical fleet run names the policy-excluded file explicitly.
+    writeFileSync(
+      join(base, FLEET),
+      'import { test } from "bun:test";\ntest("fleet", () => {});\n',
+    );
+    try {
+      const fleet = await runSupervisedSuite({
+        mode: "focused",
+        bunArguments: [FLEET],
+        cwd: base,
+        perRunDeadlineMs: 30_000,
+        logDir: join(base, "logs"),
+      });
+      expect(fleet.ok).toBe(true);
+      const run = fleet.runs[0]!;
+      expect(run.coverage?.status).toBe("complete");
+      expect(run.coverage?.executedFiles).toBe(1);
+      const log = readFileSync(run.logPath, "utf8");
+      expect(log).toContain("selection: mode=focused explicit-selection named=1");
+      expect(log).toContain(`selection-named: ${FLEET}`);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("a focused run without a name filter gates skipped required coverage strictly", async () => {
+    const base = mkdtempSync(join(tmpdir(), "apkit-selection-"));
+    const testRoot = join(base, TEST_CORPUS_ROOT);
+    mkdirSync(testRoot);
+    writeFileSync(
+      join(testRoot, "skippy.test.ts"),
+      [
+        'import { test, expect } from "bun:test";',
+        'test("runs", () => { expect(1).toBe(1); });',
+        'test.skip("deliberately skipped", () => { expect(1).toBe(1); });',
+        "",
+      ].join("\n"),
+    );
+    writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    try {
+      const result = await runSupervisedSuite({
+        mode: "focused",
+        bunArguments: [`${TEST_CORPUS_ROOT}/skippy.test.ts`],
+        cwd: base,
+        perRunDeadlineMs: 30_000,
+        logDir: join(base, "logs"),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.runs[0]!.coverage?.status).toBe("incomplete");
+      expect(result.runs[0]!.coverage?.skippedTests).toBe(1);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("an explicitly named corpus file without executed evidence fails the focused gate", async () => {
+    const base = mkdtempSync(join(tmpdir(), "apkit-selection-"));
+    const testRoot = join(base, TEST_CORPUS_ROOT);
+    mkdirSync(testRoot);
+    writeFileSync(
+      join(testRoot, "passing.test.ts"),
+      'import { test } from "bun:test";\ntest("passing", () => {});\n',
+    );
+    writeFileSync(join(testRoot, "empty.test.ts"), "export const neverRun = true;\n");
+    writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    try {
+      const result = await runSupervisedSuite({
+        mode: "focused",
+        bunArguments: [
+          `${TEST_CORPUS_ROOT}/passing.test.ts`,
+          `${TEST_CORPUS_ROOT}/empty.test.ts`,
+        ],
+        cwd: base,
+        perRunDeadlineMs: 30_000,
+        logDir: join(base, "logs"),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.runs[0]!.coverage?.status).toBe("incomplete");
+      expect(result.runs[0]!.coverage?.missing).toContain(`${TEST_CORPUS_ROOT}/empty.test.ts`);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("reused diagnostics cannot complete a run from a previous invocation's evidence", async () => {
+    const logDir = mkdtempSync(join(tmpdir(), "apkit-selection-reused-"));
+    const first = mkdtempSync(join(tmpdir(), "apkit-selection-a-"));
+    const second = mkdtempSync(join(tmpdir(), "apkit-selection-b-"));
+    try {
+      for (const [base, name] of [
+        [first, "alpha"],
+        [second, "beta"],
+      ] as const) {
+        const testRoot = join(base, TEST_CORPUS_ROOT);
+        mkdirSync(testRoot);
+        writeFileSync(
+          join(testRoot, `${name}.test.ts`),
+          `import { test } from "bun:test";\ntest("${name}", () => {});\n`,
+        );
+        writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+      }
+      // Corpus A completes first and leaves its evidence behind.
+      const firstRun = await runSupervisedSuite({
+        mode: "full",
+        cwd: first,
+        perRunDeadlineMs: 30_000,
+        logDir,
+      });
+      expect(firstRun.ok).toBe(true);
+      // Corpus B reuses the same diagnostics directory. The stale evidence
+      // names alpha's file, which is not in B's selection; only B's own fresh
+      // evidence may complete the run.
+      const secondRun = await runSupervisedSuite({
+        mode: "full",
+        cwd: second,
+        perRunDeadlineMs: 30_000,
+        logDir,
+      });
+      expect(secondRun.ok).toBe(true);
+      expect(secondRun.runs[0]!.coverage).toEqual({
+        status: "complete",
+        executedFiles: 1,
+        skippedTests: 0,
+        missing: [],
+        unexpected: [],
+      });
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+      rmSync(first, { recursive: true, force: true });
+      rmSync(second, { recursive: true, force: true });
     }
   });
 });

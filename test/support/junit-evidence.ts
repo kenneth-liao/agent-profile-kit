@@ -3,9 +3,11 @@
  * produced by Bun's test reporter. The parser accepts exactly the structure
  * the qualified runner emits (testsuites root, testsuite elements with
  * `file`, `tests`, `failures`, `skipped` attributes, testcase children with
- * optional self-closing or text-bearing children) and decodes the standard
- * XML character references. Anything else — malformed markup, an unexpected
- * root, a missing or non-integer required attribute — throws, so callers can
+ * optional self-closing or text-bearing children). Standard and numeric XML
+ * character references are decoded; an unrecognized reference survives
+ * undecoded, which can only make the evidence fail to match a selection and
+ * therefore fail closed. Anything structurally else — malformed markup, an
+ * unexpected root, a missing or non-integer required attribute — throws, so callers can
  * fail closed: unparseable evidence must never be mistaken for executed
  * required coverage.
  */
@@ -19,8 +21,6 @@ interface TestsuiteEvidence {
 
 export interface BunJunitEvidence {
   readonly suites: readonly TestsuiteEvidence[];
-  /** The root element's `tests` attribute, when present. */
-  readonly rootTests: number | null;
 }
 
 type Tag =
@@ -128,7 +128,6 @@ export function parseBunJunitEvidence(xml: string): BunJunitEvidence {
     throw new Error("bun junit evidence: document is empty");
   }
   const suites: TestsuiteEvidence[] = [];
-  let rootTests: number | null = null;
   let rootSeen = false;
   const stack: string[] = [];
   let index = 0;
@@ -166,7 +165,9 @@ export function parseBunJunitEvidence(xml: string): BunJunitEvidence {
         throw new Error(`bun junit evidence: expected a <testsuites> root element, got '${tag.name}'`);
       }
       rootSeen = true;
-      rootTests = attributeNumber(tag.attributes, "tests", "on the root element");
+      // The root's own counts are validated for structural integrity but not
+      // carried: per-file suites are the evidence consumers gate on.
+      attributeNumber(tag.attributes, "tests", "on the root element");
       stack.push("testsuites");
     } else if (tag.close) {
       if (stack[stack.length - 1] !== tag.name) {
@@ -202,5 +203,5 @@ export function parseBunJunitEvidence(xml: string): BunJunitEvidence {
   if (stack.length !== 0) {
     throw new Error(`bun junit evidence: unclosed element '${stack[stack.length - 1]}'`);
   }
-  return { suites, rootTests };
+  return { suites };
 }

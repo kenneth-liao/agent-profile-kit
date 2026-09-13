@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -216,7 +217,11 @@ function assertBudget(value: number, name: string, environmentName: string): voi
  * `resolveSuitePolicy`, so the numeric rule keeps one home and this layer
  * attributes every syntax failure to its variable.
  */
-function budgetOverride(environment: NodeJS.ProcessEnv, environmentName: string): number | undefined {
+function budgetOverride(
+  environment: NodeJS.ProcessEnv,
+  environmentName: string,
+  unit: string,
+): number | undefined {
   const raw = environment[environmentName];
   if (raw === undefined) {
     return undefined;
@@ -224,7 +229,7 @@ function budgetOverride(environment: NodeJS.ProcessEnv, environmentName: string)
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
     throw new Error(
-      `suite supervisor ${environmentName} must be a positive decimal integer number of milliseconds, got '${raw}'`,
+      `suite supervisor ${environmentName} must be a positive decimal integer ${unit}, got '${raw}'`,
     );
   }
   return Number(trimmed);
@@ -245,10 +250,12 @@ function supervisedOptionsFromEnvironment(
   mode: SuiteMode,
   bunArguments: readonly string[],
 ): PreparedInvocation {
-  const perRunDeadlineMs = budgetOverride(process.env, PER_RUN_DEADLINE_ENV);
+  const perRunDeadlineMs = budgetOverride(process.env, PER_RUN_DEADLINE_ENV, "number of milliseconds");
   const aggregateDeadlineMs =
-    mode === "stress" ? budgetOverride(process.env, AGGREGATE_DEADLINE_ENV) : undefined;
-  const maxRuns = mode === "stress" ? budgetOverride(process.env, MAX_RUNS_ENV) : undefined;
+    mode === "stress"
+      ? budgetOverride(process.env, AGGREGATE_DEADLINE_ENV, "number of milliseconds")
+      : undefined;
+  const maxRuns = mode === "stress" ? budgetOverride(process.env, MAX_RUNS_ENV, "run count") : undefined;
   // Single-run modes accept only a per-run deadline; other budget variables
   // name a policy the invocation can never deliver.
   if (mode !== "stress") {
@@ -360,12 +367,16 @@ export interface PreparedSuiteInvocation {
 
 /** Which corpus files the invocation requires and which policy removes. */
 export interface SelectionPlan {
+  /** Every current corpus test file, POSIX-relative to the corpus base. */
+  readonly files: readonly string[];
   /** Required selection, POSIX-relative to the corpus base. */
   readonly selected: readonly string[];
   /** Files removed by the exclusion policy, POSIX-relative to the corpus base. */
   readonly excluded: readonly string[];
   /** Focused arguments that name corpus files; other arguments are filters. */
   readonly named: readonly string[];
+  /** True when a focused invocation filters by test name (e.g. `-t`). */
+  readonly nameFilterActive: boolean;
 }
 
 function corpusBase(options: SuiteSupervisorOptions): string {
@@ -455,17 +466,33 @@ function deriveSelectionPlan(
 ): SelectionPlan {
   const inventory = enumerateTestCorpus(base, FAST_SUITE_PATH_IGNORE_PATTERNS);
   if (mode === "focused") {
+    // Named selections come from the raw corpus inventory (before the
+    // exclusion policy): the canonical fleet run explicitly names the
+    // policy-excluded file, and its named-file execution gate must be live.
     const named = (bunArguments ?? [])
       .map((argument) => normalizeRelativePath(base, argument))
-      .filter((normalized) => inventory.selected.includes(normalized));
-    return { selected: inventory.selected, excluded: inventory.excluded, named };
+      .filter((normalized) => inventory.files.includes(normalized));
+    return {
+      files: inventory.files,
+      selected: inventory.selected,
+      excluded: inventory.excluded,
+      named,
+      // A name filter intentionally selects fewer tests, and bun's junit
+      // evidence reports the filter complement as skipped without
+      // distinguishing it from test.skip(); only in that case is the skip
+      // gate waived (recorded, never silent). Without a filter — including
+      // the canonical fleet selection — skips gate strictly.
+      nameFilterActive: (bunArguments ?? []).some(
+        (argument) => argument === "-t" || argument.startsWith("--test-name-pattern"),
+      ),
+    };
   }
   if (inventory.selected.length === 0) {
     throw new Error(
       `suite supervisor ${mode} mode: required selection cannot be empty after exclusions (${inventory.excluded.join(", ")})`,
     );
   }
-  return { selected: inventory.selected, excluded: inventory.excluded, named: [] };
+  return { files: inventory.files, selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
 }
 
 /**
@@ -567,14 +594,19 @@ function evaluateRunCoverage(
     if (missingNamed.length > 0) {
       return incomplete(
         `explicitly selected files without executed evidence: ${missingNamed.join(", ")}`,
+        missingNamed,
       );
+    }
+    if (!plan.nameFilterActive && skippedTests > 0) {
+      return incomplete(`skipped required coverage: ${skippedTests}`);
     }
     // A focused invocation's name filters intentionally select fewer tests,
     // and bun's junit evidence reports the filter complement as skipped
-    // without distinguishing it from test.skip(). Focused skip counts are
-    // therefore retained as evidence (this record and the junit artifact),
-    // never silently waived; the canonical required qualification is the
-    // full/stress selection, where skips are strictly gated below.
+    // without distinguishing it from test.skip(). Skip counts under an
+    // active name filter are therefore retained as evidence (this record and
+    // the junit artifact), never silently waived; focused runs without a
+    // name filter — including the canonical fleet selection — and every
+    // full/stress run gate skips strictly below.
     return selectionCoverage("complete", executed.size, skippedTests, [], []);
   }
   if (skippedTests > 0) {
@@ -693,6 +725,11 @@ export async function runSupervisedSuite(
     }
     const runNumber = runs.length + 1;
     const junitPath = junitEvidencePath(logDir, runNumber);
+    // A reused diagnostics directory may hold evidence from an earlier
+    // invocation; only this run's own evidence may complete it. Deleting the
+    // planned path first makes a green run that fails to write evidence fail
+    // closed instead of parsing stale files as executed coverage.
+    rmSync(junitPath, { force: true });
     const result = await runProcess(
       {
         executable: suiteCommand[0],

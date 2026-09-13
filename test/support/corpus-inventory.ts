@@ -26,6 +26,8 @@ const TEST_FILE_SUFFIXES = [".test.", ".spec.", "_test.", "_spec."] as const;
 const TEST_FILE_EXTENSIONS = ["ts", "tsx", "js", "jsx", "mjs", "cjs", "mts", "cts"] as const;
 
 export interface CorpusSelection {
+  /** Every test file at the test root, POSIX-relative to `base`, before policy. */
+  readonly files: readonly string[];
   /** Test files at the test root included in required selection, POSIX-relative to `base`. */
   readonly selected: readonly string[];
   /** Test files removed by the exclusion policy, POSIX-relative to `base`. */
@@ -96,5 +98,9 @@ export function enumerateTestCorpus(
       `corpus inventory: exclusion policy pattern(s) match nothing in the current corpus: ${unmatched.join(", ")}`,
     );
   }
-  return { selected: selected.filter((path) => !excluded.includes(path)), excluded };
+  return {
+    files: selected,
+    selected: selected.filter((path) => !matchesExclusion(path, excluded)),
+    excluded,
+  };
 }

@@ -41,7 +41,6 @@ describe("bun junit evidence: extraction", () => {
       skipped: 0,
     });
     expect(evidence.suites[1]?.file).toBe("test/b.test.ts");
-    expect(evidence.rootTests).toBe(2);
   });
 
   test("decodes standard and numeric character references in attributes", () => {
