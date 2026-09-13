@@ -127,24 +127,9 @@ describe("suite supervisor: full mode", () => {
     }
   });
 
-  test("keeps fleet-scale regressions out of the fast suite", async () => {
-    const logDir = tempDir();
-    try {
-      const result = await runSupervisedSuite({
-        mode: "full",
-        suiteCommand: shFixture('printf "%s\n" "$@"', "argv fixture"),
-        perRunDeadlineMs: 2000,
-        logDir,
-      });
-      expect(result.ok).toBe(true);
-      const argv = result.runs[0]!.result.stdout.trim().split("\n");
-      expect(argv).toContain("--path-ignore-patterns");
-      const patternIndex = argv.indexOf("--path-ignore-patterns");
-      expect(argv[patternIndex + 1]).toBe("test/fleet-qualification.test.ts");
-    } finally {
-      rmSync(logDir, { recursive: true, force: true });
-    }
-  });
+  // Fleet exclusion and required selection are proven behaviorally against the
+  // real runner in test/suite-selection.test.ts; an argv inspection cannot
+  // stand in for runner behavior.
 });
 
 describe("suite supervisor: focused mode", () => {
@@ -161,8 +146,15 @@ describe("suite supervisor: focused mode", () => {
       });
       expect(result.ok).toBe(true);
       const argv = result.runs[0]!.result.stdout.trim().split("\n");
-      // The supervisor owns the per-test timeout policy; user arguments follow untouched.
-      expect(argv).toEqual(["--timeout", String(PER_TEST_TIMEOUT_MS), ...userArgs]);
+      // The supervisor owns the per-test timeout policy and the structured
+      // execution-evidence reporter; user arguments follow untouched.
+      expect(argv).toEqual([
+        "--timeout",
+        String(PER_TEST_TIMEOUT_MS),
+        "--reporter=junit",
+        `--reporter-outfile=${join(logDir, "run-1.junit.xml")}`,
+        ...userArgs,
+      ]);
     } finally {
       rmSync(logDir, { recursive: true, force: true });
     }

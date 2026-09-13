@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import { pinnedBunVersion } from "./support/suite-supervisor.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workflowSource = readFileSync(resolve(repositoryRoot, ".github/workflows/ci.yml"), "utf8");
 const workflow = parse(workflowSource) as {
@@ -87,6 +89,22 @@ test("installs the frozen dependency graph without lifecycle scripts or a depend
   expect(setupNode?.with?.["package-manager-cache"]).toBe(false);
   expect(steps.some((step) => step.uses?.startsWith("actions/cache@"))).toBe(false);
   expect(workflowSource).not.toMatch(/^\s*cache:/m);
+});
+
+test("installs the pinned Bun from its canonical home in every CI job", () => {
+  const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
+  const setupBun = steps.filter((step) => step.uses?.startsWith("oven-sh/setup-bun@"));
+  expect(setupBun).toHaveLength(2);
+  for (const step of setupBun) {
+    expect(step.with?.["bun-version-file"]).toBe("package.json");
+    expect(step.with?.["bun-version"]).toBeUndefined();
+  }
+  // One canonical home: CI installs the exact version the supervisor's
+  // runner-identity gate enforces.
+  const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")) as {
+    engines?: { bun?: string };
+  };
+  expect(pinnedBunVersion()).toBe(manifest.engines?.bun ?? "");
 });
 
 test("uploads explicit supervised diagnostics only after unsuccessful test execution", () => {

@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import { pinnedBunVersion } from "./support/suite-supervisor.js";
+
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
 test("private releases are manual, main-only, fully gated, and attach the packed CLI", () => {
@@ -48,6 +50,16 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(steps.find((step) => step.name === "Validate release identity")?.env?.GH_TOKEN).toBe(
     "${{ github.token }}",
   );
+  // Release qualification runs the same pinned, behaviorally qualified Bun:
+  // the workflow reads the canonical pin and never overrides it.
+  const setupBun = steps.filter((step) => step.uses?.startsWith("oven-sh/setup-bun@"));
+  expect(setupBun).toHaveLength(1);
+  expect(setupBun[0]?.with?.["bun-version-file"]).toBe("package.json");
+  expect(setupBun[0]?.with?.["bun-version"]).toBeUndefined();
+  const manifest = JSON.parse(readFileSync(resolve(repositoryRoot, "package.json"), "utf8")) as {
+    engines?: { bun?: string };
+  };
+  expect(pinnedBunVersion()).toBe(manifest.engines?.bun ?? "");
   expect(steps.find((step) => step.name === "Create private GitHub Release")?.env?.GH_TOKEN).toBe(
     "${{ github.token }}",
   );
