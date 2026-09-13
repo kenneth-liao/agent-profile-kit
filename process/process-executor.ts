@@ -35,6 +35,13 @@ export interface ProcessResultBase {
   readonly cancelled: boolean;
   /** True when the bounded cleanup window expired with the process group still present. */
   readonly cleanupFailed: boolean;
+  /**
+   * Milliseconds the bounded cleanup lifecycle (signal, grace, escalation,
+   * group-empty probe) took, measured separately from the run duration; zero
+   * when no cleanup lifecycle ran, so test and cleanup timing stay
+   * distinguishable in every result.
+   */
+  readonly cleanupDurationMs: number;
   readonly stdout: string;
   readonly stderr: string;
   readonly durationMs: number;
@@ -193,31 +200,37 @@ function targetIsAlive(target: CleanupTarget): boolean {
 /**
  * Shared bounded termination: SIGTERM, wait one grace period, probe, escalate
  * to SIGKILL, then poll until the target is gone or the window expires. The
- * returned boolean is the `cleanupFailed` evidence: true only when death could
- * not be confirmed within the window. No result ever implies cleanup that did
- * not happen.
+ * returned evidence pairs the `cleanupFailed` flag (true only when death could
+ * not be confirmed within the window) with the measured cleanup duration. No
+ * result ever implies cleanup that did not happen.
  */
-function terminateTarget(target: CleanupTarget, graceMs: number): Promise<boolean> {
+function terminateTarget(
+  target: CleanupTarget,
+  graceMs: number,
+): Promise<{ cleanupFailed: boolean; cleanupDurationMs: number }> {
   return new Promise((settle) => {
+    const cleanupStartedAt = Date.now();
+    const settledWith = (cleanupFailed: boolean) =>
+      settle({ cleanupFailed, cleanupDurationMs: Date.now() - cleanupStartedAt });
     const signalled = signalTarget(target, "SIGTERM");
     if (!signalled && !targetIsAlive(target)) {
-      settle(false);
+      settledWith(false);
       return;
     }
     setTimeout(() => {
       if (!targetIsAlive(target)) {
-        settle(false);
+        settledWith(false);
         return;
       }
       signalTarget(target, "SIGKILL");
       const pollDeadline = Date.now() + graceMs;
       const poll = () => {
         if (!targetIsAlive(target)) {
-          settle(false);
+          settledWith(false);
           return;
         }
         if (Date.now() >= pollDeadline) {
-          settle(true);
+          settledWith(true);
           return;
         }
         setTimeout(poll, 25);
@@ -255,6 +268,7 @@ export async function runProcess(
       timedOut: false,
       cancelled: false,
       cleanupFailed: false,
+      cleanupDurationMs: 0,
       stdout: "",
       stderr: "",
       durationMs: elapsed(),
@@ -294,7 +308,10 @@ export async function runProcess(
       resolve(result);
     };
 
-    const outcome = (cleanupFailed: boolean): ProcessResult =>
+    const outcome = (
+      cleanupFailed: boolean,
+      cleanupDurationMs = 0,
+    ): ProcessResult =>
       terminalCause === "timeout"
         ? {
             kind: "timeout",
@@ -304,6 +321,7 @@ export async function runProcess(
             timedOut: true,
             cancelled: false,
             cleanupFailed,
+            cleanupDurationMs,
             stdout,
             stderr,
             durationMs: elapsed(),
@@ -318,6 +336,7 @@ export async function runProcess(
             timedOut: false,
             cancelled: false,
             cleanupFailed,
+            cleanupDurationMs,
             stdout,
             stderr,
             durationMs: elapsed(),
@@ -331,6 +350,7 @@ export async function runProcess(
             timedOut: false,
             cancelled: true,
             cleanupFailed,
+            cleanupDurationMs,
             stdout,
             stderr,
             durationMs: elapsed(),
@@ -371,6 +391,7 @@ export async function runProcess(
         timedOut: false,
         cancelled: false,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         stdout,
         stderr,
         durationMs: elapsed(),
@@ -395,6 +416,7 @@ export async function runProcess(
           timedOut: false,
           cancelled: false,
           cleanupFailed: false,
+          cleanupDurationMs: 0,
           stdout,
           stderr,
           durationMs: elapsed(),
@@ -409,6 +431,7 @@ export async function runProcess(
           timedOut: false,
           cancelled: false,
           cleanupFailed: false,
+          cleanupDurationMs: 0,
           stdout,
           stderr,
           durationMs: elapsed(),
@@ -432,8 +455,8 @@ export async function runProcess(
         return;
       }
       void terminateTarget({ policy: "process-group", pid: child.pid! }, options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS)
-        .then((cleanupFailed) => {
-          if (!settled) finish(outcome(cleanupFailed));
+        .then(({ cleanupFailed, cleanupDurationMs }) => {
+          if (!settled) finish(outcome(cleanupFailed, cleanupDurationMs));
         });
     };
 
@@ -494,6 +517,12 @@ export interface InteractiveProcessResult {
   readonly signal: string | null;
   readonly error: Error | null;
   readonly cleanupFailed: boolean;
+  /**
+   * Milliseconds the owned-child cleanup lifecycle took, measured separately
+   * from the run duration; zero when no cleanup lifecycle ran. Interactive
+   * lifetime guarantees are unchanged: there is still no deadline.
+   */
+  readonly cleanupDurationMs: number;
   readonly durationMs: number;
   readonly commandLabel: string;
 }
@@ -535,6 +564,7 @@ export async function runInteractiveProcess(
       signal: null,
       error: error as Error,
       cleanupFailed: false,
+      cleanupDurationMs: 0,
       durationMs: elapsed(),
       commandLabel,
     };
@@ -555,10 +585,11 @@ export async function runInteractiveProcess(
       resolve(result);
     };
 
-    const base = (cleanupFailed: boolean) => ({
+    const base = (cleanupFailed: boolean, cleanupDurationMs = 0) => ({
       exitCode: observedCode,
       signal: observedSignal,
       cleanupFailed,
+      cleanupDurationMs,
       durationMs: elapsed(),
       commandLabel,
     });
@@ -580,6 +611,7 @@ export async function runInteractiveProcess(
         signal: null,
         error,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: elapsed(),
         commandLabel,
       });
@@ -599,7 +631,7 @@ export async function runInteractiveProcess(
       }
     });
 
-    const terminateCleanupSettled = (cleanupFailed: boolean) => {
+    const terminateCleanupSettled = ({ cleanupFailed, cleanupDurationMs }: { cleanupFailed: boolean; cleanupDurationMs: number }) => {
       if (settled) return;
       if (terminalCause === "stdin-error") {
         finish({
@@ -608,6 +640,7 @@ export async function runInteractiveProcess(
           signal: observedSignal,
           error: stdinError,
           cleanupFailed,
+          cleanupDurationMs,
           durationMs: elapsed(),
           commandLabel,
         });
@@ -619,6 +652,7 @@ export async function runInteractiveProcess(
         signal: observedSignal,
         error: null,
         cleanupFailed,
+        cleanupDurationMs,
         durationMs: elapsed(),
         commandLabel,
       });
@@ -628,10 +662,10 @@ export async function runInteractiveProcess(
       if (terminalCause !== null) return;
       terminalCause = cause;
       if (child.pid === undefined) {
-        terminateCleanupSettled(false);
+        terminateCleanupSettled({ cleanupFailed: false, cleanupDurationMs: 0 });
         return;
       }
-      terminateTarget(
+      void terminateTarget(
         { policy: "owned-process", pid: child.pid },
         options.cleanupGraceMs ?? DEFAULT_CLEANUP_GRACE_MS,
       ).then(terminateCleanupSettled);
@@ -668,6 +702,7 @@ export function describeProcessResult(result: ProcessResult): string {
   if (result.timedOut) parts.push("timedOut");
   if (result.cancelled) parts.push("cancelled");
   if (result.cleanupFailed) parts.push("cleanupFailed");
+  if (result.cleanupDurationMs > 0) parts.push(`cleanupDurationMs=${result.cleanupDurationMs}`);
   if (result.error !== null) parts.push(`error=${result.error.message}`);
   parts.push(`durationMs=${result.durationMs}`);
   parts.push(`stdout=${snippet(result.stdout)}`);

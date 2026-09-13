@@ -86,6 +86,65 @@ describe("runProcess result contract", () => {
     expect(result.stderr).toBe("err");
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
     expect(result.commandLabel).toBe("sh fixture");
+    // A completed child runs no cleanup lifecycle; zero is the canonical value.
+    expect(result.cleanupDurationMs).toBe(0);
+  });
+
+  test("timeout cleanup duration is measured distinctly from test duration", async () => {
+    const result = await shFixture("sleep 30", { deadlineMs: 300 });
+    expect(result.kind).toBe("timeout");
+    expect(result.cleanupDurationMs).toBeGreaterThan(0);
+    expect(result.cleanupDurationMs).toBeLessThanOrEqual(result.durationMs);
+  });
+
+  test("cancellation cleanup duration is measured distinctly", async () => {
+    const controller = new AbortController();
+    const resultPromise = runProcess(
+      {
+        executable: shell,
+        arguments_: ["-c", "sleep 30"],
+        deadlineMs: 10_000,
+        commandLabel: "cleanup-duration cancel fixture",
+      },
+      controller.signal,
+    );
+    setTimeout(() => controller.abort(), 150);
+    const result = await resultPromise;
+    expect(result.kind).toBe("cancelled");
+    expect(result.cleanupDurationMs).toBeGreaterThan(0);
+    expect(result.cleanupDurationMs).toBeLessThanOrEqual(result.durationMs);
+  });
+
+  test("TERM-resistant descendant cleanup duration covers the escalation window", async () => {
+    const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-executor-cleanup-duration-"));
+    try {
+      const descendant = join(fixtureDir, "descendant.mjs");
+      const leader = join(fixtureDir, "leader.mjs");
+      writeFileSync(descendant, 'process.on("SIGTERM", () => {});\nsetInterval(() => {}, 1000);\n');
+      writeFileSync(
+        leader,
+        `import { spawn } from "node:child_process";
+const descendant = spawn(process.execPath, [${JSON.stringify(descendant)}], { stdio: "ignore" });
+console.log("child=" + descendant.pid);
+setInterval(() => {}, 1000);
+`,
+      );
+      const result = await runProcess({
+        executable: process.execPath,
+        arguments_: [leader],
+        deadlineMs: 300,
+        cleanupGraceMs: 100,
+        commandLabel: "cleanup-duration escalation fixture",
+      });
+      expect(result.kind).toBe("timeout");
+      expect(result.cleanupFailed).toBe(false);
+      // SIGTERM, one grace wait, escalation, and the group-empty probe all
+      // fall inside the measured cleanup window.
+      expect(result.cleanupDurationMs).toBeGreaterThanOrEqual(100);
+      expect(result.cleanupDurationMs).toBeLessThanOrEqual(result.durationMs);
+    } finally {
+      rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   test("nonzero exit is represented distinctly", async () => {
@@ -345,6 +404,8 @@ describe("runInteractiveProcess (#448)", () => {
     expect(result.signal).toBeNull();
     expect(result.cleanupFailed).toBe(false);
     expect(result.error).toBeNull();
+    // A completed interactive child runs no cleanup lifecycle.
+    expect(result.cleanupDurationMs).toBe(0);
   });
 
   test("imposes no deadline: a slow child runs to natural completion", async () => {
@@ -380,6 +441,8 @@ describe("runInteractiveProcess (#448)", () => {
     expect(result.kind).toBe("cancelled");
     expect(result.cleanupFailed).toBe(false);
     expect(result.exitCode).toBeNull();
+    // Owned-child cleanup is measured without changing the interactive lifetime.
+    expect(result.cleanupDurationMs).toBeGreaterThan(0);
   });
 
   test("cancellation terminates the exact published owned pid and claims no descendants", async () => {

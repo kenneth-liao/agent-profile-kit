@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,8 +8,14 @@ import { parse } from "yaml";
 
 import { runProcess } from "../process/process-executor.js";
 import {
+  AGGREGATE_DEADLINE_ENV,
+  DEFAULT_PER_RUN_DEADLINE_MS,
+  MAX_BUDGET_MS,
+  MAX_RUNS_ENV,
+  PER_RUN_DEADLINE_ENV,
   PER_TEST_TIMEOUT_MS,
   formatSuiteSummary,
+  resolveSuitePolicy,
   runSupervisedSuite,
   type SuiteMode,
 } from "./support/suite-supervisor.js";
@@ -69,6 +76,7 @@ describe("suite supervisor: full mode", () => {
       expect(log).toContain("kind: exit");
       expect(log).toContain("exitCode: 0");
       expect(log).toContain("durationMs:");
+      expect(log).toContain("cleanupDurationMs: 0");
     } finally {
       rmSync(logDir, { recursive: true, force: true });
     }
@@ -631,6 +639,289 @@ describe("supervised CLI", () => {
   });
 });
 
+describe("suite supervisor: finite budget override interface", () => {
+  const focusedCli = (extraArguments: readonly string[]): readonly string[] => [
+    "run",
+    "test/support/suite-supervisor.ts",
+    "focused",
+    ...extraArguments,
+  ];
+
+  function runSupervisorCli(
+    arguments_: readonly string[],
+    environment: NodeJS.ProcessEnv,
+    deadlineMs = 60_000,
+  ): Promise<Awaited<ReturnType<typeof runProcess>>> {
+    return runProcess({
+      executable: process.execPath,
+      arguments_,
+      environment,
+      deadlineMs,
+      commandLabel: "supervisor CLI",
+    });
+  }
+
+  test("rejects invalid, nonfinite, and timer-unsafe per-run overrides before launching", async () => {
+    for (const value of [
+      "abc",
+      "NaN",
+      "Infinity",
+      "-Infinity",
+      "-1000",
+      "1.5",
+      "1e3",
+      "0x10",
+      "+5",
+      "",
+      " ",
+      "0",
+      "2147483648",
+      "999999999999999999999",
+    ]) {
+      const logDir = tempDir();
+      try {
+        const result = await runSupervisorCli(
+          focusedCli(["--", "./test/process-executor.test.ts", "-t", "normal exit"]),
+          {
+            ...process.env,
+            [PER_RUN_DEADLINE_ENV]: value,
+            APKIT_TEST_DIAGNOSTICS_DIR: logDir,
+          },
+        );
+        expect(result.kind, `value '${value}' must be rejected as exit`).toBe("exit");
+        if (result.kind === "exit") {
+          expect(result.exitCode, `value '${value}'`).toBe(2);
+        }
+        expect(result.stderr, `value '${value}'`).toContain(PER_RUN_DEADLINE_ENV);
+        expect(result.stdout, `value '${value}' must not start a run`).not.toContain("starting");
+        // Rejection happens before execution: no run log may exist.
+        expect(readdirSync(logDir), `value '${value}'`).toEqual([]);
+      } finally {
+        rmSync(logDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("rejects aggregate and run-count overrides as unsupported outside stress mode", async () => {
+    for (const [envName, value] of [
+      [AGGREGATE_DEADLINE_ENV, "5000"],
+      [MAX_RUNS_ENV, "3"],
+    ] as const) {
+      for (const mode of ["full", "focused"] as const) {
+        const arguments_ =
+          mode === "focused"
+            ? ["run", "test/support/suite-supervisor.ts", "focused", "--", "./test/process-executor.test.ts", "-t", "normal exit"]
+            : ["run", "test/support/suite-supervisor.ts", mode];
+        const result = await runSupervisorCli(arguments_, { ...process.env, [envName]: value });
+        expect(result.kind, `${mode} ${envName}`).toBe("exit");
+        if (result.kind === "exit") {
+          expect(result.exitCode, `${mode} ${envName}`).toBe(2);
+        }
+        expect(result.stderr, `${mode} ${envName}`).toContain(envName);
+        expect(result.stderr, `${mode} ${envName}`).toMatch(new RegExp(`not supported for ${mode}`));
+        expect(result.stdout, `${mode} ${envName}`).not.toContain("starting");
+      }
+    }
+  });
+
+  test("rejects an incoherent stress budget naming both override variables", async () => {
+    const result = await runSupervisorCli(["run", "test/support/suite-supervisor.ts", "stress"], {
+      ...process.env,
+      [PER_RUN_DEADLINE_ENV]: "5000",
+      [AGGREGATE_DEADLINE_ENV]: "1000",
+    });
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(2);
+    }
+    expect(result.stderr).toContain(AGGREGATE_DEADLINE_ENV);
+    expect(result.stderr).toContain(PER_RUN_DEADLINE_ENV);
+    expect(result.stderr).toMatch(/aggregate/i);
+    expect(result.stdout).not.toContain("starting");
+  });
+
+  test("prints the effective policy with override attribution and retains it in the run log", async () => {
+    const result = await runSupervisorCli(
+      focusedCli(["--", "./test/process-executor.test.ts", "-t", "normal exit"]),
+      {
+        ...process.env,
+        PATH: "/usr/bin:/bin",
+        [PER_RUN_DEADLINE_ENV]: "600000",
+      },
+    );
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(0);
+    }
+    expect(result.stdout).toContain(
+      `suite focused: run 1/1 starting (per-run deadline 600000ms, overrides: ${PER_RUN_DEADLINE_ENV}=600000)`,
+    );
+    const logMatch = /log: (\S+run-1\.log)/.exec(result.stdout);
+    expect(logMatch?.[1]).toBeTruthy();
+    const log = readFileSync(logMatch![1]!, "utf8");
+    expect(log).toContain(
+      `effective-policy: mode=focused per-run=600000ms aggregate=600000ms max-runs=1`,
+    );
+  });
+
+  test("prints the default policy explicitly when no override is supplied", async () => {
+    const result = await runSupervisorCli(
+      focusedCli(["--", "./test/process-executor.test.ts", "-t", "normal exit"]),
+      { ...process.env, PATH: "/usr/bin:/bin" },
+    );
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).toBe(0);
+    }
+    expect(result.stdout).toContain(
+      `suite focused: run 1/1 starting (per-run deadline ${DEFAULT_PER_RUN_DEADLINE_MS}ms, policy: defaults)`,
+    );
+  });
+
+  test("exhausts an overridden per-run deadline on a real Bun child and reports incomplete qualification", async () => {
+    const result = await runSupervisorCli(
+      focusedCli(["--", "./test/support/fixtures/stall-suite-fixture.ts"]),
+      {
+        ...process.env,
+        PATH: "/usr/bin:/bin",
+        [PER_RUN_DEADLINE_ENV]: "500",
+      },
+      30_000,
+    );
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).not.toBe(0);
+    }
+    expect(result.stdout).toContain(
+      `suite focused: run 1/1 starting (per-run deadline 500ms, overrides: ${PER_RUN_DEADLINE_ENV}=500)`,
+    );
+    expect(result.stdout).toContain("failed (timeout)");
+    expect(result.stdout).not.toContain("exit 0");
+    const logMatch = /log: (\S+run-1\.log)/.exec(result.stdout);
+    expect(logMatch?.[1]).toBeTruthy();
+    const log = readFileSync(logMatch![1]!, "utf8");
+    expect(log).toContain("kind: timeout");
+    expect(log).toContain("effective-policy: mode=focused per-run=500ms");
+  });
+
+  test("an unrelated control process survives a supervised timeout cleanup", async () => {
+    // A process-group leader independent of the supervised suite: cleanup
+    // targets only the suite's own group, so the control process must survive.
+    const control = spawn("sh", ["-c", "sleep 30"], { detached: true, stdio: "ignore" });
+    try {
+      const logDir = tempDir();
+      try {
+        const result = await runSupervisedSuite({
+          mode: "full",
+          suiteCommand: shFixture("sleep 30"),
+          perRunDeadlineMs: 300,
+          logDir,
+        });
+        expect(result.ok).toBe(false);
+        expect(result.runs[0]!.result.kind).toBe("timeout");
+        let controlAlive = true;
+        try {
+          process.kill(control.pid!, 0);
+        } catch {
+          controlAlive = false;
+        }
+        expect(controlAlive, `unrelated control process (pid ${control.pid}) must survive`).toBe(true);
+      } finally {
+        rmSync(logDir, { recursive: true, force: true });
+      }
+    } finally {
+      try {
+        process.kill(-control.pid!, "SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }
+  });
+
+  test("library budgets reject nonfinite, non-integer, and timer-unsafe values", async () => {
+    await expect(
+      runSupervisedSuite({ mode: "full", perRunDeadlineMs: Number.POSITIVE_INFINITY }),
+    ).rejects.toThrow(/perRunDeadlineMs/);
+    await expect(
+      runSupervisedSuite({ mode: "full", perRunDeadlineMs: Number.NaN }),
+    ).rejects.toThrow(/perRunDeadlineMs/);
+    await expect(
+      runSupervisedSuite({ mode: "full", perRunDeadlineMs: 1500.5 }),
+    ).rejects.toThrow(/perRunDeadlineMs/);
+    await expect(
+      runSupervisedSuite({ mode: "full", perRunDeadlineMs: MAX_BUDGET_MS + 1 }),
+    ).rejects.toThrow(/timer-safe/);
+    await expect(
+      runSupervisedSuite({
+        mode: "stress",
+        perRunDeadlineMs: 1000,
+        aggregateDeadlineMs: MAX_BUDGET_MS + 1,
+      }),
+    ).rejects.toThrow(/aggregateDeadlineMs/);
+    await expect(
+      runSupervisedSuite({
+        mode: "stress",
+        perRunDeadlineMs: 1000,
+        aggregateDeadlineMs: 5000,
+        maxRuns: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ).rejects.toThrow(/maxRuns/);
+  });
+
+  test("stress with an unbounded run count reports truthful aggregate exhaustion", async () => {
+    const logDir = tempDir();
+    const counter = join(logDir, "counter");
+    const script = [
+      `n=$(cat ${counter} 2>/dev/null || echo 0)`,
+      "n=$((n + 1))",
+      `echo $n > ${counter}`,
+      '[ "$n" = "1" ] && sleep 0.35',
+      "exit 0",
+    ].join("\n");
+    try {
+      // Run one completes inside the aggregate budget; run two then runs under
+      // an aggregate-limited deadline and times out, so the invocation reports
+      // aggregate exhaustion rather than a per-run deadline expiry.
+      const result = await runSupervisedSuite({
+        mode: "stress",
+        suiteCommand: shFixture(script),
+        perRunDeadlineMs: 500,
+        aggregateDeadlineMs: 600,
+        maxRuns: Number.MAX_SAFE_INTEGER,
+        cleanupGraceMs: 100,
+        logDir,
+      });
+      expect(result.ok).toBe(false);
+      // The invocation ran until the aggregate budget was spent; uncompleted
+      // repetition is reported, never silent success. Non-green runs under the
+      // aggregate-limited deadline are timeout evidence, not suite failures.
+      expect(result.attemptedRuns).toBeGreaterThanOrEqual(2);
+      expect(result.completedRuns).toBeGreaterThanOrEqual(1);
+      expect(result.completedRuns).toBeLessThan(result.attemptedRuns + 1);
+      expect(result.aggregateExhausted).toBe(true);
+      for (const run of result.runs) {
+        const green = run.result.kind === "exit" && run.result.exitCode === 0;
+        if (!green) {
+          expect(run.result.kind, `run ${run.runNumber}`).toBe("timeout");
+        }
+      }
+      const summary = formatSuiteSummary(result, null);
+      expect(summary).toContain("aggregate deadline reached");
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("the resolved policy is available to programmatic consumers", () => {
+    expect(resolveSuitePolicy({ mode: "full", perRunDeadlineMs: 1234 })).toEqual({
+      mode: "full",
+      perRunDeadlineMs: 1234,
+      aggregateDeadlineMs: 1234,
+      maxRuns: 1,
+    });
+  });
+});
+
 describe("canonical command surface", () => {
   const read = (path: string): string => readFileSync(join(repositoryRoot, path), "utf8");
   const manifest = JSON.parse(read("package.json")) as { scripts: Record<string, string> };
@@ -656,15 +947,21 @@ describe("canonical command surface", () => {
     }
   });
 
-  test("the canonical budgets match the accepted five-minute, 25-minute, and ten-run contract", async () => {
+  test("the canonical budgets are the measured, coherent defaults", async () => {
     const {
       DEFAULT_PER_RUN_DEADLINE_MS,
       DEFAULT_AGGREGATE_DEADLINE_MS,
       DEFAULT_MAX_RUNS,
     } = await import("./support/suite-supervisor.js");
-    expect(DEFAULT_PER_RUN_DEADLINE_MS).toBe(300_000);
-    expect(DEFAULT_AGGREGATE_DEADLINE_MS).toBe(1_500_000);
+    // Measured default: ~1.6x the 366.3s intended non-fleet corpus duration
+    // recorded in the supervisor's rationale; a hung run stays bounded.
+    expect(DEFAULT_PER_RUN_DEADLINE_MS).toBe(600_000);
     expect(DEFAULT_MAX_RUNS).toBe(10);
+    // Coherent by construction: every sequential default stress run fits
+    // inside the aggregate, and the product stays within the timer-safe
+    // ceiling so the aggregate can never wrap to a 1ms timer.
+    expect(DEFAULT_AGGREGATE_DEADLINE_MS).toBe(DEFAULT_MAX_RUNS * DEFAULT_PER_RUN_DEADLINE_MS);
+    expect(DEFAULT_AGGREGATE_DEADLINE_MS).toBeLessThanOrEqual(MAX_BUDGET_MS);
   });
 
   test("CI, release, runbook, and agent guidance invoke only canonical test commands", () => {

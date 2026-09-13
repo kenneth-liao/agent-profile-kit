@@ -198,6 +198,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
       signal: null,
       error: null,
       cleanupFailed: false,
+        cleanupDurationMs: 0,
       durationMs: 1,
       commandLabel: "fake pager",
     });
@@ -215,6 +216,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
       signal: null,
       error: null,
       cleanupFailed: false,
+        cleanupDurationMs: 0,
       durationMs: 1,
       commandLabel: "fake pager",
     });
@@ -232,6 +234,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
         signal: null,
         error: new Error("spawn fake-pager ENOENT"),
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       },
@@ -241,6 +244,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       },
@@ -250,6 +254,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
         signal: "SIGSEGV",
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       },
@@ -259,6 +264,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
         signal: null,
         error: new Error("EIO writing guidance"),
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       },
@@ -278,6 +284,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
       signal: null,
       error: null,
       cleanupFailed: true,
+        cleanupDurationMs: 0,
       durationMs: 1,
       commandLabel: "fake pager",
     });
@@ -294,6 +301,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
       signal: "SIGTERM",
       error: null,
       cleanupFailed: false,
+        cleanupDurationMs: 0,
       durationMs: 1,
       commandLabel: "fake pager",
     });
@@ -310,6 +318,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
       signal: null,
       error: null,
       cleanupFailed: true,
+        cleanupDurationMs: 0,
       durationMs: 1,
       commandLabel: "fake pager",
     });
@@ -339,6 +348,7 @@ describe("guidance writing (#448, US-050)", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       };
@@ -442,6 +452,7 @@ describe("pager child environment (#448, CRAFT-1)", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       };
@@ -537,6 +548,7 @@ describe("PR #476 review cycle 1", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "signal fixture",
       };
@@ -584,6 +596,7 @@ describe("PR #476 review cycle 1", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "signal fixture",
       };
@@ -618,6 +631,7 @@ describe("PR #476 review cycle 1", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "fake pager",
       };

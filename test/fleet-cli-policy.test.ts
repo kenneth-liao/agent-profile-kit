@@ -24,6 +24,7 @@ function recordingExecutor(records: ExecutorOptions[]) {
       timedOut: false,
       cancelled: false,
       cleanupFailed: false,
+        cleanupDurationMs: 0,
       stdout: "",
       stderr: "",
       durationMs: 0,

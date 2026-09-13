@@ -16,6 +16,7 @@ test("private releases are manual, main-only, fully gated, and attach the packed
       string,
       {
         env?: Record<string, string>;
+        "timeout-minutes"?: number;
         steps?: Array<{
           name?: string;
           run?: string;
@@ -35,6 +36,10 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   const commands = steps.map((step) => step.run ?? "").join("\n");
 
   expect(jobs.every((job) => job.env?.GH_TOKEN === undefined)).toBe(true);
+  // The job bound keeps the bounded full and fleet suite ceilings (two
+  // 600s per-run budgets through the supervisor) plus build, verification,
+  // and pack overhead inside one release invocation.
+  expect(jobs.every((job) => job["timeout-minutes"] === 25)).toBe(true);
   expect(
     steps.find((step) => step.name === "Check out release commit")?.with?.["persist-credentials"],
   ).toBe(false);

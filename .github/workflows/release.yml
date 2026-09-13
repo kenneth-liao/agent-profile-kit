@@ -19,7 +19,10 @@ jobs:
   private-github-release:
     name: Verify and create private GitHub Release
     runs-on: macos-15
-    timeout-minutes: 20
+    # The full and fleet suites each carry a bounded 600s per-run ceiling
+    # through the supervisor; the job bound keeps both ceilings plus build,
+    # verification, and pack overhead inside one invocation.
+    timeout-minutes: 25
     env:
       REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
       VERSION: ${{ inputs.version }}
