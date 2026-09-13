@@ -16,12 +16,14 @@ test("private releases are manual, main-only, fully gated, and attach the packed
       string,
       {
         env?: Record<string, string>;
+        "timeout-minutes"?: number;
         steps?: Array<{
           name?: string;
           run?: string;
           uses?: string;
           env?: Record<string, string>;
           with?: Record<string, unknown>;
+          if?: string;
         }>;
       }
     >;
@@ -35,6 +37,11 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   const commands = steps.map((step) => step.run ?? "").join("\n");
 
   expect(jobs.every((job) => job.env?.GH_TOKEN === undefined)).toBe(true);
+  // Containment is reachable-state arithmetic, not stacked ceilings: a failed
+  // suite step (including a supervisor timeout) skips the remaining steps by
+  // default, so the 600s suite ceilings never both run after setup. The
+  // guards below pin that premise: no suite step may carry its own `if`.
+  expect(jobs.every((job) => job["timeout-minutes"] === 25)).toBe(true);
   expect(
     steps.find((step) => step.name === "Check out release commit")?.with?.["persist-credentials"],
   ).toBe(false);
@@ -55,6 +62,11 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain("bun run build");
   expect(commands).toContain("bun run test");
   expect(commands).toContain("bun run test:fleet");
+  // The fleet ceiling is only reachable after a green test step: neither
+  // suite step may carry its own condition, so a supervisor timeout on the
+  // full run skips the fleet stage instead of stacking a second ceiling.
+  expect(steps.find((step) => step.name === "Run test suite")?.if).toBeUndefined();
+  expect(steps.find((step) => step.name === "Run fleet-scale regressions")?.if).toBeUndefined();
   expect(commands).toContain("git diff --exit-code");
   expect(commands).toContain('test -z "$(git status --porcelain)"');
   expect(commands).toContain("npm pack --ignore-scripts");

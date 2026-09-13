@@ -19,7 +19,13 @@ jobs:
   private-github-release:
     name: Verify and create private GitHub Release
     runs-on: macos-15
-    timeout-minutes: 20
+    # Containment is reachable-state arithmetic, not stacked ceilings: a failed
+    # suite step (including a supervisor timeout) skips the remaining steps by
+    # default, so at most one 600s ceiling is spent after setup, plus a
+    # completed full run before an exhausted 600s fleet ceiling (≈17 minutes
+    # with the measured ≈7–9s setup on the macos-15 runner) — inside this bound,
+    # so the supervisor's bounded timeout, not the job clock, owns a hung run.
+    timeout-minutes: 25
     env:
       REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
       VERSION: ${{ inputs.version }}

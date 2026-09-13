@@ -876,6 +876,7 @@ describe("lifecycle operation recording", () => {
         signal: null,
         error: null,
         cleanupFailed: false,
+        cleanupDurationMs: 0,
         durationMs: 1,
         commandLabel: "pager test",
       };

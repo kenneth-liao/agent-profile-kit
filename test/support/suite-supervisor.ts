@@ -19,12 +19,40 @@ export type SuiteMode = "full" | "focused" | "stress";
 
 /** Bun's per-test timeout; the single canonical policy value. */
 export const PER_TEST_TIMEOUT_MS = 10_000;
-/** Outer deadline for one full-suite run (five minutes). */
-export const DEFAULT_PER_RUN_DEADLINE_MS = 300_000;
-/** Aggregate deadline for a stress run (25 minutes). */
-export const DEFAULT_AGGREGATE_DEADLINE_MS = 1_500_000;
+/**
+ * Measured default policy, selected from retained measurement rather than a
+ * test-count floor or a universal speed target: on the development baseline
+ * (macOS 26.6.2, arm64, Bun 1.4.0, 2026-09-13) an explicit focused selection
+ * of the intended non-fleet corpus (all 90 non-fleet test files, 1911 tests)
+ * completed in 366.3s through this supervisor, and the fleet file (11 tests)
+ * in 17.8s. The per-run default is ~1.6x that measured corpus duration: it
+ * bounds a hung or stalled run, not a completion target. Containment is
+ * reachable-state arithmetic: measured CI setup before the test step is
+ * ≈7–9s on the macos-15 runner (PR #553 check run), so one exhausted 600s
+ * run plus setup stays well inside CI's 15-minute job ceiling and the
+ * supervisor's bounded timeout — not the job clock — owns a hung run. The
+ * stress aggregate is coherent by construction — every one of the sequential
+ * runs may use its full per-run deadline inside the aggregate. Final
+ * equivalent-corpus completion evidence is the integrated-qualification
+ * ticket's obligation (#552), not this default.
+ */
+export const DEFAULT_PER_RUN_DEADLINE_MS = 600_000;
 /** A stress run completes after this many sequential green runs. */
 export const DEFAULT_MAX_RUNS = 10;
+/** Aggregate stress deadline, coherent with the per-run default by construction. */
+export const DEFAULT_AGGREGATE_DEADLINE_MS = DEFAULT_MAX_RUNS * DEFAULT_PER_RUN_DEADLINE_MS;
+/**
+ * Node timers wrap delays above 2^31−1 ms down to 1 ms, so a larger finite
+ * budget would fire immediately instead of bounding the run. Budgets above
+ * this timer-safe ceiling are rejected, never silently truncated.
+ */
+export const MAX_BUDGET_MS = 2_147_483_647;
+/** Optional CLI override of the per-run deadline; every mode accepts it. */
+export const PER_RUN_DEADLINE_ENV = "APKIT_TEST_PER_RUN_DEADLINE_MS";
+/** Optional CLI override of the stress aggregate deadline; stress mode only. */
+export const AGGREGATE_DEADLINE_ENV = "APKIT_TEST_AGGREGATE_DEADLINE_MS";
+/** Optional CLI override of the stress run count; stress mode only. */
+export const MAX_RUNS_ENV = "APKIT_TEST_MAX_RUNS";
 /** Fleet-scale regressions excluded from the fast suite's deadline. */
 export const FAST_SUITE_PATH_IGNORE_PATTERNS = ["test/fleet-qualification.test.ts"] as const;
 /** Optional canonical CLI input for an explicit diagnostics directory. */
@@ -65,6 +93,147 @@ export interface SuiteSupervisorOptions {
   readonly onRunComplete?: (run: SupervisedRun) => void;
 }
 
+/** The one resolved, validated budget contract for a supervised invocation. */
+export interface BudgetPolicy {
+  readonly mode: SuiteMode;
+  readonly perRunDeadlineMs: number;
+  readonly aggregateDeadlineMs: number;
+  readonly maxRuns: number;
+}
+
+/**
+ * Validate every budget and resolve the effective policy. Overrides are
+ * finite positive integers at or below the timer-safe ceiling (a larger
+ * finite value would wrap to a 1 ms timer), stress budgets stay coherent
+ * (the aggregate can complete at least one full run), and a run count is a
+ * positive safe integer. Single-run modes accept only a per-run deadline:
+ * an aggregate or run-count override there names a policy the invocation
+ * can never deliver, so it is rejected as unsupported.
+ */
+export function resolveSuitePolicy(options: SuiteSupervisorOptions): BudgetPolicy {
+  if (!isMode(options.mode)) {
+    throw new Error(`suite supervisor mode must be full, focused, or stress, got '${options.mode}'`);
+  }
+  const mode = options.mode;
+  const perRunDeadlineMs = options.perRunDeadlineMs ?? DEFAULT_PER_RUN_DEADLINE_MS;
+  assertBudget(perRunDeadlineMs, "perRunDeadlineMs", PER_RUN_DEADLINE_ENV);
+  if (mode !== "stress") {
+    if (options.aggregateDeadlineMs !== undefined) {
+      throw new Error(
+        `suite supervisor aggregateDeadlineMs (from ${AGGREGATE_DEADLINE_ENV}) is not supported for ${mode} mode: a ${mode} invocation is one run bounded by perRunDeadlineMs`,
+      );
+    }
+    if (options.maxRuns !== undefined) {
+      throw new Error(
+        `suite supervisor maxRuns (from ${MAX_RUNS_ENV}) is not supported for ${mode} mode: a ${mode} invocation is one run bounded by perRunDeadlineMs`,
+      );
+    }
+    return { mode, perRunDeadlineMs, aggregateDeadlineMs: perRunDeadlineMs, maxRuns: 1 };
+  }
+  const aggregateDeadlineMs = options.aggregateDeadlineMs ?? DEFAULT_AGGREGATE_DEADLINE_MS;
+  assertBudget(aggregateDeadlineMs, "aggregateDeadlineMs", AGGREGATE_DEADLINE_ENV);
+  if (aggregateDeadlineMs < perRunDeadlineMs) {
+    throw new Error(
+      `suite supervisor stress aggregate deadline (aggregateDeadlineMs / ${AGGREGATE_DEADLINE_ENV}) (${aggregateDeadlineMs}) must be >= per-run deadline (perRunDeadlineMs / ${PER_RUN_DEADLINE_ENV}) (${perRunDeadlineMs})`,
+    );
+  }
+  const maxRuns = options.maxRuns ?? DEFAULT_MAX_RUNS;
+  if (
+    !Number.isFinite(maxRuns) ||
+    !Number.isInteger(maxRuns) ||
+    maxRuns <= 0 ||
+    maxRuns > Number.MAX_SAFE_INTEGER
+  ) {
+    throw new Error(
+      `suite supervisor maxRuns (from ${MAX_RUNS_ENV}) must be a positive safe integer, got ${maxRuns}`,
+    );
+  }
+  return { mode, perRunDeadlineMs, aggregateDeadlineMs, maxRuns };
+}
+
+function assertBudget(value: number, name: string, environmentName: string): void {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new Error(
+      `suite supervisor ${name} (${environmentName}) must be a positive finite integer number of milliseconds, got ${value}`,
+    );
+  }
+  if (value > MAX_BUDGET_MS) {
+    throw new Error(
+      `suite supervisor ${name} (${environmentName}) ${value} exceeds the ${MAX_BUDGET_MS}ms timer-safe ceiling: a larger finite value would wrap to a 1ms timer instead of bounding the run`,
+    );
+  }
+}
+
+/**
+ * Parse one finite-budget override at the CLI boundary. The value must be a
+ * decimal integer string; value range, finiteness, and coherence are owned by
+ * `resolveSuitePolicy`, so the numeric rule keeps one home and this layer
+ * attributes every syntax failure to its variable.
+ */
+function budgetOverride(environment: NodeJS.ProcessEnv, environmentName: string): number | undefined {
+  const raw = environment[environmentName];
+  if (raw === undefined) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `suite supervisor ${environmentName} must be a positive decimal integer number of milliseconds, got '${raw}'`,
+    );
+  }
+  return Number(trimmed);
+}
+
+interface PreparedInvocation {
+  readonly options: SuiteSupervisorOptions;
+  readonly attribution: readonly string[];
+}
+
+/**
+ * Read the finite-budget overrides for one canonical invocation. Each value
+ * must be a decimal integer string; value range, finiteness, coherence, and
+ * mode support are owned by `resolveSuitePolicy`, so numeric policy keeps one
+ * home and this boundary attributes every syntax failure to its variable.
+ */
+function supervisedOptionsFromEnvironment(
+  mode: SuiteMode,
+  bunArguments: readonly string[],
+): PreparedInvocation {
+  const perRunDeadlineMs = budgetOverride(process.env, PER_RUN_DEADLINE_ENV);
+  const aggregateDeadlineMs =
+    mode === "stress" ? budgetOverride(process.env, AGGREGATE_DEADLINE_ENV) : undefined;
+  const maxRuns = mode === "stress" ? budgetOverride(process.env, MAX_RUNS_ENV) : undefined;
+  // Single-run modes accept only a per-run deadline; other budget variables
+  // name a policy the invocation can never deliver.
+  if (mode !== "stress") {
+    for (const unsupported of [AGGREGATE_DEADLINE_ENV, MAX_RUNS_ENV]) {
+      if (process.env[unsupported] !== undefined) {
+        throw new Error(
+          `suite supervisor ${unsupported} is not supported for ${mode} mode: a ${mode} invocation is one run bounded by ${PER_RUN_DEADLINE_ENV}`,
+        );
+      }
+    }
+  }
+  return {
+    options: {
+      mode,
+      bunArguments,
+      ...(perRunDeadlineMs === undefined ? {} : { perRunDeadlineMs }),
+      ...(aggregateDeadlineMs === undefined ? {} : { aggregateDeadlineMs }),
+      ...(maxRuns === undefined ? {} : { maxRuns }),
+    },
+    attribution: [
+      ...(perRunDeadlineMs === undefined ? [] : [`${PER_RUN_DEADLINE_ENV}=${perRunDeadlineMs}`]),
+      ...(
+        aggregateDeadlineMs === undefined
+          ? []
+          : [`${AGGREGATE_DEADLINE_ENV}=${aggregateDeadlineMs}`]
+      ),
+      ...(maxRuns === undefined ? [] : [`${MAX_RUNS_ENV}=${maxRuns}`]),
+    ],
+  };
+}
+
 export interface SuiteSupervisorResult {
   readonly mode: SuiteMode;
   readonly ok: boolean;
@@ -85,18 +254,8 @@ function isMode(value: string): value is SuiteMode {
   return value === "full" || value === "focused" || value === "stress";
 }
 
-function assertPositiveFinite(value: number, name: string): void {
-  if (!Number.isFinite(value) || value <= 0) {
-    throw new Error(`suite supervisor ${name} must be a positive finite number, got ${value}`);
-  }
-}
-
-function validate(options: SuiteSupervisorOptions): void {
-  if (!isMode(options.mode)) {
-    throw new Error(`suite supervisor mode must be full, focused, or stress, got '${options.mode}'`);
-  }
-  const perRun = options.perRunDeadlineMs ?? DEFAULT_PER_RUN_DEADLINE_MS;
-  assertPositiveFinite(perRun, "perRunDeadlineMs");
+function validate(options: SuiteSupervisorOptions): BudgetPolicy {
+  const policy = resolveSuitePolicy(options);
   const argumentCount = options.bunArguments?.length ?? 0;
   if (options.mode === "focused" && argumentCount === 0) {
     throw new Error("suite supervisor focused mode requires an explicit test path or filter");
@@ -104,19 +263,7 @@ function validate(options: SuiteSupervisorOptions): void {
   if (options.mode !== "focused" && argumentCount > 0) {
     throw new Error(`suite supervisor ${options.mode} accepts no test arguments; use focused`);
   }
-  if (options.mode === "stress") {
-    const aggregate = options.aggregateDeadlineMs ?? DEFAULT_AGGREGATE_DEADLINE_MS;
-    assertPositiveFinite(aggregate, "aggregateDeadlineMs");
-    if (aggregate < perRun) {
-      throw new Error(
-        `suite supervisor stress aggregateDeadlineMs (${aggregate}) must be >= perRunDeadlineMs (${perRun})`,
-      );
-    }
-    const maxRuns = options.maxRuns ?? DEFAULT_MAX_RUNS;
-    if (!Number.isInteger(maxRuns) || maxRuns <= 0) {
-      throw new Error(`suite supervisor maxRuns must be a positive integer, got ${maxRuns}`);
-    }
-  }
+  return policy;
 }
 
 function suiteProcessEnvironment(
@@ -125,12 +272,26 @@ function suiteProcessEnvironment(
 ): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment[DIAGNOSTICS_DIR_ENV];
+  // Budget overrides shape the supervisor, not the child runner; stripping
+  // them keeps a test from accidentally reading invocation policy.
+  delete childEnvironment[PER_RUN_DEADLINE_ENV];
+  delete childEnvironment[AGGREGATE_DEADLINE_ENV];
+  delete childEnvironment[MAX_RUNS_ENV];
   if (bunArguments?.includes(UPDATE_SNAPSHOTS_FLAG) === true) {
     childEnvironment[UPDATE_SNAPSHOTS_ENV] = "1";
   }
   return childEnvironment;
 }
 
+/**
+ * Complete qualification is a typed `exit 0` result. Failed cleanup is never
+ * green by construction: the executor's typed results make `cleanupFailed`
+ * unrepresentable on `exit` (literal-false field), so a cleanup failure can
+ * only appear on timeout/output-limit/cancelled kinds, which this predicate
+ * already rejects by kind. No runtime re-check of `cleanupFailed` is added
+ * here — that would assert an impossible state and imply `exit` could carry
+ * cleanup failure; the typecheck at the executor boundary owns that invariant.
+ */
 function isGreen(result: ProcessResult): boolean {
   return result.kind === "exit" && result.exitCode === 0;
 }
@@ -146,14 +307,14 @@ function defaultLogDir(mode: SuiteMode): string {
 function writeRunLog(
   logDir: string,
   runNumber: number,
-  maxRuns: number,
-  mode: SuiteMode,
+  policy: BudgetPolicy,
   result: ProcessResult,
 ): string {
   mkdirSync(logDir, { recursive: true });
   const logPath = join(logDir, `run-${runNumber}.log`);
   const lines = [
-    `=== suite run ${runNumber}/${maxRuns} (${mode}) ===`,
+    `=== suite run ${runNumber}/${policy.maxRuns} (${policy.mode}) ===`,
+    `effective-policy: mode=${policy.mode} per-run=${policy.perRunDeadlineMs}ms aggregate=${policy.aggregateDeadlineMs}ms max-runs=${policy.maxRuns}`,
     `command: ${result.commandLabel}`,
     `kind: ${result.kind}`,
     `exitCode: ${result.exitCode ?? "null"}`,
@@ -161,6 +322,7 @@ function writeRunLog(
     `timedOut: ${result.timedOut}`,
     `cancelled: ${result.cancelled}`,
     `cleanupFailed: ${result.cleanupFailed}`,
+    `cleanupDurationMs: ${result.cleanupDurationMs}`,
     `error: ${result.error?.message ?? "null"}`,
     `durationMs: ${result.durationMs}`,
     `--- stdout ---`,
@@ -184,12 +346,11 @@ export async function runSupervisedSuite(
   options: SuiteSupervisorOptions,
   abortSignal?: AbortSignal,
 ): Promise<SuiteSupervisorResult> {
-  validate(options);
-  const mode = options.mode;
-  const perRun = options.perRunDeadlineMs ?? DEFAULT_PER_RUN_DEADLINE_MS;
-  const maxRuns = mode === "stress" ? (options.maxRuns ?? DEFAULT_MAX_RUNS) : 1;
-  const aggregate =
-    mode === "stress" ? (options.aggregateDeadlineMs ?? DEFAULT_AGGREGATE_DEADLINE_MS) : perRun;
+  const policy = validate(options);
+  const mode = policy.mode;
+  const perRun = policy.perRunDeadlineMs;
+  const maxRuns = policy.maxRuns;
+  const aggregate = policy.aggregateDeadlineMs;
   const logDir = options.logDir ?? defaultLogDir(mode);
   // Canonical scripts run this module under Bun; reuse that exact executable so
   // focused/full/stress runs cannot drift to another PATH entry or lose Bun
@@ -245,7 +406,7 @@ export async function runSupervisedSuite(
     if (aggregateLimitedRun && result.kind === "timeout") {
       aggregateExhausted = true;
     }
-    const logPath = writeRunLog(logDir, runNumber, maxRuns, mode, result);
+    const logPath = writeRunLog(logDir, runNumber, policy, result);
     const run: SupervisedRun = { runNumber, result, logPath };
     runs.push(run);
     options.onRunComplete?.(run);
@@ -358,10 +519,16 @@ async function main(args: readonly string[]): Promise<number> {
   }
 
   let explicitDiagnosticsDir: string | undefined;
+  let policy: BudgetPolicy;
+  let attribution: readonly string[];
+  let options: SuiteSupervisorOptions;
   try {
     // Normalize and validate every CLI input before announcing a run.
-    validate({ mode: modeArg, bunArguments });
+    const prepared = supervisedOptionsFromEnvironment(modeArg, bunArguments);
+    policy = validate(prepared.options);
+    attribution = prepared.attribution;
     explicitDiagnosticsDir = diagnosticsDirFromEnvironment(process.env);
+    options = prepared.options;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
@@ -379,23 +546,26 @@ async function main(args: readonly string[]): Promise<number> {
   process.on("SIGTERM", () => interrupt("SIGTERM"));
 
   const mode = modeArg;
+  const overridesText =
+    attribution.length > 0 ? `overrides: ${attribution.join(", ")}` : "policy: defaults";
   if (mode === "stress") {
     console.log(
-      `suite stress: up to ${DEFAULT_MAX_RUNS} runs (per-run deadline ${DEFAULT_PER_RUN_DEADLINE_MS}ms, aggregate deadline ${DEFAULT_AGGREGATE_DEADLINE_MS}ms)`,
+      `suite stress: up to ${policy.maxRuns} runs (per-run deadline ${policy.perRunDeadlineMs}ms, aggregate deadline ${policy.aggregateDeadlineMs}ms, ${overridesText})`,
     );
   } else {
-    console.log(`suite ${mode}: run 1/1 starting (deadline ${DEFAULT_PER_RUN_DEADLINE_MS}ms)`);
+    console.log(
+      `suite ${mode}: run 1/1 starting (per-run deadline ${policy.perRunDeadlineMs}ms, ${overridesText})`,
+    );
   }
 
   const result = await runSupervisedSuite(
     {
-      mode,
-      bunArguments,
+      ...options,
       ...(explicitDiagnosticsDir === undefined ? {} : { logDir: explicitDiagnosticsDir }),
       onRunComplete: (run) => {
         if (mode === "stress") {
           console.log(
-            `suite stress: run ${run.runNumber}/${DEFAULT_MAX_RUNS} ${describeOutcome(run.result)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
+            `suite stress: run ${run.runNumber}/${policy.maxRuns} ${describeOutcome(run.result)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
           );
         }
       },
