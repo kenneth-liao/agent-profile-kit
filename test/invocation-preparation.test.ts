@@ -172,6 +172,7 @@ const fleetConsumerSource = (markerName: string): string => `
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { controlledPath } from ${JSON.stringify(join(REPOSITORY_ROOT, "test", "support", "controlled-environment.js"))};
 import { runFleetCli, releaseFleetCliPath } from ${JSON.stringify(join(REPOSITORY_ROOT, "test", "support", "fleet-cli.js"))};
 
 test("fleet launches execute the invocation candidate", async () => {
@@ -179,7 +180,7 @@ test("fleet launches execute the invocation candidate", async () => {
   const home = mkdtempSync(join(tmpdir(), "fixture-fleet-home-"));
   writeFileSync(join(markers, "${markerName}-home"), home);
   try {
-    const result = await runFleetCli(home, process.env.PATH ?? "", ["status", "--all"]);
+    const result = await runFleetCli(home, controlledPath(home), ["status", "--all"]);
     writeFileSync(join(markers, "${markerName}-output"), result.stdout);
     if (result.kind !== "exit" || result.exitCode !== 0 || !result.stdout.includes("CANDIDATE-CLI-MARKER")) {
       throw new Error(\`the fleet launch did not execute the invocation candidate: \${result.kind} \${result.stdout}\`);

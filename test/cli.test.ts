@@ -46,13 +46,18 @@ import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { TEMPORARY_INSTALLATION_HOSTS } from "../installer/temporary-installation.js";
 import { ENGINE_VERSION } from "../installer/version.js";
 import { SUPPORTED_HOSTS } from "../schemas/local-configuration.js";
+import {
+  controlledEnvironment,
+  controlledPtyPath,
+  controlledPath,
+  controlledToolPath,
+} from "./support/controlled-environment.js";
 import { humanText } from "./support/human-text.js";
 import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
 import {
   obtainPackageArchive,
   extractPackageArchive,
-  packedCliNodeExecutable,
 } from "./support/package-archive.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
 import {
@@ -130,12 +135,19 @@ function addWorktree(repository: string, name: string): string {
 }
 
 /**
- * Default PATH for lifecycle CLI runs: a controlled Codex ≥0.145.0 stub first so
- * Context-bearing status/apply is hermetic when ambient `codex` is absent (CI).
- * Tests that need a missing/old/broken CLI use `runCliWithPath` with an explicit PATH.
+ * Default PATH for lifecycle CLI runs: the controlled fixture boundary (issue
+ * #541) — the Codex ≥0.145.0 stub first so Context-bearing status/apply is
+ * hermetic, plus the controlled allowlist; never the ambient machine PATH, so
+ * an unselected real Host CLI cannot satisfy a probe. Tests that need a
+ * missing/old/broken CLI use `runCliWithPath` with an explicit PATH.
  */
 function defaultCliPath(home: string): string {
-  return `${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
+  return controlledPath(home, { stubBins: [installFakeCodex(home)] });
+}
+
+/** The PTY PATH: the canonical controlled PTY composition around the Codex stub bin. */
+function ptyCliPath(home: string): string {
+  return controlledPtyPath(home, { stubBins: [installFakeCodex(home)] });
 }
 
 function withHistoricalFleetScope(arguments_: readonly string[]): readonly string[] {
@@ -160,10 +172,10 @@ async function runCli(home: string, ...arguments_: string[]) {
 
 async function runCliAt(home: string, cwd: string | undefined, ...arguments_: string[]) {
   return runProcess({
-    executable: packedCliNodeExecutable(),
+    executable: controlledToolPath("node"),
     arguments_: [cliPath, ...arguments_],
     ...(cwd === undefined ? {} : { cwd }),
-    environment: { ...process.env, HOME: home, PATH: defaultCliPath(home) },
+    environment: controlledEnvironment({ home, path: defaultCliPath(home) }),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
@@ -175,14 +187,15 @@ async function runCliWithEnvironment(
   ...arguments_: string[]
 ) {
   return runProcess({
-    executable: packedCliNodeExecutable(),
+    executable: controlledToolPath("node"),
     arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
-    environment: {
-      ...process.env,
-      ...environment,
-      HOME: home,
-      PATH: defaultCliPath(home),
-    },
+    // Explicit intended inputs win; the ambient environment never reaches the
+    // controlled child (issue #541).
+    environment: controlledEnvironment({
+      home,
+      path: defaultCliPath(home),
+      environment,
+    }),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
@@ -220,7 +233,7 @@ async function runCliInPtyWithInput(
     `stty cols ${columns};`,
     "exec",
     ...[
-      packedCliNodeExecutable(),
+      controlledToolPath("node"),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
@@ -230,13 +243,11 @@ async function runCliInPtyWithInput(
     await runProcess({
       executable: "sh",
       arguments_: ["-c", `{ ${feed} } | script -q /dev/null sh -c ${shellQuote(inner)}`],
-      environment: {
-        ...process.env,
-        NO_COLOR: "1",
-        COLUMNS: String(columns),
-        HOME: home,
-        PATH: defaultCliPath(home),
-      },
+      environment: controlledEnvironment({
+        home,
+        path: ptyCliPath(home),
+        environment: { NO_COLOR: "1", COLUMNS: String(columns) },
+      }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI PTY",
     }),
@@ -257,24 +268,18 @@ async function runCliInPtyCaptured(
     `stty cols ${columns};`,
     "exec",
     ...[
-      packedCliNodeExecutable(),
+      controlledToolPath("node"),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
   ].join(" ");
-  const childEnvironment: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...environment,
-    COLUMNS: String(columns),
-    HOME: home,
-    PATH: defaultCliPath(home),
-  };
-  if (
-    Object.prototype.hasOwnProperty.call(environment, "NO_COLOR") &&
-    environment.NO_COLOR === undefined
-  ) {
-    delete childEnvironment.NO_COLOR;
-  }
+  // Explicit intended inputs win; an explicitly undefined NO_COLOR deletes
+  // the key so the colored cell renders styled (issue #541).
+  const childEnvironment = controlledEnvironment({
+    home,
+    path: ptyCliPath(home),
+    environment: { ...environment, COLUMNS: String(columns) },
+  });
   return runProcess({
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
@@ -319,7 +324,7 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
     "stty cols 0;",
     "exec",
     ...[
-      packedCliNodeExecutable(),
+      controlledToolPath("node"),
       cliPath,
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
@@ -327,13 +332,11 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
   const result = await runProcess({
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
-    environment: {
-      ...process.env,
-      NO_COLOR: "1",
-      COLUMNS: String(columns),
-      HOME: home,
-      PATH: defaultCliPath(home),
-    },
+    environment: controlledEnvironment({
+      home,
+      path: ptyCliPath(home),
+      environment: { NO_COLOR: "1", COLUMNS: String(columns) },
+    }),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI PTY",
   });
@@ -598,11 +601,12 @@ async function runCliWithPath(
   pathValue: string,
   ...arguments_: string[]
 ) {
-  // Use an absolute Node path so PATH can be restricted for Host capability probes.
+  // The canonical packed-CLI Node reader, absolutized so a restricted child
+  // PATH cannot change which Node runs (US-007, issue #541).
   return runProcess({
-    executable: process.env.NODE_BINARY ?? process.execPath,
+    executable: controlledToolPath("node"),
     arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
-    environment: { ...process.env, HOME: home, PATH: pathValue },
+    environment: controlledEnvironment({ home, path: pathValue }),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   });
@@ -1824,9 +1828,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     execFileSync("chmod", ["+x", join(bin, "codex")]);
 
     const result = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, "validate"],
-      environment: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH ?? ""}` },
+      environment: controlledEnvironment({ home, path: `${bin}:${controlledPath(home)}` }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -4756,7 +4760,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const worktree = addWorktree(repository, "explicit-linked-worktree");
     writeContextProfile(home);
     writeContextProfile(home, "review");
-    const pathWithClaude = `${installFakeClaude(home)}:${process.env.PATH ?? ""}`;
+    const pathWithClaude = `${installFakeClaude(home)}:${controlledPath(home)}`;
     writeFileSync(
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
@@ -7301,7 +7305,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       configPath(home),
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts:\n      - codex\n      - claude\n`,
     );
-    const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
+    const pathValue = `${claudeBin}:${controlledPath(home)}`;
     const absentValidate = await runCliWithPath(home, pathValue, "validate");
     expectExitCode(absentValidate, 0);
     const absentApply = await runCliWithPath(home, pathValue, "update");
@@ -7437,7 +7441,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "init");
     expectExitCode(result, 0);
     const claudeBin = installFakeClaude(home);
-    const pathValue = `${claudeBin}:${process.env.PATH ?? ""}`;
+    const pathValue = `${claudeBin}:${controlledPath(home)}`;
     const projectPath = project();
     const workspace = workspacePath(home);
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
@@ -7537,8 +7541,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
     );
     const bin = installFakeClaude(home);
-    // Prefer the stub, keep the rest of PATH for node/git/etc.
-    const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
+    // Stub first; the allowlisted tools (git/sleep/cat) follow. Node is
+    // spawned by absolute path, never from the child PATH.
+    const pathWithClaude = `${bin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(status, 0);
@@ -7602,7 +7607,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const oldBin = installFakeClaude(home, "2.0.63");
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "update");
+    const old = await runCliWithPath(home, `${oldBin}:${controlledPath(home)}`, "update");
     expectExitCode(old, 0);
     expect(old.stdout).toContain("does not support unscoped project rules");
     expect(humanText(old.stdout)).toContain(humanText("requires 2.0.64+"));
@@ -7610,7 +7615,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .toContain("Always preserve the project boundary.");
 
     const boundaryBin = installFakeClaude(home, "2.0.64");
-    const boundary = await runCliWithPath(home, `${boundaryBin}:${process.env.PATH ?? ""}`, "status", "--verbose");
+    const boundary = await runCliWithPath(home, `${boundaryBin}:${controlledPath(home)}`, "status", "--verbose");
     expectExitCode(boundary, 0);
     expect(boundary.stdout).toContain("All Projects are current");
     expect(humanText(boundary.stdout)).toContain(humanText(`${projectPath}: current`));
@@ -7634,7 +7639,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const antigravityBin = installFakeAntigravity(home);
     const codexBin = installFakeCodex(home);
-    const pathWithHosts = `${antigravityBin}:${codexBin}:${process.env.PATH ?? ""}`;
+    const pathWithHosts = `${antigravityBin}:${codexBin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expectExitCode(status, 0);
@@ -7794,7 +7799,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const antigravityBin = installFakeAntigravity(home, "1.1.13");
     const codexBin = installFakeCodex(home, "0.147.0");
     const piBin = installFakePi(home, "0.84.2");
-    const pathWithHosts = `${antigravityBin}:${codexBin}:${piBin}:${process.env.PATH ?? ""}`;
+    const pathWithHosts = `${antigravityBin}:${codexBin}:${piBin}:${controlledPath(home)}`;
 
     const humanStatus = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expectExitCode(humanStatus, 0);
@@ -7931,7 +7936,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(projectPath, ".agents"))).toBe(false);
 
     const oldBin = installFakeAntigravity(home, "1.1.12");
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "update");
+    const old = await runCliWithPath(home, `${oldBin}:${controlledPath(home)}`, "update");
     expectExitCode(old, 0);
     expect(`${old.stdout}${old.stderr}`).toMatch(/requires 1\.1\.13\+/i);
     expect(
@@ -7941,7 +7946,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const supportedBin = installFakeAntigravity(home, "1.1.13");
     const supported = await runCliWithPath(
       home,
-      `${supportedBin}:${process.env.PATH ?? ""}`,
+      `${supportedBin}:${controlledPath(home)}`,
       "status",
       "--verbose",
     );
@@ -7972,7 +7977,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(projectPath, ".agents", "skills"), "not a directory\n");
 
     const antigravityBin = installFakeAntigravity(home);
-    const result = await runCliWithPath(home, `${antigravityBin}:${process.env.PATH ?? ""}`, "status");
+    const result = await runCliWithPath(home, `${antigravityBin}:${controlledPath(home)}`, "status");
     // The obstructed shared Skill surface is unowned material, so the write
     // stays blocked by occupied-output ownership, not by capability probing.
     expectExitCode(result, 2);
@@ -7995,7 +8000,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [grok]\n`,
     );
     const bin = installFakeGrok(home);
-    const pathWithGrok = `${bin}:${process.env.PATH ?? ""}`;
+    const pathWithGrok = `${bin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithGrok, "status", "--verbose");
     expectExitCode(status, 0);
@@ -8050,7 +8055,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(`${missing.stdout}${missing.stderr}`).not.toContain("Grok CLI was not found");
 
     const oldBin = installFakeGrok(home, { version: "0.1.0" });
-    const old = await runCliWithPath(home, `${oldBin}:${process.env.PATH ?? ""}`, "update");
+    const old = await runCliWithPath(home, `${oldBin}:${controlledPath(home)}`, "update");
     expectExitCode(old, 0);
     expect(`${old.stdout}${old.stderr}`).toContain("does not support project rules inspection");
     expect(readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8"))
@@ -8059,7 +8064,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(projectPath, ".grok"), { force: true, recursive: true });
     writeFileSync(join(projectPath, ".grok"), "occupied\n");
     const surfaceBin = installFakeGrok(home);
-    const surface = await runCliWithPath(home, `${surfaceBin}:${process.env.PATH ?? ""}`, "update");
+    const surface = await runCliWithPath(home, `${surfaceBin}:${controlledPath(home)}`, "update");
     expectExitCode(surface, 2);
     expect(`${surface.stdout}${surface.stderr}`).toMatch(/not a regular directory inside the Project/);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
@@ -8077,7 +8082,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const skillsBin = installFakeGrok(home);
     const skills = await runCliWithPath(
       home,
-      `${skillsBin}:${process.env.PATH ?? ""}`,
+      `${skillsBin}:${controlledPath(home)}`,
       "status",
       "--verbose",
     );
@@ -8085,7 +8090,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(skills.stdout).toContain(".grok/skills/review-pr");
     expect(skills.stdout).toContain(".grok/rules/agent-profile-kit.md");
 
-    const skillsApply = await runCliWithPath(home, `${skillsBin}:${process.env.PATH ?? ""}`, "update");
+    const skillsApply = await runCliWithPath(home, `${skillsBin}:${controlledPath(home)}`, "update");
     expectExitCode(skillsApply, 0);
     expect(existsSync(join(projectPath, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(true);
@@ -8137,7 +8142,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const name of ["codex", "claude", "grok", "pi"]) {
       execFileSync("chmod", ["+x", join(bin, name)]);
     }
-    const pathWithHosts = `${bin}:${process.env.PATH ?? ""}`;
+    const pathWithHosts = `${bin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithHosts, "status", "--json");
 
@@ -8191,7 +8196,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const bin = installFakeGrok(home);
     writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
     execFileSync("chmod", ["+x", join(bin, "claude")]);
-    const pathWithHosts = `${bin}:${process.env.PATH ?? ""}`;
+    const pathWithHosts = `${bin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expectExitCode(status, 0);
@@ -8253,7 +8258,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [claude]\n`,
     );
     const bin = installFakeClaude(home);
-    const pathWithClaude = `${bin}:${process.env.PATH ?? ""}`;
+    const pathWithClaude = `${bin}:${controlledPath(home)}`;
 
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(status, 0);
@@ -8375,9 +8380,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("the packed CLI runs the project-bound init contract", async () => {
     const home = isolatedHome();
     const result = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, "init"],
-      environment: { ...process.env, HOME: home },
+      environment: controlledEnvironment({ home, path: defaultCliPath(home) }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI init",
     });
@@ -10998,7 +11003,7 @@ describe("apkit list", () => {
   test("without a topic, prints a self-describing inventory index without configuration", async () => {
     const home = isolatedHome();
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list");
+    const result = await runCliWithPath(home, controlledPath(home), "list");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11018,7 +11023,7 @@ describe("apkit list", () => {
   test("temporary is empty without Installation State and does not initialize application state", async () => {
     const home = isolatedHome();
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary");
+    const result = await runCliWithPath(home, controlledPath(home), "machine", "list", "temporary");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11033,7 +11038,7 @@ describe("apkit list", () => {
   test("hosts leads with ordinary supported Hosts without temporary eligibility", async () => {
     const home = isolatedHome();
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "hosts");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "hosts");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11097,7 +11102,7 @@ describe("apkit list", () => {
     writeFileSync(statePath(home), `${JSON.stringify(state, null, 2)}\n`);
     const stateBefore = readFileSync(statePath(home), "utf8");
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary");
+    const result = await runCliWithPath(home, controlledPath(home), "machine", "list", "temporary");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11269,7 +11274,7 @@ describe("apkit list", () => {
     const malformed = "not Installation State\n";
     writeFileSync(statePath(home), malformed);
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "machine", "list", "temporary", "--json");
+    const result = await runCliWithPath(home, controlledPath(home), "machine", "list", "temporary", "--json");
 
     expectExitCode(result, 1);
     expect(result.stderr).toBe("");
@@ -11305,7 +11310,7 @@ describe("apkit list", () => {
       "id: beta\ncontext: []\nskills: [review-pr]\n",
     );
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11333,7 +11338,7 @@ describe("apkit list", () => {
     await initialize(home);
     removeScaffoldedExample(home);
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11412,7 +11417,7 @@ describe("apkit list", () => {
         "    hosts: not-a-list\n",
     );
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "profiles", "--json");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles", "--json");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11427,10 +11432,10 @@ describe("apkit list", () => {
 
   test("profiles fails through the Workspace ingestion boundary without writes", async () => {
     const missingHome = isolatedHome();
-    const missingHuman = await runCliWithPath(missingHome, process.env.PATH ?? "", "list", "profiles");
+    const missingHuman = await runCliWithPath(missingHome, controlledPath(missingHome), "list", "profiles");
     const missingMachine = await runCliWithPath(
       missingHome,
-      process.env.PATH ?? "",
+      controlledPath(missingHome),
       "list",
       "profiles",
       "--json",
@@ -11463,7 +11468,7 @@ describe("apkit list", () => {
     const configuration = readFileSync(configPath(invalidHome), "utf8");
     const invalid = await runCliWithPath(
       invalidHome,
-      process.env.PATH ?? "",
+      controlledPath(invalidHome),
       "list",
       "profiles",
       "--json",
@@ -11491,7 +11496,7 @@ describe("apkit list", () => {
     );
     const missingWorkspaceResult = await runCliWithPath(
       missingWorkspaceHome,
-      process.env.PATH ?? "",
+      controlledPath(missingWorkspaceHome),
       "list",
       "profiles",
       "--json",
@@ -11515,7 +11520,7 @@ describe("apkit list", () => {
     await initialize(home);
     const configuration = readFileSync(configPath(home), "utf8");
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "projects");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11531,8 +11536,8 @@ describe("apkit list", () => {
   test("projects uses the existing Local Configuration error boundary", async () => {
     const home = isolatedHome();
 
-    const human = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
-    const machine = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+    const human = await runCliWithPath(home, controlledPath(home), "list", "projects");
+    const machine = await runCliWithPath(home, controlledPath(home), "list", "projects", "--json");
 
     expectExitCode(human, 1);
     expect(human.stdout).toBe("");
@@ -11554,7 +11559,7 @@ describe("apkit list", () => {
   test("rejects unknown inventory topics with the canonical available set", async () => {
     const home = isolatedHome();
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "unknown-topic");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "unknown-topic");
 
     expectExitCode(result, 1);
     expect(result.stdout).toBe("");
@@ -11585,7 +11590,7 @@ describe("apkit list", () => {
         "    hosts: [codex, claude]\n",
     );
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "projects");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11666,7 +11671,7 @@ describe("apkit list", () => {
         "    hosts: [codex]\n",
     );
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "projects");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -11688,7 +11693,7 @@ describe("apkit list", () => {
       result.stdout.indexOf("zeta-existing"),
     );
 
-    const machine = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects", "--json");
+    const machine = await runCliWithPath(home, controlledPath(home), "list", "projects", "--json");
 
     expectExitCode(machine, 0);
     expect(JSON.parse(machine.stdout)).toMatchObject({
@@ -11803,7 +11808,7 @@ describe("apkit list", () => {
     expectExitCode(statusResult, 0);
     expect(statusResult.stdout).toContain("All Projects are current");
 
-    const result = await runCliWithPath(home, process.env.PATH ?? "", "list", "projects");
+    const result = await runCliWithPath(home, controlledPath(home), "list", "projects");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("current-project");
@@ -11816,8 +11821,8 @@ describe("apkit list", () => {
   test("help distinguishes Project inventory from lifecycle diagnostics", async () => {
     const home = isolatedHome();
 
-    const listHelp = await runCliWithPath(home, process.env.PATH ?? "", "list", "--help");
-    const statusHelp = await runCliWithPath(home, process.env.PATH ?? "", "status", "--help");
+    const listHelp = await runCliWithPath(home, controlledPath(home), "list", "--help");
+    const statusHelp = await runCliWithPath(home, controlledPath(home), "status", "--help");
 
     expectExitCode(listHelp, 0);
     expectExitCode(statusHelp, 0);
@@ -12235,7 +12240,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const install = await runCliWithPath(
       home,
-      `${piBin}:${process.env.PATH ?? ""}`,
+      `${piBin}:${controlledPath(home)}`,
       "machine", "install-temp",
       "coding",
       tempProject,
@@ -12360,7 +12365,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
 
     const tracked = await runCliWithPath(
       home,
-      `${piBin}:${process.env.PATH ?? ""}`,
+      `${piBin}:${controlledPath(home)}`,
       "machine", "install-temp",
       "coding",
       projectPath,
@@ -12819,11 +12824,11 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
   }
 
   function runCliWithClaude(home: string, ...arguments_: string[]) {
-    const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${process.env.PATH ?? ""}`;
+    const pathValue = `${installFakeClaude(home)}:${installFakeCodex(home)}:${controlledPath(home)}`;
     return runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
-      environment: { ...process.env, HOME: home, PATH: pathValue },
+      environment: controlledEnvironment({ home, path: pathValue }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -13143,12 +13148,12 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
 
     // Advisory capability warning: old Claude CLI floor does not block install-temp.
     const oldBin = installFakeClaude(home, "2.0.63");
-    const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
+    const pathValue = `${oldBin}:${controlledPath(home)}`;
     const outdatedProject = gitRepository("agent-profile-kit-temp-claude-old-");
     const outdated = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "claude", "--json"],
-      environment: { ...process.env, HOME: home, PATH: pathValue },
+      environment: controlledEnvironment({ home, path: pathValue }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -13185,11 +13190,11 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
   }
 
   function runCliWithOpenCode(home: string, ...arguments_: string[]) {
-    const pathValue = `${installFakeOpenCode(home)}:${process.env.PATH ?? ""}`;
+    const pathValue = `${installFakeOpenCode(home)}:${controlledPath(home)}`;
     return runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, ...withHistoricalFleetScope(arguments_)],
-      environment: { ...process.env, HOME: home, PATH: pathValue },
+      environment: controlledEnvironment({ home, path: pathValue }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -13383,12 +13388,12 @@ describe("apkit temporary Profile installation (OpenCode parity)", () => {
 
     // Advisory capability warning: old OpenCode CLI floor does not block install-temp.
     const oldBin = installFakeOpenCode(home, "1.18.22");
-    const pathValue = `${oldBin}:${process.env.PATH ?? ""}`;
+    const pathValue = `${oldBin}:${controlledPath(home)}`;
     const outdatedProject = gitRepository("agent-profile-kit-temp-opencode-old-");
     const outdated = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [cliPath, "machine", "install-temp", "coding", outdatedProject, "--host", "opencode", "--json"],
-      environment: { ...process.env, HOME: home, PATH: pathValue },
+      environment: controlledEnvironment({ home, path: pathValue }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -14138,7 +14143,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
     temporaryDirectories.push(fixtureDir);
     const marker = join(fixtureDir, "invoked.marker");
-    const pager = pagerFixture(fixtureDir, "record-pager", `touch '${marker}'`);
+    const pager = pagerFixture(fixtureDir, "record-pager", `: > '${marker}'`);
     // The configured pager is genuinely supplied: redirected output must not
     // invoke it even when PAGER points at this recording executable.
     const redirected = await runCliWithEnvironment(home, { PAGER: pager }, "guide", "--full");
@@ -14172,7 +14177,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
       "record-pager",
       [
         `cat > '${received}'`,
-        `touch '${marker}'`,
+        `: > '${marker}'`,
         "exit 0",
       ].join("\n"),
     );
@@ -14201,7 +14206,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
     const fixtureDir = mkdtempSync(join(tmpdir(), "agent-profile-kit-pager-fixture-"));
     temporaryDirectories.push(fixtureDir);
     const marker = join(fixtureDir, "invoked.marker");
-    const pager = pagerFixture(fixtureDir, "record-pager", `touch '${marker}'`);
+    const pager = pagerFixture(fixtureDir, "record-pager", `: > '${marker}'`);
     const pty = await runCliInPtyWithEnvironment(
       home,
       80,

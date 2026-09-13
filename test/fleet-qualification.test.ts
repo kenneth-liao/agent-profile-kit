@@ -54,7 +54,7 @@ import {
   runFleetCliWithExplicitPath,
   withFleetScope,
 } from "./support/fleet-cli.js";
-import { packedCliNodeExecutable } from "./support/package-archive.js";
+import { controlledAllowlistBin, controlledEnvironment, controlledToolPath, PTY_CONTROLLED_TOOLS } from "./support/controlled-environment.js";
 import {
   createFleetFixture,
   cleanupFleetFixtures,
@@ -146,7 +146,7 @@ async function runCliInPtyRaw(
     `stty cols ${columns};`,
     "exec",
     ...[
-      packedCliNodeExecutable(),
+      controlledToolPath("node"),
       fleetCliPath,
       ...withFleetScope(arguments_),
     ].map(shellQuote),
@@ -154,13 +154,11 @@ async function runCliInPtyRaw(
   const result = await runProcess({
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
-    environment: {
-      ...process.env,
-      ...environment,
-      COLUMNS: String(columns),
-      HOME: home,
-      PATH: pathValue,
-    },
+    environment: controlledEnvironment({
+      home,
+      path: `${pathValue}:${controlledAllowlistBin(home, PTY_CONTROLLED_TOOLS)}`,
+      environment: { ...environment, COLUMNS: String(columns) },
+    }),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI PTY",
   });
@@ -360,7 +358,7 @@ describe("fleet-wide synchronization qualification", () => {
     const { pathWithHosts } = createPackedFleet(home);
     const instrumentation = createLifecycleInstrumentation();
     const report = await statusApplication(home, {
-      env: { ...process.env, PATH: pathWithHosts },
+      env: controlledEnvironment({ home, path: pathWithHosts }),
       instrumentation,
     });
     expect(reportBlockers(report)).toEqual([]);
@@ -372,7 +370,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const applyInstrumentation = createLifecycleInstrumentation();
     const desired = await buildDesiredState(home, {
-      env: { ...process.env, PATH: pathWithHosts },
+      env: controlledEnvironment({ home, path: pathWithHosts }),
       planningInstrumentation: applyInstrumentation.planning,
       scheduler: createProjectReadScheduler(),
     });
@@ -496,14 +494,13 @@ describe("fleet-wide synchronization qualification", () => {
 
     // Redirected and JSON runs stay progress-free even when slow.
     const delayed = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [fleetCliPath, "status", "--all"],
-      environment: {
-        ...process.env,
-        APKIT_TEST_CODEX_DELAY: "1.2",
-        HOME: home,
-        PATH: pathWithHosts,
-      },
+      environment: controlledEnvironment({
+        home,
+        path: pathWithHosts,
+        environment: { APKIT_TEST_CODEX_DELAY: "1.2" },
+      }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -513,14 +510,13 @@ describe("fleet-wide synchronization qualification", () => {
     expect(delayed.stdout).not.toMatch(/\u001b\[/);
 
     const json = await runProcess({
-      executable: packedCliNodeExecutable(),
+      executable: controlledToolPath("node"),
       arguments_: [fleetCliPath, "status", "--all", "--json"],
-      environment: {
-        ...process.env,
-        APKIT_TEST_CODEX_DELAY: "1.2",
-        HOME: home,
-        PATH: pathWithHosts,
-      },
+      environment: controlledEnvironment({
+        home,
+        path: pathWithHosts,
+        environment: { APKIT_TEST_CODEX_DELAY: "1.2" },
+      }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "packed CLI",
     });
@@ -578,7 +574,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const statusInstrumentation = createLifecycleInstrumentation();
     const report = await statusApplication(home, {
-      env: { ...process.env, PATH: pathWithHosts },
+      env: controlledEnvironment({ home, path: pathWithHosts }),
       instrumentation: statusInstrumentation,
     });
     expect(reportBlockers(report)).toEqual([]);
