@@ -1,9 +1,21 @@
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parse as parseToml } from "smol-toml";
+
 import { runProcess, type ProcessResult } from "../../process/process-executor.js";
+import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./corpus-inventory.js";
+import { parseBunJunitEvidence } from "./junit-evidence.js";
 
 /**
  * One repository-owned command surface for bounded focused, full, and repeated
@@ -53,8 +65,18 @@ export const PER_RUN_DEADLINE_ENV = "APKIT_TEST_PER_RUN_DEADLINE_MS";
 export const AGGREGATE_DEADLINE_ENV = "APKIT_TEST_AGGREGATE_DEADLINE_MS";
 /** Optional CLI override of the stress run count; stress mode only. */
 export const MAX_RUNS_ENV = "APKIT_TEST_MAX_RUNS";
-/** Fleet-scale regressions excluded from the fast suite's deadline. */
+/** Fleet-scale regressions excluded from the fast suite's required selection. */
 export const FAST_SUITE_PATH_IGNORE_PATTERNS = ["test/fleet-qualification.test.ts"] as const;
+/**
+ * The runner's structured execution evidence, retained per supervised run and
+ * parsed fail-closed by `test/support/junit-evidence.ts`. Its per-file
+ * executed/skipped/failure counts are the completion evidence for required
+ * selection: a green exit without parseable evidence is never a complete
+ * qualification.
+ */
+export function junitEvidencePath(logDir: string, runNumber: number): string {
+  return join(logDir, `run-${runNumber}.junit.xml`);
+}
 /** Optional canonical CLI input for an explicit diagnostics directory. */
 export const DIAGNOSTICS_DIR_ENV = "APKIT_TEST_DIAGNOSTICS_DIR";
 /**
@@ -71,6 +93,24 @@ export interface SupervisedRun {
   readonly runNumber: number;
   readonly result: ProcessResult;
   readonly logPath: string;
+  /**
+   * Required-selection completion evidence, present only when the canonical
+   * runner ran and the run exited green: coverage gates are evaluated on green
+   * exits, where they are the only remaining defense against a misleading
+   * pass. Absent on injected test-seam commands and non-green runs.
+   */
+  readonly coverage?: SelectionCoverage;
+}
+
+/** Whether one green run's observed execution matched the required selection. */
+export interface SelectionCoverage {
+  readonly status: "complete" | "incomplete";
+  readonly executedFiles: number;
+  readonly skippedTests: number;
+  readonly missing: readonly string[];
+  readonly unexpected: readonly string[];
+  /** Why the run cannot be complete qualification, when status is incomplete. */
+  readonly reason?: string;
 }
 
 export interface SuiteSupervisorOptions {
@@ -87,6 +127,13 @@ export interface SuiteSupervisorOptions {
   readonly maxRuns?: number;
   /** Where per-run diagnostic logs are retained (default: under the OS tmpdir). */
   readonly logDir?: string;
+  /**
+   * Working directory for the supervised child. It is also the corpus base:
+   * the test-corpus policy is anchored at `<cwd>/test`. Defaults to the
+   * supervisor process's working directory (the package root for canonical
+   * scripts).
+   */
+  readonly cwd?: string;
   /** Passed through to the bounded executor for timeout cleanup. */
   readonly cleanupGraceMs?: number;
   /** Called as each run completes, before the next run starts. */
@@ -170,7 +217,11 @@ function assertBudget(value: number, name: string, environmentName: string): voi
  * `resolveSuitePolicy`, so the numeric rule keeps one home and this layer
  * attributes every syntax failure to its variable.
  */
-function budgetOverride(environment: NodeJS.ProcessEnv, environmentName: string): number | undefined {
+function budgetOverride(
+  environment: NodeJS.ProcessEnv,
+  environmentName: string,
+  unit: string,
+): number | undefined {
   const raw = environment[environmentName];
   if (raw === undefined) {
     return undefined;
@@ -178,7 +229,7 @@ function budgetOverride(environment: NodeJS.ProcessEnv, environmentName: string)
   const trimmed = raw.trim();
   if (!/^\d+$/.test(trimmed)) {
     throw new Error(
-      `suite supervisor ${environmentName} must be a positive decimal integer number of milliseconds, got '${raw}'`,
+      `suite supervisor ${environmentName} must be a positive decimal integer ${unit}, got '${raw}'`,
     );
   }
   return Number(trimmed);
@@ -199,10 +250,12 @@ function supervisedOptionsFromEnvironment(
   mode: SuiteMode,
   bunArguments: readonly string[],
 ): PreparedInvocation {
-  const perRunDeadlineMs = budgetOverride(process.env, PER_RUN_DEADLINE_ENV);
+  const perRunDeadlineMs = budgetOverride(process.env, PER_RUN_DEADLINE_ENV, "number of milliseconds");
   const aggregateDeadlineMs =
-    mode === "stress" ? budgetOverride(process.env, AGGREGATE_DEADLINE_ENV) : undefined;
-  const maxRuns = mode === "stress" ? budgetOverride(process.env, MAX_RUNS_ENV) : undefined;
+    mode === "stress"
+      ? budgetOverride(process.env, AGGREGATE_DEADLINE_ENV, "number of milliseconds")
+      : undefined;
+  const maxRuns = mode === "stress" ? budgetOverride(process.env, MAX_RUNS_ENV, "run count") : undefined;
   // Single-run modes accept only a per-run deadline; other budget variables
   // name a policy the invocation can never deliver.
   if (mode !== "stress") {
@@ -296,6 +349,279 @@ function isGreen(result: ProcessResult): boolean {
   return result.kind === "exit" && result.exitCode === 0;
 }
 
+/** A run is complete only when it is green and its required coverage is complete. */
+function runComplete(run: SupervisedRun): boolean {
+  return isGreen(run.result) && (run.coverage?.status ?? "complete") === "complete";
+}
+
+/** The one resolved runner-identity and selection contract for an invocation. */
+export interface PreparedSuiteInvocation {
+  readonly policy: BudgetPolicy;
+  /** The corpus base directory (the supervised child's working directory). */
+  readonly base: string;
+  /** Derived corpus selection; null only for injected test-seam commands. */
+  readonly plan: SelectionPlan | null;
+  /** Invocation-level evidence lines prefixed to every retained run log. */
+  readonly runtimeHeader: readonly string[];
+}
+
+/** Which corpus files the invocation requires and which policy removes. */
+export interface SelectionPlan {
+  /** Required selection, POSIX-relative to the corpus base. */
+  readonly selected: readonly string[];
+  /** Files removed by the exclusion policy, POSIX-relative to the corpus base. */
+  readonly excluded: readonly string[];
+  /** Focused arguments that name corpus files; other arguments are filters. */
+  readonly named: readonly string[];
+  /** True when a focused invocation filters by test name (e.g. `-t`). */
+  readonly nameFilterActive: boolean;
+}
+
+function corpusBase(options: SuiteSupervisorOptions): string {
+  return resolve(options.cwd ?? process.cwd());
+}
+
+function normalizeRelativePath(base: string, value: string): string {
+  return relative(base, resolve(base, value)).split("\\").join("/");
+}
+
+/**
+ * One canonical home for the pinned Bun version: package.json `engines.bun`.
+ * Local development (this gate) and CI (`setup-bun` with
+ * `bun-version-file: package.json`) read the same field, so one edit moves
+ * every consumer and the selected Bun cannot drift between them.
+ */
+export function pinnedBunVersion(): string {
+  const manifestPath = resolve(dirname(fileURLToPath(import.meta.url)), "../../package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+    engines?: { bun?: unknown };
+  };
+  const pinned = manifest.engines?.bun;
+  if (typeof pinned !== "string" || pinned.length === 0) {
+    throw new Error(
+      "the pinned Bun version is missing from package.json engines.bun; the suite supervisor requires one canonical pin for local development and CI",
+    );
+  }
+  return pinned;
+}
+
+/**
+ * The supported runner configuration is the pinned Bun version. Any other
+ * runner identity is rejected before it can produce a misleading pass: the
+ * historical CI runner degenerated required selection under Bun 1.2.17.
+ */
+export function assertRunnerIsPinnedBun(
+  pinned: string,
+  runningVersion: string | undefined,
+): void {
+  if (runningVersion !== pinned) {
+    throw new Error(
+      `the suite supervisor must run under the pinned Bun ${pinned} (package.json engines.bun), got ${runningVersion ?? "a non-Bun runtime"}; install that exact version to qualify`,
+    );
+  }
+}
+
+/**
+ * bunfig.toml `[test]` settings (root/filter/preload) can silently redirect or
+ * preload into required selection, so a repository bunfig carrying a test
+ * section is rejected before any run; an unparseable bunfig is also rejected
+ * because an unreadable configuration cannot be proven harmless. (An ambient
+ * home-directory bunfig is controlled-environment isolation territory, not
+ * repository selection policy.)
+ */
+function rejectSilentSelectionConfig(base: string): void {
+  const bunfigPath = join(base, "bunfig.toml");
+  if (!existsSync(bunfigPath)) {
+    return;
+  }
+  let parsed: unknown;
+  try {
+    parsed = parseToml(readFileSync(bunfigPath, "utf8"));
+  } catch (error) {
+    throw new Error(
+      `unsupported test-runner configuration: '${bunfigPath}' does not parse as TOML (${error instanceof Error ? error.message : String(error)}); it could silently change required selection`,
+    );
+  }
+  if (parsed !== null && typeof parsed === "object" && "test" in parsed) {
+    throw new Error(
+      `unsupported test-runner configuration: '${bunfigPath}' defines a [test] section whose root/filter/preload settings could silently change required selection; move test policy into the suite supervisor`,
+    );
+  }
+}
+
+/**
+ * Derive the required selection from the current corpus and the exclusion
+ * policy. Full and stress selections are passed to the runner as explicit
+ * paths, so exclusion is structural; a zero-selection invocation is rejected
+ * before it can start. Focused mode retains explicit selection: only
+ * arguments naming corpus files count as named selections; the rest are
+ * filters and are never treated as missing coverage.
+ */
+function deriveSelectionPlan(
+  mode: SuiteMode,
+  base: string,
+  bunArguments?: readonly string[],
+): SelectionPlan {
+  const inventory = enumerateTestCorpus(base, FAST_SUITE_PATH_IGNORE_PATTERNS);
+  if (mode === "focused") {
+    // Named selections come from the raw corpus inventory (before the
+    // exclusion policy): the canonical fleet run explicitly names the
+    // policy-excluded file, and its named-file execution gate must be live.
+    const named = (bunArguments ?? [])
+      .map((argument) => normalizeRelativePath(base, argument))
+      .filter((normalized) => inventory.files.includes(normalized));
+    return {
+      selected: inventory.selected,
+      excluded: inventory.excluded,
+      named,
+      // A name filter intentionally selects fewer tests, and bun's junit
+      // evidence reports the filter complement as skipped without
+      // distinguishing it from test.skip(); only in that case is the skip
+      // gate waived (recorded, never silent). Without a filter — including
+      // the canonical fleet selection — skips gate strictly.
+      nameFilterActive: (bunArguments ?? []).some(
+        (argument) => argument === "-t" || argument.startsWith("--test-name-pattern"),
+      ),
+    };
+  }
+  if (inventory.selected.length === 0) {
+    throw new Error(
+      `suite supervisor ${mode} mode: required selection cannot be empty after exclusions (${inventory.excluded.join(", ")})`,
+    );
+  }
+  return { selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
+}
+
+/**
+ * Resolve the runner identity, selection configuration, and corpus-derived
+ * plan for one invocation before any run starts. Unsupported runner
+ * configuration exits before it can produce a misleading pass.
+ */
+export function prepareSuiteInvocation(options: SuiteSupervisorOptions): PreparedSuiteInvocation {
+  const policy = validate(options);
+  const base = corpusBase(options);
+  if (options.suiteCommand !== undefined) {
+    // Test seam only: an injected command is not the runner whose selection is
+    // being proven, so identity and selection gates do not apply to it.
+    return {
+      policy,
+      base,
+      plan: null,
+      runtimeHeader: [
+        `runtime: ${options.suiteCommand[0]} (test seam — pinned-runner identity not asserted)`,
+      ],
+    };
+  }
+  assertRunnerIsPinnedBun(pinnedBunVersion(), process.versions.bun);
+  rejectSilentSelectionConfig(base);
+  const plan = deriveSelectionPlan(policy.mode, base, options.bunArguments);
+  return {
+    policy,
+    base,
+    plan,
+    runtimeHeader: [
+      `runtime: bun ${process.versions.bun} (${process.execPath}) ${process.platform} ${process.arch}`,
+      ...(policy.mode === "focused"
+        ? [
+            `selection: mode=focused explicit-selection named=${plan.named.length}`,
+            `selection-named: ${plan.named.join(" ")}`,
+          ]
+        : [
+            `selection: mode=${policy.mode} test-root=${TEST_CORPUS_ROOT} selected=${plan.selected.length} excluded=${plan.excluded.length}`,
+            `selection-excluded: ${plan.excluded.join(" ")}`,
+          ]),
+    ],
+  };
+}
+
+function selectionCoverage(
+  status: "complete" | "incomplete",
+  executedFiles: number,
+  skippedTests: number,
+  missing: readonly string[],
+  unexpected: readonly string[],
+  reason?: string,
+): SelectionCoverage {
+  return reason === undefined
+    ? { status, executedFiles, skippedTests, missing, unexpected }
+    : { status, executedFiles, skippedTests, missing, unexpected, reason };
+}
+
+/**
+ * Fail closed: missing or unparseable evidence is incompleteness, never
+ * executed coverage. Full and stress runs must execute exactly the derived
+ * required selection; focused runs must execute every explicitly selected
+ * corpus file while never declaring intentional filter selection missing.
+ * Skipped required coverage and zero executed coverage are never complete.
+ */
+function evaluateRunCoverage(
+  invocation: PreparedSuiteInvocation,
+  junitPath: string,
+): SelectionCoverage {
+  const plan = invocation.plan;
+  if (plan === null) {
+    return selectionCoverage("complete", 0, 0, [], []);
+  }
+  let executed: Set<string>;
+  let skippedTests: number;
+  let executedTests: number;
+  try {
+    if (!existsSync(junitPath)) {
+      throw new Error("execution evidence was not written");
+    }
+    const evidence = parseBunJunitEvidence(readFileSync(junitPath, "utf8"));
+    executed = new Set(evidence.suites.map((suite) => normalizeRelativePath(invocation.base, suite.file)));
+    skippedTests = evidence.suites.reduce((sum, suite) => sum + suite.skipped, 0);
+    executedTests = evidence.suites.reduce((sum, suite) => sum + (suite.tests - suite.skipped), 0);
+  } catch (error) {
+    const reason = `execution evidence missing or unparseable: ${error instanceof Error ? error.message : String(error)}`;
+    return selectionCoverage("incomplete", 0, 0, [], [], reason);
+  }
+  const incomplete = (
+    reason: string,
+    missing: readonly string[] = [],
+    unexpected: readonly string[] = [],
+  ): SelectionCoverage =>
+    selectionCoverage("incomplete", executed.size, skippedTests, missing, unexpected, reason);
+  if (executedTests === 0) {
+    return incomplete("zero runnable required selection");
+  }
+  if (invocation.policy.mode === "focused") {
+    const missingNamed = plan.named.filter((path) => !executed.has(path));
+    if (missingNamed.length > 0) {
+      return incomplete(
+        `explicitly selected files without executed evidence: ${missingNamed.join(", ")}`,
+        missingNamed,
+      );
+    }
+    if (!plan.nameFilterActive && skippedTests > 0) {
+      return incomplete(`skipped required coverage: ${skippedTests}`);
+    }
+    // A focused invocation's name filters intentionally select fewer tests,
+    // and bun's junit evidence reports the filter complement as skipped
+    // without distinguishing it from test.skip(). Skip counts under an
+    // active name filter are therefore retained as evidence (this record and
+    // the junit artifact), never silently waived; focused runs without a
+    // name filter — including the canonical fleet selection — and every
+    // full/stress run gate skips strictly below.
+    return selectionCoverage("complete", executed.size, skippedTests, [], []);
+  }
+  if (skippedTests > 0) {
+    return incomplete(`skipped required coverage: ${skippedTests}`);
+  }
+  const selected = new Set(plan.selected);
+  const missing = plan.selected.filter((path) => !executed.has(path));
+  const unexpected = [...executed].filter((path) => !selected.has(path));
+  if (missing.length > 0 || unexpected.length > 0) {
+    return incomplete(
+      `required selection not executed as derived: missing ${missing.join(", ")}; unexpected ${unexpected.join(", ")}`,
+      missing,
+      unexpected,
+    );
+  }
+  return selectionCoverage("complete", executed.size, skippedTests, missing, unexpected);
+}
+
 function defaultLogDir(mode: SuiteMode): string {
   const logDir = mkdtempSync(join(tmpdir(), `agent-profile-kit-test-${mode}-`));
   // POSIX mkdtemp is private by default; chmod makes the invariant explicit
@@ -307,13 +633,24 @@ function defaultLogDir(mode: SuiteMode): string {
 function writeRunLog(
   logDir: string,
   runNumber: number,
-  policy: BudgetPolicy,
+  invocation: PreparedSuiteInvocation,
   result: ProcessResult,
+  coverage?: SelectionCoverage,
 ): string {
   mkdirSync(logDir, { recursive: true });
   const logPath = join(logDir, `run-${runNumber}.log`);
+  const policy = invocation.policy;
+  const coverageLines =
+    coverage === undefined
+      ? []
+      : [
+          `coverage: status=${coverage.status} executed=${coverage.executedFiles} skipped=${coverage.skippedTests} missing=${coverage.missing.join(",") || "0"} unexpected=${coverage.unexpected.join(",") || "0"}${
+            coverage.reason === undefined ? "" : ` reason: ${coverage.reason}`
+          }`,
+        ];
   const lines = [
     `=== suite run ${runNumber}/${policy.maxRuns} (${policy.mode}) ===`,
+    ...invocation.runtimeHeader,
     `effective-policy: mode=${policy.mode} per-run=${policy.perRunDeadlineMs}ms aggregate=${policy.aggregateDeadlineMs}ms max-runs=${policy.maxRuns}`,
     `command: ${result.commandLabel}`,
     `kind: ${result.kind}`,
@@ -325,6 +662,7 @@ function writeRunLog(
     `cleanupDurationMs: ${result.cleanupDurationMs}`,
     `error: ${result.error?.message ?? "null"}`,
     `durationMs: ${result.durationMs}`,
+    ...coverageLines,
     `--- stdout ---`,
     result.stdout,
     `--- stderr ---`,
@@ -345,8 +683,10 @@ function writeRunLog(
 export async function runSupervisedSuite(
   options: SuiteSupervisorOptions,
   abortSignal?: AbortSignal,
+  prepared?: PreparedSuiteInvocation,
 ): Promise<SuiteSupervisorResult> {
-  const policy = validate(options);
+  const invocation = prepared ?? prepareSuiteInvocation(options);
+  const policy = invocation.policy;
   const mode = policy.mode;
   const perRun = policy.perRunDeadlineMs;
   const maxRuns = policy.maxRuns;
@@ -356,6 +696,9 @@ export async function runSupervisedSuite(
   // focused/full/stress runs cannot drift to another PATH entry or lose Bun
   // under a restricted PATH.
   const suiteCommand = options.suiteCommand ?? ([process.execPath, "test"] as const);
+  // Structured execution evidence is retained next to the run logs; the
+  // evidence directory must exist before the child starts.
+  mkdirSync(logDir, { recursive: true });
   const startedAt = Date.now();
   const runs: SupervisedRun[] = [];
   let interrupted = false;
@@ -378,6 +721,19 @@ export async function runSupervisedSuite(
       aggregateLimitedRun = runDeadline < perRun;
     }
     const runNumber = runs.length + 1;
+    const junitPath = junitEvidencePath(logDir, runNumber);
+    // A reused diagnostics directory may hold evidence from an earlier
+    // invocation; only this run's own evidence may complete it. Deleting the
+    // planned path first makes a green run that fails to write evidence fail
+    // closed instead of parsing stale files as executed coverage.
+    rmSync(junitPath, { force: true });
+    // The structured-evidence reporter is part of the canonical selection
+    // contract: an injected test-seam command manages its own output, so it
+    // receives no reporter arguments.
+    const reporterArguments =
+      invocation.plan === null
+        ? []
+        : ["--reporter=junit", `--reporter-outfile=${junitPath}`];
     const result = await runProcess(
       {
         executable: suiteCommand[0],
@@ -385,14 +741,12 @@ export async function runSupervisedSuite(
           ...suiteCommand.slice(1),
           "--timeout",
           String(PER_TEST_TIMEOUT_MS),
+          ...reporterArguments,
           ...(mode === "focused"
-            ? []
-            : FAST_SUITE_PATH_IGNORE_PATTERNS.flatMap((pattern) => [
-                "--path-ignore-patterns",
-                pattern,
-              ])),
-          ...(options.bunArguments ?? []),
+            ? (options.bunArguments ?? [])
+            : (invocation.plan?.selected ?? [])),
         ],
+        cwd: invocation.base,
         deadlineMs: runDeadline,
         environment: suiteProcessEnvironment(process.env, options.bunArguments),
         ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
@@ -406,18 +760,29 @@ export async function runSupervisedSuite(
     if (aggregateLimitedRun && result.kind === "timeout") {
       aggregateExhausted = true;
     }
-    const logPath = writeRunLog(logDir, runNumber, policy, result);
-    const run: SupervisedRun = { runNumber, result, logPath };
+    // Coverage gates defend the only remaining misleading-pass window: a
+    // green exit. Non-green runs are already incomplete by their own kind.
+    const coverage =
+      invocation.plan !== null && isGreen(result)
+        ? evaluateRunCoverage(invocation, junitPath)
+        : undefined;
+    const logPath = writeRunLog(logDir, runNumber, invocation, result, coverage);
+    const run: SupervisedRun = {
+      runNumber,
+      result,
+      logPath,
+      ...(coverage === undefined ? {} : { coverage }),
+    };
     runs.push(run);
     options.onRunComplete?.(run);
-    if (!isGreen(result)) {
+    if (!runComplete(run)) {
       break;
     }
   }
 
-  const completedRuns = runs.filter((run) => isGreen(run.result)).length;
+  const completedRuns = runs.filter(runComplete).length;
   const ok = runs.length === maxRuns && completedRuns === maxRuns;
-  const firstFailure = runs.find((run) => !isGreen(run.result)) ?? null;
+  const firstFailure = runs.find((run) => !runComplete(run)) ?? null;
   return {
     mode,
     ok,
@@ -450,6 +815,13 @@ function describeOutcome(result: ProcessResult): string {
   }
 }
 
+function describeRunOutcome(run: SupervisedRun): string {
+  if (run.coverage?.status === "incomplete") {
+    return `incomplete required coverage (${run.coverage.reason ?? "unspecified"})`;
+  }
+  return describeOutcome(run.result);
+}
+
 function formatSeconds(ms: number): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
@@ -470,18 +842,18 @@ export function formatSuiteSummary(
       const failure = result.firstFailure;
       return failure === null
         ? `suite stress: aggregate deadline reached after ${result.attemptedRuns}/${result.maxRuns} runs in ${duration} — logs: ${result.logDir}`
-        : `suite stress: aggregate deadline reached during run ${failure.runNumber}/${result.maxRuns} (${describeOutcome(failure.result)}) in ${duration} — log: ${failure.logPath}`;
+        : `suite stress: aggregate deadline reached during run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
     }
     const failure = result.firstFailure!;
-    return `suite stress: failed at run ${failure.runNumber}/${result.maxRuns} (${describeOutcome(failure.result)}) in ${duration} — log: ${failure.logPath}`;
+    return `suite stress: failed at run ${failure.runNumber}/${result.maxRuns} (${describeRunOutcome(failure)}) in ${duration} — log: ${failure.logPath}`;
   }
   const run = result.runs[0]!;
   const outcome =
     interruptedBy !== null
       ? `interrupted (${interruptedBy})`
       : result.ok
-        ? describeOutcome(run.result)
-        : `failed (${describeOutcome(run.result)})`;
+        ? describeRunOutcome(run)
+        : `failed (${describeRunOutcome(run)})`;
   return `suite ${result.mode}: 1 run, ${outcome} in ${duration} — log: ${run.logPath}`;
 }
 
@@ -519,20 +891,23 @@ async function main(args: readonly string[]): Promise<number> {
   }
 
   let explicitDiagnosticsDir: string | undefined;
-  let policy: BudgetPolicy;
+  let invocation: PreparedSuiteInvocation;
   let attribution: readonly string[];
   let options: SuiteSupervisorOptions;
   try {
     // Normalize and validate every CLI input before announcing a run.
     const prepared = supervisedOptionsFromEnvironment(modeArg, bunArguments);
-    policy = validate(prepared.options);
     attribution = prepared.attribution;
     explicitDiagnosticsDir = diagnosticsDirFromEnvironment(process.env);
     options = prepared.options;
+    // Resolve runner identity, selection configuration, and the corpus-derived
+    // plan before announcing a run; every rejection here is exit 2.
+    invocation = prepareSuiteInvocation(options);
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;
   }
+  const policy = invocation.policy;
 
   const controller = new AbortController();
   let interruptedBy: "SIGINT" | "SIGTERM" | null = null;
@@ -565,12 +940,13 @@ async function main(args: readonly string[]): Promise<number> {
       onRunComplete: (run) => {
         if (mode === "stress") {
           console.log(
-            `suite stress: run ${run.runNumber}/${policy.maxRuns} ${describeOutcome(run.result)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
+            `suite stress: run ${run.runNumber}/${policy.maxRuns} ${describeRunOutcome(run)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
           );
         }
       },
     },
     controller.signal,
+    invocation,
   );
 
   printSummary(result, interruptedBy);

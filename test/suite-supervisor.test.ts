@@ -127,24 +127,9 @@ describe("suite supervisor: full mode", () => {
     }
   });
 
-  test("keeps fleet-scale regressions out of the fast suite", async () => {
-    const logDir = tempDir();
-    try {
-      const result = await runSupervisedSuite({
-        mode: "full",
-        suiteCommand: shFixture('printf "%s\n" "$@"', "argv fixture"),
-        perRunDeadlineMs: 2000,
-        logDir,
-      });
-      expect(result.ok).toBe(true);
-      const argv = result.runs[0]!.result.stdout.trim().split("\n");
-      expect(argv).toContain("--path-ignore-patterns");
-      const patternIndex = argv.indexOf("--path-ignore-patterns");
-      expect(argv[patternIndex + 1]).toBe("test/fleet-qualification.test.ts");
-    } finally {
-      rmSync(logDir, { recursive: true, force: true });
-    }
-  });
+  // Fleet exclusion and required selection are proven behaviorally against the
+  // real runner in test/suite-selection.test.ts; an argv inspection cannot
+  // stand in for runner behavior.
 });
 
 describe("suite supervisor: focused mode", () => {
@@ -161,7 +146,9 @@ describe("suite supervisor: focused mode", () => {
       });
       expect(result.ok).toBe(true);
       const argv = result.runs[0]!.result.stdout.trim().split("\n");
-      // The supervisor owns the per-test timeout policy; user arguments follow untouched.
+      // The supervisor owns the per-test timeout policy; user arguments follow
+      // untouched. An injected test-seam command manages its own output, so it
+      // receives no structured-evidence reporter arguments.
       expect(argv).toEqual(["--timeout", String(PER_TEST_TIMEOUT_MS), ...userArgs]);
     } finally {
       rmSync(logDir, { recursive: true, force: true });
@@ -910,24 +897,30 @@ describe("suite supervisor: finite budget override interface", () => {
   });
 
   test("stress with an unbounded run count reports truthful aggregate exhaustion", async () => {
+    // Deterministic coordination, not sleep-window racing: the aggregate
+    // (500ms) is smaller than the per-run deadline (1000ms), so run one is
+    // already aggregate-limited and — because an instant `exit 0` fixture
+    // cannot consume its budget — completes green; run two then runs under
+    // the remaining aggregate budget and its 30s stall deterministically
+    // exceeds it, so the invocation can only report aggregate exhaustion,
+    // never a per-run deadline expiry and never silent success. The runner
+    // margins are one-sided: run one must finish within 500ms (an instant
+    // exit), run two must exceed its remaining budget (a 30s stall).
     const logDir = tempDir();
     const counter = join(logDir, "counter");
     const script = [
       `n=$(cat ${counter} 2>/dev/null || echo 0)`,
       "n=$((n + 1))",
       `echo $n > ${counter}`,
-      '[ "$n" = "1" ] && sleep 0.35',
+      '[ "$n" = "2" ] && sleep 30',
       "exit 0",
     ].join("\n");
     try {
-      // Run one completes inside the aggregate budget; run two then runs under
-      // an aggregate-limited deadline and times out, so the invocation reports
-      // aggregate exhaustion rather than a per-run deadline expiry.
       const result = await runSupervisedSuite({
         mode: "stress",
         suiteCommand: shFixture(script),
-        perRunDeadlineMs: 500,
-        aggregateDeadlineMs: 600,
+        perRunDeadlineMs: 1000,
+        aggregateDeadlineMs: 1000,
         maxRuns: Number.MAX_SAFE_INTEGER,
         cleanupGraceMs: 100,
         logDir,
@@ -936,16 +929,12 @@ describe("suite supervisor: finite budget override interface", () => {
       // The invocation ran until the aggregate budget was spent; uncompleted
       // repetition is reported, never silent success. Non-green runs under the
       // aggregate-limited deadline are timeout evidence, not suite failures.
-      expect(result.attemptedRuns).toBeGreaterThanOrEqual(2);
-      expect(result.completedRuns).toBeGreaterThanOrEqual(1);
-      expect(result.completedRuns).toBeLessThan(result.attemptedRuns + 1);
+      expect(result.attemptedRuns).toBe(2);
+      expect(result.completedRuns).toBe(1);
       expect(result.aggregateExhausted).toBe(true);
-      for (const run of result.runs) {
-        const green = run.result.kind === "exit" && run.result.exitCode === 0;
-        if (!green) {
-          expect(run.result.kind, `run ${run.runNumber}`).toBe("timeout");
-        }
-      }
+      expect(result.runs[0]!.result.kind).toBe("exit");
+      expect(result.runs[1]!.result.kind).toBe("timeout");
+      expect(result.firstFailure?.runNumber).toBe(2);
       const summary = formatSuiteSummary(result, null);
       expect(summary).toContain("aggregate deadline reached");
     } finally {

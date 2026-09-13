@@ -42,6 +42,8 @@ Prefer a focused suite while iterating and run the full suite before opening a P
 
 All four supervise the test runner through the repository's bounded process executor and report one concise summary with a retained diagnostic log. Prefer these canonical commands over invoking the runner directly or writing custom timeout or repetition loops.
 
+The Bun toolchain version is pinned at package.json `engines.bun` — one canonical home read by local development (the supervisor's runner-identity gate, which rejects any other version before a run) and by CI (`setup-bun` with `bun-version-file: package.json`).
+
 ## Agent skills
 
 ### Issue tracker
