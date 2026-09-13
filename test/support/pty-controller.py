@@ -17,6 +17,7 @@ import fcntl
 import os
 import pty
 import select
+import signal
 import struct
 import sys
 import termios
@@ -41,6 +42,40 @@ def main() -> int:
         os.execvp(command[0], command)
         os._exit(127)
 
+    def reap_child() -> int:
+        # Reap the exact owned PTY child so no zombie outlives the controller
+        # and its terminal exit status is preserved as evidence.
+        try:
+            waited, status = os.waitpid(pid, 0)
+            return status
+        except ChildProcessError:
+            return -1
+
+    def kill_and_reap_child() -> None:
+        try:
+            os.kill(pid, 9)
+        except ProcessLookupError:
+            pass
+        reap_child()
+
+    state = {"terminating": False}
+
+    def on_term(_signum, _frame):
+        # The executor's owned-process cleanup sends SIGTERM to this
+        # controller only; the PTY child is ours to kill and reap (#542).
+        if state["terminating"]:
+            return
+        state["terminating"] = True
+        transcript = open(transcript_path, "ab", buffering=0)
+        try:
+            transcript.write(b"\nPTY-CONTROLLER-TERMINATED\n")
+        finally:
+            transcript.close()
+        kill_and_reap_child()
+        raise SystemExit(143)
+
+    signal.signal(signal.SIGTERM, on_term)
+
     stdin_fd = sys.stdin.fileno()
     transcript = open(transcript_path, "ab", buffering=0)
     stdin_open = True
@@ -55,6 +90,8 @@ def main() -> int:
                     os.kill(pid, 9)
                 except ProcessLookupError:
                     pass
+                # Reap so the watchdog kill leaves no zombie behind.
+                reap_child()
                 return 124
             if child_gone and time.monotonic() > drain_until:
                 return 0
@@ -90,6 +127,8 @@ def main() -> int:
                 drain_until = time.monotonic() + 0.5
     finally:
         transcript.close()
+        # Best-effort owned-child cleanup on any exceptional exit path.
+        kill_and_reap_child()
         try:
             os.close(master)
         except OSError:
