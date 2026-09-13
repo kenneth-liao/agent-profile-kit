@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -11,6 +11,7 @@ import {
   obtainPackageArchive,
   PREPARED_PACKAGE_ARCHIVE_ENV,
   SUPERVISED_INVOCATION_ENV,
+  packedCliNodeExecutable,
   type PackageArchiveCommands,
 } from "./support/package-archive.js";
 import {
@@ -26,7 +27,10 @@ import {
 } from "./support/package-identity.js";
 import {
   PREPARATION_LOG_FILENAME,
+  QUALIFICATION_RECORD_FILENAME,
+  QUALIFICATION_RECORD_SCHEMA,
   formatSuiteSummary,
+  pinnedBunVersion,
   runSupervisedSuite,
   type SuiteSupervisorResult,
 } from "./support/suite-supervisor.js";
@@ -497,6 +501,14 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
     });
     const calls: string[] = [];
     await withSuppliedArchive(created.archivePath, async () => {
+      // Prefix ownership: the invocation owns its own pinned directory, not
+      // the shared temporary root. The delta assertion tolerates other live
+      // pinned candidates (for example an outer invocation's supplied
+      // candidate in CI) while proving this invocation's own pin died with
+      // its owned cleanup.
+      const pinnedBefore = readdirSync(tmpdir()).filter((entry) =>
+        entry.startsWith("agent-profile-kit-supplied-pinned-"),
+      );
       const result = await runFullCorpus(base, {
         packageCommands: realCandidateCommands("never", calls),
       });
@@ -519,10 +531,12 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
       expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain(
         "CANDIDATE-CLI-MARKER-supplied",
       );
-      // The pinned directory died with the invocation's owned cleanup.
-      expect(
-        readdirSync(tmpdir()).filter((entry) => entry.startsWith("agent-profile-kit-supplied-pinned-")),
-      ).toEqual([]);
+      // The invocation's own pinned directory died with the owned cleanup;
+      // other invocations' pinned candidates are not this test's ownership.
+      const pinnedAfter = readdirSync(tmpdir()).filter(
+        (entry) => entry.startsWith("agent-profile-kit-supplied-pinned-"),
+      );
+      expect(pinnedAfter.filter((entry) => !pinnedBefore.includes(entry))).toEqual([]);
     });
   });
 
@@ -666,6 +680,7 @@ let owned = "";
 mock.module(${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))}, () => ({
   obtainPackageArchive: async () => ({ path: "fixture", cleanup: () => { throw new Error("archive cleanup fault"); } }),
   packageArchiveRepositoryRoot: () => ".",
+  packedCliNodeExecutable: () => "node",
   extractPackageArchive: async (_archive, directory) => { owned = directory; writeFileSync("owned-extraction", directory); mkdirSync(join(directory, "package/dist"), { recursive: true }); writeFileSync(join(directory, "package/dist/cli.js"), ""); },
 }));
 const { resolveFleetCliPath, releaseFleetCliPath } = await import(${JSON.stringify(join(REPOSITORY_ROOT, "test/support/fleet-cli.js"))});
@@ -1638,3 +1653,621 @@ describe("partial-pin cleanup evidence", () => {
   }, 60_000);
 });
 
+
+/**
+ * Qualification records (#539): the supervisor projects one compact structured
+ * record from its canonical outcome and the admitted identity — the
+ * predecessor identity contract is the only provenance authority, the source
+ * identity is fixed at admission (one authoritative snapshot per invocation,
+ * including actual uncommitted worktree bytes for no-candidate invocations),
+ * and a candidate is admitted only when its own identity record reconciles
+ * with the admission snapshot.
+ */
+describe("qualification records: admitted identity", () => {
+  const recordPath = (base: string): string => join(base, "logs", QUALIFICATION_RECORD_FILENAME);
+
+  test("the record consumes the prepared candidate's retained identity record", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: recordConsumerSource("consumer A", "a") },
+    ]);
+    const commands = realCandidateCommands("recorded", []);
+    const result = await runFullCorpus(base, { packageCommands: commands });
+    expect(result.ok).toBe(true);
+    const prepared: PackageIdentityRecord = JSON.parse(
+      readFileSync(join(base, "markers", "a-record"), "utf8"),
+    ) as PackageIdentityRecord;
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      schema: number;
+      source: { kind: string; repositoryHead: string | null; sourceFingerprint: string; reconciliation?: string; archiveDigest?: string };
+      artifact?: { archivePath: string; archiveDigest: string };
+    };
+    expect(record.schema).toBe(QUALIFICATION_RECORD_SCHEMA);
+    // The candidate's identity record is consumed, not recomputed or relabeled;
+    // the source identity carries only source facts — the digest lives on the
+    // artifact alone.
+    expect(record.source.kind).toBe("candidate-record");
+    expect(record.source.sourceFingerprint).toBe(prepared.sourceFingerprint);
+    expect(record.source.repositoryHead).toBe(prepared.repositoryHead);
+    expect(record.source.reconciliation).toBe("record-equals-admission-capture");
+    expect(record.source).not.toHaveProperty("archiveDigest");
+    expect(record.artifact!.archiveDigest).toBe(prepared.archiveDigest);
+    expect(record.artifact!.archivePath).toBe(readFileSync(join(base, "markers", "a-archive"), "utf8"));
+  });
+
+  test("a supplied candidate's validated record is the retained admitted authority", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: recordConsumerSource("consumer A", "a") },
+    ]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    await withSuppliedArchive(created.archivePath, async () => {
+      const calls: string[] = [];
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("never", calls),
+      });
+      expect(result.ok).toBe(true);
+      expect(result.preparation.status).toBe("supplied");
+      const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+        source: { kind: string; sourceFingerprint: string; reconciliation?: string };
+        artifact?: { archivePath: string; archiveDigest: string };
+      };
+      // The validated record was reconciled against a fresh admission capture
+      // of the consuming checkout; the pinned record is what is projected.
+      expect(record.source.kind).toBe("candidate-record");
+      expect(record.source.sourceFingerprint).toBe(created.record.sourceFingerprint);
+      expect(record.source.reconciliation).toBe("record-validated-against-admission-capture");
+      expect(record.source).not.toHaveProperty("archiveDigest");
+      expect(record.artifact!.archiveDigest).toBe(created.record.archiveDigest);
+      expect(record.artifact!.archivePath).toBe(readFileSync(join(base, "markers", "a-archive"), "utf8"));
+    });
+  });
+
+  test("a pure focused invocation captures its source identity at admission without preparation", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("pure-focused-record") }]);
+    const result = await runSupervisedSuite({
+      mode: "focused",
+      cwd: base,
+      bunArguments: ["test/pure.test.ts"],
+      perRunDeadlineMs: 30_000,
+      logDir: join(base, "logs"),
+    });
+    expect(result.ok).toBe(true);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      source: { kind: string; sourceFingerprint: string; entryCount: number; repositoryHead: string | null };
+      preparation: { status: string; requests: number };
+      artifact?: unknown;
+      runtime: { packedCli?: unknown; suiteRunner: { kind: string; version: string; executable: string } };
+      ok: boolean;
+      status: string;
+    };
+    // No candidate: the admission capture is the source identity, preparation
+    // never happened, and no packed runtime is claimed.
+    expect(record.source.kind).toBe("admitted-source");
+    expect(record.source.entryCount).toBeGreaterThan(0);
+    expect(record.preparation).toMatchObject({ status: "none", requests: 0 });
+    expect(record.artifact).toBeUndefined();
+    expect(record.runtime.packedCli).toBeUndefined();
+    expect(record.ok).toBe(true);
+    expect(record.status).toBe("complete");
+    // The record names the runtime that actually executed the suite: the
+    // canonical pinned Bun at the supervisor's own executable.
+    expect(record.runtime.suiteRunner).toEqual({
+      kind: "pinned-bun",
+      version: pinnedBunVersion(),
+      executable: process.execPath,
+    });
+    // The admission snapshot stays the source identity: the unchanged source
+    // fingerprints identically after the run.
+    const after = await captureSourceFingerprint({ repositoryRoot: base, deadlineMs: 10_000, signal: undefined });
+    expect(record.source.sourceFingerprint).toBe(after.digest);
+  });
+
+  test("the record's source identity covers actual uncommitted worktree bytes", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("uncommitted") }]);
+    const runFocused = async (): Promise<{ fingerprint: string }> => {
+      const result = await runSupervisedSuite({
+        mode: "focused",
+        cwd: base,
+        bunArguments: ["test/pure.test.ts"],
+        perRunDeadlineMs: 30_000,
+        logDir: join(base, "logs"),
+      });
+      expect(result.ok).toBe(true);
+      const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+        source: { sourceFingerprint: string };
+      };
+      return { fingerprint: record.source.sourceFingerprint };
+    };
+    const before = await runFocused();
+    // One actual uncommitted byte change is part of the admitted identity.
+    appendFileSync(join(base, "test", "pure.test.ts"), "// uncommitted edit\n");
+    const after = await runFocused();
+    expect(after.fingerprint).not.toBe(before.fingerprint);
+  });
+
+  test("source changed after admission is rejected before consumers execute", async () => {
+    const base = fixtureCorpus([
+      {
+        path: CONSUMER_A,
+        body: `
+import { appendFileSync, writeFileSync } from "node:fs";
+import { obtainPackageArchive, supervisedInvocationActive } from ${JSON.stringify(seamImport("package-archive.js"))};
+
+test("mutating consumer requests the candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  // Mutate tracked source after the invocation's admission capture and before
+  // filing the request: the lazy preparation must reject the candidate built
+  // from the changed source instead of attributing it to the admitted one.
+  appendFileSync(${JSON.stringify(join("${BASE}", "test", "pure.test.ts"))}, "// changed after admission\\n");
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "a-archive"), archive.path);
+});
+`,
+      },
+      { path: PURE_FILE, body: pureSource("pure") },
+    ]);
+    const before = await captureSourceFingerprint({ repositoryRoot: base, deadlineMs: 10_000, signal: undefined });
+    const calls: string[] = [];
+    const commands = realCandidateCommands("changed", calls);
+    const result = await runFullCorpus(base, { packageCommands: commands });
+    expect(result.ok).toBe(false);
+    // The preparation was rejected with both digests in the cause.
+    expect(result.preparation.status).toBe("failed");
+    expect(result.preparation.failure).toContain("differs from the invocation's admitted source identity");
+    expect(result.preparation.failure).toContain(before.digest.slice(0, 12));
+    // No candidate was admitted: the record's source stays the admission
+    // snapshot and no artifact digest is attributed.
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      source: { kind: string; sourceFingerprint: string };
+      artifact?: unknown;
+      status: string;
+      ok: boolean;
+    };
+    expect(record.source.kind).toBe("admitted-source");
+    expect(record.source.sourceFingerprint).toBe(before.digest);
+    expect(record.artifact).toBeUndefined();
+    expect(record.ok).toBe(false);
+    expect(record.status).toBe("incomplete");
+  });
+
+  test("an injected probe observation is recorded at the candidate admission boundary", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+    ]);
+    const commands = realCandidateCommands("probed", []);
+    const result = await runFullCorpus(base, {
+      packageCommands: commands,
+      packedRuntimeProbe: async (context) => {
+        expect(context.executable).toBe(packedCliNodeExecutable());
+        return { kind: "probe", executable: context.executable, version: "v9.9.9-fixture" };
+      },
+    });
+    expect(result.ok).toBe(true);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      runtime: { packedCli?: { kind: string; executable: string; version: string } };
+    };
+    expect(record.runtime.packedCli).toEqual({
+      kind: "probe",
+      executable: packedCliNodeExecutable(),
+      version: "v9.9.9-fixture",
+    });
+  });
+
+  test("an unavailable packed runtime observation keeps outcomes but fails qualification", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+    ]);
+    const commands = realCandidateCommands("unobserved", []);
+    const result = await runFullCorpus(base, {
+      packageCommands: commands,
+      packedRuntimeProbe: async (context) => ({
+        kind: "unavailable",
+        executable: context.executable,
+        cause: "fixture probe failure",
+      }),
+    });
+    // The consumer actually executed and the run outcome is retained; the
+    // owed runtime evidence is unavailable, so qualification is not complete.
+    expect(readFileSync(join(base, "markers", "a-output"), "utf8")).toContain("CANDIDATE-CLI-MARKER-unobserved");
+    expect(result.ok).toBe(false);
+    expect(result.runs[0]!.result.kind).toBe("exit");
+    if (result.runs[0]!.result.kind === "exit") {
+      expect(result.runs[0]!.result.exitCode).toBe(0);
+    }
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      status: string;
+      ok: boolean;
+      reason?: string;
+      runtime: { packedCli?: { kind: string; cause: string } };
+      runs: unknown[];
+    };
+    expect(record.runtime.packedCli!.kind).toBe("unavailable");
+    expect(record.runtime.packedCli!.cause).toContain("fixture probe failure");
+    expect(record.status).toBe("incomplete");
+    expect(record.ok).toBe(false);
+    expect(record.reason).toContain("packed CLI runtime");
+    expect(record.runs).toHaveLength(1);
+  });
+
+  test("an exhausted budget before admission fails the capture with zero runs", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("budget") }]);
+    const result = await runSupervisedSuite({
+      mode: "full",
+      cwd: base,
+      perRunDeadlineMs: 1,
+      logDir: join(base, "logs"),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.attemptedRuns).toBe(0);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      status: string;
+      ok: boolean;
+      reason?: string;
+      source: { kind: string; cause: string };
+      preparation: { status: string };
+    };
+    expect(record.status).toBe("incomplete");
+    expect(record.ok).toBe(false);
+    // The bounded capture consumed the invocation's whole budget (no fresh
+    // floor): the cause names the exhausted stage, whether the budget check
+    // or the bounded git child hit it first.
+    expect(record.reason).toMatch(/budget exhausted|source capture failed/);
+    // The capture failure stops unqualified execution: no runs, explicit cause.
+    expect(record.source.kind).toBe("unavailable");
+    expect(record.source.cause).toMatch(/budget exhausted|source capture failed/);
+    expect(record.preparation.status).toBe("failed");
+  });
+
+  test("a pre-aborted canonical invocation records unavailable source with its cause", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("pre-abort") }]);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await runSupervisedSuite(
+      { mode: "full", cwd: base, perRunDeadlineMs: 30_000, logDir: join(base, "logs") },
+      controller.signal,
+    );
+    expect(result.interrupted).toBe(true);
+    expect(result.attemptedRuns).toBe(0);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      status: string;
+      source: { kind: string; cause: string };
+    };
+    expect(record.status).toBe("interrupted");
+    expect(record.source.kind).toBe("unavailable");
+    expect(record.source.cause).toContain("aborted");
+  });
+});
+
+/** One more consumer variant: it also records its delivered request-wait budget. */
+const waitingConsumerSource = (name: string, markerName: string): string => `
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { obtainPackageArchive, supervisedInvocationActive } from ${JSON.stringify(seamImport("package-archive.js"))};
+import { PACKAGE_REQUEST_WAIT_ENV } from ${JSON.stringify(seamImport("package-request-channel.js"))};
+
+test("${name} executes the invocation candidate", async () => {
+  const markers = ${JSON.stringify(join("${BASE}", "markers"))};
+  if (!supervisedInvocationActive(process.env)) {
+    throw new Error("expected the supervised-invocation marker");
+  }
+  writeFileSync(join(markers, "${markerName}-wait"), process.env[PACKAGE_REQUEST_WAIT_ENV] ?? "missing");
+  const archive = await obtainPackageArchive("/unused/repository-root", "unused-");
+  writeFileSync(join(markers, "${markerName}-archive"), archive.path);
+});
+`;
+
+describe("qualification records: admission budget and capture failures", () => {
+  const recordPath = (base: string): string => join(base, "logs", QUALIFICATION_RECORD_FILENAME);
+
+  test("the admission capture is deducted from the first run's budget", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: waitingConsumerSource("consumer A", "a") },
+    ]);
+    // Every admission Git child sleeps 150ms: the three sequential capture
+    // children make admission cost ~500ms of the 3000ms policy, so the first
+    // run's delivered budget must be visibly smaller than the policy — the
+    // existing supplied-path deduction, extended to the admission capture.
+    const shim = tempDir("apkit-capture-shim-");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shim, "git"), `#!/bin/sh\nsleep 0.15\nexec ${JSON.stringify(realGit)} "$@"\n`);
+    chmodSync(join(shim, "git"), 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("deducted", []),
+        perRunDeadlineMs: 3000,
+      });
+      expect(
+        result.ok,
+        JSON.stringify({
+          kind: result.runs[0]?.result.kind,
+          exit: result.runs[0]?.result.kind === "exit" ? result.runs[0].result.exitCode : null,
+          timedOut: result.runs[0]?.result.timedOut,
+          preparation: result.preparation.status,
+          failure: result.preparation.failure,
+          stderr: (result.runs[0]?.result.stderr ?? "").slice(-500),
+        }),
+      ).toBe(true);
+      const wait = Number(readFileSync(join(base, "markers", "a-wait"), "utf8"));
+      // The child received the per-run budget minus admission (including the
+      // capture): visibly below the 3000ms policy by more than the three
+      // shimmed captures could ever take, and above the exhausted floor.
+      expect(wait).toBeGreaterThan(0);
+      expect(wait).toBeLessThanOrEqual(3000);
+      expect(wait).toBeLessThan(2600);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 30_000);
+
+  test("a failed source capture stops unqualified execution with zero runs", async () => {
+    // The identity contract's source scope is Git-derived, so a base that is
+    // not a Git worktree is a deterministic capture failure — no surgery on
+    // the fixture's own .git, whose removal is environment-fragile (EISDIR on
+    // the macos-15 runner). The malformed environment is the fixture itself.
+    const base = tempDir("apkit-capture-fail-");
+    mkdirSync(join(base, "test"), { recursive: true });
+    writeFileSync(join(base, "test", "pure.test.ts"), 'import { test } from "bun:test";\ntest("pure", () => {});\n');
+    writeFileSync(join(base, "test", "fleet-qualification.test.ts"), "export const placeholder = 1;\n");
+    const result = await runSupervisedSuite({
+      mode: "full",
+      cwd: base,
+      perRunDeadlineMs: 30_000,
+      logDir: join(base, "logs"),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.attemptedRuns).toBe(0);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      status: string;
+      ok: boolean;
+      source: { kind: string; cause: string };
+      preparation: { status: string; durationMs: number; childCleanupFailed?: boolean; childCleanupDurationMs?: number };
+      diagnostics: { preparationLog?: string };
+    };
+    expect(record.status).toBe("incomplete");
+    expect(record.ok).toBe(false);
+    expect(record.source.kind).toBe("unavailable");
+    expect(record.source.cause).toContain("source capture");
+    // The complete typed child evidence is retained through the existing
+    // diagnostics boundary and referenced by the record — including Git's own
+    // rejection of the non-repository source.
+    expect(record.preparation.status).toBe("failed");
+    expect(record.preparation.durationMs).toBeGreaterThan(0);
+    expect(record.diagnostics.preparationLog).toBe(join(base, "logs", PREPARATION_LOG_FILENAME));
+    const log = readFileSync(join(base, "logs", PREPARATION_LOG_FILENAME), "utf8");
+    expect(log).toContain("source capture failed");
+    expect(log).toContain("not a git repository");
+    expect(log).toContain("--- stderr ---");
+    expect(typeof record.preparation.childCleanupFailed).toBe("boolean");
+    expect(typeof record.preparation.childCleanupDurationMs).toBe("number");
+  });
+
+  test("a seam invocation with a supplied archive claims no packed runtime", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("seam-supplied") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        cwd: base,
+        suiteCommand: ["sh", "-c", "exit 0", "seam"],
+        perRunDeadlineMs: 30_000,
+        logDir: join(base, "logs"),
+      });
+      expect(result.ok).toBe(true);
+      const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+        runtime: { packedCli?: unknown; suiteRunner: { kind: string } };
+        source: { kind: string; reconciliation?: string };
+      };
+      // The validated record is still the retained admitted authority, but a
+      // seam invocation that never runs the packed CLI claims no packed
+      // runtime.
+      expect(record.source.kind).toBe("candidate-record");
+      expect(record.source.reconciliation).toBe("record-validated-against-admission-capture");
+      expect(record.runtime.packedCli).toBeUndefined();
+      expect(record.runtime.suiteRunner.kind).toBe("injected-fixture");
+    });
+  });
+});
+
+
+/**
+ * Review-round corrections on PR #559: protected diagnostic publication, the
+ * lazy runtime observation tied to the active run's remaining deadline and the
+ * preparation's cancellation, and complete typed child evidence retained
+ * through the existing diagnostics boundary.
+ */
+describe("qualification records: review-round corrections", () => {
+  const recordPath = (base: string): string => join(base, "logs", QUALIFICATION_RECORD_FILENAME);
+
+  test("a failed preparation log publication preserves the rejection and still finalizes", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    // The operator-supplied archive is absent, so the admission is rejected;
+    // preparation.log is pre-created as a directory, so the diagnostic
+    // publication fails with EISDIR while the record destination stays
+    // writable.
+    rmSync(join(base, "logs"), { recursive: true, force: true });
+    mkdirSync(join(base, "logs", PREPARATION_LOG_FILENAME), { recursive: true });
+    const previousArchive = process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+    const previousMarker = process.env[SUPERVISED_INVOCATION_ENV];
+    process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = join(tempDir("apkit-absent-"), "absent.tgz");
+    delete process.env[SUPERVISED_INVOCATION_ENV];
+    let result: SuiteSupervisorResult | undefined;
+    try {
+      result = await runFullCorpus(base, { logDir: join(base, "logs") });
+    } finally {
+      if (previousArchive === undefined) delete process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+      else process.env[PREPARED_PACKAGE_ARCHIVE_ENV] = previousArchive;
+      if (previousMarker === undefined) delete process.env[SUPERVISED_INVOCATION_ENV];
+      else process.env[SUPERVISED_INVOCATION_ENV] = previousMarker;
+    }
+    expect(result.ok).toBe(false);
+    expect(result.attemptedRuns).toBe(0);
+    // The original rejection is preserved and the record is still finalized.
+    expect(result.preparation.failure).toContain("supplied package archive rejected");
+    expect(result.preparation.cleanupFailed).toBe(true);
+    expect(result.preparation.cleanupFailure).toContain("preparation diagnostics not retained");
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      status: string;
+      ok: boolean;
+      reason?: string;
+      source: { kind: string; cause: string };
+      preparation: { status: string; failure?: string; cleanupFailed: boolean; cleanupFailure?: string };
+      diagnostics: { preparationLog?: string; cleanupFailure?: string };
+    };
+    expect(existsSync(recordPath(base))).toBe(true);
+    expect(record.status).toBe("incomplete");
+    expect(record.ok).toBe(false);
+    // Both errors are preserved in their canonical fields: the record's
+    // unavailable source cause carries the original rejection, the diagnostics
+    // cleanup failure carries the failed publication.
+    expect(record.source.cause).toContain("supplied package archive rejected");
+    expect(record.preparation.failure).toContain("supplied package archive rejected");
+    expect(record.preparation.cleanupFailed).toBe(true);
+    expect(record.reason).toContain("preparation diagnostics not retained");
+    expect(record.diagnostics.preparationLog).toBeUndefined();
+    expect(record.diagnostics.cleanupFailure).toContain("preparation diagnostics not retained");
+  });
+
+  test("a capture failure retains the complete typed child evidence, including its output tail", async () => {
+    const base = fixtureCorpus([{ path: PURE_FILE, body: pureSource("capture-tail") }]);
+    // A controlled git shim fails the capture with a large stderr tail: the
+    // retained diagnostics must carry the complete output, not a truncated
+    // description, plus the actual typed cancellation/cleanup/duration fields.
+    const shim = tempDir("apkit-capture-tail-shim-");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(
+      join(shim, "git"),
+      "#!/bin/sh\nprintf '%1500s' x | tr ' ' x\necho TAIL-ROOT-CAUSE\necho \"fatal: injected git failure\" >&2\nexit 3\n",
+    );
+    chmodSync(join(shim, "git"), 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const result = await runFullCorpus(base, { perRunDeadlineMs: 30_000 });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      // The typed stage evidence travels the existing #537/#538 boundary.
+      expect(result.preparation.status).toBe("failed");
+      expect(result.preparation.failure).toContain("source capture");
+      expect(result.preparation.childCleanupFailed).toBe(false);
+      expect(typeof result.preparation.childCleanupDurationMs).toBe("number");
+      expect(result.preparation.diagnostics).toContain("TAIL-ROOT-CAUSE");
+      expect(result.preparation.diagnostics).toContain("exitCode=3");
+      const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+        source: { kind: string; cause: string };
+        diagnostics: { preparationLog?: string };
+      };
+      expect(record.diagnostics.preparationLog).toBe(join(base, "logs", PREPARATION_LOG_FILENAME));
+      const log = readFileSync(join(base, "logs", PREPARATION_LOG_FILENAME), "utf8");
+      expect(log).toContain("TAIL-ROOT-CAUSE");
+      expect(log).toContain("childCleanupFailed: false");
+      expect(log).toContain("--- stderr ---");
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  });
+
+  test("the lazy runtime observation is bounded by the active run's deadline and preparation cancellation", async () => {
+    const base = fixtureCorpus([
+      { path: CONSUMER_A, body: consumerSource("consumer A", "a") },
+    ]);
+    // The preparation's own build stage sleeps 400ms, so the lazy observation
+    // begins inside run 1 with only a fraction of the run's deadline left.
+    const staging = tempDir("apkit-bounded-stage-");
+    mkdirSync(join(staging, "package", "dist"), { recursive: true });
+    writeFileSync(
+      join(staging, "package", "dist", "cli.js"),
+      'console.log("CANDIDATE-CLI-MARKER-bounded");\n',
+    );
+    const calls: string[] = [];
+    const observation: {
+      startedMs?: number;
+      deadlineMs?: number;
+      finishedMs?: number;
+      cause?: string;
+    } = {};
+    const started = Date.now();
+    const result = await runSupervisedSuite({
+      mode: "stress",
+      cwd: base,
+      perRunDeadlineMs: 1500,
+      aggregateDeadlineMs: 6000,
+      maxRuns: 2,
+      logDir: join(base, "logs"),
+      packageCommands: {
+        build: async () => {
+          calls.push("build");
+          await new Promise((resolve) => setTimeout(resolve, 400));
+        },
+        createScriptDisabledArchive: async (stage, destination) => {
+          calls.push("pack");
+          const packed = await runProcess({
+            executable: "tar",
+            arguments_: ["-czf", join(destination, "candidate.tgz"), "-C", staging, "package"],
+            deadlineMs: stage.deadlineMs,
+            commandLabel: "fixture pack",
+          });
+          if (!(packed.kind === "exit" && packed.exitCode === 0)) {
+            throw new Error(`fixture pack failed: ${packed.kind}`);
+          }
+          return { filename: "candidate.tgz", files: ["dist/cli.js"] };
+        },
+      },
+      packedRuntimeProbe: async (context) => {
+        observation.startedMs = Date.now() - started;
+        observation.deadlineMs = context.deadlineMs;
+        const probe = await runProcess(
+          { executable: "sh", arguments_: ["-c", "sleep 5"], deadlineMs: context.deadlineMs, commandLabel: "delayed probe" },
+          context.signal,
+        );
+        observation.finishedMs = Date.now() - started;
+        observation.cause = probe.kind;
+        return { kind: "unavailable", executable: context.executable, cause: `delayed real child ${probe.kind}` };
+      },
+    });
+    // The observation received the active run's remaining deadline, not a
+    // fresh allowance.
+    expect(observation.startedMs).toBeDefined();
+    expect(observation.deadlineMs).toBeLessThan(1500);
+    expect(observation.deadlineMs).toBeLessThanOrEqual(1500 - observation.startedMs! + 120);
+    // It never ran to a fresh allowance: it settled at its own (active
+    // remaining) deadline plus the executor's bounded cleanup grace.
+    expect(observation.finishedMs).toBeLessThanOrEqual(
+      observation.startedMs! + observation.deadlineMs! + 700,
+    );
+    // The typed settle: the executor terminated the probe at its (active
+    // remaining) deadline, or the preparation cancellation stopped it.
+    expect(observation.cause).toMatch(/timeout|cancelled/);
+    // The run itself timed out inside its per-run deadline and the invocation
+    // settled promptly afterwards.
+    expect(result.runs[0]!.result.kind).toBe("timeout");
+    expect(result.runs[0]!.result.durationMs).toBeLessThan(2500);
+    expect(Date.now() - started).toBeLessThan(4000);
+    // The cancelled observation is retained evidence that fails qualification.
+    expect(result.ok).toBe(false);
+    const record = JSON.parse(readFileSync(recordPath(base), "utf8")) as {
+      runtime: { packedCli?: { kind: string; cause: string } };
+    };
+    expect(record.runtime.packedCli!.kind).toBe("unavailable");
+    expect(record.runtime.packedCli!.cause).toMatch(/delayed real child (timeout|cancelled)/);
+  });
+});

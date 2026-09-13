@@ -56,12 +56,16 @@ jobs:
           APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/suite-diagnostics
         run: bun run test
 
-      - name: Upload failed suite diagnostics
-        if: (failure() && steps.test_suite.outcome == 'failure') || (cancelled() && steps.test_suite.outcome == 'cancelled')
+      # Evidence boundary: the artifact contains only what the supervisor wrote.
+      # A failure before the suite step (for example the candidate creation)
+      # leaves no record and no artifact can imply a run that did not happen;
+      # the failing step's own Actions log is the evidence for that outcome.
+      - name: Upload supervised suite qualification evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supervised-suite-diagnostics-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/suite-diagnostics/*.log
+          name: supervised-suite-qualification-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/suite-diagnostics/
           if-no-files-found: ignore
           retention-days: 7
 
@@ -105,11 +109,13 @@ jobs:
           APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/suite-diagnostics
         run: bun run test:fleet
 
-      - name: Upload failed fleet diagnostics
-        if: (failure() && steps.fleet_suite.outcome == 'failure') || (cancelled() && steps.fleet_suite.outcome == 'cancelled')
+      # Same evidence boundary as the fast job: the artifact contains only
+      # what the fleet supervisor wrote; a pre-suite failure leaves no record.
+      - name: Upload fleet suite qualification evidence
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supervised-fleet-diagnostics-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/suite-diagnostics/*.log
+          name: supervised-fleet-qualification-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/suite-diagnostics/
           if-no-files-found: ignore
           retention-days: 7

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  QUALIFICATION_RECORD_FILENAME,
   assertRunnerIsPinnedBun,
   junitEvidencePath,
   pinnedBunVersion,
@@ -31,6 +33,15 @@ interface CorpusFile {
   readonly body: string;
 }
 
+/**
+ * The source identity contract's scope is Git-derived, so a canonical fixture
+ * invocation's base is a Git repository (an unborn HEAD is a valid state; the
+ * corpus files are untracked non-ignored content the fingerprint covers).
+ */
+function gitInit(base: string): void {
+  execFileSync("git", ["-C", base, "init", "-q"]);
+}
+
 function corpusFixture(build: (base: string) => readonly CorpusFile[]): string {
   const base = mkdtempSync(join(tmpdir(), "apkit-selection-"));
   const testRoot = join(base, TEST_CORPUS_ROOT);
@@ -39,6 +50,7 @@ function corpusFixture(build: (base: string) => readonly CorpusFile[]): string {
   for (const file of build(base)) {
     writeFileSync(join(base, file.path), file.body);
   }
+  gitInit(base);
   return base;
 }
 
@@ -105,6 +117,21 @@ describe("suite selection: full mode through the real supervisor and selected Bu
         unexpected: [],
       });
       expect(existsSync(junitEvidencePath(result.logDir, 1))).toBe(true);
+      // The qualification record identifies the admitted source and the
+      // derived selection the run actually executed.
+      const record = JSON.parse(
+        readFileSync(join(base, "logs", QUALIFICATION_RECORD_FILENAME), "utf8"),
+      ) as {
+        source: { kind: string };
+        selection: { selectedCount: number; selectionDigest: string; excluded: readonly string[]; named: readonly string[] };
+      };
+      expect(record.source.kind).toBe("admitted-source");
+      expect(record.selection).toMatchObject({
+        selectedCount: 1,
+        excluded: [FLEET],
+        named: [],
+      });
+      expect(record.selection.selectionDigest).toMatch(/^[0-9a-f]{64}$/);
       const log = readFileSync(run.logPath, "utf8");
       expect(log).toMatch(/^runtime: bun \d+\.\d+\.\d+ \(\S+\) \S+ \S+$/m);
       expect(log).toContain(`selection: mode=full test-root=${TEST_CORPUS_ROOT} selected=1 excluded=1`);
@@ -132,6 +159,7 @@ describe("suite selection: full mode through the real supervisor and selected Bu
         ].join("\n"),
       );
       writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+      gitInit(base);
       const result = await runFullCorpus(base);
       expect(result.ok).toBe(false);
       expect(result.firstFailure).not.toBeNull();
@@ -158,6 +186,7 @@ describe("suite selection: full mode through the real supervisor and selected Bu
       ].join("\n"),
     );
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const result = await runFullCorpus(base, { perRunDeadlineMs: 700, cleanupGraceMs: 200 });
       expect(result.ok).toBe(false);
@@ -178,6 +207,7 @@ describe("suite selection: full mode through the real supervisor and selected Bu
     );
     writeFileSync(join(testRoot, "empty.test.ts"), "export const neverRun = true;\n");
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const result = await runFullCorpus(base);
       expect(result.ok).toBe(false);
@@ -203,6 +233,7 @@ describe("suite selection: full mode through the real supervisor and selected Bu
       ].join("\n"),
     );
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const result = await runFullCorpus(base);
       expect(result.ok).toBe(false);
@@ -283,6 +314,7 @@ describe("suite selection: focused mode evidence", () => {
       ].join("\n"),
     );
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const explicit = await runSupervisedSuite({
         mode: "focused",
@@ -337,6 +369,7 @@ describe("suite selection: focused mode evidence", () => {
       join(base, FLEET),
       'import { test } from "bun:test";\ntest("fleet", () => {});\n',
     );
+    gitInit(base);
     try {
       const fleet = await runSupervisedSuite({
         mode: "focused",
@@ -371,6 +404,7 @@ describe("suite selection: focused mode evidence", () => {
       ].join("\n"),
     );
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const result = await runSupervisedSuite({
         mode: "focused",
@@ -397,6 +431,7 @@ describe("suite selection: focused mode evidence", () => {
     );
     writeFileSync(join(testRoot, "empty.test.ts"), "export const neverRun = true;\n");
     writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+    gitInit(base);
     try {
       const result = await runSupervisedSuite({
         mode: "focused",
@@ -432,6 +467,7 @@ describe("suite selection: focused mode evidence", () => {
           `import { test } from "bun:test";\ntest("${name}", () => {});\n`,
         );
         writeFileSync(join(base, FLEET), 'export const placeholder = 1;\n');
+        gitInit(base);
       }
       // Corpus A completes first and leaves its evidence behind.
       const firstRun = await runSupervisedSuite({

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,11 +14,15 @@ import {
   MAX_RUNS_ENV,
   PER_RUN_DEADLINE_ENV,
   PER_TEST_TIMEOUT_MS,
+  QUALIFICATION_RECORD_FILENAME,
+  QUALIFICATION_RECORD_SCHEMA,
   formatSuiteSummary,
   resolveSuitePolicy,
   runSupervisedSuite,
+  systemPackedRuntimeProbe,
   type SuiteMode,
 } from "./support/suite-supervisor.js";
+import { packedCliNodeExecutable } from "./support/package-archive.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
@@ -574,6 +578,7 @@ describe("supervised CLI", () => {
         expect(result.exitCode).toBe(0);
       }
       expect(result.stdout).toContain(`log: ${join(diagnosticsDir, "run-1.log")}`);
+      expect(existsSync(join(diagnosticsDir, QUALIFICATION_RECORD_FILENAME))).toBe(true);
       const log = readFileSync(join(diagnosticsDir, "run-1.log"), "utf8");
       expect(log).toContain("kind: exit");
       expect(log).toContain("cleanupFailed: false");
@@ -949,6 +954,270 @@ describe("suite supervisor: finite budget override interface", () => {
       aggregateDeadlineMs: 1234,
       maxRuns: 1,
     });
+  });
+});
+
+/**
+ * The qualification record (#539): one compact structured record the supervisor
+ * projects from its own canonical outcome and the predecessor identity
+ * contract, on every exit path. These tests read the record the supervisor
+ * wrote, never an internal helper.
+ */
+describe("suite supervisor: qualification records", () => {
+  const recordPath = (logDir: string): string => join(logDir, QUALIFICATION_RECORD_FILENAME);
+
+  test("a green seam invocation retains a complete record with truthful runtimes", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("exit 0"),
+        perRunDeadlineMs: 2000,
+        logDir,
+      });
+      expect(result.ok).toBe(true);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.schema).toBe(QUALIFICATION_RECORD_SCHEMA);
+      expect(record.mode).toBe("full");
+      expect(record.status).toBe("complete");
+      expect(record.ok).toBe(true);
+      // A seam invocation injects its own command: the record's source identity
+      // is the checkout the supervisor ran in (captured at admission), but the
+      // runner claim stays the injected fixture — never presented as Bun — and
+      // no packed runtime is claimed.
+      const source = record.source as Record<string, unknown>;
+      expect(record.source).toMatchObject({
+        kind: "admitted-source",
+      });
+      expect(String(source.sourceFingerprint)).toMatch(/^[0-9a-f]{64}$/);
+      expect(typeof source.entryCount).toBe("number");
+      expect(record.runtime).toEqual({
+        supervisor: {
+          name: "bun",
+          version: process.versions.bun,
+          executable: process.execPath,
+          platform: process.platform,
+          arch: process.arch,
+        },
+        suiteRunner: { kind: "injected-fixture", executable: "sh" },
+      });
+      expect(record.selection).toBeNull();
+      expect(record.policy).toEqual({
+        perRunDeadlineMs: 2000,
+        aggregateDeadlineMs: 2000,
+        maxRuns: 1,
+      });
+      expect(record.runs).toHaveLength(1);
+      expect(record.runs[0]).toMatchObject({
+        runNumber: 1,
+        kind: "exit",
+        exitCode: 0,
+        timedOut: false,
+        cancelled: false,
+        cleanupFailed: false,
+      });
+      expect(existsSync((record.runs[0] as Record<string, unknown>).logPath as string)).toBe(true);
+      expect(record.attemptedRuns).toBe(1);
+      expect(record.completedRuns).toBe(1);
+      expect(record.diagnostics).toMatchObject({ logDir });
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed run is incomplete with its retained run outcome", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("exit 3"),
+        perRunDeadlineMs: 2000,
+        logDir,
+      });
+      expect(result.ok).toBe(false);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.status).toBe("incomplete");
+      expect(record.ok).toBe(false);
+      expect(record.reason).toContain("exit 3");
+      expect(record.runs).toHaveLength(1);
+      expect((record.runs[0] as Record<string, unknown>).exitCode).toBe(3);
+      expect(record.attemptedRuns).toBe(1);
+      expect(record.completedRuns).toBe(0);
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a timed-out run is incomplete with its typed outcome and cleanup duration", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("sleep 30"),
+        perRunDeadlineMs: 300,
+        logDir,
+      });
+      expect(result.ok).toBe(false);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.status).toBe("incomplete");
+      expect(record.ok).toBe(false);
+      expect((record.runs[0] as Record<string, unknown>).kind).toBe("timeout");
+      expect(typeof (record.runs[0] as Record<string, unknown>).cleanupDurationMs).toBe("number");
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("an interruption during a run is recorded as interrupted", async () => {
+    const logDir = tempDir();
+    try {
+      const controller = new AbortController();
+      const pending = runSupervisedSuite(
+        { mode: "full", suiteCommand: shFixture("sleep 10"), perRunDeadlineMs: 30_000, logDir },
+        controller.signal,
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      controller.abort();
+      const result = await pending;
+      expect(result.interrupted).toBe(true);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.status).toBe("interrupted");
+      expect(record.ok).toBe(false);
+      expect((record.runs[0] as Record<string, unknown>).cancelled).toBe(true);
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("an interruption before run 1 still retains an interrupted zero-run record", async () => {
+    const logDir = tempDir();
+    try {
+      const controller = new AbortController();
+      controller.abort();
+      const result = await runSupervisedSuite(
+        { mode: "full", suiteCommand: shFixture("exit 0"), perRunDeadlineMs: 2000, logDir },
+        controller.signal,
+      );
+      expect(result.interrupted).toBe(true);
+      expect(result.attemptedRuns).toBe(0);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.status).toBe("interrupted");
+      expect(record.runs).toHaveLength(0);
+      expect(record.attemptedRuns).toBe(0);
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a stress invocation retains its initial failed run without concealing it", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "stress",
+        suiteCommand: shFixture("exit 3"),
+        perRunDeadlineMs: 2000,
+        aggregateDeadlineMs: 10_000,
+        maxRuns: 3,
+        logDir,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(1);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
+      expect(record.status).toBe("incomplete");
+      expect(record.runs).toHaveLength(1);
+      expect((record.runs[0] as Record<string, unknown>).exitCode).toBe(3);
+      expect(record.attemptedRuns).toBe(1);
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed record publication is retained, not ok, and leaves no misleading record", async () => {
+    const logDir = tempDir();
+    // A stale record from a reused diagnostics directory must not survive as
+    // this invocation's evidence.
+    writeFileSync(recordPath(logDir), "{}\n");
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("exit 0"),
+        perRunDeadlineMs: 2000,
+        logDir,
+        onRunComplete: () => chmodSync(logDir, 0o500),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.preparation.cleanupFailed).toBe(true);
+      expect(result.preparation.cleanupFailure ?? "").toContain("qualification record");
+      expect(existsSync(recordPath(logDir))).toBe(false);
+    } finally {
+      chmodSync(logDir, 0o700);
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("an exceptional run-loop exit is never a complete record and carries its cause", async () => {
+    const logDir = tempDir();
+    try {
+      const error = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("exit 0"),
+        perRunDeadlineMs: 2000,
+        logDir,
+        onRunComplete: () => {
+          throw new Error("INJECTED-CALLBACK-FAULT");
+        },
+      }).catch((thrown: unknown) => thrown);
+      expect(String(error)).toContain("INJECTED-CALLBACK-FAULT");
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as Record<string, unknown>;
+      // The retained record can never claim a complete qualification for an
+      // invocation whose run loop threw — even when the final run was green.
+      expect(record.status).toBe("incomplete");
+      expect(record.ok).toBe(false);
+      expect(record.reason).toContain("INJECTED-CALLBACK-FAULT");
+      expect(record.runs).toHaveLength(1);
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("the packed CLI runtime observation observes the canonical packed executable once", async () => {
+    const observation = await systemPackedRuntimeProbe({
+      executable: packedCliNodeExecutable(),
+      deadlineMs: 10_000,
+      signal: undefined,
+    });
+    expect(observation.kind).toBe("probe");
+    if (observation.kind === "probe") {
+      expect(observation.executable).toBe(packedCliNodeExecutable());
+      expect(observation.version).toMatch(/^v?\d+\./);
+    }
+  });
+
+  test("a failed runtime observation retains the complete typed child evidence and its output tail", async () => {
+    const fake = join(tempDir(), "fake-node");
+    try {
+      // The child emits a large stdout/stderr tail and exits 3: the observation
+      // must retain the complete typed evidence, never a truncated description.
+      writeFileSync(
+        fake,
+        "#!/bin/sh\nprintf '%1500s' x | tr ' ' x\necho TAIL-ROOT-CAUSE\necho \"fatal: injected runtime failure\" >&2\nexit 3\n",
+      );
+      chmodSync(fake, 0o755);
+      const observation = await systemPackedRuntimeProbe({ executable: fake, deadlineMs: 10_000, signal: undefined });
+      expect(observation.kind).toBe("unavailable");
+      if (observation.kind === "unavailable") {
+        expect(observation.cause).toContain("exitCode=3");
+        expect(observation.diagnostics).toContain("TAIL-ROOT-CAUSE");
+        expect(observation.diagnostics).toContain("--- stderr ---");
+        expect(observation.diagnostics).toContain("fatal: injected runtime failure");
+        expect(observation.childCleanupFailed).toBe(false);
+        expect(typeof observation.childCleanupDurationMs).toBe("number");
+        expect(typeof observation.childDurationMs).toBe("number");
+        expect(observation.cancelled).toBe(false);
+      }
+    } finally {
+      rmSync(fake, { force: true });
+    }
   });
 });
 

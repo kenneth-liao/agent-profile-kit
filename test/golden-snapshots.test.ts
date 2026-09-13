@@ -25,7 +25,11 @@ import {
   checkAtomicRendering,
   collectSpellings,
 } from "./support/rendered-atomicity.js";
-import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
+import {
+  obtainPackageArchive,
+  extractPackageArchive,
+  packedCliNodeExecutable,
+} from "./support/package-archive.js";
 import { installControlledHosts } from "./support/fleet-fixture.js";
 import {
   TEST_CHILD_DEADLINE_MS,
@@ -181,7 +185,7 @@ async function runCli(
   cwd?: string,
 ): Promise<ProcessResult> {
   return runProcess({
-    executable: process.env.NODE_BINARY ?? "node",
+    executable: packedCliNodeExecutable(),
     arguments_: [cliPath, ...args],
     ...(cwd === undefined ? {} : { cwd }),
     environment: redirectedEnvironment(home),
@@ -207,7 +211,7 @@ async function runCliInPty(
   const command = [
     `stty cols ${columns};`,
     "exec",
-    ...[process.env.NODE_BINARY ?? "node", cliPath, ...args].map(shellQuote),
+    ...[packedCliNodeExecutable(), cliPath, ...args].map(shellQuote),
   ].join(" ");
   const childEnvironment: NodeJS.ProcessEnv = {
     ...process.env,
