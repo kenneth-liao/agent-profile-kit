@@ -740,19 +740,23 @@ function snippet(value: string): string {
   return JSON.stringify(trimmed);
 }
 
-/** One-line, complete evidence summary for assertion failures. */
-export function describeProcessResult(result: ProcessResult): string {
+/** One-line, complete evidence summary for assertion failures. Accepts
+ * bounded and interactive results (ADR-0028: cleanup evidence surfaces
+ * identically in both modes). */
+export function describeProcessResult(
+  result: ProcessResult | InteractiveProcessResult,
+): string {
   const parts = [`kind=${result.kind}`, `command=${result.commandLabel}`];
   if (result.exitCode !== null) parts.push(`exitCode=${result.exitCode}`);
   if (result.signal !== null) parts.push(`signal=${result.signal}`);
-  if (result.timedOut) parts.push("timedOut");
-  if (result.cancelled) parts.push("cancelled");
+  if ("timedOut" in result && result.timedOut) parts.push("timedOut");
+  if ("cancelled" in result && result.cancelled) parts.push("cancelled");
   if (result.cleanupFailed) parts.push("cleanupFailed");
   if (result.cleanupDurationMs > 0) parts.push(`cleanupDurationMs=${result.cleanupDurationMs}`);
   if (result.error !== null) parts.push(`error=${result.error.message}`);
   parts.push(`durationMs=${result.durationMs}`);
-  parts.push(`stdout=${snippet(result.stdout)}`);
-  parts.push(`stderr=${snippet(result.stderr)}`);
+  if ("stdout" in result) parts.push(`stdout=${snippet(result.stdout)}`);
+  if ("stderr" in result) parts.push(`stderr=${snippet(result.stderr)}`);
   return parts.join(" ");
 }
 

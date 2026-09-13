@@ -158,7 +158,10 @@ if (mode === "select") {
     stdin: process.stdin,
     stdout: process.stdout,
   })) as { readonly answer?: unknown } | undefined;
+  // Release both watch handles: an open fs.watch handle would keep the event
+  // loop alive after the prompt resolves and the driver would never exit.
   clearInterval(backstop);
+  watcher.close();
   process.stdout.write(`\nRESULT ${JSON.stringify(answer?.answer)}\n`);
 } else {
   process.stderr.write(`unknown PTY driver mode '${mode ?? ""}'\n`);

@@ -26,6 +26,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  describeProcessResult,
   runInteractiveProcess,
   type InteractiveProcessResult,
 } from "../../process/process-executor.js";
@@ -69,14 +70,19 @@ export interface PtySession {
   ): Promise<{ readonly text: string }>;
   /**
    * Polite close: end owned stdin, wait a bounded window, then abort so the
-   * executor's TERM→KILL escalation runs. Returns the executor's result so
-   * `cleanupFailed` evidence is never swallowed.
+   * executor's TERM→KILL escalation runs. The teardown contract is enforced
+   * here: a `cleanupFailed` result, a controller failure, a watchdog firing,
+   * or any non-natural-exit outcome throws with the retained diagnostics —
+   * a failed teardown can never pass qualification (#542 review,
+   * INT-BOUNDARY-1). The child's own nonzero exit is not a teardown failure;
+   * the result is returned so tests can assert propagation.
    */
   close(): Promise<InteractiveProcessResult>;
   /**
-   * Abrupt termination: abort immediately (no polite window) and settle with
-   * the executor's typed result. The repaired controller kills and reaps the
-   * owned PTY child on TERM and records evidence in the transcript.
+   * Explicit intentional abort: abort immediately (no polite window) and
+   * settle with the executor's typed result. The contract is enforced: the
+   * result must be `cancelled` with confirmed cleanup — anything else throws
+   * with retained diagnostics.
    */
   terminate(): Promise<InteractiveProcessResult>;
   /** The executor-owned controller pid. */
@@ -90,9 +96,29 @@ export interface PtySession {
 // kills the test only after this deadline passes.
 const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
 
+export interface PtySessionOptions {
+  /** Watchdog for the owned PTY child, in milliseconds. Defaults to the
+   * canonical per-test policy; normalized to whole controller seconds once,
+   * at this boundary. */
+  readonly watchdogMs?: number;
+}
+
+function teardownContractError(
+  result: InteractiveProcessResult,
+  transcript: string,
+  expectation: string,
+): Error {
+  return new Error(
+    `PTY session teardown contract violated (expected ${expectation})\n`
+    + describeProcessResult(result)
+    + `\n--- transcript tail ---\n${plain(transcript).slice(-2000)}`,
+  );
+}
+
 export async function startPtySession(
   driverArguments: readonly string[],
   columns: number,
+  options: PtySessionOptions = {},
 ): Promise<PtySession> {
   if (Bun.which("python3") === null) {
     throw new Error("PTY tests require python3 for the pty-controller");
@@ -111,7 +137,9 @@ export async function startPtySession(
         controllerPath,
         transcriptPath,
         String(columns),
-        String(PER_TEST_TIMEOUT_MS),
+        // The controller measures its watchdog in whole seconds — normalize
+        // the canonical millisecond policy exactly once, here.
+        String(Math.round((options.watchdogMs ?? PER_TEST_TIMEOUT_MS) / 1000)),
         process.execPath,
         driverPath,
         ...driverArguments,
@@ -153,6 +181,38 @@ export async function startPtySession(
     if (!exited) abort.abort();
     return execution;
   };
+
+  const enforceNaturalTeardown = (result: InteractiveProcessResult): InteractiveProcessResult => {
+    const transcript = readTranscript();
+    if (result.cleanupFailed) {
+      throw teardownContractError(result, transcript, "confirmed owned-process cleanup");
+    }
+    if (result.kind !== "exit") {
+      throw teardownContractError(result, transcript, "a naturally exited controller");
+    }
+    if (transcript.includes("PTY-CONTROLLER-WATCHDOG")) {
+      // A watchdog firing under polite close is an unintended bounded-child
+      // outcome; the evidence marker makes it unambiguous.
+      throw teardownContractError(result, transcript, "no watchdog firing");
+    }
+    return result;
+  };
+
+  const enforceCancelledTeardown = (result: InteractiveProcessResult): InteractiveProcessResult => {
+    if (result.kind !== "cancelled" || result.cleanupFailed) {
+      throw teardownContractError(
+        result,
+        readTranscript(),
+        "an intentionally aborted session with confirmed cleanup",
+      );
+    }
+    return result;
+  };
+
+  // Once one contract was enforced (e.g. an intentional terminate), later
+  // close() calls return that already-enforced result instead of re-running
+  // the natural-exit contract against an aborted session.
+  let enforcedTeardown: InteractiveProcessResult | undefined;
 
   return {
     write(data: string): void {
@@ -199,10 +259,17 @@ export async function startPtySession(
         await sleep(100);
       }
     },
-    close: settle,
+    close: async () => {
+      if (enforcedTeardown !== undefined) return enforcedTeardown;
+      const result = enforceNaturalTeardown(await settle());
+      if (enforcedTeardown === undefined) enforcedTeardown = result;
+      return result;
+    },
     terminate: async () => {
       abort.abort();
-      return execution;
+      const result = enforceCancelledTeardown(await execution);
+      enforcedTeardown = result;
+      return result;
     },
     get controllerPid(): number {
       return controllerPid;

@@ -193,6 +193,10 @@ describe("guided install under a real PTY", () => {
       session.write("\x03");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
       expect(plain(text)).toContain("cancelled");
+      const teardown = await session.close();
+      // The driver's own nonzero outcome propagates through the controller —
+      // never a false 0 (INT-B-1).
+      expect(teardown.exitCode).toBe(1);
     } finally {
       await session.close();
     }

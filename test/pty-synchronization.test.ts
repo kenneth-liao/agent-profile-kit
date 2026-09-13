@@ -94,6 +94,64 @@ describe("observable PTY synchronization (#542)", () => {
   });
 });
 
+describe("owned-child lifecycle contract (#542 review)", () => {
+  test("a natural child exit propagates its status with no post-reap signal", async () => {
+    const { releaseFile, pidFile } = fixturePaths();
+    const session = await startPtySession(["gated-select", releaseFile, pidFile], 80);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await waitForFile(pidFile);
+      await session.waitForTranscript("Which Profile?");
+      const before = session.transcriptLength();
+      session.write("\r");
+      await session.waitForTranscript("RESULT", { after: before });
+      const teardown = await session.close();
+      // The controller exits promptly after the child: the drain window is
+      // one finite 0.5s pass, never a stall into the 5s abort backstop.
+      expect(teardown.kind).toBe("exit");
+      expect(teardown.exitCode).toBe(0);
+      expect(teardown.durationMs).toBeLessThan(5000);
+      const transcript = session.transcript();
+      // The child's own outcome is propagated (never a false 0), and the
+      // post-reap cleanup engaged its no-signal guard: zero signals sent.
+      expect(transcript).toContain("PTY-CONTROLLER-EXIT status=0 signals=0");
+      expect(transcript).toContain("PTY-CONTROLLER-CLEANUP-SKIPPED-REAPED");
+      expect(transcript).not.toContain("PTY-CONTROLLER-TERMINATED");
+      expect(existsSync(releaseFile)).toBe(false);
+    } finally {
+      await session.close();
+    }
+  });
+
+  test("the watchdog is real seconds: bounded child termination with enforced evidence", async () => {
+    const { releaseFile, pidFile } = fixturePaths();
+    const session = await startPtySession(["gated-select", releaseFile, pidFile], 80, {
+      watchdogMs: 2000,
+    });
+    temporaryDirectories.push(session.runDirectory);
+    const startedAt = Date.now();
+    const driverPid = Number(await waitForFile(pidFile));
+    await session.waitForTranscript("Which Profile?");
+    // The blocked child is killed and reaped at the (short) watchdog; the
+    // controller records the marker and exits 124 — well under any timeout.
+    await session.waitForTranscript("PTY-CONTROLLER-WATCHDOG");
+    const elapsed = Date.now() - startedAt;
+    expect(elapsed).toBeGreaterThanOrEqual(2000);
+    expect(elapsed).toBeLessThan(8000);
+    // Enforced teardown: a watchdog outcome cannot pass qualification.
+    let contractError: Error | undefined;
+    try {
+      await session.close();
+    } catch (error) {
+      contractError = error as Error;
+    }
+    expect(contractError).toBeDefined();
+    expect(contractError!.message).toContain("exitCode=124");
+    expect(contractError!.message).toContain("PTY-CONTROLLER-WATCHDOG");
+    await expectPidGone(driverPid, "PTY driver child");
+  });
+});
+
 describe("named delayed-output condition — causal discrimination (#542, TEST-004)", () => {
   test("premature Enter with the filter provably unresolved submits the stale highlight", async () => {
     const { releaseFile, pidFile } = fixturePaths();
