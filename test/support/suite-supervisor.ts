@@ -1231,8 +1231,12 @@ export async function runSupervisedSuite(
     } catch (error) {
       // A pin failure leaves an invocation-owned directory behind: the early
       // return cannot reach the invocation's finally, so this path removes it
-      // boundedly and retains the owning outcome — truthful duration, cause,
-      // and the owned path (which is NOT cleared when the removal fails).
+      // boundedly and retains the owning outcome. The admission duration is
+      // frozen before cleanup starts — cleanup time is owned cleanup
+      // evidence, never admission time — and the cleanup duration is measured
+      // for both outcomes, so a delayed successful removal reports its real
+      // cost instead of a zero default. A failed removal keeps the owned path.
+      const admissionDurationMs = Date.now() - validationStartedAt;
       let pinCleanupDurationMs = 0;
       let pinCleanupFailed = false;
       let pinCleanupFailure: string | undefined;
@@ -1243,7 +1247,6 @@ export async function runSupervisedSuite(
           pinnedDirectory = null;
         } catch (cleanupError) {
           pinCleanupFailed = true;
-          pinCleanupDurationMs = Date.now() - pinCleanupStartedAt;
           const typedCleanup = cleanupError instanceof PackagePreparationStageError ? cleanupError : undefined;
           pinCleanupFailure = [
             `owned pin directory '${pinnedDirectory}' could not be removed`,
@@ -1254,6 +1257,8 @@ export async function runSupervisedSuite(
             + (typedCleanup === undefined
               ? ""
               : `\n--- cleanup stdout ---\n${typedCleanup.result.stdout}\n--- cleanup stderr ---\n${typedCleanup.result.stderr}`);
+        } finally {
+          pinCleanupDurationMs = Date.now() - pinCleanupStartedAt;
         }
       }
       const interrupted = abortSignal?.aborted === true;
@@ -1272,7 +1277,7 @@ export async function runSupervisedSuite(
       const evidence: PreparationEvidence = {
         status: interrupted ? "interrupted" : "failed",
         requests: 0,
-        durationMs: Date.now() - validationStartedAt,
+        durationMs: admissionDurationMs,
         cleanupDurationMs: pinCleanupDurationMs,
         cleanupFailed: pinCleanupFailed,
         ...(pinCleanupFailure === undefined ? {} : { cleanupFailure: pinCleanupFailure }),

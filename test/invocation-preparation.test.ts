@@ -1571,5 +1571,70 @@ describe("partial-pin cleanup evidence", () => {
       if (leftover !== "") rmSync(leftover, { recursive: true, force: true });
     }
   }, 20_000);
+
+  test("delayed pin cleanup measures both outcomes without double-counting admission", async () => {
+    for (const failCleanup of [true, false]) {
+      const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+      const suppliedRoot = tempDir("apkit-supplied-");
+      const created = await createPackageCandidate({
+        repositoryRoot: base,
+        destinationDirectory: suppliedRoot,
+        deadlineMs: 30_000,
+        signal: undefined,
+        commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+      });
+      // Every removal sleeps 200ms before succeeding or failing: a delayed
+      // successful cleanup must report its real cost (never a zero default),
+      // and the admission duration must exclude cleanup on both paths.
+      const shim = tempDir("apkit-pin-rm-shim-");
+      writeFileSync(
+        join(shim, "rm"),
+        `#!/bin/sh\n/bin/sleep 0.2\n${failCleanup ? "echo INJECTED-CLEANUP-FAILURE >&2\nexit 7\n" : 'exec /bin/rm "$@"\n'}`,
+      );
+      chmodSync(join(shim, "rm"), 0o755);
+      const previousPath = process.env.PATH;
+      process.env.PATH = `${shim}:${previousPath}`;
+      let leftover = "";
+      try {
+        let result: SuiteSupervisorResult | undefined;
+        await withSuppliedArchive(created.archivePath, async () => {
+          result = await runFullCorpus(base, {
+            perRunDeadlineMs: 2000,
+            pinSuppliedCandidate: async (validation, directory) => {
+              // A partial pin: owned bytes land before the failure.
+              writeFileSync(join(directory, "partial.tgz"), validation.bytes);
+              throw new Error("INJECTED-PIN-WRITE-FAILURE");
+            },
+          });
+        });
+        const completed = result!;
+        expect(completed.ok).toBe(false);
+        expect(completed.attemptedRuns).toBe(0);
+        expect(completed.preparation.failure).toContain("INJECTED-PIN-WRITE-FAILURE");
+        // The 200ms removal delay is reported on both outcomes.
+        expect(completed.preparation.cleanupDurationMs).toBeGreaterThanOrEqual(150);
+        // Non-overlap oracle: admission and cleanup partition the wall time,
+        // so their sum cannot exceed the aggregate (plus timer granularity).
+        expect(completed.preparation.durationMs + completed.preparation.cleanupDurationMs)
+          .toBeLessThanOrEqual(completed.aggregateDurationMs + 10);
+        if (failCleanup) {
+          expect(completed.preparation.cleanupFailed).toBe(true);
+          expect(completed.preparation.cleanupFailure).toContain("INJECTED-CLEANUP-FAILURE");
+          const pathMatch = (completed.preparation.cleanupFailure ?? "").match(/owned pin directory '([^']+)'/);
+          expect(pathMatch).not.toBeNull();
+          leftover = pathMatch![1]!;
+          expect(existsSync(leftover)).toBe(true);
+        } else {
+          expect(completed.preparation.cleanupFailed).toBe(false);
+          expect(completed.preparation.cleanupFailure).toBeUndefined();
+          expect(completed.preparation.candidateDirectory).toBeUndefined();
+        }
+      } finally {
+        if (previousPath === undefined) delete process.env.PATH;
+        else process.env.PATH = previousPath;
+        if (leftover !== "") rmSync(leftover, { recursive: true, force: true });
+      }
+    }
+  }, 60_000);
 });
 
