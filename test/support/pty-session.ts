@@ -14,7 +14,10 @@
  * and collapses whitespace (redraws re-emit content); raw transcript bytes
  * and ANSI are preserved. Trailing partial UTF-8 or escape sequences are
  * transient across polls: they can delay a match by one poll, never fake
- * one. No terminal emulator is implemented or needed.
+ * one. (A multibyte character straddling the captured offset decodes as a
+ * stable U+FFFD on every poll — fragments are matched after that boundary,
+ * which is why offsets are captured at input boundaries.) No terminal
+ * emulator is implemented or needed.
  */
 import { readFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
@@ -136,6 +139,13 @@ export async function startPtySession(
   };
 
   const settle = async (): Promise<InteractiveProcessResult> => {
+    // Polite close begins with EOF on the owned stdin (EPIPE from a child
+    // that already quit is expected); the bounded window and abort follow.
+    try {
+      ownedStdin?.end();
+    } catch {
+      // The driver may already have exited.
+    }
     const exited = await Promise.race([
       execution.then(() => true),
       sleep(5000).then(() => false),
@@ -146,7 +156,10 @@ export async function startPtySession(
 
   return {
     write(data: string): void {
-      ownedStdin?.write(data);
+      if (ownedStdin === undefined) {
+        throw new Error("PTY session stdin is not started; wait for the session to start before writing");
+      }
+      ownedStdin.write(data);
     },
     transcript: readTranscript,
     transcriptLength(): number {

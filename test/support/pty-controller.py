@@ -63,6 +63,8 @@ def main() -> int:
     def on_term(_signum, _frame):
         # The executor's owned-process cleanup sends SIGTERM to this
         # controller only; the PTY child is ours to kill and reap (#542).
+        # A TERM landing after the watchdog fired must not overwrite the
+        # watchdog's 124 exit contract.
         if state["terminating"]:
             return
         state["terminating"] = True
@@ -85,13 +87,15 @@ def main() -> int:
     try:
         while True:
             if time.monotonic() > deadline:
-                transcript.write(b"\nPTY-CONTROLLER-WATCHDOG\n")
+                state["terminating"] = True
                 try:
                     os.kill(pid, 9)
                 except ProcessLookupError:
                     pass
-                # Reap so the watchdog kill leaves no zombie behind.
+                # Reap so the watchdog kill leaves no zombie behind, then
+                # record the evidence marker.
                 reap_child()
+                transcript.write(b"\nPTY-CONTROLLER-WATCHDOG\n")
                 return 124
             if child_gone and time.monotonic() > drain_until:
                 return 0

@@ -116,9 +116,17 @@ if (mode === "select") {
   const openGate = (): void => {
     if (gateOpen) return;
     gateOpen = true;
+    clearInterval(backstop);
+    watcher.close();
     for (const deliver of pendingDeliveries.splice(0)) deliver();
   };
   if (existsSync(releaseFile)) openGate();
+  // fs.watch does not contractually guarantee per-event delivery; the interval
+  // backstop keeps the gate causal (creation is always observed) without any
+  // timing assumption in the proof.
+  const backstop = setInterval(() => {
+    if (existsSync(releaseFile)) openGate();
+  }, 250);
   const watcher = watch(dirname(releaseFile), (_event, filename) => {
     if ((filename === null || filename === basename(releaseFile)) && existsSync(releaseFile)) {
       openGate();
@@ -150,7 +158,7 @@ if (mode === "select") {
     stdin: process.stdin,
     stdout: process.stdout,
   })) as { readonly answer?: unknown } | undefined;
-  watcher.close();
+  clearInterval(backstop);
   process.stdout.write(`\nRESULT ${JSON.stringify(answer?.answer)}\n`);
 } else {
   process.stderr.write(`unknown PTY driver mode '${mode ?? ""}'\n`);

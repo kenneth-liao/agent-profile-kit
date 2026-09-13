@@ -206,7 +206,7 @@ describe("pager execution (#448, US-050, ADR-0027)", () => {
     const { out, exitCode } = await page({ execute });
     expect(exitCode).toBe(0);
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: renderedText });;
+    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: renderedText });
     expect(out.text).toBe("");
   });
 
@@ -403,7 +403,7 @@ describe("guidance writing (#448, US-050)", () => {
     const { calls, execute } = executorRecording();
     const { out, exitCode } = await guidanceWriter({ context: longContext, execute });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: longText });;
+    expect(calls[0]!.stdin).toEqual({ kind: "payload", content: longText });
     expect(out.text).toBe("");
     expect(exitCode).toBe(0);
   });

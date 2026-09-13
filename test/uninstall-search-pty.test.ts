@@ -20,7 +20,7 @@ import { join } from "node:path";
 
 import { executeInstall } from "../installer/install-application.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { startPtySession, squash } from "./support/pty-session.js";
+import { plain, startPtySession, squash } from "./support/pty-session.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -156,7 +156,7 @@ describe("interactive uninstall under a real PTY", () => {
       const cancelOffset = session.transcriptLength();
       session.write("\x03");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
-      expect(text.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "")).toContain("cancelled");
+      expect(plain(text)).toContain("cancelled");
     } finally {
       await session.close();
     }

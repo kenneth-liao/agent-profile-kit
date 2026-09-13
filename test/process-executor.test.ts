@@ -627,12 +627,14 @@ describe("runInteractiveProcess streaming stdin (#542)", () => {
     try {
       const capturedFile = join(fixtureDir, "captured.txt");
       let ownedStdin: Writable | undefined;
+      let startedCount = 0;
       const result = await runInteractiveProcess({
         executable: shell,
         arguments_: ["-c", `cat > '${capturedFile}'`],
         stdin: {
           kind: "stream",
           onStarted: (owned) => {
+            startedCount += 1;
             ownedStdin = owned.stdin;
             owned.stdin.write("first keystrokes\n");
             // The caller owns EOF: ending stdin is what lets `cat` finish.
@@ -643,6 +645,8 @@ describe("runInteractiveProcess streaming stdin (#542)", () => {
         commandLabel: "interactive stream fixture",
       });
       expect(ownedStdin).toBeDefined();
+      // The contract hands the owned stdin out exactly once.
+      expect(startedCount).toBe(1);
       expect(result.kind).toBe("exit");
       if (result.kind === "exit") {
         expect(result.exitCode).toBe(0);

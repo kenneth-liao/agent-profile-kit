@@ -92,7 +92,7 @@ describe("interactive configure under a real PTY", () => {
       session.write("\r");
       // The pre-save statement names the reusable Profile; confirm.
       await session.waitForTranscript("Reusable Profile 'coding'", { after: skillsEnterOffset });
-      await session.waitForTranscript("(y/N)");
+      await session.waitForTranscript("(y/N)", { after: skillsEnterOffset });
       const confirmOffset = session.transcriptLength();
       session.write("y\r");
       await session.waitForTranscript("RESULT exitCode=0", { after: confirmOffset });

@@ -101,6 +101,8 @@ describe("named delayed-output condition — causal discrimination (#542, TEST-0
     temporaryDirectories.push(session.runDirectory);
     try {
       await waitForFile(pidFile);
+      // No input before the active question: wait for the prompt render.
+      await session.waitForTranscript("Which Profile?");
       const before = session.transcriptLength();
       session.write("writ");
       await session.waitForTranscript("…writ", { after: before });
@@ -124,6 +126,8 @@ describe("named delayed-output condition — causal discrimination (#542, TEST-0
     temporaryDirectories.push(session.runDirectory);
     try {
       await waitForFile(pidFile);
+      // No input before the active question: wait for the prompt render.
+      await session.waitForTranscript("Which Profile?");
       const before = session.transcriptLength();
       session.write("writ");
       await session.waitForTranscript("…writ", { after: before });
@@ -136,7 +140,7 @@ describe("named delayed-output condition — causal discrimination (#542, TEST-0
       await session.waitForTranscript("RESULT", { after: enterOffset });
       const text = session.transcript();
       expect(text).toContain('RESULT "writing"');
-      expect(text).not.toContain('"value":"coding"}');
+      expect(text).not.toContain('RESULT "coding"');
     } finally {
       await session.close();
     }

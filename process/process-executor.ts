@@ -716,6 +716,10 @@ export async function runInteractiveProcess(
     // throwing callback must still settle through the bounded cleanup
     // lifecycle — the child is running and owned.
     if (terminalCause !== null) return;
+    // A synchronous spawn failure reports asynchronously (the `error` event):
+    // never hand out an undefined pid as a successful start — let the typed
+    // spawn-error settle instead.
+    if (child.pid === undefined) return;
     try {
       options.stdin.onStarted({
         pid: child.pid as number,
