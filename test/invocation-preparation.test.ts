@@ -213,7 +213,7 @@ function realCandidateCommands(token: string, calls: string[]): PackageArchiveCo
       if (!(result.kind === "exit" && result.exitCode === 0)) {
         throw new Error(`fixture pack failed: ${result.kind}`);
       }
-      return "candidate.tgz";
+      return { filename: "candidate.tgz", files: ["dist/cli.js"] };
     },
   };
 }
@@ -959,7 +959,7 @@ function suppliedCreatorCommands(root: string, marker: string): PackageArchiveCo
       if (!(result.kind === "exit" && result.exitCode === 0)) {
         throw new Error(`fixture pack failed: ${result.kind}`);
       }
-      return "supplied.tgz";
+      return { filename: "supplied.tgz", files: ["dist/cli.js"] };
     },
   };
 }

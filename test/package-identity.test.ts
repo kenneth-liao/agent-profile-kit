@@ -37,10 +37,7 @@ function gitRepository(prefix: string, files: Record<string, string>): string {
   const path = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(path);
   const git = (...arguments_: string[]): void => {
-    const result = Bun.spawnSync(["git", "-C", path, ...arguments_]);
-    if (result.exitCode !== 0) {
-      throw new Error(`git ${arguments_.join(" ")} failed: ${result.stderr.toString()}`);
-    }
+    execFileSync("git", ["-C", path, ...arguments_], { stdio: "pipe" });
   };
   git("init", "-q");
   git("config", "user.email", "tests@example.com");
@@ -118,7 +115,7 @@ describe("source fingerprint capture", () => {
     // the build consumes the worktree, so the fingerprint must return to the
     // HEAD-state value even though the index still holds the staged bytes.
     writeFileSync(join(root, "src/tracked.txt"), "staged\n");
-    Bun.spawnSync(["git", "-C", root, "add", "src/tracked.txt"]);
+    execFileSync("git", ["-C", root, "add", "src/tracked.txt"]);
     writeFileSync(join(root, "src/tracked.txt"), "committed\n");
     const reverted = await captureSourceFingerprint({ repositoryRoot: root, ...CAPTURE });
 
@@ -158,7 +155,7 @@ describe("source fingerprint capture", () => {
     const root = gitRepository("apkit-identity-symlink-", {
       "src/tracked.txt": "tracked\n",
     });
-    Bun.spawnSync(["ln", "-s", "src/tracked.txt", join(root, "link.txt")]);
+    execFileSync("ln", ["-s", "src/tracked.txt", join(root, "link.txt")]);
 
     await expect(
       captureSourceFingerprint({ repositoryRoot: root, ...CAPTURE }),
@@ -172,12 +169,11 @@ describe("source fingerprint capture", () => {
     const root = gitRepository("apkit-identity-submodule-", {
       "src/tracked.txt": "tracked\n",
     });
-    const add = Bun.spawnSync(["git", "-C", root, "submodule", "add", dependency, "vendor/dep"], {
-      env: { ...process.env, GIT_ALLOW_PROTOCOL: "file" },
-    });
-    if (add.exitCode !== 0) {
-      throw new Error(`submodule add failed: ${add.stderr.toString()}`);
-    }
+    execFileSync(
+      "git",
+      ["-C", root, "submodule", "add", dependency, "vendor/dep"],
+      { stdio: "pipe", env: { ...process.env, GIT_ALLOW_PROTOCOL: "file" } },
+    );
 
     await expect(
       captureSourceFingerprint({ repositoryRoot: root, ...CAPTURE }),
@@ -186,7 +182,7 @@ describe("source fingerprint capture", () => {
 
   test("records the HEAD commit identity", async () => {
     const root = gitRepository("apkit-identity-head-", { "src/tracked.txt": "tracked\n" });
-    const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "HEAD"]).stdout.toString().trim();
+    const head = execFileSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
     const capture = await captureSourceFingerprint({ repositoryRoot: root, ...CAPTURE });
 
@@ -231,18 +227,16 @@ function injectedCandidateCommands(
           writeFileSync(join(staging, file), `PACKED:${file}\n`);
         }
         const tarball = join(destination, "agent-profile-kit-test.tgz");
-        const tar = Bun.spawnSync(["tar", "-czf", tarball, "-C", join(destination, "staging"), "."]);
-        if (tar.exitCode !== 0) throw new Error(`fixture pack failed: ${tar.stderr.toString()}`);
-        return "agent-profile-kit-test.tgz";
+        execFileSync("tar", ["-czf", tarball, "-C", join(destination, "staging"), "."], { stdio: "pipe" });
+        return { filename: "agent-profile-kit-test.tgz", files: packedFiles };
       },
     },
   };
 }
 
-function trackedMembershipFor(root: string, files: readonly string[]): void {
-  Bun.spawnSync(["git", "-C", root, "add", "."]);
-  const commit = Bun.spawnSync(["git", "-C", root, "commit", "-qm", "membership"]);
-  if (commit.exitCode !== 0) throw new Error(commit.stderr.toString());
+function commitAll(root: string): void {
+  execFileSync("git", ["-C", root, "add", "."], { stdio: "pipe" });
+  execFileSync("git", ["-C", root, "commit", "-qm", "membership"], { stdio: "pipe" });
 }
 
 describe("package candidate creator (one from-source creator)", () => {
@@ -255,7 +249,7 @@ describe("package candidate creator (one from-source creator)", () => {
     const destination = tempDir("apkit-identity-dest-");
     const { commands, calls } = injectedCandidateCommands(root, ["dist/cli.js", "README.md"]);
     writeFileSync(join(root, "README.md"), "readme\n");
-    trackedMembershipFor(root, ["README.md"]);
+    commitAll(root);
     mkdirSync(join(root, "dist"), { recursive: true });
 
     const created = await createPackageCandidate({

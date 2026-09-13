@@ -60,6 +60,17 @@ export interface PackageArchive {
 }
 
 /**
+ * One pack stage's product: the archive filename plus the files it actually
+ * packed (paths relative to the package root, files only, JSON-safe). The
+ * packed-input guard consumes this list, not archive text, so NUL-safe and
+ * newline-containing paths cannot corrupt it.
+ */
+export interface PackedArchive {
+  readonly filename: string;
+  readonly files: readonly string[];
+}
+
+/**
  * One bounded preparation stage's inputs. `deadlineMs` is the remaining share
  * of the caller's single finite preparation budget (stages consume remaining
  * time, never each a fresh full budget); `signal` carries the caller's abort
@@ -76,7 +87,7 @@ export interface PackageArchiveCommands {
   readonly createScriptDisabledArchive: (
     stage: PackageStageContext,
     destination: string,
-  ) => Promise<string>;
+  ) => Promise<PackedArchive>;
 }
 
 export interface PackageArchiveOptions {
@@ -133,11 +144,21 @@ function assertStageExit(commandLabel: string, result: ProcessResult): void {
   throw new PackagePreparationStageError(commandLabel, result);
 }
 
-/** Parse `npm pack --json` output (npm may print notices before the array). */
-export function packedArchiveFilename(packStdout: string): string {
+/**
+ * Parse `npm pack --json` output (npm may print notices before the array):
+ * the packed filename and the files it actually packed (paths relative to the
+ * package root, files only) — the guard's authority on the packed input.
+ */
+export function packedArchiveMetadata(packStdout: string): PackedArchive {
   const output = packStdout.slice(packStdout.indexOf("["));
-  const metadata = JSON.parse(output) as readonly [{ readonly filename: string }];
-  return metadata[0]!.filename;
+  const metadata = JSON.parse(output) as readonly [{
+    readonly filename: string;
+    readonly files?: readonly { readonly path: string }[];
+  }];
+  return {
+    filename: metadata[0]!.filename,
+    files: (metadata[0]!.files ?? []).map((file) => file.path),
+  };
 }
 
 /** Single-homed stage identities: the diagnostic label and the error prefix share them. */
@@ -159,7 +180,7 @@ export const systemPackageArchiveCommands: PackageArchiveCommands = {
       stage.signal,
     );
     assertStageExit(PACK_STAGE_LABEL, result);
-    return packedArchiveFilename(result.stdout);
+    return packedArchiveMetadata(result.stdout);
   },
 };
 

@@ -289,7 +289,7 @@ test("the candidate creation entry creates the record beside the archive from so
         if (!(result.kind === "exit" && result.exitCode === 0)) {
           throw new Error(`fixture pack failed: ${result.kind}`);
         }
-        return "entry.tgz";
+        return { filename: "entry.tgz", files: ["dist/cli.js"] };
       },
     });
     const record = JSON.parse(readFileSync(created.recordPath, "utf8")) as { schema: number };

@@ -65,7 +65,7 @@ function instrumentedCommands(calls: string[]): PackageArchiveCommands {
       if (result.kind !== "exit" || result.exitCode !== 0) {
         throw new Error(`fixture pack failed: ${result.kind}`);
       }
-      return "agent-profile-kit-test.tgz";
+      return { filename: "agent-profile-kit-test.tgz", files: ["dist/cli.js"] };
     },
   };
 }
@@ -192,12 +192,15 @@ describe("package archive consumer seam", () => {
         join(staging, "package", "package.json"),
         JSON.stringify({ name: "agent-profile-kit-scan-fixture", version: "0.0.0-scan" }),
       );
-      const filename = await systemPackageArchiveCommands.createScriptDisabledArchive(
+      const packed = await systemPackageArchiveCommands.createScriptDisabledArchive(
         { repositoryRoot: join(staging, "package"), deadlineMs: 10_000, signal: undefined },
         destination,
       );
-      expect(existsSync(join(destination, filename))).toBe(true);
-      expect(filename.startsWith("agent-profile-kit-scan-fixture-")).toBe(true);
+      expect(existsSync(join(destination, packed.filename))).toBe(true);
+      expect(packed.filename.startsWith("agent-profile-kit-scan-fixture-")).toBe(true);
+      // The system pack reports the files it packed; the guard consumes this
+      // list rather than archive text.
+      expect(packed.files).toContain("package.json");
     } finally {
       rmSync(staging, { recursive: true, force: true });
       rmSync(destination, { recursive: true, force: true });

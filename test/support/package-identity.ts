@@ -2,7 +2,10 @@ import { createHash, type Hash } from "node:crypto";
 import { lstatSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 
-import { runProcess } from "../../process/process-executor.js";
+import {
+  describeProcessResult,
+  runProcess,
+} from "../../process/process-executor.js";
 import type {
   PackageArchiveCommands,
   PackageStageContext,
@@ -106,7 +109,7 @@ async function gitChild(
   );
   if (!(result.kind === "exit" && result.exitCode === 0)) {
     throw new Error(
-      `git ${arguments_.join(" ")} in ${context.repositoryRoot} failed: ${result.kind} exit=${result.exitCode} ${result.stderr.trim()}`,
+      `git ${arguments_.join(" ")} in ${context.repositoryRoot} failed: ${describeProcessResult(result)}`,
     );
   }
   return result.stdout;
@@ -141,18 +144,17 @@ function parseUntrackedPaths(othersListing: string): readonly string[] {
   return othersListing.split("\0").filter((entry) => entry.length > 0);
 }
 
-function foldEntry(hash: Hash, fields: readonly string[]): void {
-  hash.update(fields.join("\0"));
-  hash.update("\0");
-}
-
-/** One worktree file's contributing entry: worktree mode plus content digest. */
+/**
+ * One worktree file's contributing entry: worktree mode plus content digest.
+ * Returns the path so the fingerprint's relevant-path set is collected in the
+ * same single pass that reads each path's bytes once.
+ */
 function worktreeEntry(
   hash: Hash,
   absolutePath: string,
   relativePath: string,
   origin: "tracked" | "untracked",
-): void {
+): string {
   const stats = lstatSync(absolutePath);
   if (stats.isSymbolicLink()) {
     throw new UnsupportedSourceError(
@@ -173,6 +175,7 @@ function worktreeEntry(
       contentDigest,
     ].join("\0") + "\0",
   );
+  return relativePath;
 }
 
 /** One path recorded as consumed in its deleted state. */
@@ -191,7 +194,14 @@ function deletionEntry(hash: Hash, relativePath: string): void {
 export async function captureSourceFingerprint(context: SourceCaptureContext): Promise<SourceFingerprint> {
   assertAbsolute(context.repositoryRoot);
   const [headOutput, indexListing, othersListing] = await Promise.all([
-    gitChild(["rev-parse", "HEAD"], context).catch(() => ""),
+    gitChild(["rev-parse", "HEAD"], context).catch((error: unknown) => {
+      // Only an unborn HEAD (a legitimate repository state) resolves to no
+      // HEAD; every other rev-parse failure fails fast instead of becoming a
+      // silent null provenance.
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/unknown revision|ambiguous argument/.test(message)) throw error;
+      return "";
+    }),
     gitChild(["ls-files", "-s", "-z"], context),
     gitChild(["ls-files", "--others", "--exclude-standard", "-z"], context),
   ]);
@@ -207,45 +217,34 @@ export async function captureSourceFingerprint(context: SourceCaptureContext): P
   }
 
   const hash = createHash("sha256");
-  let entryCount = 0;
+  const relevantPaths: string[] = [];
   for (const entry of indexEntries) {
     const absolutePath = `${context.repositoryRoot}/${entry.path}`;
-    let stats;
+    let present = true;
     try {
-      stats = lstatSync(absolutePath);
-    } catch {
-      stats = undefined;
+      relevantPaths.push(worktreeEntry(hash, absolutePath, entry.path, "tracked"));
+    } catch (error) {
+      if (error instanceof UnsupportedSourceError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      present = false;
     }
-    if (stats === undefined) {
-      deletionEntry(hash, entry.path);
+    if (present) {
+      // Counted only when the worktree holds the file; a tracked deletion
+      // contributes its fold marker but no present-file entry.
     } else {
-      worktreeEntry(hash, absolutePath, entry.path, "tracked");
-      entryCount += 1;
+      deletionEntry(hash, entry.path);
     }
   }
   for (const path of untrackedPaths) {
-    worktreeEntry(hash, `${context.repositoryRoot}/${path}`, path, "untracked");
-    entryCount += 1;
+    relevantPaths.push(worktreeEntry(hash, `${context.repositoryRoot}/${path}`, path, "untracked"));
   }
 
   return {
     repositoryHead: headOutput.length > 0 ? headOutput.trim() : null,
     digest: hash.digest("hex"),
-    relevantPaths: new Set([
-      ...indexEntries.filter((entry) => existsInWorktree(`${context.repositoryRoot}/${entry.path}`)).map((entry) => entry.path),
-      ...untrackedPaths,
-    ]),
-    entryCount,
+    relevantPaths: new Set(relevantPaths),
+    entryCount: relevantPaths.length,
   };
-}
-
-function existsInWorktree(absolutePath: string): boolean {
-  try {
-    lstatSync(absolutePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 /**
  * The record schema version; a reader that meets another schema rejects the
@@ -370,18 +369,6 @@ function assertBudgetRemaining(budget: CreationBudget, stage: string): number {
   return remaining;
 }
 
-function stageContext(
-  context: { readonly repositoryRoot: string; readonly signal: AbortSignal | undefined },
-  budget: CreationBudget,
-  stage: string,
-): PackageStageContext {
-  return {
-    repositoryRoot: context.repositoryRoot,
-    deadlineMs: assertBudgetRemaining(budget, stage),
-    signal: context.signal,
-  };
-}
-
 /** Bounded removal of one path through the shared executor; failures throw. */
 export async function removePathBounded(
   path: string,
@@ -400,28 +387,6 @@ export async function removePathBounded(
   if (!(result.kind === "exit" && result.exitCode === 0)) {
     throw new Error(`bounded path removal of '${path}' failed: ${result.kind} exit=${result.exitCode} ${result.stderr}`);
   }
-}
-
-/** The archive's packed entry list, via one bounded `tar -t` child. */
-async function packedArchiveEntries(archivePath: string, deadlineMs: number, signal: AbortSignal | undefined): Promise<readonly string[]> {
-  const result = await runProcess(
-    {
-      executable: "tar",
-      arguments_: ["-tzf", archivePath],
-      deadlineMs,
-      commandLabel: "packed archive listing",
-    },
-    signal,
-  );
-  if (!(result.kind === "exit" && result.exitCode === 0)) {
-    throw new Error(`listing the packed archive failed: ${result.kind} exit=${result.exitCode} ${result.stderr}`);
-  }
-  return result.stdout
-    .split("\n")
-    .map((entry) => (entry.startsWith("./") ? entry.slice(2) : entry))
-    // Only file entries carry content: directory entries (the bare package
-    // root and intermediate directories) end with '/' or lack it entirely.
-    .filter((entry) => entry.length > 0 && entry.includes("/") && !entry.endsWith("/"));
 }
 
 /**
@@ -445,10 +410,17 @@ export const UNSUPERVISED_CANDIDATE_DEADLINE_MS = 120_000;
  * freshly replace the ignored build output, run the caller's bounded build and
  * pack stages, digest the packed bytes, re-capture the fingerprint (an unequal
  * post-capture means unstable source: no record is written and the candidate
- * is disqualified), guard every packed entry against the fingerprinted
+ * is disqualified), guard every packed file against the fingerprinted
  * membership plus the build-output boundary, then write the record atomically
  * beside the archive. There is no stamping API: nothing blesses an
  * externally given archive; every record is written here, from source.
+ *
+ * Stability limit (articulated, not universal): the two captures are
+ * stability evidence for the preparation window, not an atomic snapshot of a
+ * live tree. A mutation made and fully reverted between the pre- and
+ * post-captures is undetectable, and a torn read inside one capture (a file
+ * edited while its bytes are read) is not eliminated — the record claims the
+ * fingerprint at its boundary, not a point-in-time snapshot.
  */
 export interface CreatedPackageCandidate {
   readonly archivePath: string;
@@ -487,7 +459,7 @@ export async function createPackageCandidate(
   if (preparationAborted(context.signal)) {
     throw new Error("package candidate creation was interrupted during the build stage");
   }
-  const filename = await context.commands.createScriptDisabledArchive(
+  const packed = await context.commands.createScriptDisabledArchive(
     {
       repositoryRoot: context.repositoryRoot,
       deadlineMs: assertBudgetRemaining(budget, "pack"),
@@ -500,7 +472,7 @@ export async function createPackageCandidate(
   }
   // The record travels beside the archive's canonical path, so a consumer
   // resolving the archive through realpath finds the same record.
-  const archivePath = realpathSync(join(context.destinationDirectory, filename));
+  const archivePath = realpathSync(join(context.destinationDirectory, packed.filename));
   const archiveDigest = digestArchiveBytes(archivePath);
   const post = await captureSourceFingerprint({
     repositoryRoot: context.repositoryRoot,
@@ -512,23 +484,19 @@ export async function createPackageCandidate(
       `unstable source: the relevant source changed during package preparation (pre-capture ${pre.digest}, post-capture ${post.digest}); the candidate is disqualified`,
     );
   }
-  // Guard the actual archive content: every packed file must be fingerprinted
+  // Guard the packed input: the pack stage reports the files it packed
+  // (paths relative to the package root, from JSON — never archive text, so
+  // no NUL or newline ambiguity), and every reported file must be fingerprinted
   // membership or fresh build output, so an ignored input cannot enter the
   // candidate silently.
-  const entries = await packedArchiveEntries(
-    archivePath,
-    assertBudgetRemaining(budget, "packed-input guard"),
-    context.signal,
-  );
-  for (const entry of entries) {
-    const separator = entry.indexOf("/");
-    const relative = separator < 0 ? entry : entry.slice(separator + 1);
+  assertBudgetRemaining(budget, "packed-input guard");
+  for (const packedPath of packed.files) {
     if (
-      relative.length === 0 ||
-      !(post.relevantPaths.has(relative) || relative.startsWith(`${PACKAGE_BUILD_OUTPUT_DIRECTORY}/`))
+      packedPath.length === 0 ||
+      !(post.relevantPaths.has(packedPath) || packedPath.startsWith(`${PACKAGE_BUILD_OUTPUT_DIRECTORY}/`))
     ) {
       throw new UnsupportedSourceError(
-        `the packed input '${entry}' is outside the identity boundary (fingerprinted source membership plus the '${PACKAGE_BUILD_OUTPUT_DIRECTORY}' build output); the candidate is disqualified`,
+        `the packed input '${packedPath}' is outside the identity boundary (fingerprinted source membership plus the '${PACKAGE_BUILD_OUTPUT_DIRECTORY}' build output); the candidate is disqualified`,
       );
     }
   }

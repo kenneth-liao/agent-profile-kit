@@ -1187,10 +1187,7 @@ export async function runSupervisedSuite(
       // A malformed or invalid supplied archive is a preparation failure with
       // retained diagnostics; the channel is never created and no consumer
       // can hang or qualify.
-      const reason =
-        error instanceof InvalidProvenanceError || error instanceof UnsupportedSourceError || error instanceof UnstableSourceError
-          ? error.message
-          : error instanceof Error ? error.message : String(error);
+      const reason = error instanceof Error ? error.message : String(error);
       const evidence: PreparationEvidence = {
         status: "failed",
         requests: 0,
