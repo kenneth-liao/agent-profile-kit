@@ -108,13 +108,15 @@ function parseTag(tagSource: string): { readonly open: boolean; readonly close: 
 
 function attributeNumber(attributes: Map<string, string>, name: string, where: string): number {
   const raw = attributes.get(name);
-  if (raw === undefined) {
-    throw new Error(`bun junit evidence: testsuite element is missing the '${name}' attribute ${where}`);
+  // The evidence gate reads these counts, so a non-integer form must fail
+  // closed: Number('') is 0 (which would fail-open the skip gate) and Number
+  // accepts '1e2' and '1.0'. Only pure decimal digits are integer evidence.
+  if (raw === undefined || !/^\d+$/.test(raw)) {
+    throw new Error(
+      `bun junit evidence: testsuite '${name}' must be a non-negative decimal integer, got '${raw ?? "missing attribute"}' ${where}`,
+    );
   }
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < 0) {
-    throw new Error(`bun junit evidence: testsuite '${name}' must be a non-negative integer, got '${raw}' ${where}`);
-  }
+  const value = Number.parseInt(raw, 10);
   return value;
 }
 
@@ -180,15 +182,17 @@ export function parseBunJunitEvidence(xml: string): BunJunitEvidence {
         // describe blocks as further testsuite elements whose counts are
         // subsets of their parent file's suite, so counting them would
         // double-count executed and skipped tests.
+        // `file` is already entity-decoded by parseAttributes; decoding it
+        // again is not idempotent (`&amp;lt;` would become `<`).
         const file = tag.attributes.get("file");
         if (file === undefined) {
           throw new Error("bun junit evidence: testsuite element is missing the 'file' attribute");
         }
         suites.push({
-          file: decodeXmlEntities(file),
-          tests: attributeNumber(tag.attributes, "tests", `for '${decodeXmlEntities(file)}'`),
-          failures: attributeNumber(tag.attributes, "failures", `for '${decodeXmlEntities(file)}'`),
-          skipped: attributeNumber(tag.attributes, "skipped", `for '${decodeXmlEntities(file)}'`),
+          file,
+          tests: attributeNumber(tag.attributes, "tests", `for '${file}'`),
+          failures: attributeNumber(tag.attributes, "failures", `for '${file}'`),
+          skipped: attributeNumber(tag.attributes, "skipped", `for '${file}'`),
         });
       }
       if (!tag.selfClosing) {

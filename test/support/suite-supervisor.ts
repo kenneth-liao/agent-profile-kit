@@ -727,6 +727,13 @@ export async function runSupervisedSuite(
     // planned path first makes a green run that fails to write evidence fail
     // closed instead of parsing stale files as executed coverage.
     rmSync(junitPath, { force: true });
+    // The structured-evidence reporter is part of the canonical selection
+    // contract: an injected test-seam command manages its own output, so it
+    // receives no reporter arguments.
+    const reporterArguments =
+      invocation.plan === null
+        ? []
+        : ["--reporter=junit", `--reporter-outfile=${junitPath}`];
     const result = await runProcess(
       {
         executable: suiteCommand[0],
@@ -734,8 +741,7 @@ export async function runSupervisedSuite(
           ...suiteCommand.slice(1),
           "--timeout",
           String(PER_TEST_TIMEOUT_MS),
-          "--reporter=junit",
-          `--reporter-outfile=${junitPath}`,
+          ...reporterArguments,
           ...(mode === "focused"
             ? (options.bunArguments ?? [])
             : (invocation.plan?.selected ?? [])),

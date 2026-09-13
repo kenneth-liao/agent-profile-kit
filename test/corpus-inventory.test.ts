@@ -1,9 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { enumerateTestCorpus, TEST_CORPUS_ROOT } from "./support/corpus-inventory.js";
+import { parseBunJunitEvidence } from "./support/junit-evidence.js";
 
 /**
  * The repository test-corpus policy is anchored at the existing test root:
@@ -123,7 +124,7 @@ describe("corpus inventory: agreement with the real runner", () => {
       const discovered = await import("../process/process-executor.js").then(({ runProcess }) =>
         runProcess({
           executable: process.execPath,
-          arguments_: ["test"],
+          arguments_: ["test", "--reporter=junit", `--reporter-outfile=${join(base, "discovery.junit.xml")}`],
           cwd: base,
           deadlineMs: 120_000,
           commandLabel: "corpus conformance discovery",
@@ -133,10 +134,16 @@ describe("corpus inventory: agreement with the real runner", () => {
       if (discovered.kind !== "exit" || discovered.exitCode !== 0) {
         throw new Error(`bun discovery run failed: ${discovered.kind}`);
       }
-      const summary = /Ran (\d+) tests across (\d+) files\./.exec(
-        `${discovered.stdout}\n${discovered.stderr}`,
+      // Set equality against the runner's own structured discovery output,
+      // not a count: a suffix swap with equal cardinality must fail.
+      const evidence = parseBunJunitEvidence(
+        readFileSync(join(base, "discovery.junit.xml"), "utf8"),
       );
-      expect(summary?.[2]).toBe(String(selected.length));
+      const discoveredFiles = new Set(evidence.suites.map((suite) => suite.file));
+      expect(discoveredFiles.size).toBe(selected.length);
+      for (const path of selected) {
+        expect(discoveredFiles, path).toContain(path);
+      }
     } finally {
       rmSync(base, { recursive: true, force: true });
     }

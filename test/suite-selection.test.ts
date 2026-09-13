@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   assertRunnerIsPinnedBun,
   junitEvidencePath,
+  pinnedBunVersion,
   runSupervisedSuite,
 } from "./support/suite-supervisor.js";
 import { TEST_CORPUS_ROOT } from "./support/corpus-inventory.js";
@@ -16,6 +17,11 @@ import { TEST_CORPUS_ROOT } from "./support/corpus-inventory.js";
  * executable) over a tiny isolated corpus, asserting behavior through
  * side-effect markers, the structured junit execution evidence, and the
  * retained run log — never by inspecting the constructed argv or source text.
+ * The runner-identity section is the one exception to "real executable": the
+ * gate is exercised on the real supervisor seam with the real pin, and the
+ * only simulated input is the running-version identity read (no machine can
+ * vary it without installing another Bun); its proofs are kept in one
+ * describe block so the claim's scope is explicit.
  */
 
 const FLEET = "test/fleet-qualification.test.ts";
@@ -234,6 +240,28 @@ describe("suite selection: full mode through the real supervisor and selected Bu
     writeFileSync(join(base, "bunfig.toml"), "[test]\nroot = \"elsewhere\"\n");
     try {
       await expect(runFullCorpus(base)).rejects.toThrow(/bunfig\.toml.*\[test\]/);
+      // Rejection happens before any run: the diagnostics directory never
+      // comes to exist.
+      expect(existsSync(join(base, "logs"))).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an unparseable bunfig.toml because unknown configuration is never trusted", async () => {
+    const base = mkdtempSync(join(tmpdir(), "apkit-selection-"));
+    const testRoot = join(base, TEST_CORPUS_ROOT);
+    mkdirSync(testRoot);
+    writeFileSync(
+      join(testRoot, "a.test.ts"),
+      'import { test } from "bun:test";\ntest("a", () => {});\n',
+    );
+    // A bunfig whose test policy cannot be read cannot be proven harmless:
+    // swallowing the parse error would treat garbage as "no [test] section".
+    writeFileSync(join(base, "bunfig.toml"), "not toml [\nroot = \"unclosed\n");
+    try {
+      await expect(runFullCorpus(base)).rejects.toThrow(/does not parse as TOML/);
+      expect(existsSync(join(base, "logs"))).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
@@ -439,9 +467,55 @@ describe("suite selection: focused mode evidence", () => {
 });
 
 describe("runner identity: the pinned Bun version", () => {
-  test("rejects an unpinned runner identity before it can produce a misleading pass", () => {
-    expect(() => assertRunnerIsPinnedBun("1.4.0", "1.2.17")).toThrow(/pinned Bun 1\.4\.0/);
-    expect(() => assertRunnerIsPinnedBun("1.4.0", undefined)).toThrow(/pinned Bun 1\.4\.0/);
-    expect(() => assertRunnerIsPinnedBun("1.4.0", "1.4.0")).not.toThrow();
+  /**
+   * What each proof carries — stated honestly, no fabricated runner: (1) the
+   * invocation gate is exercised on the real supervisor seam
+   * (`prepareSuiteInvocation`, which every canonical invocation passes
+   * through) with the real pin read from the real package.json; the only
+   * simulated input is the running-version identity read, which no machine
+   * can vary without installing another Bun. (2) Real supervised runs record
+   * the canonical pinned identity in the retained run log. (3) The identity
+   * boundary itself rejects from the canonical pin, never a literal.
+   */
+  test("the supervisor's invocation gate rejects a runner identity that is not the canonical pin", async () => {
+    const base = corpusFixture((base) => [runnerHelper(base), includedFile(base), fleetFile(base)]);
+    try {
+      const pinned = pinnedBunVersion();
+      const realVersion = process.versions.bun;
+      expect(realVersion).toBe(pinned);
+      try {
+        process.versions.bun = "1.2.17";
+        await expect(runFullCorpus(base)).rejects.toThrow(`pinned Bun ${pinned}`);
+        // Rejection happens before any run: the diagnostics directory never
+        // comes to exist and no evidence is written.
+        expect(existsSync(join(base, "logs"))).toBe(false);
+      } finally {
+        process.versions.bun = realVersion;
+      }
+      // The real, pinned runner passes the same gate and qualifies.
+      const result = await runFullCorpus(base);
+      expect(result.ok).toBe(true);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("a real supervised run records the canonical pinned identity in its log", async () => {
+    const base = corpusFixture((base) => [runnerHelper(base), includedFile(base), fleetFile(base)]);
+    try {
+      const result = await runFullCorpus(base);
+      expect(result.ok).toBe(true);
+      const log = readFileSync(result.runs[0]!.logPath, "utf8");
+      expect(log).toContain(`runtime: bun ${pinnedBunVersion()} (`);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("the identity boundary rejects from the canonical pin, never a literal", () => {
+    const pinned = pinnedBunVersion();
+    expect(() => assertRunnerIsPinnedBun(pinned, "1.2.17")).toThrow(`pinned Bun ${pinned}`);
+    expect(() => assertRunnerIsPinnedBun(pinned, undefined)).toThrow(`pinned Bun ${pinned}`);
+    expect(() => assertRunnerIsPinnedBun(pinned, pinned)).not.toThrow();
   });
 });

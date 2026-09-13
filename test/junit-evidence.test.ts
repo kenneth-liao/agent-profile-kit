@@ -43,7 +43,7 @@ describe("bun junit evidence: extraction", () => {
     expect(evidence.suites[1]?.file).toBe("test/b.test.ts");
   });
 
-  test("decodes standard and numeric character references in attributes", () => {
+  test("decodes standard and numeric character references in attributes exactly once", () => {
     const document = bunDocument(
       [
         `  <testsuite name="q&quot;&amp;&lt;&gt;&apos;" file="test/&#65;.test.ts" tests="1" failures="0" skipped="0" time="0.0" hostname="x">`,
@@ -54,6 +54,17 @@ describe("bun junit evidence: extraction", () => {
     const evidence = parseBunJunitEvidence(document);
     expect(evidence.suites[0]?.file).toBe("test/A.test.ts");
     expect(evidence.suites[0]?.tests).toBe(1);
+    // An attribute that encodes an ampersand (`&amp;lt;` is the escaped form
+    // of the literal text `&lt;`) must decode once, not twice: the escaped
+    // file name contains `&lt;`, not `<`.
+    const escaped = bunDocument(
+      `  <testsuite name="x" file="test/&amp;lt;name.test.ts" tests="1" failures="0" skipped="0" time="0.0" hostname="x"></testsuite>`,
+    );
+    expect(parseBunJunitEvidence(escaped).suites[0]?.file).toBe("test/&lt;name.test.ts");
+    const ampersand = bunDocument(
+      `  <testsuite name="x" file="test/a&amp;b.test.ts" tests="1" failures="0" skipped="0" time="0.0" hostname="x"></testsuite>`,
+    );
+    expect(parseBunJunitEvidence(ampersand).suites[0]?.file).toBe("test/a&b.test.ts");
   });
 
   test("counts only root-level suites when describe blocks nest further testsuite elements", () => {
@@ -138,9 +149,28 @@ describe("bun junit evidence: fail closed", () => {
   });
 
   test("rejects non-integer evidence counts", () => {
-    const malformed = bunDocument(
-      `  <testsuite name="a.test.ts" file="test/a.test.ts" tests="1.5" failures="0" skipped="0" time="0.0" hostname="x"></testsuite>`,
-    );
-    expect(() => parseBunJunitEvidence(malformed)).toThrow(/tests/);
+    const suite = (overrides: string): string =>
+      bunDocument(
+        `  <testsuite name="a.test.ts" file="test/a.test.ts" tests="1" failures="0" skipped="0" time="0.0" hostname="x">${""}</testsuite>`.replace(
+          'tests="1" failures="0" skipped="0"',
+          overrides,
+        ),
+      );
+    for (const [attributes, attribute] of [
+      [`tests="" failures="0" skipped="0"`, "tests"],
+      [`tests="1.5" failures="0" skipped="0"`, "tests"],
+      [`tests="1.0" failures="0" skipped="0"`, "tests"],
+      [`tests="1e2" failures="0" skipped="0"`, "tests"],
+      [`tests="+1" failures="0" skipped="0"`, "tests"],
+      [`tests="1" failures="" skipped="0"`, "failures"],
+      [`tests="1" failures="1e2" skipped="0"`, "failures"],
+      [`tests="1" failures="0" skipped=""`, "skipped"],
+      [`tests="1" failures="0" skipped="1.0"`, "skipped"],
+      [`tests="1" failures="0" skipped="1e2"`, "skipped"],
+    ] as const) {
+      expect(() => parseBunJunitEvidence(suite(attributes)), attributes).toThrow(
+        new RegExp(attribute),
+      );
+    }
   });
 });
