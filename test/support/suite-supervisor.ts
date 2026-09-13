@@ -177,6 +177,13 @@ export interface SuiteSupervisorOptions {
    * invocations always run the system build and pack stages.
    */
   readonly packageCommands?: PackageArchiveCommands;
+  /**
+   * Test seam: replace the admitted-identity pinning step. Canonical
+   * invocations always pin through `pinValidatedSuppliedCandidate`.
+   */
+  readonly pinSuppliedCandidate?: (
+    ...args: Parameters<typeof pinValidatedSuppliedCandidate>
+  ) => ReturnType<typeof pinValidatedSuppliedCandidate> | Promise<ReturnType<typeof pinValidatedSuppliedCandidate>>;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -1107,6 +1114,8 @@ function writePreparationLog(logDir: string, evidence: PreparationEvidence): str
     `childCleanupDurationMs: ${evidence.childCleanupDurationMs ?? "null"}`,
     `failure: ${evidence.failure ?? "null"}`,
     ...(evidence.diagnostics === undefined ? [] : ["--- stage output ---", evidence.diagnostics]),
+    ...(evidence.cleanupFailure === undefined ? [] : ["--- cleanup failure ---", evidence.cleanupFailure]),
+    ...(evidence.candidateDirectory === undefined ? [] : [`candidateDirectory: ${evidence.candidateDirectory}`]),
   ];
   writeFileSync(logPath, lines.join("\n") + "\n", { mode: 0o600 });
   return logPath;
@@ -1170,8 +1179,6 @@ export async function runSupervisedSuite(
   let suppliedArchivePath: string | undefined;
   let pinnedDirectory: string | null = null;
   let suppliedDurationMs = 0;
-  let cleanupFailedInline = false;
-  let cleanupFailureInline: string | undefined;
   const validationStartedAt = Date.now();
   if (ambient !== undefined) {
     try {
@@ -1210,22 +1217,44 @@ export async function runSupervisedSuite(
       // never change what any consumer executes. The external originals stay
       // untouched; the pinned directory joins the invocation's owned cleanup.
       pinnedDirectory = mkdtempSync(join(tmpdir(), "agent-profile-kit-supplied-pinned-"));
-      const pinned = pinValidatedSuppliedCandidate(validated, pinnedDirectory);
+      const pinned = await (options.pinSuppliedCandidate ?? pinValidatedSuppliedCandidate)(validated, pinnedDirectory);
       suppliedArchivePath = pinned.archivePath;
       suppliedDurationMs = Date.now() - validationStartedAt;
+      if (mode !== "stress" && Date.now() - startedAt >= perRun) {
+        // Admission consumed the whole per-run budget: no run can start
+        // inside the policy, so this is a failed admission with zero runs —
+        // never a run granted time the budget no longer holds.
+        throw new Error(
+          `the invocation budget is exhausted after supplied provenance validation (per-run ${perRun}ms)`,
+        );
+      }
     } catch (error) {
       // A pin failure leaves an invocation-owned directory behind: the early
       // return cannot reach the invocation's finally, so this path removes it
-      // boundedly and reports any cleanup failure in the evidence.
+      // boundedly and retains the owning outcome — truthful duration, cause,
+      // and the owned path (which is NOT cleared when the removal fails).
+      let pinCleanupDurationMs = 0;
+      let pinCleanupFailed = false;
+      let pinCleanupFailure: string | undefined;
       if (pinnedDirectory !== null) {
         const pinCleanupStartedAt = Date.now();
         try {
           await removePathBounded(pinnedDirectory, Math.max(TEST_CHILD_DEADLINE_MS, perRun), undefined);
+          pinnedDirectory = null;
         } catch (cleanupError) {
-          cleanupFailedInline = true;
-          cleanupFailureInline = String(cleanupError);
+          pinCleanupFailed = true;
+          pinCleanupDurationMs = Date.now() - pinCleanupStartedAt;
+          const typedCleanup = cleanupError instanceof PackagePreparationStageError ? cleanupError : undefined;
+          pinCleanupFailure = [
+            `owned pin directory '${pinnedDirectory}' could not be removed`,
+            typedCleanup !== undefined
+              ? describeProcessResult(typedCleanup.result)
+              : cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          ].join(" — ")
+            + (typedCleanup === undefined
+              ? ""
+              : `\n--- cleanup stdout ---\n${typedCleanup.result.stdout}\n--- cleanup stderr ---\n${typedCleanup.result.stderr}`);
         }
-        pinnedDirectory = null;
       }
       const interrupted = abortSignal?.aborted === true;
       // A rejected supplied archive, an aborted validation, or a failed pin
@@ -1237,13 +1266,18 @@ export async function runSupervisedSuite(
       const prefix = interrupted
         ? "supplied provenance validation interrupted"
         : "supplied package archive rejected";
+      const admissionFailure = pinCleanupFailure === undefined
+        ? reason
+        : `${reason}; ${pinCleanupFailure.split("\n")[0]}`;
       const evidence: PreparationEvidence = {
         status: interrupted ? "interrupted" : "failed",
         requests: 0,
         durationMs: Date.now() - validationStartedAt,
-        cleanupDurationMs: 0,
-        cleanupFailed: cleanupFailedInline,
-        ...(cleanupFailureInline === undefined ? {} : { cleanupFailure: cleanupFailureInline }),
+        cleanupDurationMs: pinCleanupDurationMs,
+        cleanupFailed: pinCleanupFailed,
+        ...(pinCleanupFailure === undefined ? {} : { cleanupFailure: pinCleanupFailure }),
+        // A failed removal keeps the owned path visible in the evidence.
+        ...(pinCleanupFailed && pinnedDirectory !== null ? { candidateDirectory: pinnedDirectory } : {}),
         ...(stageError === undefined
           ? {}
           : {
@@ -1258,7 +1292,7 @@ export async function runSupervisedSuite(
                 stageError.result.stderr,
               ].join("\n"),
             }),
-        failure: `${prefix}${prefix.endsWith("interrupted") ? " " : ": "}${reason}`,
+        failure: `${prefix}${prefix.endsWith("interrupted") ? " " : ": "}${admissionFailure}`,
       };
       writePreparationLog(logDir, evidence);
       return {
@@ -1312,6 +1346,14 @@ export async function runSupervisedSuite(
         break;
       }
       let runDeadline = perRun;
+      if (mode !== "stress" && runs.length === 0) {
+        // The invocation clock covers admission: the single full/focused run
+        // receives the per-run budget minus time already spent (supplied
+        // validation and pinning), so a child can never overrun the policy it
+        // was admitted under. Stress runs already share the remaining
+        // aggregate budget below.
+        runDeadline = perRun - (Date.now() - startedAt);
+      }
       let aggregateLimitedRun = false;
       if (mode === "stress") {
         const remainingAggregate = aggregate - (Date.now() - startedAt);

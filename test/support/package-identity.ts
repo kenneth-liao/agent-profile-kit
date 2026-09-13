@@ -210,18 +210,33 @@ function deletionEntry(hash: Hash, relativePath: string): void {
  */
 export async function captureSourceFingerprint(context: SourceCaptureContext): Promise<SourceFingerprint> {
   assertAbsolute(context.repositoryRoot);
-  const [headOutput, indexListing, othersListing] = await Promise.all([
-    gitChild(["rev-parse", "HEAD"], context).catch((error: unknown) => {
-      // Only an unborn HEAD (a legitimate repository state) resolves to no
-      // HEAD; every other rev-parse failure fails fast instead of becoming a
-      // silent null provenance.
-      const message = error instanceof Error ? error.message : String(error);
-      if (!/unknown revision|ambiguous argument/.test(message)) throw error;
-      return "";
-    }),
-    gitChild(["ls-files", "-s", "-z"], context),
-    gitChild(["ls-files", "--others", "--exclude-standard", "-z"], context),
-  ]);
+  // One bounded capture budget shared by three sequential Git children: each
+  // stage consumes the remaining time, and the capture returns only after the
+  // launched child settled — no sibling is left active behind a short-circuit.
+  const captureStartedAt = Date.now();
+  const remainingCaptureMs = (stage: string): SourceCaptureContext => {
+    const remaining = context.deadlineMs - (Date.now() - captureStartedAt);
+    if (remaining <= 0) {
+      throw new Error(
+        `the source capture budget (${context.deadlineMs}ms) is exhausted before the ${stage}`,
+      );
+    }
+    return { ...context, deadlineMs: remaining };
+  };
+  const headChild = gitChild(["rev-parse", "HEAD"], remainingCaptureMs("HEAD probe")).catch((error: unknown) => {
+    // Only an unborn HEAD (a legitimate repository state) resolves to no
+    // HEAD; every other rev-parse failure fails fast instead of becoming a
+    // silent null provenance.
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/unknown revision|ambiguous argument/.test(message)) throw error;
+    return "";
+  });
+  const headOutput = await headChild;
+  const indexListing = await gitChild(["ls-files", "-s", "-z"], remainingCaptureMs("index listing"));
+  const othersListing = await gitChild(
+    ["ls-files", "--others", "--exclude-standard", "-z"],
+    remainingCaptureMs("untracked listing"),
+  );
 
   const indexEntries = parseIndexEntries(indexListing);
   const untrackedPaths = parseUntrackedPaths(othersListing);

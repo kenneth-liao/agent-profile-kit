@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -17,7 +17,13 @@ import {
   PACKAGE_REQUEST_CHANNEL_ENV,
   PACKAGE_REQUEST_WAIT_ENV,
 } from "./support/package-request-channel.js";
-import { digestBytes } from "./support/package-identity.js";
+import {
+  captureSourceFingerprint,
+  createPackageCandidate,
+  digestBytes,
+  packageIdentityRecordPath,
+  type PackageIdentityRecord,
+} from "./support/package-identity.js";
 import {
   PREPARATION_LOG_FILENAME,
   formatSuiteSummary,
@@ -996,11 +1002,6 @@ test("fleet cleanup failure propagates", async () => {
  * candidate is created through the same from-source creator.
  */
 
-import {
-  createPackageCandidate,
-  packageIdentityRecordPath,
-  type PackageIdentityRecord,
-} from "./support/package-identity.js";
 
 /** Creator commands for the supplied-identity fixtures: one real tarball. */
 function suppliedCreatorCommands(root: string, marker: string): PackageArchiveCommands {
@@ -1380,3 +1381,195 @@ describe("supplied validation lifecycle", () => {
     expect(recovered).toBe(true);
   });
 });
+
+/**
+ * Re-review regressions (independent review at 6dd95f1): admission work is
+ * deducted from the first run's budget, Git captures settle sequentially
+ * through one shared deadline, and a failed partial-pin cleanup retains its
+ * owned path, cause, and duration in the zero-run evidence.
+ */
+
+describe("admission budget accounting", () => {
+  test("admission duration is deducted from the first run's budget", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test } from "bun:test";
+test("consumer A executes the invocation candidate", async () => {
+  await new Promise((resolve) => setTimeout(resolve, 1400));
+});
+` }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    // Every admission Git child sleeps 300ms: three sequential captures make
+    // admission cost ~900ms of the 2000ms policy. The 1400ms child completes
+    // inside a fresh perRun budget but outside the remaining share after
+    // admission — with the deduction the run is bounded and incomplete,
+    // without it the invocation overruns the policy and reports success.
+    // (The run's recorded duration includes the executor's kill grace after
+    // the deadline fires, so the bound is asserted against perRun, not
+    // against the deducted share.)
+    const shim = tempDir("apkit-admission-shim-");
+    const realGit = execFileSync("which", ["git"], { encoding: "utf8" }).trim();
+    writeFileSync(join(shim, "git"), `#!/bin/sh\nsleep 0.3\nexec ${JSON.stringify(realGit)} "$@"\n`);
+    chmodSync(join(shim, "git"), 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      await withSuppliedArchive(created.archivePath, async () => {
+        const result = await runFullCorpus(base, { perRunDeadlineMs: 2000 });
+        expect(result.ok).toBe(false);
+        expect(result.attemptedRuns).toBe(1);
+        expect(result.runs[0]!.result.kind).toBe("timeout");
+        expect(result.runs[0]!.result.durationMs).toBeLessThan(2000);
+        expect(result.preparation.durationMs).toBeGreaterThan(0);
+      });
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 30_000);
+
+  test("an invocation budget exhausted before validation fails the gate with zero runs", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    await withSuppliedArchive(created.archivePath, async () => {
+      const result = await runFullCorpus(base, { perRunDeadlineMs: 5 });
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(0);
+      expect(result.preparation.status).toBe("failed");
+      const evidence = `${result.preparation.failure ?? ""} ${result.preparation.diagnostics ?? ""}`;
+      expect(evidence).toMatch(/exhausted|source capture/);
+    });
+  }, 20_000);
+});
+
+describe("sequential bounded source capture", () => {
+  function gitShim(
+    directory: string,
+    realGit: string,
+    mode: "all" | "fail-second",
+  ): string {
+    mkdirSync(directory, { recursive: true });
+    const script = mode === "all"
+      ? `#!/bin/sh\nprintf 'x\\n' >> "${join(directory, "count")}"\nsleep 0.3\nexec ${JSON.stringify(realGit)} "$@"\n`
+      : `#!/bin/sh\nprintf '%s\\n' "$$" >> "${join(directory, "count")}"\nif [ -f "${join(directory, "second")}" ]; then\n  sleep 0.4\n  echo INJECTED-GIT-FAILURE >&2\n  exit 1\nfi\ntouch "${join(directory, "second")}"\nexec ${JSON.stringify(realGit)} "$@"\n`;
+    writeFileSync(join(directory, "git"), script);
+    chmodSync(join(directory, "git"), 0o755);
+    return directory;
+  }
+
+  test("capture children run sequentially inside one shared deadline and all settle before return", async () => {
+    const root = fixtureCorpus([]);
+    const shim = gitShim(tempDir("apkit-identity-shim-"), execFileSync("which", ["git"], { encoding: "utf8" }).trim(), "all");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const startedAt = Date.now();
+      const capture = await captureSourceFingerprint({ repositoryRoot: root, deadlineMs: 30_000, signal: undefined });
+      const elapsed = Date.now() - startedAt;
+      // One child at a time: three sequential Git children each slept 300ms.
+      expect(readdirSync(shim).filter((entry) => entry === "count").length).toBe(1);
+      expect(readFileSync(join(shim, "count"), "utf8").split("\n").filter((line) => line.length > 0)).toHaveLength(3);
+      expect(capture.entryCount).toBeGreaterThan(0);
+      expect(elapsed).toBeGreaterThanOrEqual(900);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 20_000);
+
+  test("a failing capture child settles before the capture returns and later children never start", async () => {
+    const root = fixtureCorpus([]);
+    const shim = gitShim(tempDir("apkit-identity-shim-"), execFileSync("which", ["git"], { encoding: "utf8" }).trim(), "fail-second");
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    try {
+      const startedAt = Date.now();
+      await expect(
+        captureSourceFingerprint({ repositoryRoot: root, deadlineMs: 30_000, signal: undefined }),
+      ).rejects.toThrow(/source capture failed/);
+      // The capture returned only after the failing child settled.
+      expect(Date.now() - startedAt).toBeGreaterThanOrEqual(400);
+      // The third child never started.
+      const count = readFileSync(join(shim, "count"), "utf8").split("\n").filter((line) => line.length > 0);
+      expect(count).toHaveLength(2);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 20_000);
+});
+
+describe("partial-pin cleanup evidence", () => {
+  test("a failed pin retains the owned path, cause, and cleanup duration in zero-run evidence", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
+    const suppliedRoot = tempDir("apkit-supplied-");
+    const created = await createPackageCandidate({
+      repositoryRoot: base,
+      destinationDirectory: suppliedRoot,
+      deadlineMs: 30_000,
+      signal: undefined,
+      commands: suppliedCreatorCommands(base, "CANDIDATE-CLI-MARKER-supplied"),
+    });
+    const pinCalls: string[] = [];
+    // A controlled removal command fails the owned pin-directory cleanup.
+    const shim = tempDir("apkit-pin-rm-shim-");
+    mkdirSync(shim, { recursive: true });
+    writeFileSync(join(shim, "rm"), "#!/bin/sh\necho INJECTED-CLEANUP-FAILURE >&2\nexit 7\n");
+    execFileSync("chmod", ["+x", join(shim, "rm")]);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${shim}:${previousPath}`;
+    let leftover = "";
+    try {
+      let result: SuiteSupervisorResult | undefined;
+      await withSuppliedArchive(created.archivePath, async () => {
+        result = await runFullCorpus(base, {
+          packageCommands: realCandidateCommands("never", pinCalls),
+          pinSuppliedCandidate: async () => {
+            throw new Error("INJECTED-PIN-WRITE-FAILURE");
+          },
+        });
+      });
+      const completed = result!;
+      expect(completed.ok).toBe(false);
+      expect(completed.attemptedRuns).toBe(0);
+      // The cleanup outcome is owning evidence, not defaults: truthful
+      // duration, failure flag, cause, and the retained owned path.
+      expect(completed.preparation.cleanupFailed).toBe(true);
+      expect(completed.preparation.cleanupDurationMs).toBeGreaterThan(0);
+      expect(completed.preparation.cleanupFailure).toContain("INJECTED-CLEANUP-FAILURE");
+      expect(completed.preparation.cleanupFailure).toContain("agent-profile-kit-supplied-pinned-");
+      // The zero-run summary and the retained preparation log carry the
+      // cleanup cause and path, not only the original pin error.
+      const summary = formatSuiteSummary(completed, null);
+      expect(summary).toContain("INJECTED-PIN-WRITE-FAILURE");
+      expect(summary).toContain("INJECTED-CLEANUP-FAILURE");
+      const log = readFileSync(join(completed.logDir, PREPARATION_LOG_FILENAME), "utf8");
+      expect(log).toContain("cleanupFailed: true");
+      expect(log).toContain("INJECTED-CLEANUP-FAILURE");
+      const pathMatch = log.match(/owned pin directory '([^']+)'/);
+      expect(pathMatch).not.toBeNull();
+      leftover = pathMatch![1]!;
+      // Ownership is not cleared on failed removal: the path stays retained.
+      expect(existsSync(leftover)).toBe(true);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      // The probe-owned leftover is removed after inspection.
+      if (leftover !== "") rmSync(leftover, { recursive: true, force: true });
+    }
+  }, 20_000);
+});
+
