@@ -155,9 +155,14 @@ export function packedArchiveMetadata(packStdout: string): PackedArchive {
     readonly filename: string;
     readonly files?: readonly { readonly path: string }[];
   }];
+  if (metadata[0]!.files === undefined) {
+    throw new Error(
+      "npm pack reported no file list; the packed-input guard requires it, so the pack stage fails closed instead of guarding nothing",
+    );
+  }
   return {
     filename: metadata[0]!.filename,
-    files: (metadata[0]!.files ?? []).map((file) => file.path),
+    files: metadata[0]!.files.map((file) => file.path),
   };
 }
 
