@@ -149,7 +149,7 @@ describe("interactive uninstall under a real PTY", () => {
 
   test("Ctrl-C during picking cancels with zero lifecycle changes", async () => {
     const { home, first, second } = await setupInstalledPair();
-    const session = await startPtySession(["uninstall", home], 80);
+    const session = await startPtySession(["uninstall", home], 80, { expectedExitCode: 1 });
     temporaryDirectories.push(session.runDirectory);
     try {
       await session.waitForTranscript("Which Projects");

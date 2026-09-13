@@ -74,8 +74,8 @@ export interface PtySession {
    * here: a `cleanupFailed` result, a controller failure, a watchdog firing,
    * or any non-natural-exit outcome throws with the retained diagnostics —
    * a failed teardown can never pass qualification (#542 review,
-   * INT-BOUNDARY-1). The child's own nonzero exit is not a teardown failure;
-   * the result is returned so tests can assert propagation.
+   * INT-BOUNDARY-1). Exit 0 is required unless the caller explicitly declares
+   * another expected child exit at session creation.
    */
   close(): Promise<InteractiveProcessResult>;
   /**
@@ -97,6 +97,8 @@ export interface PtySession {
 const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
 
 export interface PtySessionOptions {
+  /** Natural child outcome required by close (for example 1 for Ctrl-C). */
+  readonly expectedExitCode?: number;
   /** Watchdog for the owned PTY child, in milliseconds. Defaults to the
    * canonical per-test policy; normalized to whole controller seconds once,
    * at this boundary. */
@@ -194,6 +196,11 @@ export async function startPtySession(
       // A watchdog firing under polite close is an unintended bounded-child
       // outcome; the evidence marker makes it unambiguous.
       throw teardownContractError(result, transcript, "no watchdog firing");
+    }
+    const expectedExitCode = options.expectedExitCode ?? 0;
+    if (result.exitCode !== expectedExitCode
+      || !transcript.endsWith(`PTY-CONTROLLER-EXIT status=${expectedExitCode} signals=0\n`)) {
+      throw teardownContractError(result, transcript, `completed child exit ${expectedExitCode}`);
     }
     return result;
   };

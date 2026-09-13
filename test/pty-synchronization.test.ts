@@ -21,6 +21,8 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { runProcess, expectExitCode } from "../process/process-executor.js";
+
 import { startPtySession } from "./support/pty-session.js";
 
 const temporaryDirectories: string[] = [];
@@ -95,6 +97,31 @@ describe("observable PTY synchronization (#542)", () => {
 });
 
 describe("owned-child lifecycle contract (#542 review)", () => {
+  test("SIGTERM between kernel reap and ownership publication never signals the reaped PID", async () => {
+    const { pidFile } = fixturePaths();
+    const result = await runProcess({
+      executable: "python3",
+      arguments_: [join(import.meta.dir, "support/pty-controller-syscall-probe.py"),
+        join(import.meta.dir, "support/pty-controller.py"), pidFile],
+      deadlineMs: 2000,
+      commandLabel: "PTY injected syscall ownership proof",
+    });
+    expectExitCode(result, 0);
+  });
+
+  test("reaping between PTY chunks still drains the final buffered output", async () => {
+    const { pidFile } = fixturePaths();
+    const result = await runProcess({
+      executable: "python3",
+      arguments_: [join(import.meta.dir, "support/pty-controller-drain-probe.py"),
+        join(import.meta.dir, "support/pty-controller.py"), pidFile],
+      deadlineMs: 2000,
+      commandLabel: "PTY injected buffered-output proof",
+    });
+    expectExitCode(result, 0);
+    expect(readFileSync(pidFile, "utf8")).toContain("first chunk\nFINAL buffered chunk\n");
+  });
+
   test("a natural child exit propagates its status with no post-reap signal", async () => {
     const { releaseFile, pidFile } = fixturePaths();
     const session = await startPtySession(["gated-select", releaseFile, pidFile], 80);
@@ -113,14 +140,19 @@ describe("owned-child lifecycle contract (#542 review)", () => {
       expect(teardown.durationMs).toBeLessThan(5000);
       const transcript = session.transcript();
       // The child's own outcome is propagated (never a false 0), and the
-      // post-reap cleanup engaged its no-signal guard: zero signals sent.
+      // real signal-attempt counter remains zero on the natural path.
       expect(transcript).toContain("PTY-CONTROLLER-EXIT status=0 signals=0");
-      expect(transcript).toContain("PTY-CONTROLLER-CLEANUP-SKIPPED-REAPED");
       expect(transcript).not.toContain("PTY-CONTROLLER-TERMINATED");
       expect(existsSync(releaseFile)).toBe(false);
     } finally {
       await session.close();
     }
+  });
+
+  test("close rejects an unexpected normal nonzero driver exit", async () => {
+    const session = await startPtySession(["unknown-driver"], 80);
+    temporaryDirectories.push(session.runDirectory);
+    await expect(session.close()).rejects.toThrow("exitCode=2");
   });
 
   test("the watchdog is real seconds: bounded child termination with enforced evidence", async () => {

@@ -185,7 +185,7 @@ describe("guided install under a real PTY", () => {
   test("Ctrl-C during picking cancels with zero lifecycle changes", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const session = await startPtySession(["install", home, projectPath], 80);
+    const session = await startPtySession(["install", home, projectPath], 80, { expectedExitCode: 1 });
     temporaryDirectories.push(session.runDirectory);
     try {
       await session.waitForTranscript("Which Profile?");
