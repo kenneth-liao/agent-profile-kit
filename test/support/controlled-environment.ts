@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 
 import { join, resolve } from "node:path";
 
@@ -54,24 +53,35 @@ function executableName(value: string): string {
   return index === -1 ? value : value.slice(index + 1);
 }
 
-function whichRealpath(tool: ControlledTool): string {
-  let found: string;
-  try {
-    found = execFileSync("which", [tool], { encoding: "utf8" }).trim();
-  } catch (error) {
-    throw new Error(
-      `Controlled fixture tool '${tool}' is not resolvable on the runner's PATH; ` +
-        "the controlled fixture boundary resolves every tool explicitly and never falls back to an ambient child PATH",
-      { cause: error },
-    );
+/**
+ * Find `name` on the runner's PATH by filesystem lookup — POSIX semantics:
+ * each `:`-separated segment in order, an empty segment meaning the current
+ * directory, first executable regular file wins, resolved to its absolute
+ * realpath. No resolver subprocess: the lookup cannot hang and stays inside
+ * the fixture boundary (ADR-0027/0028). A missing name fails fast with the
+ * selected name in the message — never an ambient or literal fallback.
+ */
+function executableRealpathOnRunnerPath(name: string): string {
+  const segments = (process.env.PATH ?? "").split(":");
+  for (const segment of segments) {
+    const candidate = segment === "" ? join(process.cwd(), name) : join(segment, name);
+    let stat: import("node:fs").Stats;
+    try {
+      stat = statSync(candidate);
+    } catch {
+      continue;
+    }
+    if (!stat.isFile() || (stat.mode & 0o111) === 0) continue;
+    try {
+      return realpathSync(candidate);
+    } catch {
+      continue; // a broken PATH entry is skipped, like exec-family resolution
+    }
   }
-  if (found === "") {
-    throw new Error(
-      `Controlled fixture tool '${tool}' is not resolvable on the runner's PATH; ` +
-        "the controlled fixture boundary resolves every tool explicitly and never falls back to an ambient child PATH",
-    );
-  }
-  return realpathSync(found);
+  throw new Error(
+    `Controlled fixture tool '${name}' is not resolvable on the runner's PATH; ` +
+      "the controlled fixture boundary resolves every selected executable explicitly and never falls back to an ambient child PATH",
+  );
 }
 
 /**
@@ -86,12 +96,28 @@ export function controlledToolPath(tool: ControlledTool): string {
   if (cached !== undefined) return cached;
   let absolute: string;
   if (tool === "node") {
+    // The canonical packed-CLI reader (US-007) is the only selection fact:
+    // its value is the selected executable. An absolute/relative override is
+    // real-pathed as authored; a bare name (possibly an alternate executable
+    // name, not necessarily `node`) is looked up by that actual basename and
+    // fails fast when absent. The literal `node` is never a fallback.
     const canonical = packedCliNodeExecutable();
-    absolute = executableName(canonical) === canonical
-      ? whichRealpath("node")
-      : realpathSync(resolve(canonical));
+    const selected = executableName(canonical);
+    if (selected !== canonical) {
+      try {
+        absolute = realpathSync(resolve(canonical));
+      } catch (error) {
+        throw new Error(
+          `The canonical packed-CLI Node reader selected '${canonical}' via NODE_BINARY, but that executable does not exist; ` +
+            "the controlled fixture boundary resolves the actual selection and never falls back to an ambient child PATH",
+          { cause: error },
+        );
+      }
+    } else {
+      absolute = executableRealpathOnRunnerPath(selected);
+    }
   } else {
-    absolute = whichRealpath(tool);
+    absolute = executableRealpathOnRunnerPath(tool);
   }
   resolvedToolPaths.set(tool, absolute);
   return absolute;

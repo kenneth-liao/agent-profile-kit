@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 
-import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -14,6 +13,11 @@ import {
   hostileAmbient,
   TRAPPED_HOST_STUBS,
 } from "./support/controlled-environment.js";
+import {
+  expectExitCode,
+  runProcess,
+  TEST_CHILD_DEADLINE_MS,
+} from "../process/process-executor.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -112,20 +116,108 @@ describe("the controlled fixture environment overlay", () => {
   });
 
   test("tool resolution is absolute, real, and honors the canonical packed-CLI node reader", () => {
-    const which = (tool: string) => execFileSync("which", [tool], { encoding: "utf8" }).trim();
-    expect(controlledToolPath("git")).toBe(realpathSync(which("git")));
+    const git = controlledToolPath("git");
+    expect(git.startsWith("/")).toBe(true);
+    expect(existsSync(git)).toBe(true);
     const node = controlledToolPath("node");
     expect(node.startsWith("/")).toBe(true);
     expect(existsSync(node)).toBe(true);
   });
+
+  describe("NODE_BINARY selection is honored, not discarded (INT-fixture-1)", () => {
+    /**
+     * Resolve `controlledToolPath("node")` in an isolated fresh process with
+     * the authored NODE_BINARY, so the module's once-per-process tool cache
+     * can never leak across override cases and the observed runtime is the
+     * one the child actually imports. Runs through the shared bounded
+     * executor (ADR-0027).
+     */
+    async function resolveNodeInFreshProcess(
+      nodeBinary: string,
+    ): Promise<{ readonly resolved?: string; readonly error?: string }> {
+      const environment = controlledEnvironment({ home: scratch(), path: "/nonexistent" });
+      environment.PATH = process.env.PATH; // the child observes the runner's lookup semantics
+      environment.NODE_BINARY = nodeBinary;
+      const result = await runProcess({
+        executable: process.execPath,
+        arguments_: [
+          "-e",
+          `import { controlledToolPath } from ${JSON.stringify(join(import.meta.dir, "support", "controlled-environment.js"))};
+           try {
+             process.stdout.write(JSON.stringify({ resolved: controlledToolPath("node") }));
+           } catch (error) {
+             process.stdout.write(JSON.stringify({ error: String((error as Error).message) }));
+           }`,
+        ],
+        environment,
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        commandLabel: "controlled fixture fresh-process node resolution",
+      });
+      expectExitCode(result, 0);
+      return JSON.parse(result.stdout) as { resolved?: string; error?: string };
+    }
+
+    test("an alternate valid basename resolves that selected executable, and it runs", async () => {
+      // A symlink to the installed Node would not discriminate: the pinned
+      // defect resolved the literal `node` realpath, identical under a
+      // symlink. An independent copy has its own realpath. The copy source is
+      // the canonical reader's own resolution, so no second runtime fact
+      // exists.
+      const canonical = await resolveNodeInFreshProcess("node");
+      expect(canonical.resolved).toBeDefined();
+      const home = scratch();
+      const alternate = join(home, "apkit-review-alternate-node");
+      cpSync(canonical.resolved!, alternate);
+      const savedPath = process.env.PATH;
+      process.env.PATH = `${home}:${savedPath ?? ""}`;
+      try {
+        const fresh = await resolveNodeInFreshProcess("apkit-review-alternate-node");
+        expect(fresh.error).toBeUndefined();
+        expect(fresh.resolved).toBe(realpathSync(alternate));
+        // The recorded selection is the observed runtime: executed, the
+        // resolved path reports a Node runtime identity.
+        const observed = await runProcess({
+          executable: fresh.resolved!,
+          arguments_: ["-e", "process.stdout.write(`node:${process.versions.node}`)"],
+          deadlineMs: TEST_CHILD_DEADLINE_MS,
+          commandLabel: "controlled fixture alternate runtime observation",
+        });
+        expectExitCode(observed, 0);
+        expect(observed.stdout).toMatch(/^node:\d+\./);
+      } finally {
+        if (savedPath === undefined) delete process.env.PATH;
+        else process.env.PATH = savedPath;
+      }
+    });
+
+    test("a missing selected basename fails fast and never falls back to literal node", async () => {
+      const fresh = await resolveNodeInFreshProcess("definitely-missing-node-review-probe");
+      expect(fresh.error).toBeDefined();
+      expect(fresh.error).toContain("definitely-missing-node-review-probe");
+      expect(fresh.resolved).toBeUndefined();
+    });
+  });
 });
 
 describe("the hostile ambient Host trap fixture", () => {
-  test("trap executables record their invocation name and arguments", () => {
+  test("trap executables record their invocation name and arguments", async () => {
     const home = scratch();
     const traps = createHostTrapBin(home);
-    spawnSync(join(traps.bin, "grok"), ["inspect", "--json"]);
-    spawnSync(join(traps.bin, "agy"), ["--version"]);
+    // Trap children run through the shared bounded executor (ADR-0027/0028).
+    for (const [name, arguments_] of [
+      ["grok", ["inspect", "--json"]],
+      ["agy", ["--version"]],
+    ] as const) {
+      const invocation = await runProcess({
+        executable: join(traps.bin, name),
+        arguments_: [...arguments_],
+        environment: { PATH: traps.bin },
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        commandLabel: `controlled fixture trap probe (${name})`,
+      });
+      expect(invocation.kind).toBe("exit");
+      expect(invocation.exitCode).toBe(1);
+    }
     const log = readFileSync(traps.logPath, "utf8").split("\n").filter((line) => line !== "");
     expect(log).toEqual(["grok inspect --json", "agy --version"]);
     expect(TRAPPED_HOST_STUBS).toContain("pi");
@@ -154,13 +246,17 @@ describe("the hostile ambient Host trap fixture", () => {
     expect(Object.hasOwn(process.env, "APKIT_TEST_UNRELATED_PROOF")).toBe(false);
   });
 
-  test("a fixture that appends the ambient PATH resolves an unselected Host probe into the trap", () => {
+  test("a fixture that appends the ambient PATH resolves an unselected Host probe into the trap", async () => {
     const home = scratch();
     const traps = createHostTrapBin(home);
     const hostile = hostileAmbient({ trapBin: traps.bin, logPath: traps.logPath });
     try {
-      spawnSync("/bin/sh", ["-c", "command -v opencode >/dev/null && opencode --version || true"], {
-        env: { PATH: `/tmp/stub-first:${process.env.PATH ?? ""}`, HOME: home },
+      await runProcess({
+        executable: "/bin/sh",
+        arguments_: ["-c", "command -v opencode >/dev/null && opencode --version || true"],
+        environment: { PATH: `/tmp/stub-first:${process.env.PATH ?? ""}`, HOME: home },
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        commandLabel: "controlled fixture leak probe",
       });
       expect(hostile.trapLog().some((line) => line.startsWith("opencode"))).toBe(true);
     } finally {
@@ -168,13 +264,17 @@ describe("the hostile ambient Host trap fixture", () => {
     }
   });
 
-  test("a hermetic controlled PATH never reaches the traps", () => {
+  test("a hermetic controlled PATH never reaches the traps", async () => {
     const home = scratch();
     const traps = createHostTrapBin(home);
     const hostile = hostileAmbient({ trapBin: traps.bin, logPath: traps.logPath });
     try {
-      spawnSync("/bin/sh", ["-c", "command -v opencode >/dev/null && opencode --version || true"], {
-        env: { PATH: `${join(home, "bin")}:${join(home, "allow-bin")}`, HOME: home },
+      await runProcess({
+        executable: "/bin/sh",
+        arguments_: ["-c", "command -v opencode >/dev/null && opencode --version || true"],
+        environment: { PATH: `${join(home, "bin")}:${join(home, "allow-bin")}`, HOME: home },
+        deadlineMs: TEST_CHILD_DEADLINE_MS,
+        commandLabel: "controlled fixture hermetic probe",
       });
       expect(hostile.trapLog()).toEqual([]);
     } finally {
