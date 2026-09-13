@@ -1192,6 +1192,33 @@ describe("suite supervisor: qualification records", () => {
       expect(observation.version).toMatch(/^v?\d+\./);
     }
   });
+
+  test("a failed runtime observation retains the complete typed child evidence and its output tail", async () => {
+    const fake = join(tempDir(), "fake-node");
+    try {
+      // The child emits a large stdout/stderr tail and exits 3: the observation
+      // must retain the complete typed evidence, never a truncated description.
+      writeFileSync(
+        fake,
+        "#!/bin/sh\nprintf '%1500s' x | tr ' ' x\necho TAIL-ROOT-CAUSE\necho \"fatal: injected runtime failure\" >&2\nexit 3\n",
+      );
+      chmodSync(fake, 0o755);
+      const observation = await systemPackedRuntimeProbe({ executable: fake, deadlineMs: 10_000, signal: undefined });
+      expect(observation.kind).toBe("unavailable");
+      if (observation.kind === "unavailable") {
+        expect(observation.cause).toContain("exitCode=3");
+        expect(observation.diagnostics).toContain("TAIL-ROOT-CAUSE");
+        expect(observation.diagnostics).toContain("--- stderr ---");
+        expect(observation.diagnostics).toContain("fatal: injected runtime failure");
+        expect(observation.childCleanupFailed).toBe(false);
+        expect(typeof observation.childCleanupDurationMs).toBe("number");
+        expect(typeof observation.childDurationMs).toBe("number");
+        expect(observation.cancelled).toBe(false);
+      }
+    } finally {
+      rmSync(fake, { force: true });
+    }
+  });
 });
 
 describe("canonical command surface", () => {

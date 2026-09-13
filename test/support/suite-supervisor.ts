@@ -445,7 +445,18 @@ export type QualificationSourceIdentity =
  */
 export type PackedRuntimeObservation =
   | { readonly kind: "probe"; readonly executable: string; readonly version: string }
-  | { readonly kind: "unavailable"; readonly executable: string; readonly cause: string };
+  | {
+      readonly kind: "unavailable";
+      readonly executable: string;
+      readonly cause: string;
+      /** The complete typed child evidence, retained through the same
+       * diagnostics boundary as every other bounded stage (#537/#538). */
+      readonly diagnostics?: string;
+      readonly childCleanupFailed?: boolean;
+      readonly childCleanupDurationMs?: number;
+      readonly childDurationMs?: number;
+      readonly cancelled?: boolean;
+    };
 
 export type PackedRuntimeProbe = (context: {
   readonly executable: string;
@@ -456,7 +467,9 @@ export type PackedRuntimeProbe = (context: {
 /**
  * The system packed-runtime probe: one bounded `--version` child of the
  * canonical packed consumer's selected executable, through the shared bounded
- * executor. Any failure resolves to an explicit `unavailable` observation;
+ * executor. Any failure resolves to an explicit `unavailable` observation
+ * carrying the complete typed child evidence — captured output, cancellation,
+ * cleanup fields, and separate durations — never a truncated description;
  * nothing throws past the seam.
  */
 export const systemPackedRuntimeProbe: PackedRuntimeProbe = async (context) => {
@@ -476,6 +489,22 @@ export const systemPackedRuntimeProbe: PackedRuntimeProbe = async (context) => {
     kind: "unavailable",
     executable: context.executable,
     cause: describeProcessResult(result),
+    diagnostics: [
+      "--- packed CLI runtime observation result ---",
+      describeProcessResult(result),
+      `cancelled: ${result.cancelled}`,
+      `childCleanupFailed: ${result.cleanupFailed}`,
+      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
+      `childDurationMs: ${result.durationMs}`,
+      "--- stdout ---",
+      result.stdout,
+      "--- stderr ---",
+      result.stderr,
+    ].join("\n"),
+    childCleanupFailed: result.cleanupFailed,
+    childCleanupDurationMs: result.cleanupDurationMs,
+    childDurationMs: result.durationMs,
+    cancelled: result.cancelled,
   };
 };
 
@@ -1287,7 +1316,10 @@ function watchPackageRequests(
   abortSignal: AbortSignal | undefined,
   startedAt: number,
   admittedSourceFingerprint: string | undefined,
-  observePackedRuntime: () => Promise<void>,
+  observePackedRuntime: (context: {
+    readonly deadlineMs: number;
+    readonly signal: AbortSignal | undefined;
+  }) => Promise<void>,
   onPrepared: (archivePath: string, record: PackageIdentityRecord) => void,
 ): PackageRequestWatcher {
   const preparationController = new AbortController();
@@ -1330,8 +1362,13 @@ function watchPackageRequests(
       // The candidate is admitted: packed consumers can now execute, so the
       // packed runtime evidence is owed. An observation failure never blocks
       // the published response — it is retained evidence that fails the
-      // qualification, not a hidden consumer hang.
-      await observePackedRuntime();
+      // qualification, not a hidden consumer hang. The observation is bounded
+      // by the active run's remaining deadline and shares the preparation's
+      // cancellation signal, so it can never outlive a timed-out, settled run.
+      await observePackedRuntime({
+        deadlineMs: runDeadlineAt - Date.now(),
+        signal: preparationController.signal,
+      });
       publishPackageChannelResponse(channel.directory, {
         status: "prepared",
         archivePath: outcome.archivePath,
@@ -1505,23 +1542,31 @@ export async function runSupervisedSuite(
   let admittedCapture: SourceFingerprint | null = null;
   let admittedRecord: PackageIdentityRecord | null = null;
   let packedRuntime: PackedRuntimeObservation | undefined;
-  const observePackedRuntime = async (): Promise<void> => {
+  // The packed runtime observation is bounded by the ACTIVE remaining deadline
+  // it belongs to — the invocation's remaining budget for the admission path,
+  // the active run's remaining deadline for the lazy path — and shares the
+  // linked stage's cancellation signal, so it can never outlive a timed-out,
+  // settled run on a fresh allowance. It never settles before the owned
+  // observation: the watcher's stop awaits the in-flight preparation.
+  const observePackedRuntime = async (context: {
+    readonly deadlineMs: number;
+    readonly signal: AbortSignal | undefined;
+  }): Promise<void> => {
     if (packedRuntime !== undefined) return;
     const executable = packedCliNodeExecutable();
-    const budget = remainingInvocationBudgetMs();
-    if (budget <= 0) {
+    if (context.deadlineMs <= 0) {
       packedRuntime = {
         kind: "unavailable",
         executable,
-        cause: `the invocation budget was exhausted before the packed CLI runtime observation (remaining ${budget}ms)`,
+        cause: `the active deadline was exhausted before the packed CLI runtime observation (remaining ${context.deadlineMs}ms)`,
       };
       return;
     }
     try {
       packedRuntime = await (options.packedRuntimeProbe ?? systemPackedRuntimeProbe)({
         executable,
-        deadlineMs: budget,
-        signal: abortSignal,
+        deadlineMs: context.deadlineMs,
+        signal: context.signal,
       });
     } catch (error) {
       packedRuntime = {
@@ -1600,9 +1645,13 @@ export async function runSupervisedSuite(
       // when the invocation's own selection can execute packed consumers (an
       // injected test-seam command never runs the packed CLI, so it claims no
       // packed runtime). An unobservable runtime is retained evidence that
-      // fails the qualification, never a hidden error.
+      // fails the qualification, never a hidden error. The admission-path
+      // observation shares the invocation's remaining budget and signal.
       if (invocation.plan !== null) {
-        await observePackedRuntime();
+        await observePackedRuntime({
+          deadlineMs: remainingInvocationBudgetMs(),
+          signal: abortSignal,
+        });
       }
     } catch (error) {
       // A pin failure leaves an invocation-owned directory behind: the early
@@ -1675,7 +1724,22 @@ export async function runSupervisedSuite(
             }),
         failure: `${prefix}${prefix.endsWith("interrupted") ? " " : ": "}${admissionFailure}`,
       };
-      writePreparationLog(logDir, evidence);
+      // Diagnostic publication is protected: a failed preparation log never
+      // masks the original admission rejection and never skips the record —
+      // the failure is folded into the owned cleanup evidence and the record
+      // is still finalized (its own destination may be writable).
+      let preparationLogPath: string | undefined;
+      let retainedEvidence = evidence;
+      try {
+        preparationLogPath = writePreparationLog(logDir, evidence);
+      } catch (logError) {
+        const logFailure = `preparation diagnostics not retained: ${logError instanceof Error ? logError.message : String(logError)}`;
+        retainedEvidence = {
+          ...evidence,
+          cleanupFailed: true,
+          cleanupFailure: [evidence.cleanupFailure, logFailure].filter(Boolean).join("; "),
+        };
+      }
       // One finalization path: the rejected or interrupted admission also
       // retains its qualification record, with the explicit unavailable source
       // cause — a zero-run invocation is never represented as a run.
@@ -1687,10 +1751,10 @@ export async function runSupervisedSuite(
         runs: [],
         aggregateExhausted: false,
         interrupted,
-        cleanupFailed: pinCleanupFailed,
-        cleanupFailure: pinCleanupFailure,
+        cleanupFailed: retainedEvidence.cleanupFailed,
+        cleanupFailure: retainedEvidence.cleanupFailure,
         cleanupDurationMs: pinCleanupDurationMs,
-        preparation: evidence,
+        preparation: retainedEvidence,
         admittedIdentity: {
           kind: "unavailable",
           cause: evidence.failure ?? "the supplied candidate was rejected before admission",
@@ -1698,7 +1762,7 @@ export async function runSupervisedSuite(
         admittedRecord: null,
         archivePath: null,
         packedRuntime: undefined,
-        preparationLogPath: join(logDir, PREPARATION_LOG_FILENAME),
+        preparationLogPath,
         invocationError: undefined,
         ...(evidence.failure === undefined ? {} : { invocationFailure: evidence.failure }),
       });
@@ -1728,6 +1792,7 @@ export async function runSupervisedSuite(
       cause: "the invocation was aborted before its source identity could be captured",
     };
   } else {
+    const captureStartedAt = Date.now();
     try {
       admittedCapture = await captureSourceFingerprint({
         repositoryRoot: invocation.base,
@@ -1742,9 +1807,59 @@ export async function runSupervisedSuite(
         entryCount: admittedCapture.entryCount,
       };
     } catch (error) {
+      // The identity contract's source scope is Git-derived: a capture
+      // failure stops unqualified execution with zero runs, and a cancelled
+      // capture is an interrupted invocation. The complete typed child
+      // evidence travels the existing #537/#538 diagnostics boundary — the
+      // preparation log retains the full captured stdout/stderr tail, the
+      // actual cancellation/cleanup fields and separate durations — and the
+      // record references it; no truncated-only or defaulted evidence.
       const stageError = error instanceof PackagePreparationStageError ? error : undefined;
       const cancelled = invocationAborted() || stageError?.result.cancelled === true;
       const cause = error instanceof Error ? error.message : String(error);
+      const diagnostics =
+        stageError !== undefined
+          ? [
+              `--- ${stageError.stage} result ---`,
+              describeProcessResult(stageError.result),
+              `cancelled: ${stageError.result.cancelled}`,
+              `childCleanupFailed: ${stageError.result.cleanupFailed}`,
+              `childCleanupDurationMs: ${stageError.result.cleanupDurationMs}`,
+              `childDurationMs: ${stageError.result.durationMs}`,
+              "--- stdout ---",
+              stageError.result.stdout,
+              "--- stderr ---",
+              stageError.result.stderr,
+            ].join("\n")
+          : error instanceof Error && error.stack !== undefined
+            ? error.stack
+            : cause;
+      const evidence: PreparationEvidence = {
+        status: cancelled ? "interrupted" : "failed",
+        requests: 0,
+        durationMs: Date.now() - captureStartedAt,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
+        ...(stageError === undefined
+          ? {}
+          : {
+              childCleanupFailed: stageError.result.cleanupFailed,
+              childCleanupDurationMs: stageError.result.cleanupDurationMs,
+            }),
+        failure: cancelled ? `interrupted during the source identity capture: ${cause}` : cause,
+        diagnostics,
+      };
+      let preparationLogPath: string | undefined;
+      let retainedEvidence = evidence;
+      try {
+        preparationLogPath = writePreparationLog(logDir, evidence);
+      } catch (logError) {
+        retainedEvidence = {
+          ...evidence,
+          cleanupFailed: true,
+          cleanupFailure: `preparation diagnostics not retained: ${logError instanceof Error ? logError.message : String(logError)}`,
+        };
+      }
       return finalizeInvocation({
         invocation,
         logDir,
@@ -1753,18 +1868,18 @@ export async function runSupervisedSuite(
         runs: [],
         aggregateExhausted: false,
         interrupted: cancelled,
-        cleanupFailed: false,
-        cleanupFailure: undefined,
+        cleanupFailed: retainedEvidence.cleanupFailed,
+        cleanupFailure: retainedEvidence.cleanupFailure,
         cleanupDurationMs: 0,
-        preparation: { status: "none", requests: 0, durationMs: 0, cleanupDurationMs: 0, cleanupFailed: false },
+        preparation: retainedEvidence,
         admittedIdentity: {
           kind: "unavailable",
-          cause: cancelled ? `interrupted during the source identity capture: ${cause}` : cause,
+          cause: retainedEvidence.failure ?? "the source identity capture failed",
         },
         admittedRecord: null,
         archivePath: null,
         packedRuntime: undefined,
-        preparationLogPath: undefined,
+        preparationLogPath,
         invocationError: undefined,
         invocationFailure: cause,
       });
