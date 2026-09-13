@@ -6,11 +6,11 @@ import {
   type ExecutorOptions,
   type ProcessResult,
 } from "../../process/process-executor.js";
+import { controlledEnvironment, controlledToolPath } from "./controlled-environment.js";
 import {
   extractPackageArchive,
   obtainPackageArchive,
   packageArchiveRepositoryRoot,
-  packedCliNodeExecutable,
 } from "./package-archive.js";
 
 export type FleetProcessExecutor = typeof runProcess;
@@ -151,7 +151,9 @@ function fleetExecutorOptions(options: {
   return {
     executable: options.executable,
     arguments_: [options.cliPath, ...withFleetScope(options.arguments_)],
-    environment: { ...process.env, HOME: options.home, PATH: options.pathValue },
+    // The controlled fixture environment (issue #541): HOME, the composed
+    // PATH, the invocation's scoped TMPDIR, and nothing ambient.
+    environment: controlledEnvironment({ home: options.home, path: options.pathValue }),
     deadlineMs: FLEET_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
   };
@@ -177,7 +179,7 @@ export async function runFleetCli(
     home,
     pathValue,
     arguments_,
-    executable: packedCliNodeExecutable(),
+    executable: controlledToolPath("node"),
     cliPath: await resolveFleetCliPath(),
   }, executor);
 }
@@ -196,7 +198,9 @@ export async function runFleetCliWithExplicitPath(
     home,
     pathValue,
     arguments_,
-    executable: process.env.NODE_BINARY ?? process.execPath,
+    // The canonical packed-CLI Node reader, absolutized for the hermetic
+    // child PATH — no independent PATH node authority (issue #541).
+    executable: controlledToolPath("node"),
     cliPath: await resolveFleetCliPath(),
   }, executor);
 }
@@ -216,7 +220,7 @@ export async function runFleetCliWithCandidate(
   executor: FleetProcessExecutor = runProcess,
 ): Promise<ProcessResult> {
   return fleetLaunch(
-    { home, pathValue, arguments_, executable: packedCliNodeExecutable(), cliPath },
+    { home, pathValue, arguments_, executable: controlledToolPath("node"), cliPath },
     executor,
   );
 }

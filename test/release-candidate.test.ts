@@ -24,6 +24,13 @@ import {
   prepareDriftedFleet,
 } from "./support/apply-confirmation-fixture.js";
 import { installControlledHosts as installAllControlledHosts } from "./support/fleet-fixture.js";
+import {
+  controlledAllowlistBin,
+  controlledEnvironment,
+  controlledPath,
+  createHostTrapBin,
+  hostileAmbient,
+} from "./support/controlled-environment.js";
 import { humanText } from "./support/human-text.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
@@ -233,11 +240,13 @@ async function runCli(
   return runProcess({
     executable: nodeBinary,
     arguments_: [cliPath, ...withFleetScope(arguments_)],
-    environment: {
-      ...process.env,
-      HOME: home,
-      ...(options.path === undefined ? {} : { PATH: options.path }),
-    },
+    // The controlled fixture environment (issue #541): an explicit PATH when
+    // the test selects one, otherwise the fixture's own controlled stubs —
+    // never the ambient machine PATH.
+    environment: controlledEnvironment({
+      home,
+      path: options.path ?? installControlledHosts(home),
+    }),
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI",
@@ -257,11 +266,10 @@ async function runCliDefaultScope(
   return runProcess({
     executable: nodeBinary,
     arguments_: [cliPath, ...arguments_],
-    environment: {
-      ...process.env,
-      HOME: home,
-      ...(options.path === undefined ? {} : { PATH: options.path }),
-    },
+    environment: controlledEnvironment({
+      home,
+      path: options.path ?? installControlledHosts(home),
+    }),
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
     deadlineMs: options.deadlineMs ?? TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI (default scope)",
@@ -274,32 +282,24 @@ function enableCodexHooks(home: string): void {
 }
 
 /**
- * Allowlisted executable directory for controlled-Host CLI runs: the only
- * non-stub executable exposed is the single resolved `git`, so no real
- * installed Host CLI can satisfy a probe and detection is exact machine
- * evidence (TEST-016). Spawned by absolute path, the packed CLI itself needs
- * nothing from this directory.
+ * Allowlisted executable directory for controlled-Host CLI runs (TEST-016):
+ * the canonical controlled allow bin (issue #541) with only `git` beyond its
+ * default tools, so no real installed Host CLI can satisfy a probe and
+ * detection is exact machine evidence. Spawned by absolute path, the packed
+ * CLI itself needs nothing from this directory.
  */
 function allowlistBin(home: string): string {
-  const bin = join(home, "allow-bin");
-  mkdirSync(bin, { recursive: true });
-  const gitLink = join(bin, "git");
-  if (!existsSync(gitLink)) {
-    symlinkSync(
-      realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
-      gitLink,
-    );
-  }
-  return bin;
+  return controlledAllowlistBin(home, ["git"]);
 }
 
 /**
  * A bin directory whose `apkit` is the packed CLI under the supported Node
  * runtime: printed `apkit …` commands execute verbatim through a shell, the
- * way a user's terminal resolves them.
+ * way a user's terminal resolves them. The bin is the canonical controlled
+ * allow bin (issue #541), so the shim sits beside the allowlisted tools.
  */
 function apkitBin(home: string): string {
-  const bin = allowlistBin(home);
+  const bin = controlledAllowlistBin(home, ["git"]);
   const shim = join(bin, "apkit");
   if (!existsSync(shim)) {
     writeFileSync(shim, `#!/bin/sh\nexec '${nodeBinary}' '${cliPath}' "$@"\n`);
@@ -333,7 +333,9 @@ function installAllHostStubs(home: string): string {
 /**
  * Prepend controlled Host CLI stubs on PATH so packed RC gates stay hermetic
  * (no ambient Codex/Claude versions). Complete Context requires Codex ≥0.145.0;
- * disabled model-invocation requires Codex ≥0.99.0.
+ * disabled model-invocation requires Codex ≥0.99.0. The PATH is composed
+ * through the controlled fixture boundary: the stub bin plus the allowlisted
+ * non-Host tools, never the ambient machine PATH (issue #541).
  */
 function installControlledHosts(
   home: string,
@@ -355,7 +357,7 @@ function installControlledHosts(
     executables.push(join(bin, "pi"));
   }
   execFileSync("chmod", ["+x", ...executables]);
-  return `${bin}:${process.env.PATH ?? ""}`;
+  return controlledPath(home, { stubBins: [bin] });
 }
 
 function installFakeClaude(home: string, version = "2.1.0"): string {
@@ -597,7 +599,12 @@ describe("project-bound release candidate", () => {
     const guide = await runProcess({
       executable: installedCli,
       arguments_: ["guide"],
-      environment: { ...process.env, HOME: home },
+      // The npm shim resolves `node` from the child PATH; the allowlist
+      // carries the canonical packed-CLI Node (US-007, #541).
+      environment: controlledEnvironment({
+        home,
+        path: controlledPath(home, { tools: ["git", "sleep", "cat", "node"] }),
+      }),
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "installed apkit",
     });
@@ -634,7 +641,12 @@ describe("project-bound release candidate", () => {
       runProcess({
         executable: installedCli,
         arguments_: [...arguments_],
-        environment: { ...process.env, HOME: home, PATH: process.env.PATH },
+        // The npm-generated shim resolves `node` from the child PATH, so the
+        // allowlist carries the canonical packed-CLI Node (US-007, #541).
+        environment: controlledEnvironment({
+          home,
+          path: controlledPath(home, { tools: ["git", "sleep", "cat", "node"] }),
+        }),
         deadlineMs: TEST_CHILD_DEADLINE_MS,
         commandLabel: "installed apkit",
       });
@@ -1116,7 +1128,7 @@ describe("project-bound release candidate", () => {
       mkdirSync(bin, { recursive: true });
       writeFileSync(join(bin, "claude"), "#!/bin/sh\necho \"2.0.0 (Claude Code)\"\n");
       execFileSync("chmod", ["+x", join(bin, "claude")]);
-      return `${bin}:${process.env.PATH ?? ""}`;
+      return controlledPath(home, { stubBins: [bin] });
     })();
     const oldClaude = await runCli(home, ["update"], { path: oldClaudePath });
     expectExitCode(oldClaude, 0);
@@ -2025,7 +2037,16 @@ describe("project-bound release candidate", () => {
     const home = isolatedHome();
     const boundProject = gitRepository("agent-profile-kit-rc-newcomer-git-");
     const temporaryProject = project("agent-profile-kit-rc-newcomer-nongit-");
-    const pathWithHosts = installControlledHosts(home);
+    // Intended availability is explicit (issue #541, the CI-conditioned
+    // TEST-017 failure): all six controlled Host stubs, so the journey's
+    // all-six detection expectation is machine evidence of the fixture's
+    // selection, never of the runner's ambient Hosts. The `apkit` bin shim
+    // precedes the stubs so the journey's printed commands stay executable
+    // as printed; one composed controlled PATH, no ambient tail.
+    installAllControlledHosts(home);
+    const pathWithHosts = controlledPath(home, {
+      stubBins: [apkitBin(home), join(home, "bin")],
+    });
 
     // 1. Bare help: discover root command surface and first-run guidance.
     const help = await runCli(home, ["--help"], { path: pathWithHosts });
@@ -2117,7 +2138,7 @@ describe("project-bound release candidate", () => {
     const details = await runProcess({
       executable: realpathSync("/bin/sh"),
       arguments_: ["-c", detailsLine!.replace("Details: ", "")],
-      environment: { ...process.env, HOME: home, PATH: pathWithHosts },
+      environment: controlledEnvironment({ home, path: pathWithHosts }),
       cwd: boundProject,
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "printed Details command via shell",
@@ -2412,7 +2433,7 @@ describe("project-bound release candidate", () => {
     const applied = await runProcess({
       executable: shell,
       arguments_: ["-c", nextLine.replace("Next: ", "")],
-      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      environment: controlledEnvironment({ home, path: gitOnlyPath }),
       cwd: spacedProject,
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "printed Next command via shell",
@@ -2425,12 +2446,54 @@ describe("project-bound release candidate", () => {
     const details = await runProcess({
       executable: shell,
       arguments_: ["-c", detailsLine.replace("Details: ", "")],
-      environment: { ...process.env, HOME: home, PATH: gitOnlyPath },
+      environment: controlledEnvironment({ home, path: gitOnlyPath }),
       cwd: spacedProject,
       deadlineMs: TEST_CHILD_DEADLINE_MS,
       commandLabel: "printed Details command via shell",
     });
     expectExitCode(details, 0);
+  }, 30_000);
+
+  test("a deliberately partial controlled Host selection stays independent of ambient Host executables and unrelated ambient environment (TEST-004, US-003, #541)", async () => {
+    // Deliberate selection: the controlled fixture stubs only claude and
+    // codex. agy, grok, opencode, and pi are deliberately unselected: no
+    // controlled executable exists for them, and no ambient machine
+    // environment may complete their probes (TEST-004, ISC-16).
+    const calmHome = isolatedHome();
+    const calm = await runCli(calmHome, ["init"], {
+      path: installControlledHosts(calmHome),
+    });
+    expectExitCode(calm, 0);
+    const calmDetection = calm.stdout
+      .split("\n")
+      .find((line) => line.startsWith("Detected Agent Hosts:"))!;
+    expect(calmDetection).toBeDefined();
+
+    // Hostile ambient window: trap executables stand in for every Host name
+    // ahead of the runner's PATH, plus unrelated varied values. A fixture
+    // that leaks the ambient PATH resolves an unselected probe into the trap
+    // instead of a real installed Host, and the recorded log is the evidence
+    // of absence.
+    const hostileHome = isolatedHome();
+    const traps = createHostTrapBin(hostileHome);
+    const hostile = hostileAmbient({
+      trapBin: traps.bin,
+      logPath: traps.logPath,
+      values: { COLUMNS: "7", PAGER: "/nonexistent-agent-profile-kit-pager" },
+    });
+    try {
+      const variedHome = isolatedHome();
+      const varied = await runCli(variedHome, ["init"], {
+        path: installControlledHosts(variedHome),
+      });
+      expectExitCode(varied, 0);
+      expect(
+        varied.stdout.split("\n").find((line) => line.startsWith("Detected Agent Hosts:")),
+      ).toBe(calmDetection);
+      expect(hostile.trapLog(), "no unselected Host-named executable may run").toEqual([]);
+    } finally {
+      hostile.restore();
+    }
   }, 30_000);
 });
 

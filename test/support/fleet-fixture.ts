@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { controlledPath } from "./controlled-environment.js";
 
 /**
  * Shared isolated 12-Project fleet fixture for fleet-wide synchronization
@@ -203,8 +204,9 @@ export type ControlledHostStub = (typeof CONTROLLED_HOSTS)[number];
  * PATH that carries every controlled Host stub except one, so that Host CLI is
  * missing. The stub is named by executable name; the {@link ControlledHostStub}
  * type makes any other spelling (a canonical Host ID such as `antigravity`)
- * unrepresentable. The restricted PATH excludes the system PATH so a real
- * installed Host CLI cannot satisfy the probe.
+ * unrepresentable. The restricted PATH is hermetic: the fixture's stub bin plus
+ * the controlled allowlist — the system PATH is excluded so a real installed
+ * Host CLI cannot satisfy the probe (TEST-016, #541).
  */
 export function pathWithoutHostStub(home: string, stub: ControlledHostStub): string {
   const bin = join(home, `bin-without-${stub}`);
@@ -213,13 +215,7 @@ export function pathWithoutHostStub(home: string, stub: ControlledHostStub): str
     if (name === stub) continue;
     symlinkSync(join(home, "bin", name), join(bin, name));
   }
-  // Git topology inspection still needs the real git executable; resolve it
-  // from the runner's PATH so the restricted PATH stays hermetic.
-  symlinkSync(
-    realpathSync(execFileSync("which", ["git"], { encoding: "utf8" }).trim()),
-    join(bin, "git"),
-  );
-  return bin;
+  return controlledPath(home, { stubBins: [bin] });
 }
 
 /** Prepend controlled Host CLI stubs on PATH so lifecycle runs are hermetic. */
@@ -241,5 +237,8 @@ export function installControlledHosts(home: string): string {
   for (const name of CONTROLLED_HOSTS) {
     execFileSync("chmod", ["+x", join(bin, name)]);
   }
-  return `${bin}:${process.env.PATH ?? ""}`;
+  // Hermetic: the controlled stubs plus the allowlisted non-Host tools the
+  // CLI and these stubs invoke — never the ambient machine PATH, so an
+  // unselected real Host executable cannot leak into a fleet run (#541).
+  return controlledPath(home, { stubBins: [bin] });
 }

@@ -28,9 +28,16 @@ import {
 import {
   obtainPackageArchive,
   extractPackageArchive,
-  packedCliNodeExecutable,
 } from "./support/package-archive.js";
 import { installControlledHosts } from "./support/fleet-fixture.js";
+import {
+  controlledAllowlistBin,
+  controlledEnvironment,
+  controlledToolPath,
+  createHostTrapBin,
+  hostileAmbient,
+  PTY_CONTROLLED_TOOLS,
+} from "./support/controlled-environment.js";
 import {
   TEST_CHILD_DEADLINE_MS,
   expectExitCode,
@@ -169,14 +176,24 @@ function defaultPath(home: string): string {
   return installControlledHosts(home);
 }
 
+/**
+ * The PTY PATH: the fleet fixture's controlled PATH extended, in place, with
+ * the PTY allowlist tools (`sh`, `stty`, `script`) the harness itself resolves
+ * from the child PATH under the executor (issue #541). Composed here because
+ * the fleet fixture's stub bin is not exported; `controlledAllowlistBin`
+ * extends the same allow bin it already contains.
+ */
+function ptyPath(home: string): string {
+  controlledAllowlistBin(home, PTY_CONTROLLED_TOOLS);
+  return defaultPath(home);
+}
+
 function redirectedEnvironment(home: string): NodeJS.ProcessEnv {
-  return {
-    ...process.env,
-    HOME: home,
-    PATH: defaultPath(home),
-    NO_COLOR: "1",
-    TERM: "dumb",
-  };
+  return controlledEnvironment({
+    home,
+    path: defaultPath(home),
+    environment: { NO_COLOR: "1", TERM: "dumb" },
+  });
 }
 
 async function runCli(
@@ -185,7 +202,7 @@ async function runCli(
   cwd?: string,
 ): Promise<ProcessResult> {
   return runProcess({
-    executable: packedCliNodeExecutable(),
+    executable: controlledToolPath("node"),
     arguments_: [cliPath, ...args],
     ...(cwd === undefined ? {} : { cwd }),
     environment: redirectedEnvironment(home),
@@ -211,21 +228,15 @@ async function runCliInPty(
   const command = [
     `stty cols ${columns};`,
     "exec",
-    ...[packedCliNodeExecutable(), cliPath, ...args].map(shellQuote),
+    ...[controlledToolPath("node"), cliPath, ...args].map(shellQuote),
   ].join(" ");
-  const childEnvironment: NodeJS.ProcessEnv = {
-    ...process.env,
-    ...environment,
-    COLUMNS: String(columns),
-    HOME: home,
-    PATH: defaultPath(home),
-  };
-  if (
-    Object.prototype.hasOwnProperty.call(environment, "NO_COLOR") &&
-    environment.NO_COLOR === undefined
-  ) {
-    delete childEnvironment.NO_COLOR;
-  }
+  const childEnvironment = controlledEnvironment({
+    home,
+    path: ptyPath(home),
+    // Explicit terminal configuration wins; an explicitly undefined NO_COLOR
+    // deletes the key so the colored cell renders styled.
+    environment: { ...environment, COLUMNS: String(columns) },
+  });
   const result = await runProcess({
     executable: "script",
     arguments_: ["-q", "/dev/null", "sh", "-c", command],
@@ -900,6 +911,43 @@ describe("rendering matrix for a representative subset", () => {
     const { home } = await initializedHome();
     const unbound = demoProject(home, "unbound");
     await matrixSnapshot("unbound error matrix", "unbound-directory-error", home, ["status", unbound]);
+  });
+
+  test("golden captures stay identical under varied unrelated ambient environment and never invoke unselected Host executables (TEST-004, US-003, #541)", async () => {
+    // The real golden fixture (six controlled Host stubs, redirected
+    // environment) is exercised twice through the same home: once under the
+    // runner's own ambient, once under a hostile ambient window whose
+    // unrelated values must not reach the controlled child.
+    const { home, project } = await currentHome();
+    const baseline = await runCli(home, ["status", project]);
+
+    const hostileHome = isolatedHome();
+    const traps = createHostTrapBin(hostileHome);
+    const hostile = hostileAmbient({
+      trapBin: traps.bin,
+      logPath: traps.logPath,
+      values: {
+        CODEX_HOME: join(hostileHome, "ambient-codex-home"),
+        GROK_HOME: join(hostileHome, "ambient-grok-home"),
+        GIT_DIR: join(hostileHome, "ambient-git-dir"),
+        APKIT_TEST_CODEX_DELAY: "2",
+        NODE_OPTIONS: "--bogus-agent-profile-kit-flag",
+        COLUMNS: "7",
+        LINES: "9",
+        PAGER: "/nonexistent-agent-profile-kit-pager",
+      },
+    });
+    try {
+      const varied = await runCli(home, ["status", project]);
+      expect(snapshotBody(varied, home)).toBe(snapshotBody(baseline, home));
+      // No trap assertion here: the golden fixture stubs every Host name, so
+      // every trap is structurally shadowed and the log carries no signal.
+      // The load-bearing trap red (unselected Host names reachable through a
+      // leaking ambient PATH) is the release-candidate partial-selection
+      // proof and the module's own hermetic tests.
+    } finally {
+      hostile.restore();
+    }
   });
 });
 
