@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  createPackageRequestChannel,
+  createPackageRequestChannel as createChannel,
   filedPackageRequests,
   filePackageRequest,
   publishPackageChannelResponse,
@@ -21,10 +20,10 @@ import {
  */
 
 const temporaryDirectories: string[] = [];
-function tempDir(prefix: string): string {
-  const path = mkdtempSync(join(tmpdir(), prefix));
-  temporaryDirectories.push(path);
-  return path;
+function createPackageRequestChannel() {
+  const channel = createChannel();
+  temporaryDirectories.push(channel.directory);
+  return channel;
 }
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {

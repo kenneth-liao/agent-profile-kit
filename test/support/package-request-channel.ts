@@ -114,8 +114,8 @@ export function filePackageRequest(channelDirectory: string): string {
  * directory until the response is published (success or failure — a known
  * preparation failure resolves into a typed error immediately, never polling
  * until timeout), the deadline passes, or the channel itself disappears. The
- * deadline must fit the child's per-test hook budget: the supervisor derives
- * it from the canonical per-test watchdog minus a measured margin.
+ * supervisor supplies the runner budget to both this wait and its watchdog.
+ * The owning runner deadline cancels preparation and bounds the entire wait.
  */
 export async function requestInvocationPackage(
   channelDirectory: string,

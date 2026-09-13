@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import {
   FLEET_CHILD_DEADLINE_MS,
+  cleanupFleetResources,
   runFleetCliWithCandidate,
 } from "./support/fleet-cli.js";
 import {
@@ -61,4 +62,19 @@ describe("fleet packed-CLI child deadline policy", () => {
     expect(launch.environment?.HOME).toBe("home-dir");
     expect(launch.environment?.PATH).toBe("path-dir");
   });
+});
+
+test("fleet teardown attempts every resource and preserves every failure", async () => {
+  const attempted: number[] = [];
+  let failure: unknown;
+  try {
+    await cleanupFleetResources([
+      () => { attempted.push(1); throw new Error("first cleanup"); },
+      () => { attempted.push(2); throw new Error("second cleanup"); },
+      () => { attempted.push(3); },
+    ]);
+  } catch (error) { failure = error; }
+  expect(attempted).toEqual([1, 2, 3]);
+  expect(failure).toBeInstanceOf(AggregateError);
+  expect((failure as AggregateError).errors.map(String)).toEqual(["Error: first cleanup", "Error: second cleanup"]);
 });

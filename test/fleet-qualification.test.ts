@@ -48,6 +48,7 @@ import { readInstallationState } from "../installer/installation-state.js";
 import { humanText } from "./support/human-text.js";
 import {
   releaseFleetCliPath,
+  cleanupFleetResources,
   resolveFleetCliPath,
   runFleetCli,
   runFleetCliWithExplicitPath,
@@ -93,12 +94,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  cleanupFleetFixtures();
-  for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true });
-  // Cleanup failure is qualification failure: the release is propagated, not
-  // logged away, so otherwise green fleet tests cannot report success with a
-  // failed extraction cleanup.
-  await releaseFleetCliPath();
+  await cleanupFleetResources([
+    cleanupFleetFixtures,
+    ...temporaryDirectories.map((directory) => () => rmSync(directory, { recursive: true, force: true })),
+    releaseFleetCliPath,
+  ]);
 });
 
 function isolatedHome(): string {

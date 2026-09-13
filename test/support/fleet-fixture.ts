@@ -1,3 +1,4 @@
+import { cleanupFleetResources } from "./fleet-cli.js";
 import { execFileSync } from "node:child_process";
 import {
   mkdirSync,
@@ -85,10 +86,10 @@ function createTempDirectory(prefix: string): string {
 }
 
 /** Remove every temporary directory created through this module. */
-export function cleanupFleetFixtures(): void {
-  for (const directory of temporaryDirectories) {
+export async function cleanupFleetFixtures(): Promise<void> {
+  await cleanupFleetResources(temporaryDirectories.map((directory) => () => {
     rmSync(directory, { recursive: true, force: true });
-  }
+  }));
 }
 
 export function plainProject(): string {

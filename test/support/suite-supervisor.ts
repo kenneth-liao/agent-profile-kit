@@ -54,7 +54,7 @@ import {
 
 export type SuiteMode = "full" | "focused" | "stress";
 
-/** Bun's per-test timeout; the single canonical policy value. */
+/** Minimum Bun watchdog; a supervised runner grants at least its preparation budget. */
 export const PER_TEST_TIMEOUT_MS = 10_000;
 /**
  * Measured default policy, selected from retained measurement rather than a
@@ -394,6 +394,7 @@ function suiteProcessEnvironment(
   preparedArchivePath: string | undefined,
   suppliedArchivePath: string | undefined,
   channel: PackageRequestChannel | null,
+  runDeadlineMs: number,
 ): NodeJS.ProcessEnv {
   const childEnvironment = { ...environment };
   delete childEnvironment[DIAGNOSTICS_DIR_ENV];
@@ -424,7 +425,7 @@ function suiteProcessEnvironment(
     childEnvironment[PREPARED_PACKAGE_ARCHIVE_ENV] = suppliedArchivePath;
   } else if (canonicalRunner && channel !== null) {
     childEnvironment[PACKAGE_REQUEST_CHANNEL_ENV] = channel.directory;
-    childEnvironment[PACKAGE_REQUEST_WAIT_ENV] = String(PER_TEST_TIMEOUT_MS - 2_000);
+    childEnvironment[PACKAGE_REQUEST_WAIT_ENV] = String(runDeadlineMs);
   }
   if (bunArguments?.includes(UPDATE_SNAPSHOTS_FLAG) === true) {
     childEnvironment[UPDATE_SNAPSHOTS_ENV] = "1";
@@ -845,32 +846,22 @@ async function prepareCandidateStages(
   // rather than a value narrowed by an earlier check.
   const preparationAborted = (signal: AbortSignal | undefined): boolean =>
     signal?.aborted === true;
-  const cleaned = (
+  // Transfer the directory to the invocation owner on every outcome. Only
+  // that owner's bounded finally removes it, after all writers have settled.
+  const failedOutcome = (
     status: "failed" | "interrupted",
     detail: { failure?: string; diagnostics?: string },
     stageError?: PackagePreparationStageError,
-  ): PreparedCandidateOutcome => {
-    const cleanupStartedAt = Date.now();
-    let cleanupFailed = false;
-    let cleanupFailure: string | undefined;
-    try {
-      rmSync(candidateDirectory!, { recursive: true, force: true });
-    } catch (error) {
-      // A resource cleanup failure is reported as failed, never as successful.
-      cleanupFailed = true;
-      cleanupFailure = error instanceof Error ? error.message : String(error);
-    }
-    return {
-      candidateDirectory: null,
+  ): PreparedCandidateOutcome => ({
+      candidateDirectory,
       archivePath: null,
       evidence: {
         status,
         requests: 0,
         durationMs: Date.now() - startedAt,
-        cleanupDurationMs: Date.now() - cleanupStartedAt,
-        cleanupFailed,
+        cleanupDurationMs: 0,
+        cleanupFailed: false,
         candidateDirectory,
-        ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
         ...(stageError === undefined
           ? {}
           : {
@@ -883,8 +874,7 @@ async function prepareCandidateStages(
             }),
         ...detail,
       },
-    };
-  };
+    });
   try {
     const remainingMs = () => budgetMs - (Date.now() - startedAt);
     const assertBudgetRemaining = (stage: string): void => {
@@ -901,7 +891,7 @@ async function prepareCandidateStages(
       signal: abortSignal,
     });
     if (preparationAborted(abortSignal)) {
-      return cleaned("interrupted", { diagnostics: "interrupted during the build stage" });
+      return failedOutcome("interrupted", { failure: "interrupted during the build stage", diagnostics: "interrupted during the build stage" });
     }
     assertBudgetRemaining("pack");
     const filename = await commands.createScriptDisabledArchive(
@@ -909,7 +899,7 @@ async function prepareCandidateStages(
       candidateDirectory,
     );
     if (preparationAborted(abortSignal)) {
-      return cleaned("interrupted", { diagnostics: "interrupted during the pack stage" });
+      return failedOutcome("interrupted", { failure: "interrupted during the pack stage", diagnostics: "interrupted during the pack stage" });
     }
     const archivePath = realpathSync(join(candidateDirectory, filename));
     return {
@@ -926,19 +916,7 @@ async function prepareCandidateStages(
       },
     };
   } catch (error) {
-    // A cancelled preparation child is an interruption, not a stage failure:
-    // the invocation was aborted, so the outcome is interrupted with the
-    // candidate cleaned and the child's cleanup evidence retained.
     const stageError = error instanceof PackagePreparationStageError ? error : undefined;
-    const stageCancelled = stageError?.result.cancelled === true;
-    if (abortSignal?.aborted === true || stageCancelled) {
-      const stage = stageError?.stage ?? "package preparation";
-      return cleaned(
-        "interrupted",
-        { diagnostics: `interrupted during the ${stage} stage` },
-        stageError,
-      );
-    }
     const failure = error instanceof Error ? error.message : String(error);
     const diagnostics =
       stageError !== undefined
@@ -955,7 +933,11 @@ async function prepareCandidateStages(
         : error instanceof Error && error.stack !== undefined
           ? error.stack
           : failure;
-    return cleaned("failed", { failure, diagnostics }, stageError);
+    if (abortSignal?.aborted === true || stageError?.result.cancelled === true) {
+      const cause = `interrupted during the ${stageError?.stage ?? "package preparation"} stage`;
+      return failedOutcome("interrupted", { failure: cause, diagnostics: `${cause}\n${diagnostics}` }, stageError);
+    }
+    return failedOutcome("failed", { failure, diagnostics }, stageError);
   }
 }
 
@@ -988,6 +970,8 @@ const REQUEST_POLL_INTERVAL_MS = 100;
 interface PackageRequestWatcher {
   /** Current preparation evidence; the final cleanup fields are merged later. */
   readonly evidence: () => PreparationEvidence;
+  readonly beginRun: (deadlineMs: number) => void;
+  readonly endRun: () => void;
   /** Settles after the loop ends and the preparation (if any) has settled. */
   readonly stop: () => Promise<void>;
 }
@@ -1000,11 +984,11 @@ function watchPackageRequests(
   startedAt: number,
   onPrepared: (archivePath: string) => void,
 ): PackageRequestWatcher {
-  const policy = invocation.policy;
-  // Preparation shares the invocation's one finite budget: the stress
-  // aggregate (its clock started before this watcher) or the per-run deadline.
-  const budgetMs =
-    policy.mode === "stress" ? policy.aggregateDeadlineMs : policy.perRunDeadlineMs;
+  const preparationController = new AbortController();
+  const cancelPreparation = () => preparationController.abort();
+  if (abortSignal?.aborted) cancelPreparation();
+  else abortSignal?.addEventListener("abort", cancelPreparation, { once: true });
+  let runDeadlineAt = startedAt + invocation.policy.perRunDeadlineMs;
   let status: PreparationEvidence["status"] = "none";
   let requests = 0;
   let durationMs = 0;
@@ -1022,9 +1006,9 @@ function watchPackageRequests(
     const outcome = await prepareCandidateStages(
       invocation,
       options,
-      abortSignal,
+      preparationController.signal,
       preparedAt,
-      Math.max(budgetMs - (preparedAt - startedAt), 1),
+      Math.max(runDeadlineAt - preparedAt, 1),
     );
     durationMs = outcome.evidence.durationMs;
     candidateDirectory = outcome.candidateDirectory;
@@ -1069,12 +1053,12 @@ function watchPackageRequests(
       await sleepAbortable(REQUEST_POLL_INTERVAL_MS, abortSignal);
     }
   })();
-  void loop.catch((error: unknown) => {
+  const settledLoop = loop.catch((error: unknown) => {
     // The watcher must never throw past its own boundary: a watcher defect is
     // recorded as a failed preparation so no consumer can hang waiting.
     status = "failed";
-    failure = error instanceof Error ? error.message : String(error);
-    diagnostics = error instanceof Error && error.stack !== undefined ? error.stack : failure;
+    failure = [failure, String(error)].filter(Boolean).join("; ");
+    diagnostics = [diagnostics, error instanceof Error ? error.stack : String(error)].filter(Boolean).join("\n");
     if (!responsePublished) {
       try {
         publishPackageChannelResponse(channel.directory, { status: "failed", failure });
@@ -1086,6 +1070,10 @@ function watchPackageRequests(
   });
 
   return {
+    beginRun: (deadlineMs) => { runDeadlineAt = Date.now() + deadlineMs; },
+    endRun: () => {
+      if (requests > 0 && status === "none") preparationController.abort();
+    },
     evidence: () => ({
       status,
       requests,
@@ -1101,7 +1089,9 @@ function watchPackageRequests(
     }),
     stop: async () => {
       stopRequested = true;
-      await loop;
+      preparationController.abort();
+      abortSignal?.removeEventListener("abort", cancelPreparation);
+      await settledLoop;
     },
   };
 }
@@ -1242,6 +1232,7 @@ export async function runSupervisedSuite(
   let cleanupDurationMs = 0;
   let cleanupFailed = false;
   let cleanupFailure: string | undefined;
+  let invocationError: unknown;
 
   try {
     while (runs.length < maxRuns) {
@@ -1274,13 +1265,14 @@ export async function runSupervisedSuite(
         invocation.plan === null
           ? []
           : ["--reporter=junit", `--reporter-outfile=${junitPath}`];
+      watcher?.beginRun(runDeadline);
       const result = await runProcess(
         {
           executable: suiteCommand[0],
           arguments_: [
             ...suiteCommand.slice(1),
             "--timeout",
-            String(PER_TEST_TIMEOUT_MS),
+            String(Math.max(PER_TEST_TIMEOUT_MS, runDeadline)),
             ...reporterArguments,
             ...(mode === "focused"
               ? (options.bunArguments ?? [])
@@ -1295,12 +1287,14 @@ export async function runSupervisedSuite(
             preparedArchivePath,
             suppliedArchivePath,
             channel,
+            runDeadline,
           ),
           ...(options.cleanupGraceMs === undefined ? {} : { cleanupGraceMs: options.cleanupGraceMs }),
           commandLabel: `suite ${mode} run ${runNumber}/${maxRuns}`,
         },
         abortSignal,
       );
+      watcher?.endRun();
       if (result.cancelled) {
         interrupted = true;
       }
@@ -1333,6 +1327,8 @@ export async function runSupervisedSuite(
         break;
       }
     }
+  } catch (error) {
+    invocationError = error;
   } finally {
     // Close the watcher first: its preparation (if any) must settle before any
     // owned resource is removed, so nothing is written after its directory is
@@ -1349,18 +1345,13 @@ export async function runSupervisedSuite(
     // the shared bounded executor against the remaining invocation budget,
     // with a finite floor so an exhausted budget cannot skip cleanup, and
     // every failure is reported, never treated as successful. The retained
-    // preparation log is written before any removal, so no diagnostics are
-    // lost with the directories.
-    const finalPreparationSnapshot = watcher?.evidence();
-    if (finalPreparationSnapshot !== undefined && (finalPreparationSnapshot.status === "failed" || finalPreparationSnapshot.status === "interrupted")) {
-      writePreparationLog(logDir, finalPreparationSnapshot);
-    }
-    const remainingBudgetMs = Math.max((mode === "stress" ? aggregate : perRun) - (Date.now() - startedAt), 0);
-    const removalDeadlineMs = Math.max(remainingBudgetMs, TEST_CHILD_DEADLINE_MS);
+    // preparation log is written after removal so diagnostic I/O cannot skip
+    // cleanup; stage output is already retained in the watcher evidence.
     const removalTargets = [candidateDirectory, channel?.directory ?? null];
     for (const removalPath of removalTargets) {
       if (removalPath === null) continue;
       const cleanupStartedAt = Date.now();
+      const removalDeadlineMs = Math.max((mode === "stress" ? aggregate : perRun) - (cleanupStartedAt - startedAt), TEST_CHILD_DEADLINE_MS);
       try {
         // The removal is bounded by its deadline and deliberately not tied to
         // the invocation's abort signal: an aborted invocation still owns its
@@ -1369,9 +1360,19 @@ export async function runSupervisedSuite(
         await removePathBounded(removalPath, removalDeadlineMs, undefined);
       } catch (error) {
         cleanupFailed = true;
-        cleanupFailure = error instanceof Error ? error.message : String(error);
+        cleanupFailure = [cleanupFailure, String(error)].filter(Boolean).join("; ");
       }
       cleanupDurationMs = cleanupDurationMs + (Date.now() - cleanupStartedAt);
+    }
+    const finalPreparationSnapshot = watcher?.evidence();
+    if (finalPreparationSnapshot !== undefined && (finalPreparationSnapshot.status === "failed" || finalPreparationSnapshot.status === "interrupted")) {
+      try {
+        writePreparationLog(logDir, { ...finalPreparationSnapshot, cleanupDurationMs, cleanupFailed,
+          ...(cleanupFailure === undefined ? {} : { cleanupFailure }) });
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupFailure = [cleanupFailure, `preparation diagnostics not written: ${String(error)}`].filter(Boolean).join("; ");
+      }
     }
     // The retained run log carries the complete preparation lifecycle,
     // including cleanup evidence.
@@ -1418,6 +1419,14 @@ export async function runSupervisedSuite(
     ...(watcherEvidence?.diagnostics === undefined ? {} : { diagnostics: watcherEvidence.diagnostics }),
     ...(cleanupFailure === undefined ? {} : { cleanupFailure }),
   };
+  if (invocationError !== undefined) {
+    throw Object.assign(new AggregateError(
+      [invocationError, ...(cleanupFailure === undefined ? [] : [new Error(cleanupFailure)])],
+      [String(invocationError), cleanupFailure].filter(Boolean).join("; "),
+      { cause: invocationError },
+    ), { preparation: finalPreparation });
+  }
+  interrupted ||= finalPreparation.status === "interrupted";
   const completedRuns = runs.filter(runComplete).length;
   // Failed candidate cleanup is never a complete qualification, even when
   // every run was green: a resource the invocation owned could not be freed.
@@ -1432,7 +1441,10 @@ export async function runSupervisedSuite(
     runs.length === maxRuns &&
     completedRuns === maxRuns &&
     finalAggregateExhausted === false &&
-    cleanupFailed === false;
+    cleanupFailed === false &&
+    finalPreparation.status !== "failed" &&
+    finalPreparation.status !== "interrupted" &&
+    finalPreparation.childCleanupFailed !== true;
   const firstFailure = runs.find((run) => !runComplete(run)) ?? null;
   return {
     mode,

@@ -44,24 +44,25 @@ async function resolveCandidateCli(): Promise<ResolvedCandidateCli> {
     packageArchiveRepositoryRoot(),
     "agent-profile-kit-fleet-cli-",
   );
-  // The archive's directory is owned for exactly the extraction: released in
-  // a finally (a no-op for prepared or supplied archives, whose lifetime the
-  // invocation owns), including every setup and extraction failure path.
+  let directory: string | undefined;
+  let resolved: ResolvedCandidateCli | undefined;
+  const failures: unknown[] = [];
   try {
-    const directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-fleet-cli-extracted-"));
-    try {
-      await extractPackageArchive(archive.path, directory);
-      const cliPath = realpathSync(join(directory, "package", "dist", "cli.js"));
-      return { cliPath, directory };
-    } catch (error) {
-      // An extraction failure leaves no extraction directory behind; the
-      // in-flight promise is reset by the caller so a later launch can retry.
-      rmSync(directory, { recursive: true, force: true });
-      throw error;
-    }
-  } finally {
-    archive.cleanup();
+    directory = mkdtempSync(join(tmpdir(), "agent-profile-kit-fleet-cli-extracted-"));
+    await extractPackageArchive(archive.path, directory);
+    resolved = { cliPath: realpathSync(join(directory, "package", "dist", "cli.js")), directory };
+  } catch (error) {
+    failures.push(error);
   }
+  try { archive.cleanup(); } catch (error) { failures.push(error); }
+  if (failures.length > 0) {
+    if (directory !== undefined) {
+      try { rmSync(directory, { recursive: true, force: true }); }
+      catch (error) { failures.push(error); }
+    }
+    throw new AggregateError(failures, failures.map(String).join("; "));
+  }
+  return resolved!;
 }
 
 /**
@@ -118,6 +119,15 @@ export async function releaseFleetCliPath(): Promise<void> {
   if (directory !== undefined) {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+/** Attempt every owned fleet cleanup before surfacing the collected failures. */
+export async function cleanupFleetResources(cleanups: readonly (() => void | Promise<void>)[]): Promise<void> {
+  const failures: unknown[] = [];
+  for (const cleanup of cleanups) {
+    try { await cleanup(); } catch (error) { failures.push(error); }
+  }
+  if (failures.length > 0) throw new AggregateError(failures, failures.map(String).join("; "));
 }
 
 /**

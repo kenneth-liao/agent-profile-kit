@@ -1,11 +1,12 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runProcess } from "../process/process-executor.js";
 import {
+  PackagePreparationStageError,
   extractPackageArchive,
   obtainPackageArchive,
   PREPARED_PACKAGE_ARCHIVE_ENV,
@@ -406,7 +407,7 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
     expect(result.attemptedRuns).toBe(1);
     expect(result.preparation.status).toBe("failed");
     expect(result.preparation.failure).toContain("fixture build failed");
-    expect(result.preparation.candidateDirectory).toBeUndefined();
+    expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
     // The terminal failure reached the waiting consumer immediately: the
     // invocation did not spin until the coordinated wait budget expired.
     expect(Date.now() - startedAt).toBeLessThan(7_000);
@@ -485,6 +486,23 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
     expect(calls.filter((call) => call.startsWith("pack:"))).toHaveLength(2);
   });
 
+  test("caught preparation failure cannot qualify a green consumer", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test, expect } from "bun:test";
+import { obtainPackageArchive } from ${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))};
+test("caught consumer", async () => {
+  await expect(obtainPackageArchive(process.cwd(), "unused-")).rejects.toThrow("fixture build failed");
+});` }]);
+    const result = await runFullCorpus(base, { packageCommands: {
+      build: async () => { throw new Error("fixture build failed"); },
+      createScriptDisabledArchive: async () => { throw new Error("unexpected pack"); },
+    } });
+    expect(result.runs[0]!.result.kind).toBe("exit");
+    expect(result.completedRuns).toBe(1);
+    expect(result.preparation.status).toBe("failed");
+    expect(result.ok).toBe(false);
+  });
+
   test("an abort during preparation is interrupted with owned resources cleaned", async () => {
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
     const before = new Set(channelDirectories());
@@ -536,6 +554,186 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
     expect(preparationLog).toContain("childCleanupFailed:");
     expect(preparationLog).toContain("childCleanupDurationMs:");
     expect(preparationLog).toContain("interrupted during the build stage");
+  });
+
+  test("channel protocol tests remove every channel from their private temporary root", async () => {
+    const directory = tempDir("apkit-channel-suite-");
+    const result = await runProcess({
+      executable: process.execPath,
+      arguments_: ["run", "test:focused", "--", "test/package-request-channel.test.ts"],
+      cwd: REPOSITORY_ROOT,
+      environment: { ...process.env, TMPDIR: directory },
+      deadlineMs: 10000,
+    });
+    expect(result.kind === "exit" && result.exitCode === 0).toBe(true);
+    expect(readdirSync(directory).filter((entry) => entry.startsWith("agent-profile-kit-package-channel-"))).toEqual([]);
+  });
+
+  test("archive cleanup rejection cannot abandon a fleet extraction", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { mock, test, expect } from "bun:test";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+let owned = "";
+mock.module(${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))}, () => ({
+  obtainPackageArchive: async () => ({ path: "fixture", cleanup: () => { throw new Error("archive cleanup fault"); } }),
+  packageArchiveRepositoryRoot: () => ".",
+  extractPackageArchive: async (_archive, directory) => { owned = directory; writeFileSync("owned-extraction", directory); mkdirSync(join(directory, "package/dist"), { recursive: true }); writeFileSync(join(directory, "package/dist/cli.js"), ""); },
+}));
+const { resolveFleetCliPath, releaseFleetCliPath } = await import(${JSON.stringify(join(REPOSITORY_ROOT, "test/support/fleet-cli.js"))});
+test("archive cleanup fault", async () => {
+  await expect(resolveFleetCliPath()).rejects.toThrow("archive cleanup fault");
+  await releaseFleetCliPath();
+  expect(existsSync(owned)).toBe(false);
+});` }]);
+    try {
+      const result = await runFullCorpus(base);
+      expect(result.ok).toBe(true);
+    } finally {
+      const marker = join(base, "owned-extraction");
+      if (existsSync(marker)) rmSync(readFileSync(marker, "utf8"), { recursive: true, force: true });
+    }
+  });
+
+  test("explicit and ambient channels stay isolated in both directions and concurrently", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test, expect } from "bun:test";
+import { obtainPackageArchive } from ${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))};
+import { createPackageRequestChannel, publishPackageChannelResponse, removePackageChannel } from ${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-request-channel.js"))};
+test("isolated channels", async () => {
+  const channels = [createPackageRequestChannel(), createPackageRequestChannel()];
+  try {
+    channels.forEach((channel, index) => publishPackageChannelResponse(channel.directory, { status: "prepared", archivePath: "/candidate-" + index + ".tgz" }));
+    const environment = (index) => ({ APKIT_TEST_SUPERVISED_INVOCATION: "1", APKIT_TEST_PACKAGE_REQUEST_CHANNEL: channels[index].directory, APKIT_TEST_PACKAGE_REQUEST_WAIT_MS: "1000" });
+    Object.assign(process.env, environment(1));
+    expect((await obtainPackageArchive(".", "unused", { environment: environment(0) })).path).toBe("/candidate-0.tgz");
+    expect((await obtainPackageArchive(".", "unused")).path).toBe("/candidate-1.tgz");
+    const results = await Promise.all([obtainPackageArchive(".", "unused", { environment: environment(0) }), obtainPackageArchive(".", "unused"), obtainPackageArchive(".", "unused")]);
+    expect(results.map((result) => result.path)).toEqual(["/candidate-0.tgz", "/candidate-1.tgz", "/candidate-1.tgz"]);
+  } finally { channels.forEach((channel) => removePackageChannel(channel.directory)); }
+});` }]);
+    const result = await runFullCorpus(base);
+    expect(result.ok).toBe(true);
+    expect(result.preparation.status).toBe("none");
+  });
+
+  test("consumer waits for preparation permitted by the runner budget", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer", "a") }]);
+    const calls: string[] = [];
+    const commands = realCandidateCommands("slow", calls);
+    const result = await runFullCorpus(base, { perRunDeadlineMs: 12000, packageCommands: {
+      ...commands,
+      build: async (stage) => { await new Promise((resolve) => setTimeout(resolve, 8300)); await commands.build(stage); },
+    } });
+    expect(result.ok).toBe(true);
+    expect(result.preparation.status).toBe("prepared");
+    expect(calls).toHaveLength(2);
+  }, 15000);
+
+  test("runner termination aborts in-flight preparation before packing", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer", "a") }]);
+    let packed = false;
+    let aborted = false;
+    const result = await runFullCorpus(base, { perRunDeadlineMs: 400, packageCommands: {
+      build: async (stage) => {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 1200);
+          stage.signal?.addEventListener("abort", () => { aborted = true; clearTimeout(timer); resolve(); }, { once: true });
+        });
+      },
+      createScriptDisabledArchive: async () => { packed = true; throw new Error("unused pack"); },
+    } });
+    expect(result.ok).toBe(false);
+    expect(aborted).toBe(true);
+    expect(packed).toBe(false);
+    expect(result.preparation.status).toBe("interrupted");
+    expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
+  });
+
+  test("failed preparation keeps directory cleanup failure in final evidence", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer", "a") }]);
+    let owned = "";
+    try {
+      const result = await runFullCorpus(base, { packageCommands: {
+        build: async () => {},
+        createScriptDisabledArchive: async (_stage, directory) => {
+          owned = directory;
+          const flag = await runProcess({ executable: "chflags", arguments_: ["uchg", directory], deadlineMs: 2000 });
+          if (flag.kind !== "exit" || flag.exitCode !== 0) throw new Error(flag.stderr);
+          throw new Error("pack failed after creating owned state");
+        },
+      } });
+      expect(result.ok).toBe(false);
+      expect(result.preparation.cleanupFailed).toBe(true);
+      expect(result.preparation.candidateDirectory).toBe(owned);
+      expect(result.preparation.cleanupFailure).toContain("bounded path removal");
+    } finally {
+      if (owned) {
+        await runProcess({ executable: "chflags", arguments_: ["nouchg", owned], deadlineMs: 2000 });
+        rmSync(owned, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("cancelled preparation retains output and delivers its terminal cause", async () => {
+    const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test, expect } from "bun:test";
+import { obtainPackageArchive } from ${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))};
+test("cancelled consumer", async () => {
+  await expect(obtainPackageArchive(process.cwd(), "unused-")).rejects.toThrow("interrupted during the build stage");
+});` }]);
+    const result = await runFullCorpus(base, { packageCommands: {
+      build: async () => { throw new PackagePreparationStageError("build", {
+        kind: "cancelled", commandLabel: "fixture build", exitCode: null, signal: "SIGTERM",
+        error: null, timedOut: false, cancelled: true, cleanupFailed: true,
+        cleanupDurationMs: 750, durationMs: 10, stdout: "OUTPUT-MARKER", stderr: "ERROR-MARKER",
+      }); },
+      createScriptDisabledArchive: async () => { throw new Error("unexpected pack"); },
+    } });
+    expect(result.completedRuns).toBe(1);
+    expect(result.ok).toBe(false);
+    expect(result.preparation.childCleanupFailed).toBe(true);
+    expect(result.preparation.childCleanupDurationMs).toBe(750);
+    const log = readFileSync(join(result.logDir, PREPARATION_LOG_FILENAME), "utf8");
+    expect(log).toContain("OUTPUT-MARKER");
+    expect(log).toContain("ERROR-MARKER");
+    expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
+  });
+
+  test("publication and diagnostic failures cannot skip owned cleanup", async () => {
+    for (const fault of ["response.json", "preparation.log"]) {
+      const base = fixtureCorpus([{ path: CONSUMER_A, body: `
+import { test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { obtainPackageArchive } from ${JSON.stringify(join(REPOSITORY_ROOT, "test/support/package-archive.js"))};
+test("fault", async () => {
+  const channel = process.env.APKIT_TEST_PACKAGE_REQUEST_CHANNEL!;
+  writeFileSync("channel-path", channel);
+  if (${JSON.stringify(fault)} === "response.json") mkdirSync(join(channel, "response.json"));
+  try { await obtainPackageArchive(process.cwd(), "unused-"); } catch {}
+});` }]);
+      const candidatePaths: string[] = [];
+      const commands = realCandidateCommands("publication", []);
+      if (fault === "preparation.log") mkdirSync(join(base, "logs", fault), { recursive: true });
+      try {
+        try {
+          await runFullCorpus(base, { perRunDeadlineMs: 700, packageCommands: {
+            build: fault === "preparation.log" ? async () => { throw new Error("build fault"); } : commands.build,
+            createScriptDisabledArchive: async (stage, directory) => {
+              candidatePaths.push(directory);
+              return commands.createScriptDisabledArchive(stage, directory);
+            },
+          } });
+        } catch (error) { expect(String(error)).toContain("EISDIR"); }
+        expect(existsSync(readFileSync(join(base, "channel-path"), "utf8"))).toBe(false);
+        for (const directory of candidatePaths) expect(existsSync(directory)).toBe(false);
+      } finally {
+        // The red probe owns only these exact observed resources.
+        for (const directory of candidatePaths) rmSync(directory, { recursive: true, force: true });
+        if (existsSync(join(base, "channel-path"))) rmSync(readFileSync(join(base, "channel-path"), "utf8"), { recursive: true, force: true });
+      }
+    }
   });
 
   test("an exceptional run-loop exit releases the candidate and the channel", async () => {
@@ -638,8 +836,8 @@ describe("invocation preparation: lazy, supervisor-owned, one candidate", () => 
         path: "test/fleet-cleanup-failure.test.ts",
         body: `
 import { afterAll, test } from "bun:test";
-import { chmodSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { writeFileSync } from "node:fs";
+import { runProcess } from ${JSON.stringify(join(REPOSITORY_ROOT, "process", "process-executor.js"))};
 import { dirname } from "node:path";
 import { resolveFleetCliPath, releaseFleetCliPath } from ${JSON.stringify(join(REPOSITORY_ROOT, "test", "support", "fleet-cli.js"))};
 
@@ -653,32 +851,38 @@ test("fleet cleanup failure propagates", async () => {
   // Make the extraction directory unremovable (immutable flag: deleting the
   // directory or its children fails with EPERM on this platform); the release
   // must fail loudly instead of reporting success.
-  execFileSync("chflags", ["uchg", dirname(cliPath)]);
+  writeFileSync("owned-extraction", dirname(dirname(dirname(cliPath))));
+  const result = await runProcess({ executable: "chflags", arguments_: ["uchg", dirname(cliPath)], deadlineMs: 2000 });
+  if (result.kind !== "exit" || result.exitCode !== 0) throw new Error(result.stderr);
 });
 `,
       },
     ]);
-    const result = await runFullCorpus(base, {
-      packageCommands: realCandidateCommands("cleanup-failure", []),
-    });
-    expect(result.ok).toBe(false);
-    expect(result.runs[0]!.result.stderr).toContain("EPERM");
-    // Parent-owned recovery: clear the immutable flag and remove the
-    // extraction directory the fixture made unremovable.
-    const extractionDirs = readdirSync(tmpdir()).filter((entry) =>
-      entry.startsWith("agent-profile-kit-fleet-cli-extracted-"),
-    );
-    for (const entry of extractionDirs) {
-      const path = join(tmpdir(), entry);
-      if (statSync(path).isDirectory()) {
-        // Robust recovery: clear every restrictive mode and immutable flag in
-        // the tree, then remove it — a partially removed tree from an earlier
-        // attempt must not defeat the parent's cleanup.
-        execFileSync("chmod", ["-R", "u+rwx", path]);
-        execFileSync("chflags", ["-R", "nouchg", path]);
-        rmSync(path, { recursive: true, force: true });
+    const marker = join(base, "owned-extraction");
+    const unrelated = tempDir("agent-profile-kit-fleet-cli-extracted-");
+    writeFileSync(join(unrelated, "control"), "unrelated invocation");
+    try {
+      const result = await runFullCorpus(base, {
+        packageCommands: realCandidateCommands("cleanup-failure", []),
+      });
+      expect(result.ok).toBe(false);
+      expect(result.runs[0]!.result.stderr).toContain("EPERM");
+    } finally {
+      if (existsSync(marker)) {
+        const directory = readFileSync(marker, "utf8");
+        const recovery = await runProcess({
+          executable: "chflags", arguments_: ["-R", "nouchg", directory], deadlineMs: 2000,
+        });
+        if (recovery.kind !== "exit" || recovery.exitCode !== 0) throw new Error(recovery.stderr);
+        const removal = await runProcess({
+          executable: process.execPath,
+          arguments_: ["-e", "require('node:fs').rmSync(process.argv[1], {recursive:true, force:true})", directory],
+          deadlineMs: 2000,
+        });
+        expect(removal.kind === "exit" && removal.exitCode === 0).toBe(true);
+        expect(existsSync(directory)).toBe(false);
       }
-      expect(existsSync(path)).toBe(false);
+      expect(readFileSync(join(unrelated, "control"), "utf8")).toBe("unrelated invocation");
     }
   });
 

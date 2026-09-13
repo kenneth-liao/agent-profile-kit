@@ -301,11 +301,12 @@ export async function obtainPackageArchive(
     if (channelDirectory === undefined || channelDirectory.length === 0) {
       throw new SupervisorPreparationDefectError();
     }
-    supervisedRunCandidate = await requestInvocationPackage(
+    const candidate = await requestInvocationPackage(
       channelDirectory,
       resolvePackageRequestWaitDeadline(environment),
     );
-    return { path: supervisedRunCandidate, cleanup: () => undefined };
+    if (options.environment === undefined) supervisedRunCandidate = candidate;
+    return { path: candidate, cleanup: () => undefined };
   }
   const commands = options.commands ?? systemPackageArchiveCommands;
   const packageDirectory = mkdtempSync(join(tmpdir(), prefix));
