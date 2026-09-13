@@ -225,14 +225,17 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     expect(result.preparation.cleanupFailed).toBe(false);
     // Exactly one build and one pack; the pack's remaining budget share is
     // bounded by the build's measured consumption because the stages share
-    // one finite budget (the injected build sleeps at least 25ms).
+    // one finite budget (the injected build sleeps at least 25ms, and the
+    // shares are read after the directory creation, so the build's share is
+    // at most the full budget and never below the sleep it contains).
     expect(calls.filter((call) => call.startsWith("build:"))).toHaveLength(1);
     expect(calls.filter((call) => call.startsWith("pack:"))).toHaveLength(1);
     const buildShare = Number(calls.find((call) => call.startsWith("build:"))!.split(":")[1]);
     const packShare = Number(calls.find((call) => call.startsWith("pack:"))!.split(":")[1]);
-    expect(buildShare).toBe(30_000);
+    expect(buildShare).toBeGreaterThan(0);
+    expect(buildShare).toBeLessThanOrEqual(30_000);
     expect(packShare).toBeGreaterThan(0);
-    expect(packShare).toBeLessThanOrEqual(30_000 - 25);
+    expect(packShare).toBeLessThanOrEqual(buildShare - 25);
     // Both consumers received the same candidate archive and executed its CLI.
     const archiveA = readFileSync(join(base, "markers", "a-archive"), "utf8");
     const archiveB = readFileSync(join(base, "markers", "b-archive"), "utf8");
@@ -413,8 +416,12 @@ describe("invocation preparation: real supervisor, real runner, one candidate", 
     expect(result.attemptedRuns).toBe(0);
     expect(result.preparation.status).toBe("interrupted");
     // The abort signal actually reached the build stage: the stage recorded
-    // receiving the signal and the invocation did not wait out the fallback.
-    expect(calls).toContain("build:30000:signal");
+    // receiving the signal (its deadline share may have ticked down by the
+    // directory creation, so the number is read loosely) and the invocation
+    // did not wait out the fallback timer.
+    const buildCall = calls.find((call) => call.startsWith("build:"));
+    expect(buildCall).toMatch(/^build:\d+:signal$/);
+    expect(Number(buildCall!.split(":")[1])).toBeGreaterThan(0);
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     expect(existsSync(result.preparation.candidateDirectory!)).toBe(false);
     expect(existsSync(join(result.logDir, PREPARATION_LOG_FILENAME))).toBe(true);

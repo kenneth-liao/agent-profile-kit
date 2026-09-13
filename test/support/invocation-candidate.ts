@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 
 import type { SuiteMode } from "./suite-supervisor.js";
@@ -166,7 +166,7 @@ export function focusedPositionalArguments(bunArguments: readonly string[]): rea
 export function deriveInvocationSelectionScope(
   base: string,
   bunArguments: readonly string[],
-  exists: (path: string) => boolean = (path) => existsSync(resolve(base, path)),
+  exists: (path: string) => boolean = (path) => existsSync(resolve(base, path)) && statSync(resolve(base, path)).isFile(),
 ): InvocationSelectionScope {
   const positional = focusedPositionalArguments(bunArguments);
   if (positional.length === 0) {

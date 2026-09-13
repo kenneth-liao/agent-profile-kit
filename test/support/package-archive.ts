@@ -81,7 +81,7 @@ export function packageBuildStage(repositoryRoot: string, deadlineMs: number): E
     arguments_: ["run", "build"],
     cwd: repositoryRoot,
     deadlineMs,
-    commandLabel: "package preparation build",
+    commandLabel: BUILD_STAGE_LABEL,
   };
 }
 
@@ -95,7 +95,7 @@ export function packagePackStage(
     arguments_: ["pack", "--silent", "--ignore-scripts", "--json", "--pack-destination", destination],
     cwd: repositoryRoot,
     deadlineMs,
-    commandLabel: "package preparation pack",
+    commandLabel: PACK_STAGE_LABEL,
   };
 }
 
@@ -124,19 +124,25 @@ export function packedArchiveFilename(packStdout: string): string {
   return metadata[0]!.filename;
 }
 
+/** Single-homed stage identities: the diagnostic label and the error prefix share them. */
+const BUILD_STAGE_LABEL = "package preparation build";
+const PACK_STAGE_LABEL = "package preparation pack";
+
 /** The system preparation commands: bounded executor children, one home. */
 export const systemPackageArchiveCommands: PackageArchiveCommands = {
   build: async (stage) => {
-    const build = packageBuildStage(stage.repositoryRoot, stage.deadlineMs);
-    // One stage identity per stage: the diagnostic label and the error prefix
-    // derive from the same constant, so they cannot drift.
-    const result = await runProcess(build, stage.signal);
-    assertStageExit(build.commandLabel ?? "package preparation build", result);
+    const result = await runProcess(
+      packageBuildStage(stage.repositoryRoot, stage.deadlineMs),
+      stage.signal,
+    );
+    assertStageExit(BUILD_STAGE_LABEL, result);
   },
   createScriptDisabledArchive: async (stage, destination) => {
-    const pack = packagePackStage(stage.repositoryRoot, destination, stage.deadlineMs);
-    const result = await runProcess(pack, stage.signal);
-    assertStageExit(pack.commandLabel ?? "package preparation pack", result);
+    const result = await runProcess(
+      packagePackStage(stage.repositoryRoot, destination, stage.deadlineMs),
+      stage.signal,
+    );
+    assertStageExit(PACK_STAGE_LABEL, result);
     return packedArchiveFilename(result.stdout);
   },
 };
