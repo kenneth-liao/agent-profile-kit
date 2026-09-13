@@ -367,8 +367,6 @@ export interface PreparedSuiteInvocation {
 
 /** Which corpus files the invocation requires and which policy removes. */
 export interface SelectionPlan {
-  /** Every current corpus test file, POSIX-relative to the corpus base. */
-  readonly files: readonly string[];
   /** Required selection, POSIX-relative to the corpus base. */
   readonly selected: readonly string[];
   /** Files removed by the exclusion policy, POSIX-relative to the corpus base. */
@@ -473,7 +471,6 @@ function deriveSelectionPlan(
       .map((argument) => normalizeRelativePath(base, argument))
       .filter((normalized) => inventory.files.includes(normalized));
     return {
-      files: inventory.files,
       selected: inventory.selected,
       excluded: inventory.excluded,
       named,
@@ -492,7 +489,7 @@ function deriveSelectionPlan(
       `suite supervisor ${mode} mode: required selection cannot be empty after exclusions (${inventory.excluded.join(", ")})`,
     );
   }
-  return { files: inventory.files, selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
+  return { selected: inventory.selected, excluded: inventory.excluded, named: [], nameFilterActive: false };
 }
 
 /**

@@ -89,6 +89,10 @@ describe("corpus inventory: derivation at the test root", () => {
         'import { test } from "bun:test";\ntest("included", () => {});\n',
       );
       const excluded = enumerateTestCorpus(base, ["test/fleet-qualification.test.ts"]);
+      expect(excluded.files).toEqual([
+        `${TEST_CORPUS_ROOT}/fleet-qualification.test.ts`,
+        `${TEST_CORPUS_ROOT}/included.test.ts`,
+      ]);
       expect(excluded.selected).toEqual([`${TEST_CORPUS_ROOT}/included.test.ts`]);
       expect(excluded.excluded).toEqual([`${TEST_CORPUS_ROOT}/fleet-qualification.test.ts`]);
 
