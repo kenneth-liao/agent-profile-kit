@@ -60,6 +60,13 @@ test("private releases are manual, main-only, fully gated, and attach the packed
     engines?: { bun?: string };
   };
   expect(pinnedBunVersion()).toBe(manifest.engines?.bun ?? "");
+  // Release qualification qualifies the same declared primary Node line; the
+  // filter/length loop pins every setup-node step, not only the first.
+  const setupNodes = steps.filter((step) => step.uses?.startsWith("actions/setup-node@"));
+  expect(setupNodes).toHaveLength(1);
+  for (const step of setupNodes) {
+    expect(step.with?.["node-version"]).toBe("22");
+  }
   expect(steps.find((step) => step.name === "Create private GitHub Release")?.env?.GH_TOKEN).toBe(
     "${{ github.token }}",
   );

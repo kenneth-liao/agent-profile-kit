@@ -609,12 +609,26 @@ test("caught consumer", async () => {
     const base = fixtureCorpus([{ path: CONSUMER_A, body: consumerSource("consumer A", "a") }]);
     const before = new Set(channelDirectories());
     const calls: string[] = [];
+    // The abort synchronizes on the observable build-start state, not a fixed
+    // timer: admission stages (including the #540 macOS version observation)
+    // precede the consumer-triggered preparation, and a fixed abort deadline
+    // could land before the build stage starts on a slower runner.
+    let notifyBuildStarted: () => void = () => undefined;
+    const buildStarted = new Promise<void>((resolve) => {
+      notifyBuildStarted = resolve;
+    });
     const commands: PackageArchiveCommands = {
       build: async (stage) => {
         calls.push(`build:${stage.deadlineMs}:${stage.signal === undefined ? "no-signal" : "signal"}`);
+        notifyBuildStarted();
         // The signal releases this wait; the fallback timer only bounds a
-        // broken signal path, and the proof below asserts propagation.
+        // broken signal path, and the proof below asserts propagation. A
+        // signal already aborted before the listener registers releases too.
         await new Promise<void>((resolve) => {
+          if (stage.signal?.aborted) {
+            resolve();
+            return;
+          }
           const timer = setTimeout(resolve, 5_000);
           stage.signal?.addEventListener(
             "abort",
@@ -631,7 +645,7 @@ test("caught consumer", async () => {
       },
     };
     const controller = new AbortController();
-    setTimeout(() => controller.abort(), 150);
+    buildStarted.then(() => controller.abort());
     const startedAt = Date.now();
     const result = await runFullCorpus(base, { packageCommands: commands }, controller.signal);
     expect(result.ok).toBe(false);
@@ -1917,13 +1931,14 @@ test("mutating consumer requests the candidate", async () => {
     };
     expect(record.status).toBe("incomplete");
     expect(record.ok).toBe(false);
-    // The bounded capture consumed the invocation's whole budget (no fresh
-    // floor): the cause names the exhausted stage, whether the budget check
-    // or the bounded git child hit it first.
-    expect(record.reason).toMatch(/budget exhausted|source capture failed/);
+    // The bounded admission stages consumed the invocation's whole budget (no
+    // fresh floor): the cause names the exhausted stage — the macOS version
+    // observation probe runs at admission before the capture (#540), so either
+    // the budget check or a bounded child of either stage can hit it first.
+    expect(record.reason).toMatch(/budget is exhausted|source capture failed/);
     // The capture failure stops unqualified execution: no runs, explicit cause.
     expect(record.source.kind).toBe("unavailable");
-    expect(record.source.cause).toMatch(/budget exhausted|source capture failed/);
+    expect(record.source.cause).toMatch(/budget is exhausted|source capture failed/);
     expect(record.preparation.status).toBe("failed");
   });
 

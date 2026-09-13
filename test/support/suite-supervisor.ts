@@ -197,6 +197,12 @@ export interface SuiteSupervisorOptions {
    * executable through the shared bounded executor.
    */
   readonly packedRuntimeProbe?: PackedRuntimeProbe;
+  /**
+   * Test seam: replace the macOS version observation. Canonical invocations
+   * always observe the actual environment identity through the shared bounded
+   * executor at admission.
+   */
+  readonly osVersionProbe?: OsVersionProbe;
 }
 
 /** The one resolved, validated budget contract for a supervised invocation. */
@@ -409,7 +415,8 @@ export const PREPARATION_LOG_FILENAME = "preparation.log";
 export const QUALIFICATION_RECORD_FILENAME = "qualification-record.json";
 
 /** The record schema version; a reader meeting another schema rejects it. */
-export const QUALIFICATION_RECORD_SCHEMA = 1;
+/** The record's shape contract; bumped when the record contract changes. */
+export const QUALIFICATION_RECORD_SCHEMA = 2;
 
 /**
  * The invocation's admitted source identity. It is fixed at admission — one
@@ -465,6 +472,107 @@ export type PackedRuntimeProbe = (context: {
 }) => Promise<PackedRuntimeObservation>;
 
 /**
+ * The complete typed unavailable evidence for one bounded observation child:
+ * the one shared home of the runtime probes' failure contract — captured
+ * output tail, cancellation, cleanup fields, and separate durations — so a
+ * change to the evidence contract cannot drift between the probes (#539/#540).
+ */
+function unavailableObservationFromChild(label: string, result: ProcessResult): {
+  cause: string;
+  diagnostics: string;
+  childCleanupFailed: boolean;
+  childCleanupDurationMs: number;
+  childDurationMs: number;
+  cancelled: boolean;
+} {
+  return {
+    cause: describeProcessResult(result),
+    diagnostics: [
+      `--- ${label} result ---`,
+      describeProcessResult(result),
+      `cancelled: ${result.cancelled}`,
+      `childCleanupFailed: ${result.cleanupFailed}`,
+      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
+      `childDurationMs: ${result.durationMs}`,
+      "--- stdout ---",
+      result.stdout,
+      "--- stderr ---",
+      result.stderr,
+    ].join("\n"),
+    childCleanupFailed: result.cleanupFailed,
+    childCleanupDurationMs: result.cleanupDurationMs,
+    childDurationMs: result.durationMs,
+    cancelled: result.cancelled,
+  };
+}
+
+/**
+ * One observed macOS version of the qualification environment (#540). The
+ * observed value is what the environment answered — never a runner-label
+ * inference (DEC-010). An unavailable observation is retained with its
+ * complete typed child evidence through the same diagnostics boundary as every
+ * other bounded stage, and makes the invocation incomplete: a baseline cannot
+ * be qualified without its observed macOS identity. Off the supported Darwin
+ * platform the record represents the truthfully unobservable macOS baseline —
+ * never a new environment support claim (OOS-007).
+ */
+export type OsVersionObservation =
+  | { readonly kind: "observed"; readonly version: string }
+  | {
+      readonly kind: "unavailable";
+      readonly cause: string;
+      /** The complete typed child evidence, retained through the same
+       * diagnostics boundary as every other bounded stage (#537/#538/#539). */
+      readonly diagnostics?: string;
+      readonly childCleanupFailed?: boolean;
+      readonly childCleanupDurationMs?: number;
+      readonly childDurationMs?: number;
+      readonly cancelled?: boolean;
+    };
+
+export type OsVersionProbe = (context: {
+  readonly deadlineMs: number;
+  readonly signal: AbortSignal | undefined;
+}) => Promise<OsVersionObservation>;
+
+/**
+ * The system macOS version probe: one bounded read-only `sw_vers
+ * -productVersion` child through the shared bounded executor. Off Darwin no
+ * child runs: the observation is unavailable with the explicit platform cause.
+ * Any child failure resolves to an explicit `unavailable` observation carrying
+ * the complete typed child evidence — captured output, cancellation, cleanup
+ * fields, and separate durations — never a truncated description; nothing
+ * throws past the seam.
+ */
+export const systemOsVersionProbe: OsVersionProbe = async (context) => {
+  if (process.platform !== "darwin") {
+    return {
+      kind: "unavailable",
+      cause: `the macOS version observation is unavailable on this platform (platform: ${process.platform}); the qualified baseline is macOS only`,
+    };
+  }
+  const result = await runProcess(
+    {
+      executable: "sw_vers",
+      arguments_: ["-productVersion"],
+      deadlineMs: context.deadlineMs,
+      commandLabel: "macOS version observation",
+    },
+    context.signal,
+  );
+  // The recorded identity is what the environment answered in the version
+  // shape; a malformed answer is not a version and is never recorded as one.
+  const version = result.stdout.trim();
+  if (result.kind === "exit" && result.exitCode === 0 && /^\d+(?:\.\d+)*$/.test(version)) {
+    return { kind: "observed", version };
+  }
+  return {
+    kind: "unavailable",
+    ...unavailableObservationFromChild("macOS version observation", result),
+  };
+};
+
+/**
  * The system packed-runtime probe: one bounded `--version` child of the
  * canonical packed consumer's selected executable, through the shared bounded
  * executor. Any failure resolves to an explicit `unavailable` observation
@@ -488,23 +596,7 @@ export const systemPackedRuntimeProbe: PackedRuntimeProbe = async (context) => {
   return {
     kind: "unavailable",
     executable: context.executable,
-    cause: describeProcessResult(result),
-    diagnostics: [
-      "--- packed CLI runtime observation result ---",
-      describeProcessResult(result),
-      `cancelled: ${result.cancelled}`,
-      `childCleanupFailed: ${result.cleanupFailed}`,
-      `childCleanupDurationMs: ${result.cleanupDurationMs}`,
-      `childDurationMs: ${result.durationMs}`,
-      "--- stdout ---",
-      result.stdout,
-      "--- stderr ---",
-      result.stderr,
-    ].join("\n"),
-    childCleanupFailed: result.cleanupFailed,
-    childCleanupDurationMs: result.cleanupDurationMs,
-    childDurationMs: result.durationMs,
-    cancelled: result.cancelled,
+    ...unavailableObservationFromChild("packed CLI runtime observation", result),
   };
 };
 
@@ -550,6 +642,9 @@ export interface QualificationRecord {
       readonly executable: string;
       readonly platform: string;
       readonly arch: string;
+      /** The observed macOS version of this environment (#540), measured at
+       * admission — never inferred from a runner label. */
+      readonly osVersion: OsVersionObservation;
     };
     readonly suiteRunner:
       | { readonly kind: "pinned-bun"; readonly version: string; readonly executable: string }
@@ -606,10 +701,11 @@ export interface InvocationCompletion {
  * The one completion evaluator for a supervised invocation: the result's `ok`
  * and the qualification record's status/reason are both derived here, so no
  * second mutable fact can drift. The existing completion conditions are
- * unchanged; an owed-but-unavailable packed runtime observation is the one new
- * condition (#539): when a candidate was admitted, the actual packed runtime
- * evidence is owed, and its unavailability can never yield a complete
- * qualification.
+ * unchanged. Two owed-observation conditions can never yield a complete
+ * qualification (#539/#540): when a candidate was admitted, the actual packed
+ * runtime evidence is owed; and the observed macOS version of the baseline
+ * environment is always owed — an unavailable observation of either is an
+ * incomplete qualification with its explicit cause, never a false success.
  */
 function evaluateInvocationCompletion(facts: {
   readonly maxRuns: number;
@@ -622,6 +718,7 @@ function evaluateInvocationCompletion(facts: {
   readonly preparation: PreparationEvidence;
   readonly firstFailureDescription: string | null;
   readonly packedRuntime: PackedRuntimeObservation | undefined;
+  readonly osVersion: OsVersionObservation;
   /** A zero-run failure's direct cause (admission rejection, capture failure). */
   readonly invocationFailure?: string;
 }): { ok: boolean; status: "complete" | "incomplete" | "interrupted"; reason?: string } {
@@ -634,6 +731,7 @@ function evaluateInvocationCompletion(facts: {
     facts.preparation.status !== "interrupted" &&
     facts.preparation.childCleanupFailed !== true &&
     facts.packedRuntime?.kind !== "unavailable" &&
+    facts.osVersion.kind !== "unavailable" &&
     facts.invocationFailure === undefined;
   const reason = facts.interrupted
     ? undefined
@@ -647,13 +745,15 @@ function evaluateInvocationCompletion(facts: {
             ? (facts.preparation.failure ?? "unspecified")
             : facts.preparation.childCleanupFailed === true
               ? "a preparation child's cleanup could not be confirmed terminated"
-              : facts.packedRuntime?.kind === "unavailable"
-                ? `the packed CLI runtime observation failed: ${facts.packedRuntime.cause}`
-                : facts.invocationFailure !== undefined
-                  ? facts.invocationFailure
-                  : facts.firstFailureDescription !== null
-                    ? facts.firstFailureDescription
-                    : `incomplete after ${facts.completedRuns}/${facts.maxRuns} green runs`;
+              : facts.osVersion.kind === "unavailable"
+                ? `the macOS version observation failed: ${facts.osVersion.cause}`
+                : facts.packedRuntime?.kind === "unavailable"
+                  ? `the packed CLI runtime observation failed: ${facts.packedRuntime.cause}`
+                  : facts.invocationFailure !== undefined
+                    ? facts.invocationFailure
+                    : facts.firstFailureDescription !== null
+                      ? facts.firstFailureDescription
+                      : `incomplete after ${facts.completedRuns}/${facts.maxRuns} green runs`;
   return {
     ok,
     status: facts.interrupted ? "interrupted" : ok ? "complete" : "incomplete",
@@ -1586,6 +1686,31 @@ export async function runSupervisedSuite(
   const ambient = supervisedInvocationActive(process.env)
     ? undefined
     : process.env[PREPARED_PACKAGE_ARCHIVE_ENV];
+  // The macOS version observation (#540): one bounded read-only child at
+  // admission, sharing the invocation's remaining budget and abort signal —
+  // never a fresh deadline floor and never a finalization child. Its elapsed
+  // time is deducted from every later stage's budget through the existing
+  // elapsed-time accounting, and the observed product version is the baseline
+  // environment's own identity (measured, not inferred from a runner label).
+  let osVersion: OsVersionObservation;
+  if (invocationAborted()) {
+    osVersion = {
+      kind: "unavailable",
+      cause: "the invocation was aborted before the macOS version observation",
+    };
+  } else {
+    try {
+      osVersion = await (options.osVersionProbe ?? systemOsVersionProbe)({
+        deadlineMs: budgetFor("the macOS version observation"),
+        signal: abortSignal,
+      });
+    } catch (error) {
+      osVersion = {
+        kind: "unavailable",
+        cause: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   let suppliedArchivePath: string | undefined;
   let pinnedDirectory: string | null = null;
   let suppliedDurationMs = 0;
@@ -1762,6 +1887,7 @@ export async function runSupervisedSuite(
         admittedRecord: null,
         archivePath: null,
         packedRuntime: undefined,
+        osVersion,
         preparationLogPath,
         invocationError: undefined,
         ...(evidence.failure === undefined ? {} : { invocationFailure: evidence.failure }),
@@ -1879,6 +2005,7 @@ export async function runSupervisedSuite(
         admittedRecord: null,
         archivePath: null,
         packedRuntime: undefined,
+        osVersion,
         preparationLogPath,
         invocationError: undefined,
         invocationFailure: cause,
@@ -2148,6 +2275,7 @@ export async function runSupervisedSuite(
     admittedRecord: admittedRecord ?? preparedRecord,
     archivePath: preparedArchivePath ?? suppliedArchivePath ?? null,
     packedRuntime,
+    osVersion,
     preparationLogPath: retainedPreparationLog,
     invocationError,
     ...(options.bunArguments === undefined || options.bunArguments.length === 0
@@ -2173,6 +2301,8 @@ interface FinalizationFacts {
   readonly admittedRecord: PackageIdentityRecord | null;
   readonly archivePath: string | null;
   readonly packedRuntime: PackedRuntimeObservation | undefined;
+  /** The observed macOS version of this environment, measured at admission. */
+  readonly osVersion: OsVersionObservation;
   readonly preparationLogPath: string | undefined;
   readonly invocationError: unknown;
   /** A zero-run failure's direct cause (admission rejection, capture failure). */
@@ -2240,6 +2370,7 @@ function buildQualificationRecord(
         executable: process.execPath,
         platform: process.platform,
         arch: process.arch,
+        osVersion: facts.osVersion,
       },
       // The runtime that actually executed the supervised suite: the pinned
       // Bun for canonical invocations, the injected seam's executable for
@@ -2335,6 +2466,7 @@ function finalizeInvocation(facts: FinalizationFacts): SuiteSupervisorResult {
       preparation: facts.preparation,
       firstFailureDescription,
       packedRuntime: facts.packedRuntime,
+      osVersion: facts.osVersion,
       ...(invocationFailure === undefined ? {} : { invocationFailure }),
     });
   let cleanupFailed = facts.cleanupFailed;

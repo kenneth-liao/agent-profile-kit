@@ -19,6 +19,7 @@ import {
   formatSuiteSummary,
   resolveSuitePolicy,
   runSupervisedSuite,
+  systemOsVersionProbe,
   systemPackedRuntimeProbe,
   type SuiteMode,
 } from "./support/suite-supervisor.js";
@@ -974,6 +975,9 @@ describe("suite supervisor: qualification records", () => {
         suiteCommand: shFixture("exit 0"),
         perRunDeadlineMs: 2000,
         logDir,
+        // The macOS version observation is injected: the expected value is
+        // exactly what this probe returned — never a label inference.
+        osVersionProbe: async () => ({ kind: "observed", version: "14.5.0" }),
       });
       expect(result.ok).toBe(true);
       const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as { runs: Array<Record<string, unknown>> } & Record<string, unknown>;
@@ -998,6 +1002,7 @@ describe("suite supervisor: qualification records", () => {
           executable: process.execPath,
           platform: process.platform,
           arch: process.arch,
+          osVersion: { kind: "observed", version: "14.5.0" },
         },
         suiteRunner: { kind: "injected-fixture", executable: "sh" },
       });
@@ -1020,6 +1025,32 @@ describe("suite supervisor: qualification records", () => {
       expect(record.attemptedRuns).toBe(1);
       expect(record.completedRuns).toBe(1);
       expect(record.diagnostics).toMatchObject({ logDir });
+    } finally {
+      rmSync(logDir, { recursive: true, force: true });
+    }
+  });
+
+  test("an unavailable macOS version observation marks a green run incomplete with its cause", async () => {
+    const logDir = tempDir();
+    try {
+      const result = await runSupervisedSuite({
+        mode: "full",
+        suiteCommand: shFixture("exit 0"),
+        perRunDeadlineMs: 2000,
+        logDir,
+        osVersionProbe: async () => ({ kind: "unavailable", cause: "INJECTED-MACOS-FAULT" }),
+      });
+      // The run itself still executed: the observation gates completion, not
+      // the run loop — but a baseline without its observed macOS identity can
+      // never be represented as complete qualification.
+      expect(result.ok).toBe(false);
+      expect(result.attemptedRuns).toBe(1);
+      const record = JSON.parse(readFileSync(recordPath(logDir), "utf8")) as Record<string, unknown>;
+      expect(record.status).toBe("incomplete");
+      expect(record.ok).toBe(false);
+      expect(record.reason).toContain("the macOS version observation failed: INJECTED-MACOS-FAULT");
+      const runtime = record.runtime as { supervisor: Record<string, unknown> };
+      expect(runtime.supervisor.osVersion).toEqual({ kind: "unavailable", cause: "INJECTED-MACOS-FAULT" });
     } finally {
       rmSync(logDir, { recursive: true, force: true });
     }
@@ -1190,6 +1221,29 @@ describe("suite supervisor: qualification records", () => {
     if (observation.kind === "probe") {
       expect(observation.executable).toBe(packedCliNodeExecutable());
       expect(observation.version).toMatch(/^v?\d+\./);
+    }
+  });
+
+  test("the macOS version observation observes the actual product version", async () => {
+    const observation = await systemOsVersionProbe({ deadlineMs: 10_000, signal: undefined });
+    expect(observation.kind).toBe("observed");
+    if (observation.kind === "observed") {
+      // One bounded read-only child; the recorded version is what the
+      // environment answered, never a runner-label inference.
+      expect(observation.version).toMatch(/^\d+([.]\d+)*$/);
+    }
+  });
+
+  test("an aborted macOS version observation retains its typed child evidence", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const observation = await systemOsVersionProbe({ deadlineMs: 10_000, signal: controller.signal });
+    expect(observation.kind).toBe("unavailable");
+    if (observation.kind === "unavailable") {
+      expect(observation.cancelled).toBe(true);
+      expect(typeof observation.childDurationMs).toBe("number");
+      expect(typeof observation.childCleanupDurationMs).toBe("number");
+      expect(observation.childCleanupFailed).toBe(false);
     }
   });
 
