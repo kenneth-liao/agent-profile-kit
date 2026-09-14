@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Made the empty-lock install-publication test deterministic by pinning the lock file's mtime before the call, so its outcome no longer depends on `Date.now()` and the filesystem mtime agreeing within a few milliseconds (#565)
 - Fixed the suite supervisor exiting with only its start line when an internal error occurred after the run loop — it now prints its truthful summary on stdout with the cause on stderr, and a cleanup failure no longer aborts the remaining bounded removals (#566)
 - Added a `stream` stdin mode to the shared bounded executor's interactive-child support, alongside the existing write-then-close delivery (#542)
 - Added truthful macOS baseline observation to qualification records: one read-only `sw_vers -productVersion` probe at admission gates completion, and a baseline without an observed macOS identity never reports success (#540)
