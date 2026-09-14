@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runProcess } from "../process/process-executor.js";
 import { InvalidProvenanceError, createPackageCandidate } from "./support/package-identity.js";
+import { QUALIFICATION_RECORD_SCHEMA } from "./support/suite-supervisor.js";
 import {
   ReleaseCandidateVerificationError,
   verifyReleaseCandidate,
@@ -146,6 +147,25 @@ describe("release candidate verification", () => {
     expect((caught as InvalidProvenanceError).reason).toBe("digest-mismatch");
   });
 
+  test("a candidate record that is not valid JSON is rejected", async () => {
+    const candidate = await createFixtureCandidate("apkit-verify-badrecord-");
+    writeFileSync(`${candidate.archivePath}.provenance.json`, "{not json");
+
+    let caught: unknown;
+    try {
+      await verifyReleaseCandidate({
+        archivePath: candidate.archivePath,
+        repositoryRoot: candidate.repositoryRoot,
+        expectedRevision: candidate.head,
+        qualificationRecordPath: writeQualificationRecord(candidate, qualificationRecord(candidate)),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(InvalidProvenanceError);
+    expect((caught as InvalidProvenanceError).reason).toBe("malformed");
+  });
+
   test("a missing candidate record is rejected", async () => {
     const candidate = await createFixtureCandidate("apkit-verify-norecord-");
     rmSync(`${candidate.archivePath}.provenance.json`);
@@ -235,6 +255,28 @@ describe("release candidate verification", () => {
         repositoryRoot: candidate.repositoryRoot,
         expectedRevision: candidate.head,
         qualificationRecordPath: join(path, "qualification-record.json"),
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(ReleaseCandidateVerificationError);
+    expect((caught as ReleaseCandidateVerificationError).reason).toBe("malformed-qualification");
+  });
+
+  test("a qualification record with an unsupported schema version is rejected", async () => {
+    const candidate = await createFixtureCandidate("apkit-verify-qualschema-");
+    const wrongSchema = {
+      ...qualificationRecord(candidate),
+      schema: QUALIFICATION_RECORD_SCHEMA + 1,
+    };
+
+    let caught: unknown;
+    try {
+      await verifyReleaseCandidate({
+        archivePath: candidate.archivePath,
+        repositoryRoot: candidate.repositoryRoot,
+        expectedRevision: candidate.head,
+        qualificationRecordPath: writeQualificationRecord(candidate, wrongSchema),
       });
     } catch (error) {
       caught = error;

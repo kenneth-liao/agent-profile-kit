@@ -118,6 +118,10 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect(count("npm pack")).toBe(0);
   expect(count("bun run test\n")).toBe(1);
   expect(commands).toContain("bun run test:fleet");
+  // The candidate creation is itself a rebuild+repack: exactly one creator
+  // invocation may exist, so a second one anywhere in the workflow — which
+  // would publish bytes other than the qualified candidate — cannot pass.
+  expect(count("create-package-candidate")).toBe(1);
 
   // The candidate is created once through the shared from-source creator and
   // supplied to every packed consumer through the canonical channel.
@@ -129,13 +133,21 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect((suite.env ?? {})['APKIT_TEST_PACKAGE_ARCHIVE']).toBe("${{ env.APKIT_TEST_PACKAGE_ARCHIVE }}");
   expect((suite.env ?? {})['APKIT_TEST_DIAGNOSTICS_DIR']).toContain("${{ runner.temp }}");
 
-  // Retained evidence uses the shared CI policy: the qualification record and
-  // supervised diagnostics are uploaded on every outcome.
-  const upload = steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
-  expect(upload).toBeDefined();
-  expect(upload?.if).toBe("always()");
-  expect(upload?.with?.["if-no-files-found"]).toBe("ignore");
-  expect(String(upload?.with?.path)).toContain("${{ runner.temp }}");
+  // Retained evidence uses the shared CI policy: both the suite and the
+  // fleet run retain their qualification record and supervised diagnostics
+  // on every outcome, each under its own upload step.
+  const uploads = steps.filter((step) => step.uses?.startsWith("actions/upload-artifact@"));
+  expect(uploads).toHaveLength(2);
+  for (const upload of uploads) {
+    expect(upload.if).toBe("always()");
+    expect(upload.with?.["if-no-files-found"]).toBe("ignore");
+    expect(upload.with?.["retention-days"]).toBe(7);
+    expect(String(upload.with?.path)).toContain("${{ runner.temp }}");
+  }
+  expect(uploads.map((upload) => upload.name)).toEqual([
+    "Upload supervised suite qualification evidence",
+    "Upload fleet suite qualification evidence",
+  ]);
 
   // Publication consumes the exact qualified bytes: the evidence verification
   // step runs against the candidate, the release revision, and the retained
@@ -158,5 +170,8 @@ test("the release path builds and packs once and publishes exactly the qualified
   for (const step of steps.slice(verifyIndex, createIndex + 1)) {
     expect(step.run ?? "").not.toContain("bun run build");
     expect(step.run ?? "").not.toContain("npm pack");
+    // The creator is the rebuild+repack; its invocation must not reappear
+    // between verification and publication.
+    expect(step.run ?? "").not.toContain("create-package-candidate");
   }
 });
