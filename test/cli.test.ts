@@ -14303,8 +14303,11 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
     expectExitCode(result, 0);
     expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
     // The receipt names the replacement without inferring who changed the bytes.
+    // ADR-0042 (US-013, DEC-009): the single-Project view identity is the
+    // basename, so the receipt names the Project as a parenthesized alias and
+    // the executable argument above stays the fully spelled path (#554).
     expect(humanText(result.stdout)).toContain("~ .agent-profile-kit/codex/context.md");
-    expect(humanText(result.stdout)).toContain(projectPath);
+    expect(humanText(result.stdout)).toContain(`(${basename(projectPath)})`);
   });
 
   test("status rejects the update-only answering flag", async () => {
