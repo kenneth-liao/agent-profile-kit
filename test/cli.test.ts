@@ -13,6 +13,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -9716,20 +9717,26 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(existsSync(heldPath)).toBe(false);
   });
 
-  test("install publication does not steal a freshly empty lock while ownership is still initializing", async () => {
+  test("install publication does not steal an empty lock that has not yet aged out", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const projectPath = project();
     const configuration = configPath(home);
     const lockPath = `${configuration}.lock`;
-    // Simulate the pre-fix window: exclusive create without PID body yet.
+    // Empty lock with ownership not yet written (the ownership-initializing
+    // window). Backdate its mtime so its age at call time is pinned well inside
+    // the timeout: the wait is deterministic instead of depending on Date.now()
+    // and the filesystem mtime agreeing within a few milliseconds (CI jitter
+    // flipped that margin and failed correct product code).
     writeFileSync(lockPath, "");
+    utimesSync(lockPath, new Date(Date.now() - 100), new Date(Date.now() - 100));
 
     const { bindProject } = await import("../installer/bind-project.js");
     const started = Date.now();
     // Empty locks are live until their age exceeds the timeout. Instant steal
-    // (treating empty as dead NaN PID) would finish in a few ms; waiting is required.
+    // (treating empty as unowned) would finish in a few ms; the ~60ms wait for
+    // the lock to age out is required.
     await bindProject({
       home,
       profile: "coding",
@@ -9737,7 +9744,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       hosts: ["codex"],
       lockTimeoutMs: 150,
     });
-    expect(Date.now() - started).toBeGreaterThanOrEqual(120);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(25);
     expect(readFileSync(configuration, "utf8")).toContain(projectPath);
     expect(existsSync(lockPath)).toBe(false);
   });
