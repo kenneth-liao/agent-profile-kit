@@ -10,6 +10,7 @@ import { runProcess } from "../process/process-executor.js";
 import {
   AGGREGATE_DEADLINE_ENV,
   DEFAULT_PER_RUN_DEADLINE_MS,
+  DIAGNOSTICS_DIR_ENV,
   MAX_BUDGET_MS,
   MAX_RUNS_ENV,
   PER_RUN_DEADLINE_ENV,
@@ -632,28 +633,101 @@ describe("supervised CLI", () => {
   });
 });
 
-describe("suite supervisor: finite budget override interface", () => {
-  const focusedCli = (extraArguments: readonly string[]): readonly string[] => [
-    "run",
-    "test/support/suite-supervisor.ts",
-    "focused",
-    ...extraArguments,
-  ];
+const focusedCli = (extraArguments: readonly string[]): readonly string[] => [
+  "run",
+  "test/support/suite-supervisor.ts",
+  "focused",
+  ...extraArguments,
+];
 
-  function runSupervisorCli(
-    arguments_: readonly string[],
-    environment: NodeJS.ProcessEnv,
-    deadlineMs = 60_000,
-  ): Promise<Awaited<ReturnType<typeof runProcess>>> {
-    return runProcess({
-      executable: process.execPath,
-      arguments_,
-      environment,
-      deadlineMs,
-      commandLabel: "supervisor CLI",
-    });
+function runSupervisorCli(
+  arguments_: readonly string[],
+  environment: NodeJS.ProcessEnv,
+  deadlineMs = 60_000,
+  innerDiagnosticsDir?: string,
+): Promise<Awaited<ReturnType<typeof runProcess>>> {
+  const effectiveEnvironment =
+    innerDiagnosticsDir === undefined
+      ? environment
+      : { ...environment, [DIAGNOSTICS_DIR_ENV]: innerDiagnosticsDir };
+  return runProcess({
+    executable: process.execPath,
+    arguments_,
+    environment: effectiveEnvironment,
+    deadlineMs,
+    commandLabel: "supervisor CLI",
+  }).then((result) => {
+    announceSupervisorFailureEvidence(result, innerDiagnosticsDir);
+    return result;
+  });
+}
+
+/** One evidence section, bounded so the announced block stays far below the
+ * executor's per-stream capture budget that retains it. */
+function evidenceSection(label: string, content: string, head = false): string {
+  const limit = 16_384;
+  const bounded =
+    content.length <= limit ? content : `${head ? content.slice(0, limit) : content.slice(-limit)}`;
+  return `\n--- ${label} ---\n${bounded === "" ? "(empty)" : bounded}`;
+}
+
+/**
+ * Announce a failing inner supervisor's own evidence on this test process's
+ * stderr. The retained artifact a maintainer downloads contains only what
+ * the outer supervisor wrote into its diagnostics directory, and a nested
+ * test process cannot write there; its captured stderr is what the outer
+ * supervisor retains verbatim in the uploaded run-1.log. Announcing here is
+ * therefore how a failing supervisor's stderr, exit code, and qualification
+ * record reach the artifact, so a failure names its own mechanism instead of
+ * surfacing as an unattributable missing summary (issue #566).
+ */
+function announceSupervisorFailureEvidence(
+  result: Awaited<ReturnType<typeof runProcess>>,
+  innerDiagnosticsDir: string | undefined,
+): void {
+  if (result.kind === "exit" && result.exitCode === 0) return;
+  try {
+    const exitDescription =
+      result.kind === "exit" ? `exit ${result.exitCode}` : `kind ${result.kind}`;
+    const sections = [
+      `supervisor-cli failure evidence: ${exitDescription}`,
+      evidenceSection("supervisor stderr", result.stderr),
+      evidenceSection("supervisor stdout", result.stdout),
+    ];
+    if (innerDiagnosticsDir === undefined) {
+      sections.push(
+        "supervisor qualification record: not retained (no explicit inner diagnostics directory was passed to runSupervisorCli)",
+      );
+    } else {
+      sections.push(
+        evidenceSection(
+          "supervisor qualification record",
+          readSupervisorEvidenceFile(join(innerDiagnosticsDir, QUALIFICATION_RECORD_FILENAME)),
+        ),
+        evidenceSection(
+          "supervisor run-1 log (head)",
+          readSupervisorEvidenceFile(join(innerDiagnosticsDir, "run-1.log")),
+          true,
+        ),
+      );
+    }
+    console.error(sections.join("\n"));
+  } catch (announcementError) {
+    console.error(
+      `supervisor-cli failure evidence could not be announced: ${String(announcementError)}`,
+    );
   }
+}
 
+function readSupervisorEvidenceFile(path: string): string {
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return "(absent — this supervisor never wrote it)";
+  }
+}
+
+describe("suite supervisor: finite budget override interface", () => {
   test("rejects invalid, nonfinite, and timer-unsafe per-run overrides before launching", async () => {
     for (const value of [
       "abc",
@@ -772,6 +846,11 @@ describe("suite supervisor: finite budget override interface", () => {
   });
 
   test("exhausts an overridden per-run deadline on a real Bun child and reports incomplete qualification", async () => {
+    // An explicit inner diagnostics directory retains the inner supervisor's
+    // own run log and qualification record where the failure-announcement
+    // helper can read them; without it the supervisor scatters its evidence
+    // into a private mkdtemp directory a maintainer can never download.
+    const innerDiagnosticsDir = tempDir("apkit-inner-supervisor-diagnostics-");
     const result = await runSupervisorCli(
       focusedCli(["--", "./test/support/fixtures/stall-suite-fixture.ts"]),
       {
@@ -780,6 +859,7 @@ describe("suite supervisor: finite budget override interface", () => {
         [PER_RUN_DEADLINE_ENV]: "500",
       },
       30_000,
+      innerDiagnosticsDir,
     );
     expect(result.kind).toBe("exit");
     if (result.kind === "exit") {
@@ -795,6 +875,14 @@ describe("suite supervisor: finite budget override interface", () => {
     const log = readFileSync(logMatch![1]!, "utf8");
     expect(log).toContain("kind: timeout");
     expect(log).toContain("effective-policy: mode=focused per-run=500ms");
+    // The inner supervisor's own record is retained evidence for this test
+    // family: it must exist on this path and must represent the timeout as an
+    // incomplete qualification, never a complete one (US-001).
+    const innerRecordPath = join(innerDiagnosticsDir, QUALIFICATION_RECORD_FILENAME);
+    expect(existsSync(innerRecordPath)).toBe(true);
+    const innerRecord = JSON.parse(readFileSync(innerRecordPath, "utf8"));
+    expect(innerRecord.status).toBe("incomplete");
+    expect(innerRecord.runs[0].timedOut).toBe(true);
   });
 
   test("an unrelated control process survives a supervised timeout cleanup", async () => {
@@ -955,6 +1043,38 @@ describe("suite supervisor: finite budget override interface", () => {
       aggregateDeadlineMs: 1234,
       maxRuns: 1,
     });
+  });
+});
+
+describe("suite supervisor: internal errors still reach the reader", () => {
+  test("an exceptional finalization still emits its truthful summary on stdout with the cause on stderr", async () => {
+    // A caller-supplied diagnostics path that is an existing file cannot host
+    // the directory, so the run loop's first evidence write fails into
+    // invocationError and finalization throws — the exact completion path
+    // where the supervisor previously exited nonzero having printed only its
+    // start line, with the cause and any summary nowhere a reader would look
+    // (issue #566, CI run 34799974423). No mocks: the real supervisor, the
+    // real Bun child, real exit codes and captured streams.
+    const blockerFile = join(tempDir("apkit-supervisor-logdir-blocker-"), "logdir");
+    writeFileSync(blockerFile, "a file, not a diagnostics directory\n", { mode: 0o600 });
+    const result = await runSupervisorCli(
+      focusedCli(["--", "./test/process-executor.test.ts", "-t", "normal exit"]),
+      { ...process.env, PATH: "/usr/bin:/bin" },
+      60_000,
+      blockerFile,
+    );
+    expect(result.kind).toBe("exit");
+    if (result.kind === "exit") {
+      expect(result.exitCode).not.toBe(0);
+    }
+    // The truthful summary reaches stdout, where the summary contract lives:
+    // completion status, cause, and no representation as a complete
+    // qualification (US-001).
+    expect(result.stdout).toContain("suite focused: failed (internal error: ");
+    expect(result.stdout).not.toContain("green");
+    // stderr keeps the raw cause for diagnosis.
+    expect(result.stderr).toContain("suite supervisor: ");
+    expect(result.stderr.length).toBeGreaterThan("suite supervisor: \n".length);
   });
 });
 
