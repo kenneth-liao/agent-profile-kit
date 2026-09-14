@@ -2169,10 +2169,25 @@ export async function runSupervisedSuite(
     // gone. The finally owns cleanup on every exit — run completion, timeout,
     // interruption, and any exception between acquisition and here — and the
     // original error propagates after cleanup with its diagnostics retained.
+    // A watcher-stop failure is cleanup evidence, not an escape: recording it
+    // keeps the remaining bounded removals running instead of aborting cleanup
+    // mid-way, and the invocation still completes through finalization with
+    // its truthful summary instead of losing it to an escaping rejection
+    // (issue #566).
     if (watcher !== null) {
-      await watcher.stop();
-      const evidence = watcher.evidence();
-      candidateDirectory = evidence.candidateDirectory ?? null;
+      try {
+        await watcher.stop();
+        const evidence = watcher.evidence();
+        candidateDirectory = evidence.candidateDirectory ?? null;
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupFailure = [
+          cleanupFailure,
+          `watcher stop failed: ${error instanceof Error ? error.message : String(error)}`,
+        ]
+          .filter(Boolean)
+          .join("; ");
+      }
     }
     // Bounded cleanup of every resource this invocation owned: the prepared
     // candidate's directory and the request channel. Each removal runs through
@@ -2510,7 +2525,7 @@ function finalizeInvocation(facts: FinalizationFacts): SuiteSupervisorResult {
         [String(facts.invocationError), cleanupFailure].filter(Boolean).join("; "),
         { cause: facts.invocationError },
       ),
-      { preparation: finalPreparation },
+      { preparation: finalPreparation, logDir: facts.logDir },
     );
   }
   return result;
@@ -2638,6 +2653,22 @@ function diagnosticsDirFromEnvironment(environment: NodeJS.ProcessEnv): string |
   return resolve(authored);
 }
 
+/**
+ * The completion path's summary guarantee (issue #566): an internal error must
+ * still emit a truthful summary on stdout — completion status (never a
+ * complete qualification), the cause, and the retained evidence location when
+ * finalization attached it — instead of a silent nonzero exit.
+ */
+function printInternalErrorSummary(mode: SuiteMode, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const logDir = (error as { logDir?: unknown } | null | undefined)?.logDir;
+  console.log(
+    `suite ${mode}: failed (internal error: ${message})${
+      typeof logDir === "string" ? ` — logs: ${logDir}` : ""
+    }`,
+  );
+}
+
 function printSummary(result: SuiteSupervisorResult, interruptedBy: string | null): void {
   console.log(formatSuiteSummary(result, interruptedBy));
 }
@@ -2703,21 +2734,33 @@ async function main(args: readonly string[]): Promise<number> {
     );
   }
 
-  const result = await runSupervisedSuite(
-    {
-      ...options,
-      ...(explicitDiagnosticsDir === undefined ? {} : { logDir: explicitDiagnosticsDir }),
-      onRunComplete: (run) => {
-        if (mode === "stress") {
-          console.log(
-            `suite stress: run ${run.runNumber}/${policy.maxRuns} ${describeRunOutcome(run)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
-          );
-        }
+  let result: SuiteSupervisorResult;
+  try {
+    result = await runSupervisedSuite(
+      {
+        ...options,
+        ...(explicitDiagnosticsDir === undefined ? {} : { logDir: explicitDiagnosticsDir }),
+        onRunComplete: (run) => {
+          if (mode === "stress") {
+            console.log(
+              `suite stress: run ${run.runNumber}/${policy.maxRuns} ${describeRunOutcome(run)} in ${formatSeconds(run.result.durationMs)} — log: ${run.logPath}`,
+            );
+          }
+        },
       },
-    },
-    controller.signal,
-    invocation,
-  );
+      controller.signal,
+      invocation,
+    );
+  } catch (error) {
+    // An exceptional finalization is never a complete qualification and must
+    // still reach the reader (issue #566): the summary goes to stdout, where
+    // the summary contract lives, carrying completion status, cause, and the
+    // retained evidence location when finalization recorded it; stderr keeps
+    // the raw cause; the exit stays nonzero.
+    printInternalErrorSummary(mode, error);
+    console.error(`suite supervisor: ${error instanceof Error ? error.message : String(error)}`);
+    return 1;
+  }
 
   printSummary(result, interruptedBy);
   if (interruptedBy !== null) {
@@ -2732,6 +2775,12 @@ if (isEntryPoint) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (error: unknown) => {
+      // Last-resort completion guarantee (issue #566): even a failure of the
+      // summary machinery itself must still announce a failed, incomplete
+      // invocation on stdout before exiting; stderr keeps the raw cause.
+      console.log(
+        `suite: failed (internal error: ${error instanceof Error ? error.message : String(error)})`,
+      );
       console.error(`suite supervisor: ${error instanceof Error ? error.message : String(error)}`);
       process.exit(1);
     },

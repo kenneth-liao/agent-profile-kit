@@ -6,6 +6,10 @@ The format follows Keep a Changelog, and this repository uses Semantic Versionin
 
 ## [Unreleased]
 
+### Fixed
+
+- Guarantee the suite supervisor's truthful summary on every completion path (US-001, [#566](https://github.com/kenneth-liao/agent-profile-kit/issues/566)): an exceptional finalization — any escaping rejection after the run loop, of which the unwrapped finally cleanup and `finalizeInvocation`'s `AggregateError` are the demonstrated sites — now emits its truthful summary on stdout (`suite <mode>: failed (internal error: <cause>) — logs: <diagnostics dir>`), with the raw cause on stderr and a nonzero exit, instead of exiting having printed only its start line (CI run 34799974423's signature); the thrown `AggregateError` carries the invocation's diagnostics directory, and the entry-point rejection handler also announces the failure on stdout as the last-resort guarantee. A watcher-stop failure in the invocation's `finally` is recorded as `cleanupFailed`/`cleanupFailure` evidence and cleanup continues to its bounded removals instead of aborting mid-cleanup. The supervisor test family now retains a failing supervisor's stderr, exit code, and qualification record in the uploaded CI artifact (announced through the supervised child's retained stderr, the only channel into `APKIT_TEST_DIAGNOSTICS_DIR`) and pins an explicit inner diagnostics directory so the inner supervisor's own record is retained evidence; the investigation record is `docs/archive/issue-566-supervisor-summary-investigation.md`.
+
 ### Added
 
 - Stream interactive children through the shared bounded executor: `runInteractiveProcess` takes a discriminated `InteractiveStdin` union — the existing payload delivery (write-then-close, behavior unchanged) or a `stream` mode that hands the owned child's pid and stdin to the caller exactly once after spawn, with a throwing `onStarted`, a pre-start abort, or a stdin delivery failure all settling through the bounded cleanup lifecycle with attached evidence rather than an unsettled promise (#542).
