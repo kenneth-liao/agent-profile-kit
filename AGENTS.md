@@ -33,7 +33,7 @@ When a new category of fact does not fit these locations, record the placement d
 
 ## Verification
 
-Prefer a focused suite while iterating and run the full suite before opening a PR:
+Prefer a focused suite while iterating; for code changes, run the full suite before opening a PR:
 
 - `bun run test:focused -- <paths-or-filters>` — one explicitly selected run under the supervised lifecycle.
 - `bun run test` — one full-suite run under the supervised lifecycle.
@@ -43,6 +43,15 @@ Prefer a focused suite while iterating and run the full suite before opening a P
 All four supervise the test runner through the repository's bounded process executor and report one concise summary with a retained diagnostic log. Prefer these canonical commands over invoking the runner directly or writing custom timeout or repetition loops.
 
 The Bun toolchain version is pinned at package.json `engines.bun` — one canonical home read by local development (the supervisor's runner-identity gate, which rejects any other version before a run) and by CI (`setup-bun` with `bun-version-file: package.json`).
+
+### Evidence validity
+
+Repository verification decisions consume only valid evidence. The canonical evidence contract is the supervised run's retained qualification record (#539).
+
+- Re-execution requires changed relevant inputs or an unresolved hypothesis. Documentation and snapshot edits run their affected content, packaging, or rendering checks; they neither automatically require the full suite nor receive a blanket no-test exemption.
+- A full-suite timeout starts a bounded investigation with an explicit hypothesis. Rerun only after a relevant change or for a stated discriminating experiment; a timed-out run never counts as a branch pass — only a completed rerun under those conditions does.
+- When CI provides final qualification, its tested revision must match the accepted change and its executed coverage must match the required selection. Initial failures are preserved: automatic retries and phase transitions do not conceal or erase them, and review does not rerun valid checks solely because verification moved to a different phase.
+- Maintained qualification procedures signal and probe only the child PIDs or process groups owned by the invocation, through the bounded executor's explicit target policy (ADR-0027, ADR-0028); machine-wide process-name termination (such as `pkill` by name) is prohibited. Outcomes are read from the qualification record, never inferred from a rerun that replaced it.
 
 ## Agent skills
 
