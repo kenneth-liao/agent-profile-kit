@@ -8,16 +8,19 @@ on:
         required: true
         type: string
 
+# Least privilege by default: only the publishing job receives release-write
+# permission (#551). Verification — including the complete release gate —
+# runs read-only and cannot create a release.
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: private-release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  private-github-release:
-    name: Verify and create private GitHub Release
+  verify-release-candidate:
+    name: Verify the release candidate
     runs-on: macos-15
     # Containment is reachable-state arithmetic, not stacked ceilings: a failed
     # suite step (including a supervisor timeout) skips the remaining steps by
@@ -26,6 +29,12 @@ jobs:
     # with the measured ≈7–9s setup on the macos-15 runner) — inside this bound,
     # so the supervisor's bounded timeout, not the job clock, owns a hung run.
     timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      # The verified candidate's archive filename, so the publishing boundary
+      # addresses the handoff's identified artifact without re-globbing.
+      archive-name: ${{ steps.candidate.outputs.archive-name }}
     env:
       REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
       VERSION: ${{ inputs.version }}
@@ -80,9 +89,11 @@ jobs:
       # packed qualification, the smoke install, and the release itself —
       # consumes these exact bytes; no step rebuilds or repacks.
       - name: Create release candidate
+        id: candidate
         run: |
           archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/release-package")"
           echo "APKIT_TEST_PACKAGE_ARCHIVE=$archive_file" >> "$GITHUB_ENV"
+          echo "archive-name=$(basename "$archive_file")" >> "$GITHUB_OUTPUT"
 
       - name: Run test suite
         env:
@@ -144,6 +155,70 @@ jobs:
             "$GITHUB_SHA" \
             "$RUNNER_TEMP/suite-diagnostics/qualification-record.json"
 
+      # The publishing job receives only the identified candidate and the
+      # required evidence (#551): the exact archive bytes, the identity record
+      # beside them, and the qualification record the evidence gate just
+      # accepted. This upload exists only after that gate succeeded — failed
+      # verification stops this job and the publishing job never runs.
+      - name: Hand the verified candidate to the publishing boundary
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-candidate-handoff
+          path: ${{ runner.temp }}/release-package/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-release:
+    name: Publish the verified private release
+    needs: [verify-release-candidate]
+    runs-on: macos-15
+    # No suite runs here; the job's own bounded verifier plus the release
+    # creation is a minutes-scale step sequence after setup.
+    timeout-minutes: 10
+    # The workflow's single release-write grant: this job consumes only the
+    # verified candidate and its evidence, and cannot rebuild or repack them.
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ inputs.version }}
+
+    steps:
+      - name: Check out release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Receive the verified candidate
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: release-candidate-handoff
+          path: ${{ runner.temp }}/candidate
+
+      # The publishing boundary enforces the predecessor identity/evidence
+      # contract itself (#551): the received archive's actual bytes are
+      # re-digested against the received identity record, the record must
+      # bind this release revision, and the received qualification record
+      # must still be a complete full-suite qualification of the same
+      # artifact digest and source. This is the same canonical gate, not a
+      # second checker; a substituted or unqualified candidate cannot publish.
+      - name: Verify the received candidate and evidence
+        run: |
+          candidate_dir="$RUNNER_TEMP/candidate"
+          archive_file="$candidate_dir/${{ needs.verify-release-candidate.outputs.archive-name }}"
+          bun run scripts/verify-release-candidate.ts \
+            "$archive_file" \
+            "$GITHUB_SHA" \
+            "$candidate_dir/qualification-record.json"
+
       - name: Prepare release notes
         run: |
           awk -v version="$VERSION" '
@@ -161,7 +236,7 @@ jobs:
           test "$GITHUB_SHA" = "$MAIN_SHA"
 
           gh release create "v$VERSION" \
-            "$APKIT_TEST_PACKAGE_ARCHIVE" \
+            "$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}" \
             --target "$GITHUB_SHA" \
             --title "Agent Profile Kit $VERSION" \
             --notes-file release-notes.md

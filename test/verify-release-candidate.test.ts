@@ -129,6 +129,11 @@ describe("release candidate verification", () => {
   });
 
   test("a substituted archive is rejected: its bytes no longer match the recorded digest", async () => {
+    // This is the same path the publishing boundary exercises on the handoff:
+    // the gate re-digests the bytes at the path it was handed (here, bytes
+    // substituted after creation — exactly what a substituted handoff
+    // artifact would look like) against the record. The gate has no other
+    // substitution path; artifact origin is invisible to it.
     const candidate = await createFixtureCandidate("apkit-verify-substitute-");
     writeFileSync(candidate.archivePath, `${FIXTURE_ARCHIVE_BYTES}tampered\n`);
 
