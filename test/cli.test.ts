@@ -14304,10 +14304,15 @@ describe("packed CLI changed-output replacement confirmation (#458, US-029-031, 
     expect(readFileSync(contextPath, "utf8")).toContain("Always preserve the project boundary.");
     // The receipt names the replacement without inferring who changed the bytes.
     // ADR-0042 (US-013, DEC-009): the single-Project view identity is the
-    // basename, so the receipt names the Project as a parenthesized alias and
-    // the executable argument above stays the fully spelled path (#554).
-    expect(humanText(result.stdout)).toContain("~ .agent-profile-kit/codex/context.md");
-    expect(humanText(result.stdout)).toContain(`(${basename(projectPath)})`);
+    // basename, so the receipt names the Project as a parenthesized alias on
+    // the changed-file line itself, while the executable argument above stays
+    // the fully spelled path (#554).
+    expect(humanText(result.stdout)).toContain(
+      `~ .agent-profile-kit/codex/context.md (${basename(projectPath)})`,
+    );
+    // The scanning receipt keeps the stable spelling out: full evidence is
+    // --verbose / apkit details / --json, never the concise view (ADR-0042).
+    expect(humanText(result.stdout)).not.toContain(projectPath);
   });
 
   test("status rejects the update-only answering flag", async () => {
