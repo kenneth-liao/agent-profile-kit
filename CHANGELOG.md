@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed the private release path to create one provenance-recorded candidate through the shared creator, qualify those exact bytes in the suite, and verify the retained qualification evidence before publishing, replacing the workflow's separate typecheck, build, and pack steps (#550)
 - Documented the qualification-boundary policy in `docs/ARCHITECTURE.md`: which boundary proves what across pure/schema, real filesystem/Git, packed Node CLI, real PTY, fleet-scale, real-Host contract, and human qualification, answering "where does this test go?" (#547)
 - Documented repository evidence-validity policy in `AGENTS.md`: reruns need changed relevant inputs or an unresolved hypothesis, timeouts require a bounded hypothesis-based investigation, CI executed coverage and tested revision must match the accepted change, and maintained procedures signal only invocation-owned processes through the bounded executor (#548)
 - Fixed the empty-lock install-publication test failing correct code on CI by pinning the lock file's mtime before the call, so its outcome no longer depends on `Date.now()` and the filesystem mtime agreeing within a few milliseconds (#565)

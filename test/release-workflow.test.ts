@@ -8,29 +8,29 @@ import { pinnedBunVersion } from "./support/suite-supervisor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 
-test("private releases are manual, main-only, fully gated, and attach the packed CLI", () => {
-  const workflow = parse(
-    readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8"),
-  ) as {
-    on: { workflow_dispatch?: { inputs?: { version?: { required?: boolean } } } };
-    permissions?: { contents?: string };
-    jobs?: Record<
-      string,
-      {
+const workflow = parse(
+  readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8"),
+) as {
+  on: { workflow_dispatch?: { inputs?: { version?: { required?: boolean } } } };
+  permissions?: { contents?: string };
+  jobs?: Record<
+    string,
+    {
+      env?: Record<string, string>;
+      "timeout-minutes"?: number;
+      steps?: Array<{
+        name?: string;
+        run?: string;
+        uses?: string;
         env?: Record<string, string>;
-        "timeout-minutes"?: number;
-        steps?: Array<{
-          name?: string;
-          run?: string;
-          uses?: string;
-          env?: Record<string, string>;
-          with?: Record<string, unknown>;
-          if?: string;
-        }>;
-      }
-    >;
-  };
+        with?: Record<string, unknown>;
+        if?: string;
+      }>;
+    }
+  >;
+};
 
+test("private releases are manual, main-only, fully gated, and attach the packed CLI", () => {
   expect(workflow.on.workflow_dispatch?.inputs?.version?.required).toBe(true);
   expect(workflow.permissions).toEqual({ contents: "write" });
 
@@ -77,8 +77,6 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain('git/ref/tags/v$VERSION');
   expect(commands).toContain('gh release view "v$VERSION"');
   expect(commands).toContain("bun install --frozen-lockfile");
-  expect(commands).toContain("bun run typecheck");
-  expect(commands).toContain("bun run build");
   expect(commands).toContain("bun run test");
   expect(commands).toContain("bun run test:fleet");
   // The fleet ceiling is only reachable after a green test step: neither
@@ -88,11 +86,10 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(steps.find((step) => step.name === "Run fleet-scale regressions")?.if).toBeUndefined();
   expect(commands).toContain("git diff --exit-code");
   expect(commands).toContain('test -z "$(git status --porcelain)"');
-  expect(commands).toContain("npm pack --ignore-scripts");
   expect(commands).toContain('"$INSTALL_ROOT/node_modules/.bin/apkit" guide');
   expect(commands).toContain("CHANGELOG.md > release-notes.md");
   expect(commands).toContain('gh release create "v$VERSION"');
-  expect(commands).toContain('"$PACKAGE_FILE"');
+  expect(commands).toContain('"$APKIT_TEST_PACKAGE_ARCHIVE"');
   expect(commands).toContain('--target "$GITHUB_SHA"');
 
   const createReleaseCommands = steps.find(
@@ -103,4 +100,63 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(createReleaseCommands!.indexOf('test "$GITHUB_SHA" = "$MAIN_SHA"')).toBeLessThan(
     createReleaseCommands!.indexOf('gh release create "v$VERSION"'),
   );
+});
+
+test("the release path builds and packs once and publishes exactly the qualified candidate (#550)", () => {
+  const job = Object.values(workflow.jobs ?? {})[0];
+  const steps = job?.steps ?? [];
+  const commands = steps.map((step) => step.run ?? "").join("\n");
+  const stepNames = steps.map((step) => step.name);
+  const count = (command: string): number => commands.split(command).length - 1;
+
+  // One canonical stage sequence: the creator's single bounded build owns
+  // typecheck and bundling once, and no workflow step may pack separately —
+  // the published archive must be the creator's exact candidate bytes.
+  expect(count("bun run typecheck")).toBe(0);
+  expect(count("bun run build")).toBe(0);
+  expect(count("bun run build:bundle")).toBe(0);
+  expect(count("npm pack")).toBe(0);
+  expect(count("bun run test\n")).toBe(1);
+  expect(commands).toContain("bun run test:fleet");
+
+  // The candidate is created once through the shared from-source creator and
+  // supplied to every packed consumer through the canonical channel.
+  const creation = steps.find((step) => step.name === "Create release candidate")?.run ?? "";
+  expect(creation).toContain("scripts/create-package-candidate.ts");
+  expect(creation).toContain("APKIT_TEST_PACKAGE_ARCHIVE=");
+  expect(creation).toContain("$GITHUB_ENV");
+  const suite = steps.find((step) => step.name === "Run test suite") ?? {};
+  expect((suite.env ?? {})['APKIT_TEST_PACKAGE_ARCHIVE']).toBe("${{ env.APKIT_TEST_PACKAGE_ARCHIVE }}");
+  expect((suite.env ?? {})['APKIT_TEST_DIAGNOSTICS_DIR']).toContain("${{ runner.temp }}");
+
+  // Retained evidence uses the shared CI policy: the qualification record and
+  // supervised diagnostics are uploaded on every outcome.
+  const upload = steps.find((step) => step.uses?.startsWith("actions/upload-artifact@"));
+  expect(upload).toBeDefined();
+  expect(upload?.if).toBe("always()");
+  expect(upload?.with?.["if-no-files-found"]).toBe("ignore");
+  expect(String(upload?.with?.path)).toContain("${{ runner.temp }}");
+
+  // Publication consumes the exact qualified bytes: the evidence verification
+  // step runs against the candidate, the release revision, and the retained
+  // qualification record, and runs before the release is created.
+  const verify = steps.find((step) => step.name === "Verify release candidate evidence");
+  expect(verify?.run).toContain("scripts/verify-release-candidate.ts");
+  expect(verify?.run).toContain('"$GITHUB_SHA"');
+  expect(verify?.run).toContain("qualification-record.json");
+  expect(stepNames.indexOf("Verify release candidate evidence")).toBeGreaterThan(
+    stepNames.indexOf("Run fleet-scale regressions"),
+  );
+  expect(stepNames.indexOf("Verify release candidate evidence")).toBeLessThan(
+    stepNames.indexOf("Create private GitHub Release"),
+  );
+
+  // No rebuild or repack may sit between qualification and publication.
+  const verifyIndex = stepNames.indexOf("Verify release candidate evidence");
+  const createIndex = stepNames.indexOf("Create private GitHub Release");
+  expect(verifyIndex).toBeGreaterThan(stepNames.indexOf("Run test suite"));
+  for (const step of steps.slice(verifyIndex, createIndex + 1)) {
+    expect(step.run ?? "").not.toContain("bun run build");
+    expect(step.run ?? "").not.toContain("npm pack");
+  }
 });
