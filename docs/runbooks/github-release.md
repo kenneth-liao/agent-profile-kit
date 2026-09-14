@@ -39,15 +39,21 @@ gh run list --workflow release.yml --event workflow_dispatch --branch main --lim
 gh run watch <run-id> --exit-status
 ```
 
-The workflow independently verifies that the repository is still private and
-that it is running from the current `main`, checks version and changelog
-agreement, creates one package candidate through the shared from-source
-creator (one bounded build, one pack, one identity record beside the
-archive), runs the complete release gate against that exact candidate,
-verifies the retained qualification evidence before publishing, then creates
-`v0.20.0` and its GitHub Release. The tag and Release are created only after
-every earlier step passes, including the evidence verification that the
-published archive is exactly the qualified candidate.
+The workflow runs in two permission-separated jobs. The verification job runs
+with only read access: it independently verifies that the repository is still
+private and that it is running from the current `main`, checks version and
+changelog agreement, creates one package candidate through the shared
+from-source creator (one bounded build, one pack, one identity record beside
+the archive), runs the complete release gate against that exact candidate,
+and verifies the retained qualification evidence — it has no release-write
+permission, so it cannot create a release. The publishing job is the
+workflow's only write-permission job: it receives only the verified candidate
+and its evidence (the archive bytes, the identity record, and the accepted
+qualification record) as a workflow artifact, re-enforces the same identity
+and evidence contract on what it received, and only then creates `v0.20.0`
+and its GitHub Release. The tag and Release are created only after the
+verification job fully succeeded and the publishing boundary's own evidence
+check passed.
 
 ## Verify and install
 
@@ -77,7 +83,10 @@ observed runtimes, selection, completion status) and the per-run diagnostics.
 The qualification record is the evidence the release publication gate consumes:
 it must name the candidate's archive digest and source identity, and a run
 without a complete record cannot publish. If a run fails or you need to show
-what a release was qualified against, download that artifact.
+what a release was qualified against, download that artifact. When
+verification succeeds, the run also retains a `release-candidate-handoff`
+artifact — the exact candidate bytes, identity record, and accepted
+qualification record that the publishing job received and re-verified.
 
 ## Recovery
 
