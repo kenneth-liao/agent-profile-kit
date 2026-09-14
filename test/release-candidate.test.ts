@@ -1373,9 +1373,8 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(workspace, "context"))).toBe(false);
     expect(existsSync(join(workspace, "agents"))).toBe(false);
 
-    const partialValidate = await runCli(home, ["validate"]);
-    expectExitCode(partialValidate, 0);
-    expect(partialValidate.stdout).toContain("1 Profile");
+    // A partial Workspace validates — dedicated detector: the packed
+    // manifest-only/partial validation test (#546, C3).
 
     // Present malformed artifacts still fail at ingestion (scaffolding optional ≠ validation weak).
     mkdirSync(join(workspace, "skills", "bad-skill"), { recursive: true });
@@ -1404,32 +1403,9 @@ describe("project-bound release candidate", () => {
     expect(`${malformed.stdout}${malformed.stderr}`).toMatch(/schema|workspace\.yaml|unsupported/i);
   });
 
-  test("packed guidance describes Skills-only Profiles, universal ownership, and Host Resolution", async () => {
-    const home = isolatedHome();
-    const human = await runCli(home, ["guide", "--full"]);
-    expectExitCode(human, 0);
-    expect(human.stdout).toMatch(/model-invocation|agent-profile-kit\.model-invocation/i);
-    expect(human.stdout).toMatch(/disabled|allowed/i);
-    expect(human.stdout).toMatch(/Skills-only|at least one supported artifact/i);
-    expect(human.stdout).toMatch(/universal/i);
-    expect(human.stdout).toMatch(/source ownership and managed delivery/i);
-    expect(human.stdout).toMatch(/personal\/global|global Host/i);
-    expect(human.stdout).toMatch(/Host Resolution/i);
-    expect(human.stdout).toMatch(/Output Ownership Conflict/i);
-    expect(human.stdout).toMatch(/optional scaffolding|valid Workspace needs only/i);
-    expect(human.stdout).toMatch(/schema_version: 2/);
-    expect(human.stdout).toMatch(/required `workspace`|legacy.*migration/i);
-
-    const agent = await runCli(home, ["guide", "--agent"]);
-    expectExitCode(agent, 0);
-    expect(agent.stdout).toMatch(/agent-profile-kit\.model-invocation|model-invocation/i);
-    expect(agent.stdout).toMatch(/Skills-only|at least one supported artifact/i);
-    expect(agent.stdout).toMatch(/universal|unselected/i);
-    expect(agent.stdout).toMatch(/Host Resolution/i);
-    expect(agent.stdout).toMatch(/Output Ownership Conflict/i);
-    expect(agent.stdout).toMatch(/optional scaffolding|workspace\.yaml/i);
-    expect(agent.stdout).toMatch(/explicit Workspace path|legacy.*migration/i);
-  });
+  // Guide-content regression moved to the dedicated detectors (#546, C1):
+  // the golden full-guide/agent-guide byte baselines and the focused guide
+  // tests prove the delivered guide text through the same packed captures.
 
   test("packed discovery-to-lifecycle acceptance journey covers the complete CLI surface", async () => {
     const home = isolatedHome();
@@ -2168,25 +2144,10 @@ describe("project-bound release candidate", () => {
     expect(apply.stdout).not.toContain("already current");
     expect(apply.stdout).not.toContain("Now author your own:");
 
-    // 6b. Authoring: the newcomer authors real material with the explicit
-    // authoring commands (US-040, DEC-024, TEST-015). NOTE (#494): the
-    // first-run authoring handoff stays an update-report view in this slice;
-    // install reports compactly, and first-installation teaching belongs to
-    // #509/#515 (re-covered in #517).
-    for (const printed of [
-      "apkit new skill summarize-pr",
-      "apkit new context project-rules",
-      "apkit new profile real-profile --context project-rules --skill summarize-pr",
-    ]) {
-      const created = await runCli(home, printed.split(" ").slice(1), { path: pathWithHosts });
-      expectExitCode(created, 0);
-    }
-    expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
-    expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
-    expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
-    const authored = await runCli(home, ["validate"], { path: pathWithHosts });
-    expectExitCode(authored, 0);
-    expect(authored.stdout).toContain("real-profile");
+    // 6b. The authored-material chain (three `new` receipts, the followable
+    // validate next action, and the authored-Profile install) is qualified by
+    // the sibling present/absent-Hosts newcomer journey above (#546, C2);
+    // repeating it here duplicated that evidence at the same packed boundary.
 
     // 6c. Routine apply: restoring a hand-edited generated file reports the
     // replacement, carries the Host-loading check, and no first-run handoff
