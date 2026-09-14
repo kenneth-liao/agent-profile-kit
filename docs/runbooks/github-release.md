@@ -41,9 +41,13 @@ gh run watch <run-id> --exit-status
 
 The workflow independently verifies that the repository is still private and
 that it is running from the current `main`, checks version and changelog
-agreement, runs the complete release gate, packs and smoke-tests the CLI, then
-creates `v0.20.0` and its GitHub Release. The tag and Release are created only
-after every earlier step passes.
+agreement, creates one package candidate through the shared from-source
+creator (one bounded build, one pack, one identity record beside the
+archive), runs the complete release gate against that exact candidate,
+verifies the retained qualification evidence before publishing, then creates
+`v0.20.0` and its GitHub Release. The tag and Release are created only after
+every earlier step passes, including the evidence verification that the
+published archive is exactly the qualified candidate.
 
 ## Verify and install
 
@@ -64,10 +68,23 @@ apkit guide --full
 On another machine, authenticate `gh` with an account that can read this private
 repository before downloading the asset.
 
+## Retained evidence
+
+Every run — success or failure — retains a `supervised-suite-qualification-attempt`
+Actions artifact containing the supervisor's compact qualification record
+(`qualification-record.json`: source identity, candidate archive digest,
+observed runtimes, selection, completion status) and the per-run diagnostics.
+The qualification record is the evidence the release publication gate consumes:
+it must name the candidate's archive digest and source identity, and a run
+without a complete record cannot publish. If a run fails or you need to show
+what a release was qualified against, download that artifact.
+
 ## Recovery
 
 If a run fails before its final step, fix the cause on a new commit, merge it to
-`main`, and dispatch the same version again. No tag or Release will exist.
+`main`, and dispatch the same version again. No tag or Release will exist. The
+failed run's qualification artifact states what was qualified and why the run
+is not a pass; do not treat a red run's evidence as a baseline.
 
 If GitHub creates a draft or published Release but asset upload or final
 reporting fails, inspect its exact state before retrying anything:
@@ -77,9 +94,12 @@ gh release view "v<version>" --json isDraft,targetCommitish,assets,url
 git ls-remote --tags origin "refs/tags/v<version>"
 ```
 
-If the Release targets the expected commit and the tarball is missing, rebuild
-from that immutable tag in a disposable repository-local worktree, upload the
-missing asset without `--clobber`, and publish the draft if necessary:
+If the Release targets the expected commit and the tarball is missing, recreate
+the candidate from that immutable tag in a disposable repository-local
+worktree through the same creator and evidence policy the release workflow
+uses — one bounded build and pack, an identity record beside the archive, a
+supplied full suite run, and evidence verification — then upload the verified
+archive without `--clobber` and publish the draft if necessary:
 
 ```sh
 version=<version>
@@ -94,14 +114,17 @@ git worktree add --detach "$recovery_path" "v$version"
 (
   cd "$recovery_path"
   bun install --frozen-lockfile
-  bun run typecheck
-  bun run build
-  bun run test
-  mkdir release
-  npm pack --ignore-scripts --pack-destination release
+  package_dir="$(mktemp -d)"
+  diagnostics_dir="$(mktemp -d)"
+  archive_file="$(bun run scripts/create-package-candidate.ts "$package_dir")"
+  APKIT_TEST_PACKAGE_ARCHIVE="$archive_file" \
+    APKIT_TEST_DIAGNOSTICS_DIR="$diagnostics_dir" \
+    bun run test
+  bun run scripts/verify-release-candidate.ts \
+    "$archive_file" "$tag_commit" \
+    "$diagnostics_dir/qualification-record.json"
+  gh release upload "v$version" "$archive_file"
 )
-gh release upload "v$version" \
-  "$recovery_path/release/agent-profile-kit-$version.tgz"
 gh release edit "v$version" --draft=false
 git worktree remove "$recovery_path"
 git worktree prune

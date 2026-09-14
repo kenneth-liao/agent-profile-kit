@@ -73,17 +73,50 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      - name: Build production CLI
-        run: bun run build
+      # One candidate creation owns the build and the pack once (#550): the
+      # shared from-source creator runs typecheck, bundling, and pack in a
+      # single bounded build, digests the exact packed bytes, and writes the
+      # identity record beside the archive. Every later consumer — the suite's
+      # packed qualification, the smoke install, and the release itself —
+      # consumes these exact bytes; no step rebuilds or repacks.
+      - name: Create release candidate
+        run: |
+          archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/release-package")"
+          echo "APKIT_TEST_PACKAGE_ARCHIVE=$archive_file" >> "$GITHUB_ENV"
 
       - name: Run test suite
+        env:
+          APKIT_TEST_PACKAGE_ARCHIVE: ${{ env.APKIT_TEST_PACKAGE_ARCHIVE }}
+          APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/suite-diagnostics
         run: bun run test
 
+      # Shared CI evidence policy: the qualification record and supervised
+      # diagnostics are retained on every outcome, success and failure alike.
+      - name: Upload supervised suite qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supervised-suite-qualification-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/suite-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Run fleet-scale regressions
+        env:
+          APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/fleet-diagnostics
         run: bun run test:fleet
+
+      # Same evidence policy as the fast run and CI's fleet job: the artifact
+      # contains only what the fleet supervisor wrote; a pre-suite failure
+      # leaves no record, and the failing step's log is that outcome's evidence.
+      - name: Upload fleet suite qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: supervised-fleet-qualification-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/fleet-diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
 
       # Load-bearing for golden snapshots: an uncommitted snapshot must fail
       # rather than pass silently. Snapshot updating is never enabled here.
@@ -93,20 +126,23 @@ jobs:
           git diff --exit-code
           test -z "$(git status --porcelain)"
 
-      - name: Pack release artifact
-        id: pack
-        run: |
-          mkdir release
-          npm pack --ignore-scripts --pack-destination release
-          PACKAGE_FILE="release/agent-profile-kit-$VERSION.tgz"
-          test -f "$PACKAGE_FILE"
-          echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
-
       - name: Smoke-test packed CLI
         run: |
           INSTALL_ROOT="$(mktemp -d)"
-          npm install --ignore-scripts --prefix "$INSTALL_ROOT" "${{ steps.pack.outputs.package_file }}"
+          npm install --ignore-scripts --prefix "$INSTALL_ROOT" "$APKIT_TEST_PACKAGE_ARCHIVE"
           "$INSTALL_ROOT/node_modules/.bin/apkit" guide >/dev/null
+
+      # Publication gate (#550): the release is created only for the exact
+      # candidate whose required qualification succeeded — the archive's
+      # actual bytes must still match its identity record, the record must
+      # bind this release revision, and the retained qualification record
+      # must be complete and bind the same artifact digest and source.
+      - name: Verify release candidate evidence
+        run: |
+          bun run scripts/verify-release-candidate.ts \
+            "$APKIT_TEST_PACKAGE_ARCHIVE" \
+            "$GITHUB_SHA" \
+            "$RUNNER_TEMP/suite-diagnostics/qualification-record.json"
 
       - name: Prepare release notes
         run: |
@@ -124,9 +160,8 @@ jobs:
           MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           test "$GITHUB_SHA" = "$MAIN_SHA"
 
-          PACKAGE_FILE="${{ steps.pack.outputs.package_file }}"
           gh release create "v$VERSION" \
-            "$PACKAGE_FILE" \
+            "$APKIT_TEST_PACKAGE_ARCHIVE" \
             --target "$GITHUB_SHA" \
             --title "Agent Profile Kit $VERSION" \
             --notes-file release-notes.md
