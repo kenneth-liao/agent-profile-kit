@@ -16,6 +16,7 @@ import { flatInlineText } from "../adapters/project-plan.js";
 import {
   ApplyVerificationError,
   applyReconciliation,
+  ownedOutputFromDesired,
   previewReconciliation,
 } from "../installer/reconcile.js";
 import {
@@ -26,6 +27,7 @@ import {
 } from "../installer/installation-state.js";
 import { publishRepositoryExclusions } from "../installer/git-exclusions.js";
 import { executeUninstall } from "../installer/uninstall-application.js";
+import { reportItems } from "./support/reconciliation-report.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -974,6 +976,123 @@ describe("uninstall failure safety and exclusion publication races", () => {
       const stagedRoot = retainedStageDirectories(project);
       expect(stagedRoot).toHaveLength(1);
       expect(existsSync(join(stagedRoot[0]!, receipt.outputs[0]!.path))).toBe(true);
+    });
+  });
+});
+
+describe("recorded Host selection equivalence", () => {
+  /**
+   * Recorded-vs-desired Host selection divergence (ticket #544, spec #532
+   * US-008, TEST-005): an installation is current only when its active
+   * receipt records the desired Host selection — the Host set, with each
+   * Host's current Adapter version and Capability Contract. A stale
+   * recorded contract and a coalescing Host addition both leave every
+   * recorded output byte-identical, so no output-hash detector can catch
+   * them; classification must come from the receipt comparison at the real
+   * reconciliation boundary. Real temp Workspace, Project, and Installation
+   * State; the only manufactured Installer state is the seeded receipt
+   * written through the existing Installation State seam. Both tests are
+   * deterministic; no generated sequences.
+   */
+  async function skillsOnlyInstallation(prefix: string): Promise<{ home: string; project: string }> {
+    const home = temporaryDirectory(`${prefix}home-`);
+    const project = temporaryDirectory(`${prefix}project-`);
+    await initializeWorkspace(home);
+    const application = join(home, ".agents", "agent-profile-kit");
+    const workspace = join(application, "workspace");
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Reviews pull requests.\n---\n\nReview skill body.\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "engineering.yaml"),
+      "id: engineering\ncontext: []\nskills:\n  - review-pr\n",
+    );
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex]\n`,
+    );
+    await applyReconciliation(
+      home,
+      (await buildDesiredState(home, { checkHostCapability: false })).installations,
+    );
+    return { home, project };
+  }
+
+  test("a stale recorded Host receipt is divergent desired state, never current", async () => {
+    const { home, project } = await skillsOnlyInstallation("agent-profile-kit-stale-receipt-");
+    // The only manufactured state: one stale per-host record.
+    const state = await readInstallationState(home);
+    const previous = state.receipts[0]!;
+    await writeInstallationState(home, {
+      ...state,
+      receipts: state.receipts.map((receipt) => ({
+        ...receipt,
+        hosts: Object.fromEntries(
+          Object.entries(receipt.hosts).map(([host, entry]) => [
+            host,
+            { ...entry, adapterVersion: "codex-project-v0", capabilityContract: "native-project-skills-v0" },
+          ]),
+        ),
+      })),
+    });
+
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    // The premise this test protects: outputs do not change; only the
+    // recorded Host selection does. If this ever fails, the scenario is no
+    // longer the named gap and the test's boundary must be revisited.
+    expect(desired.installations[0]!.outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
+    const report = await applyReconciliation(home, desired.installations);
+
+    // The pre-update receipt records the Host-selection work...
+    expect(reportItems(report.receipt)).toContainEqual({
+      kind: "update",
+      project,
+      reason: "desired output changed",
+    });
+    // ...the fresh post-commit verification reports the refreshed
+    // installation current, and the active receipt carries the desired
+    // Host's current contract.
+    expect(reportItems(report.resultingState)).toContainEqual({ kind: "current", project });
+    const refreshed = (await readInstallationState(home)).receipts[0]!;
+    expect(Object.keys(refreshed.hosts).sort()).toEqual(["codex"]);
+    expect(refreshed.hosts.codex).toEqual({
+      adapterVersion: hostCatalogEntryFor("codex").adapterVersion,
+      capabilityContract: desired.installations[0]!.hostVersions.codex!,
+    });
+  });
+
+  test("a bound Host absent from the recorded receipt is divergent desired state, never current", async () => {
+    const { home, project } = await skillsOnlyInstallation("agent-profile-kit-unrecorded-host-");
+    const application = join(home, ".agents", "agent-profile-kit");
+
+    // Add a coalescing Host: its shared .agents/skills projection produces a
+    // byte-identical output set, so the added Host is observable only
+    // through the recorded Host selection. If the output set ever changes,
+    // this scenario is no longer the named gap and the test's boundary must
+    // be revisited.
+    writeFileSync(
+      join(application, "config.yaml"),
+      `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex, antigravity]\n`,
+    );
+    const desired = await buildDesiredState(home, { checkHostCapability: false });
+    const previous = (await readInstallationState(home)).receipts[0]!;
+    expect(desired.installations[0]!.outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
+
+    const report = await applyReconciliation(home, desired.installations);
+
+    expect(reportItems(report.receipt)).toContainEqual({
+      kind: "update",
+      project,
+      reason: "desired output changed",
+    });
+    expect(reportItems(report.resultingState)).toContainEqual({ kind: "current", project });
+    const refreshed = (await readInstallationState(home)).receipts[0]!;
+    expect(Object.keys(refreshed.hosts).sort()).toEqual(["antigravity", "codex"]);
+    expect(refreshed.hosts.antigravity).toEqual({
+      adapterVersion: hostCatalogEntryFor("antigravity").adapterVersion,
+      capabilityContract: desired.installations[0]!.hostVersions.antigravity!,
     });
   });
 });
