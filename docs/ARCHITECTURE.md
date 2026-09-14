@@ -491,9 +491,12 @@ failed write self-heals on the next update.
 
 Publication and recovery distinguish **handled I/O failure** from **abrupt
 termination**. Every Installer publication boundary — Installation State,
-Profile configuration, Workspace scaffolding, repository exclusion sections,
-and per-Project output/removal transactions — stages its bytes and publishes
-through one atomic `rename`, so a reader never observes a torn file.
+Local Configuration replacement, Profile configuration, Workspace
+scaffolding, repository exclusion sections, and per-Project output/removal
+transactions — stages its bytes and publishes through one atomic `rename`, so
+a reader of the published path observes previous or next bytes, never a torn
+file (crash-atomicity; power-loss durability is separately not claimed
+below).
 Recovery from a handled I/O failure — an operation that returns an error — is
 bounded cleanup: in-process rollback restoring the previous bytes, a state
 restore of the exact prior document, or, for Temporary Profile Installations,
