@@ -147,13 +147,18 @@ jobs:
       # candidate whose required qualification succeeded — the archive's
       # actual bytes must still match its identity record, the record must
       # bind this release revision, and the retained qualification record
-      # must be complete and bind the same artifact digest and source.
+      # must be complete and bind the same artifact digest and source. After
+      # the gate passes, the record travels beside the candidate into the
+      # publishing boundary's handoff (#551); a failed gate exits the step
+      # before the copy, so the handoff exists only for accepted evidence.
       - name: Verify release candidate evidence
         run: |
           bun run scripts/verify-release-candidate.ts \
             "$APKIT_TEST_PACKAGE_ARCHIVE" \
             "$GITHUB_SHA" \
             "$RUNNER_TEMP/suite-diagnostics/qualification-record.json"
+          cp "$RUNNER_TEMP/suite-diagnostics/qualification-record.json" \
+            "$RUNNER_TEMP/release-package/qualification-record.json"
 
       # The publishing job receives only the identified candidate and the
       # required evidence (#551): the exact archive bytes, the identity record

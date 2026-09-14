@@ -70,6 +70,13 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(
     steps.find((step) => step.name === "Check out release commit")?.with?.["persist-credentials"],
   ).toBe(false);
+  // Every checkout in every job — including the write-permission publishing
+  // job, where a persisted token would matter most — must leave no token.
+  const checkouts = steps.filter((step) => step.uses?.startsWith("actions/checkout@"));
+  expect(checkouts).toHaveLength(2);
+  for (const checkout of checkouts) {
+    expect(checkout.with?.["persist-credentials"]).toBe(false);
+  }
   expect(steps.find((step) => step.name === "Validate release identity")?.env?.GH_TOKEN).toBe(
     "${{ github.token }}",
   );
@@ -196,6 +203,17 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect(verify?.run).toContain("scripts/verify-release-candidate.ts");
   expect(verify?.run).toContain('"$GITHUB_SHA"');
   expect(verify?.run).toContain("qualification-record.json");
+  // The accepted record travels beside the candidate into the handoff: the
+  // copy runs in the same step, after the gate, into the uploaded directory.
+  expect(verify?.run).toContain(
+    'cp "$RUNNER_TEMP/suite-diagnostics/qualification-record.json"',
+  );
+  expect(verify?.run).toContain(
+    '"$RUNNER_TEMP/release-package/qualification-record.json"',
+  );
+  expect(verify?.run?.indexOf("cp ") ?? -1).toBeGreaterThan(
+    (verify?.run?.indexOf("scripts/verify-release-candidate.ts") ?? -2),
+  );
   expect(verifyStepNames.indexOf("Verify release candidate evidence")).toBeGreaterThan(
     verifyStepNames.indexOf("Run fleet-scale regressions"),
   );
@@ -215,7 +233,14 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect(download?.with?.["name"]).toBe("release-candidate-handoff");
   expect(String(download?.with?.path)).toContain("${{ runner.temp }}");
   const createRelease = publishSteps.find((step) => step.name === "Create private GitHub Release");
-  expect(createRelease?.run).toContain("--target \"$GITHUB_SHA\"");
+  expect(createRelease?.run).toContain('gh release create "v$VERSION"');
+  // Publication consumes the exact received artifact: the release attaches
+  // the handoff's identified archive, addressed by the verification job's
+  // output name — the same file the boundary gate re-digested.
+  expect(createRelease?.run).toContain(
+    '$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}',
+  );
+  expect(createRelease?.run).toContain('--target "$GITHUB_SHA"');
 
   // The publishing job may not rebuild or repack: its entire step sequence —
   // not just the slice between verification and publication — must contain
