@@ -613,6 +613,73 @@ async function runCliWithPath(
   });
 }
 
+/**
+ * Immutable shared captures of identical read-only packed-CLI invocations
+ * (issue #543). Captures are keyed by a fingerprint derived from the capture
+ * home's actual Local Configuration state plus the argv, so a caller can never
+ * silently receive a capture taken against different state: the caller
+ * declares nothing, and the observed state of the home that actually served
+ * the spawn is the key. The fingerprint covers exactly the state read-only
+ * discovery consults (Local Configuration bytes and Workspace presence);
+ * because every capture home is fabricated fresh and empty, the state half of
+ * every key is constant today — extend the fingerprint before ever capturing
+ * against a caller-supplied home.
+ *
+ * Every capture is frozen before exposure, and consumers only assert against
+ * the captured bytes, so sharing stays reusable under DEC-007 (shared setup is
+ * reusable only when immutable) and each consumer keeps passing when run alone
+ * under a name filter: the memo fills lazily from whichever consumer runs.
+ *
+ * The memo records resolved captures only: a failed spawn is evicted, so a
+ * later same-key consumer retries with its own isolated spawn instead of
+ * inheriting a transient failure.
+ */
+const readOnlyCapturePromises = new Map<string, Promise<Readonly<ProcessResult>>>();
+
+/** Cheap fingerprint of the Local Configuration state read-only views consult. */
+function homeStateFingerprint(home: string): string {
+  const config = configPath(home);
+  const workspace = workspacePath(home);
+  const workspaceManifest = join(workspace, "workspace.yaml");
+  const configPart = existsSync(config)
+    ? createHash("sha256").update(readFileSync(config)).digest("hex").slice(0, 16)
+    : "absent";
+  const workspacePart = !existsSync(workspace)
+    ? "no-workspace"
+    : existsSync(workspaceManifest)
+      ? "workspace+manifest"
+      : "workspace-no-manifest";
+  return `${configPart}:${workspacePart}`;
+}
+
+/**
+ * Run one read-only packed-CLI invocation in a fresh isolated home and share
+ * its frozen result with every consumer whose derived key matches. Read-only
+ * is per ADR-0016: discovery and presentation boundaries that write nothing.
+ * The key uses the raw argv before `withHistoricalFleetScope` expansion; two
+ * raw argvs that expand to the same spawned argv at worst miss one dedup and
+ * never share across different spawned argv.
+ */
+function sharedReadOnlyCapture(
+  ...arguments_: string[]
+): Promise<Readonly<ProcessResult>> {
+  const home = isolatedHome();
+  const key = `${homeStateFingerprint(home)}\u0000${JSON.stringify(arguments_)}`;
+  let capture = readOnlyCapturePromises.get(key);
+  if (!capture) {
+    capture = runCli(home, ...arguments_)
+      .then((result) => Object.freeze({ ...result }))
+      .catch((error: unknown) => {
+        // Evict the failed attempt so a later same-key consumer retries with
+        // its own isolated spawn instead of inheriting a transient failure.
+        readOnlyCapturePromises.delete(key);
+        throw error;
+      });
+    readOnlyCapturePromises.set(key, capture);
+  }
+  return capture;
+}
+
 describe("agent-profile-kit project-bound lifecycle", () => {
   test("a fresh Workspace includes a bindable example Profile and Context Module", async () => {
     const home = isolatedHome();
@@ -6867,7 +6934,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("update help documents the selection filters (#455)", async () => {
-    const help = await runCli(isolatedHome(), "help", "update");
+    const help = await sharedReadOnlyCapture(HELP_COMMAND, "update");
     expectExitCode(help, 0);
     expect(help.stdout).toContain(
       "Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]",
@@ -8400,8 +8467,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("packed CLI serves the final project-bound human guide", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "guide", "--full");
+    const result = await sharedReadOnlyCapture("guide", "--full");
     expectExitCode(result, 0);
 
     for (const command of ["init", "validate", "status", "update", "uninstall"]) {
@@ -8522,7 +8588,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // 1. Unconfigured home (pre-initialization)
     for (const topic of ["profile", "context", "skill"] as const) {
-      const result = await runCli(home, "guide", topic);
+      const result = await sharedReadOnlyCapture("guide", topic);
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
@@ -8589,8 +8655,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("packed CLI serves the final project-bound agent workflow", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "guide", "--agent");
+    const result = await sharedReadOnlyCapture("guide", "--agent");
     expectExitCode(result, 0);
 
     expect(result.stdout).not.toMatch(/apkit (plan|run)\b/);
@@ -8618,8 +8683,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("packed human guide distinguishes required Manifest from init scaffolding", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "guide", "--full");
+    const result = await sharedReadOnlyCapture("guide", "--full");
     expectExitCode(result, 0);
     expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
@@ -8631,8 +8695,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   });
 
   test("packed human guide separates universal Workspace source ownership from managed delivery", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "guide", "--full");
+    const result = await sharedReadOnlyCapture("guide", "--full");
     expectExitCode(result, 0);
 
     // Workspace may own Profile-selected and unselected universal artifacts as one canonical source.
@@ -9835,7 +9898,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expectExitCode(result, 1);
     expect(result.stderr).toContain("bind was replaced by install");
     // Missing profile still names the command-specific usage; unknown commands stay concise.
-    const usage = await runCli(home, "unknown-command");
+    const usage = await sharedReadOnlyCapture("unknown-command");
     expectExitCode(usage, 1);
     expect(usage.stderr).toContain("Run apkit --help for available commands.");
     expect(usage.stderr).not.toContain("Commands:");
@@ -10279,13 +10342,12 @@ function treeDigest(roots: readonly string[]): string {
     expect(helpPreview.stderr).toContain("apkit: unknown command 'preview'");
     expect(helpPreview.stderr).not.toContain("apkit preview was removed");
     expect(COMMANDS.some((command) => command.name === "preview")).toBe(false);
-    const root = await runCli(home, "--help");
+    const root = await sharedReadOnlyCapture("--help");
     expect(root.stdout).not.toMatch(/\bpreview\b/);
   });
 
   test("root help lists all supported commands without flag inventories and with concise purposes", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
     expectExitCode(result, 0);
 
     const commandsSection = result.stdout.match(/Common commands:\n([\s\S]*?)\n\nFor deeper/)?.[1];
@@ -10313,8 +10375,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("root help groups commands and keeps its two-line menu within the deterministic width", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -10350,8 +10411,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("root help leads with the four-step first run", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
     expectExitCode(result, 0);
 
     const firstRunIndex = result.stdout.indexOf("First run:");
@@ -10373,8 +10433,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("root help separates common commands from secondary discovery and maintenance commands", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
     expectExitCode(result, 0);
 
     const commonIndex = result.stdout.indexOf("Common commands:");
@@ -10400,8 +10459,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("root help omits machine-namespaced temporary installation commands entirely (DEC-019)", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
@@ -10412,15 +10470,14 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("every command explains its purpose, syntax, examples, writes, and next action", async () => {
-    const home = isolatedHome();
-    const root = await runCli(home, "--help");
+    const root = await sharedReadOnlyCapture("--help");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(root.stdout).not.toMatch(term);
 
     for (const command of COMMANDS) {
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(command.summary).not.toMatch(term);
       const result = command.namespace === undefined
-        ? await runCli(home, command.name, "--help")
-        : await runCli(home, command.namespace, command.name, "--help");
+        ? await sharedReadOnlyCapture(command.name, "--help")
+        : await sharedReadOnlyCapture(command.namespace, command.name, "--help");
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       expect(result.stdout).toContain(`Usage: apkit ${command.syntax}`);
@@ -10462,9 +10519,8 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("uninstall help describes selected removal with forgotten selection", async () => {
-    const home = isolatedHome();
-    const root = await runCli(home, "--help");
-    const focused = await runCli(home, "uninstall", "--help");
+    const root = await sharedReadOnlyCapture("--help");
+    const focused = await sharedReadOnlyCapture("uninstall", "--help");
 
     expectExitCode(root, 0);
     expectExitCode(focused, 0);
@@ -10486,7 +10542,10 @@ function treeDigest(roots: readonly string[]): string {
       const invocation = command.namespace === undefined
         ? [command.name]
         : [command.namespace, command.name];
-      const helpCommand = await runCli(home, HELP_COMMAND, ...invocation);
+      // The help-command capture joins the shared read-only captures; the
+      // alias captures stay dedicated spawns so the alias-equivalence
+      // detector always compares two independently spawned sources.
+      const helpCommand = await sharedReadOnlyCapture(HELP_COMMAND, ...invocation);
 
       expectExitCode(helpCommand, 0);
       expect(helpCommand.stderr).toBe("");
@@ -10514,10 +10573,10 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("focused install help documents the one-action selection and output", async () => {
-    const home = isolatedHome();
-    const aliasHelp = await Promise.all(
-      ["-h", "--help"].map((alias) => runCli(home, "install", alias)),
-    );
+    const aliasHelp = await Promise.all([
+      sharedReadOnlyCapture("install", "-h"),
+      sharedReadOnlyCapture("install", "--help"),
+    ]);
 
     for (const result of [...aliasHelp]) {
       expectExitCode(result, 0);
@@ -10549,8 +10608,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("root quick start points Profile and Host placeholders to discovery routes", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "--help");
+    const result = await sharedReadOnlyCapture("--help");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("apkit guide profile");
@@ -10584,7 +10642,7 @@ function treeDigest(roots: readonly string[]): string {
 
   test("interactive root help adds the compact identity and semantic color while pipes stay plain", async () => {
     const home = isolatedHome();
-    const piped = await runCli(home, "--help");
+    const piped = await sharedReadOnlyCapture("--help");
     const bare = await runCliInPtyWithEnvironment(home, 40, COLOR_TERMINAL_ENVIRONMENT);
     const interactive = await runCliInPtyWithEnvironment(
       home,
@@ -10646,7 +10704,7 @@ function treeDigest(roots: readonly string[]): string {
       COLOR_TERMINAL_ENVIRONMENT,
       "unknown-command",
     );
-    const pipedError = await runCli(home, "unknown-command");
+    const pipedError = await sharedReadOnlyCapture("unknown-command");
     const interactiveErrorOutput = `${interactiveError.stdout}${interactiveError.stderr}`;
 
     expectExitCode(interactive, 0);
@@ -10669,8 +10727,10 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("representative human and machine surfaces stay ANSI-free through pipes", async () => {
-    const invocations: readonly (readonly string[])[] = [
-      [],
+    // Read-only surfaces whose piped bytes are shared with the identical
+    // captures asserted by content tests (issue #543); the ANSI-free detector
+    // asserts against the same bytes without a second identical spawn.
+    const sharedInvocations: readonly (readonly string[])[] = [
       ["--version"],
       ["-v"],
       ["--help"],
@@ -10679,6 +10739,17 @@ function treeDigest(roots: readonly string[]): string {
       ["guide", "profile"],
       ["guide", "--full"],
       ["guide", "--agent"],
+      ["list", "hosts"],
+      ["list", "hosts", "--json"],
+      ["status"],
+      ["status", "--json"],
+      ["unknown-command"],
+      ...COMMANDS.map((command) => [command.name, "--help"]),
+    ];
+    // Invocations that mutate state or are asserted only here stay dedicated
+    // spawns against fresh isolated homes, exactly as before.
+    const dedicatedInvocations: readonly (readonly string[])[] = [
+      [],
       ["info"],
       ["info", "--json"],
       ["list"],
@@ -10686,26 +10757,21 @@ function treeDigest(roots: readonly string[]): string {
       ["list", "projects", "--json"],
       ["list", "profiles"],
       ["list", "profiles", "--json"],
-      ["list", "hosts"],
-      ["list", "hosts", "--json"],
       ["machine", "list", "temporary"],
       ["machine", "list", "temporary", "--json"],
       ["validate"],
-      ["status"],
-      ["status", "--json"],
       ["update"],
       ["update", "--json"],
-      ["status"],
-      ["status", "--json"],
       ["uninstall"],
       ["machine", "install-temp"],
       ["machine", "remove-temp"],
-      ["unknown-command"],
-      ...COMMANDS.map((command) => [command.name, "--help"]),
     ];
 
-    for (const arguments_ of invocations) {
-      const result = await runCli(isolatedHome(), ...arguments_);
+    const sharedKeys = new Set(sharedInvocations.map((invocation) => JSON.stringify(invocation)));
+    for (const arguments_ of [...sharedInvocations, ...dedicatedInvocations]) {
+      const result = sharedKeys.has(JSON.stringify(arguments_))
+        ? await sharedReadOnlyCapture(...arguments_)
+        : await runCli(isolatedHome(), ...arguments_);
       expect(
         `${result.stdout}${result.stderr}`,
         `unexpected ANSI for: apkit ${arguments_.join(" ")}`,
@@ -10755,12 +10821,11 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("guide human views use newcomer vocabulary", async () => {
-    const home = isolatedHome();
     const views = [
-      await runCli(home, "guide"),
-      await runCli(home, "guide", "profile"),
-      await runCli(home, "guide", "context"),
-      await runCli(home, "guide", "skill"),
+      await sharedReadOnlyCapture("guide"),
+      await sharedReadOnlyCapture("guide", "profile"),
+      await sharedReadOnlyCapture("guide", "context"),
+      await sharedReadOnlyCapture("guide", "skill"),
     ];
 
     for (const view of views) {
@@ -10770,8 +10835,7 @@ function treeDigest(roots: readonly string[]): string {
   });
 
   test("guide help advertises every focused authoring topic", async () => {
-    const home = isolatedHome();
-    const result = await runCli(home, "guide", "--help");
+    const result = await sharedReadOnlyCapture("guide", "--help");
 
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
@@ -10907,7 +10971,7 @@ describe("apkit machine namespace (DEC-019)", () => {
   test("machine help lists the temporary installation commands and nothing else", async () => {
     const home = isolatedHome();
     const bare = await runCli(home, "machine");
-    const help = await runCli(home, "machine", "--help");
+    const help = await sharedReadOnlyCapture("machine", "--help");
     const shortHelp = await runCli(home, "machine", "-h");
     const helpCommand = await runCli(home, HELP_COMMAND, "machine");
 
@@ -10946,8 +11010,7 @@ describe("apkit machine namespace (DEC-019)", () => {
   });
 
   test("machine focused help names the temporary Host capability set", async () => {
-    const home = isolatedHome();
-    const help = await runCli(home, "machine", "install-temp", "-h");
+    const help = await sharedReadOnlyCapture("machine", "install-temp", "-h");
 
     expectExitCode(help, 0);
     expect(help.stdout).toContain(`Supported Hosts: ${TEMPORARY_INSTALLATION_HOSTS.join(", ")}`);
@@ -10955,7 +11018,7 @@ describe("apkit machine namespace (DEC-019)", () => {
 
   test("interactive machine help styles command rows through the shared semantic boundary (INT-1)", async () => {
     const home = isolatedHome();
-    const piped = await runCli(home, "machine", "--help");
+    const piped = await sharedReadOnlyCapture("machine", "--help");
     const interactive = await runCliInPtyWithEnvironment(
       home,
       80,
@@ -12012,8 +12075,7 @@ describe("apkit info", () => {
 
 describe("apkit temporary Profile installation (Codex)", () => {
   test("install-temp and remove-temp help use the settled temporary-install vocabulary", async () => {
-    const home = isolatedHome();
-    const installHelp = await runCli(home, "machine", "install-temp", "--help");
+    const installHelp = await sharedReadOnlyCapture("machine", "install-temp", "--help");
     expectExitCode(installHelp, 0);
     expect(installHelp.stdout).toContain("Install a temporary Profile into one Project");
     expect(installHelp.stdout).toContain("Usage: apkit machine install-temp <profile> <project> --host <host> [--json]");
@@ -12024,7 +12086,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       expect(installHelp.stdout).not.toMatch(term);
     }
 
-    const removeHelp = await runCli(home, "machine", "remove-temp", "--help");
+    const removeHelp = await sharedReadOnlyCapture("machine", "remove-temp", "--help");
     expectExitCode(removeHelp, 0);
     expect(removeHelp.stdout).toContain("Remove one temporary Profile");
     expect(removeHelp.stdout).not.toContain("Remove one temporary project");
@@ -12033,7 +12095,7 @@ describe("apkit temporary Profile installation (Codex)", () => {
       expect(removeHelp.stdout).not.toMatch(term);
     }
 
-    const machine = await runCli(home, "machine", "--help");
+    const machine = await sharedReadOnlyCapture("machine", "--help");
     expect(machine.stdout).toContain("Install a temporary Profile into one Project");
     expect(machine.stdout).toContain("Remove one temporary Profile");
     for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
@@ -14126,9 +14188,8 @@ describe("packed CLI open workspace", () => {
   });
 
   test("open help output is accessible through aliases", async () => {
-    const home = isolatedHome();
-    const help1 = await runCli(home, "open", "--help");
-    const help2 = await runCli(home, "help", "open");
+    const help1 = await sharedReadOnlyCapture("open", "--help");
+    const help2 = await sharedReadOnlyCapture(HELP_COMMAND, "open");
     expectExitCode(help1, 0);
     expectExitCode(help2, 0);
     expect(help1.stdout).toContain("Open the configured Workspace in your system file manager");
@@ -14155,7 +14216,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
     // invoke it even when PAGER points at this recording executable.
     const redirected = await runCliWithEnvironment(home, { PAGER: pager }, "guide", "--full");
     expect(existsSync(marker)).toBe(false);
-    const withoutPager = await runCli(home, "guide", "--full");
+    const withoutPager = await sharedReadOnlyCapture("guide", "--full");
     expect(redirected.stdout).toBe(withoutPager.stdout);
     expect(redirected.exitCode).toBe(0);
   });
@@ -14204,7 +14265,7 @@ describe("paged long guidance (#448, US-050, DEC-029)", () => {
     const paged = readFileSync(received, "utf8");
     expect(paged).toContain("Workspace");
     // The terminal itself received nothing: the pager owned the screen.
-    const direct = await runCli(home, "guide", "--full");
+    const direct = await sharedReadOnlyCapture("guide", "--full");
     expect(paged).toBe(direct.stdout);
   }, 20000);
 
