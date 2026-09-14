@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Documented the qualification-boundary policy in `docs/ARCHITECTURE.md`: which boundary proves what across pure/schema, real filesystem/Git, packed Node CLI, real PTY, fleet-scale, real-Host contract, and human qualification, answering "where does this test go?" (#547)
 - Documented repository evidence-validity policy in `AGENTS.md`: reruns need changed relevant inputs or an unresolved hypothesis, timeouts require a bounded hypothesis-based investigation, CI executed coverage and tested revision must match the accepted change, and maintained procedures signal only invocation-owned processes through the bounded executor (#548)
 - Fixed the empty-lock install-publication test failing correct code on CI by pinning the lock file's mtime before the call, so its outcome no longer depends on `Date.now()` and the filesystem mtime agreeing within a few milliseconds (#565)
 - Fixed the suite supervisor exiting with only its start line when an internal error occurred after the run loop — it now prints its truthful summary on stdout with the cause on stderr, and a cleanup failure no longer aborts the remaining bounded removals (#566)
