@@ -101,6 +101,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 - Changed `repository-exclusion-contribution` to the only structured Blocker kind for receipt-owned Git exclusion evidence, advancing the lifecycle and temporary-installation payload families to schema 8 (#346)
 - Changed the composed Profile Context envelope to compact Profile metadata plus normalized Context Module bodies, shared by Pi, Codex, Claude, and Grok; upgrading changes envelope hashes, so `status` reports Context drift until `apply` (#326)
 - Changed disabled-invocation Skill projection to preserve authored YAML frontmatter comments and formatting, unifying the Claude and shared emitters (#329)
+- Qualified the complete quiet, task-first newcomer journey through one packed CLI path and recaptured the living first-run excerpts from that run (#307)
 - Changed default views, help, inventory, and lifecycle summaries to apply the maintained newcomer presentation lexicon (#306)
 - Added an invocation-wide next-launch readiness statement on successful changed apply, naming one Profile when unambiguous (#305)
 - Changed first-use Host setup guidance to one grouped note in concise apply, suppressing standing trust and root-launch guidance during routine updates (#304)
