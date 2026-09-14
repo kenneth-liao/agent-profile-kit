@@ -46,12 +46,12 @@ The Bun toolchain version is pinned at package.json `engines.bun` — one canoni
 
 ### Evidence validity
 
-Repository verification decisions consume only valid evidence. The canonical evidence contract is the supervised run's retained qualification record — source identity, selection evidence, actual runtimes, completion status, and diagnostics (#539).
+Repository verification decisions consume only valid evidence. The canonical evidence contract is the supervised run's retained qualification record (#539).
 
-- Re-execution requires changed relevant inputs or an unresolved hypothesis. Documentation and snapshot edits run their affected content, packaging, and rendering checks; they neither automatically require the full suite nor receive a blanket no-test exemption.
-- A full-suite timeout starts a bounded investigation with an explicit hypothesis. Rerun only after a relevant change or for a stated discriminating experiment; a baseline timeout never counts as a branch pass.
-- When CI provides final qualification, its tested revision and actual required coverage must match the accepted change. Initial failures are preserved: automatic retries and phase transitions do not conceal or erase them, and review does not rerun valid checks solely because verification moved to a different phase.
-- Maintained qualification procedures signal only verified invocation-owned PIDs or process groups through the bounded executor boundary (ADR-0027, ADR-0028); machine-wide process-name termination (such as `pkill` by name) is prohibited. Outcomes are read from the qualification record, never inferred from a rerun that replaced it.
+- Re-execution requires changed relevant inputs or an unresolved hypothesis. Documentation and snapshot edits run their affected content, packaging, or rendering checks; they neither automatically require the full suite nor receive a blanket no-test exemption.
+- A full-suite timeout starts a bounded investigation with an explicit hypothesis. Rerun only after a relevant change or for a stated discriminating experiment; a timed-out run never counts as a branch pass — only a completed rerun under those conditions does.
+- When CI provides final qualification, its tested revision must match the accepted change and its executed coverage must match the required selection. Initial failures are preserved: automatic retries and phase transitions do not conceal or erase them, and review does not rerun valid checks solely because verification moved to a different phase.
+- Maintained qualification procedures signal and probe only the child PIDs or process groups owned by the invocation, through the bounded executor's explicit target policy (ADR-0027, ADR-0028); machine-wide process-name termination (such as `pkill` by name) is prohibited. Outcomes are read from the qualification record, never inferred from a rerun that replaced it.
 
 ## Agent skills
 
