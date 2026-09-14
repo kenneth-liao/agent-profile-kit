@@ -489,6 +489,40 @@ any target produces one warning and does not affect the outcome of the
 installation. Exclusions are a cache, so there is no rollback: a superseded or
 failed write self-heals on the next update.
 
+Publication and recovery distinguish **handled I/O failure** from **abrupt
+termination**. Every Installer publication boundary — Installation State,
+Profile configuration, Workspace scaffolding, repository exclusion sections,
+and per-Project output/removal transactions — stages its bytes and publishes
+through one atomic `rename`, so a reader never observes a torn file.
+Recovery from a handled I/O failure — an operation that returns an error — is
+bounded cleanup: in-process rollback restoring the previous bytes, a state
+restore of the exact prior document, or, for Temporary Profile Installations,
+the durable-record identity that `machine remove-temp` finishes; selection
+restore under the joint install boundary is recorded in ADR-0033. Recovery
+from each named handled failure is asserted by the real-filesystem fault
+suites — `test/temporary-installation-recovery.test.ts` for the
+durable-record and interrupted-removal recovery paths, and the
+staging-rollback fault injection in `test/reconcile.test.ts` and
+`test/directory-output.test.ts` for ordinary `update` and `uninstall` — and
+is not restated here.
+
+What is **not** proven: atomicity across abrupt termination mid-sequence. A
+process killed mid-sequence (crash, `SIGKILL`, power loss) can leave some
+outputs published and some steps pending — staging gives per-file crash
+consistency, not multi-file transactionality — and no automatic repair beyond
+what ordinary reconciliation re-derives on the next run is claimed. Publication
+is not fsynced, so power-loss durability is not claimed either. Abrupt death can
+also leave bounded, conventionally named staging residue (for example
+`.agent-profile-kit-stage-*` trees and the sibling temporary files of each
+boundary); readers address exact canonical paths only, so residue is never read
+as ownership state, while its cleanup after abrupt death is not claimed. The
+lifecycle lock is a kernel lock (`installer/exclusive-file-lock.ts`) whose
+release is bound to the open file descriptor, so process death releases it
+automatically and no stale-lock deletion protocol exists or is needed — a
+lock guarantee, not a transaction guarantee. Interactive-child cleanup evidence
+follows the same handled-versus-abrupt line (ADR-0028), and operation history
+records the same crash-residue and no-fsync limits (ADR-0039).
+
 The pre-1.0 YAML migration window is closed. Runtime Installation State reading
 accepts strict `state/manifest.json` at the current ownership schema version
 (`9`) and migrates every earlier version published from the v0.132.0 spec

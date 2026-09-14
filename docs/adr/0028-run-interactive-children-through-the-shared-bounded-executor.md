@@ -64,6 +64,12 @@ decision.
 - A CLI crash while paging can orphan the foreground pager; this residual
   risk is accepted for this mode and is surfaced as `cleanupFailed` whenever
   termination was attempted but could not be confirmed.
+- The executor's cleanup evidence is scoped to handled termination:
+  `cleanupFailed` is produced when termination was attempted and could not be
+  confirmed, while abrupt termination of the CLI process itself (`SIGKILL`,
+  power loss) reaches no signal handler, runs no cleanup, and produces no
+  evidence — the accepted orphaned-pager residual above is that abrupt case.
+  No broader cleanup guarantee is claimed for this mode.
 - The packed-CLI PTY harness reports `rows=0`; long-guidance paging therefore
   requires a known terminal height (device rows or `LINES`), and redirected
   or unknown-height output never pages — a safe default, covered by test.
