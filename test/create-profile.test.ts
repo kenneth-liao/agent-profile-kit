@@ -93,7 +93,7 @@ describe("createProfile", () => {
       expect(fact.kind).toBe("duplicate-artifact-name");
       // The existing Profile file is preserved untouched.
       expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toContain(
-        "id: example",
+        "id: \"example\"",
       );
     } finally {
       rmSync(home, { recursive: true, force: true });
