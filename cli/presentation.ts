@@ -1932,39 +1932,20 @@ function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
   return kind !== "current";
 }
 
-function primaryCauseFromItem(item: ReconciliationItem): PrimaryCauseKind | "settled" {
-  if (item.kind === "addition") return "not-installed-yet";
-  if (item.kind === "drifted output") return item.reason === "missing" ? "generated-files-missing" : "generated-files-changed";
-  if (item.kind === "stale source" || item.kind === "update") return "source-changed";
-  if (item.kind === "blocked" || item.kind === "removal" || item.kind === "malformed ownership state") return "needs-attention";
-  return "settled";
-}
-
 function presentPrimaryCauses(
-  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+  projects: readonly ReconciliationProjectRecord[],
 ): readonly PrimaryCauseKind[] {
   const present = new Set<PrimaryCauseKind>();
-  for (const item of projects) {
-    const cause = "state" in item ? classifyPrimaryCause(item) : primaryCauseFromItem(item);
+  for (const project of projects) {
+    const cause = classifyPrimaryCause(project);
     if (cause !== "settled") present.add(cause);
   }
   return PRIMARY_CAUSE_ORDER.filter((kind) => present.has(kind));
 }
 
-function stateExplanationLines(
-  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
-): readonly string[] {
-  const kinds = presentPrimaryCauses(projects);
-  if (kinds.length === 0) return [];
-  return [
-    "State explanations:",
-    ...kinds.map((kind) => `- ${PRIMARY_CAUSE_LABELS[kind]}: ${CAUSE_EXPLANATIONS[kind]}`),
-  ];
-}
-
 /** The typed state-explanation section; empty when every item is current. */
 function stateExplanationNodes(
-  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+  projects: readonly ReconciliationProjectRecord[],
 ): PresentationNode[] {
   const kinds = presentPrimaryCauses(projects);
   if (kinds.length === 0) return [];
@@ -3320,7 +3301,7 @@ interface VerboseSectionOptions {
   readonly completedRepositoryExclusions?: boolean;
   readonly includeStateExplanations?: boolean;
   readonly scope: LocationDisplayScope;
-  readonly stateExplanationItems?: readonly (ReconciliationProjectRecord | ReconciliationItem)[];
+  readonly stateExplanationItems?: readonly ReconciliationItem[];
 }
 
 export function delimitedContext(context: string): string {
@@ -4829,7 +4810,7 @@ function verboseLifecycleSections(
     shorten,
     options.scope,
     options.includeStateExplanations ?? true,
-    options.stateExplanationItems ?? (options.command === "status" ? report.projects : reportItems(report)),
+    options.stateExplanationItems ?? reportItems(report),
     options.command,
   ));
   return nodes;
@@ -4906,19 +4887,13 @@ export function verboseProjectCauseLine(
   return "up to date";
 }
 
-function toReconciliationItems(
-  items: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
-): readonly ReconciliationItem[] {
-  return items.map((item) => ("state" in item ? { ...item.state, project: item.project } : item));
-}
-
 function verboseDetailNodes(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
   shorten: (text: string) => string,
   scope: LocationDisplayScope,
   includeStateExplanations = true,
-  stateExplanationProjects: readonly (ReconciliationProjectRecord | ReconciliationItem)[] = report.projects,
+  stateExplanationItems: readonly ReconciliationItem[] = reportItems(report),
   command?: LifecycleCommand,
 ): PresentationNode[] {
   const items = reportItems(report);
@@ -4948,9 +4923,9 @@ function verboseDetailNodes(
   ];
   if (includeStateExplanations) {
     if (command === "status") {
-      nodes.push(...stateExplanationNodes(stateExplanationProjects));
+      nodes.push(...stateExplanationNodes(report.projects));
     } else {
-      nodes.push(...stateExplanationNodesLegacy(toReconciliationItems(stateExplanationProjects)));
+      nodes.push(...stateExplanationNodesLegacy(stateExplanationItems));
     }
   }
   if (outputs.length > 0) {
