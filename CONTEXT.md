@@ -127,3 +127,8 @@ _Avoid_: Skill, installation, source update
 **Command**:
 An Agent Host-specific, user-facing entrypoint that explicitly activates a Skill. A Command does not own workflow instructions independently of the Skill it activates.
 _Avoid_: Skill, canonical workflow
+
+**Primary Cause**:
+The single authoritative category assigned to a Project in lifecycle status presentation, strictly prioritized: `needs attention` (blocker, malformed ownership state, blocked state, or removal), `generated files changed` (modified generated output files), `generated files missing` (absent generated output files), `not installed yet` (uninstalled addition), `source changed` (workspace source or binding modified since last update), or `up to date` (settled, requiring no synchronization work). Human presentation at all detail levels consistently retains these default cause labels rather than introducing synonyms (`addition`, `drifted output`, `stale source`, `current`), adding specific conditions or affected items beside the canonical label.
+_Avoid_: Reconciliation kind synonym, machine state renaming
+

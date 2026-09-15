@@ -327,6 +327,25 @@ export const PRIMARY_CAUSE_LABELS: Readonly<Record<PrimaryCauseKind, string>> = 
   "source-changed": "source changed",
 };
 
+/** Short, progressive-disclosure glosses for primary cause states. */
+export const CAUSE_EXPLANATIONS: Readonly<Record<PrimaryCauseKind, string>> = {
+  "needs-attention":
+    `${capitalize(DEFAULT_VIEW_LEXICON.reconciliation.noun)} cannot change this ` +
+    `${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} until the listed blocker or attention condition is resolved.`,
+  "generated-files-changed":
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} differs from its recorded installation; update will ` +
+    `replace it from current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
+  "generated-files-missing":
+    `An owned ${DEFAULT_VIEW_LEXICON.generatedOutput.singular} is missing from disk; update will ` +
+    `restore it from current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
+  "not-installed-yet":
+    `The ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular)} is not installed yet; update will create its ` +
+    `${DEFAULT_VIEW_LEXICON.generatedOutput.plural} ${DEFAULT_VIEW_LEXICON.installerOwned.postpositive}.`,
+  "source-changed":
+    `Workspace source changed since the last update; ${DEFAULT_VIEW_LEXICON.generatedOutput.plural} no longer ` +
+    `match current ${DEFAULT_VIEW_LEXICON.desiredState}.`,
+};
+
 export function hasNeedsAttention(project: ReconciliationProjectRecord): boolean {
   return (
     project.blockers.length > 0 ||
@@ -1913,6 +1932,51 @@ function isNonCurrentKind(kind: ReconciliationKind): kind is NonCurrentKind {
   return kind !== "current";
 }
 
+function primaryCauseFromItem(item: ReconciliationItem): PrimaryCauseKind | "settled" {
+  if (item.kind === "addition") return "not-installed-yet";
+  if (item.kind === "drifted output") return item.reason === "missing" ? "generated-files-missing" : "generated-files-changed";
+  if (item.kind === "stale source" || item.kind === "update") return "source-changed";
+  if (item.kind === "blocked" || item.kind === "removal" || item.kind === "malformed ownership state") return "needs-attention";
+  return "settled";
+}
+
+function presentPrimaryCauses(
+  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+): readonly PrimaryCauseKind[] {
+  const present = new Set<PrimaryCauseKind>();
+  for (const item of projects) {
+    const cause = "state" in item ? classifyPrimaryCause(item) : primaryCauseFromItem(item);
+    if (cause !== "settled") present.add(cause);
+  }
+  return PRIMARY_CAUSE_ORDER.filter((kind) => present.has(kind));
+}
+
+function stateExplanationLines(
+  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+): readonly string[] {
+  const kinds = presentPrimaryCauses(projects);
+  if (kinds.length === 0) return [];
+  return [
+    "State explanations:",
+    ...kinds.map((kind) => `- ${PRIMARY_CAUSE_LABELS[kind]}: ${CAUSE_EXPLANATIONS[kind]}`),
+  ];
+}
+
+/** The typed state-explanation section; empty when every item is current. */
+function stateExplanationNodes(
+  projects: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+): PresentationNode[] {
+  const kinds = presentPrimaryCauses(projects);
+  if (kinds.length === 0) return [];
+  return [
+    { kind: "heading", text: "State explanations:" },
+    ...kinds.map((kind) => ({
+      kind: "list-item" as const,
+      parts: [`${PRIMARY_CAUSE_LABELS[kind]}: ${CAUSE_EXPLANATIONS[kind]}`],
+    })),
+  ];
+}
+
 function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly NonCurrentKind[] {
   const present = new Set<NonCurrentKind>();
   for (const item of items) {
@@ -1921,17 +1985,7 @@ function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly 
   return NON_CURRENT_STATE_ORDER.filter((kind) => present.has(kind));
 }
 
-function stateExplanationLines(items: readonly ReconciliationItem[]): readonly string[] {
-  const kinds = presentNonCurrentKinds(items);
-  if (kinds.length === 0) return [];
-  return [
-    "State explanations:",
-    ...kinds.map((kind) => `- ${kind}: ${STATE_EXPLANATIONS[kind]}`),
-  ];
-}
-
-/** The typed state-explanation section; empty when every item is current. */
-function stateExplanationNodes(items: readonly ReconciliationItem[]): PresentationNode[] {
+function stateExplanationNodesLegacy(items: readonly ReconciliationItem[]): PresentationNode[] {
   const kinds = presentNonCurrentKinds(items);
   if (kinds.length === 0) return [];
   return [
@@ -2199,11 +2253,37 @@ function stillPendingProjects(
 }
 
 
+export function settledStatusOutcomeLine(
+  report: ReconciliationReport,
+  selection?: ProjectBindingSelection,
+  identities?: ProjectIdentityLookup,
+): string {
+  const currentProjects = fullyCurrentProjectCount(report) ?? 0;
+  if (selection?.kind === "project") {
+    if (currentProjects === 1) {
+      if (selection.match === "containing") {
+        return "This Project is up to date";
+      }
+      const record = report.projects[0];
+      const identityLookup = identities ?? projectIdentityLookup(report.projects);
+      const identity = record !== undefined ? identityLookup(record) : "Project";
+      return `${identity} is up to date`;
+    }
+    return `Selected Projects are up to date (${plural(currentProjects, "Project")})`;
+  }
+  if (selection?.filter !== undefined) {
+    return `Selected Projects are up to date (${plural(currentProjects, "Project")})`;
+  }
+  const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
+  return `All ${projects} are up to date (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
+}
+
 function outcomeLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
   applyCompleted = false,
   selection?: ProjectBindingSelection,
+  identities?: ProjectIdentityLookup,
 ): string {
   if (command === "update") {
     if (reportBlockers(report).length > 0) return applyCompleted ? "Update completed with blockers" : "Update blocked";
@@ -2219,8 +2299,7 @@ function outcomeLine(
   }
   if (currentProjects !== undefined) {
     if (reportHasHostAttention(report)) return "Host attention required";
-    const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-    return `All ${projects} are current (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
+    return settledStatusOutcomeLine(report, selection, identities);
   }
   if (reportItems(report).length > 0) return "Ready to update";
   return `No ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} are configured`;
@@ -3237,10 +3316,11 @@ export interface LifecycleHumanOptions {
 }
 
 interface VerboseSectionOptions {
+  readonly command?: LifecycleCommand;
   readonly completedRepositoryExclusions?: boolean;
   readonly includeStateExplanations?: boolean;
   readonly scope: LocationDisplayScope;
-  readonly stateExplanationItems?: readonly ReconciliationItem[];
+  readonly stateExplanationItems?: readonly (ReconciliationProjectRecord | ReconciliationItem)[];
 }
 
 export function delimitedContext(context: string): string {
@@ -4639,6 +4719,7 @@ function readyStatusGuidanceNodes(
 function statusOutcomeNotice(
   report: ReconciliationReport,
   selection?: ProjectBindingSelection,
+  identities?: ProjectIdentityLookup,
 ): PresentationNode {
   let severity: NoticeSeverity = "success";
   if (reportBlockers(report).length > 0) severity = "error";
@@ -4648,7 +4729,7 @@ function statusOutcomeNotice(
   return {
     kind: "notice",
     severity,
-    nodes: [{ kind: "prose", parts: [outcomeLine("status", report, false, selection)] }],
+    nodes: [{ kind: "prose", parts: [outcomeLine("status", report, false, selection, identities)] }],
   };
 }
 
@@ -4748,7 +4829,8 @@ function verboseLifecycleSections(
     shorten,
     options.scope,
     options.includeStateExplanations ?? true,
-    options.stateExplanationItems ?? reportItems(report),
+    options.stateExplanationItems ?? (options.command === "status" ? report.projects : reportItems(report)),
+    options.command,
   ));
   return nodes;
 }
@@ -4770,33 +4852,106 @@ function projectSourceChangeSuffix(
   return " (source changed)";
 }
 
+export function verboseProjectCauseLine(
+  project: ReconciliationProjectRecord,
+  allProjects: readonly ReconciliationProjectRecord[],
+): string {
+  const cause = classifyPrimaryCause(project);
+  if (cause === "settled") {
+    return "up to date";
+  }
+  if (cause === "needs-attention") {
+    if (project.state.kind === "removal") {
+      const reason = project.state.reason ? `: ${renderItemReason(project.state.reason)}` : "";
+      return `needs attention (removal${reason})`;
+    }
+    if (project.state.kind === "malformed ownership state") {
+      const reason = project.state.reason ? `: ${renderItemReason(project.state.reason)}` : "";
+      return `needs attention (malformed ownership state${reason})`;
+    }
+    if (project.state.kind === "blocked") {
+      const reason = project.state.reason ? `: ${renderItemReason(project.state.reason)}` : "";
+      return `needs attention (blocked${reason})`;
+    }
+    if (project.blockers.length > 0) {
+      return "needs attention (blocked)";
+    }
+    const reason = project.state.reason ? `: ${renderItemReason(project.state.reason)}` : "";
+    return `needs attention (${project.state.kind}${reason})`;
+  }
+  if (cause === "not-installed-yet") {
+    const reason = project.state.reason ? ` (${renderItemReason(project.state.reason)})` : "";
+    return `not installed yet${reason}`;
+  }
+  if (cause === "generated-files-missing") {
+    const item: ReconciliationItem = { ...project.state, project: project.project };
+    const sourceSuffix = projectSourceChangeSuffix(item, allProjects);
+    const reason = project.state.reason && project.state.reason !== "drifted output" && project.state.reason !== "missing"
+      ? ` (${renderItemReason(project.state.reason)})`
+      : "";
+    return `generated files missing${reason}${sourceSuffix}`;
+  }
+  if (cause === "generated-files-changed") {
+    const item: ReconciliationItem = { ...project.state, project: project.project };
+    const sourceSuffix = projectSourceChangeSuffix(item, allProjects);
+    const reason = project.state.reason && project.state.reason !== "drifted output" && project.state.reason !== "changed"
+      ? ` (${renderItemReason(project.state.reason)})`
+      : "";
+    return `generated files changed${reason}${sourceSuffix}`;
+  }
+  if (cause === "source-changed") {
+    const reason = project.state.reason ? ` (${renderItemReason(project.state.reason)})` : "";
+    return `source changed${reason}`;
+  }
+  return "up to date";
+}
+
+function toReconciliationItems(
+  items: readonly (ReconciliationProjectRecord | ReconciliationItem)[],
+): readonly ReconciliationItem[] {
+  return items.map((item) => ("state" in item ? { ...item.state, project: item.project } : item));
+}
+
 function verboseDetailNodes(
   report: ReconciliationReport,
   groups: readonly ProjectGroup[],
   shorten: (text: string) => string,
   scope: LocationDisplayScope,
   includeStateExplanations = true,
-  stateExplanationItems: readonly ReconciliationItem[] = reportItems(report),
+  stateExplanationProjects: readonly (ReconciliationProjectRecord | ReconciliationItem)[] = report.projects,
+  command?: LifecycleCommand,
 ): PresentationNode[] {
   const items = reportItems(report);
   const outputs = reportOutputs(report).filter((output) => output.kind !== "unchanged");
   const exclusions = changedRepositoryExclusions(report);
   const nodes: PresentationNode[] = [
     { kind: "heading", text: "Projects:" },
-    ...(items.length === 0
+    ...(report.projects.length === 0
       ? [{ kind: "prose" as const, parts: ["(no projects)"] }]
-      : items.map((item) => ({
-        kind: "prose" as const,
-        parts: [
-          identifierPart(shorten(item.project)),
-          `: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}${
-            projectSourceChangeSuffix(item, report.projects)
-          }`,
-        ],
-      }))),
+      : (command === "status"
+        ? report.projects.map((project) => ({
+            kind: "prose" as const,
+            parts: [
+              identifierPart(shorten(project.project)),
+              `: ${verboseProjectCauseLine(project, report.projects)}`,
+            ],
+          }))
+        : items.map((item) => ({
+            kind: "prose" as const,
+            parts: [
+              identifierPart(shorten(item.project)),
+              `: ${item.kind}${item.reason ? ` (${renderItemReason(item.reason)})` : ""}${
+                projectSourceChangeSuffix(item, report.projects)
+              }`,
+            ],
+          })))),
   ];
   if (includeStateExplanations) {
-    nodes.push(...stateExplanationNodes(stateExplanationItems));
+    if (command === "status") {
+      nodes.push(...stateExplanationNodes(stateExplanationProjects));
+    } else {
+      nodes.push(...stateExplanationNodesLegacy(toReconciliationItems(stateExplanationProjects)));
+    }
   }
   if (outputs.length > 0) {
     nodes.push(
@@ -4887,7 +5042,7 @@ function conciseStatusDocument(
     // unconfigured fleet: render the filter's empty outcome without bind or
     // inventory guidance (DEC-006).
     if (options.selection.filter !== undefined) {
-      return [statusOutcomeNotice(report, options.selection)];
+      return [statusOutcomeNotice(report, options.selection, grouped.identities)];
     }
     return [
       {
@@ -4910,7 +5065,7 @@ function conciseStatusDocument(
   }
 
   const nodes: PresentationNode[] = [
-    statusOutcomeNotice(report, options.selection),
+    statusOutcomeNotice(report, options.selection, grouped.identities),
     ...warningNodes(report, groups, scope),
   ];
   if (fullyCurrentStatus) {
@@ -4971,11 +5126,12 @@ function verboseStatusDocument(
   options: LifecycleHumanOptions,
 ): PresentationDocument {
   const scope = locationDisplayScope(options, report);
-  const groups = groupProjects(report).groups;
+  const grouped = groupProjects(report);
+  const groups = grouped.groups;
   return [
-    statusOutcomeNotice(report, options.selection),
+    statusOutcomeNotice(report, options.selection, grouped.identities),
     ...verboseWarningNodes(report, groups, scope),
-    ...verboseLifecycleSections(report, { scope }),
+    ...verboseLifecycleSections(report, { scope, command: "status" }),
     ...verboseHostSetupNodes("status", report, scope),
   ];
 }

@@ -1050,7 +1050,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.194.0
+Engine version: 0.195.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1210,7 +1210,7 @@ Next: apkit update
 
 exports[`golden snapshots of every human view status current: status-current 1`] = `
 "--- stdout ---
-All Projects are current (1 Project)
+demo is up to date
 --- stderr ---
 "
 `;
@@ -1433,9 +1433,9 @@ Next:
 
 exports[`golden snapshots of every human view status verbose: status-verbose 1`] = `
 "--- stdout ---
-All Projects are current (1 Project)
+demo is up to date
 Projects:
-~/projects/demo: current
+~/projects/demo: up to date
 Host setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
@@ -1908,7 +1908,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.194.0
+Engine version: 0.195.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1918,7 +1918,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.194.0\x1B[0m
+\x1B[35mEngine version: 0.195.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1928,7 +1928,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.194.0
+Engine version: 0.195.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1938,7 +1938,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.194.0\x1B[0m
+\x1B[35mEngine version: 0.195.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2142,9 +2142,9 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-All Projects are current (1 Project)
+demo is up to date
 Projects:
-~/projects/demo: current
+~/projects/demo: up to date
 Host setup:
 - Review and approve the generated
   SessionStart hook when Codex asks.
@@ -2167,9 +2167,9 @@ Standing Host setup:
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[32mAll Projects are current (1 Project)\x1B[0m
+\x1B[32mdemo is up to date\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
-~/projects/demo: current
+~/projects/demo: up to date
 \x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
@@ -2192,9 +2192,9 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-All Projects are current (1 Project)
+demo is up to date
 Projects:
-~/projects/demo: current
+~/projects/demo: up to date
 Host setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
@@ -2209,9 +2209,9 @@ Standing Host setup:
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[32mAll Projects are current (1 Project)\x1B[0m
+\x1B[32mdemo is up to date\x1B[0m
 \x1B[1;34mProjects:\x1B[0m
-~/projects/demo: current
+~/projects/demo: up to date
 \x1B[1;34mHost setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.

@@ -75,6 +75,16 @@ receipt whose run retained an operation-history entry closes with
 receipt stays tier 2, and re-running a lifecycle command is never offered as
 retrieval of an earlier run. Tiers 2 and 3 are unchanged.
 
+### Amendment: scope-accurate synchronization outcomes (issue #505, spec #491, US-014, DEC-009, DEC-012)
+
+Clean `status` states that the checked Project scope is "up to date" rather than
+"current", naming only the scope actually checked: single-Project outcomes state
+`This Project is up to date` (under `--here`) or `<identity> is up to date`
+(under an explicit target path), selected subsets state `Selected Projects are up to date (N Projects)`,
+and whole-fleet outcomes state `All Projects are up to date (N Projects)`. Scoped
+results never imply unselected Projects were checked. Machine schemas and exit codes
+are unchanged.
+
 ## Superseded decisions
 
 This ADR supersedes only the conflicting default-view rules below; the remaining

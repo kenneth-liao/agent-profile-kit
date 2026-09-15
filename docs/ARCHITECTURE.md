@@ -163,7 +163,8 @@ never elided; when it exceeds the measure it wraps at path-segment boundaries
 presents the outcome notice, partitions actionable Projects by primary cause
 (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`,
 `source changed`) with complete wrapped Project identities, summarizes non-actionable
-Projects as a settled count line in mixed fleets, nests Blocker diagnostics under each needs-attention member,
+Projects as a settled count line in mixed fleets (or a single scope-accurate `up to date` outcome
+naming only what was checked when every Project in the scope is settled, US-014, DEC-009), nests Blocker diagnostics under each needs-attention member,
 and preserves one next action (`Next:` update) with an optional `Details:`
 verbose route. It renders each semantic fact once and omits routine generated paths,
 Project matrices, Git exclusion bookkeeping, setup provenance, and separate consequences.
