@@ -273,7 +273,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toBe("All Projects are current (12 Projects)\n");
+    expect(status.stdout).toBe("All Projects are up to date (12 Projects)\n");
     // Clean concise status stays quiet: no standing reminder or Project matrix.
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Host setup:");
@@ -459,7 +459,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const nextRead = await runCli(home, fixture.pathWithHosts, "status");
     expectExitCode(nextRead, 0);
-    expect(nextRead.stdout).toContain("All Projects are current (14 Projects)");
+    expect(nextRead.stdout).toContain("All Projects are up to date (14 Projects)");
     expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
   }, FLEET_TEST_TIMEOUT_MS);
@@ -912,7 +912,7 @@ describe("integrated fleet recovery qualification", () => {
 
     const settled = await runCli(home, pathWithHosts, "status");
     expectExitCode(settled, 0);
-    expect(settled.stdout).toBe("All Projects are current (30 Projects)\n");
+    expect(settled.stdout).toBe("All Projects are up to date (30 Projects)\n");
   }, 240_000);
 
   test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and update --all at exit 0", async () => {
