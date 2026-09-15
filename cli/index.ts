@@ -1193,9 +1193,8 @@ async function main(): Promise<void> {
         {
           const hosts = listHosts();
           if (parsed.json) {
-            // The machine payload stays byte-stable capability metadata and
-            // performs no probe (DEC-009); advisory executable detection is
-            // human-view evidence only (ADR-0016 targeted exception).
+            // Byte-stable, probe-free machine payload (DEC-009); see the
+            // ADR-0016 amendment for #512 on the detection asymmetry.
             process.stdout.write(formatHostInventoryJson(hosts));
           } else {
             const detected = await detectInstalledHosts();

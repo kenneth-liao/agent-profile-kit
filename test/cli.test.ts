@@ -11240,6 +11240,7 @@ describe("apkit list", () => {
     // One controlled Host stub deliberately absent: that Host degrades to
     // "not found" while every other Host reports installed, and the
     // undetected Host stays listed as an available installation choice.
+    // The call only seeds home/bin, which pathWithoutHostStub symlinks from.
     installControlledHosts(home);
     const result = await runCliWithPath(home, pathWithoutHostStub(home, "codex"), "list", "hosts");
 
@@ -11250,6 +11251,30 @@ describe("apkit list", () => {
       if (host === "codex") continue;
       expect(result.stdout).toContain(`  ${host} — installed\n`);
     }
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("hosts labels failing executables not found without leaking probe diagnostics", async () => {
+    const home = isolatedHome();
+    const failingHostBin = join(home, "failing-host-bin");
+    mkdirSync(failingHostBin, { recursive: true });
+    for (const host of SUPPORTED_HOSTS) {
+      const executable = join(failingHostBin, host);
+      writeFileSync(executable, "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n");
+      chmodSync(executable, 0o755);
+    }
+
+    // A failing (non-hanging) probe degrades to "not found": the advisory
+    // detection never fails the command or leaks the stub's diagnostics.
+    const result = await runCliWithPath(home, failingHostBin, "list", "hosts");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+      "Supported Hosts:\n" +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — not found\n`).join("") +
+        "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
+    );
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
