@@ -488,7 +488,7 @@ describe("interactive Host-only routing and removal mode", () => {
     const started = startUninstall(home, ["--host", "bogus"], input);
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("unsupported Agent Host 'bogus'");
+    expect(plain(started.streams.errorText())).toContain("Unsupported Agent Host 'bogus'");
     expect(plain(started.streams.humanText())).not.toContain("Which Projects");
     expect(readFileSync(configPath(home), "utf8")).toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);

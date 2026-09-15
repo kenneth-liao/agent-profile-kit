@@ -776,3 +776,42 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
     expect(plain(streams.humanText())).not.toContain("Details: apkit details");
   });
 });
+
+describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () => {
+  test("mistyped Profile suggests near-match with zero writes", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["codin", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(1);
+    const err = plain(streams.errorText());
+    expect(err).toContain("Profile 'codin' does not exist in this Workspace.");
+    expect(err).toContain("Available Profiles: coding, example.");
+    expect(err).toContain("Did you mean 'coding'?");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("mistyped Host suggests near-match with consistent sentence capitalization and zero writes", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "claud", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(1);
+    const err = plain(streams.errorText());
+    expect(err).toContain("Unsupported Agent Host 'claud'");
+    expect(err).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+    expect(err).toContain("Did you mean 'claude'?");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+});
+

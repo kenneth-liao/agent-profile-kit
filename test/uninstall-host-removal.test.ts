@@ -564,9 +564,36 @@ describe("uninstall --host partial removal", () => {
       });
 
       expect(outcome.exitCode).toBe(1);
-      expect(plain(streams.errorText())).toContain("unsupported Agent Host 'borked'");
+      expect(plain(streams.errorText())).toContain("Unsupported Agent Host 'borked'");
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
       expect(existsSync(codexOutput)).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("mistyped Host in uninstall suggests near-match with zero writes", async () => {
+    const home = await setupHome();
+    const project = projectDirectory();
+    try {
+      await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
+      const codexOutput = await exclusiveOutputPath(home, project);
+
+      const streams = capturedStreams();
+      const outcome = await runUninstallCommand({
+        home,
+        arguments: ["--project", project, "--host", "claud", "--auto-confirm"],
+        stdout: streams.output as Writable & { isTTY?: boolean },
+        stderr: streams.stderr as Writable & { isTTY?: boolean },
+        input: nonInteractiveInput(),
+      });
+
+      expect(outcome.exitCode).toBe(1);
+      const err = plain(streams.errorText());
+      expect(err).toContain("Unsupported Agent Host 'claud'");
+      expect(err).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+      expect(err).toContain("Did you mean 'claude'?");
+      expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
     } finally {
       cleanup();
     }

@@ -168,6 +168,31 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
   }
 }
 
+/** Maximum number of available choices displayed inline before explicit overflow count. */
+const MAX_DISPLAYED_AVAILABLE_CHOICES = 10;
+
+/** Formats an available-choices list, capping at 10 items with explicit overflow. */
+function formatAvailableChoices(label: string, items: readonly string[]): string {
+  if (items.length <= MAX_DISPLAYED_AVAILABLE_CHOICES) {
+    return `Available ${label}s: ${items.join(", ")}.`;
+  }
+  const visible = items.slice(0, MAX_DISPLAYED_AVAILABLE_CHOICES);
+  const remaining = items.length - MAX_DISPLAYED_AVAILABLE_CHOICES;
+  return `Available ${label}s: ${visible.join(", ")} (and ${remaining} more).`;
+}
+
+/**
+ * The single canonical did-you-mean suggestion sentence shared across
+ * diagnostics (DEC-017, US-015): nearest name within edit distance 2.
+ */
+function nameSuggestionSentence(
+  invalid: string,
+  candidates: readonly string[],
+): string | undefined {
+  const suggestion = nearestName(invalid, candidates);
+  return suggestion !== undefined ? `Did you mean '${suggestion}'?` : undefined;
+}
+
 /**
  * The shared invalid-reference diagnostic (US-025/026, DEC-017): what happened
  * names the offending file and invalid value, why suggests the nearest name
@@ -186,11 +211,11 @@ function missingReferenceDiagnostic(evidence: {
   const why: (readonly InlineContent[])[] = [
     [evidence.available.length === 0
       ? `No ${evidence.label}s exist in the Workspace.`
-      : `Available ${evidence.label}s: ${evidence.available.join(", ")}.`],
+      : formatAvailableChoices(evidence.label, evidence.available)],
   ];
-  const suggestion = nearestName(evidence.invalid, evidence.available);
+  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available);
   if (suggestion !== undefined) {
-    why.push([`Did you mean '${suggestion}'?`]);
+    why.push([suggestion]);
   }
   return {
     happened: [...evidence.happened],
@@ -312,8 +337,11 @@ export function formatLocalConfigurationError(
       return [`Local Configuration ${reason.path} bindings[${reason.index}] profile must be a lowercase kebab-case name without wildcards`];
     case "hosts-not-array":
       return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts must be a non-empty array`];
-    case "unsupported-host":
-      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported Agent Host '${reason.host}'; supported Hosts: ${reason.supportedHosts.join(", ")}`];
+    case "unsupported-host": {
+      const suggestion = nameSuggestionSentence(reason.host, reason.supportedHosts);
+      const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported Agent Host '${reason.host}'; supported Hosts: ${reason.supportedHosts.join(", ")}${suggestionText}`];
+    }
   }
 }
 
@@ -439,7 +467,10 @@ export function formatMissingProfileError(error: MissingProfileError): readonly 
       : [" Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."];
     return [...heading, " No Profiles exist in the Workspace.", ...next];
   }
-  return [...heading, ` Available Profiles: ${error.availableProfiles.join(", ")}.`, ...recovery];
+  const choicesText = formatAvailableChoices("Profile", error.availableProfiles);
+  const suggestion = nameSuggestionSentence(error.profile, error.availableProfiles);
+  const suggestionText = suggestion !== undefined ? ` ${suggestion}` : "";
+  return [...heading, ` ${choicesText}${suggestionText}`, ...recovery];
 }
 
 /** Structured diagnostic for Missing Profile (DEC-014). */
@@ -447,12 +478,22 @@ export function formatMissingProfileErrorDiagnostic(error: MissingProfileError):
   const heading = [`${missingProfileSentence(error.profile)}.`];
   const why: (readonly InlineContent[])[] = error.availableProfiles.length === 0
     ? [["No Profiles exist in the Workspace."]]
-    : [[`Available Profiles: ${error.availableProfiles.join(", ")}.`]];
+    : [[formatAvailableChoices("Profile", error.availableProfiles)]];
+  const suggestion = nameSuggestionSentence(error.profile, error.availableProfiles);
+  if (suggestion !== undefined) {
+    why.push([suggestion]);
+  }
   const whatToType: (readonly InlineContent[])[] = [];
   if (error.recoverByEditingLocalConfiguration) {
     whatToType.push(["Edit Local Configuration directly if this stale binding must be removed."]);
   } else if (error.availableProfiles.length === 0) {
     whatToType.push(["Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."]);
+  } else if (suggestion === undefined) {
+    whatToType.push([
+      "Run ",
+      commandPart(COMMAND_NAME, [arg("list"), arg("profiles")]),
+      " to inspect available Profiles.",
+    ]);
   }
   return {
     happened: heading,
@@ -476,12 +517,21 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`bind requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
     case "install-host-required":
       return [`install requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
-    case "unsupported-host":
-      return [`unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`];
-    case "unsupported-temporary-host":
-      return [`unsupported Agent Host '${fact.host}'; temporary installation supports: ${fact.supportedHosts.join(", ")}`];
-    case "temporary-host-unsupported":
-      return [`temporary installation does not yet support Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}`];
+    case "unsupported-host": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
+      return [`unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}${suggestionText}`];
+    }
+    case "unsupported-temporary-host": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
+      return [`unsupported Agent Host '${fact.host}'; temporary installation supports: ${fact.supportedHosts.join(", ")}${suggestionText}`];
+    }
+    case "temporary-host-unsupported": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
+      return [`temporary installation does not yet support Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}${suggestionText}`];
+    }
     case "lifecycle-lock-busy":
       return [`Installation lifecycle is busy; another ${fact.operation} holds the lock — retry`];
     case "configuration-lock-busy":
@@ -580,21 +630,78 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         happened: ["install requires at least one --host flag"],
         why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
       };
-    case "unsupported-host":
+    case "unsupported-host": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const why: (readonly InlineContent[])[] = [
+        [`Supported Hosts: ${fact.supportedHosts.join(", ")}.`],
+      ];
+      if (suggestion !== undefined) {
+        why.push([suggestion]);
+      }
       return {
-        happened: [`unsupported Agent Host '${fact.host}'`],
-        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+        happened: [`Unsupported Agent Host '${fact.host}'`],
+        why,
+        ...(suggestion === undefined
+          ? {
+              whatToType: [
+                [
+                  "Run ",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
+                  " to inspect supported Hosts.",
+                ],
+              ],
+            }
+          : {}),
       };
-    case "unsupported-temporary-host":
+    }
+    case "unsupported-temporary-host": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const why: (readonly InlineContent[])[] = [
+        [`Temporary installation supports: ${fact.supportedHosts.join(", ")}.`],
+      ];
+      if (suggestion !== undefined) {
+        why.push([suggestion]);
+      }
       return {
-        happened: [`unsupported Agent Host '${fact.host}'`],
-        why: [[`temporary installation supports: ${fact.supportedHosts.join(", ")}`]],
+        happened: [`Unsupported Agent Host '${fact.host}'`],
+        why,
+        ...(suggestion === undefined
+          ? {
+              whatToType: [
+                [
+                  "Run ",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
+                  " to inspect supported Hosts.",
+                ],
+              ],
+            }
+          : {}),
       };
-    case "temporary-host-unsupported":
+    }
+    case "temporary-host-unsupported": {
+      const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
+      const why: (readonly InlineContent[])[] = [
+        [`Supported Hosts: ${fact.supportedHosts.join(", ")}.`],
+      ];
+      if (suggestion !== undefined) {
+        why.push([suggestion]);
+      }
       return {
-        happened: [`temporary installation does not yet support Agent Host '${fact.host}'`],
-        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+        happened: [`Temporary installation does not yet support Agent Host '${fact.host}'`],
+        why,
+        ...(suggestion === undefined
+          ? {
+              whatToType: [
+                [
+                  "Run ",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
+                  " to inspect supported Hosts.",
+                ],
+              ],
+            }
+          : {}),
       };
+    }
     case "lifecycle-lock-busy":
       return {
         happened: [`Installation lifecycle is busy; another ${fact.operation} holds the lock`],

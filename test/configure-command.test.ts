@@ -239,6 +239,27 @@ describe("explicit configure profile", () => {
     expect(diagnostic).not.toContain("needs explicit confirmation");
   });
 
+  test("mistyped Profile name suggests near match and leaves source unchanged", async () => {
+    const home = await setupHome();
+    const profileFile = join(workspacePath(home), "profiles", "coding.yaml");
+    const before = readFileSync(profileFile, "utf8");
+    const streams = capturedStreams();
+    const outcome = await runConfigureCommand({
+      home,
+      arguments: ["profile", "codin", "--context", "team-rules", "--auto-confirm"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(readFileSync(profileFile, "utf8")).toBe(before);
+    const diagnostic = plain(streams.errorText());
+    expect(diagnostic).toContain("Profile 'codin' does not exist in this Workspace.");
+    expect(diagnostic).toContain("Available Profiles: coding, example.");
+    expect(diagnostic).toContain("Did you mean 'coding'?");
+  });
+
   test("--json success uses the versioned lifecycle envelope", async () => {
     const home = await setupHome();
     const streams = capturedStreams();
