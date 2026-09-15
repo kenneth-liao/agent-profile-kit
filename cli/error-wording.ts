@@ -106,8 +106,56 @@ export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): readon
   }
 }
 
+/**
+ * The Project-target branch of the configured-path diagnostic family (#507,
+ * US-015): every Project-target path failure leads with the actual target and
+ * cause; the recorded binding's locator moves to the why section instead of
+ * leading, so internal configuration details never precede the failure.
+ */
+function formatProjectTargetPathDiagnostic(
+  fact: Extract<ConfiguredPathErrorFact, { readonly field: string }>,
+): DiagnosticDocumentParts {
+  const bindingLocator: readonly (readonly InlineContent[])[] | undefined =
+    fact.origin.source === "local-configuration" && fact.origin.bindingIndex !== undefined
+      ? [
+          [`Recorded in Local Configuration ${fact.origin.configurationPath} bindings[${fact.origin.bindingIndex}].`],
+        ]
+      : undefined;
+  switch (fact.kind) {
+    case "wildcard-path":
+      return {
+        happened: ["Project target must be an explicit directory path without wildcards"],
+        whatToType: [listProjectsRecovery()],
+      };
+    case "relative-path":
+      return {
+        happened: ["Project target must be an absolute path or home-relative path beginning with ~/"],
+        whatToType: [listProjectsRecovery()],
+      };
+    case "missing-directory":
+      return {
+        happened: [`Project target '${fact.authored}' must be an existing directory`],
+        ...(bindingLocator === undefined ? {} : { why: bindingLocator }),
+        whatToType: [
+          bindingLocator === undefined
+            ? ["Create it or pass an existing Project directory."]
+            : staleBindingRecovery(fact.authored),
+        ],
+      };
+    case "dangling-symlink":
+      return {
+        happened: [`Project target '${fact.authored}' is a dangling symlink`],
+        ...(bindingLocator === undefined ? {} : { why: bindingLocator }),
+        whatToType: [["Restore its target or choose an existing directory."]],
+      };
+  }
+}
+
 /** The structured diagnostic parts for one typed configured-path failure. */
 export function formatConfiguredPathErrorDiagnostic(fact: ConfiguredPathErrorFact): DiagnosticDocumentParts {
+  if ("field" in fact && fact.field === "project") {
+    return formatProjectTargetPathDiagnostic(fact);
+  }
   const description = configuredPathDescription(fact.origin);
   switch (fact.kind) {
     case "wildcard-path":
@@ -883,24 +931,49 @@ export function formatProjectTargetErrorForHuman(
   return substituteInline(formatProjectTargetError(reason));
 }
 
-/** Structured diagnostic for ProjectTargetError (DEC-014, DEC-016). */
+/**
+ * The one runnable Project-discovery recovery shared by every Project-target
+ * rejection (US-015, #507): one home so the family cannot drift, phrased once
+ * so the guidance does not repeat the verb it names.
+ */
+function listProjectsRecovery(): readonly InlineContent[] {
+  return [
+    "Run ",
+    commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
+    " to see configured Projects.",
+  ];
+}
+
+/** The carried command line for one stale recorded Project binding (#507). */
+function staleBindingRecovery(authored: string): readonly InlineContent[] {
+  return [
+    "Restore the directory, or run ",
+    commandPart(COMMAND_NAME, [
+      arg("uninstall"),
+      arg("--project"),
+      arg(shellSingleQuoted(authored)),
+    ]),
+    " to remove its stale record.",
+  ];
+}
+
+/** Structured diagnostic for ProjectTargetError (DEC-014, DEC-016, #507). */
 export function formatProjectTargetErrorDiagnostic(
   reason: ProjectTargetErrorReason,
 ): DiagnosticDocumentParts {
   switch (reason.case) {
     case "unbound-target":
       return {
-        happened: [`directory '${reason.target}' is not configured as a Project`],
+        happened: [`Directory '${reason.target}' is not configured as a Project`],
         whatToType: [
           ["Run ", commandPart(COMMAND_NAME, [arg("install")]), " to configure this directory as a Project."],
-          ["Run ", commandPart(COMMAND_NAME, [arg("list"), arg("projects")]), " to list configured Projects."],
+          listProjectsRecovery(),
         ],
       };
     case "ambiguous-target":
       return {
         happened: [
-          commandPart(COMMAND_NAME, [arg(reason.command)]),
-          ` Project target '${reason.target}' is ambiguous because it matches multiple configured Projects`,
+          `Project target '${reason.target}' is ambiguous because it matches multiple configured Projects`,
         ],
         whatToType: [
           ["Pass one exact Project root or run ", commandPart(COMMAND_NAME, [arg("list"), arg("projects")]), "."],
@@ -908,32 +981,25 @@ export function formatProjectTargetErrorDiagnostic(
       };
     case "dangling-symlink-target":
       return {
-        happened: [
-          commandPart(COMMAND_NAME, [arg(reason.command)]),
-          ` Project target project '${reason.target}' is a dangling symlink`,
-        ],
-        whatToType: [["Restore its target or choose an existing directory."]],
+        happened: [`Project target '${reason.target}' is a dangling symlink`],
+        whatToType: [["Restore its target or choose an existing directory."], listProjectsRecovery()],
       };
     case "missing-target":
       return {
-        happened: [
-          commandPart(COMMAND_NAME, [arg(reason.command)]),
-          ` Project target project '${reason.target}' must be an existing directory`,
-        ],
+        happened: [`Project target '${reason.target}' must be an existing directory`],
+        whatToType: [listProjectsRecovery()],
       };
     case "relative-target":
       return {
         happened: [
-          commandPart(COMMAND_NAME, [arg(reason.command)]),
-          " Project target project must be an absolute path or home-relative path beginning with ~/",
+          "Project target must be an absolute path or home-relative path beginning with ~/",
         ],
+        whatToType: [listProjectsRecovery()],
       };
     case "wildcard-target":
       return {
-        happened: [
-          commandPart(COMMAND_NAME, [arg(reason.command)]),
-          " Project target project must be an explicit directory path without wildcards",
-        ],
+        happened: ["Project target must be an explicit directory path without wildcards"],
+        whatToType: [listProjectsRecovery()],
       };
   }
 }

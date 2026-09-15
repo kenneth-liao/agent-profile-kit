@@ -1,15 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  formatConfiguredPathError,
+  formatConfiguredPathErrorDiagnostic,
   formatInstallerToolError,
   formatInstallerToolErrorDiagnostic,
   formatMissingProfileError,
   formatMissingProfileErrorDiagnostic,
+  formatProjectTargetError,
+  formatProjectTargetErrorDiagnostic,
   formatWorkspaceIngestionError,
   formatWorkspaceIngestionErrorDiagnostic,
 } from "../cli/error-wording.js";
 import { nearestName } from "../cli/nearest-match.js";
 import type { WorkspaceIngestionErrorFact, InstallerToolErrorFact } from "../installer/tool-errors.js";
+import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -171,3 +176,198 @@ describe("missing Profile and Host diagnostics (US-015, DEC-011)", () => {
   });
 });
 
+
+describe("Project-target diagnostics (#507, US-015)", () => {
+  const configurationPath = "/home/.agents/agent-profile-kit/config.yaml";
+
+  const targetReason = (
+    reason: Omit<Extract<ProjectTargetErrorReason, { case: "missing-target" }>, "case">,
+  ): ProjectTargetErrorReason => ({ case: "missing-target", ...reason });
+
+  test("a missing target leads with the target and cause, without command or noun fragments", () => {
+    const parts = formatProjectTargetErrorDiagnostic(
+      targetReason({ command: "update", target: "/projects/nope" }),
+    );
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe("Project target '/projects/nope' must be an existing directory");
+    // AC-2: no repeated command echo (the Usage node carries the command) and
+    // no repeated target noun.
+    expect(happened).not.toContain("apkit update");
+    expect(happened).not.toContain("Project target project");
+    // AC-2: a runnable recovery matching the failed lifecycle operation.
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+  });
+
+  test("a relative target keeps the shape cause first and offers the discovery recovery", () => {
+    const parts = formatProjectTargetErrorDiagnostic({
+      case: "relative-target",
+      command: "uninstall",
+      target: "./relative",
+    });
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe(
+      "Project target must be an absolute path or home-relative path beginning with ~/",
+    );
+    expect(happened).not.toContain("apkit uninstall");
+    expect(happened).not.toContain("Project target project");
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+  });
+
+  test("a wildcard target keeps the shape cause first and offers the discovery recovery", () => {
+    const parts = formatProjectTargetErrorDiagnostic({
+      case: "wildcard-target",
+      command: "status",
+      target: "~/projects/*",
+    });
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe("Project target must be an explicit directory path without wildcards");
+    expect(happened).not.toContain("apkit status");
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+  });
+
+  test("a dangling-symlink target keeps its restore remedy and gains the discovery recovery", () => {
+    const parts = formatProjectTargetErrorDiagnostic({
+      case: "dangling-symlink-target",
+      command: "update",
+      target: "~/dangling",
+    });
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe("Project target '~/dangling' is a dangling symlink");
+    expect(happened).not.toContain("apkit update");
+    expect(happened).not.toContain("Project target project");
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Restore its target or choose an existing directory.");
+    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+  });
+
+  test("an ambiguous target drops the command echo and keeps its recovery", () => {
+    const parts = formatProjectTargetErrorDiagnostic({
+      case: "ambiguous-target",
+      command: "update",
+      target: "~/projects/fleet",
+    });
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe(
+      "Project target '~/projects/fleet' is ambiguous because it matches multiple configured Projects",
+    );
+    expect(happened).not.toContain("apkit update");
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Pass one exact Project root or run apkit list projects.");
+  });
+
+  test("an unbound target keeps its structured recovery with the capitalized family lead", () => {
+    const parts = formatProjectTargetErrorDiagnostic({
+      case: "unbound-target",
+      command: "uninstall",
+      target: "~/unbound",
+    });
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe("Directory '~/unbound' is not configured as a Project");
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Run apkit install to configure this directory as a Project.");
+    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+  });
+
+  test("a recorded missing binding leads with the target and moves the configuration locator to why", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "missing-directory",
+      origin: { source: "local-configuration", configurationPath, bindingIndex: 0 },
+      field: "project",
+      authored: "~/projects/nope",
+    };
+    const parts = formatInstallerToolErrorDiagnostic(fact);
+    const happened = flatInlineText(parts.happened);
+    // AC-1: target and cause first; the internal configuration path is no
+    // longer the lead.
+    expect(happened).toBe("Project target '~/projects/nope' must be an existing directory");
+    expect(happened).not.toContain("Local Configuration");
+    const why = (parts.why ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(why).toContain(`Recorded in Local Configuration ${configurationPath} bindings[0].`);
+    // AC-2/AC-3: runnable recovery quoting the authored spelling.
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain(
+      "Restore the directory, or run apkit uninstall --project '~/projects/nope' to remove its stale record.",
+    );
+  });
+
+  test("a prospective install target leads with the target and offers a creation remedy without a locator", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "missing-directory",
+      origin: { source: "local-configuration", configurationPath },
+      field: "project",
+      authored: "/projects/nope",
+    };
+    const parts = formatInstallerToolErrorDiagnostic(fact);
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe("Project target '/projects/nope' must be an existing directory");
+    expect(parts.why).toBeUndefined();
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Create it or pass an existing Project directory.");
+    expect(whatToType).not.toContain("uninstall");
+  });
+
+  test("a target with spaces stays runnable through single quotes", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "missing-directory",
+      origin: { source: "local-configuration", configurationPath, bindingIndex: 1 },
+      field: "project",
+      authored: "~/my projects/nope",
+    };
+    const whatToType = formatInstallerToolErrorDiagnostic(fact)
+      .whatToType?.map((line) => flatInlineText(line))
+      .join("\n");
+    expect(whatToType).toContain("apkit uninstall --project '~/my projects/nope'");
+  });
+
+  test("a dangling recorded binding keeps the target-first lead and its restore remedy", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "dangling-symlink",
+      origin: { source: "local-configuration", configurationPath, bindingIndex: 0 },
+      field: "project",
+      authored: "~/projects/dangling",
+    };
+    const parts = formatInstallerToolErrorDiagnostic(fact);
+    expect(flatInlineText(parts.happened)).toBe(
+      "Project target '~/projects/dangling' is a dangling symlink",
+    );
+    const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
+    expect(whatToType).toContain("Restore its target or choose an existing directory.");
+  });
+
+  test("Workspace-path facts keep the Local Configuration lead (not this family)", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "missing-directory",
+      origin: { source: "local-configuration", configurationPath },
+      field: "workspace",
+      authored: "~/no-such-workspace",
+    };
+    const happened = flatInlineText(
+      formatInstallerToolErrorDiagnostic(fact).happened,
+    );
+    expect(happened).toBe(
+      `Local Configuration ${configurationPath} workspace '~/no-such-workspace' must be an existing directory`,
+    );
+  });
+
+  test("machine projections stay byte-identical for both fact families (DEC-009)", () => {
+    const configured: InstallerToolErrorFact = {
+      kind: "missing-directory",
+      origin: { source: "local-configuration", configurationPath, bindingIndex: 0 },
+      field: "project",
+      authored: "~/projects/nope",
+    };
+    expect(flatInlineText(formatInstallerToolError(configured))).toBe(
+      `Local Configuration ${configurationPath} bindings[0] project '~/projects/nope' must be an existing directory`,
+    );
+    expect(
+      flatInlineText(
+        formatProjectTargetError(targetReason({ command: "update", target: "/projects/nope" })),
+      ),
+    ).toBe(
+      "apkit update Project target project '/projects/nope' must be an existing directory",
+    );
+  });
+});

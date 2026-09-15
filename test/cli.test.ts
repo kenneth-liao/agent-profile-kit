@@ -2401,6 +2401,94 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
+  test("an install target rejection leads with the Project target and a creation remedy, and writes nothing", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const missing = join(home, "no-such-project");
+    const configBefore = readFileSync(configPath(home), "utf8");
+
+    const failed = await runCli(home, "install", "coding", missing, "--host", "codex", "--auto-confirm");
+
+    expectExitCode(failed, 1);
+    // AC-1: the human diagnostic leads with the actual target and cause, not
+    // the internal Local Configuration path (US-015, review S10).
+    expect(humanText(failed.stderr)).toBe(
+      humanText(
+        `apkit: Project target '${missing}' must be an existing directory\n` +
+          "Create it or pass an existing Project directory.",
+      ),
+    );
+    expect(failed.stderr).not.toContain("Local Configuration");
+    expect(failed.stderr).not.toContain("Project target project");
+    // What to type: the creation remedy for a prospective target.
+    expect(failed.stderr).toContain("Create it or pass an existing Project directory.");
+    // AC-3: invalid targets cause no lifecycle writes.
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+  });
+
+  test("a scoped update against a stale recorded binding leads with the target and offers runnable recovery, and writes nothing", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const stale = join(home, "my stale project");
+    bind(home, stale);
+    const configBefore = readFileSync(configPath(home), "utf8");
+
+    const failed = await runCli(home, "update");
+
+    expectExitCode(failed, 1);
+    // AC-1: target and cause first; the internal configuration path moved to
+    // the why line instead of leading.
+    expect(humanText(failed.stderr)).toContain(
+      humanText(`apkit: Project target '${stale}' must be an existing directory`),
+    );
+    expect(humanText(failed.stderr)).toContain(
+      humanText(`Recorded in Local Configuration ${configPath(home)} bindings[0].`),
+    );
+    // AC-2/AC-3: a runnable recovery matching the failed lifecycle intent,
+    // quoting the authored spelling so spaces and aliases survive the shell.
+    expect(humanText(failed.stderr)).toContain(
+      humanText(`Restore the directory, or run apkit uninstall --project '${stale}' to remove its stale record.`),
+    );
+    // AC-3: no lifecycle writes for an invalid target.
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+
+    // DEC-009: the machine projection stays byte-stable while the human
+    // diagnostic changes.
+    const machine = await runCli(home, "update", "--json");
+    expectExitCode(machine, 1);
+    const payload = JSON.parse(machine.stdout) as { readonly error: string };
+    expect(payload.error).toBe(
+      `Local Configuration ${configPath(home)} bindings[0] project '${stale}' must be an existing directory`,
+    );
+  });
+
+  test("an uninstall target rejection names the target with a runnable discovery recovery, and writes nothing", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const bound = project();
+    bind(home, bound);
+    const notAProject = join(home, "not-a-project.txt");
+    writeFileSync(notAProject, "not a directory\n");
+    const configBefore = readFileSync(configPath(home), "utf8");
+
+    const failed = await runCli(home, "uninstall", "--project", notAProject);
+
+    expectExitCode(failed, 1);
+    expect(humanText(failed.stderr)).toContain(
+      humanText(`apkit: Project target '${notAProject}' must be an existing directory`),
+    );
+    expect(failed.stderr).not.toContain("Project target project");
+    expect(failed.stderr).toContain("Run apkit list projects to see configured Projects.");
+    expect(failed.stderr).toContain(`Usage: apkit uninstall`);
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+  });
+
   test("status reports desired additions without writing project, state, or host configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -2841,12 +2929,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const failed = await runCli(home, "update", unbound);
     expectExitCode(failed, 1);
     const lines = failed.stderr.split("\n");
-    // What happened: directory is not configured as a Project (DEC-016: does not name unmatched Project target)
-    expect(lines[0]).toMatch(/^apkit: directory/);
+    // What happened: Directory is not configured as a Project (DEC-016: does not name unmatched Project target)
+    expect(lines[0]).toMatch(/^apkit: Directory/);
     expect(failed.stderr).toContain("is not configured as a Project");
     // What to type: recovery commands
     expect(failed.stderr).toContain("Run apkit install to configure this directory as a Project.");
-    expect(failed.stderr).toContain("Run apkit list projects to list configured Projects.");
+    expect(failed.stderr).toContain("Run apkit list projects to see configured Projects.");
     // Usage node as final guidance
     expect(lines.at(-2)).toBe("Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]");
     expect(lines.at(-1)).toBe("");
