@@ -110,6 +110,7 @@ import {
   listProjectBindings,
   listTemporaryInstallations,
 } from "../installer/inventory.js";
+import { detectInstalledHosts } from "../adapters/registry.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   COMMAND_HELP_ALIASES,
@@ -1192,9 +1193,17 @@ async function main(): Promise<void> {
         {
           const hosts = listHosts();
           if (parsed.json) {
+            // The machine payload stays byte-stable capability metadata and
+            // performs no probe (DEC-009); advisory executable detection is
+            // human-view evidence only (ADR-0016 targeted exception).
             process.stdout.write(formatHostInventoryJson(hosts));
           } else {
-            writeHumanDocument(process.stdout, hostInventoryDocument(hosts), stdoutPresentationContext);
+            const detected = await detectInstalledHosts();
+            writeHumanDocument(
+              process.stdout,
+              hostInventoryDocument(hosts, detected),
+              stdoutPresentationContext,
+            );
           }
         }
         return;

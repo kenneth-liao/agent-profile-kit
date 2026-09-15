@@ -5739,17 +5739,41 @@ describe("standalone view presentation documents (#389)", () => {
     });
   });
 
-  test("host inventory lists supported Hosts as one entry each", () => {
-    const document = hostInventoryDocument([
-      { host: "codex", supportsTemporaryProfileInstallation: true },
-      { host: "claude", supportsTemporaryProfileInstallation: false },
-    ]);
-    expect(document.map(shape)).toEqual(["heading", "prose", "prose", "blank", "prose"]);
+  test("host inventory labels detected executables as installed or not found", () => {
+    const document = hostInventoryDocument(
+      [
+        { host: "codex", supportsTemporaryProfileInstallation: true },
+        { host: "claude", supportsTemporaryProfileInstallation: false },
+      ],
+      ["codex"],
+    );
+    expect(document.map(shape)).toEqual(["heading", "prose", "prose", "blank", "prose", "prose"]);
     const hostLines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
       .map((node) => nodeText(node));
     expect(hostLines[0]).toContain("codex");
+    expect(hostLines[0]).toContain("installed");
     expect(hostLines[1]).toContain("claude");
+    expect(hostLines[1]).toContain("not found");
+    expect(inlineCommandTexts(document)).toContain("apkit install");
+  });
+
+  test("host inventory keeps an undetected Host listed with the advisory loading distinction", () => {
+    const document = hostInventoryDocument(
+      [{ host: "claude", supportsTemporaryProfileInstallation: false }],
+      [],
+    );
+    const hostLines = flattenPresentationNodes(document)
+      .filter((node) => node.kind === "prose")
+      .map((node) => nodeText(node));
+    expect(hostLines[0]).toContain("claude");
+    expect(hostLines[0]).toContain("not found");
+    // The advisory wording distinguishes executable presence from Profile
+    // loading and keeps every Host an available installation choice.
+    const advice = hostLines.filter((line) => line.includes("not detected") || line.includes("selectable"));
+    expect(advice).toHaveLength(2);
+    expect(advice[0]).toContain("not detected");
+    expect(advice[1]).toContain("selectable");
     expect(inlineCommandTexts(document)).toContain("apkit install");
   });
 

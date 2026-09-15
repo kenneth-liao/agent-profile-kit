@@ -95,3 +95,32 @@ discovery boundaries remain in force.
 The former string presentation pipeline — the regex categoriser, English prefix table, copyable-value substring protector, and string wrapping path — is deleted. Every human view (help, guides, inventory, info, receipts, lifecycle reports, and diagnostics) flows through `PresentationDocument` (`cli/presentation-document.ts`) and the pure `renderPresentationDocument` renderer.
 
 Semantic category is authored at formatter sites rather than inferred from rendered text (DEC-003). Structurally supplied values (paths, commands, identifiers) are authored as atomic inline parts/nodes (`cli/inline-content.ts`) rather than re-identified via substring scanning (DEC-009). The renderer wraps inline content with responsive measure clamping and keeps atomic nodes intact. Machine surfaces (`--json`) serialize directly from typed structured records without touching presentation documents or rendered prose.
+
+### Amendment: advisory executable detection in Host inventory (issue #512, spec #491, US-018)
+
+This amendment records the targeted exception to the read-only discovery
+boundary above: the `list hosts` human view now labels each supported Agent
+Host's executable as installed or not found. Detection is the existing advisory
+Host detection authority (`detectInstalledHosts()` in `adapters/registry.ts`),
+whose probes run through the shared bounded process executor (ADR-0027,
+ADR-0028). A hung, failing, or deadline-terminated probe degrades to
+"not found": detection never throws, never fails the command, and never drops a
+Host's row, and an undetected Host stays listed as an available installation
+choice. Detection is advisory only (DEC-011) and distinguishes executable
+presence from Profile loading; the recorded cost of the exception is added
+latency — probes run concurrently, so the worst case is one bounded probe
+deadline (10 seconds) plus the bounded cleanup window when a Host executable
+hangs, while the typical case resolves in the slowest installed-Host version
+probe.
+
+The exception is deliberately narrow:
+
+- The `list hosts --json` machine payload is unchanged: it remains the
+  versioned, byte-stable capability-metadata envelope (DEC-009) and still
+  performs no probe. The advisory detection result is human-view evidence only.
+  The dedicated packed-CLI test that runs Host JSON against failing executables
+  and asserts the exact unchanged payload with empty stderr is the pinned guard
+  for this asymmetry.
+- Inventory still writes no state.
+- Every other inventory topic, `info`, `status`, `validate`, and all other
+  read-only commands keep their unaffected no-probe discovery guarantees.

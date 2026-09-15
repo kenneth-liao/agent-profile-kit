@@ -44,6 +44,7 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
+import type { SupportedHost } from "../adapters/host-catalog.js";
 import type { ChangedOutputComparison } from "../installer/changed-output-review.js";
 import {
   changedOutputDiscard,
@@ -1208,20 +1209,37 @@ export function formatProfileDetailToolErrorJson(
   );
 }
 
-/** The Agent Host inventory listing as a presentation document. */
+/** The Agent Host inventory listing as a presentation document (US-018).
+ * Executable detection is advisory: each supported Host carries an
+ * installed/not-found label, and the advisory sentence distinguishes
+ * executable presence from Profile loading while keeping every Host an
+ * available installation choice. Detection facts are human-view evidence
+ * only; the machine payload stays byte-stable (DEC-009). */
 export function hostInventoryDocument(
   hosts: readonly HostInventoryRecord[],
+  detected: readonly SupportedHost[],
 ): PresentationDocument {
   return [
     { kind: "heading", text: "Supported Hosts:" },
-    ...hosts.map(({ host }) => ({ kind: "prose" as const, parts: [`  ${host}`] })),
+    ...hosts.map(({ host }) => ({
+      kind: "prose" as const,
+      parts: [
+        "  ",
+        identifierPart(host),
+        detected.includes(host) ? " — installed" : " — not found",
+      ],
+    })),
     spacerNode(),
     {
       kind: "prose",
+      parts: ["\"not found\" means the Host executable was not detected here."],
+    },
+    {
+      kind: "prose",
       parts: [
-        "Use <host> with ",
+        "Every Host stays selectable with ",
         commandPart(COMMAND_NAME, [arg("install")]),
-        " to select it for a Project.",
+        ".",
       ],
     },
   ];

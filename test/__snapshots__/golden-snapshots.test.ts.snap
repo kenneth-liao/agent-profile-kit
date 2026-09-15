@@ -166,9 +166,9 @@ Workspace: Not configured (run apkit init)
 Create \`profiles/example.yaml\`:
 
 \`\`\`yaml
-id: "example"
+id: example
 context:
-  - "example-context"
+  - example-context
 skills: []
 \`\`\`
 
@@ -176,7 +176,7 @@ Create \`context/example-context.md\`:
 
 \`\`\`md
 ---
-id: "example-context"
+id: example-context
 dependencies: []
 ---
 Keep project-specific instructions in the project repository.
@@ -200,7 +200,7 @@ Create \`context/example-context.md\`:
 
 \`\`\`md
 ---
-id: "example-context"
+id: example-context
 dependencies: []
 ---
 Keep project-specific instructions in the project repository.
@@ -224,7 +224,7 @@ Create \`skills/example-skill/SKILL.md\`:
 
 \`\`\`md
 ---
-name: "example-skill"
+name: example-skill
 description: Summarize a change. Use when asked for a concise change summary.
 ---
 
@@ -1104,14 +1104,15 @@ Use <profile> with
 exports[`golden snapshots of every human view list hosts: list-hosts 1`] = `
 "--- stdout ---
 Supported Hosts:
-  antigravity
-  claude
-  codex
-  grok
-  opencode
-  pi
+  antigravity — installed
+  claude — installed
+  codex — installed
+  grok — installed
+  opencode — installed
+  pi — installed
 
-Use <host> with apkit install to select it for a Project.
+"not found" means the Host executable was not detected here.
+Every Host stays selectable with apkit install.
 --- stderr ---
 "
 `;
