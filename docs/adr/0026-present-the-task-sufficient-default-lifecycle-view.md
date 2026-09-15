@@ -21,7 +21,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 
 2. **Complete Actionable Identities.** Every actionable Project in the fleet is listed under its primary cause group. Default presentation wraps paths across terminal lines without artificial length caps or truncation pointers.
 
-3. **Settled Counts & Wholly Settled Outcome.** Projects requiring no reconciliation work are summarized as a single count line (`settled (N)`) in mixed fleets. When every Project in the fleet is settled, the view renders a single outcome notice (`All Projects are current (N Projects)`) with no breakdown listing and no next action.
+3. **Settled Counts & Wholly Settled Outcome.** Projects requiring no reconciliation work are summarized as a single count line (`settled (N)`) in mixed fleets. When every Project in the checked scope is settled, the view renders a single scope-accurate outcome notice naming only what was checked (`All Projects are up to date (N Projects)` for whole-fleet, `Selected Projects are up to date (N Projects)` for selected subsets, `This Project is up to date` for `--here`, or `<identity> is up to date` for explicit targets) with no breakdown listing and no next action. *Amended by issue #505 (spec #491, US-014, DEC-009, DEC-012).*
 
 4. **Blocker Containment.** Blockers are contained concisely within the status view. Project-scoped and global Blocker evidence (problem, requirement, remedy, scope) is presented without suppressing the primary cause partition of the remaining fleet.
 
@@ -31,7 +31,7 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 
 7. **Delivery Distinction for Filtering.** DEC-041 establishes the task-sufficient default view architecture and supersedes the filter policy of ADR-0024. Replacement human filter flags (`--stale` and `--blocked`) are delivered under ticket #455; `--blockers-only` remains in force until that ticket lands. This decision governs the default presentation.
 
-8. **Language and Vocabulary.** This decision extends ADR-0014's user-facing vocabulary standards. Primary cause labels (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`) are human presentation policy; versioned machine schemas, exit codes, and typed diagnostic facts are preserved.
+8. **Language and Vocabulary.** This decision extends ADR-0014's user-facing vocabulary standards. Primary cause labels (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`, and `up to date`) are human presentation policy; detailed views add specifics rather than introducing synonyms (`addition`, `drifted output`, `stale source`, `current`). Machine schemas, exit codes, and typed diagnostic facts are preserved. *Amended by issue #505 (spec #491, US-014, DEC-009, DEC-012).*
 
 ## Supersessions
 

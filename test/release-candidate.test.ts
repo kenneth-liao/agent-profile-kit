@@ -737,7 +737,7 @@ describe("project-bound release candidate", () => {
 
     const statusCurrent = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(statusCurrent, 0);
-    expect(humanText(statusCurrent.stdout)).toContain(humanText(`${gitRoot}: current`));
+    expect(humanText(statusCurrent.stdout)).toContain(humanText(`${gitRoot}: up to date`));
     expect(statusCurrent.stdout).not.toContain(existingWorktree);
 
     writeBindings(home, [
@@ -751,7 +751,7 @@ describe("project-bound release candidate", () => {
     const explicitPreview = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(explicitPreview, 0);
     expect(humanText(explicitPreview.stdout)).toContain(
-      humanText(`${existingWorktree}: addition`),
+      humanText(`${existingWorktree}: not installed yet`),
     );
 
     const explicitApply = await runCli(home, ["update"], { path: pathWithClaude });
@@ -761,7 +761,7 @@ describe("project-bound release candidate", () => {
 
     const explicitStatus = await runCli(home, ["status", "--verbose"], { path: pathWithClaude });
     expectExitCode(explicitStatus, 0);
-    expect(humanText(explicitStatus.stdout)).toContain(humanText(`${existingWorktree}: current`));
+    expect(humanText(explicitStatus.stdout)).toContain(humanText(`${existingWorktree}: up to date`));
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
@@ -866,7 +866,7 @@ describe("project-bound release candidate", () => {
 
     const status = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(status, 0);
-    expect(status.stdout).toMatch(/current/i);
+    expect(status.stdout).toMatch(/up to date/i);
 
     writeBindings(home, []);
     const remove = await runCli(home, ["update"], { path: supportedPath });
@@ -939,7 +939,7 @@ describe("project-bound release candidate", () => {
     writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
     const resolvedStatus = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(resolvedStatus, 0);
-    expect(resolvedStatus.stdout).toContain("All Projects are current");
+    expect(resolvedStatus.stdout).toContain("All Projects are up to date");
     expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
@@ -1258,7 +1258,7 @@ describe("project-bound release candidate", () => {
 
     const statusCurrent = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(statusCurrent, 0);
-    expect(statusCurrent.stdout).toMatch(/current/i);
+    expect(statusCurrent.stdout).toMatch(/up to date/i);
 
     // Source update: change Skill body and re-apply.
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
@@ -1459,7 +1459,7 @@ describe("project-bound release candidate", () => {
 
     const status = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(status, 0);
-    expect(status.stdout).toMatch(/All Projects are current/);
+    expect(status.stdout).toMatch(/All Projects are up to date/);
     const appliedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       readonly receipts: readonly { readonly hosts: Readonly<Record<string, unknown>> }[];
     };
@@ -1739,7 +1739,7 @@ describe("project-bound release candidate", () => {
     const verbose = await runCliDefaultScope(home, ["status", "--verbose"], { path: gitOnlyPath });
     expectExitCode(verbose, 2);
     expect(verbose.stdout).toMatch(
-      new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+drifted output`),
+      new RegExp(`${multi.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:\n\\s+generated files changed`),
     );
     expect(verbose.stdout).toContain("addition (source changed)");
     expect(countOccurrences(verbose.stdout, "(source changed)")).toBe(4);
@@ -1843,7 +1843,7 @@ describe("project-bound release candidate", () => {
     // (US-004, US-007, TEST-004).
     const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(settledStatus, 0);
-    expect(settledStatus.stdout).toBe("All Projects are current (7 Projects)\n");
+    expect(settledStatus.stdout).toBe("All Projects are up to date (7 Projects)\n");
     expect(settledStatus.stdout).not.toContain("Next:");
 
     // 7. Whole-invocation cancellation: a cancelled changed-output
@@ -1939,7 +1939,7 @@ describe("project-bound release candidate", () => {
       { path: journeyPath, cwd: firstProject },
     );
     expectExitCode(currentStatus, 0);
-    expect(currentStatus.stdout).toContain("All Projects are current (1 Project)");
+    expect(currentStatus.stdout).toContain("is up to date");
     expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     // NOTE (#494): the first-run authoring handoff (US-040) and the
     // Host-loading check (US-041) stay update-report views in this slice;
@@ -2001,7 +2001,7 @@ describe("project-bound release candidate", () => {
     // current, and the bare invocation summarizes the settled fleet.
     const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
     expectExitCode(finalStatus, 0);
-    expect(finalStatus.stdout).toBe("All Projects are current (3 Projects)\n");
+    expect(finalStatus.stdout).toBe("All Projects are up to date (3 Projects)\n");
     const bareConfigured = await runCli(home, [], { path: journeyPath });
     expectExitCode(bareConfigured, 0);
     expect(bareConfigured.stdout).toContain("3 Projects up to date.");
@@ -2081,7 +2081,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(currentStatus, 0);
-    expect(currentStatus.stdout).toBe("All Projects are current (1 Project)\n");
+    expect(currentStatus.stdout).toContain("is up to date");
     expect(currentStatus.stdout).not.toContain("Next:");
     expect(currentStatus.stdout).not.toContain("Standing Host setup:");
     expect(currentStatus.stdout).not.toContain("Host setup:");
@@ -2201,7 +2201,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(cleanStatus, 0);
-    expect(cleanStatus.stdout).toBe("All Projects are current (1 Project)\n");
+    expect(cleanStatus.stdout).toContain("is up to date");
     expect(cleanStatus.stdout).not.toContain("Next:");
     expect(cleanStatus.stdout).not.toContain("Standing Host setup:");
     expect(cleanStatus.stdout).not.toContain("Host setup:");

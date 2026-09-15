@@ -3055,7 +3055,7 @@ describe("status concise terminology", () => {
       node.kind === "prose" &&
       JSON.stringify(node.parts) === JSON.stringify([
         { kind: "identifier", value: homeRelative },
-        ": addition",
+        ": not installed yet",
       ])
     )).toBe(true);
     // No node carries a bare cwd alias in state or Profile lines.
@@ -3906,7 +3906,14 @@ describe("status concise terminology", () => {
   });
 
   test("keeps every present non-current state definition available in verbose output", () => {
-    for (const kind of NON_CURRENT_STATE_ORDER) {
+    for (const cause of PRIMARY_CAUSE_ORDER) {
+      const label = PRIMARY_CAUSE_LABELS[cause];
+      const kind = cause === "not-installed-yet" ? "addition" : cause === "source-changed" ? "stale source" : cause === "generated-files-missing" ? "drifted output" : cause === "generated-files-changed" ? "drifted output" : "blocked";
+      const outputs = cause === "generated-files-missing"
+        ? [{ consumingHosts: ["codex"], driftKind: "missing" as const, kind: "update" as const, path: "f.md", project: "/solo" }]
+        : cause === "generated-files-changed"
+        ? [{ consumingHosts: ["codex"], driftKind: "changed" as const, kind: "update" as const, path: "f.md", project: "/solo" }]
+        : [];
       const report = emptyReport({
         desired: [{
           canonicalProject: "/solo",
@@ -3921,6 +3928,7 @@ describe("status concise terminology", () => {
             ? { kind, project: "/solo", reason: "hooks disabled" }
             : { kind, project: "/solo" },
         ],
+        outputs,
         blockers: kind === "blocked"
           ? [fixtureBlocker("/solo: hooks disabled", "/solo")]
           : [],
@@ -3930,8 +3938,8 @@ describe("status concise terminology", () => {
       expect(headingsIn(concise)).not.toContain("State explanations:");
       const glosses = explanationItems(lifecycleStatusDocument(report, { verbose: true }));
       expect(glosses).toHaveLength(1);
-      expect(glosses[0]).toMatch(new RegExp(`^${kind.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
-      expect(glosses[0]!.length).toBeGreaterThan(`${kind}: `.length);
+      expect(glosses[0]).toMatch(new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}: .+`));
+      expect(glosses[0]!.length).toBeGreaterThan(`${label}: `.length);
     }
 
     const currentOnly = emptyReport({
@@ -4033,7 +4041,7 @@ describe("status concise terminology", () => {
     }
   });
 
-  test("orders verbose state definitions stably by NON_CURRENT_STATE_ORDER", () => {
+  test("orders verbose state definitions stably by PRIMARY_CAUSE_ORDER", () => {
     const present: readonly ReconciliationKind[] = ["removal", "blocked", "addition", "stale source"];
     const report = emptyReport({
       desired: present.map((kind, index) => ({
@@ -4055,7 +4063,7 @@ describe("status concise terminology", () => {
       lifecycleStatusDocument(report, { verbose: true }),
     );
     const kinds = glosses.map((line) => line.slice(0, line.indexOf(":")));
-    expect(kinds).toEqual(NON_CURRENT_STATE_ORDER.filter((kind) => present.includes(kind)));
+    expect(kinds).toEqual(["needs attention", "not installed yet", "source changed"]);
   });
 
   test("places verbose state definitions after Projects for unscoped items", () => {
@@ -9583,7 +9591,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered.trim()).toBe("All Projects are current (2 Projects)");
+      expect(rendered.trim()).toBe("All Projects are up to date (2 Projects)");
       expect(rendered).not.toContain("settled");
       expect(rendered).not.toContain("Next:");
     });
@@ -10084,7 +10092,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     expect(verboseTexts.some((t) => t.includes("Output conflict detected"))).toBe(true);
 
     // 2. Project state is retained in Projects section:
-    expect(verboseTexts.some((t) => t.includes("/workspace/multi-cause") && t.includes("drifted output"))).toBe(true);
+    expect(verboseTexts.some((t) => t.includes("/workspace/multi-cause") && t.includes("needs attention"))).toBe(true);
 
     // 3. Changed, missing, and added individual outputs are retained with distinct diagnostic kinds:
     const outputLine = (path: string, kind: string) => verboseNodes.some((node) =>
@@ -10105,7 +10113,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     expect(verboseTexts.some((t) => t.includes("unchanged.txt"))).toBe(false);
 
     // 4. State explanations cover present non-current kinds:
-    expect(verboseTexts.some((t) => t.includes("drifted output:"))).toBe(true);
+    expect(verboseTexts.some((t) => t.includes("needs attention:"))).toBe(true);
 
     // 5. Git exclusions are retained:
     expect(verboseTexts.some((t) => t.includes(".git/info/exclude"))).toBe(true);
@@ -10381,7 +10389,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     // The unattributable source change renders beside the Project state:
     expect(line(
       "/workspace/dep-change",
-      "drifted output (.agents/skills/base-skill) (source changed)",
+      "generated files missing (.agents/skills/base-skill) (source changed)",
     )).toBe(true);
     // The drifted output stays bare — no projection change owns a per-output
     // claim, and the cause renders exactly once (fact-once, DEC-007):
@@ -10405,8 +10413,8 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
         { kind: "identifier", value },
         `: ${label}`,
       ]));
-    expect(staleLine("/workspace/dep-stale", "stale source")).toBe(true);
-    expect(staleLine("/workspace/dep-stale", "stale source (source changed)")).toBe(false);
+    expect(staleLine("/workspace/dep-stale", "source changed")).toBe(true);
+    expect(staleLine("/workspace/dep-stale", "source changed (source changed)")).toBe(false);
 
     // When a changed projection truthfully owns the cause, it stays at the
     // affected path and the Project scope does not repeat it:
@@ -10617,3 +10625,175 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
     expect(document[0]).toMatchObject({ kind: "notice", severity: "info" });
   });
 });
+
+describe("status wording consistency and scope accuracy (issue #505, spec #491, US-014, DEC-009, DEC-012, TEST-007)", () => {
+  const createRecord = (overrides: Partial<ReconciliationProjectRecord> = {}): ReconciliationProjectRecord => ({
+    blockers: [],
+    canonicalProject: "/fleet/p1",
+    desired: {
+      context: "composed",
+      hosts: ["codex"],
+      outputs: [],
+      profile: "coding",
+      resolvedArtifacts: [],
+    },
+    outputs: [],
+    project: "/fleet/p1",
+    repositoryExclusions: [],
+    setupSteps: [],
+    state: { kind: "current" },
+    warnings: [],
+    ...overrides,
+  });
+
+  test("successful synchronization uses 'up to date' for whole fleet", () => {
+    const p1 = createRecord({ canonicalProject: "/fleet/p1", project: "/fleet/p1", state: { kind: "current" } });
+    const p2 = createRecord({ canonicalProject: "/fleet/p2", project: "/fleet/p2", state: { kind: "current" } });
+    const p3 = createRecord({ canonicalProject: "/fleet/p3", project: "/fleet/p3", state: { kind: "current" } });
+    const report: ReconciliationReport = { globalBlockers: [], projects: [p1, p2, p3] };
+
+    const doc = lifecycleStatusDocument(report, { selection: { kind: "all" } });
+    const rendered = renderBoundary(doc);
+    expect(rendered.trim()).toBe("All Projects are up to date (3 Projects)");
+  });
+
+  test("scoped status output cannot imply unselected Projects were checked", () => {
+    // Multi-project fleet where only a subset or single project is inspected
+    const p1 = createRecord({ canonicalProject: "/fleet/project-alpha", project: "/fleet/project-alpha", state: { kind: "current" } });
+    const p2 = createRecord({ canonicalProject: "/fleet/project-beta", project: "/fleet/project-beta", state: { kind: "current" } });
+    const p3 = createRecord({ canonicalProject: "/fleet/project-gamma", project: "/fleet/project-gamma", state: { kind: "current" } });
+
+    // 1. Single-Project scope via --here:
+    const hereReport: ReconciliationReport = { globalBlockers: [], projects: [p1] };
+    const hereDoc = lifecycleStatusDocument(hereReport, {
+      selection: { command: "status", kind: "project", match: "containing", target: "/fleet/project-alpha" },
+    });
+    const hereRendered = renderBoundary(hereDoc).trim();
+    expect(hereRendered).toBe("This Project is up to date");
+    expect(hereRendered).not.toContain("All Projects");
+    expect(hereRendered).not.toContain("project-beta");
+    expect(hereRendered).not.toContain("project-gamma");
+
+    // 2. Single-Project scope via explicit path argument:
+    const targetDoc = lifecycleStatusDocument(hereReport, {
+      selection: { command: "status", kind: "project", match: "exact", target: "/fleet/project-alpha" },
+    });
+    const targetRendered = renderBoundary(targetDoc).trim();
+    expect(targetRendered).toBe("project-alpha is up to date");
+    expect(targetRendered).not.toContain("All Projects");
+    expect(targetRendered).not.toContain("project-beta");
+    expect(targetRendered).not.toContain("project-gamma");
+
+    // 3. Selected-subset scope (e.g. 2 of 3 projects checked):
+    const subsetReport: ReconciliationReport = { globalBlockers: [], projects: [p1, p2] };
+    const subsetDoc = lifecycleStatusDocument(subsetReport, {
+      selection: { command: "status", kind: "project", match: "containing", target: "/fleet" },
+    });
+    const subsetRendered = renderBoundary(subsetDoc).trim();
+    expect(subsetRendered).toBe("Selected Projects are up to date (2 Projects)");
+    expect(subsetRendered).not.toContain("All Projects");
+
+    // Filtered selection subset:
+    const filteredDoc = lifecycleStatusDocument(subsetReport, {
+      selection: { kind: "all", filter: "stale" },
+    });
+    const filteredRendered = renderBoundary(filteredDoc).trim();
+    expect(filteredRendered).toBe("Selected Projects are up to date (2 Projects)");
+    expect(filteredRendered).not.toContain("All Projects");
+  });
+
+  test("machine JSON facts remain unchanged and byte-identical in meaning", () => {
+    const p1 = createRecord({
+      canonicalProject: "/fleet/p1",
+      project: "/fleet/p1",
+      state: { kind: "current" },
+    });
+    const report: ReconciliationReport = { globalBlockers: [], projects: [p1] };
+
+    const json = JSON.parse(formatLifecycleJson("status", report));
+    expect(json.command).toBe("status");
+    expect(json.outcome).toBe("clean");
+    expect(json.projects[0].state.kind).toBe("current");
+  });
+
+  test("detailed human output retains default cause labels and adds specifics without synonyms", () => {
+    const notInstalled = createRecord({
+      canonicalProject: "/fleet/p-new",
+      project: "/fleet/p-new",
+      state: { kind: "addition" },
+    });
+    const changed = createRecord({
+      canonicalProject: "/fleet/p-changed",
+      project: "/fleet/p-changed",
+      state: { kind: "drifted output" },
+      outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "file.md" }],
+    });
+    const missing = createRecord({
+      canonicalProject: "/fleet/p-missing",
+      project: "/fleet/p-missing",
+      state: { kind: "drifted output" },
+      outputs: [{ consumingHosts: ["codex"], driftKind: "missing", kind: "update", path: "file.md" }],
+    });
+    const source = createRecord({
+      canonicalProject: "/fleet/p-source",
+      project: "/fleet/p-source",
+      state: { kind: "stale source" },
+    });
+    const settled = createRecord({
+      canonicalProject: "/fleet/p-settled",
+      project: "/fleet/p-settled",
+      state: { kind: "current" },
+    });
+    const blocked = createRecord({
+      canonicalProject: "/fleet/p-blocked",
+      project: "/fleet/p-blocked",
+      state: { kind: "blocked", reason: "occupied output" },
+      blockers: [fixtureBlocker("file is occupied", "/fleet/p-blocked")],
+    });
+    const removal = createRecord({
+      canonicalProject: "/fleet/p-removal",
+      project: "/fleet/p-removal",
+      state: { kind: "removal" },
+    });
+
+    const report: ReconciliationReport = {
+      globalBlockers: [],
+      projects: [notInstalled, changed, missing, source, settled, blocked, removal],
+    };
+
+    const doc = lifecycleStatusDocument(report, { verbose: true });
+    const rendered = renderBoundary(doc);
+
+    // Default cause labels are retained in Projects: section:
+    expect(rendered).toContain("/fleet/p-new: not installed yet");
+    expect(rendered).toContain("/fleet/p-changed: generated files changed");
+    expect(rendered).toContain("/fleet/p-missing: generated files missing");
+    expect(rendered).toContain("/fleet/p-source: source changed");
+    expect(rendered).toContain("/fleet/p-settled: up to date");
+
+    // Specifics added for needs attention:
+    expect(rendered).toContain("/fleet/p-blocked: needs attention (blocked: occupied output)");
+    expect(rendered).toContain("/fleet/p-removal: needs attention (removal)");
+
+    // Synonyms must NOT appear as project cause labels:
+    expect(rendered).not.toMatch(/\/fleet\/p-new:\s+addition/);
+    expect(rendered).not.toMatch(/\/fleet\/p-changed:\s+drifted output/);
+    expect(rendered).not.toMatch(/\/fleet\/p-missing:\s+drifted output/);
+    expect(rendered).not.toMatch(/\/fleet\/p-source:\s+stale source/);
+    expect(rendered).not.toMatch(/\/fleet\/p-settled:\s+current/);
+
+    // State explanations section uses default cause labels:
+    expect(rendered).toContain("State explanations:");
+    expect(rendered).toContain("- needs attention:");
+    expect(rendered).toContain("- generated files changed:");
+    expect(rendered).toContain("- generated files missing:");
+    expect(rendered).toContain("- not installed yet:");
+    expect(rendered).toContain("- source changed:");
+
+    // Synonyms must NOT be explanation keys:
+    expect(rendered).not.toContain("- addition:");
+    expect(rendered).not.toContain("- drifted output:");
+    expect(rendered).not.toContain("- stale source:");
+  });
+});
+

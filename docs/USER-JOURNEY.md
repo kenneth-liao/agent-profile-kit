@@ -688,10 +688,11 @@ selections, or `--all` for explicit fleet scope. Ambiguous, unbound, missing,
 relative, wildcard, and non-directory targets fail with command guidance
 before Project inspection. The tool's best-working loop: `stale source` is
 detected accurately, the cause group names the Project, and the next action is
-correct. A fully-current single Project states that fact once
-(`All Projects are current (1 Project)`); a fully-current fleet uses the same
-shape (`All Projects are current (7 Projects)`). Neither emits a Host setup
-reminder, Project list, or next action (US-004). Verbose status and JSON
+correct. A fully-synchronized single Project states that fact once
+(`This Project is up to date` for `--here`, `<identity> is up to date` for an explicit target);
+a fully-synchronized fleet uses the whole-fleet shape (`All Projects are up to date (N Projects)`),
+and a selected subset uses `Selected Projects are up to date (N Projects)` (US-014, DEC-009).
+Neither emits a Host setup reminder, Project list, or next action (US-004). Verbose status and JSON
 retain the underlying causes; every fact is stated once per view (US-008,
 DEC-007). Interactive status inspections that outlast a short anti-flicker
 threshold show delayed operation-level progress on the terminal line; the line

@@ -1043,7 +1043,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const statusViaLink = await runCli(home, "status");
     expectExitCode(statusViaLink, 0);
-    expect(statusViaLink.stdout).toContain("All Projects are current");
+    expect(statusViaLink.stdout).toContain("All Projects are up to date");
 
     // Change only the authored alias to the realpath spelling of the same tree.
     writeFileSync(
@@ -1053,7 +1053,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const statusViaReal = await runCli(home, "status");
     expectExitCode(statusViaReal, 0);
-    expect(statusViaReal.stdout).toContain("All Projects are current");
+    expect(statusViaReal.stdout).toContain("All Projects are up to date");
     expect(statusViaReal.stdout).not.toContain("stale");
 
     const applyViaReal = await runCli(home, "update");
@@ -2411,7 +2411,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status", "--verbose");
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: addition`));
+    expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: not installed yet`));
     expect(result.stdout).not.toContain("Selected setup:");
     expect(result.stdout).not.toContain("Always preserve the project boundary.");
     expect(result.stdout).not.toContain("<!-- Context Module:");
@@ -2474,8 +2474,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
-    expect(result.stdout.match(/All Projects are current/g)).toHaveLength(1);
+    expect(result.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(result.stdout.match(/All Projects are up to date/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain("No Projects need attention.");
     expect(result.stdout).not.toContain("unchanged generated file");
@@ -2681,7 +2681,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: up to date`));
     expect(status.stdout).not.toContain("Warnings:");
     expect(status.stdout).toContain("SessionStart hooks are not enabled");
     expect(status.stdout).not.toContain(`${projectPath}: blocked`);
@@ -3254,7 +3254,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("All Projects are current (1 Project)\n");
+    expect(status.stdout).toStartWith("All Projects are up to date (1 Project)\n");
     expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Trust the bound project in Codex.");
@@ -4183,7 +4183,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const currentStatus = await runCli(home, "status", "--verbose");
     expectExitCode(currentStatus, 0);
-    expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: current`));
+    expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: up to date`));
     expect(currentStatus.stdout).not.toContain(worktree);
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { project: string }[];
@@ -4342,7 +4342,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     await retireBindingByHand(home, nested);
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${nested}: removal`));
+    expect(humanText(status.stdout)).toContain(humanText(`${nested}: needs attention (removal: project intentionally deleted)`));
     expect(status.stdout).toContain("/nested/.codex/hooks.json");
     expect(status.stdout).toContain("project intentionally deleted");
 
@@ -4380,7 +4380,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     await retireBindingByHand(home, first);
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${first}: removal`));
+    expect(humanText(status.stdout)).toContain(humanText(`${first}: needs attention (removal: project intentionally deleted)`));
     expectExitCode(await runCli(home, "update"), 0);
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
@@ -4518,7 +4518,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const finalStatus = await runCli(home, "status");
 
     expectExitCode(finalStatus, 0);
-    expect(finalStatus.stdout).toContain("All Projects are current");
+    expect(finalStatus.stdout).toContain("All Projects are up to date");
   });
 
   test("retirement repair preserves unrelated exclusion bytes and reports the surviving union", async () => {
@@ -4839,8 +4839,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
 
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${repository}: addition`));
-    expect(humanText(status.stdout)).toContain(humanText(`${worktree}: addition`));
+    expect(humanText(status.stdout)).toContain(humanText(`${repository}: not installed yet`));
+    expect(humanText(status.stdout)).toContain(humanText(`${worktree}: not installed yet`));
     expect(status.stdout).not.toContain("Selected setup:");
 
     const apply = await runCliWithPath(home, pathWithClaude, "update");
@@ -4854,8 +4854,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const currentStatus = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
 
     expectExitCode(currentStatus, 0);
-    expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: current`));
-    expect(humanText(currentStatus.stdout)).toContain(humanText(`${worktree}: current`));
+    expect(humanText(currentStatus.stdout)).toContain(humanText(`${repository}: up to date`));
+    expect(humanText(currentStatus.stdout)).toContain(humanText(`${worktree}: up to date`));
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly { hosts: Record<string, unknown>; profile_id: string; project: string }[];
     };
@@ -5253,7 +5253,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status", "--verbose");
 
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${repository}: current`));
+    expect(humanText(status.stdout)).toContain(humanText(`${repository}: up to date`));
     expect(status.stdout).not.toContain(later);
   });
 
@@ -5327,26 +5327,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     const current = await runCli(home, "status", "--verbose");
     expectExitCode(current, 0);
-    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: up to date`));
 
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const contextBefore = readFileSync(contextPath, "utf8");
     writeFileSync(contextPath, "drift\n");
     const drifted = await runCli(home, "status", "--verbose");
     expect(humanText(drifted.stdout)).toContain(
-      humanText(`${projectPath}: drifted output`),
+      humanText(`${projectPath}: generated files changed`),
     );
     writeFileSync(contextPath, contextBefore);
 
     writeFileSync(join(workspacePath(home), "context", "team-rules.md"), "---\nid: team-rules\ndependencies: []\n---\nchanged\n");
     const stale = await runCli(home, "status", "--verbose");
     expect(humanText(stale.stdout)).toContain(
-      humanText(`${projectPath}: stale source`),
+      humanText(`${projectPath}: source changed`),
     );
     rmSync(join(projectPath, ".codex", "hooks.json"));
     const absent = await runCli(home, "status", "--verbose");
     expect(humanText(absent.stdout)).toContain(
-      humanText(`${projectPath}: drifted output`),
+      humanText(`${projectPath}: generated files missing`),
     );
   });
 
@@ -5364,13 +5364,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applied = await runCli(home, "update", "--replace-changed");
 
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: drifted output`));
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: generated files changed`));
     expectExitCode(applied, 0);
     expect(applied.stderr).toBe("");
     expect(statSync(context).mode & 0o777).toBe(0o644);
     const current = await runCli(home, "status");
     expectExitCode(current, 0);
-    expect(current.stdout).toContain("All Projects are current");
+    expect(current.stdout).toContain("All Projects are up to date");
   });
 
   test("unexpected directory content is refreshed by update without blocking", async () => {
@@ -5422,7 +5422,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const current = await runCli(home, "status");
 
     expectExitCode(driftStatus, 0);
-    expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: drifted output`));
+    expect(humanText(driftStatus.stdout)).toContain(humanText(`${projectPath}: generated files changed`));
     expectExitCode(repaired, 0);
     expect(repaired.stderr).toBe("");
     // The approved replacement is a recorded write: even concise output names
@@ -5432,7 +5432,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(repaired.stdout)).toContain(`~ .codex/hooks.json (${basename(projectPath)})`);
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
-    expect(current.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expect(current.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
   });
 
@@ -5671,7 +5671,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expect(status.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5707,7 +5707,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("All Projects are current (1 Project)\n")).toBe(true);
+    expect(status.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5845,10 +5845,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(humanText(result.stdout)).toContain(
-      humanText(`${first}: addition`),
+      humanText(`${first}: not installed yet`),
     );
-    expect(humanText(result.stdout)).not.toContain(humanText(`${first}: blocked`));
-    expect(humanText(result.stdout)).toContain(humanText(`${second}: blocked`));
+    expect(humanText(result.stdout)).not.toContain(humanText(`${first}: needs attention`));
+    expect(humanText(result.stdout)).toContain(humanText(`${second}: needs attention (blocked)`));
   });
 
   test("uninstall refuses drifted output without changed-file consent", async () => {
@@ -6166,7 +6166,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status", "--verbose");
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(
-      humanText(`${projectPath}: drifted output`),
+      humanText(`${projectPath}: generated files missing`),
     );
 
     const result = await runCli(home, "update");
@@ -6394,7 +6394,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["status"] as const) {
       const result = await runCli(home, command, "--verbose");
       expectExitCode(result, 0);
-      expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: drifted output`));
+      expect(humanText(result.stdout)).toContain(humanText(`${projectPath}: generated files missing`));
       expect(humanText(result.stdout)).toContain(humanText(`${contextPath}: missing`));
       expect(existsSync(contextPath)).toBe(false);
     }
@@ -6518,7 +6518,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // The unattributable source change renders once at Project scope; the
     // drifted output stays bare because its bytes match the receipt.
     expect(humanText(status.stdout)).toContain(humanText(
-      `${projectPath}: drifted output (.agents/skills/base-skill) (source changed)`,
+      `${projectPath}: generated files changed (.agents/skills/base-skill) (source changed)`,
     ));
     expect(humanText(status.stdout)).toContain(
       humanText(`${projectPath}/.agents/skills/base-skill: changed`),
@@ -7093,7 +7093,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const rerun = await runCli(home, "update");
     expectExitCode(rerun, 0);
     const afterRerun = await runCli(home, "status");
-    expect(afterRerun.stdout).toContain("All Projects are current");
+    expect(afterRerun.stdout).toContain("All Projects are up to date");
   });
 
   test("update --all JSON identifies committed, failed, and still-pending Projects after a tool failure", async () => {
@@ -7615,7 +7615,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: not installed yet`));
     expect(status.stdout).not.toContain("Profile coding");
     expect(status.stdout).not.toContain("Always preserve the project boundary.");
     expect(status.stdout).not.toContain("<!-- Context Module:");
@@ -7638,7 +7638,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const currentStatus = await runCliWithPath(home, pathWithClaude, "status");
     expectExitCode(currentStatus, 0);
-    expect(currentStatus.stdout).toContain("All Projects are current");
+    expect(currentStatus.stdout).toContain("All Projects are up to date");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
@@ -7685,8 +7685,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const boundaryBin = installFakeClaude(home, "2.0.64");
     const boundary = await runCliWithPath(home, `${boundaryBin}:${controlledPath(home)}`, "status", "--verbose");
     expectExitCode(boundary, 0);
-    expect(boundary.stdout).toContain("All Projects are current");
-    expect(humanText(boundary.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(boundary.stdout).toContain("All Projects are up to date");
+    expect(humanText(boundary.stdout)).toContain(humanText(`${projectPath}: up to date`));
   });
 
   test("packed CLI Antigravity Context supports mixed lifecycle operations without touching project instructions", async () => {
@@ -7763,7 +7763,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const current = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(current, 0);
-    expect(current.stdout).toContain("All Projects are current");
+    expect(current.stdout).toContain("All Projects are up to date");
 
     rmSync(moduleRule);
     const repair = await runCliWithPath(home, pathWithHosts, "status");
@@ -7777,7 +7777,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(drift, 0);
     expect(drift.stdout).toContain("- generated files changed (1):");
     const verboseDrift = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
-    expect(verboseDrift.stdout).toMatch(/drifted/i);
+    expect(verboseDrift.stdout).toContain("generated files changed");
     writeFileSync(envelope, envelopeContent);
 
     writeFileSync(
@@ -7943,7 +7943,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const current = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(current, 0);
-    expect(current.stdout).toContain("All Projects are current");
+    expect(current.stdout).toContain("All Projects are up to date");
 
     rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
     const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
@@ -7959,7 +7959,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(drift, 0);
     expect(drift.stdout).toContain("- generated files changed (1):");
     const verboseDrift = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
-    expect(verboseDrift.stdout).toMatch(/drifted/i);
+    expect(verboseDrift.stdout).toContain("generated files changed");
     writeFileSync(disabledSkillPath, disabledSkillBytes);
 
     writeFileSync(
@@ -8019,8 +8019,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "--verbose",
     );
     expectExitCode(supported, 0);
-    expect(supported.stdout).toContain("All Projects are current");
-    expect(humanText(supported.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(supported.stdout).toContain("All Projects are up to date");
+    expect(humanText(supported.stdout)).toContain(humanText(`${projectPath}: up to date`));
   });
 
   test("packed CLI Antigravity Skills checks only the required shared Skill surface", async () => {
@@ -8072,7 +8072,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCliWithPath(home, pathWithGrok, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: not installed yet`));
     expect(status.stdout).toContain(".grok/rules/agent-profile-kit.md");
     expect(status.stdout).not.toContain("# Agent Profile Kit Context");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
@@ -8090,7 +8090,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const currentStatus = await runCliWithPath(home, pathWithGrok, "status");
     expectExitCode(currentStatus, 0);
-    expect(currentStatus.stdout).toContain("All Projects are current");
+    expect(currentStatus.stdout).toContain("All Projects are up to date");
 
     const state = parse(readFileSync(statePath(home), "utf8")) as {
       receipts: Array<{ hosts: Record<string, { adapter_version: string; capability_contract: string }> }>;
@@ -8330,7 +8330,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(status, 0);
-    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: addition`));
+    expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: not installed yet`));
     expect(status.stdout).toContain(".claude/skills/review-pr");
     expect(status.stdout).toContain(".claude/skills/base-skill");
     expect(status.stdout).toContain(".claude/rules/agent-profile-kit.md");
@@ -8363,7 +8363,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const currentStatus = await runCliWithPath(home, pathWithClaude, "status");
     expectExitCode(currentStatus, 0);
-    expect(currentStatus.stdout).toContain("All Projects are current");
+    expect(currentStatus.stdout).toContain("All Projects are up to date");
 
     const state = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       receipts: readonly {
@@ -9404,7 +9404,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(existsSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
     const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(current, 0);
-    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: up to date`));
   });
 
   test("install with a smaller Host set removes dropped-Host output in the same action", async () => {
@@ -9439,7 +9439,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
 
     const current = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expectExitCode(current, 0);
-    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: current`));
+    expect(humanText(current.stdout)).toContain(humanText(`${projectPath}: up to date`));
   });
 
   test("successful install preserves unrelated configuration, comments, and bindings", async () => {
@@ -9955,7 +9955,7 @@ describe("responsive lifecycle reports", () => {
     expect(applied.stdout).toContain("Update complete");
     expect(applied.stdout).toContain("First use:");
     expect(applied.stdout).not.toContain("Consequence:");
-    expect(clean.stdout).toContain("All Projects are current");
+    expect(clean.stdout).toContain("All Projects are up to date");
     expect(clean.stdout).not.toContain("Host setup:");
     expect(clean.stdout).not.toContain("Standing Host setup:");
 
@@ -11876,7 +11876,7 @@ describe("apkit list", () => {
     expectExitCode(bindResult, 0);
     const statusResult = await runCli(home, "status");
     expectExitCode(statusResult, 0);
-    expect(statusResult.stdout).toContain("All Projects are current");
+    expect(statusResult.stdout).toContain("All Projects are up to date");
 
     const result = await runCliWithPath(home, controlledPath(home), "list", "projects");
 
