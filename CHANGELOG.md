@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed Project-target error diagnostics to lead with the actual target and cause instead of the command echo or the Local Configuration path, removed repeated command and Project fragments across install, update, uninstall, and status target failures, and added runnable recovery commands with valid quoting for paths with spaces and aliases (#507)
+
 - Improved mistyped Profile and Host error diagnostics with near-match suggestions and consistent sentence capitalization (#506)
 
 - Changed status reporting to use "up to date" and scope-accurate outcomes for checked Projects, making detailed human cause labels consistent with the default partition without synonyms (#505)
