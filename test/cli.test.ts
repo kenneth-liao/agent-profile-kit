@@ -8606,18 +8606,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain(".agents/skills/");
     expect(result.stdout).toContain(".claude/rules/");
     expect(result.stdout).toContain(".claude/skills/");
-    expect(result.stdout).toMatch(/exact bound root/);
+    // Terminal prose wraps: previously-adjacent words may sit on wrapped
+    // lines now that the guide renders through the sentence policy (#510).
+    expect(result.stdout).toMatch(/exact\s+bound root/);
     expect(result.stdout).toMatch(/worktree/i);
     expect(result.stdout).toMatch(/repositor(?:y|ies)[- ]owned project instructions|project instructions take precedence/i);
+    // Terminal prose wraps: previously-adjacent words may sit on wrapped
+    // lines now that the guide renders through the sentence policy (#510).
     expect(result.stdout).toMatch(
-      /does not (?:launch Hosts or )?manage\s+(?:their\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
+      /does not(?:\s+(?:launch Hosts or )?)?manage\s+(?:their\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
     );
     expect(result.stdout).not.toMatch(
       /Agent Profile Kit manages\s+(?:native\s+)?(?:authentication|trust|approvals|plugins|sessions)/i,
     );
 
     // Hook enablement defaults on; project hook review/trust remains Host-owned launch prep.
-    const defaultHooksIndex = result.stdout.search(/Lifecycle hooks are enabled by\s+default/i);
+    // Terminal prose wraps; the regexes allow wrapped whitespace (#510).
+    const defaultHooksIndex = result.stdout.search(/Lifecycle\s+hooks are enabled by\s+default/i);
     const statusIndex = result.stdout.indexOf("apkit status");
     const applyIndex = result.stdout.indexOf("apkit update");
     const trustIndex = result.stdout.search(/trust each bound project/i);
@@ -8651,10 +8656,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     const profile = result.stdout.match(
-      /An example `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
+      /An example profiles\/example\.yaml:\n\n([\s\S]*?)\n\nAn example context\//,
     )?.[1];
     const context = result.stdout.match(
-      /An example `context\/example-context\.md`:\n\n```md\n([\s\S]*?)```/,
+      /An example context\/example-context\.md:\n\n([\s\S]*?)\n\n/,
     )?.[1];
     expect(profile).toBeDefined();
     expect(context).toBeDefined();
@@ -8680,7 +8685,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("context/example-context.md");
-    expect(result.stdout).toContain(`\`\`\`md\n${scaffolded}\`\`\``);
+    // The example body renders as verbatim terminal content, no fences (#510).
+    expect(result.stdout).toContain(scaffolded);
+    // Defect pin: the pre-#510 rendering quoted the example in ```md fences.
+    expect(result.stdout).not.toContain("```md");
   });
 
   test("guide skill returns a short complete Skill example that validates when copied", async () => {
@@ -8694,7 +8702,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("skills/example-skill/SKILL.md");
-    const example = result.stdout.match(/```md\n([\s\S]*?)```/)?.[1];
+    // The example body is the terminal content between the lead-in and the
+    // next-action line: verbatim, no fences (#510).
+    const example = result.stdout.match(
+      /An example skills\/example-skill\/SKILL\.md:\n\n([\s\S]*?)\n\nNext:/,
+    )?.[1];
     expect(example).toBeDefined();
     const skillDirectory = join(workspacePath(home), "skills", "example-skill");
     mkdirSync(skillDirectory, { recursive: true });
@@ -8714,7 +8726,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
       const scaffoldIndex = result.stdout.indexOf("  apkit new ");
-      const exampleIndex = result.stdout.indexOf("An example `");
+      const exampleIndex = result.stdout.indexOf("An example ");
       expect(wsIndex).toBeGreaterThan(-1);
       expect(scaffoldIndex).toBeGreaterThan(-1);
       expect(exampleIndex).toBeGreaterThan(-1);
@@ -8734,7 +8746,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: ~/custom-authored-ws");
       const scaffoldIndex = result.stdout.indexOf("  apkit new ");
-      const exampleIndex = result.stdout.indexOf("An example `");
+      const exampleIndex = result.stdout.indexOf("An example ");
       expect(wsIndex).toBeGreaterThan(-1);
       expect(scaffoldIndex).toBeGreaterThan(-1);
       expect(exampleIndex).toBeGreaterThan(-1);
@@ -8774,9 +8786,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(human.stdout).toContain("frontmatter `id`.");
     expect(human.stdout).toContain("frontmatter `name`,");
     expect(human.stdout).not.toContain("SessionStart");
-    expect(full.stdout).toBe(
-      readFileSync(join(packageRoot, "docs", "guides", "workspace.md"), "utf8"),
+    // The human guide renders as terminal content through the guide-markdown
+    // policy (#510); the agent reference stays byte-identical raw markdown.
+    const humanSource = readFileSync(
+      join(packageRoot, "docs", "guides", "workspace.md"),
+      "utf8",
     );
+    expect(full.stdout).not.toBe(humanSource);
+    // Defect pin: the pre-#510 rendering reproduced the raw markdown file.
+    expect(full.stdout).not.toContain("## Universal Workspace material");
+    expect(full.stdout).not.toContain("```sh");
     expect(agent.stdout).toBe(
       readFileSync(join(packageRoot, "docs", "guides", "agent-workflow.md"), "utf8"),
     );
@@ -8818,7 +8837,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
-    expect(result.stdout).toMatch(/empty categor/i);
+    expect(result.stdout).toMatch(/empty\s+categor/i);
     expect(result.stdout).toMatch(/README\.md/);
     expect(result.stdout).toMatch(/optional/i);
     expect(result.stdout).toMatch(/profiles\//);
@@ -8839,7 +8858,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // v1 does not manage global Host delivery as owned APK state.
     expect(result.stdout).toMatch(
-      /does not install, project, synchronize, or remove material in\s+personal\/global/i,
+      /does not install, project, synchronize, or remove\s+material in\s+personal\/global/i,
     );
     expect(result.stdout).toMatch(
       /(?:not APK-owned|outside Project Bindings).{0,80}Installation Receipt/is,
@@ -10981,22 +11000,28 @@ function treeDigest(roots: readonly string[]): string {
       expect(narrow.stdout).not.toBe(wide.stdout);
       expect(narrow.stdout).toContain(AUTHORING_EXAMPLES[topic].contents);
       expect(narrow.stdout).toContain(next);
+      expect(narrow.stdout).not.toContain("```y");
+      expect(narrow.stdout).not.toContain("```m");
 
-      let inCodeFence = false;
-      // Scaffold commands and the next action are atomic command lines: the
-      // renderer keeps them whole, so at narrow widths they overflow rather
-      // than split (the rendered-atomicity gate enforces the same rule).
+      // Prose wraps at the terminal width; the verbatim example bodies are
+      // reproduced whole (never wrapped), so they are exempt. The profile
+      // guide also renders the context example, so every example body is
+      // exempt regardless of topic (#510). Scaffold commands and the next
+      // action are atomic command lines: the renderer keeps them whole, so at
+      // narrow widths they overflow rather than split (the
+      // rendered-atomicity gate enforces the same rule).
+      const exampleLines = new Set(
+        Object.values(AUTHORING_EXAMPLES).flatMap((example) =>
+          example.contents.replace(/\n$/, "").split("\n"),
+        ),
+      );
       const scaffoldLines = TOPIC_GUIDES[topic].scaffoldCommands.map(
         (args) => `  apkit ${args.join(" ")}`,
       );
       for (const line of narrow.stdout.split("\n")) {
-        if (/^\s*```/.test(line)) {
-          inCodeFence = !inCodeFence;
-          continue;
-        }
-        if (inCodeFence) continue;
-        if (/^An example `[^`]+`:$/.test(line)) continue;
-        if (line === next || scaffoldLines.includes(line)) continue;
+        if (exampleLines.has(line) || line === next) continue;
+        if (/^An example [^`]+:$/.test(line)) continue;
+        if (scaffoldLines.includes(line)) continue;
         expect(line.length).toBeLessThanOrEqual(40);
       }
     }

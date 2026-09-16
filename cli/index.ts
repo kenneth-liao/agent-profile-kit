@@ -9,6 +9,7 @@ import {
   guideFileDocument,
   guideIndexDocument,
   humanGuide,
+  humanGuideDocument,
   type GuideTopic,
 } from "./guides.js";
 import {
@@ -970,7 +971,7 @@ async function main(): Promise<void> {
     } else if (parsed.kind === "agent") {
       await writeGuidanceDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
     } else {
-      await writeGuidanceDocument(process.stdout, guideFileDocument(await humanGuide()), stdoutPresentationContext);
+      await writeGuidanceDocument(process.stdout, humanGuideDocument(await humanGuide()), stdoutPresentationContext);
     }
     return;
   }
