@@ -2192,6 +2192,115 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(instruction).not.toContain("Agent Profile Kit");
   });
 
+  test("a routine update that refreshes already-delivered Host outputs omits the check (US-017, #515)", () => {
+    // An ordinary repeated content update: the receipt proves an update or
+    // repair of outputs the Host already consumed, never a first delivery.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"],
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const document = applyReportDocument(applyResult(receipt, resultingState));
+    // The explicit negative against the same output, so a shorter positive
+    // match can never stand in for the check's absence (US-017).
+    expect(verificationLines(document)).toEqual([]);
+    // The short relevant new-session reminder remains the committed update's
+    // closing guidance.
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "prose" && nodeText(node).includes("will load the next time you launch")
+    )).toBe(true);
+  });
+
+  test("a content update that adds a file for an already-delivering Host omits the check (US-017, #515)", () => {
+    // The receipt proves an addition consumed by codex, but codex already
+    // delivered prior output in this Project, so this is not a first delivery.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"],
+        outputs: ["a.md", "b.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [
+        { kind: "update", path: "a.md", project: "/project-a" },
+        { kind: "addition", path: "b.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: ["codex"], path: "a.md", project: "/project-a" },
+        { consumingHosts: ["codex"], path: "b.md", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [
+        { kind: "unchanged", path: "a.md", project: "/project-a" },
+        { kind: "unchanged", path: "b.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: ["codex"], path: "a.md", project: "/project-a" },
+        { consumingHosts: ["codex"], path: "b.md", project: "/project-a" },
+      ],
+    });
+    expect(verificationLines(applyReportDocument(applyResult(receipt, resultingState)))).toEqual([]);
+  });
+
+  test("an update that delivers a Host's outputs for the first time offers the check (US-017, #515)", () => {
+    // The fleet Host-addition pattern: the Project's installation is not an
+    // addition, but the receipt proves pi's first outputs in this Project.
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex", "pi"],
+        outputs: [".agent-profile-kit/codex/context.md", ".pi/APPEND_SYSTEM.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "stale source", project: "/project-a" }],
+      outputs: [
+        { kind: "update", path: ".agent-profile-kit/codex/context.md", project: "/project-a" },
+        { kind: "addition", path: ".pi/APPEND_SYSTEM.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: ["codex"], path: ".agent-profile-kit/codex/context.md", project: "/project-a" },
+        { consumingHosts: ["pi"], path: ".pi/APPEND_SYSTEM.md", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [
+        { kind: "unchanged", path: ".agent-profile-kit/codex/context.md", project: "/project-a" },
+        { kind: "unchanged", path: ".pi/APPEND_SYSTEM.md", project: "/project-a" },
+      ],
+      outputConsumers: [
+        { consumingHosts: ["codex"], path: ".agent-profile-kit/codex/context.md", project: "/project-a" },
+        { consumingHosts: ["pi"], path: ".pi/APPEND_SYSTEM.md", project: "/project-a" },
+      ],
+    });
+    const instruction = verificationLines(applyReportDocument(applyResult(receipt, resultingState)))[0];
+    expect(instruction).toContain("To check that codex and pi loaded Profile coding");
+  });
+
   test("the check names every configured Host and asks for a session of each", () => {
     // Fixture order is deliberately non-canonical: the instruction renders the
     // Hosts in canonical order regardless of Binding order.
@@ -7142,14 +7251,14 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     // The setup-dependent receipt shape: the setup section, then one prose
-    // summary, then the trailing readiness prose and the Host-loading check —
-    // no grouping section.
+    // summary, then the trailing readiness prose — no grouping section. The
+    // optional Host-loading check is not part of a routine update's view
+    // (spec #491 US-017, #515): the receipt proves no first delivery.
     expect(concise.map(shape)).toEqual([
       "notice:success",
       "blank",
       "prose",
       "blank",
-      "prose",
       "prose",
     ]);
     // The readiness statement trails the document; its wording is

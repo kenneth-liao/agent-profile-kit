@@ -1932,6 +1932,19 @@ describe("project-bound release candidate", () => {
     expect(installExample.stdout).toContain("Installed example for");
     expect(installExample.stdout).toContain("Hosts: claude");
     expect(installExample.stdout).toContain("Next: apkit status");
+    // US-017 (#515): the first installation offers the optional Host-loading
+    // check beside the receipt, phrased as a user action that claims no
+    // observed loading.
+    expect(installExample.stdout.replace(/\n\s+/g, " ")).toContain(
+      "To check that claude loaded Profile example",
+    );
+    expect(installExample.stdout.replace(/\n\s+/g, " ")).toContain(
+      "ask claude what Profile material it loaded",
+    );
+    // The sentence names the installed Project by the same identity the
+    // receipt body carries (US-013): no second spelling appears.
+    expect(installExample.stdout).not.toContain("~/");
+    expect(installExample.stdout).not.toContain("observed");
     expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
 
     // 4. The newcomer works from inside the Project: install already
@@ -1944,11 +1957,11 @@ describe("project-bound release candidate", () => {
     expectExitCode(currentStatus, 0);
     expect(currentStatus.stdout).toContain("is up to date");
     expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
-    // NOTE (#494): the first-run authoring handoff (US-040) and the
-    // Host-loading check (US-041) stay update-report views in this slice;
-    // install reports the installed selection compactly. First-installation
-    // teaching and loading guidance belong to #509/#515 and re-cover this
-    // journey in #517.
+    // NOTE (#494/#515): the first-run authoring handoff (US-040) stays an
+    // update-report view owned by #509; install now offers the optional
+    // Host-loading check (US-017, #515) — pinned below — while the
+    // installed-selection report stays compact. First-installation teaching
+    // belongs to #509 and re-covers this journey in #517.
 
     // 5. The newcomer authors real material with the explicit authoring
     // commands (US-040, DEC-024).
@@ -2139,11 +2152,14 @@ describe("project-bound release candidate", () => {
     expect(humanText(apply.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(humanText(apply.stdout)).toContain("Details: apkit details");
     const humanApply = humanText(apply.stdout);
+    // US-017 (#515): this drifted update is an ordinary repeated content
+    // update — the receipt proves no first delivery — so it offers no
+    // optional loading check; the readiness reminder is the short
+    // new-session guidance that remains.
+    expect(humanApply).not.toContain("To check that ");
     expect(humanApply).toContain(
-      "To check that codex loaded Profile example, start a new codex session in",
+      "Profile example will load the next time you launch a configured Host from a",
     );
-    expect(humanApply).toContain("ask codex what Profile material it loaded");
-    expect(humanApply).toContain("the installed material should appear in its answer");
     expect(apply.stdout).not.toContain("already current");
     expect(apply.stdout).not.toContain("Now author your own:");
 
@@ -2153,9 +2169,10 @@ describe("project-bound release candidate", () => {
     // repeating it here duplicated that evidence at the same packed boundary.
 
     // 6c. Routine apply: restoring a hand-edited generated file reports the
-    // replacement, carries the Host-loading check, and no first-run handoff
-    // (US-040, DEC-024, DEC-025). The explicit answering flag authorizes the
-    // replacement (US-007, DEC-005); without it the scope refuses (DEC-005).
+    // replacement, keeps the readiness reminder, and offers no optional
+    // loading check (US-017, #515; DEC-024). The explicit answering flag
+    // authorizes the replacement (US-007, DEC-005); without it the scope
+    // refuses (DEC-005).
     writeFileSync(
       join(boundProject, ".agent-profile-kit", "codex", "context.md"),
       "hand-edited bytes\n",
@@ -2170,7 +2187,12 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(restore, 0);
     expect(humanText(restore.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
-    expect(restore.stdout).toContain("To check that codex loaded Profile example");
+    // Discriminating negative against the same output: the routine restore
+    // offers no optional loading check (US-017, #515).
+    expect(restore.stdout).not.toContain("To check that ");
+    expect(humanText(restore.stdout)).toContain(
+      "Profile example will load the next time you launch a configured Host from a",
+    );
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
 
@@ -2183,9 +2205,14 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(addHost, 0);
     expect(humanText(addHost.stdout)).toContain("Hosts: codex → claude, codex");
+    // US-017 (#515): adding a Host to the installed example offers the
+    // optional loading check beside the install receipt.
+    expect(humanText(addHost.stdout)).toContain(
+      "To check that claude and codex loaded Profile example",
+    );
     expect(existsSync(join(boundProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
-    // A follow-up source change still reconciles both Hosts with one loading
-    // check and no first-run handoff.
+    // A follow-up source change is a routine update: it reconciles both
+    // Hosts with the readiness reminder and no loading check.
     writeFileSync(
       join(boundProject, ".agent-profile-kit", "codex", "context.md"),
       "hand-edited bytes\n",
@@ -2193,8 +2220,10 @@ describe("project-bound release candidate", () => {
     const maintenance = await runCli(home, ["update", boundProject, "--replace-changed"], { path: pathWithHosts });
     expectExitCode(maintenance, 0);
     expect(humanText(maintenance.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
-    expect(maintenance.stdout).toContain("To check that claude and codex loaded Profile example");
-    expect(maintenance.stdout).not.toContain("Now author your own:");
+    expect(maintenance.stdout).not.toContain("To check that ");
+    expect(humanText(maintenance.stdout)).toContain(
+      "Profile example will load the next time you launch a configured Host from a",
+    );
     expect(maintenance.stdout).not.toContain("apkit new ");
 
     // 7. Current status: clean status states that fact once with no next action.

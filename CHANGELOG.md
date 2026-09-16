@@ -6,8 +6,9 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Changed authoring-failure diagnostics to be actionable: duplicate Artifact ID errors now identify the existing file and offer editing it or choosing another name, refused Profile creation reports that the Profile was not created with a runnable retry instead of directing the user to repair the uncreated file, and the guided init collision against the planned example Profile names what init will scaffold (#508)
+- Changed Host-loading guidance to appear only when it is relevant: first installations and Host additions now offer the optional loading check beside the install receipt, while ordinary repeated content updates close with the readiness reminder alone and no longer repeat the check (#515)
 
+- Changed authoring-failure diagnostics to be actionable: duplicate Artifact ID errors now identify the existing file and offer editing it or choosing another name, refused Profile creation reports that the Profile was not created with a runnable retry instead of directing the user to repair the uncreated file, and the guided init collision against the planned example Profile names what init will scaffold (#508)
 - Changed initialization to end with one install next action naming the Profile the invocation actually created — the guided first-Profile flow's created Profile or the scaffolded example — while init guidance no longer selects the first detected Host or prints the equivalent `apkit new profile` command (#511)
 
 - Added the focused Profile detail route `apkit list profiles [<profile>] [--json]`, listing one Profile's selected Context Module and Skill names through trusted Workspace ingestion with an unavailable-name suggestion, while the overall inventory keeps compact counts (#513)

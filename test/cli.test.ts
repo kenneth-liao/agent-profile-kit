@@ -3471,10 +3471,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     // The receipt counts only the Project whose committed work it records.
     expect(humanText(result.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
-    // The receipt's Project reference is this view's shortest-unambiguous
-    // identity (US-013); the untouched Project's identity never appears.
-    expect(humanText(result.stdout)).toContain(basename(changedProject));
+    // The untouched Project's identity never appears.
     expect(humanText(result.stdout)).not.toContain(basename(untouchedProject));
+    // US-017 (#515): a Profile swap on an installed Project is an ordinary
+    // repeated content update — the receipt proves no first delivery — so it
+    // offers no optional loading check. The direct behavioral pin against
+    // this same captured output; the identity negative below is the
+    // unchanged-US-013 side effect, not the check's own evidence.
+    expect(humanText(result.stdout)).not.toContain("To check that ");
+    expect(humanText(result.stdout)).not.toContain(basename(changedProject));
   });
 
   test("verbose update labels pending and updated work separately", async () => {

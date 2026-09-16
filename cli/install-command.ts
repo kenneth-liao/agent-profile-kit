@@ -53,6 +53,8 @@ import {
   type ChangedOutputConfirmer,
 } from "./changed-output-confirm.js";
 import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";
+import { hostLoadingVerificationNodes } from "./presentation.js";
+import { projectIdentityLookup } from "./display-path.js";
 import {
   terminalPresentationContext,
   type TerminalPresentationContext,
@@ -554,6 +556,22 @@ async function runInstallCommandWithRecording(
         // visible on the install path that replaces the old bind+update
         // sequence; they never block and never change the outcome.
         ...installWarningNodes(result.applied.resultingState),
+        // US-017 (#515, ADR-0043): a first installation or Host addition
+        // offers the optional loading check after the receipt. The one
+        // relevance derivation lives inside the check's function, so the
+        // install receipt cannot decide visibility independently of the
+        // update views; an unchanged install commits no delivery and renders
+        // no check. The lookup is one view's identity for the installed
+        // Project (US-013), so the sentence names the Project exactly as the
+        // receipt body above it does.
+        ...hostLoadingVerificationNodes(
+          result.applied.resultingState,
+          result.applied.receipt,
+          projectIdentityLookup([{
+            canonicalProject: result.binding.canonicalProject,
+            project: result.binding.project,
+          }]),
+        ),
       ];
       if (acceptedScope !== undefined) {
         reportDocument.push(...installReplacementCommandDocument(
