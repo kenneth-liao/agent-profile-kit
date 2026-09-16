@@ -11950,6 +11950,32 @@ describe("apkit list", () => {
     expect(result.stderr).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
   });
 
+  test("rejects a Profile name on other topics and more than one Profile name", async () => {
+    const home = isolatedHome();
+
+    const hosts = await runCliWithPath(home, controlledPath(home), "list", "hosts", "codex");
+    expectExitCode(hosts, 1);
+    expect(hosts.stdout).toBe("");
+    expect(hosts.stderr).toContain("list hosts does not accept argument 'codex'");
+
+    const projects = await runCliWithPath(home, controlledPath(home), "list", "projects", "~/x");
+    expectExitCode(projects, 1);
+    expect(projects.stdout).toBe("");
+    expect(projects.stderr).toContain("list projects does not accept argument '~/x'");
+
+    const twoNames = await runCliWithPath(
+      home,
+      controlledPath(home),
+      "list",
+      "profiles",
+      "coding",
+      "other",
+    );
+    expectExitCode(twoNames, 1);
+    expect(twoNames.stdout).toBe("");
+    expect(twoNames.stderr).toContain("list profiles does not accept more than one Profile name");
+  });
+
   test("projects renders every normalized Project Binding with ordered Hosts", async () => {
     const home = isolatedHome();
     await initialize(home);
