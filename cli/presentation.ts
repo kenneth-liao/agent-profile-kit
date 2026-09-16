@@ -4007,23 +4007,6 @@ export function uninstallReplacementCommandDocument(
   return promptedEquivalentCommandDocument("uninstall", commandArguments);
 }
 
-/** The equivalent fully specified command for a completed guided-init Profile
- * creation (DEC-032): the chosen name and every explicit material selection,
- * in the non-interactive authoring command's form, so re-running it needs no
- * answers again (US-052). Initialization itself is flagless and needs no
- * equivalent form. */
-export function newProfilePromptedCommandDocument(
-  commandArguments: readonly string[],
-): PresentationDocument {
-  return [{
-    kind: "prose",
-    parts: [
-      "Run the same Profile creation without the prompt: ",
-      commandPart(COMMAND_NAME, commandArguments.map((value) => arg(value))),
-    ],
-  }];
-}
-
 /** The cancelled guided-init diagnostic (DEC-033): what happened, and that
  * initialization changed nothing. */
 export function initCancelledDocument(): PresentationDocument {

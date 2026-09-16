@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
@@ -157,7 +157,16 @@ describe("guided first-Profile init", () => {
     expect(human).toContain("Created Profile my-profile");
     expect(human).toContain(profileFile);
     expect(human).toContain("Initialized Agent Profile Kit Workspace");
-    expect(human).toContain("apkit new profile my-profile --context example-context");
+    // One install next action naming the actually created Profile (spec #491,
+    // US-016): no Host named in guidance, no stale equivalent-creation line
+    // (the Profile exists, so `apkit new profile` would fail), no vague
+    // validate-then-install parallel next action.
+    expect(human).toContain(
+      "Next: from the project you want to try, run apkit install my-profile",
+    );
+    expect(human).not.toContain("apkit new profile");
+    expect(human).not.toContain("then install the Profile into a Project");
+    expect(human).not.toContain("--host");
   }, 20_000);
 
   test("declining the offer initializes normally without creating a Profile", async () => {
@@ -284,8 +293,9 @@ describe("guided first-Profile init", () => {
     expect(profile).toContain("context: []");
     expect(profile).toContain('- "release-check"');
     expect(plain(streams.humanText())).toContain(
-      "apkit new profile my-profile --skill release-check",
+      "Next: from the project you want to try, run apkit install my-profile",
     );
+    expect(plain(streams.humanText())).not.toContain("apkit new profile");
   }, 20_000);
 
   test("refuses zero selections before any initialization change", async () => {
@@ -319,6 +329,35 @@ describe("guided first-Profile init", () => {
     expect(plain(streams.errorText())).toContain("Profile");
   }, 20_000);
 
+  test("a guided creation failure after initialization reports the error and no next action", async () => {
+    // The receipt precedes creation and therefore carries no next action; on
+    // a creation failure the error diagnostic on stderr owns recovery, and
+    // stdout claims no next step for a Profile that does not exist.
+    const home = isolatedHome();
+    await initializeWorkspace(home);
+    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
+    writeMaterial(home, "team-rules");
+    writeConfig(home, workspacePath(home));
+    chmodSync(join(workspacePath(home), "profiles"), 0o555);
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input);
+
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("y");
+    await waitForOutput(streams.humanText, "What should the Profile be named?");
+    input.write("my-profile\r");
+    await waitForOutput(streams.humanText, "Which Context Modules?");
+    input.write(" \r");
+    const { exitCode } = await pending;
+    chmodSync(join(workspacePath(home), "profiles"), 0o755);
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
+    expect(plain(streams.humanText())).toContain("already initialized");
+    expect(plain(streams.humanText())).not.toContain("Next:");
+    expect(plain(streams.errorText())).toContain("my-profile.yaml");
+  }, 20_000);
+
   test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
     const home = isolatedHome();
     await initializeWorkspace(home);
@@ -346,7 +385,10 @@ describe("guided first-Profile init", () => {
     const profile = readFileSync(join(workspacePath(home), "profiles", "my-profile.yaml"), "utf8");
     expect(profile).toContain("context: []");
     expect(profile).toContain('- "release-check"');
-    expect(plain(streams.humanText())).toContain("apkit new profile my-profile --skill release-check");
+    expect(plain(streams.humanText())).toContain(
+      "Next: from the project you want to try, run apkit install my-profile",
+    );
+    expect(plain(streams.humanText())).not.toContain("apkit new profile");
   }, 20_000);
 
   test("a conflicting explicit Workspace selection never enters guidance", async () => {

@@ -741,7 +741,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(init.stdout).toContain(
       `Next: from the project you want to try, run`,
     );
+    // Init guidance names the example Profile and leaves Host choice to
+    // install (spec #491, US-016, ADR-0034).
     expect(init.stdout).toContain(
+      `apkit install ${AUTHORING_EXAMPLES.profile.id}`,
+    );
+    expect(init.stdout).not.toContain(
       `apkit install ${AUTHORING_EXAMPLES.profile.id} --host`,
     );
     const install = await runCliAt(
@@ -14382,7 +14387,13 @@ describe("packed CLI new profile", () => {
     expect(existsSync(profileFile)).toBe(true);
     expect(readFileSync(profileFile, "utf8")).toContain('"example-context"');
     expect(result.stdout).toContain(profileFile);
-    expect(result.stdout).toContain("apkit new profile my-profile --context example-context");
+    // One install next action naming the actually created Profile (spec #491,
+    // US-016); the equivalent `apkit new profile` line would fail on the
+    // already-created Profile, so it no longer prints.
+    expect(result.stdout).toContain(
+      "Next: from the project you want to try, run apkit install my-profile",
+    );
+    expect(result.stdout).not.toContain("apkit new profile");
     // The guided Profile is valid, bindable Workspace material (TEST-017).
     expectExitCode(await runCli(home, "validate"), 0);
   });

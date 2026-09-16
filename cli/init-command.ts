@@ -16,14 +16,13 @@ import { join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
 import {
+  guidedInitCompletionDocument,
   initReceiptDocument,
-  newArtifactReceiptDocument,
   PROFILE_EXPLANATION_SENTENCE,
   type NewArtifactReceiptInput,
 } from "./receipts.js";
 import {
   initCancelledDocument,
-  newProfilePromptedCommandDocument,
 } from "./presentation.js";
 import {
   writeHumanDocument,
@@ -105,12 +104,15 @@ function initArgumentErrorDiagnostic(error: unknown): PresentationDocument {
   return errorDiagnosticDocument(error, { usage: initCommandSyntax });
 }
 
-/** One init invocation with its warnings, receipt, and advisory Host detection. */
+/** One init invocation with its warnings, receipt, and advisory Host detection.
+ * When the guided Profile completion follows this receipt, the receipt
+ * carries no parallel next action of its own (spec #491, US-016). */
 async function initializeAndReport(
   request: InitCommandRequest,
   parsed: ParsedInitArguments,
   stdoutContext: TerminalPresentationContext,
   stderrContext: TerminalPresentationContext,
+  options: { readonly guidedProfileFollows?: boolean } = {},
 ): Promise<void> {
   const result = await initializeWorkspace(request.home, parsed);
   for (const warning of result.warnings) {
@@ -123,6 +125,7 @@ async function initializeAndReport(
       stderrContext,
     );
   }
+  const { guidedProfileFollows = false } = options ?? {};
   const detectedHosts = result.outcome === "created"
     ? await detectInstalledHosts({ env: request.env ?? process.env })
     : undefined;
@@ -130,6 +133,7 @@ async function initializeAndReport(
     request.stdout,
     initReceiptDocument({
       ...result,
+      ...(guidedProfileFollows ? { guidedProfileFollows: true } : {}),
       ...(detectedHosts !== undefined ? { detectedHosts } : {}),
     }),
     stdoutContext,
@@ -285,8 +289,12 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   // Commit: initialization first, then the delivered Profile-creation
   // scaffolding path (DEC-034). A creation failure after initialization is
   // reported after the true initialization receipt; the flow's collected
-  // decisions cannot cause one, since they were validated above.
-  await initializeAndReport(request, parsed, stdoutContext, stderrContext);
+  // decisions cannot cause one, since they were validated above. The receipt
+  // precedes creation, so it carries no next action; the Profile completion
+  // below owns the one install next action (spec #491, US-016).
+  await initializeAndReport(request, parsed, stdoutContext, stderrContext, {
+    guidedProfileFollows: true,
+  });
   let created: Awaited<ReturnType<typeof createProfile>>;
   try {
     created = await createProfile({
@@ -308,18 +316,6 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     availableContexts: created.availableContexts,
     availableSkills: created.availableSkills,
   };
-  writeHumanDocument(request.stdout, newArtifactReceiptDocument(receipt), stdoutContext);
-  const equivalentArguments = [
-    "new",
-    "profile",
-    name,
-    ...contexts.flatMap((id) => ["--context", id]),
-    ...skills.flatMap((id) => ["--skill", id]),
-  ];
-  writeHumanDocument(
-    request.stdout,
-    newProfilePromptedCommandDocument(equivalentArguments),
-    stdoutContext,
-  );
+  writeHumanDocument(request.stdout, guidedInitCompletionDocument(receipt), stdoutContext);
   return { exitCode: 0 };
 }
