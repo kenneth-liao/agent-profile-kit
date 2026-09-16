@@ -1,6 +1,7 @@
 import { HOST_REGISTRY } from "../adapters/registry.js";
 import { compareCanonicalStrings } from "../schemas/canonical.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
+import { requireProfile } from "./profile-selection.js";
 import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
@@ -29,6 +30,17 @@ export interface ProfileInventoryRecord {
   readonly contextModules: number;
   readonly id: string;
   readonly skills: number;
+}
+
+/**
+ * One focused Profile detail prepared for read-only inspection presentation
+ * (US-018, #513). Names keep the authored definition order; no sort policy
+ * is applied.
+ */
+export interface ProfileDetailInventoryRecord {
+  readonly context: readonly string[];
+  readonly id: string;
+  readonly skills: readonly string[];
 }
 
 /** One supported Agent Host prepared for read-only inventory presentation. */
@@ -73,6 +85,27 @@ export async function listProfiles(
       skills: profile.skills.length,
     }))
     .sort((left, right) => compareCanonicalStrings(left.id, right.id));
+}
+
+/**
+ * Read one Profile's Context Module and Skill names from the normalized
+ * Workspace model through the single missing-Profile rejection boundary
+ * (US-018, #513). This deliberately stops before Project Binding,
+ * Installation State, Git, or Host inspection, so focused inspection is
+ * read-only and works independently of installation state. Membership order
+ * is the authored definition order.
+ */
+export async function listProfileDetail(
+  home: string,
+  profile: string,
+): Promise<ProfileDetailInventoryRecord> {
+  const workspace = await ingestSelectedWorkspace(home);
+  const selected = requireProfile(workspace.profiles, profile);
+  return {
+    context: [...selected.context],
+    id: selected.id,
+    skills: [...selected.skills],
+  };
 }
 
 /**

@@ -68,7 +68,7 @@ than duplicating it.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
+| 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
 | 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
@@ -191,7 +191,11 @@ locator renders once after the entries. `--verbose`, `apkit details`, and
 
 `list profiles` reads Profile selections from the selected Workspace, and
 `list hosts` leads with the canonical Hosts supported for configured Projects
-without probing the machine:
+without probing the machine. `list profiles <profile>` shows one Profile's
+selected Context Module and Skill names in their authored definition order;
+it is read-only, works independently of installation state, and an unknown
+name is rejected with the available choices and a near-match suggestion
+instead of an empty view:
 
 ```
 $ apkit list hosts
@@ -204,6 +208,17 @@ Supported Hosts:
   pi
 
 Use <host> with apkit install to select it for a Project.
+```
+
+```
+$ apkit list profiles example
+Profile 'example':
+  Context Modules: example-context
+  Skills: (none)
+
+Use apkit configure profile example to change its membership, or
+  apkit install example --host <host>
+  to select it for a Project.
 ```
 
 Temporary-install eligibility remains available in focused `machine

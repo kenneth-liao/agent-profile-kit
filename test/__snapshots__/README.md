@@ -76,3 +76,13 @@ note exists so the bounded-diff rule above stays about accidental presentation
 drift rather than blocking an accepted requirement change. The complete
 per-file receipt stays covered by the verbose-update unit tests and the
 retained-operation suite.
+
+## Accepted content change: focused Profile detail route (#513)
+
+US-018 deliberately adds one discoverability pointer to the `list profiles`
+inventory tail — `Run apkit list profiles <profile> to see one Profile's
+Context and Skill names.` — alongside the existing install guidance. The
+pointer is omitted when zero Profiles exist. The `info` baselines changed only
+because the engine version moved with the same change. The affected baselines
+changed facts on purpose, and the accepted diff is reviewed on the #513 change
+request.

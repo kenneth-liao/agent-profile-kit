@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Added the focused Profile detail route `apkit list profiles [<profile>] [--json]`, listing one Profile's selected Context Module and Skill names through trusted Workspace ingestion with an unavailable-name suggestion, while the overall inventory keeps compact counts (#513)
+
 - Changed Project-target error diagnostics to lead with the actual target and cause instead of the command echo or the Local Configuration path, removed repeated command and Project fragments across install, update, uninstall, and status target failures, and added runnable recovery commands with valid quoting for paths with spaces and aliases (#507)
 
 - Fixed the YAML style of newly created Workspace files to one quoting authority — init examples, `apkit new` scaffolds, guide rendering, and the configure-profile preflight now share the same double-quoted writers, so scalar-looking artifact IDs such as `true` and `123` round-trip as strings (#514)
