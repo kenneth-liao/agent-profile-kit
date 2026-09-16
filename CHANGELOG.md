@@ -8,6 +8,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 - Changed Host-loading guidance to appear only when it is relevant: first installations and Host additions now offer the optional loading check beside the install receipt, while ordinary repeated content updates close with the readiness reminder alone and no longer repeat the check (#515)
 
+- Added one coherent public authoring lifecycle: general help routes to the focused guide topics, `apkit new` usage renders as separate valid lines whose created-material handoffs lead to `apkit configure profile` and install, the focused guide topics lead with the authoring commands and close with the complete-reference route, the Workspace overview and new Workspace README agree on install/update/uninstall scopes, and the new Workspace README explains Profiles, Context Modules, Skills, and the configure/update loop (#509)
+
 - Changed authoring-failure diagnostics to be actionable: duplicate Artifact ID errors now identify the existing file and offer editing it or choosing another name, refused Profile creation reports that the Profile was not created with a runnable retry instead of directing the user to repair the uncreated file, and the guided init collision against the planned example Profile names what init will scaffold (#508)
 - Changed initialization to end with one install next action naming the Profile the invocation actually created — the guided first-Profile flow's created Profile or the scaffolded example — while init guidance no longer selects the first detected Host or prints the equivalent `apkit new profile` command (#511)
 

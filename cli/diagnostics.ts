@@ -1,4 +1,5 @@
 import { COMMAND_NAME } from "../installer/version.js";
+import { commandSyntaxLines } from "./command-help.js";
 import type {
   CommandArg,
   NoticeSeverity,
@@ -53,11 +54,15 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
     );
   }
   if (parts.usage !== undefined) {
-    nodes.push({
-      kind: "key-value",
-      key: "Usage",
-      value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(parts.usage) },
-    });
+    // One Usage line per valid form (US-016, #509), split by the one home
+    // for that rule in cli/command-help.ts.
+    for (const line of commandSyntaxLines(parts.usage)) {
+      nodes.push({
+        kind: "key-value",
+        key: "Usage",
+        value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(line) },
+      });
+    }
   }
   return nodes;
 }

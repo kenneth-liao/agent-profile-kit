@@ -134,7 +134,7 @@ you can discover where material belongs:
 - short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
 - a starter `.gitignore`
 
-The example gives a new user one complete `bind` → `status` → `update` path.
+The example gives a new user one complete `install` → `status` → `update` path.
 Delete both `profiles/example.yaml` and `context/example-context.md` together,
 unused empty directories, or bootstrap docs if you prefer a minimal tree;
 later `init` runs do not restore removed optional scaffolding; validation,

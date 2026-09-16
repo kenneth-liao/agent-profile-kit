@@ -73,11 +73,20 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "new",
     group: "common",
-    syntax: "new skill|context <name> | new profile <name> [--context <id>]... [--skill <id>]...",
+    // Separate valid lines (US-016, #509): each usage line is one complete
+    // invocation shape, so no line joins two forms behind a pipe or repeats
+    // the verb.
+    syntax: "new skill <skill>\nnew context <context>\nnew profile <profile> [--context <context>]... [--skill <skill>]...",
     summary: "Create a Skill, Context Module, or Profile scaffold in the configured Workspace",
     examples: COMMAND_EXAMPLES.new,
     writes: "Creates one new Skill directory with SKILL.md, one Context Module file, or one Profile file selecting existing material, in the Workspace; never overwrites or edits existing material.",
-    next: ["Add the created artifact to a Profile with ", invocation("guide"), ", then run ", invocation("validate"), "."],
+    next: [
+      "Select a new Skill or Context Module into a Profile with ",
+      configureProfileRouting(),
+      "; install a new Profile with ",
+      createdProfileInstallRouting("<profile>"),
+      ".",
+    ],
   },
   {
     name: "open",
@@ -213,6 +222,34 @@ function invocation(...tokens: readonly string[]): ReturnType<typeof commandPart
 }
 
 /**
+ * One usage string as separate valid lines: the multi-line `new` usage
+ * renders one Usage line per form, both in focused help and in the
+ * argument-error diagnostic that carries the same syntax (US-016, #509).
+ * One home for the split rule, so help and diagnostics cannot disagree.
+ */
+export function commandSyntaxLines(syntax: string): readonly string[] {
+  return syntax
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The routing destinations for created authoring material, shared by the
+ * `new` help entry and the creation receipts (spec #491, US-016, #509): a new
+ * Skill or Context Module is selected into a Profile with configure, and a
+ * created Profile is installed. One home so help and receipts cannot route
+ * differently.
+ */
+export function configureProfileRouting(): ReturnType<typeof invocation> {
+  return invocation("configure", "profile");
+}
+
+export function createdProfileInstallRouting(profile: string): ReturnType<typeof invocation> {
+  return invocation("install", profile);
+}
+
+/**
  * Commands shown in the default command list: every command outside a
  * machine-facing namespace (DEC-019).
  */
@@ -255,14 +292,20 @@ import type {
 const ROOT_INTRO =
   "Agent Profile Kit composes reusable agent material into host-native projects.";
 const ROOT_DISCOVERY_PARTS: readonly InlineContent[] = [
-  "  Choose a Profile with ",
-  invocation("guide"),
-  " profile; see ",
+  "  Scaffold material with ",
+  invocation("new"),
+  "; focus a topic with ",
+  invocation("guide", "profile"),
+  ", ",
+  invocation("guide", "context"),
+  ", or ",
+  invocation("guide", "skill"),
+  "; see ",
   invocation("install", "--help"),
   " for supported Host values.",
 ];
 const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
-  "For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run ",
+  "For the complete Workspace authoring reference (Context Modules, Skills, and Profiles), run ",
   invocation("guide", "--full"),
   ".",
 ];
@@ -409,7 +452,7 @@ export function commandHelpDocument(command: CommandHelp): PresentationDocument 
   const nodes: PresentationNode[] = [
     { kind: "sentence", parts: [`Purpose: ${command.summary}`], category: "heading" },
     spacer(),
-    usageNode(command.syntax),
+    ...commandSyntaxLines(command.syntax).map(usageNode),
     spacer(),
     { kind: "heading", text: "Examples:" },
   ];

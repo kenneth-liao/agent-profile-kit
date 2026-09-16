@@ -3,6 +3,10 @@ import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import type { CreationArtifactType } from "../installer/tool-errors.js";
+import {
+  configureProfileRouting,
+  createdProfileInstallRouting,
+} from "./command-help.js";
 import { capitalize, DEFAULT_VIEW_LEXICON, singleProjectIdentity } from "./presentation.js";
 import { displayPath, displayProjectPath } from "./display-path.js";
 import {
@@ -59,18 +63,18 @@ function availableMaterialNode(label: string, names: readonly string[] | undefin
 }
 
 /**
- * The one install next action after initialization completes (spec #491,
- * US-016): install the Profile the invocation left in the Workspace, and
- * leave Host choice to install's searchable choices (ADR-0034) — init
- * guidance never names a Host. One derivation home for every initialization
- * completion view, so guided and example-only receipts cannot disagree.
+ * The one install next action for a Profile an invocation just left in the
+ * Workspace (spec #491, US-016): the guided and example-only initialization
+ * completions and the `apkit new profile` receipt share this derivation so
+ * they cannot disagree. Host choice stays with install's searchable choices
+ * (ADR-0034) — this guidance never names a Host.
  */
-export function initializationNextActionDocument(profile: string): PresentationDocument {
+export function createdProfileInstallNextActionDocument(profile: string): PresentationDocument {
   return [{
     kind: "sentence",
     parts: [
       "Next: from the project you want to try, run ",
-      commandPart(COMMAND_NAME, [arg("install"), arg(profile)]),
+      createdProfileInstallRouting(profile),
     ],
     category: "command",
   }];
@@ -138,11 +142,14 @@ export function guidedInitCompletionDocument(
 ): PresentationDocument {
   return [
     ...newArtifactCreatedNodes(input),
-    ...initializationNextActionDocument(input.id),
+    ...createdProfileInstallNextActionDocument(input.id),
   ];
 }
 
-/** The receipt document for one `apkit new` invocation (US-042–US-046). */
+/** The receipt document for one `apkit new` invocation (US-042–US-046,
+ * #509): a new Skill or Context Module is selected into a Profile with
+ * configure, and a new Profile is installed — the same routing the `new`
+ * help entry carries, derived from one home in cli/command-help.ts. */
 export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
   if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
     return [
@@ -150,8 +157,8 @@ export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): Pres
       {
         kind: "sentence",
         parts: [
-          `Next: select the ${input.artifactType} from a Profile, then run `,
-          commandPart(COMMAND_NAME, [arg("validate")]),
+          "Next: select it into a Profile with ",
+          configureProfileRouting(),
         ],
         category: "command",
       },
@@ -159,15 +166,7 @@ export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): Pres
   }
   return [
     ...newArtifactCreatedNodes(input),
-    {
-      kind: "sentence",
-      parts: [
-        "Next: run ",
-        commandPart(COMMAND_NAME, [arg("validate")]),
-        ", then install the Profile into a Project",
-      ],
-      category: "command",
-    },
+    ...createdProfileInstallNextActionDocument(input.id),
   ];
 }
 
@@ -237,7 +236,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   const nextAction = input.guidedProfileFollows === true
     ? undefined
     : input.workspaceScaffolded === true
-      ? initializationNextActionDocument(AUTHORING_EXAMPLES.profile.id)
+      ? createdProfileInstallNextActionDocument(AUTHORING_EXAMPLES.profile.id)
       : [{
         kind: "sentence" as const,
         parts: [

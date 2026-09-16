@@ -86,3 +86,20 @@ pointer is omitted when zero Profiles exist. The `info` baselines changed only
 because the engine version moved with the same change. The affected baselines
 changed facts on purpose, and the accepted diff is reviewed on the #513 change
 request.
+
+## Accepted content change: one coherent authoring lifecycle (#509)
+
+US-016/US-019 deliberately re-teach the authoring lifecycle. Root help routes
+to all three focused guide topics and drops the retired public-bind word
+"bindings" from its guidance line (DEC-001). The `guide` index adds the
+scaffold example route. The focused guide topics lead with the
+`apkit new`/`configure` commands, explain the resulting files through the
+canonical examples, and close with one next lifecycle action plus the
+`guide --full` pointer. The `new` receipts end in one executable next action
+(select-into-a-Profile for Skills and Context Modules; install for Profiles,
+naming the Profile actually created), matching the initialization handoff
+shape delivered by #511. The full guide's scaffolded-example line references
+the delivered `install` command instead of the removed `bind` command (DEC-001).
+The affected baselines changed facts on purpose, and the accepted diff is
+reviewed on the #509 change request. The `info` baselines changed only because
+the engine version moved with the same change.
