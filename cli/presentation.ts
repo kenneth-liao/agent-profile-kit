@@ -3483,12 +3483,22 @@ function readinessNodes(
  * the updated Projects — and never claims that Agent Profile Kit observed the
  * loading or completed Host-owned setup (OOS-009); no Host-specific checking
  * method is authored here, and Host-specific loading knowledge stays
- * Adapter-owned through the rendered Host Setup Steps. It fires exactly where
- * the readiness statement fires: a successful apply that committed
- * installation work, never a no-op, blocked, or failed one, and never machine
- * JSON (US-060).
+ * Adapter-owned through the rendered Host Setup Steps.
+ *
+ * Relevance (spec #491 US-017, ADR-0043): the optional check is offered only
+ * when the committed receipt evidence proves this invocation began a Host's
+ * Profile delivery in an updated Project — its first installation, a Host
+ * addition, or a retired receipt's re-delivery. An ordinary repeated content
+ * update offers no check; the readiness statement alone is its short
+ * new-session reminder. The one relevance derivation reuses the receipt
+ * predicate that already proves a Host's first delivered output
+ * (`isFirstRelevantHostOutput`), over the Project's exclusively-consumed
+ * outputs: shared outputs delivered for several Hosts at once carry no
+ * per-Host delivery history, so they are not prior-delivery evidence. The
+ * standing-step policy itself is unchanged. It never renders on a no-op,
+ * blocked, declined, or failed path, and never on machine JSON (US-060).
  */
-function hostLoadingVerificationNodes(
+export function hostLoadingVerificationNodes(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
   identities?: ProjectIdentityLookup,
@@ -3499,6 +3509,29 @@ function hostLoadingVerificationNodes(
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
+  // One relevance derivation (US-017, ADR-0043): delivery begins exactly when
+  // a committed Project gains output for a Host that had no prior delivery.
+  // The receipt supplies the additions and the resulting state supplies the
+  // consuming evidence, through the same predicate that gates a standing
+  // Host Setup Step's relevance. Shared outputs — delivered for several Hosts
+  // at once — prove nothing about when one Host's delivery began, so the
+  // prior-delivery evidence keeps only outputs one Host consumes alone; a
+  // Host that newly consumes an already-delivered shared path has not begun
+  // a delivery of its own.
+  const beganDelivery = changed.some((record) => {
+    const changeProject = receipt.projects.find((candidate) =>
+      candidate.canonicalProject === record.canonicalProject
+    );
+    if (changeProject === undefined) return false;
+    const priorDeliveryEvidence = {
+      ...record,
+      outputs: record.outputs.filter((output) => output.consumingHosts.length === 1),
+    };
+    return (record.desired?.hosts ?? []).some((host) =>
+      isFirstRelevantHostOutput(changeProject, priorDeliveryEvidence, host)
+    );
+  });
+  if (!beganDelivery) return [];
   // Canonical Host order, matching the sorted Profiles line and every other
   // canonical Host rendering.
   const hosts = [...new Set(
@@ -3675,8 +3708,10 @@ function conciseApplyDocument(
     const readiness = readinessNodes(report, receipt);
     if (readiness.length > 0) {
       nodes.push(spacerNode(), ...readiness);
-      // The check fires exactly where the readiness statement fires: both
-      // key off the same applied evidence, and the check follows it.
+      // The readiness statement is the committed update's short new-session
+      // reminder; the optional loading check follows it only when the receipt
+      // proves delivery began (US-017, ADR-0043), decided inside the check's
+      // one function.
       nodes.push(...hostLoadingVerificationNodes(report, receipt, grouped.identities));
     }
   }

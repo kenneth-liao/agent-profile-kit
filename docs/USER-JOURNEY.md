@@ -76,7 +76,7 @@ than duplicating it.
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
 | 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the retained-evidence route, and on an interactive terminal a confirmation before any changed generated file is replaced |
-| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and the Apply Receipt states one concrete Project-local action that checks whether the Host loaded the Profile |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and a first installation or Host addition states one concrete Project-local action that checks whether the Host loaded the Profile (ADR-0043) |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
 | 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; `--host` removes only those Hosts within the scope; a later update does not reinstall them |
@@ -85,9 +85,9 @@ than duplicating it.
 Stages 1–8 are the first-run path; an update that installed the scaffolded
 example Profile hands off to stage 4's authoring commands so the first run ends
 where the user was heading (DEC-024). Stages 10–12 are the returning-user
-path. Stage 9 is the only stage the CLI never speaks to: the receipt states
-how to check Host loading, it never claims Agent Profile Kit observed the
-loading (OOS-009). Stage 13 is the receipt-owned temporary flow, usable
+path. Stage 9 is the only stage the CLI never speaks to: the check-gated
+receipt states how to check Host loading, it never claims Agent Profile Kit
+observed the loading (OOS-009). Stage 13 is the receipt-owned temporary flow, usable
 alongside either path. `new` never prompts; `uninstall` always confirms interactively unless `--auto-confirm` answers it (DEC-004).
 
 `status` is the single authoritative read-only Project lifecycle plan. It
@@ -377,6 +377,9 @@ Installed example for <project>
   Profile: example
   Hosts: codex
 Next: apkit status
+To check that codex loaded Profile example, start a new codex session in
+  <project> and ask codex what Profile material it loaded; the installed
+  material should appear in its answer.
 
 Details: apkit details
 ```
@@ -387,9 +390,16 @@ Replaced installation ops for <project>
   Profile: example → ops
   Hosts: codex → claude, codex
 Next: apkit status
+To check that claude and codex loaded Profile ops, start a new session of
+  each configured Host in <project> and ask each Host what Profile material it
+  loaded; the installed material should appear in the answers.
 
 Details: apkit details
 ```
+
+A first installation and a Host addition offer the optional Host-loading
+check beside the receipt (US-017, ADR-0043); re-running the same selection
+commits nothing and renders no check.
 
 An interactive `install` shows the proposed scope and asks for confirmation
 before any write; `--auto-confirm` answers that confirmation. On an
@@ -603,6 +613,12 @@ To check that claude and codex loaded Profile example, start a new session of
 Details: apkit details
 ```
 
+The sample above is a first delivery — the receipt proves the hook output is
+new for its Host. The optional Host-loading check is offered only then (US-017,
+ADR-0043): a first installation or Host addition offers it, whether through
+`install` or an update that installs a pending Project, while an ordinary
+repeated content update closes with the readiness reminder alone:
+
 The first-run example update closes with a concrete handoff to authoring real
 material (US-040, DEC-024); routine applies do not repeat it:
 
@@ -673,17 +689,21 @@ machine JSON keeps its keys and meanings (US-060); the completed operation's
 complete evidence is one `apkit details` away, never a re-run. The default
 receipt states its impact once and is followed by change-relevant first-use
 guidance and the invocation-wide next-launch readiness (once per update
-invocation, never split by Host or Project set).
+invocation, never split by Host or Project set); the optional Host-loading
+check follows the readiness statement only when the receipt proves delivery
+began (ADR-0043).
 
 ### 9. Use
 
-A successful update states one concrete Project-local action that checks
-whether the Agent Host loaded the Profile (US-041, DEC-025): start a new
-session of the configured Host in the updated Project and ask it what Profile
-material it loaded — the installed material should appear in the answer.
-Agent Profile Kit never claims it observed that loading (OOS-009). Beyond
-that check, setup guidance is reported conditionally by Host *and* by what
-was installed:
+A successful first installation or Host addition states one concrete
+Project-local action that checks whether the Agent Host loaded the Profile
+(US-041, DEC-025, US-017, ADR-0043): start a new session of the configured Host
+in the updated Project and ask it what Profile material it loaded — the
+installed material should appear in the answer. Agent Profile Kit never claims
+it observed that loading (OOS-009). Routine repeated content updates offer no
+optional check; their closing readiness reminder already states that a new
+session loads the refreshed material. Beyond that check, setup guidance is
+reported conditionally by Host *and* by what was installed:
 
 | Host | Requirement after `update` |
 |------|---------------------------|
