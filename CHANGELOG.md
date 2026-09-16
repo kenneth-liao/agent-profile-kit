@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed initialization to end with one install next action naming the Profile the invocation actually created — the guided first-Profile flow's created Profile or the scaffolded example — while init guidance no longer selects the first detected Host or prints the equivalent `apkit new profile` command (#511)
+
 - Added the focused Profile detail route `apkit list profiles [<profile>] [--json]`, listing one Profile's selected Context Module and Skill names through trusted Workspace ingestion with an unavailable-name suggestion, while the overall inventory keeps compact counts (#513)
 
 - Changed Host inventory to label each supported Host's advisory executable detection as installed/not found in `apkit list hosts`, keeping undetected Hosts selectable and the machine JSON payload unchanged (#512)

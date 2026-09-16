@@ -58,8 +58,31 @@ function availableMaterialNode(label: string, names: readonly string[] | undefin
   };
 }
 
-/** The receipt document for one `apkit new` invocation (US-042–US-046). */
-export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
+/**
+ * The one install next action after initialization completes (spec #491,
+ * US-016): install the Profile the invocation left in the Workspace, and
+ * leave Host choice to install's searchable choices (ADR-0034) — init
+ * guidance never names a Host. One derivation home for every initialization
+ * completion view, so guided and example-only receipts cannot disagree.
+ */
+export function initializationNextActionDocument(profile: string): PresentationDocument {
+  return [{
+    kind: "sentence",
+    parts: [
+      "Next: from the project you want to try, run ",
+      commandPart(COMMAND_NAME, [arg("install"), arg(profile)]),
+    ],
+    category: "command",
+  }];
+}
+
+/**
+ * The created-fact nodes of one Profile creation receipt: the created
+ * sentence, the selected membership, and the available-material guidance
+ * (US-045). One home shared by the `apkit new` receipt and the guided
+ * initialization completion, so the two flows cannot disagree on the facts.
+ */
+export function newArtifactCreatedNodes(input: NewArtifactReceiptInput): PresentationNode[] {
   const created: PresentationNode = {
     kind: "sentence",
     parts: [
@@ -70,22 +93,14 @@ export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): Pres
     ],
     category: "success",
   };
-  if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
-    return [
-      created,
-      {
-        kind: "sentence",
-        parts: [
-          `Next: select the ${input.artifactType} from a Profile, then run `,
-          commandPart(COMMAND_NAME, [arg("validate")]),
-        ],
-        category: "command",
-      },
-    ];
-  }
-  const nodes: PresentationNode[] = [created];
   const selectedContexts = input.selectedContexts ?? [];
   const selectedSkills = input.selectedSkills ?? [];
+  const nodes: PresentationNode[] = [created];
+  if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
+    // Plain `apkit new` receipts carry no Profile membership or
+    // available-material guidance (US-042–US-046).
+    return nodes;
+  }
   if (selectedContexts.length > 0) {
     nodes.push({
       kind: "key-value",
@@ -107,16 +122,53 @@ export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): Pres
     availableMaterialNode("Context Module", input.availableContexts),
     availableMaterialNode("Skill", input.availableSkills),
   );
-  nodes.push({
-    kind: "sentence",
-    parts: [
-      "Next: run ",
-      commandPart(COMMAND_NAME, [arg("validate")]),
-      ", then install the Profile into a Project",
-    ],
-    category: "command",
-  });
   return nodes;
+}
+
+/**
+ * The guided initialization completion (spec #491, US-016): the created
+ * Profile's receipt facts plus the one install next action naming the
+ * Profile actually created. It replaces the parallel stale lines the guided
+ * flow used to print — the vague validate-then-install sentence and the
+ * equivalent `apkit new profile` command, which would fail with
+ * `duplicate-artifact-name` because the Profile it describes already exists.
+ */
+export function guidedInitCompletionDocument(
+  input: NewArtifactReceiptInput,
+): PresentationDocument {
+  return [
+    ...newArtifactCreatedNodes(input),
+    ...initializationNextActionDocument(input.id),
+  ];
+}
+
+/** The receipt document for one `apkit new` invocation (US-042–US-046). */
+export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
+  if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
+    return [
+      ...newArtifactCreatedNodes(input),
+      {
+        kind: "sentence",
+        parts: [
+          `Next: select the ${input.artifactType} from a Profile, then run `,
+          commandPart(COMMAND_NAME, [arg("validate")]),
+        ],
+        category: "command",
+      },
+    ];
+  }
+  return [
+    ...newArtifactCreatedNodes(input),
+    {
+      kind: "sentence",
+      parts: [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+        ", then install the Profile into a Project",
+      ],
+      category: "command",
+    },
+  ];
 }
 
 const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
@@ -129,6 +181,12 @@ export interface InitReceiptInput {
   readonly authoredPath: string;
   readonly workspaceScaffolded?: boolean;
   readonly detectedHosts?: readonly SupportedHost[];
+  /**
+   * The guided flow reports the Profile it just created — and that
+   * completion's one install next action — right after this receipt, so the
+   * receipt carries no parallel next action of its own (spec #491, US-016).
+   */
+  readonly guidedProfileFollows?: boolean;
 }
 
 /** The receipt document for one `init` invocation. */
@@ -169,23 +227,26 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       },
     ];
   }
+  // The one next action names the Profile this initialization left in the
+  // Workspace: the scaffolded example when it scaffolded one (example-only
+  // initialization), otherwise the delivered validate pointer for a
+  // pre-existing valid Workspace. Detection is advisory (DEC-011) and Host
+  // choice stays with install's searchable choices (ADR-0034), so the next
+  // action never names a Host. When the guided flow's Profile completion
+  // follows, it owns the one next action and the receipt prints none.
+  const nextAction = input.guidedProfileFollows === true
+    ? undefined
+    : input.workspaceScaffolded === true
+      ? initializationNextActionDocument(AUTHORING_EXAMPLES.profile.id)
+      : [{
+        kind: "sentence" as const,
+        parts: [
+          "Next: run ",
+          commandPart(COMMAND_NAME, [arg("validate")]),
+        ],
+        category: "command" as const,
+      }];
   const detectedHosts = input.detectedHosts ?? [];
-  const firstDetectedHost = detectedHosts[0];
-  const nextCommandParts =
-    input.workspaceScaffolded === true && firstDetectedHost !== undefined
-      ? [
-        "Next: from the project you want to try, run ",
-        commandPart(COMMAND_NAME, [
-          arg("install"),
-          arg(AUTHORING_EXAMPLES.profile.id),
-          arg("--host"),
-          arg(firstDetectedHost),
-        ]),
-      ]
-      : [
-        "Next: run ",
-        commandPart(COMMAND_NAME, [arg("validate")]),
-      ];
 
   return [
     {
@@ -207,11 +268,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
           ? ["Detected Agent Hosts: ", identifierPart(detectedHosts.join(", "))]
           : ["Detected Agent Hosts: none"],
     },
-    {
-      kind: "sentence",
-      parts: nextCommandParts,
-      category: "command",
-    },
+    ...(nextAction ?? []),
   ];
 }
 

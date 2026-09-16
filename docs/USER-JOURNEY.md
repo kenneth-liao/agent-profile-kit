@@ -249,7 +249,7 @@ Initialized Agent Profile Kit Workspace and settings at
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: claude, codex, opencode
-Next: from the project you want to try, run apkit install example --host claude
+Next: from the project you want to try, run apkit install example
 ```
 
 Scaffolds `workspace.yaml`, six artifact directories, an installable `example`
@@ -259,10 +259,11 @@ removed example or overwrite any valid existing Workspace. The Workspace
 location is stated in actionable home-relative form (US-036), the receipt
 explains what a Profile is in one sentence at the moment one is first needed
 (US-033), and detection is advisory: it names the supported Agent Hosts found
-on the machine (US-037) and never blocks. When no supported Agent Host is
-detected, the receipt says so plainly and does not suggest binding to an
-absent Host (US-038, DEC-023); the suggested first `bind` names a Host the
-machine actually has (US-039).
+on the machine (US-037) and never blocks. The suggested first install names
+the Profile the initialization actually left in the Workspace (the scaffolded
+example, or the Profile the guided first-Profile flow created), and leaves
+Host choice to install's searchable choices (spec #491, US-016, ADR-0034);
+it never names a Host itself.
 
 ### 3. Learn the format
 
@@ -916,4 +917,4 @@ are argued from these rather than from scratch.
    journey into the Host without presenting unobserved Host state as unfinished
    setup.
 10. **Exit codes agree across commands** for the same state.
-11. **Prompts are predictable and teach by use.** Exactly install, init, uninstall, and the update changed-file review interact; every completed prompt flow prints the equivalent fully specified command, and everything else never prompts (DEC-004, DEC-005).
+11. **Prompts are predictable and teach by use.** Exactly install, init, uninstall, and the update changed-file review interact; every completed prompt flow other than init's guided first-Profile flow prints the equivalent fully specified command, and everything else never prompts (DEC-004, DEC-005). Init's guided first-Profile flow instead ends with one install next action naming the Profile it actually created (spec #491, US-016), because the equivalent `apkit new profile` command it used to print would fail on the already-created Profile.

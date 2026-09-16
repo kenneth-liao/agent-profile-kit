@@ -7,7 +7,12 @@ import type { AdapterDiagnosticWarning, HostSetupStep } from "../adapters/projec
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
-import { initReceiptDocument, installReceiptDocument } from "../cli/receipts.js";
+import {
+  guidedInitCompletionDocument,
+  initReceiptDocument,
+  installReceiptDocument,
+  newArtifactCreatedNodes,
+} from "../cli/receipts.js";
 import {
   flatInlineText,
   identifierPart,
@@ -8643,14 +8648,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
           args: [
             { kind: "text", value: "install" },
             { kind: "text", value: "example" },
-            { kind: "text", value: "--host" },
-            { kind: "text", value: "codex" },
           ],
         },
       ],
     });
 
-    // When multiple Hosts are detected, the first detected Host is selected for the suggested install
+    // Host choice stays with install's searchable choices (spec #491, US-016,
+    // ADR-0034): even with several detected Hosts, init guidance never names
+    // one, so it cannot arbitrarily select the first detected Host.
     const multiHostDocument = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
@@ -8676,15 +8681,88 @@ describe("authoring and teardown receipt documents (#390)", () => {
           args: [
             { kind: "text", value: "install" },
             { kind: "text", value: "example" },
-            { kind: "text", value: "--host" },
-            { kind: "text", value: "antigravity" },
           ],
         },
       ],
     });
   });
 
-  test("the created receipt with no detected Hosts states so and suggests validate without inventing an absent Host", () => {
+  test("the guided receipt that is followed by the created Profile carries no parallel next action", () => {
+    // The guided flow's Profile completion owns the one install next action
+    // (spec #491, US-016); the receipt cannot print a conflicting one first.
+    const document = initReceiptDocument({
+      outcome: "created",
+      path: join(home, ".agents", "agent-profile-kit", "workspace"),
+      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      workspaceScaffolded: true,
+      detectedHosts: ["codex"],
+      guidedProfileFollows: true,
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "sentence",
+      "sentence",
+    ]);
+    expect(document.every((node) => JSON.stringify(node).includes("Next:") === false))
+      .toBe(true);
+  });
+
+  test("the guided initialization completion presents the created Profile and one install next action", () => {
+    const document = guidedInitCompletionDocument({
+      artifactType: "Profile",
+      id: "my-profile",
+      path: "/test/workspace/profiles/my-profile.yaml",
+      selectedContexts: ["example-context"],
+      selectedSkills: [],
+      availableContexts: ["example-context"],
+      availableSkills: ["example-skill"],
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:Context(path)",
+      "sentence",
+      "sentence",
+      "sentence(command)",
+    ]);
+    expect(document[0]).toMatchObject({
+      kind: "sentence",
+      category: "success",
+    });
+    // Exactly one next action, naming the Profile actually created, leaving
+    // Host choice to install's searchable choices.
+    expect(document[4]).toMatchObject({
+      kind: "sentence",
+      category: "command",
+      parts: [
+        "Next: from the project you want to try, run ",
+        {
+          kind: "command",
+          program: "apkit",
+          args: [
+            { kind: "text", value: "install" },
+            { kind: "text", value: "my-profile" },
+          ],
+        },
+      ],
+    });
+    // The created-fact nodes are the shared `apkit new` receipt nodes.
+    expect(document.slice(0, 4)).toEqual(
+      newArtifactCreatedNodes({
+        artifactType: "Profile",
+        id: "my-profile",
+        path: "/test/workspace/profiles/my-profile.yaml",
+        selectedContexts: ["example-context"],
+        selectedSkills: [],
+        availableContexts: ["example-context"],
+        availableSkills: ["example-skill"],
+      }),
+    );
+  });
+
+  test("the created receipt with no detected Hosts states so and still names the example install action", () => {
+    // Detection is advisory (DEC-011): undetected Hosts remain selectable
+    // install choices (ADR-0034), so the example-only next action names the
+    // example Profile and never falls back away from installation.
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
@@ -8706,11 +8784,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       category: "command",
       parts: [
-        "Next: run ",
+        "Next: from the project you want to try, run ",
         {
           kind: "command",
           program: "apkit",
-          args: [{ kind: "text", value: "validate" }],
+          args: [
+            { kind: "text", value: "install" },
+            { kind: "text", value: "example" },
+          ],
         },
       ],
     });

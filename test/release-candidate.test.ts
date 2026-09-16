@@ -1911,11 +1911,14 @@ describe("project-bound release candidate", () => {
     for (const absentHost of ["antigravity", "grok", "pi"]) {
       expect(init.stdout).not.toContain(`--host ${absentHost}`);
     }
-    // The suggested first bind names a detected Host and is the one printed
-    // command the newcomer needs (US-039).
+    // Init guidance leaves Host choice to install's searchable choices
+    // (spec #491, US-016, ADR-0034): the one printed command the newcomer
+    // needs names the example Profile and never a Host. The negative is
+    // discriminating: the old output contained "--host claude" here.
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
-      "run apkit install example --host claude",
+      "run apkit install example",
     );
+    expect(init.stdout).not.toContain("--host");
 
     // 3. Follow the printed install form, made project-specific the way the
     // printed sentence says ("from the project you want to try"). Pipes add
@@ -2039,7 +2042,7 @@ describe("project-bound release candidate", () => {
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain(
-      "Next: from the project you want to try, run\n  apkit install example --host antigravity",
+      "Next: from the project you want to try, run apkit install example",
     );
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
@@ -2242,7 +2245,7 @@ describe("project-bound release candidate", () => {
     // Every case composes stub bins with an allowlisted bin so no real Host
     // executable on the runner can satisfy a probe; detection is exact.
 
-    // 1. All controlled hosts present: selects first detected host (antigravity)
+    // 1. All controlled hosts present: guidance names no Host, even when several are detected
     const allHome = isolatedHome();
     const allBin = installAllHostStubs(allHome);
     const allPath = `${allBin}:${allowlistBin(allHome)}`;
@@ -2250,10 +2253,10 @@ describe("project-bound release candidate", () => {
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(allInit.stdout).toContain(
-      "Next: from the project you want to try, run\n  apkit install example --host antigravity",
+      "Next: from the project you want to try, run apkit install example",
     );
 
-    // 2. Single host present (only codex): selects codex
+    // 2. Single host present (only codex): still no Host in init guidance
     const codexHome = isolatedHome();
     const codexBin = join(codexHome, "bin");
     mkdirSync(codexBin, { recursive: true });
@@ -2267,10 +2270,12 @@ describe("project-bound release candidate", () => {
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
     expect(codexInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example --host codex",
+      "Next: from the project you want to try, run apkit install example",
     );
+    // Discriminating negative: the old output contained "--host codex" here.
+    expect(codexInit.stdout).not.toContain("--host");
 
-    // 3. Single host present (only claude): selects claude
+    // 3. Single host present (only claude): still no Host in init guidance
     const claudeHome = isolatedHome();
     const claudeBin = join(claudeHome, "bin");
     mkdirSync(claudeBin, { recursive: true });
@@ -2284,10 +2289,13 @@ describe("project-bound release candidate", () => {
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
     expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain(
-      "Next: from the project you want to try, run apkit install example --host claude",
+      "Next: from the project you want to try, run apkit install example",
     );
+    // Discriminating negative: the old output contained "--host claude" here.
+    expect(claudeInit.stdout).not.toContain("--host");
 
-    // 4. No supported hosts present: names none and suggests validate (does not suggest an absent host)
+    // 4. No supported hosts present: names none and still names the example install action
+    // (detection is advisory; undetected Hosts remain selectable install choices)
     const noHostsHome = isolatedHome();
     const emptyBin = join(noHostsHome, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
@@ -2295,7 +2303,9 @@ describe("project-bound release candidate", () => {
     const noHostsInit = await runCli(noHostsHome, ["init"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
     expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
-    expect(noHostsInit.stdout).toContain("Next: run apkit validate");
+    expect(noHostsInit.stdout).toContain(
+      "Next: from the project you want to try, run apkit install example",
+    );
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
 
@@ -2318,7 +2328,9 @@ describe("project-bound release candidate", () => {
     });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("Detected Agent Hosts: none");
-    expect(init.stdout).toContain("Next: run apkit validate");
+    expect(init.stdout).toContain(
+      "Next: from the project you want to try, run apkit install example",
+    );
     expect(init.stdout).not.toContain("--host");
 
     // No hanging processes: the SIGTERM-resistant stub group is gone.
