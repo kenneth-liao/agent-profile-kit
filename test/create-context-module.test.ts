@@ -109,6 +109,15 @@ describe("createContextModule", () => {
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("duplicate-artifact-name");
+      // Every duplicate fact carries the existing artifact's real path (US-015, #508).
+      // Ingestion is the duplicate authority, so the fact names the first
+      // ingested file claiming the ID.
+      expect(fact).toEqual({
+        kind: "duplicate-artifact-name",
+        artifactType: "Context Module",
+        id: "review-standards",
+        path: "context/elsewhere.md",
+      });
       // The foreign second file is preserved.
       expect(existsSync(otherFile)).toBe(true);
     } finally {

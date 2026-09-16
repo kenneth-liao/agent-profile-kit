@@ -66,7 +66,15 @@ export type WorkspaceStructureErrorFact =
 /** One typed Workspace ingestion failure (manifest, artifacts, dependencies). */
 export type WorkspaceIngestionErrorFact =
   | WorkspaceStructureErrorFact
-  | { readonly kind: "duplicate-artifact-name"; readonly artifactType: string; readonly id: string }
+  | {
+      readonly kind: "duplicate-artifact-name";
+      readonly artifactType: CreationArtifactType;
+      readonly id: string;
+      /** Workspace-relative path of the existing artifact holding the ID (#508). */
+      readonly path: string;
+      /** Set only when a creation invocation refused on this fact (#508). */
+      readonly stage?: "creation";
+    }
   | {
       readonly kind: "profile-without-artifacts";
       readonly profile: string;
@@ -83,6 +91,12 @@ export type WorkspaceIngestionErrorFact =
       readonly file: string;
       /** Sorted available Context Module names in the Workspace. */
       readonly available: readonly string[];
+      /**
+       * Set only when a Profile-creation invocation refused on this fact
+       * (#508): the referenced `file` was never created, so human guidance
+       * must not direct the user to repair it.
+       */
+      readonly stage?: "creation";
     }
   | {
       readonly kind: "missing-skill-reference";
@@ -92,6 +106,8 @@ export type WorkspaceIngestionErrorFact =
       readonly file: string;
       /** Sorted available Skill names in the Workspace. */
       readonly available: readonly string[];
+      /** Creation-stage marker; see missing-context-reference (#508). */
+      readonly stage?: "creation";
     }
   | {
       readonly kind: "missing-dependency-reference";
@@ -175,6 +191,17 @@ export type InstallerToolErrorFact =
   | { readonly kind: "init-path-not-directory"; readonly path: string }
   | { readonly kind: "init-empty-symlink-target"; readonly path: string }
   | { readonly kind: "init-not-workspace-directory"; readonly path: string }
+  | {
+      /**
+       * The authored first-Profile name equals the example Profile the
+       * guided init plans to scaffold (#508). No file exists at the collision
+       * point — the planned scaffold does not exist yet — so this is its own
+       * fact kind rather than a duplicate-artifact-name with a fabricated
+       * path.
+       */
+      readonly kind: "init-planned-profile-conflict";
+      readonly profile: string;
+    }
   | {
       readonly kind: "init-workspace-selection-conflict";
       readonly requested: string;

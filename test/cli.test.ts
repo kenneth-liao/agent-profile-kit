@@ -804,6 +804,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stderr).toContain("apkit validate");
   });
 
+  test("validate identifies a duplicated Profile ID and offers editing one of the conflicting files", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const profiles = join(workspacePath(home), "profiles");
+    writeFileSync(join(profiles, "dup-one.yaml"), "id: dup\ncontext: [example-context]\nskills: []\n");
+    writeFileSync(join(profiles, "dup-two.yaml"), "id: dup\ncontext: [example-context]\nskills: []\n");
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 1);
+    // The duplicate diagnostic identifies the existing artifact's real file,
+    // states what was unchanged, and offers editing plus revalidation without
+    // a fabricated creation retry (US-015, #508).
+    expect(result.stderr).toContain("A Profile named 'dup' already exists at profiles/dup-one.yaml");
+    expect(result.stderr).toContain("Nothing was created or changed");
+    expect(result.stderr).toContain("unique Artifact ID");
+    expect(result.stderr).toContain("apkit validate");
+    expect(result.stderr).not.toContain("apkit new");
+    expect(readFileSync(join(profiles, "dup-one.yaml"), "utf8")).toContain("id: dup");
+    expect(readFileSync(join(profiles, "dup-two.yaml"), "utf8")).toContain("id: dup");
+  });
+
   test("validate suggests the nearest name for a typo'd Profile reference (US-025)", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -14214,6 +14236,12 @@ describe("packed CLI new skill", () => {
     const duplicated = await runCli(home, "new", "skill", "review-pr");
     expectExitCode(duplicated, 1);
     expect(duplicated.stderr).toContain("review-pr");
+    // The duplicate diagnostic identifies the existing file, states what was
+    // unchanged, and offers editing it or another name (US-015, #508).
+    expect(duplicated.stderr).toContain("A Skill named 'review-pr' already exists at");
+    expect(duplicated.stderr).toContain("Nothing was created or changed");
+    expect(duplicated.stderr).toContain("Edit skills/review-pr/SKILL.md");
+    expect(duplicated.stderr).toMatch(/apkit new skill <name>/);
     expect(readFileSync(skillFile, "utf8")).toContain("Hand-authored follow-up.\n");
 
     // Occupied by an existing directory with no Skill material: refused, untouched.
@@ -14414,6 +14442,11 @@ describe("packed CLI new profile", () => {
     expectExitCode(unknownContext, 1);
     expect(unknownContext.stderr).toContain("review-standard");
     expect(unknownContext.stderr).toContain("Available Context Modules: example-context");
+    // The refused creation reports the actual state and never directs the
+    // user to repair the uncreated Profile file (US-015, #508).
+    expect(unknownContext.stderr).toContain("Profile 'engineering' was not created");
+    expect(unknownContext.stderr).not.toContain("Correct profiles/engineering.yaml");
+    expect(unknownContext.stderr).toMatch(/apkit new profile engineering again/);
     expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
 
     const unknownSkill = await runCli(
@@ -14430,6 +14463,9 @@ describe("packed CLI new profile", () => {
     expect(unknownSkill.stderr).toContain("review-p");
     expect(unknownSkill.stderr).toContain("Available Skills: review-pr");
     expect(unknownSkill.stderr).toContain("Did you mean 'review-pr'?");
+    expect(unknownSkill.stderr).toContain("Profile 'engineering' was not created");
+    expect(unknownSkill.stderr).not.toContain("Correct profiles/engineering.yaml");
+    expect(unknownSkill.stderr).toMatch(/apkit new skill <name>/);
     expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
   });
 
@@ -14499,6 +14535,26 @@ describe("packed CLI new profile", () => {
     // The structured diagnostic carries a runnable recovery command (INT-1).
     expect(occupied.stderr).toMatch(/apkit new profile/);
     expect(readFileSync(profileFile, "utf8")).toContain("id: mine");
+
+    // A duplicate Artifact ID identifies the existing file and offers editing
+    // it or another name; nothing is created or changed (US-015, #508).
+    const duplicateProfile = await runCli(
+      home,
+      "new",
+      "profile",
+      "example",
+      "--context",
+      "example-context",
+    );
+    expectExitCode(duplicateProfile, 1);
+    expect(duplicateProfile.stderr).toContain(
+      "A Profile named 'example' already exists at",
+    );
+    expect(duplicateProfile.stderr).toContain("Nothing was created or changed");
+    expect(duplicateProfile.stderr).toMatch(/apkit new profile <name>/);
+    expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toContain(
+      "id: \"example\"",
+    );
 
     // Unknown flags are argument errors.
     const unknownFlag = await runCli(

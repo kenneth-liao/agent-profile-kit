@@ -99,6 +99,14 @@ describe("createSkill", () => {
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("duplicate-artifact-name");
+      // Every duplicate fact carries the existing artifact's real path
+      // (US-015, #508); ingestion names the first ingested claimant.
+      expect(fact).toEqual({
+        kind: "duplicate-artifact-name",
+        artifactType: "Skill",
+        id: "review-pr",
+        path: "skills/elsewhere/SKILL.md",
+      });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

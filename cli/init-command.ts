@@ -227,15 +227,15 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     return { exitCode: 1 };
   }
   // A missing or empty destination still receives the scaffolded example
-  // Profile before creation runs; refuse the collision before any write with
-  // the delivered duplicate-name fact createProfile would raise.
+  // Profile before creation runs; refuse the collision before any write. The
+  // planned scaffold does not exist yet, so this is its own fact kind — a
+  // duplicate-artifact-name path would fabricate a file that is not there (#508).
   if (preview.plannedScaffoldProfiles.includes(name)) {
     writeHumanDocument(
       request.stderr,
       errorDiagnosticDocument(new InstallerToolError({
-        kind: "duplicate-artifact-name",
-        artifactType: "Profile",
-        id: name,
+        kind: "init-planned-profile-conflict",
+        profile: name,
       })),
       stderrContext,
     );

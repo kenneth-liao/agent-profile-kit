@@ -113,6 +113,9 @@ export async function createProfile(options: CreateProfileOptions): Promise<Crea
         contextId,
         file: `profiles/${id}${PROFILE_EXTENSION}`,
         available: availableContexts,
+        // The referenced file was never created; human guidance must not
+        // direct the user to repair it (US-015, #508).
+        stage: "creation",
       });
     }
   }
@@ -124,6 +127,9 @@ export async function createProfile(options: CreateProfileOptions): Promise<Crea
         skillId,
         file: `profiles/${id}${PROFILE_EXTENSION}`,
         available: availableSkills,
+        // The referenced file was never created; human guidance must not
+        // direct the user to repair it (US-015, #508).
+        stage: "creation",
       });
     }
   }
@@ -133,6 +139,9 @@ export async function createProfile(options: CreateProfileOptions): Promise<Crea
       kind: "duplicate-artifact-name",
       artifactType: "Profile",
       id,
+      // The existing Profile's real Workspace-relative path (#508).
+      path: workspace.profiles.get(id)!.path,
+      stage: "creation",
     });
   }
 

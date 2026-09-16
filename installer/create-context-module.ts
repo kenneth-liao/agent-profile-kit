@@ -87,6 +87,9 @@ export async function createContextModule(
       kind: "duplicate-artifact-name",
       artifactType: "Context Module",
       id,
+      // The existing Context Module's real Workspace-relative path (#508).
+      path: workspace.contexts.get(id)!.path,
+      stage: "creation",
     });
   }
 

@@ -9,8 +9,8 @@ import {
 } from "../schemas/context-profile.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
 import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
-import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
-import { InstallerToolError } from "./tool-errors.js";
+import { validateWorkspaceStructure, workspacePath, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
+import { InstallerToolError, type CreationArtifactType } from "./tool-errors.js";
 
 export interface Workspace {
   /** Canonical (realpath) Workspace root used for identity and artifact reads. */
@@ -45,7 +45,7 @@ async function skillPaths(directory: string, prefix = ""): Promise<readonly stri
       const source = join(directory, entry.name);
       const nested = await skillPaths(source, relativePath);
       const children = await readdir(source, { withFileTypes: true });
-      return children.some((child) => child.isFile() && child.name === "SKILL.md")
+      return children.some((child) => child.isFile() && child.name === SKILL_FILE_NAME)
         ? [relativePath, ...nested]
         : nested;
     }),
@@ -71,16 +71,27 @@ async function sourceFiles(
   return files.flat().sort();
 }
 
-function addUnique<T extends { readonly id: string }>(
+/**
+ * Ingest one artifact into its category, refusing a repeated Artifact ID. The
+ * duplicate fact carries the existing artifact's Workspace-relative canonical
+ * file as its `path`, derived from the already-stored record — the entries map
+ * stays the one home for that locator (#508). `locatorOf` exists because the
+ * Skill record's `path` is the absolute source directory, while Context Module
+ * and Profile records carry the workspace-relative file directly.
+ */
+function addUnique<T extends { readonly id: string; readonly path: string }>(
   entries: Map<string, T>,
   entry: T,
-  artifactType: string,
+  artifactType: CreationArtifactType,
+  locatorOf: (existing: T) => string,
 ): void {
-  if (entries.has(entry.id)) {
+  const existing = entries.get(entry.id);
+  if (existing !== undefined) {
     throw new InstallerToolError({
       kind: "duplicate-artifact-name",
       artifactType,
       id: entry.id,
+      path: locatorOf(existing),
     });
   }
   entries.set(entry.id, entry);
@@ -98,23 +109,26 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   const skills = new Map<string, Skill>();
 
   for (const name of await sourceFiles(join(path, "context"), ".md")) {
-    const sourcePath = join(path, "context", name);
+    const relativePath = `context/${name}`;
     addUnique(
       contexts,
-      parseContextModule(await readFile(sourcePath, "utf8"), `context/${name}`),
+      parseContextModule(await readFile(join(path, relativePath), "utf8"), relativePath),
       "Context Module",
+      (existing) => existing.path,
     );
   }
   for (const name of await sourceFiles(join(path, "profiles"), ".yaml")) {
-    const sourcePath = join(path, "profiles", name);
+    const relativePath = `profiles/${name}`;
     addUnique(
       profiles,
-      parseProfile(await readFile(sourcePath, "utf8"), `profiles/${name}`),
+      parseProfile(await readFile(join(path, relativePath), "utf8"), relativePath),
       "Profile",
+      (existing) => existing.path,
     );
   }
   for (const name of await skillPaths(join(path, "skills"))) {
     const sourcePath = join(path, "skills", name);
+    const relativePath = skillEntryRelativePath(path, sourcePath);
     let sidecar: string | undefined;
     try {
       sidecar = await readFile(join(sourcePath, "agent-profile-kit.yaml"), "utf8");
@@ -126,13 +140,14 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     addUnique(
       skills,
       parseSkill(
-        await readFile(join(sourcePath, "SKILL.md"), "utf8"),
-        `skills/${name}/SKILL.md`,
+        await readFile(join(sourcePath, SKILL_FILE_NAME), "utf8"),
+        relativePath,
         sourcePath,
         sidecar,
         sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
+      (existing) => skillEntryRelativePath(path, existing.path),
     );
   }
 

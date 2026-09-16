@@ -461,13 +461,16 @@ describe("guided first-Profile init", () => {
     input.write("y");
     await waitForOutput(streams.humanText, "What should the Profile be named?");
     input.write("example\r");
-    await waitForOutput(streams.errorText, "Profile name 'example' is duplicated");
+    await waitForOutput(streams.errorText, "Profile 'example' is the example Profile this init will scaffold");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
     expect(existsSync(configPath(home))).toBe(false);
     expect(existsSync(workspacePath(home))).toBe(false);
-    expect(plain(streams.errorText())).toContain("Profile name 'example' is duplicated");
+    expect(plain(streams.errorText())).toContain(
+      "Profile 'example' is the example Profile this init will scaffold",
+    );
+    expect(plain(streams.errorText())).toContain("Choose a different Profile name.");
   }, 20_000);
 
   test("the scaffolded example Profile name is refused on an empty destination before any write", async () => {
@@ -481,12 +484,15 @@ describe("guided first-Profile init", () => {
     input.write("y");
     await waitForOutput(streams.humanText, "What should the Profile be named?");
     input.write("example\r");
-    await waitForOutput(streams.errorText, "Profile name 'example' is duplicated");
+    await waitForOutput(streams.errorText, "Profile 'example' is the example Profile this init will scaffold");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
     expect(existsSync(join(empty, "workspace.yaml"))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
-    expect(plain(streams.errorText())).toContain("Profile name 'example' is duplicated");
+    expect(plain(streams.errorText())).toContain(
+      "Profile 'example' is the example Profile this init will scaffold",
+    );
+    expect(plain(streams.errorText())).toContain("Choose a different Profile name.");
   }, 20_000);
 });

@@ -91,6 +91,14 @@ describe("createProfile", () => {
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
       expect(fact.kind).toBe("duplicate-artifact-name");
+      // Every duplicate fact carries the existing artifact's real path (US-015, #508).
+      expect(fact).toEqual({
+        kind: "duplicate-artifact-name",
+        artifactType: "Profile",
+        id: "example",
+        path: "profiles/example.yaml",
+        stage: "creation",
+      });
       // The existing Profile file is preserved untouched.
       expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toContain(
         "id: \"example\"",
