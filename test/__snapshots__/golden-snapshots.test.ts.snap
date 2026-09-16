@@ -166,9 +166,9 @@ Workspace: Not configured (run apkit init)
 Create \`profiles/example.yaml\`:
 
 \`\`\`yaml
-id: example
+id: "example"
 context:
-  - example-context
+  - "example-context"
 skills: []
 \`\`\`
 
@@ -176,7 +176,7 @@ Create \`context/example-context.md\`:
 
 \`\`\`md
 ---
-id: example-context
+id: "example-context"
 dependencies: []
 ---
 Keep project-specific instructions in the project repository.
@@ -200,7 +200,7 @@ Create \`context/example-context.md\`:
 
 \`\`\`md
 ---
-id: example-context
+id: "example-context"
 dependencies: []
 ---
 Keep project-specific instructions in the project repository.
@@ -224,7 +224,7 @@ Create \`skills/example-skill/SKILL.md\`:
 
 \`\`\`md
 ---
-name: example-skill
+name: "example-skill"
 description: Summarize a change. Use when asked for a concise change summary.
 ---
 
