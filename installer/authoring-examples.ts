@@ -1,53 +1,26 @@
 const profile = "example";
 const skill = "example-skill";
 
-/** One canonical authoring-example set for CLI guidance and init scaffolding. */
-export const AUTHORING_EXAMPLES = {
-  profile: {
-    id: profile,
-    path: `profiles/${profile}.yaml`,
-    contents:
-      `id: ${profile}\n` +
-      "context:\n" +
-      "  - example-context\n" +
-      "skills: []\n",
-  },
-  context: {
-    id: "example-context",
-    path: "context/example-context.md",
-    contents:
-      "---\n" +
-      "id: example-context\n" +
-      "dependencies: []\n" +
-      "---\n" +
-      "Keep project-specific instructions in the project repository.\n",
-  },
-  skill: {
-    id: skill,
-    path: `skills/${skill}/SKILL.md`,
-    contents:
-      "---\n" +
-      `name: ${skill}\n` +
-      "description: Summarize a change. Use when asked for a concise change summary.\n" +
-      "---\n\n" +
-      "# Summarize a change\n\n" +
-      "Describe what changed, how it was verified, and any follow-up work.\n",
-  },
-} as const;
-
 /**
- * The canonical scaffold for one newly created Profile, shaped like
- * AUTHORING_EXAMPLES.profile so created and example material share one form.
+ * The single YAML formatting authority for newly created Workspace files
+ * (#514, US-019). Every emitted byte for a new Profile, Context Module
+ * frontmatter, or Skill frontmatter flows through one of the writers below;
+ * the `apkit new` scaffolds, the init example set, and the configure-profile
+ * preflight all compose from them, so a second, divergent emitter cannot
+ * exist. Scalar values are double-quoted because artifact IDs match
+ * /^[a-z0-9]+(-[a-z0-9]+)*$/, making `true` and `123` legal IDs; quoting
+ * keeps scalar-looking names strings rather than YAML booleans and numbers
+ * (CRAFT-2).
  */
+
+/** Canonical YAML for one whole-file Profile. */
 export function newProfileScaffold(
   id: string,
   contexts: readonly string[],
   skills: readonly string[],
 ): string {
   // requireArtifactId and the Workspace boundary run before scaffolding, so
-  // every name is [a-z0-9-] only and the double-quoted YAML scalars are safe;
-  // quoting keeps scalar-looking names (true, 123) strings rather than YAML
-  // booleans and numbers (CRAFT-2).
+  // every name is [a-z0-9-] only and the double-quoted YAML scalars are safe.
   const field = (label: string, names: readonly string[]): string =>
     names.length === 0
       ? `${label}: []\n`
@@ -55,22 +28,34 @@ export function newProfileScaffold(
   return `id: "${id}"\n${field("context", contexts)}${field("skills", skills)}`;
 }
 
+/** Canonical frontmatter YAML for one Context Module (the part before the body). */
+function contextModuleFrontmatter(id: string): string {
+  // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
+  // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
+  // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
+  return `---\nid: "${id}"\ndependencies: []\n---\n`;
+}
+
 /**
  * The canonical scaffold for one newly created Context Module, shaped like
  * AUTHORING_EXAMPLES.context so created and example material share one form.
  */
 export function newContextModuleScaffold(id: string): string {
+  return (
+    contextModuleFrontmatter(id) +
+    `\n# ${id}\n\n` +
+    "Describe what this Context Module covers and when a Profile should include it.\n"
+  );
+}
+
+/** Canonical frontmatter YAML for one Skill (the part before the body). */
+function skillFrontmatter(id: string, description: string): string {
   // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
   // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
   // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
-  return (
-    "---\n" +
-    `id: "${id}"\n` +
-    "dependencies: []\n" +
-    "---\n\n" +
-    `# ${id}\n\n` +
-    "Describe what this Context Module covers and when a Profile should include it.\n"
-  );
+  // The description is content, not style: both scaffold and example values
+  // are repo-controlled literals, so it stays an unquoted plain scalar.
+  return `---\nname: "${id}"\ndescription: ${description}\n---\n`;
 }
 
 /**
@@ -78,15 +63,41 @@ export function newContextModuleScaffold(id: string): string {
  * AUTHORING_EXAMPLES.skill so created and example material share one form.
  */
 export function newSkillScaffold(id: string): string {
-  // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
-  // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
-  // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
   return (
-    "---\n" +
-    `name: "${id}"\n` +
-    "description: Describe what this Skill does and when an agent should use it.\n" +
-    "---\n\n" +
-    `# ${id}\n\n` +
+    skillFrontmatter(id, "Describe what this Skill does and when an agent should use it.") +
+    `\n# ${id}\n\n` +
     "Describe what this Skill does, how to use it, and any follow-up work.\n"
   );
 }
+
+/**
+ * One canonical authoring-example set for CLI guidance and init scaffolding
+ * (DEC-011). The YAML bytes derive from the same writers the `apkit new`
+ * commands use, so examples cannot drift from created scaffolds; only the
+ * teaching bodies differ, because body prose is content, not YAML style.
+ */
+export const AUTHORING_EXAMPLES = {
+  profile: {
+    id: profile,
+    path: `profiles/${profile}.yaml`,
+    contents: newProfileScaffold(profile, ["example-context"], []),
+  },
+  context: {
+    id: "example-context",
+    path: "context/example-context.md",
+    contents:
+      contextModuleFrontmatter("example-context") +
+      "Keep project-specific instructions in the project repository.\n",
+  },
+  skill: {
+    id: skill,
+    path: `skills/${skill}/SKILL.md`,
+    contents:
+      skillFrontmatter(
+        skill,
+        "Summarize a change. Use when asked for a concise change summary.",
+      ) +
+      "\n# Summarize a change\n\n" +
+      "Describe what changed, how it was verified, and any follow-up work.\n",
+  },
+} as const;

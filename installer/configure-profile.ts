@@ -2,6 +2,7 @@ import { chmod, lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path";
 
 import { parseProfile, requireArtifactId } from "../schemas/context-profile.js";
+import { newProfileScaffold } from "./authoring-examples.js";
 import { ingestSelectedWorkspace } from "./local-configuration.js";
 import { preserveSourceNewlines } from "./local-configuration-publication.js";
 import { requireProfile } from "./profile-selection.js";
@@ -161,11 +162,10 @@ export async function configureProfileMembership(
 
   // Preflight the exact resulting membership through the canonical Profile
   // schema before any write, so invalid material (duplicated selections
-  // included) can never be reported as success.
-  const preflight = ["id: " + JSON.stringify(id)];
-  preflight.push(nextContexts.length === 0 ? "context: []" : `context:\n${nextContexts.map((name) => `  - ${JSON.stringify(name)}\n`).join("")}`);
-  preflight.push(nextSkills.length === 0 ? "skills: []" : `skills:\n${nextSkills.map((name) => `  - ${JSON.stringify(name)}\n`).join("")}`);
-  parseProfile(`${preflight.join("\n")}\n`, existing.path);
+  // included) can never be reported as success. The preflight bytes come
+  // from the one Profile writer (#514) — the same function `apkit new` uses
+  // — so no second emitter of the Profile YAML shape can diverge.
+  parseProfile(newProfileScaffold(id, nextContexts, nextSkills), existing.path);
 
   const entry = await lstat(profileFile).catch((error: unknown) => {
     if (hasErrorCode(error, "ENOENT")) return undefined;

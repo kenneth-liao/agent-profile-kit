@@ -690,10 +690,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const workspace = workspacePath(home);
     expect(readFileSync(join(workspace, "profiles", "example.yaml"), "utf8")).toContain(
-      "id: example\n",
+      "id: \"example\"\n",
     );
     expect(readFileSync(join(workspace, "context", "example-context.md"), "utf8")).toContain(
-      "id: example-context\n",
+      "id: \"example-context\"\n",
     );
 
     const install = await runCli(home, "install", "example", projectPath, "--host", "codex", "--auto-confirm");
