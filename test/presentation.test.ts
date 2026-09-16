@@ -9607,6 +9607,11 @@ describe("guide markdown rendering (#510, US-016)", () => {
       expect(rendered).not.toContain("```sh");
       expect(rendered.split("\n")).toContain(command);
     }
+    // Negative control: the same command as wrapping prose folds at narrow
+    // widths, proving the atomicity assertion above can fail (non-vacuous).
+    expect(guide(`Precede with ${command} now.\n`, 40).split("\n")).not.toContain(
+      command,
+    );
   });
 
   test("bullet lists render as list items with hanging-indent continuation lines joined", () => {
@@ -9640,6 +9645,19 @@ describe("guide markdown rendering (#510, US-016)", () => {
     expect(rendered).toContain("| three | four | five |");
   });
 
+  test("a heading directly after a bullet opens a new block instead of joining the item", () => {
+    // Pin for the bullet-list heading break (cli/guide-markdown.ts): without
+    // it the heading line is silently swallowed into the item's flowing
+    // text — the silent-degradation failure mode this policy prevents. The
+    // current guide source is blank-separated, so only this pin guards it.
+    expect(shapes(guideMarkdownDocument("- Item.\n# Heading\n"))).toEqual([
+      "list-item",
+      "spacer",
+      "heading",
+    ]);
+    expect(guide("- Item.\n# Heading\n")).toBe("- Item.\n\nHeading\n");
+  });
+
   test("an unsupported construct fails loudly instead of rendering mangled markdown", () => {
     expect(() => guideMarkdownDocument("```sh\n```\n\n> quoted\n")).toThrow(
       /unsupported/,
@@ -9669,6 +9687,9 @@ describe("guide markdown rendering (#510, US-016)", () => {
     expect(() =>
       guideMarkdownDocument("- Item.\n1. Ordered.\n"),
     ).toThrow(/unsupported/);
+    expect(() => guideMarkdownDocument("- Item.\n---\n")).toThrow(
+      /unsupported/,
+    );
   });
 
   test("the complete human guide renders as terminal content at every reviewed width", async () => {
