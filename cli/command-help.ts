@@ -222,12 +222,13 @@ function invocation(...tokens: readonly string[]): ReturnType<typeof commandPart
 }
 
 /**
- * One command's usage as separate valid lines: the multi-line `new` usage
+ * One usage string as separate valid lines: the multi-line `new` usage
  * renders one Usage line per form, both in focused help and in the
  * argument-error diagnostic that carries the same syntax (US-016, #509).
+ * One home for the split rule, so help and diagnostics cannot disagree.
  */
-export function commandSyntaxLines(command: CommandHelp): readonly string[] {
-  return command.syntax
+export function commandSyntaxLines(syntax: string): readonly string[] {
+  return syntax
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -451,7 +452,7 @@ export function commandHelpDocument(command: CommandHelp): PresentationDocument 
   const nodes: PresentationNode[] = [
     { kind: "sentence", parts: [`Purpose: ${command.summary}`], category: "heading" },
     spacer(),
-    ...commandSyntaxLines(command).map(usageNode),
+    ...commandSyntaxLines(command.syntax).map(usageNode),
     spacer(),
     { kind: "heading", text: "Examples:" },
   ];

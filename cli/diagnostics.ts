@@ -1,4 +1,5 @@
 import { COMMAND_NAME } from "../installer/version.js";
+import { commandSyntaxLines } from "./command-help.js";
 import type {
   CommandArg,
   NoticeSeverity,
@@ -53,9 +54,9 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
     );
   }
   if (parts.usage !== undefined) {
-    // One Usage line per valid form (US-016, #509): a multi-line usage never
-    // renders as one joined, invalid invocation.
-    for (const line of parts.usage.split("\n")) {
+    // One Usage line per valid form (US-016, #509), split by the one home
+    // for that rule in cli/command-help.ts.
+    for (const line of commandSyntaxLines(parts.usage)) {
       nodes.push({
         kind: "key-value",
         key: "Usage",

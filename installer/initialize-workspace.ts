@@ -55,7 +55,7 @@ const WORKSPACE_ROOT_FILES = {
   "README.md": `# Agent Profile Kit Workspace
 
 This Workspace is the canonical source for your Profiles, Context Modules, and
-Skills. Lasting edits belong here; installed project files are generated output.
+Skills. Lasting edits belong here; installed project files are generated files.
 
 - A **Context Module** (under \`context/\`) carries standing instructions, preferences, and background an agent should always know.
 - A **Skill** (under \`skills/<skill>/SKILL.md\`) carries reusable instructions for one task.
@@ -66,7 +66,7 @@ Scaffold with \`${COMMAND_NAME} new\`, select the artifact into a Profile, and i
 \`\`\`sh
 ${COMMAND_NAME} new skill <skill>
 ${COMMAND_NAME} configure profile           # pick a Profile and toggle the new Skill
-${COMMAND_NAME} install example --host codex   # from a project directory
+${COMMAND_NAME} install ${AUTHORING_EXAMPLES.profile.id} --host codex   # from a project directory
 \`\`\`
 
 After editing Workspace source, run \`${COMMAND_NAME} update\` to refresh installations.
