@@ -29,10 +29,12 @@ import {
   rootHelpDocument,
 } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { guideMarkdownDocument } from "../cli/guide-markdown.js";
 import {
   focusedGuideDocument,
   guideFileDocument,
   guideIndexDocument,
+  humanGuide,
   TOPIC_GUIDES,
 } from "../cli/guides.js";
 import {
@@ -9330,9 +9332,19 @@ describe("guide documents (#390)", () => {
       "  apkit guide profile",
       "  apkit install example --host codex",
     ]);
+    // Defect pin (#510): the index title renders as terminal content, not the
+    // raw markdown heading. Fails on the pre-#510 rendering.
+    const rendered = renderBoundary(document, {
+      color: false,
+      interactive: true,
+      width: 80,
+      rows: undefined,
+    });
+    expect(rendered.split("\n")[0]).toBe("Agent Profile Kit guide");
+    expect(rendered).not.toContain("# Agent Profile Kit guide");
   });
 
-  test("the focused guide keeps its fenced examples as verbatim content and identifies configured Workspace", () => {
+  test("the focused guide renders its heading and examples as terminal content, not raw markdown (#510)", () => {
     const document = focusedGuideDocument("profile", {
       configurationState: "current",
       workspace: { canonical: "/tmp/workspace", authored: "~/workspace" },
@@ -9350,7 +9362,11 @@ describe("guide documents (#390)", () => {
       "sentence(command)",
       "sentence(command)",
       "spacer",
+      "sentence",
+      "spacer",
       "verbatim",
+      "spacer",
+      "sentence",
       "spacer",
       "verbatim",
       "spacer",
@@ -9370,18 +9386,46 @@ describe("guide documents (#390)", () => {
         },
       ],
     });
-    // Example bodies are true verbatim content: reproduced exactly.
+    // Each example leads with one wrapping sentence, then the verbatim body.
     expect(document[10]).toEqual({
-      kind: "verbatim",
-      text: `An example \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
+      kind: "sentence",
+      parts: [`An example ${example.path}:`],
     });
+    // Example bodies are true verbatim content: reproduced exactly, no fences.
     expect(document[12]).toEqual({
       kind: "verbatim",
-      text: `An example \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
+      text: example.contents,
+    });
+    expect(document[14]).toEqual({
+      kind: "sentence",
+      parts: [`An example ${contextExample.path}:`],
+    });
+    expect(document[16]).toEqual({
+      kind: "verbatim",
+      text: contextExample.contents,
     });
     // The carried next action renders whole, as the literal block it came from.
     expect(renderedNodeLine(document.at(-3) as PresentationNode))
       .toBe(TOPIC_GUIDES.profile.next);
+    // Defect pins (#510): the raw markdown decoration is gone from rendered
+    // output. Every pin fails on the pre-#510 rendering, which printed the
+    // literal `# Profile` heading and the ```yaml / ```md fences.
+    const rendered = renderBoundary(document, {
+      color: false,
+      interactive: true,
+      width: 80,
+      rows: undefined,
+    });
+    expect(rendered.split("\n")[0]).toBe("Profile");
+    expect(rendered).not.toContain("# Profile");
+    expect(rendered).not.toContain("```yaml");
+    expect(rendered).not.toContain("```md");
+    // Example bodies stay copyable: every code line renders whole.
+    const renderedLines = rendered.split("\n");
+    for (const codeLine of [...example.contents.split("\n"), ...contextExample.contents.split("\n")]) {
+      if (codeLine === "") continue;
+      expect(renderedLines).toContain(codeLine);
+    }
   });
 
   test("the focused context and skill guides include Workspace location preceding creation instructions", () => {
@@ -9401,6 +9445,8 @@ describe("guide documents (#390)", () => {
         "sentence(command)",
         "sentence(command)",
         "spacer",
+        "sentence",
+        "spacer",
         "verbatim",
         "spacer",
         "sentence(heading)",
@@ -9419,12 +9465,15 @@ describe("guide documents (#390)", () => {
           },
         ],
       });
+      // The example body is verbatim content without markdown fences (#510).
       const bodies = document.filter(
         (node): node is Extract<PresentationNode, { readonly kind: "verbatim" }> =>
           node.kind === "verbatim" && nodeText(node).length > 0,
       );
       expect(bodies).toHaveLength(1);
-      expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
+      // The example body is verbatim content without markdown fences (#510).
+      expect(bodies[0]!.text).toBe(AUTHORING_EXAMPLES[topic].contents);
+      // The full-guide pointer closes the topic as plain prose (#509).
       expect(shapes(document).at(-1)).toBe("sentence");
     }
   });
@@ -9494,8 +9543,146 @@ describe("guide documents (#390)", () => {
   });
 
   test("a guide file body renders verbatim with one trailing newline restored by the writer", () => {
+    // The agent workflow reference stays raw markdown: its consumer is an
+    // agent, and markdown structure is information to that reader (#510).
     const document = guideFileDocument("# Title\n\nBody line.\n");
     expect(shapes(document)).toEqual(["verbatim"]);
+  });
+});
+
+describe("guide markdown rendering (#510, US-016)", () => {
+  /**
+   * The exact lines inside fenced code blocks of a guide body: the copyable
+   * command surface whose atomicity the rendering must preserve at every
+   * width.
+   */
+  function extractFencedLines(body: string): readonly string[] {
+    const result: string[] = [];
+    let inside = false;
+    for (const line of body.split("\n")) {
+      if (line.startsWith("```")) {
+        inside = !inside;
+        continue;
+      }
+      if (inside) result.push(line);
+    }
+    return result;
+  }
+
+  const guideContext = (width: number): TerminalPresentationContext => ({
+    color: false,
+    interactive: true,
+    width,
+    rows: undefined,
+  });
+
+  const guide = (body: string, width = 80): string =>
+    renderBoundary(guideMarkdownDocument(body), guideContext(width));
+
+  test("headings render as terminal headings without markdown decoration", () => {
+    expect(guide("# Title\n\n## Section\n")).toBe("Title\n\nSection\n");
+    // Defect pin: the pre-#510 rendering printed the literal `#` prefixes.
+    expect(guide("# Title\n")).not.toContain("# Title");
+  });
+
+  test("paragraphs render as one wrapping sentence with bold markers stripped", () => {
+    expect(guide("Line one **with bold** text\nand a continuation.\n")).toBe(
+      "Line one with bold text and a continuation.\n",
+    );
+    // Defect pin: the pre-#510 rendering kept the raw `**` decoration.
+    expect(guide("Word **bold** word.\n")).not.toContain("**bold**");
+  });
+
+  test("fenced code renders verbatim without fences and stays whole at narrow widths", () => {
+    expect(guide("```sh\napkit init ~/workspace --host codex\n```\n")).toBe(
+      "apkit init ~/workspace --host codex\n",
+    );
+    // The long copyable command stays one whole line at every reviewed width;
+    // the fence pins fail on the pre-#510 rendering, which printed ```sh.
+    const command =
+      "apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --auto-confirm";
+    const fenced = `Precede with:\n\n\`\`\`sh\n${command}\n\`\`\`\n`;
+    for (const width of [40, 60, 80, 100]) {
+      const rendered = guide(fenced, width);
+      expect(rendered).not.toContain("```sh");
+      expect(rendered.split("\n")).toContain(command);
+    }
+  });
+
+  test("bullet lists render as list items with hanging-indent continuation lines joined", () => {
+    const body = "- First item **bold**\n  continues here.\n- Second item.\n";
+    expect(guide(body)).toBe(
+      "- First item bold continues here.\n- Second item.\n",
+    );
+    // Defect pin: the pre-#510 rendering kept the raw hanging-indent line.
+    expect(guide(body)).not.toContain("  continues here.");
+  });
+
+  test("the table renders through the existing row-group policy, not raw pipes", () => {
+    const body = [
+      "| Canonical policy | Output A | Output B |",
+      "| --- | --- | --- |",
+      "| `allowed` (default) | field A | field B |",
+      "| `disabled` | longer field A text that exceeds the measure when wrapped at the reviewed width | field B |",
+      "",
+    ].join("\n");
+    const rendered = guide(body);
+    // No raw table syntax survives; cells render as stacked row-group entries.
+    expect(rendered).not.toMatch(/^\s*\|.*\|\s*$/m);
+    expect(rendered).not.toContain("| --- |");
+    expect(rendered).toContain("Canonical policy: `allowed` (default)");
+  });
+
+  test("a table that does not fit the row model falls back to verbatim, never mangles", () => {
+    const body = "| A | B |\n| --- | --- |\n| one | two |\n| three | four | five |\n";
+    const rendered = guide(body);
+    expect(rendered).toContain("| A | B |");
+    expect(rendered).toContain("| three | four | five |");
+  });
+
+  test("an unsupported construct fails loudly instead of rendering mangled markdown", () => {
+    expect(() => guideMarkdownDocument("```sh\n```\n\n> quoted\n")).toThrow(
+      /unsupported/,
+    );
+    expect(() => guideMarkdownDocument("1. Ordered item\n")).toThrow(
+      /unsupported/,
+    );
+    expect(() => guideMarkdownDocument("```sh\nunclosed\n")).toThrow(
+      /fence/,
+    );
+    expect(() => guideMarkdownDocument("Word **unpaired bold\n")).toThrow(
+      /bold/,
+    );
+  });
+
+  test("the complete human guide renders as terminal content at every reviewed width", async () => {
+    const body = await humanGuide();
+    const fencedCodeLines = extractFencedLines(body);
+    const longProseLine =
+      "Agent Profile Kit keeps your reusable, cross-project agent material in one";
+    for (const width of [40, 60, 80, 100]) {
+      const rendered = renderBoundary(
+        guideMarkdownDocument(body),
+        guideContext(width),
+      );
+      // Defect pins: raw decoration is gone (fails on the pre-#510 verbatim
+      // rendering, which printed headings, fences, and bold markers raw).
+      expect(rendered).not.toContain("## Universal Workspace material");
+      expect(rendered).not.toContain("```sh");
+      expect(rendered).not.toContain("```yaml");
+      expect(rendered).not.toContain("```md");
+      expect(rendered).not.toContain("**Workspace**");
+      // Copyable commands stay atomic: every fenced code line renders whole.
+      const renderedLines = rendered.split("\n");
+      for (const codeLine of fencedCodeLines) {
+        expect(renderedLines).toContain(codeLine);
+      }
+      // Prose wraps at the measure: the known 78-column source line cannot
+      // survive unwrapped at 40 or 60 columns.
+      if (width <= 60) {
+        expect(renderedLines).not.toContain(longProseLine);
+      }
+    }
   });
 });
 

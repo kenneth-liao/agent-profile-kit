@@ -7,6 +7,11 @@ import type {
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { COMMAND_NAME } from "../installer/version.js";
 import {
+  guideCodeBlockNode,
+  guideHeadingNode,
+  guideMarkdownDocument,
+} from "./guide-markdown.js";
+import {
   commandPart,
   identifierPart,
   pathPart,
@@ -48,7 +53,6 @@ export const TOPIC_GUIDES = {
       ["new", "context", "<context>"],
       ["new", "profile", "<profile>", "--context", "<context>"],
     ] as const,
-    language: "yaml",
     next: "Next: from the project you want to try, run `apkit install example --host codex`.",
   },
   context: {
@@ -61,7 +65,6 @@ export const TOPIC_GUIDES = {
       ["new", "context", "<context>"],
       ["configure", "profile"],
     ] as const,
-    language: "md",
     next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
   },
   skill: {
@@ -74,7 +77,6 @@ export const TOPIC_GUIDES = {
       ["new", "skill", "<skill>"],
       ["configure", "profile"],
     ] as const,
-    language: "md",
     next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
   },
 } as const;
@@ -100,7 +102,7 @@ function spacer(): PresentationNode {
 /** The guide index as a presentation document. */
 export function guideIndexDocument(): PresentationDocument {
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: "# Agent Profile Kit guide" },
+    guideHeadingNode("Agent Profile Kit guide"),
     spacer(),
     {
       kind: "sentence",
@@ -155,17 +157,20 @@ function routeLine(args: readonly string[]): PresentationNode {
   };
 }
 
-/** One fenced authoring example, reproduced exactly (verbatim content). */
+/**
+ * One authoring example as terminal content (#510, DEC-011): a wrapping lead
+ * sentence, then the example body through the one copyability rule — the
+ * verbatim code block, never wrapped or styled, so copyable commands stay
+ * whole. No markdown fences: those are source decoration, not terminal
+ * content.
+ */
 function exampleNodes(
   example: { readonly path: string; readonly contents: string },
-  language: string,
 ): readonly PresentationNode[] {
   return [
+    { kind: "sentence", parts: [`An example ${example.path}:`] },
     spacer(),
-    {
-      kind: "verbatim",
-      text: `An example \`${example.path}\`:\n\n\`\`\`${language}\n${example.contents}\`\`\``,
-    },
+    guideCodeBlockNode(example.contents),
   ];
 }
 
@@ -231,16 +236,17 @@ export function focusedGuideDocument(
 ): PresentationDocument {
   const guide = TOPIC_GUIDES[topic];
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: `# ${guide.title}` },
+    guideHeadingNode(guide.title),
     spacer(),
     { kind: "sentence", parts: [guide.introduction] },
     spacer(),
     focusedGuideWorkspaceNode(workspace),
     ...scaffoldNodes(guide),
-    ...exampleNodes(AUTHORING_EXAMPLES[topic], guide.language),
+    spacer(),
+    ...exampleNodes(AUTHORING_EXAMPLES[topic]),
   ];
   if (topic === "profile") {
-    nodes.push(...exampleNodes(AUTHORING_EXAMPLES.context, "md"));
+    nodes.push(spacer(), ...exampleNodes(AUTHORING_EXAMPLES.context));
   }
   nodes.push(
     spacer(),
@@ -257,8 +263,19 @@ export function focusedGuideDocument(
 }
 
 /**
- * A complete guide file body as one verbatim document: the markdown is
- * user-facing quoted material reproduced without wrapping or styling. The
+ * The complete human Workspace guide as terminal content (#510, US-016):
+ * the guide-markdown rendering policy parses the source into presentation
+ * nodes — headings without decoration, wrapping prose, bullet items, and
+ * verbatim copyable code — inside the existing terminal/pager boundary.
+ */
+export function humanGuideDocument(body: string): PresentationDocument {
+  return guideMarkdownDocument(body);
+}
+
+/**
+ * The agent workflow reference as one verbatim document: the markdown is
+ * agent-facing material reproduced without wrapping or styling, because
+ * markdown structure is information to its agent consumer (#510). The
  * file's trailing newline is the writer's line terminator.
  */
 export function guideFileDocument(body: string): PresentationDocument {

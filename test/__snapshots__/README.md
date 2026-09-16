@@ -103,3 +103,16 @@ the delivered `install` command instead of the removed `bind` command (DEC-001).
 The affected baselines changed facts on purpose, and the accepted diff is
 reviewed on the #509 change request. The `info` baselines changed only because
 the engine version moved with the same change.
+
+## Accepted rendering change: guide content renders as terminal content (#510)
+
+US-016 deliberately changes how the authoring guides render: `guide` and its
+focused topics no longer print the raw markdown `#` heading prefixes or the
+` ```yaml `/` ```md ` example fences; the complete human guide (`guide --full`)
+renders through the guide-markdown policy (`cli/guide-markdown.ts`, ADR-0044) —
+headings without decoration, wrapping prose with bold markers stripped outside
+code spans, the pipe table as stacked row-group entries, and code bodies
+verbatim so copyable commands stay whole at every width. The agent workflow
+reference (`guide --agent`) stays byte-identical raw markdown. The affected
+baselines changed rendering on purpose, and the accepted diff is reviewed on
+the #510 change request.

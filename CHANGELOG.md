@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed authoring guides to render as terminal content: focused guides and the complete human guide now print headings without markdown decoration, wrapping prose, and verbatim copyable example bodies with no code fences, while the agent workflow reference stays byte-identical raw markdown for its agent consumer (#510)
+
 - Changed Host-loading guidance to appear only when it is relevant: first installations and Host additions now offer the optional loading check beside the install receipt, while ordinary repeated content updates close with the readiness reminder alone and no longer repeat the check (#515)
 
 - Added one coherent public authoring lifecycle: general help routes to the focused guide topics, `apkit new` usage renders as separate valid lines whose created-material handoffs lead to `apkit configure profile` and install, the focused guide topics lead with the authoring commands and close with the complete-reference route, the Workspace overview and new Workspace README agree on install/update/uninstall scopes, and the new Workspace README explains Profiles, Context Modules, Skills, and the configure/update loop (#509)
