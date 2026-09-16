@@ -53,11 +53,15 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
     );
   }
   if (parts.usage !== undefined) {
-    nodes.push({
-      kind: "key-value",
-      key: "Usage",
-      value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(parts.usage) },
-    });
+    // One Usage line per valid form (US-016, #509): a multi-line usage never
+    // renders as one joined, invalid invocation.
+    for (const line of parts.usage.split("\n")) {
+      nodes.push({
+        kind: "key-value",
+        key: "Usage",
+        value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(line) },
+      });
+    }
   }
   return nodes;
 }

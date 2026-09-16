@@ -12,7 +12,8 @@ First run:
   apkit status
   apkit update
 
-  Choose a Profile with apkit guide profile; see apkit install --help for
+  Scaffold material with apkit new; focus a topic with apkit guide profile,
+    apkit guide context, or apkit guide skill; see apkit install --help for
     supported Host values.
 
 Common commands:
@@ -56,8 +57,8 @@ More commands:
   info
     Show the engine version and selected application locations
 
-For deeper Workspace authoring guidance (Context Modules, Skills, Profiles,
-  and bindings), run apkit guide --full.
+For the complete Workspace authoring reference (Context Modules, Skills, and
+  Profiles), run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -148,6 +149,7 @@ Complete references:
 
 Examples:
   apkit init
+  apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
 --- stderr ---
@@ -163,7 +165,11 @@ A Profile selects reusable material for a kind of work through its context and
 
 Workspace: Not configured (run apkit init)
 
-Create \`profiles/example.yaml\`:
+Create its Context Module, then the Profile selecting it:
+  apkit new context <context>
+  apkit new profile <profile> --context <context>
+
+An example \`profiles/example.yaml\`:
 
 \`\`\`yaml
 id: "example"
@@ -172,7 +178,7 @@ context:
 skills: []
 \`\`\`
 
-Create \`context/example-context.md\`:
+An example \`context/example-context.md\`:
 
 \`\`\`md
 ---
@@ -182,7 +188,9 @@ dependencies: []
 Keep project-specific instructions in the project repository.
 \`\`\`
 
-Next: run \`apkit install example --host codex\`.
+Next: from the project you want to try, run \`apkit install example --host codex\`.
+
+For complete authoring guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -196,7 +204,11 @@ A Context Module is an independently reusable unit of always-loaded guidance.
 
 Workspace: Not configured (run apkit init)
 
-Create \`context/example-context.md\`:
+Create one, then select it into a Profile:
+  apkit new context <context>
+  apkit configure profile
+
+An example \`context/example-context.md\`:
 
 \`\`\`md
 ---
@@ -206,7 +218,9 @@ dependencies: []
 Keep project-specific instructions in the project repository.
 \`\`\`
 
-Next: add \`example-context\` to a Profile's context list.
+Next: run \`apkit validate\`, then select it into a Profile with \`apkit configure profile\`.
+
+For complete authoring guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -220,7 +234,11 @@ A Skill is a reusable workflow package. Profiles select it by its frontmatter
 
 Workspace: Not configured (run apkit init)
 
-Create \`skills/example-skill/SKILL.md\`:
+Create one, then select it into a Profile:
+  apkit new skill <skill>
+  apkit configure profile
+
+An example \`skills/example-skill/SKILL.md\`:
 
 \`\`\`md
 ---
@@ -233,7 +251,9 @@ description: Summarize a change. Use when asked for a concise change summary.
 Describe what changed, how it was verified, and any follow-up work.
 \`\`\`
 
-Next: add \`example-skill\` to a Profile's skills list.
+Next: run \`apkit validate\`, then select it into a Profile with \`apkit configure profile\`.
+
+For complete authoring guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -376,7 +396,7 @@ you can discover where material belongs:
 - short bootstrap \`README.md\` and \`AGENTS.md\` pointers to the current guides
 - a starter \`.gitignore\`
 
-The example gives a new user one complete \`bind\` → \`status\` → \`update\` path.
+The example gives a new user one complete \`install\` → \`status\` → \`update\` path.
 Delete both \`profiles/example.yaml\` and \`context/example-context.md\` together,
 unused empty directories, or bootstrap docs if you prefer a minimal tree;
 later \`init\` runs do not restore removed optional scaffolding; validation,
@@ -1156,7 +1176,7 @@ exports[`golden snapshots of every human view new skill: new-skill 1`] = `
 "--- stdout ---
 Created Skill review-pr at
   /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/skills/review-pr/SKILL.md
-Next: select the Skill from a Profile, then run apkit validate
+Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
 `;
@@ -1165,7 +1185,7 @@ exports[`golden snapshots of every human view new context: new-context 1`] = `
 "--- stdout ---
 Created Context Module review-standards at
   /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/context/review-standards.md
-Next: select the Context Module from a Profile, then run apkit validate
+Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
 `;
@@ -1634,9 +1654,13 @@ First run:
   apkit status
   apkit update
 
-  Choose a Profile with apkit guide
-    profile; see apkit install --help
-    for supported Host values.
+  Scaffold material with apkit new;
+    focus a topic with
+    apkit guide profile,
+    apkit guide context, or
+    apkit guide skill; see
+    apkit install --help for supported
+    Host values.
 
 Common commands:
   init
@@ -1697,10 +1721,9 @@ More commands:
     Show the engine version and
       selected application locations
 
-For deeper Workspace authoring
-  guidance (Context Modules, Skills,
-  Profiles, and bindings), run
-  apkit guide --full.
+For the complete Workspace authoring
+  reference (Context Modules, Skills,
+  and Profiles), run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -1722,9 +1745,13 @@ Agent Profile Kit composes reusable
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Choose a Profile with apkit guide
-    profile; see apkit install --help
-    for supported Host values.
+  Scaffold material with apkit new;
+    focus a topic with
+    apkit guide profile,
+    apkit guide context, or
+    apkit guide skill; see
+    apkit install --help for supported
+    Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1785,10 +1812,9 @@ Agent Profile Kit composes reusable
     Show the engine version and
       selected application locations
 
-\x1B[2mFor deeper Workspace authoring\x1B[0m
-\x1B[2m  guidance (Context Modules, Skills,\x1B[0m
-\x1B[2m  Profiles, and bindings), run\x1B[0m
-\x1B[2m  apkit guide --full.\x1B[0m
+\x1B[2mFor the complete Workspace authoring\x1B[0m
+\x1B[2m  reference (Context Modules, Skills,\x1B[0m
+\x1B[2m  and Profiles), run apkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;
@@ -1808,7 +1834,8 @@ First run:
   apkit status
   apkit update
 
-  Choose a Profile with apkit guide profile; see apkit install --help for supported Host values.
+  Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
+    or apkit guide skill; see apkit install --help for supported Host values.
 
 Common commands:
   init
@@ -1847,7 +1874,7 @@ More commands:
   info
     Show the engine version and selected application locations
 
-For deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run
+For the complete Workspace authoring reference (Context Modules, Skills, and Profiles), run
   apkit guide --full.
 --- stderr ---
 "
@@ -1868,7 +1895,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Choose a Profile with apkit guide profile; see apkit install --help for supported Host values.
+  Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
+    or apkit guide skill; see apkit install --help for supported Host values.
 
 \x1B[1;34mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1907,7 +1935,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  info\x1B[0m
     Show the engine version and selected application locations
 
-\x1B[2mFor deeper Workspace authoring guidance (Context Modules, Skills, Profiles, and bindings), run\x1B[0m
+\x1B[2mFor the complete Workspace authoring reference (Context Modules, Skills, and Profiles), run\x1B[0m
 \x1B[2m  apkit guide --full.\x1B[0m
 --- stderr ---
 "

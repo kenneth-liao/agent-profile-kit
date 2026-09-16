@@ -1979,11 +1979,14 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(workspacePath(home), "skills", "summarize-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "context", "project-rules.md"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "real-profile.yaml"))).toBe(true);
-    // The final creation receipt's next action is followable in print:
-    // validate, then install the Profile into a Project.
+    // The final creation receipt's next action is followable in print: one
+    // install command naming the Profile actually created (US-016, #509), the
+    // same handoff shape the initialization completion carries (#511).
     expect(creations[2]!.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: run apkit validate, then install the Profile into a Project",
+      "Next: from the project you want to try, run apkit install real-profile",
     );
+    // The vague validate-then-prose sentence is gone from the receipt.
+    expect(creations[2]!.stdout).not.toContain("install the Profile into a Project");
 
     // 6. Author the real Profile's content, then follow the printed chain:
     // validate, then install the real Profile (US-044, TEST-017 chain).

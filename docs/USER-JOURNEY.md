@@ -297,15 +297,17 @@ Complete references:
 
 Examples:
   apkit init
+  apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
 ```
 
 `guide --full` and `guide --agent` retain the complete human- and
 agent-facing guides. `guide profile`, `guide context`, and `guide skill` each
-return focused, terminal-width-aware guidance that states the configured
-Workspace location before asking the user to create anything there
-(US-048, DEC-028):
+return focused, terminal-width-aware guidance that leads with the authoring
+commands, then explains the resulting files through the canonical examples,
+and states the configured Workspace location before asking the user to create
+anything there (US-048, DEC-028, US-016, #509):
 
 ```
 $ apkit guide profile
@@ -316,8 +318,16 @@ A Profile selects reusable material for a kind of work through its context and
 
 Workspace: ~/.agents/agent-profile-kit/workspace
 
-Create `profiles/example.yaml`:
+Create its Context Module, then the Profile selecting it:
+  apkit new context <context>
+  apkit new profile <profile> --context <context>
+
+An example `profiles/example.yaml`:
 …
+
+Next: from the project you want to try, run `apkit install example --host codex`.
+
+For complete authoring guidance, run `apkit guide --full`.
 ```
 
 Long interactive guidance is paged through the configured pager, while
@@ -334,12 +344,12 @@ prompting or opening an editor (US-042–046, DEC-026):
 $ apkit new skill deploy-helper
 Created Skill deploy-helper at
   <workspace>/skills/deploy-helper/SKILL.md
-Next: select the Skill from a Profile, then run apkit validate
+Next: select it into a Profile with apkit configure profile
 
 $ apkit new context review-standards
 Created Context Module review-standards at
   <workspace>/context/review-standards.md
-Next: select the Context Module from a Profile, then run apkit validate
+Next: select it into a Profile with apkit configure profile
 
 $ apkit new profile release --context review-standards --skill deploy-helper
 Created Profile release at
@@ -348,15 +358,16 @@ Created Profile release at
   Skills: deploy-helper
 Available Context Modules: example-context, review-standards
 Available Skills: deploy-helper
-Next: run apkit validate, then bind the Profile to a Project
+Next: from the project you want to try, run apkit install release
 ```
 
 Profile creation resolves every selected name through the Workspace boundary:
 unknown selections are refused with the available names and a nearest-name
 suggestion, and zero selections are refused with the same guidance. The
-focused guide topics show that a Profile selects material through its context
-and skills lists, that a Context Module's identity is frontmatter `id`, and
-that a Skill's `name` is its Artifact ID without requiring the full guide.
+focused guide topics lead with the authoring commands and explain the
+resulting files afterward; a Profile selects material through its context and
+skills lists, a Context Module's identity is frontmatter `id`, and a Skill's
+`name` is its Artifact ID, all without requiring the full guide.
 `apkit configure profile` changes an existing Profile's Context and Skill
 membership through the same validated write path in both modes: explicit
 `--context`/`--skill` flags replace the supplied category, and a bare

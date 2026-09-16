@@ -70,7 +70,7 @@ import {
 } from "../process/process-executor.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const FOCUSED_GUIDE_MAX_LINES = 30;
+const FOCUSED_GUIDE_MAX_LINES = 36;
 const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
 let cliPath = "";
@@ -8651,10 +8651,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     const profile = result.stdout.match(
-      /Create `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
+      /An example `profiles\/example\.yaml`:\n\n```yaml\n([\s\S]*?)```/,
     )?.[1];
     const context = result.stdout.match(
-      /Create `context\/example-context\.md`:\n\n```md\n([\s\S]*?)```/,
+      /An example `context\/example-context\.md`:\n\n```md\n([\s\S]*?)```/,
     )?.[1];
     expect(profile).toBeDefined();
     expect(context).toBeDefined();
@@ -8713,10 +8713,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
-      const createIndex = result.stdout.indexOf("Create `");
+      const scaffoldIndex = result.stdout.indexOf("  apkit new ");
+      const exampleIndex = result.stdout.indexOf("An example `");
       expect(wsIndex).toBeGreaterThan(-1);
-      expect(createIndex).toBeGreaterThan(-1);
-      expect(wsIndex).toBeLessThan(createIndex);
+      expect(scaffoldIndex).toBeGreaterThan(-1);
+      expect(exampleIndex).toBeGreaterThan(-1);
+      // The Workspace location precedes both the creation commands and the
+      // resulting-file examples (US-048, DEC-028).
+      expect(wsIndex).toBeLessThan(scaffoldIndex);
+      expect(scaffoldIndex).toBeLessThan(exampleIndex);
     }
 
     // 2. Custom configured Workspace
@@ -8728,10 +8733,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: ~/custom-authored-ws");
-      const createIndex = result.stdout.indexOf("Create `");
+      const exampleIndex = result.stdout.indexOf("An example `");
       expect(wsIndex).toBeGreaterThan(-1);
-      expect(createIndex).toBeGreaterThan(-1);
-      expect(wsIndex).toBeLessThan(createIndex);
+      expect(exampleIndex).toBeGreaterThan(-1);
+      expect(wsIndex).toBeLessThan(exampleIndex);
     }
 
     // 3. Corrupted configuration fails fast with exit code 1 and structured error on stderr
@@ -8868,21 +8873,73 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(agents).toContain("apkit guide --agent");
     expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
     expect(agents).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
-    expect(readme.trim().split("\n").length).toBeLessThan(12);
+    // US-019 (#509) requires the README to explain Profiles, Context, Skills,
+    // and the configure/update loop, so the bound is re-derived for genuinely
+    // larger required content, not loosened; the golden snapshot pins the
+    // exact bytes, so this bound is the secondary guard.
+    expect(readme.trim().split("\n").length).toBeLessThan(24);
     expect(agents.trim().split("\n").length).toBeLessThan(12);
   });
 
-  test("public overview describes project-bound Profiles without migration-era lifecycle terms", async () => {
+  test("a new Workspace README explains Profiles, standing Context, task Skills, and the configure/update loop (US-019, #509)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
+
+    // Profiles package chosen Context and Skills to install together.
+    expect(readme).toMatch(/Profiles?[^.\n]* chosen Context and Skills/i);
+    // Context supplies standing guidance; Skills supply task instructions.
+    expect(readme).toMatch(/Context Module.*standing/i);
+    expect(readme).toMatch(/Skill.*task/i);
+    // The configure/update loop with concrete examples naming the scaffolded
+    // example Profile (derived from AUTHORING_EXAMPLES).
+    expect(readme).toContain("apkit configure profile");
+    expect(readme).toContain("apkit update");
+    expect(readme).toContain("apkit install example");
+    // Ambiguous material words are avoided where Context and Skills can be named.
+    expect(readme).not.toMatch(/\bmaterial\b/i);
+  });
+
+  test("init preserves an existing user-written Workspace README byte for byte (US-019, #509)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const readmePath = join(workspacePath(home), "README.md");
+    const userWritten = "# My team's Workspace\n\nOur own onboarding notes.\n";
+    writeFileSync(readmePath, userWritten);
+
+    expectExitCode(await runCli(home, "init"), 0);
+    expect(readFileSync(readmePath, "utf8")).toBe(userWritten);
+  });
+
+  test("init adopts a valid Workspace with a user-written README and never rewrites it (US-019, #509)", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "team-workspace");
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    const userWritten = "# Existing authored README\n\nKeep these bytes.\n";
+    writeFileSync(join(workspace, "README.md"), userWritten);
+
+    expectExitCode(await runCli(home, "init", workspace), 0);
+    expect(readFileSync(join(workspace, "README.md"), "utf8")).toBe(userWritten);
+  });
+
+  test("public overview agrees with the lifecycle on install/update/uninstall scopes (US-016, #509)", async () => {
     const packageRoot = resolve(cliPath, "..", "..");
     const readme = readFileSync(join(packageRoot, "README.md"), "utf8");
 
     expect(readme).toMatch(/Profile/i);
-    expect(readme).toMatch(/bound project|Project Binding/i);
     expect(readme).toContain("apkit init");
     expect(readme).toContain("apkit install");
     expect(readme).toContain("apkit status");
     expect(readme).toContain("apkit update");
+    // Fleet-default update and selectable uninstall are stated, in the same
+    // scopes the command help teaches.
+    expect(readme).toContain("apkit uninstall");
+    expect(readme).toMatch(/fleet by default/i);
+    expect(readme).toContain("apkit uninstall --here");
     expect(readme).toContain("apkit guide --full");
+    // Retired public-bind vocabulary no longer appears in the overview.
+    expect(readme).not.toMatch(/\bbound (project|Profile)|Project Bindings?/i);
     expect(readme).toMatch(/macOS/i);
     for (const host of ["Antigravity", "Codex", "Claude Code", "Grok", "OpenCode", "Pi"]) {
       expect(readme).toContain(host);
@@ -10472,7 +10529,7 @@ function treeDigest(roots: readonly string[]): string {
     const result = await sharedReadOnlyCapture("--help");
     expectExitCode(result, 0);
 
-    const commandsSection = result.stdout.match(/Common commands:\n([\s\S]*?)\n\nFor deeper/)?.[1];
+    const commandsSection = result.stdout.match(/Common commands:\n([\s\S]*?)\n\nFor the complete/)?.[1];
     expect(commandsSection).toBeDefined();
     const menuLines = commandsSection!.split("\n");
     const commandLines = menuLines.filter((line) =>
@@ -10602,7 +10659,11 @@ function treeDigest(roots: readonly string[]): string {
         : await sharedReadOnlyCapture(command.namespace, command.name, "--help");
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
-      expect(result.stdout).toContain(`Usage: apkit ${command.syntax}`);
+      // One Usage line per valid form (US-016, #509): a multi-line usage never
+      // renders joined.
+      for (const line of command.syntax.split("\n")) {
+        expect(result.stdout).toContain(`Usage: apkit ${line}`);
+      }
       expect(result.stdout).toMatch(/^Purpose: .+/m);
       expect(result.stdout).toMatch(/^Examples:\n  apkit /m);
       expect(result.stdout).toMatch(/^Writes: .+/m);
@@ -10917,12 +10978,20 @@ function treeDigest(roots: readonly string[]): string {
       expect(narrow.stdout).toContain(next);
 
       let inCodeFence = false;
+      // Scaffold commands and the next action are atomic command lines: the
+      // renderer keeps them whole, so at narrow widths they overflow rather
+      // than split (the rendered-atomicity gate enforces the same rule).
+      const scaffoldLines = TOPIC_GUIDES[topic].scaffoldCommands.map(
+        (args) => `  apkit ${args.join(" ")}`,
+      );
       for (const line of narrow.stdout.split("\n")) {
         if (/^\s*```/.test(line)) {
           inCodeFence = !inCodeFence;
           continue;
         }
-        if (inCodeFence || /^Create `[^`]+`:$/.test(line) || line === next) continue;
+        if (inCodeFence) continue;
+        if (/^An example `[^`]+`:$/.test(line)) continue;
+        if (line === next || scaffoldLines.includes(line)) continue;
         expect(line.length).toBeLessThanOrEqual(40);
       }
     }
@@ -14584,6 +14653,97 @@ describe("packed CLI new profile", () => {
     expect(help.stdout).toContain("new profile");
     expect(help.stdout).toContain("--context");
     expect(help.stdout).toContain("--skill");
+  });
+});
+
+describe("authoring lifecycle teaching (#509, US-016)", () => {
+  test("new usage renders separate valid lines without the duplicated verb", async () => {
+    const home = isolatedHome();
+    const result = await runCli(home, "new", "--help");
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Usage: apkit new skill <skill>");
+    expect(result.stdout).toContain("Usage: apkit new context <context>");
+    expect(result.stdout).toContain(
+      "Usage: apkit new profile <profile> [--context <context>]... [--skill <skill>]...",
+    );
+    // The old single-line form joined two forms with a pipe and repeated the
+    // verb, so no line was itself a valid invocation.
+    expect(result.stdout).not.toContain("new skill|context");
+  });
+
+  test("new --help routes created material to configure profile and install", async () => {
+    const home = isolatedHome();
+    const result = await runCli(home, "new", "--help");
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("apkit configure profile");
+    expect(result.stdout).toContain("apkit install");
+    // The old line sent created material to `guide`, which adds nothing to a
+    // Profile.
+    expect(result.stdout).not.toContain(
+      "Add the created artifact to a Profile with apkit guide",
+    );
+  });
+
+  test("a new Skill and Context Module lead to configure profile", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const skill = await runCli(home, "new", "skill", "review-pr");
+    expectExitCode(skill, 0);
+    expect(skill.stdout.replace(/\n\s+/g, " ")).toContain(
+      "Next: select it into a Profile with apkit configure profile",
+    );
+    // The old sentence offered no command and pointed at validate instead.
+    expect(skill.stdout).not.toContain("select the Skill from a Profile");
+
+    const context = await runCli(home, "new", "context", "review-standards");
+    expectExitCode(context, 0);
+    expect(context.stdout.replace(/\n\s+/g, " ")).toContain(
+      "Next: select it into a Profile with apkit configure profile",
+    );
+  });
+
+  test("a new Profile leads to installing the Profile it actually created", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init"), 0);
+
+    const profile = await runCli(
+      home,
+      "new",
+      "profile",
+      "shipping",
+      "--context",
+      "example-context",
+    );
+    expectExitCode(profile, 0);
+    expect(profile.stdout.replace(/\n\s+/g, " ")).toContain(
+      "Next: from the project you want to try, run apkit install shipping",
+    );
+    // The old sentence ended in a vague prose action without naming the
+    // created Profile.
+    expect(profile.stdout).not.toContain("install the Profile into a Project");
+  });
+
+  test("a new parse error renders one Usage line per valid form", async () => {
+    const home = isolatedHome();
+    const result = await runCli(home, "new", "--bogus");
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Usage: apkit new skill <skill>");
+    expect(result.stderr).toContain(
+      "Usage: apkit new profile <profile> [--context <context>]... [--skill <skill>]...",
+    );
+    expect(result.stderr).not.toContain("skill|context");
+  });
+
+  test("root help routes to the focused authoring guides and keeps the full reference", async () => {
+    const result = await sharedReadOnlyCapture("--help");
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("apkit guide profile");
+    expect(result.stdout).toContain("apkit guide context");
+    expect(result.stdout).toContain("apkit guide skill");
+    expect(result.stdout).toContain("apkit guide --full");
+    // Retired public-bind vocabulary no longer appears in root help.
+    expect(result.stdout).not.toMatch(/\bbindings\b/);
   });
 });
 

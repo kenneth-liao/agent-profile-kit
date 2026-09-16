@@ -9313,6 +9313,7 @@ describe("guide documents (#390)", () => {
       "sentence(command)",
       "sentence(command)",
       "sentence(command)",
+      "sentence(command)",
     ]);
     // Every route and example line is one atomic command: one whole line each.
     const routeLines = (document as PresentationNode[])
@@ -9325,6 +9326,7 @@ describe("guide documents (#390)", () => {
       "  apkit guide --full",
       "  apkit guide --agent",
       "  apkit init",
+      "  apkit new skill <skill>",
       "  apkit guide profile",
       "  apkit install example --host codex",
     ]);
@@ -9344,11 +9346,17 @@ describe("guide documents (#390)", () => {
       "spacer",
       "sentence",
       "spacer",
+      "sentence",
+      "sentence(command)",
+      "sentence(command)",
+      "spacer",
       "verbatim",
       "spacer",
       "verbatim",
       "spacer",
       "sentence(heading)",
+      "spacer",
+      "sentence",
     ]);
     expect(document[4]).toEqual({
       kind: "sentence",
@@ -9363,16 +9371,16 @@ describe("guide documents (#390)", () => {
       ],
     });
     // Example bodies are true verbatim content: reproduced exactly.
-    expect(document[6]).toEqual({
+    expect(document[10]).toEqual({
       kind: "verbatim",
-      text: `Create \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
+      text: `An example \`${example.path}\`:\n\n\`\`\`yaml\n${example.contents}\`\`\``,
     });
-    expect(document[8]).toEqual({
+    expect(document[12]).toEqual({
       kind: "verbatim",
-      text: `Create \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
+      text: `An example \`${contextExample.path}\`:\n\n\`\`\`md\n${contextExample.contents}\`\`\``,
     });
     // The carried next action renders whole, as the literal block it came from.
-    expect(renderedNodeLine(document.at(-1) as PresentationNode))
+    expect(renderedNodeLine(document.at(-3) as PresentationNode))
       .toBe(TOPIC_GUIDES.profile.next);
   });
 
@@ -9389,9 +9397,15 @@ describe("guide documents (#390)", () => {
         "spacer",
         "sentence",
         "spacer",
+        "sentence",
+        "sentence(command)",
+        "sentence(command)",
+        "spacer",
         "verbatim",
         "spacer",
         "sentence(heading)",
+        "spacer",
+        "sentence",
       ]);
       expect(document[4]).toEqual({
         kind: "sentence",
@@ -9411,7 +9425,7 @@ describe("guide documents (#390)", () => {
       );
       expect(bodies).toHaveLength(1);
       expect(bodies[0]!.text.includes(AUTHORING_EXAMPLES[topic].path)).toBe(true);
-      expect(shapes(document).at(-1)).toBe("sentence(heading)");
+      expect(shapes(document).at(-1)).toBe("sentence");
     }
   });
 

@@ -30,31 +30,67 @@ export type GuideTopic = "profile" | "context" | "skill";
 
 const GUIDE_TOPICS: readonly GuideTopic[] = ["profile", "context", "skill"];
 
+/**
+ * The focused guide topics (spec #491, US-016, #509): command-first. Each
+ * topic leads with the `apkit new`/`configure` commands that create and
+ * select the material, then explains the resulting files through the
+ * canonical examples (AUTHORING_EXAMPLES, DEC-011), and closes with the one
+ * next lifecycle action plus the route to the complete reference. The `next`
+ * block renders whole, as the literal line it carries.
+ */
 export const TOPIC_GUIDES = {
   profile: {
     title: "Profile",
     introduction:
       "A Profile selects reusable material for a kind of work through its context and skills lists.",
+    scaffoldLead: "Create its Context Module, then the Profile selecting it:",
+    scaffoldCommands: [
+      ["new", "context", "<context>"],
+      ["new", "profile", "<profile>", "--context", "<context>"],
+    ] as const,
     language: "yaml",
-    next: `Next: run \`apkit install ${AUTHORING_EXAMPLES.profile.id} --host codex\`.`,
+    next: "Next: from the project you want to try, run `apkit install example --host codex`.",
   },
   context: {
     title: "Context Module",
     introduction:
       "A Context Module is an independently reusable unit of always-loaded guidance. " +
       "Profiles select it by its frontmatter `id`.",
+    scaffoldLead: "Create one, then select it into a Profile:",
+    scaffoldCommands: [
+      ["new", "context", "<context>"],
+      ["configure", "profile"],
+    ] as const,
     language: "md",
-    next: `Next: add \`${AUTHORING_EXAMPLES.context.id}\` to a Profile's context list.`,
+    next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
   },
   skill: {
     title: "Skill",
     introduction:
       "A Skill is a reusable workflow package. Profiles select it by its frontmatter `name`, " +
       "and its description tells an Agent Host when the workflow applies.",
+    scaffoldLead: "Create one, then select it into a Profile:",
+    scaffoldCommands: [
+      ["new", "skill", "<skill>"],
+      ["configure", "profile"],
+    ] as const,
     language: "md",
-    next: `Next: add \`${AUTHORING_EXAMPLES.skill.id}\` to a Profile's skills list.`,
+    next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
   },
 } as const;
+
+/** The route to the complete reference, shared by every focused guide. Guide
+ * prose carries no category (the focused-guide presentation rule), so the
+ * pointer renders as plain prose around its atomic command part. */
+const FULL_GUIDE_POINTER = {
+  kind: "sentence",
+  parts: ["For complete authoring guidance, run ",
+    commandPart(COMMAND_NAME, [
+      { kind: "text" as const, value: "guide" },
+      { kind: "text" as const, value: "--full" },
+    ]),
+    "."],
+} as const satisfies PresentationNode;
 
 
 function spacer(): PresentationNode {
@@ -95,6 +131,7 @@ export function guideIndexDocument(): PresentationDocument {
   nodes.push(spacer(), { kind: "heading", text: "Examples:" });
   for (const args of [
     ["init"],
+    ["new", "skill", "<skill>"],
     ["guide", "profile"],
     ["install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
   ] as const) {
@@ -127,8 +164,17 @@ function exampleNodes(
     spacer(),
     {
       kind: "verbatim",
-      text: `Create \`${example.path}\`:\n\n\`\`\`${language}\n${example.contents}\`\`\``,
+      text: `An example \`${example.path}\`:\n\n\`\`\`${language}\n${example.contents}\`\`\``,
     },
+  ];
+}
+
+/** The scaffold commands: one framing sentence, then atomic command lines. */
+function scaffoldNodes(guide: (typeof TOPIC_GUIDES)[GuideTopic]): readonly PresentationNode[] {
+  return [
+    spacer(),
+    { kind: "sentence", parts: [guide.scaffoldLead] },
+    ...guide.scaffoldCommands.map((args) => routeLine([...args])),
   ];
 }
 
@@ -190,17 +236,23 @@ export function focusedGuideDocument(
     { kind: "sentence", parts: [guide.introduction] },
     spacer(),
     focusedGuideWorkspaceNode(workspace),
+    ...scaffoldNodes(guide),
     ...exampleNodes(AUTHORING_EXAMPLES[topic], guide.language),
   ];
   if (topic === "profile") {
     nodes.push(...exampleNodes(AUTHORING_EXAMPLES.context, "md"));
   }
-  nodes.push(spacer(), {
-    kind: "sentence",
-    // The carried next action renders whole, as the literal block it came from.
-    parts: [identifierPart(guide.next)],
-    category: "heading",
-  });
+  nodes.push(
+    spacer(),
+    {
+      kind: "sentence",
+      // The carried next action renders whole, as the literal block it came from.
+      parts: [identifierPart(guide.next)],
+      category: "heading",
+    },
+    spacer(),
+    FULL_GUIDE_POINTER,
+  );
   return nodes;
 }
 

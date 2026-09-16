@@ -27,14 +27,19 @@ npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
 ## First run
 
 ```sh
-apkit init                                  # scaffold your Workspace
-apkit install <profile> --host <host>     # install a Profile into the current project
-apkit status                                # review the plan for the bound project
-apkit update                                # refresh installations from the Workspace
+apkit init                              # scaffold your Workspace
+apkit install <profile> --host <host>   # install a Profile into the current project
+apkit status                            # review the fleet plan
+apkit update                            # refresh installations from the Workspace (fleet by default)
+apkit uninstall --here --auto-confirm   # remove an installation and forget its selection
 ```
+
+`apkit update` narrows to one Project with `--here` or `--project <path>`;
+`apkit uninstall` targets `--here`, `--project <path>`, or `--all`.
 
 ## Learn more
 
 - `apkit --help` — concise summary of every command
+- `apkit guide profile` (or `guide context`, `guide skill`) — focused authoring topics
 - `apkit guide --full` — the complete Workspace guide
 - [docs/guides/workspace.md](docs/guides/workspace.md) — Workspace authoring guidance
