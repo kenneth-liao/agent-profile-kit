@@ -3475,8 +3475,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).not.toContain(basename(untouchedProject));
     // US-017 (#515): a Profile swap on an installed Project is an ordinary
     // repeated content update — the receipt proves no first delivery — so it
-    // offers no optional loading check and renders no Project identity; the
-    // one count is the receipt's whole impact statement (US-011).
+    // offers no optional loading check. The direct behavioral pin against
+    // this same captured output; the identity negative below is the
+    // unchanged-US-013 side effect, not the check's own evidence.
+    expect(humanText(result.stdout)).not.toContain("To check that ");
     expect(humanText(result.stdout)).not.toContain(basename(changedProject));
   });
 
