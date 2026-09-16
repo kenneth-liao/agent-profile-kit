@@ -15,6 +15,8 @@ import {
 import { nearestName } from "../cli/nearest-match.js";
 import type { WorkspaceIngestionErrorFact, InstallerToolErrorFact } from "../installer/tool-errors.js";
 import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
+import type { DiagnosticDocumentParts } from "../cli/diagnostics.js";
+import { InstallerToolError } from "../installer/tool-errors.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -369,5 +371,155 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     ).toBe(
       "apkit update Project target project '/projects/nope' must be an existing directory",
     );
+  });
+});
+
+describe("authoring rejection diagnostics (US-015, #508)", () => {
+  function partsText(parts: DiagnosticDocumentParts): string {
+    return [
+      flatInlineText(parts.happened),
+      ...(parts.why ?? []).map(flatInlineText),
+      ...(parts.whatToType ?? []).map(flatInlineText),
+    ].join("\n");
+  }
+
+  const duplicateAtCreation: InstallerToolErrorFact = {
+    kind: "duplicate-artifact-name",
+    artifactType: "Profile",
+    id: "bar",
+    path: "profiles/foo.yaml",
+    stage: "creation",
+  };
+
+  const duplicateSkillAtCreation: InstallerToolErrorFact = {
+    kind: "duplicate-artifact-name",
+    artifactType: "Skill",
+    id: "review-pr",
+    path: "skills/review-pr/SKILL.md",
+    stage: "creation",
+  };
+
+  const duplicateAtIngestion: InstallerToolErrorFact = {
+    kind: "duplicate-artifact-name",
+    artifactType: "Profile",
+    id: "dup",
+    path: "profiles/dup-one.yaml",
+  };
+
+  const creationContextReference: WorkspaceIngestionErrorFact = {
+    kind: "missing-context-reference",
+    profile: "engineering",
+    contextId: "missing-ctx",
+    file: "profiles/engineering.yaml",
+    available: ["team-rules", "writing-style"],
+    stage: "creation",
+  };
+
+  const creationSkillReference: WorkspaceIngestionErrorFact = {
+    kind: "missing-skill-reference",
+    profile: "engineering",
+    skillId: "missing-skill",
+    file: "profiles/engineering.yaml",
+    available: ["review-pr"],
+    stage: "creation",
+  };
+
+  const initCollision: InstallerToolErrorFact = {
+    kind: "init-planned-profile-conflict",
+    profile: "example",
+  };
+
+  test("a duplicate name at creation identifies the existing file and offers editing it or another name", () => {
+    const parts = formatInstallerToolErrorDiagnostic(duplicateAtCreation);
+    expect(flatInlineText(parts.happened)).toBe(
+      "A Profile named 'bar' already exists at profiles/foo.yaml",
+    );
+    const why = (parts.why ?? []).map(flatInlineText).join("\n");
+    expect(why).toContain("Nothing was created or changed");
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Edit profiles/foo.yaml");
+    expect(whatToType).toContain("apkit new profile <name>");
+  });
+
+  test("a duplicate Skill name carries the same evidence with its own kind token", () => {
+    const parts = formatInstallerToolErrorDiagnostic(duplicateSkillAtCreation);
+    expect(flatInlineText(parts.happened)).toBe(
+      "A Skill named 'review-pr' already exists at skills/review-pr/SKILL.md",
+    );
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Edit skills/review-pr/SKILL.md");
+    expect(whatToType).toContain("apkit new skill <name>");
+  });
+
+  test("a duplicate name at ingestion offers editing the conflicting files and validate", () => {
+    const parts = formatInstallerToolErrorDiagnostic(duplicateAtIngestion);
+    expect(flatInlineText(parts.happened)).toBe(
+      "A Profile named 'dup' already exists at profiles/dup-one.yaml",
+    );
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("unique Artifact ID");
+    expect(whatToType).toContain("apkit validate");
+    expect(whatToType).not.toContain("apkit new");
+  });
+
+  test("a refused creation states the Profile was not created and never directs to the uncreated file", () => {
+    const parts = formatWorkspaceIngestionErrorDiagnostic(creationContextReference);
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe(
+      "Profile 'engineering' was not created: it selects missing Context Module 'missing-ctx'",
+    );
+    expect(partsText(parts)).not.toContain("Correct profiles/engineering.yaml");
+    const why = (parts.why ?? []).map(flatInlineText).join("\n");
+    expect(why).toContain("Available Context Modules: team-rules, writing-style");
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Create it with apkit new context <name>, or select an available name, then run apkit new profile engineering again");
+  });
+
+  test("a refused creation with a missing Skill names the skill creation command", () => {
+    const parts = formatWorkspaceIngestionErrorDiagnostic(creationSkillReference);
+    const happened = flatInlineText(parts.happened);
+    expect(happened).toBe(
+      "Profile 'engineering' was not created: it selects missing Skill 'missing-skill'",
+    );
+    expect(partsText(parts)).not.toContain("Correct profiles/engineering.yaml");
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Create it with apkit new skill <name>, or select an available name, then run apkit new profile engineering again");
+  });
+
+  test("the near-match suggestion carries into the refused-creation diagnostic", () => {
+    const parts = formatWorkspaceIngestionErrorDiagnostic({
+      kind: "missing-context-reference",
+      profile: "engineering",
+      contextId: "writing-styl",
+      file: "profiles/engineering.yaml",
+      available: ["team-rules", "writing-style"],
+      stage: "creation",
+    });
+    const why = (parts.why ?? []).map(flatInlineText).join("\n");
+    expect(why).toContain("Did you mean 'writing-style'?");
+  });
+
+  test("carried sentences stay byte-identical for creation-stage facts (DEC-009)", () => {
+    expect(
+      flatInlineText(formatInstallerToolError(duplicateAtCreation)),
+    ).toBe("Profile name 'bar' is duplicated");
+    expect(
+      flatInlineText(
+        formatInstallerToolError(creationContextReference),
+      ),
+    ).toBe(
+      "Profile 'engineering' in profiles/engineering.yaml selects missing Context Module 'missing-ctx'. " +
+        "Restore the Context Module, or remove or update Profile 'engineering'. " +
+        "Available Context Modules: team-rules, writing-style",
+    );
+  });
+
+  test("an init first-Profile name colliding with the planned example scaffold names what init will create", () => {
+    const parts = formatInstallerToolErrorDiagnostic(initCollision);
+    expect(flatInlineText(parts.happened)).toBe(
+      "Profile 'example' is the example Profile this init will scaffold",
+    );
+    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toBe("Choose a different Profile name.");
   });
 });

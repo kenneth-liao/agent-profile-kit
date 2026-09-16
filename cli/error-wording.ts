@@ -8,6 +8,7 @@ import type {
   InstallerToolErrorFact,
   InstallerAuthoredError,
   WorkspaceErrorFact,
+  WorkspaceIngestionErrorFact,
 } from "../installer/tool-errors.js";
 import type { LocalConfigurationRejectionReason } from "../schemas/local-configuration.js";
 import type {
@@ -242,6 +243,87 @@ function nameSuggestionSentence(
 }
 
 /**
+ * The structured duplicate-Artifact-ID diagnostic (US-015, #508): what happened
+ * names the existing artifact's real path carried by the fact, why states what
+ * was unchanged, and what to type offers editing the existing file or another
+ * name — creation never gains an overwrite prompt. At creation time the
+ * remedy names the retry command for the rejecting artifact kind; at ingestion
+ * time (validate and lifecycle planning) it directs to editing the conflicting
+ * files and re-running validation, never a fabricated creation retry.
+ */
+function duplicateArtifactNameDiagnostic(
+  fact: Extract<WorkspaceIngestionErrorFact, { kind: "duplicate-artifact-name" }>,
+): DiagnosticDocumentParts {
+  const happened = [
+    `A ${fact.artifactType} named '${fact.id}' already exists at ${fact.path}`,
+  ];
+  if (fact.stage === "creation") {
+    return {
+      happened,
+      why: [["Nothing was created or changed."]],
+      whatToType: [[
+        `Edit ${fact.path}, or choose a different name and run `,
+        commandPart(COMMAND_NAME, [
+          arg("new"),
+          arg(CREATION_ARTIFACT_PRESENTATION[fact.artifactType].kindToken),
+          arg("<name>"),
+        ]),
+        ".",
+      ]],
+    };
+  }
+  return {
+    happened,
+    why: [["Nothing was created or changed."]],
+    whatToType: [[
+      `Edit one of the conflicting files so each ${fact.artifactType} has a unique Artifact ID, then run `,
+      commandPart(COMMAND_NAME, [arg("validate")]),
+      ".",
+    ]],
+  };
+}
+
+/**
+ * The refused-creation missing-reference diagnostic (US-015, #508): what
+ * happened reports the actual state — the Profile was not created — and never
+ * names the uncreated Profile file as a repair target; the remedy is the
+ * runnable create-or-select recovery for the missing reference.
+ */
+function creationMissingReferenceDiagnostic(evidence: {
+  readonly profile: string;
+  readonly invalid: string;
+  readonly label: CreationArtifactType;
+  readonly available: readonly string[];
+}): DiagnosticDocumentParts {
+  const why: (readonly InlineContent[])[] = [
+    [evidence.available.length === 0
+      ? `No ${evidence.label}s exist in the Workspace.`
+      : formatAvailableChoices(evidence.label, evidence.available)],
+  ];
+  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available);
+  if (suggestion !== undefined) {
+    why.push([suggestion]);
+  }
+  return {
+    happened: [
+      `Profile '${evidence.profile}' was not created: it selects missing ${evidence.label} '${evidence.invalid}'`,
+    ],
+    why,
+    whatToType: [[
+      `Create it with `,
+      commandPart(COMMAND_NAME, [
+        arg("new"),
+        arg(CREATION_ARTIFACT_PRESENTATION[evidence.label].kindToken),
+        arg("<name>"),
+      ]),
+      `, or select an available name, then run `,
+      commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(evidence.profile)]),
+      ` again.`,
+    ]],
+  };
+}
+
+/**
  * The shared invalid-reference diagnostic (US-025/026, DEC-017): what happened
  * names the offending file and invalid value, why suggests the nearest name
  * through the shared nearest-name selection and lists the available names, and
@@ -293,7 +375,7 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
     case "workspace-category-not-directory":
       return { happened: [`Workspace is invalid at ${fact.workspace}: '${fact.name}' must be a directory`] };
     case "duplicate-artifact-name":
-      return { happened: [`${fact.artifactType} name '${fact.id}' is duplicated`] };
+      return duplicateArtifactNameDiagnostic(fact);
     case "profile-without-artifacts": {
       const contextGuidance = fact.availableContexts === undefined
         ? ""
@@ -315,27 +397,41 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
       };
     }
     case "missing-context-reference":
-      return missingReferenceDiagnostic({
-        happened: [
-          `Profile '${fact.profile}' in ${fact.file} selects missing Context Module '${fact.contextId}'.`,
-        ],
-        invalid: fact.contextId,
-        label: "Context Module",
-        available: fact.available,
-        file: fact.file,
-        remedy: `Restore the Context Module, or remove or update Profile '${fact.profile}'.`,
-      });
+      return fact.stage === "creation"
+        ? creationMissingReferenceDiagnostic({
+            profile: fact.profile,
+            invalid: fact.contextId,
+            label: "Context Module",
+            available: fact.available,
+          })
+        : missingReferenceDiagnostic({
+            happened: [
+              `Profile '${fact.profile}' in ${fact.file} selects missing Context Module '${fact.contextId}'.`,
+            ],
+            invalid: fact.contextId,
+            label: "Context Module",
+            available: fact.available,
+            file: fact.file,
+            remedy: `Restore the Context Module, or remove or update Profile '${fact.profile}'.`,
+          });
     case "missing-skill-reference":
-      return missingReferenceDiagnostic({
-        happened: [
-          `Profile '${fact.profile}' in ${fact.file} selects missing Skill '${fact.skillId}'.`,
-        ],
-        invalid: fact.skillId,
-        label: "Skill",
-        available: fact.available,
-        file: fact.file,
-        remedy: `Restore the Skill, or remove or update Profile '${fact.profile}'.`,
-      });
+      return fact.stage === "creation"
+        ? creationMissingReferenceDiagnostic({
+            profile: fact.profile,
+            invalid: fact.skillId,
+            label: "Skill",
+            available: fact.available,
+          })
+        : missingReferenceDiagnostic({
+            happened: [
+              `Profile '${fact.profile}' in ${fact.file} selects missing Skill '${fact.skillId}'.`,
+            ],
+            invalid: fact.skillId,
+            label: "Skill",
+            available: fact.available,
+            file: fact.file,
+            remedy: `Restore the Skill, or remove or update Profile '${fact.profile}'.`,
+          });
     case "missing-dependency-reference":
       return missingReferenceDiagnostic({
         happened: [`${fact.file} references missing ${fact.label} '${fact.id}'.`],
@@ -602,6 +698,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`];
     case "init-workspace-selection-conflict":
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
+    case "init-planned-profile-conflict":
+      return [`Profile '${fact.profile}' is the example Profile this init will scaffold`];
     case "foreign-diagnostic":
       return [fact.detail];
     case "artifact-path-occupied":
@@ -790,6 +888,11 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`] };
     case "init-workspace-selection-conflict":
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
+    case "init-planned-profile-conflict":
+      return {
+        happened: [`Profile '${fact.profile}' is the example Profile this init will scaffold`],
+        whatToType: [["Choose a different Profile name."]],
+      };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
     case "artifact-path-occupied":

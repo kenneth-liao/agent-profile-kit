@@ -1,5 +1,5 @@
 import { mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 
 import { parseSkill } from "../schemas/skill.js";
@@ -126,6 +126,11 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
       kind: "duplicate-artifact-name",
       artifactType: "Skill",
       id,
+      // The existing Skill's Workspace-relative SKILL.md: the fact's path is
+      // the canonical file a user would edit, normalized here from the
+      // Skill record's absolute source directory (#508).
+      path: join(relative(workspace.path, workspace.skills.get(id)!.path), SKILL_FILE_NAME),
+      stage: "creation",
     });
   }
 
