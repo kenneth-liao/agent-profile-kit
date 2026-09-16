@@ -25,9 +25,10 @@ refreshed material the Host already consumes.
 
 1. **Delivery-begins is the trigger.** The optional loading check is offered on a successful
    lifecycle outcome exactly when the Apply Receipt proves the committed work added generated
-   output for a desired Host that had no prior output in that Project: a first installation, a
-   Host addition, or a retired receipt's re-delivery. A content change that merely adds a file
-   for an already-delivering Host is not a first delivery.
+   output for a desired Host that had no prior output in that Project — the same
+   first-delivery condition that covers a first installation and a Host addition, including a
+   retired receipt's re-delivery of a previously removed selection. A content change that
+   merely adds a file for an already-delivering Host is not a first delivery.
 2. **One derivation home.** The relevance condition is derived inside the one function that
    authors the check (`cli/presentation.ts`), reusing the receipt-derived first-delivery
    predicate that gates a standing Host Setup Step's relevance (`isFirstRelevantHostOutput`),

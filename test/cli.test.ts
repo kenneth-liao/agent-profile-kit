@@ -3477,6 +3477,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // repeated content update — the receipt proves no first delivery — so it
     // offers no optional loading check and renders no Project identity; the
     // one count is the receipt's whole impact statement (US-011).
+    expect(humanText(result.stdout)).not.toContain(basename(changedProject));
   });
 
   test("verbose update labels pending and updated work separately", async () => {

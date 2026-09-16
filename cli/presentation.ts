@@ -2505,7 +2505,8 @@ const TRANSITION_TRIGGERING_OUTPUT_KINDS: ReadonlySet<OutputReconciliationKind> 
  */
 function isFirstRelevantHostOutput(
   changeProject: ReconciliationProjectRecord,
-  resultingProject: ReconciliationProjectRecord,
+  /** Only this record's outputs are consumed; callers may supply a narrowed view. */
+  resultingProject: Pick<ReconciliationProjectRecord, "outputs">,
   host: string,
 ): boolean {
   const addedPaths = new Set(
@@ -3523,8 +3524,9 @@ export function hostLoadingVerificationNodes(
       candidate.canonicalProject === record.canonicalProject
     );
     if (changeProject === undefined) return false;
+    // The narrowed prior view keeps only exclusively-consumed outputs: the
+    // predicate reads just `outputs` from its second argument.
     const priorDeliveryEvidence = {
-      ...record,
       outputs: record.outputs.filter((output) => output.consumingHosts.length === 1),
     };
     return (record.desired?.hosts ?? []).some((host) =>

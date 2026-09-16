@@ -54,6 +54,7 @@ import {
 } from "./changed-output-confirm.js";
 import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";
 import { hostLoadingVerificationNodes } from "./presentation.js";
+import { projectIdentityLookup } from "./display-path.js";
 import {
   terminalPresentationContext,
   type TerminalPresentationContext,
@@ -560,8 +561,17 @@ async function runInstallCommandWithRecording(
         // relevance derivation lives inside the check's function, so the
         // install receipt cannot decide visibility independently of the
         // update views; an unchanged install commits no delivery and renders
-        // no check.
-        ...hostLoadingVerificationNodes(result.applied.resultingState, result.applied.receipt),
+        // no check. The lookup is one view's identity for the installed
+        // Project (US-013), so the sentence names the Project exactly as the
+        // receipt body above it does.
+        ...hostLoadingVerificationNodes(
+          result.applied.resultingState,
+          result.applied.receipt,
+          projectIdentityLookup([{
+            canonicalProject: result.binding.canonicalProject,
+            project: result.binding.project,
+          }]),
+        ),
       ];
       if (acceptedScope !== undefined) {
         reportDocument.push(...installReplacementCommandDocument(

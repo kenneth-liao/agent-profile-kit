@@ -1938,7 +1938,12 @@ describe("project-bound release candidate", () => {
     expect(installExample.stdout.replace(/\n\s+/g, " ")).toContain(
       "To check that claude loaded Profile example",
     );
-    expect(installExample.stdout).toContain("ask claude what Profile material it loaded");
+    expect(installExample.stdout.replace(/\n\s+/g, " ")).toContain(
+      "ask claude what Profile material it loaded",
+    );
+    // The sentence names the installed Project by the same identity the
+    // receipt body carries (US-013): no second spelling appears.
+    expect(installExample.stdout).not.toContain("~/");
     expect(installExample.stdout).not.toContain("observed");
     expect(existsSync(join(firstProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(true);
 

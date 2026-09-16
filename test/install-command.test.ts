@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { runInstallCommand } from "../cli/install-command.js";
@@ -277,6 +277,10 @@ describe("install Host-loading handoff (spec #491 US-017, #515)", () => {
     // observed loading (OOS-009).
     expect(human).toContain("To check that codex loaded Profile coding");
     expect(human).toContain("ask codex what Profile material it loaded");
+    // The sentence names the installed Project by the same identity the
+    // receipt body carries (US-013): no second spelling appears.
+    expect(human).toContain(`start a new codex session in ${basename(projectPath)}`);
+    expect(human).not.toContain(projectPath);
   });
 
   test("an unchanged install offers no loading check", async () => {
