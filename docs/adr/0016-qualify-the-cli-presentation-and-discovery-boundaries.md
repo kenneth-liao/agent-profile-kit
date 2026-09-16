@@ -103,15 +103,17 @@ boundary above: the `list hosts` human view now labels each supported Agent
 Host's executable as installed or not found. Detection is the existing advisory
 Host detection authority (`detectInstalledHosts()` in `adapters/registry.ts`),
 whose probes run through the shared bounded process executor (ADR-0027,
-ADR-0028). A hung, failing, or deadline-terminated probe degrades to
-"not found": detection never throws, never fails the command, and never drops a
-Host's row, and an undetected Host stays listed as an available installation
-choice. Detection is advisory only (DEC-011) and distinguishes executable
-presence from Profile loading; the recorded cost of the exception is added
-latency — probes run concurrently, so the worst case is one bounded probe
-deadline (10 seconds) plus the bounded cleanup window when a Host executable
-hangs, while the typical case resolves in the slowest installed-Host version
-probe.
+ADR-0028). The authority guards each Adapter probe individually, so the
+never-throw contract is structural, not adapter discipline: a hung, failing,
+deadline-terminated, or outright rejecting probe degrades that one Host to
+"not found" while every other Host still reports truthfully — detection never
+throws, never fails the command, and never drops a Host's row, and an
+undetected Host stays listed as an available installation choice. Detection is
+advisory only (DEC-011) and distinguishes executable presence from Profile
+loading; the recorded cost of the exception is added latency — probes run
+concurrently, so the worst case is one bounded probe deadline (10 seconds)
+plus the bounded cleanup window when a Host executable hangs, while the
+typical case resolves in the slowest installed-Host version probe.
 
 The exception is deliberately narrow:
 
