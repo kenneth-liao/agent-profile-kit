@@ -8733,10 +8733,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
       const wsIndex = result.stdout.indexOf("Workspace: ~/custom-authored-ws");
+      const scaffoldIndex = result.stdout.indexOf("  apkit new ");
       const exampleIndex = result.stdout.indexOf("An example `");
       expect(wsIndex).toBeGreaterThan(-1);
+      expect(scaffoldIndex).toBeGreaterThan(-1);
       expect(exampleIndex).toBeGreaterThan(-1);
-      expect(wsIndex).toBeLessThan(exampleIndex);
+      // Symmetric with the default-home branch: the Workspace location
+      // precedes both the creation commands and the resulting-file examples.
+      expect(wsIndex).toBeLessThan(scaffoldIndex);
+      expect(scaffoldIndex).toBeLessThan(exampleIndex);
     }
 
     // 3. Corrupted configuration fails fast with exit code 1 and structured error on stderr
