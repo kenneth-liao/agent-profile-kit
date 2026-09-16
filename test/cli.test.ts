@@ -8705,7 +8705,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // The example body is the terminal content between the lead-in and the
     // next-action line: verbatim, no fences (#510).
     const example = result.stdout.match(
-      /Create skills\/example-skill\/SKILL\.md:\n\n([\s\S]*?)\n\nNext:/,
+      /An example skills\/example-skill\/SKILL\.md:\n\n([\s\S]*?)\n\nNext:/,
     )?.[1];
     expect(example).toBeDefined();
     const skillDirectory = join(workspacePath(home), "skills", "example-skill");

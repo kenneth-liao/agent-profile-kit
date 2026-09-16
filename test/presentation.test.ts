@@ -9647,12 +9647,28 @@ describe("guide markdown rendering (#510, US-016)", () => {
     expect(() => guideMarkdownDocument("1. Ordered item\n")).toThrow(
       /unsupported/,
     );
+    expect(() => guideMarkdownDocument("Prose.\n\n---\n")).toThrow(
+      /unsupported/,
+    );
     expect(() => guideMarkdownDocument("```sh\nunclosed\n")).toThrow(
       /fence/,
     );
     expect(() => guideMarkdownDocument("Word **unpaired bold\n")).toThrow(
       /bold/,
     );
+    // A nested bullet is an unsupported construct, not a continuation line:
+    // the pre-fix bullet path silently joined it into its parent item.
+    expect(() =>
+      guideMarkdownDocument("- Item.\n  - Nested.\n"),
+    ).toThrow(/unsupported/);
+    // Unsupported constructs inside a bullet block fail loudly instead of
+    // joining the item as prose.
+    expect(() =>
+      guideMarkdownDocument("- Item.\n> quoted\n"),
+    ).toThrow(/unsupported/);
+    expect(() =>
+      guideMarkdownDocument("- Item.\n1. Ordered.\n"),
+    ).toThrow(/unsupported/);
   });
 
   test("the complete human guide renders as terminal content at every reviewed width", async () => {

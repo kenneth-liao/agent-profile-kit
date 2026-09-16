@@ -205,7 +205,9 @@ function readParagraph(
   return { text: words.join(" "), end: index };
 }
 
-/** One bullet list with hanging-indent continuation lines. */
+/** One bullet list with hanging-indent continuation lines. A heading opens
+ * the next block; anything else through the blank line belongs to the list
+ * so unsupported constructs inside it fail loudly in `bulletNodes`. */
 function readBulletList(
   lines: readonly string[],
   start: number,
@@ -215,6 +217,7 @@ function readBulletList(
   while (index < lines.length && lines[index]!.trim() !== "") {
     const line = lines[index]!;
     if (line.startsWith("```") || isTableLine(line)) break;
+    if (atxHeading(line) !== undefined) break;
     result.push(line);
     index += 1;
   }
@@ -233,10 +236,16 @@ function bulletNodes(lines: readonly string[]): readonly PresentationNode[] {
     if (itemTexts.length === 0) {
       throw new Error(`guide markdown: unsupported construct at line: "${line}"`);
     }
-    // A deeper bullet level is an unsupported construct, not continuation.
+    // A deeper bullet level is an unsupported construct, not continuation:
+    // it throws directly because the trimmed text otherwise resembles a
+    // top-level bullet the support assertion would accept. Ordinary
+    // continuation lines join the item only after the support assertion
+    // rejects blockquotes, ordered items, and thematic breaks inside the
+    // list instead of silently swallowing them as prose.
     if (/^\s+- /.test(line)) {
-      assertSupportedLine(line.trim());
+      throw new Error(`guide markdown: unsupported construct at line: "${line}"`);
     }
+    assertSupportedLine(line.trim());
     itemTexts[itemTexts.length - 1] = `${itemTexts.at(-1)!} ${line.trim()}`.trim();
   }
   return itemTexts.map((text) => ({
