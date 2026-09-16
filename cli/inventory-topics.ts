@@ -42,7 +42,7 @@ export function inventoryTopicNames(): readonly InventoryTopic[] {
 }
 
 export function inventoryCommandSyntax(): string {
-  return `list [${inventoryTopicNames().join("|")} [--json]]`;
+  return `list [projects|profiles [<profile>]|hosts] [--json]`;
 }
 
 function machineInventoryTopicNames(): readonly MachineInventoryTopic[] {
@@ -62,6 +62,9 @@ export function inventoryCommandExamples(): readonly string[] {
       `list ${topic.name}`,
       `list ${topic.name} --json`,
     ]),
+    // The focused Profile detail route (US-018, #513).
+    "list profiles <profile>",
+    "list profiles <profile> --json",
   ];
 }
 

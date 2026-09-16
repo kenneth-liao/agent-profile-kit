@@ -31,6 +31,8 @@ import {
   formatInfoJson,
   formatInfoToolErrorJson,
   formatHostInventoryJson,
+  formatProfileDetailJson,
+  formatProfileDetailToolErrorJson,
   formatProjectInventoryJson,
   formatProjectInventoryToolErrorJson,
   formatProfileInventoryJson,
@@ -46,6 +48,7 @@ import {
   formatTemporaryInstallationToolErrorJson,
   lifecycleExitCode,
   machineInventoryIndexDocument,
+  profileDetailDocument,
   profileInventoryDocument,
   projectInventoryDocument,
   temporaryBlockedMessagesDocument,
@@ -102,6 +105,7 @@ import {
 } from "./error-wording.js";
 import {
   listHosts,
+  listProfileDetail,
   listProfiles,
   listProjectBindings,
   listTemporaryInstallations,
@@ -631,7 +635,13 @@ function parseListArguments(
   arguments_: readonly string[],
 ):
   | { readonly kind: "index" }
-  | { readonly json: boolean; readonly kind: "topic"; readonly topic: InventoryTopic } {
+  | {
+      readonly json: boolean;
+      readonly kind: "topic";
+      /** The focused Profile detail route (US-018, #513); profiles topic only. */
+      readonly profile?: string;
+      readonly topic: InventoryTopic;
+    } {
   if (arguments_.length === 0) return { kind: "index" };
   const topic = positionalArgument("list", "an inventory topic", arguments_[0]!);
   if (isMachineInventoryTopic(topic)) {
@@ -646,11 +656,29 @@ function parseListArguments(
       `list does not support topic '${topic}'; available topics: ${inventoryTopicNames().join(", ")}`,
     );
   }
-  return {
-    kind: "topic",
-    json: parseOptionalFlag("list", arguments_.slice(1), "--json"),
-    topic,
-  };
+  const rest = arguments_.slice(1);
+  const values: string[] = [];
+  const flags: string[] = [];
+  for (const argument of rest) {
+    if (argument === "--json") {
+      flags.push(argument);
+    } else if (argument.startsWith("-")) {
+      throw new Error(`list does not accept flag '${argument}'`);
+    } else {
+      values.push(argument);
+    }
+  }
+  const json = parseOptionalFlag("list", flags, "--json");
+  if (values.length === 0) {
+    return { json, kind: "topic", topic };
+  }
+  if (topic !== "profiles") {
+    throw new Error(`list ${topic} does not accept argument '${values[0]}'`);
+  }
+  if (values.length > 1) {
+    throw new Error(`list profiles does not accept more than one Profile name`);
+  }
+  return { json, kind: "topic", profile: values[0]!, topic };
 }
 
 function parseMachineListArguments(
@@ -1103,28 +1131,61 @@ async function main(): Promise<void> {
         }
         return;
       case "profiles":
-        try {
-          const profiles = await listProfiles(home);
-          if (parsed.json) {
-            process.stdout.write(formatProfileInventoryJson(profiles));
-          } else {
-            writeHumanDocument(
-              process.stdout,
-              profileInventoryDocument(profiles),
-              stdoutPresentationContext,
-            );
+        {
+          if (parsed.profile === undefined) {
+            try {
+              const profiles = await listProfiles(home);
+              if (parsed.json) {
+                process.stdout.write(formatProfileInventoryJson(profiles));
+              } else {
+                writeHumanDocument(
+                  process.stdout,
+                  profileInventoryDocument(profiles),
+                  stdoutPresentationContext,
+                );
+              }
+            } catch (error) {
+              if (parsed.json) {
+                process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
+              } else {
+                writeHumanDocument(
+                  process.stderr,
+                  errorDiagnosticDocument(error),
+                  stderrPresentationContext,
+                );
+              }
+              process.exitCode = 1;
+            }
+            return;
           }
-        } catch (error) {
-          if (parsed.json) {
-            process.stdout.write(formatProfileInventoryToolErrorJson(formatError(error)));
-          } else {
-            writeHumanDocument(
-              process.stderr,
-              errorDiagnosticDocument(error),
-              stderrPresentationContext,
-            );
+          // Focused Profile detail (US-018, #513): read-only, installation-
+          // independent Workspace ingestion; an unknown name is rejected
+          // through the shared missing-Profile boundary with suggestions.
+          try {
+            const detail = await listProfileDetail(home, parsed.profile);
+            if (parsed.json) {
+              process.stdout.write(formatProfileDetailJson(detail));
+            } else {
+              writeHumanDocument(
+                process.stdout,
+                profileDetailDocument(detail),
+                stdoutPresentationContext,
+              );
+            }
+          } catch (error) {
+            if (parsed.json) {
+              process.stdout.write(
+                formatProfileDetailToolErrorJson(parsed.profile, formatError(error)),
+              );
+            } else {
+              writeHumanDocument(
+                process.stderr,
+                errorDiagnosticDocument(error),
+                stderrPresentationContext,
+              );
+            }
+            process.exitCode = 1;
           }
-          process.exitCode = 1;
         }
         return;
       case "hosts":

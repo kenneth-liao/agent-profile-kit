@@ -142,6 +142,7 @@ import type {
 } from "../installer/uninstall-application.js";
 import type {
   HostInventoryRecord,
+  ProfileDetailInventoryRecord,
   ProfileInventoryRecord,
   ProjectInventoryRecord,
   TemporaryInventoryRecord,
@@ -1086,11 +1087,45 @@ export function profileInventoryDocument(
       parts: [
         "Use <profile> with ",
         commandPart(COMMAND_NAME, [arg("install")]),
-        " to select it for a Project.",
+        " to select it for a Project, or run ",
+        commandPart(COMMAND_NAME, [arg("list"), arg("profiles"), arg("<profile>")]),
+        " to see one Profile's Context and Skill names.",
       ],
     },
   );
   return nodes;
+}
+
+
+/** The focused Profile detail listing as a presentation document (US-018, #513).
+ * Membership names render in their authored definition order. */
+export function profileDetailDocument(
+  profile: ProfileDetailInventoryRecord,
+): PresentationDocument {
+  return [
+    { kind: "heading", text: `Profile '${profile.id}':` },
+    {
+      kind: "key-value",
+      key: "Context Modules",
+      value: { kind: "identifier", value: membershipSummary(profile.context) },
+    },
+    {
+      kind: "key-value",
+      key: "Skills",
+      value: { kind: "identifier", value: membershipSummary(profile.skills) },
+    },
+    spacerNode(),
+    {
+      kind: "prose",
+      parts: [
+        "Use ",
+        commandPart(COMMAND_NAME, [arg("configure"), arg("profile"), arg(profile.id)]),
+        " to change its membership, or ",
+        commandPart(COMMAND_NAME, [arg("install"), arg(profile.id), arg("--host"), arg("<host>")]),
+        " to select it for a Project.",
+      ],
+    },
+  ];
 }
 
 
@@ -1126,6 +1161,50 @@ export function formatProfileInventoryToolErrorJson(message: string): string {
       error: message,
       profiles: [] as const,
     }) satisfies ProfileInventoryMachinePayload,
+  );
+}
+
+/**
+ * Focused Profile detail machine payloads (US-018, #513). One key carries one
+ * shape: `profile` is the focused record on success, and the requested name
+ * is published only on error as `requestedProfile` — never both.
+ */
+type ProfileDetailMachineBase = ListInventoryMachineBase<"profiles">;
+
+interface ProfileDetailMachineSuccessPayload extends ProfileDetailMachineBase {
+  readonly outcome: "success";
+  readonly profile: ProfileDetailInventoryRecord;
+}
+
+interface ProfileDetailMachineErrorPayload extends ProfileDetailMachineBase {
+  readonly error: string;
+  readonly outcome: "error";
+  readonly requestedProfile: string;
+}
+
+type ProfileDetailMachinePayload =
+  | ProfileDetailMachineErrorPayload
+  | ProfileDetailMachineSuccessPayload;
+
+/** Versioned machine payload for the focused Profile detail topic route. */
+export function formatProfileDetailJson(
+  profile: ProfileDetailInventoryRecord,
+): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "success", { profile }) satisfies
+      ProfileDetailMachinePayload,
+  );
+}
+
+export function formatProfileDetailToolErrorJson(
+  requestedProfile: string,
+  message: string,
+): string {
+  return serializeListInventoryMachinePayload(
+    listInventoryMachinePayload("profiles", "error", {
+      error: message,
+      requestedProfile,
+    }) satisfies ProfileDetailMachinePayload,
   );
 }
 

@@ -49,6 +49,7 @@ import {
   type LifecycleHumanOptions,
   formatMissingProfileError,
   machineInventoryIndexDocument,
+  profileDetailDocument,
   profileInventoryDocument,
   projectInventoryDocument,
   temporaryBlockedMessagesDocument,
@@ -5688,6 +5689,54 @@ describe("standalone view presentation documents (#389)", () => {
     const document = profileInventoryDocument([]);
     expect(document.map(shape)).toEqual(["notice:success", "prose"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toMatchObject({ kind: "prose" });
+    // The focused route is not offered when no Profile can be inspected (#513);
+    // the install guidance remains the only inline command.
+    expect(inlineCommandTexts(document)).toEqual(["apkit install"]);
+  });
+
+  test("profile inventory points to the focused detail route when Profiles exist", () => {
+    const document = profileInventoryDocument([{ contextModules: 2, id: "engineering", skills: 3 }]);
+    expect(inlineCommandTexts(document)).toContain("apkit list profiles <profile>");
+  });
+
+  test("focused profile detail lists authored Context Module and Skill names", () => {
+    const document = profileDetailDocument({
+      context: ["team-rules", "writing-style"],
+      id: "coding",
+      skills: ["review-pr"],
+    });
+    expect(document.map(shape)).toEqual([
+      "heading",
+      "key-value(Context Modules)",
+      "key-value(Skills)",
+      "blank",
+      "prose",
+    ]);
+    expect(keyValuesIn(document, "Context Modules")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "team-rules, writing-style",
+    });
+    expect(keyValuesIn(document, "Skills")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "review-pr",
+    });
+    // The tail names the executable next actions with the Profile's own name.
+    expect(inlineCommandTexts([document[4]!])).toEqual([
+      "apkit configure profile coding",
+      "apkit install coding --host <host>",
+    ]);
+  });
+
+  test("focused profile detail renders empty membership without inventing names", () => {
+    const document = profileDetailDocument({ context: [], id: "coding", skills: [] });
+    expect(keyValuesIn(document, "Context Modules")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "(none)",
+    });
+    expect(keyValuesIn(document, "Skills")[0]!.value).toEqual({
+      kind: "identifier",
+      value: "(none)",
+    });
   });
 
   test("host inventory lists supported Hosts as one entry each", () => {

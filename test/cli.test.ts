@@ -10202,6 +10202,7 @@ describe("shared presentation boundary", () => {
     for (const arguments_ of [
       ["list", "projects", "--json"],
       ["list", "profiles", "--json"],
+      ["list", "profiles", "coding", "--json"],
       ["list", "hosts", "--json"],
       ["machine", "list", "temporary", "--json"],
       ["info", "--json"],
@@ -10844,6 +10845,7 @@ function treeDigest(roots: readonly string[]): string {
       ["list", "projects"],
       ["list", "projects", "--json"],
       ["list", "profiles"],
+      ["list", "profiles", "coding"],
       ["list", "profiles", "--json"],
       ["machine", "list", "temporary"],
       ["machine", "list", "temporary", "--json"],
@@ -11478,8 +11480,8 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("Skills: 1");
     expect(result.stdout).toContain("Profile: beta");
     expect(result.stdout).toContain("Profile: zeta");
-    expect(result.stdout).toContain(
-      "Use <profile> with apkit install to select it for a Project.",
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "Use <profile> with apkit install to select it for a Project, or run apkit list profiles <profile> to see one Profile's Context and Skill names.",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout.indexOf("Profile: alpha")).toBeLessThan(
@@ -11505,7 +11507,227 @@ describe("apkit list", () => {
       "Add a Profile to the selected Workspace, then use <profile> with apkit install.",
     );
     expect(result.stdout).not.toContain("Next:");
+    // With zero Profiles the focused route is not offered: nothing can be
+    // inspected and the empty message already carries its own guidance (#513).
+    expect(result.stdout).not.toContain("apkit list profiles");
     expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles detail lists the selected Profile's authored Context Modules and Skills", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const workspace = workspacePath(home);
+    writeFileSync(
+      join(workspace, "context", "writing-style.md"),
+      "---\nid: writing-style\ndependencies: []\n---\nKeep prose plain.\n",
+    );
+    mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+    writeFileSync(
+      join(workspace, "skills", "review-pr", "SKILL.md"),
+      "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
+    );
+    // Authored order is preserved verbatim, including the second Context Module.
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext:\n  - team-rules\n  - writing-style\nskills:\n  - review-pr\n",
+    );
+
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles", "coding");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Profile 'coding':");
+    expect(result.stdout).toContain("Context Modules: team-rules, writing-style");
+    expect(result.stdout).toContain("Skills: review-pr");
+    expect(result.stdout.replace(/\s+/g, " ")).toContain(
+      "Use apkit configure profile coding to change its membership, or apkit install coding --host <host> to select it for a Project.",
+    );
+    expect(result.stdout).not.toContain("Next:");
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles detail JSON publishes the focused record through trusted Workspace ingestion", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    const configuration = readFileSync(configPath(home), "utf8");
+    const result = await runCliWithPath(
+      home,
+      controlledPath(home),
+      "list",
+      "profiles",
+      "coding",
+      "--json",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "success",
+      engineVersion: ENGINE_VERSION,
+      profile: { id: "coding", context: ["team-rules"], skills: [] },
+    });
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles detail rejects an unknown Profile with the available choices and no suggestion", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+
+    const human = await runCliWithPath(home, controlledPath(home), "list", "profiles", "nope");
+    const machine = await runCliWithPath(
+      home,
+      controlledPath(home),
+      "list",
+      "profiles",
+      "nope",
+      "--json",
+    );
+
+    expectExitCode(human, 1);
+    expect(human.stdout).toBe("");
+    expect(human.stderr).toContain("Profile 'nope' does not exist in this Workspace");
+    expect(human.stderr).toContain("Available Profiles: coding");
+    expect(human.stderr).not.toContain("Did you mean");
+    expectExitCode(machine, 1);
+    expect(machine.stderr).toBe("");
+    expect(JSON.parse(machine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      engineVersion: ENGINE_VERSION,
+      requestedProfile: "nope",
+    });
+    expect(JSON.parse(machine.stdout).profile).toBeUndefined();
+  });
+
+  test("profiles detail suggests the nearest Profile name for a typo", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+
+    const human = await runCliWithPath(home, controlledPath(home), "list", "profiles", "codng");
+
+    expectExitCode(human, 1);
+    expect(human.stdout).toBe("");
+    expect(human.stderr).toContain("Profile 'codng' does not exist in this Workspace");
+    expect(human.stderr.replace(/\s+/g, " ")).toContain("Did you mean 'coding'?");
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles detail without available Profiles reports an empty Workspace", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles", "coding");
+
+    expectExitCode(result, 1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Profile 'coding' does not exist in this Workspace");
+    expect(result.stderr).toContain("No Profiles exist in the Workspace.");
+    expect(existsSync(statePath(home))).toBe(false);
+  });
+
+  test("profiles detail reads only Workspace selection, ignoring malformed Bindings and Installation State", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home, "coding");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        "  - project: 42\n" +
+        "    profile: []\n" +
+        "    hosts: not-a-list\n",
+    );
+    mkdirSync(stateDirectory(home), { recursive: true });
+    writeFileSync(statePath(home), "not Installation State\n");
+    const configuration = readFileSync(configPath(home), "utf8");
+
+    const result = await runCliWithPath(home, controlledPath(home), "list", "profiles", "coding");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Profile 'coding':");
+    expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
+    expect(readFileSync(statePath(home), "utf8")).toBe("not Installation State\n");
+  });
+
+  test("profiles detail fails through the Workspace ingestion boundary without writes", async () => {
+    const missingHome = isolatedHome();
+    const missingHuman = await runCliWithPath(
+      missingHome,
+      controlledPath(missingHome),
+      "list",
+      "profiles",
+      "coding",
+    );
+    const missingMachine = await runCliWithPath(
+      missingHome,
+      controlledPath(missingHome),
+      "list",
+      "profiles",
+      "coding",
+      "--json",
+    );
+
+    expectExitCode(missingHuman, 1);
+    expect(missingHuman.stdout).toBe("");
+    expect(missingHuman.stderr).toContain("Agent Profile Kit is not set up");
+    expect(missingHuman.stderr).toContain("apkit init");
+    expectExitCode(missingMachine, 1);
+    expect(missingMachine.stderr).toBe("");
+    expect(JSON.parse(missingMachine.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      error: expect.stringContaining("Local Configuration is missing at"),
+      engineVersion: ENGINE_VERSION,
+      requestedProfile: "coding",
+    });
+    expect(existsSync(statePath(missingHome))).toBe(false);
+
+    const invalidHome = isolatedHome();
+    await initialize(invalidHome);
+    const invalidWorkspace = join(invalidHome, "invalid-workspace");
+    mkdirSync(invalidWorkspace, { recursive: true });
+    writeFileSync(
+      configPath(invalidHome),
+      `schema_version: 2\nworkspace: ${invalidWorkspace}\nbindings: []\n`,
+    );
+    const invalid = await runCliWithPath(
+      invalidHome,
+      controlledPath(invalidHome),
+      "list",
+      "profiles",
+      "coding",
+      "--json",
+    );
+
+    expectExitCode(invalid, 1);
+    expect(invalid.stderr).toBe("");
+    expect(JSON.parse(invalid.stdout)).toMatchObject({
+      schemaVersion: 1,
+      command: "list",
+      topic: "profiles",
+      outcome: "error",
+      error: expect.stringContaining("not a valid Agent Profile Kit Workspace"),
+      requestedProfile: "coding",
+    });
+    expect(existsSync(statePath(invalidHome))).toBe(false);
   });
 
   test("profiles JSON carries the same records without inspecting Projects, state, or Hosts", async () => {
@@ -11726,6 +11948,32 @@ describe("apkit list", () => {
       `available topics: ${inventoryTopicNames().join(", ")}`,
     );
     expect(result.stderr).toContain(`Usage: apkit ${inventoryCommandSyntax()}`);
+  });
+
+  test("rejects a Profile name on other topics and more than one Profile name", async () => {
+    const home = isolatedHome();
+
+    const hosts = await runCliWithPath(home, controlledPath(home), "list", "hosts", "codex");
+    expectExitCode(hosts, 1);
+    expect(hosts.stdout).toBe("");
+    expect(hosts.stderr).toContain("list hosts does not accept argument 'codex'");
+
+    const projects = await runCliWithPath(home, controlledPath(home), "list", "projects", "~/x");
+    expectExitCode(projects, 1);
+    expect(projects.stdout).toBe("");
+    expect(projects.stderr).toContain("list projects does not accept argument '~/x'");
+
+    const twoNames = await runCliWithPath(
+      home,
+      controlledPath(home),
+      "list",
+      "profiles",
+      "coding",
+      "other",
+    );
+    expectExitCode(twoNames, 1);
+    expect(twoNames.stdout).toBe("");
+    expect(twoNames.stderr).toContain("list profiles does not accept more than one Profile name");
   });
 
   test("projects renders every normalized Project Binding with ordered Hosts", async () => {
