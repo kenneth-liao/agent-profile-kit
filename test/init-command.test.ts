@@ -329,7 +329,12 @@ describe("guided first-Profile init", () => {
     expect(plain(streams.errorText())).toContain("Profile");
   }, 20_000);
 
-  test("a guided creation failure after initialization reports the error and no next action", async () => {
+  // The fault injection below relies on filesystem permission enforcement:
+  // as root, 0o555 does not block writes, so the expected failure would not
+  // reproduce; skip rather than assert from a non-faulting run.
+  test.skipIf(process.getuid?.() === 0)(
+    "a guided creation failure after initialization reports the error and no next action",
+    async () => {
     // The receipt precedes creation and therefore carries no next action; on
     // a creation failure the error diagnostic on stderr owns recovery, and
     // stdout claims no next step for a Profile that does not exist.
@@ -342,21 +347,28 @@ describe("guided first-Profile init", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Context Modules?");
-    input.write(" \r");
-    const { exitCode } = await pending;
-    chmodSync(join(workspacePath(home), "profiles"), 0o755);
+    try {
+      await waitForOutput(streams.humanText, "Set up your first Profile now?");
+      input.write("y");
+      await waitForOutput(streams.humanText, "What should the Profile be named?");
+      input.write("my-profile\r");
+      await waitForOutput(streams.humanText, "Which Context Modules?");
+      input.write(" \r");
+      const { exitCode } = await pending;
 
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(plain(streams.humanText())).toContain("already initialized");
-    expect(plain(streams.humanText())).not.toContain("Next:");
-    expect(plain(streams.errorText())).toContain("my-profile.yaml");
-  }, 20_000);
+      expect(exitCode).toBe(1);
+      expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
+      expect(plain(streams.humanText())).toContain("already initialized");
+      expect(plain(streams.humanText())).not.toContain("Next:");
+      expect(plain(streams.errorText())).toContain("my-profile.yaml");
+    } finally {
+      // Restore even when the invocation throws or times out, so the temp
+      // directory never keeps a read-only directory behind.
+      chmodSync(join(workspacePath(home), "profiles"), 0o755);
+    }
+  },
+  20_000,
+  );
 
   test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
     const home = isolatedHome();

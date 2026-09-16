@@ -1913,10 +1913,12 @@ describe("project-bound release candidate", () => {
     }
     // Init guidance leaves Host choice to install's searchable choices
     // (spec #491, US-016, ADR-0034): the one printed command the newcomer
-    // needs names the example Profile and never a Host.
+    // needs names the example Profile and never a Host. The negative is
+    // discriminating: the old output contained "--host claude" here.
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
       "run apkit install example",
     );
+    expect(init.stdout).not.toContain("--host");
 
     // 3. Follow the printed install form, made project-specific the way the
     // printed sentence says ("from the project you want to try"). Pipes add
@@ -2270,6 +2272,8 @@ describe("project-bound release candidate", () => {
     expect(codexInit.stdout).toContain(
       "Next: from the project you want to try, run apkit install example",
     );
+    // Discriminating negative: the old output contained "--host codex" here.
+    expect(codexInit.stdout).not.toContain("--host");
 
     // 3. Single host present (only claude): still no Host in init guidance
     const claudeHome = isolatedHome();
@@ -2287,6 +2291,8 @@ describe("project-bound release candidate", () => {
     expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain(
       "Next: from the project you want to try, run apkit install example",
     );
+    // Discriminating negative: the old output contained "--host claude" here.
+    expect(claudeInit.stdout).not.toContain("--host");
 
     // 4. No supported hosts present: names none and still names the example install action
     // (detection is advisory; undetected Hosts remain selectable install choices)
