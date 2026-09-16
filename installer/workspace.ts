@@ -1,5 +1,5 @@
 import { lstat, mkdir, stat, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import type { Stats } from "node:fs";
 
 import {
@@ -14,6 +14,23 @@ export const WORKSPACE_ARTIFACT_DIRECTORIES = [
   "context",
   "skills",
 ] as const;
+
+/**
+ * The canonical entry-file name of one Skill package (Agent Skills standard);
+ * the single home so the Skill-package locator and every detection or read of
+ * the entry file cannot drift from it (US-015, #508).
+ */
+export const SKILL_FILE_NAME = "SKILL.md";
+
+/**
+ * The Workspace-relative SKILL.md locator for one Skill whose source directory
+ * is `skillDirectory` under `workspaceRoot`: one home for the locator formula
+ * shared by Workspace ingestion and Skill creation, so a duplicate-Artifact-ID
+ * fact cannot name a different file than the one a user would edit.
+ */
+export function skillEntryRelativePath(workspaceRoot: string, skillDirectory: string): string {
+  return join(relative(workspaceRoot, skillDirectory), SKILL_FILE_NAME);
+}
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;

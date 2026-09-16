@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 
 import {
   type ContextModule,
@@ -9,7 +9,7 @@ import {
 } from "../schemas/context-profile.js";
 import { parseSkill, type Skill } from "../schemas/skill.js";
 import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
-import { validateWorkspaceStructure, workspacePath } from "./workspace.js";
+import { validateWorkspaceStructure, workspacePath, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
 import { InstallerToolError, type CreationArtifactType } from "./tool-errors.js";
 
 export interface Workspace {
@@ -45,7 +45,7 @@ async function skillPaths(directory: string, prefix = ""): Promise<readonly stri
       const source = join(directory, entry.name);
       const nested = await skillPaths(source, relativePath);
       const children = await readdir(source, { withFileTypes: true });
-      return children.some((child) => child.isFile() && child.name === "SKILL.md")
+      return children.some((child) => child.isFile() && child.name === SKILL_FILE_NAME)
         ? [relativePath, ...nested]
         : nested;
     }),
@@ -127,8 +127,8 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     );
   }
   for (const name of await skillPaths(join(path, "skills"))) {
-    const relativePath = `skills/${name}/SKILL.md`;
     const sourcePath = join(path, "skills", name);
+    const relativePath = skillEntryRelativePath(path, sourcePath);
     let sidecar: string | undefined;
     try {
       sidecar = await readFile(join(sourcePath, "agent-profile-kit.yaml"), "utf8");
@@ -140,14 +140,14 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     addUnique(
       skills,
       parseSkill(
-        await readFile(join(sourcePath, "SKILL.md"), "utf8"),
+        await readFile(join(sourcePath, SKILL_FILE_NAME), "utf8"),
         relativePath,
         sourcePath,
         sidecar,
         sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
-      (existing) => join(relative(path, existing.path), "SKILL.md"),
+      (existing) => skillEntryRelativePath(path, existing.path),
     );
   }
 

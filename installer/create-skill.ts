@@ -1,15 +1,18 @@
 import { mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
 
 import { parseSkill } from "../schemas/skill.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import { newSkillScaffold } from "./authoring-examples.js";
 import { ingestSelectedWorkspace } from "./local-configuration.js";
-import { lstatEntry, requireRealCategory } from "./workspace.js";
+import {
+  lstatEntry,
+  requireRealCategory,
+  SKILL_FILE_NAME,
+  skillEntryRelativePath,
+} from "./workspace.js";
 import { InstallerToolError } from "./tool-errors.js";
-
-const SKILL_FILE_NAME = "SKILL.md";
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
@@ -127,9 +130,9 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
       artifactType: "Skill",
       id,
       // The existing Skill's Workspace-relative SKILL.md: the fact's path is
-      // the canonical file a user would edit, normalized here from the
-      // Skill record's absolute source directory (#508).
-      path: join(relative(workspace.path, workspace.skills.get(id)!.path), SKILL_FILE_NAME),
+      // the canonical file a user would edit, through the one shared locator
+      // home so ingestion and creation cannot name different files (#508).
+      path: skillEntryRelativePath(workspace.path, workspace.skills.get(id)!.path),
       stage: "creation",
     });
   }
@@ -137,7 +140,7 @@ export async function createSkill(options: CreateSkillOptions): Promise<CreateSk
   // Preflight the exact bytes through the canonical Skill schema before any
   // filesystem mutation, so overlength or otherwise schema-invalid material
   // can never be reported as success (CRAFT-2).
-  const relativePath = `skills/${id}/SKILL.md`;
+  const relativePath = `skills/${id}/${SKILL_FILE_NAME}`;
   const sourcePath = join(workspace.path, "skills", id);
   const scaffold = newSkillScaffold(id);
   parseSkill(scaffold, relativePath, sourcePath);
