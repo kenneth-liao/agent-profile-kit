@@ -49,6 +49,9 @@ import {
 import { runUninstallCommand } from "../cli/uninstall-command.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { executeInstall } from "../installer/install-application.js";
+import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
+import { defaultFileSystem } from "../installer/local-configuration-publication.js";
+import { executeUninstall } from "../installer/uninstall-application.js";
 import type { OperationHistoryEntry } from "../installer/operation-history.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { humanText } from "./support/human-text.js";
@@ -272,7 +275,13 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
     }
   });
 
-  test("a failed uninstall is recorded and rendered as failed, never as success", async () => {
+  // The fault below relies on filesystem permission enforcement: as root,
+  // 0o500 does not block removal, so the expected failure would not
+  // reproduce; skip rather than assert from a non-faulting run (the same
+  // guard sibling #511 adopted for its permission fault).
+  test.skipIf(process.getuid?.() === 0)(
+    "a failed uninstall is recorded and rendered as failed, never as success",
+    async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
@@ -315,30 +324,41 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
       rmSync(home, { recursive: true, force: true });
       rmSync(projectPath, { recursive: true, force: true });
     }
-  });
+    },
+  );
 
   test("a failed selection restore stays explicit from history recording through rendered evidence", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
       expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"])).exitCode).toBe(0);
-      // A failed recovery (DEC-006): the removal failed and restoring the
-      // previous selection failed too. History must carry that second failure.
-      const faulted = {
-        completed: [],
-        skipped: [],
-        unattempted: [],
-        warnings: [],
-        failed: {
-          project: projectPath,
-          canonicalProject: projectPath,
-          profile: "coding",
-          detail: "injected removal fault",
-          selectionRestored: false,
-          concurrentSelectionChange: false,
-          restoreError: "injected restore fault",
-        },
+      // A real failed recovery (DEC-006) produced by the installer through
+      // the same double fault the recovery suite uses: the state write
+      // faults after removal, then the binding-restore publish faults too.
+      // The fault object below is installer behavior, not a hand-built
+      // fixture — if recovery stops reporting this way, the test fails.
+      const alwaysFailingWriteState: typeof writeInstallationState = async () => {
+        throw new Error("injected Installation State fault");
       };
+      // Fail the binding-restore publication (the second config temp write).
+      let configPublishes = 0;
+      const failingFileSystem = {
+        ...defaultFileSystem,
+        writeFile: (async (...args: Parameters<typeof defaultFileSystem.writeFile>) => {
+          if (typeof args[0] === "string" && args[0].endsWith(".tmp")) {
+            configPublishes += 1;
+            if (configPublishes === 2) throw new Error("injected Local Configuration fault");
+          }
+          return defaultFileSystem.writeFile(...args);
+        }) as typeof defaultFileSystem.writeFile,
+      };
+      const faulted = await executeUninstall(home, {
+        all: true,
+        writeInstallationState: alwaysFailingWriteState,
+        bindFileSystem: failingFileSystem,
+      });
+      expect(faulted.failed?.selectionRestored).toBe(false);
+      expect(faulted.failed?.restoreError).toContain("injected Local Configuration fault");
       const recording = beginLifecycleOperationRecording();
       recording.collect(uninstallRecording(faulted, { selection: "all" }));
       const finishStreams = capturedStreams();
@@ -357,18 +377,22 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
       expect(stored.outcome).toBe("failed");
       expect(stored.projects[0]!.restored).toBe(false);
       expect(stored.failure).toContain("previous state restore failed");
-      expect(stored.failure).toContain("injected restore fault");
+      expect(stored.failure).toContain("injected Local Configuration fault");
 
       // The rendered details evidence keeps the restore failure explicit.
       const rendered = await readDetails(home, [entry.id]);
       const renderedText = humanText(rendered.output);
       expect(renderedText).toContain("failed");
       expect(renderedText).toContain("previous state restore failed");
-      expect(renderedText).toContain("injected restore fault");
+      expect(renderedText).toContain("injected Local Configuration fault");
       expect(renderedText).not.toContain("up to date");
 
       // The compact stopped-removal diagnostic names the restore failure and
       // offers the same-scope retry — it never presents verified success.
+      // The failed result above is installer-produced; the live-command
+      // wiring of this same call site is pinned by the neighboring
+      // failed-uninstall test, including the retry content.
+      if (faulted.failed === undefined) throw new Error("expected a failed uninstall");
       const document = uninstallExecutionFailureDocument({
         failed: faulted.failed,
         completed: [],
@@ -384,7 +408,7 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
       output.on("data", (chunk: Buffer) => chunks.push(chunk));
       writeHumanDocument(output, document, terminalPresentationContext(output));
       const compactText = humanText(Buffer.concat(chunks).toString());
-      expect(compactText).toContain("Previous selection/output restore failed: injected restore fault");
+      expect(compactText).toContain("Previous selection/output restore failed: injected Local Configuration fault");
       expect(compactText).toContain("uninstall --all --auto-confirm");
       expect(compactText).not.toContain("up to date");
     } finally {

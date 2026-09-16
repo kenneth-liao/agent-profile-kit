@@ -8,7 +8,7 @@
 
 ## Before the session (facilitator only)
 
-1. Provision one machine (or sandbox `HOME`) with the qualified build
+1. Provision one machine (or sandbox `HOME`) with the version-pinned build
    installed and first on `PATH`. Record the exact version
    (`apkit --version`); the prepared screens in this directory were captured
    against **0.204.0** — re-pin the version on #518 if it differs.
