@@ -1,0 +1,23 @@
+# Details — 100 columns: compact history plus one retained entry.
+
+$ apkit details --list
+Operation history (2):
+op-000002  2026-09-16T07:00:25Z  update   no-op      all Projects
+op-000001  2026-09-16T07:00:25Z  install  succeeded  one Project
+Run apkit details <operation-id> for one operation's complete evidence.
+
+[exit 0]
+$ apkit details op-000001
+Install op-000001
+Time: 2026-09-16T07:00:25Z → 2026-09-16T07:00:25Z
+Scope: one Project
+Profile: example
+Hosts: codex
+Outcome: succeeded
+
+Committed:
+  <SANDBOX>/w100-details/projects/hello
+    + .agent-profile-kit/codex/context.md
+    + .codex/hooks.json
+
+[exit 0]

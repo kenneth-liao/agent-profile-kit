@@ -1,0 +1,82 @@
+# Selection — 60 columns: bare install pickers for Profile and Hosts, then a declined confirmation (zero writes).
+
+$ apkit install
+Installing into hello.
+? Which Profile? … 
+no matches found? Which Profile? › 
+❯   example✔ Which Profile? › example
+Detected Agent Hosts: antigravity, claude, codex, grok,
+  opencode, pi.
+? Which Agent Hosts? › Type to filter, ↑/↓ navigate, space toggles, enter submits. 
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    [a,b,c]/delete: Filter choices
+    enter/return: Complete answer
+ 
+Filtered results for: Enter something to filter
+
+◯  antigravity
+◯  claude
+◯  codex
+◯  grok
+◯  opencode
+◯  pi? Which Agent Hosts? › Type to filter, ↑/↓ navigate, space toggles, enter submits. 
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    [a,b,c]/delete: Filter choices
+    enter/return: Complete answer
+ 
+Filtered results for: Enter something to filter
+
+◯  antigravity
+◯  claude
+◯  codex
+◯  grok
+◯  opencode
+◯  pi? Which Agent Hosts? › Type to filter, ↑/↓ navigate, space toggles, enter submits. 
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    [a,b,c]/delete: Filter choices
+    enter/return: Complete answer
+ 
+Filtered results for: Enter something to filter
+
+◉  antigravity
+◯  claude
+◯  codex
+◯  grok
+◯  opencode
+◯  pi? Which Agent Hosts? › Type to filter, ↑/↓ navigate, space toggles, enter submits. 
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    [a,b,c]/delete: Filter choices
+    enter/return: Complete answer
+ 
+Filtered results for: Enter something to filter
+
+◉  antigravity
+◯  claude
+◯  codex
+◯  grok
+◯  opencode
+◯  pi✔ Which Agent Hosts? › antigravity✔ Which Agent Hosts? › antigravity
+Install:
+  Project: hello
+  Profile: example
+  Hosts: antigravity
+Records the selection and installs the verified Project
+  files.
+? Install as listed? (y/N) › ? Install as listed? (y/N) › n✔ Install as listed? (y/N) … n
+apkit: install kept the current state; nothing was written
+  (you answered no)
+No Project or setting was changed.
+To proceed without asking, run
+  apkit install example '<SANDBOX>/w60-selection/projects/hello' --host antigravity --auto-confirm
+
+Details: apkit details
+
+[exit 1]
