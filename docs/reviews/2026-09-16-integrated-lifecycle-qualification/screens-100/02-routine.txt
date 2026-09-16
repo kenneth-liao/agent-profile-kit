@@ -1,0 +1,20 @@
+# Routine — 100 columns: settled update, fleet status, validate.
+
+$ apkit update --all
+Update complete
+All Projects were already current.
+
+Details: apkit details
+
+[exit 0]
+$ apkit status
+All Projects are up to date (1 Project)
+
+[exit 0]
+$ apkit validate
+Workspace and settings valid (1 Profile, 1 configured Project)
+Profiles found: example
+Hosts bound: codex
+Next: apkit status
+
+[exit 0]

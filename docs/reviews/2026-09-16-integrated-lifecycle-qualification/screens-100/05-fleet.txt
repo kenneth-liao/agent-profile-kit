@@ -1,0 +1,25 @@
+# Fleet — 100 columns: four Projects (long path, colliding basenames), inventory, scoped status, compact update.
+
+$ apkit list projects
+Projects:
+
+acme-internal-analytics-pipeline-v2  example  claude, codex  configured
+projects/my-app                      example  claude, codex  configured
+alpha/my-app                         example  claude, codex  configured
+beta/my-app                          example  claude, codex  configured
+
+4 Projects configured.
+Use apkit status to inspect Project lifecycle diagnostics.
+
+[exit 0]
+$ apkit status --all
+All Projects are up to date (4 Projects)
+
+[exit 0]
+$ apkit update --all
+Update complete
+All Projects were already current.
+
+Details: apkit details
+
+[exit 0]

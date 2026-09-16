@@ -1,0 +1,31 @@
+# Failure and recovery — 100 columns.
+
+$ apkit install exampel --host codex --auto-confirm
+apkit: Profile 'exampel' does not exist in this Workspace.
+Available Profiles: example.
+Did you mean 'example'?
+
+[exit 1]
+$ apkit update --project <SANDBOX>/does-not-exist
+apkit: Project target
+  '<SANDBOX>/does-not-exist'
+  must be an existing directory
+Run apkit list projects to see configured Projects.
+Usage: apkit update [project | --here | --all | --project <path>] [--stale | --blocked] [--replace-changed] [--remove-changed] [--verbose] [--json]
+
+[exit 1]
+$ apkit install example --host codex
+Install:
+  Project: hello
+  Profile: example
+  Hosts: codex
+Records the selection and installs the verified Project files.
+? Install as listed? (y/N) › ? Install as listed? (y/N) › n✔ Install as listed? (y/N) … n
+apkit: install kept the current state; nothing was written (you answered no)
+No Project or setting was changed.
+To proceed without asking, run
+  apkit install example '<SANDBOX>/w100-failure/projects/hello' --host codex --auto-confirm
+
+Details: apkit details
+
+[exit 1]

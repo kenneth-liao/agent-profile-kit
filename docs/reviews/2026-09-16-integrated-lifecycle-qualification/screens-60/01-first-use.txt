@@ -1,0 +1,58 @@
+# First use — 60 columns. Sandbox HOME with six controlled Host executables present.
+
+$ apkit 
+  /\  Agent Profile Kit
+ /__\ reusable agent material
+
+Agent Profile Kit is not set up on this machine.
+Next: Run apkit init to set it up.
+
+Run apkit --help for the full command list.
+
+[exit 0]
+$ apkit init
+A Profile is a named selection of Context and Skills to
+  adapt for your projects.
+? Set up your first Profile now? › (y/N)✔ Set up your first Profile now? … yes
+? What should the Profile be named? › ? What should the Profile be named? › e? What should the Profile be named? › en? What should the Profile be named? › eng? What should the Profile be named? › engi? What should the Profile be named? › engin? What should the Profile be named? › engine? What should the Profile be named? › enginee? What should the Profile be named? › engineer? What should the Profile be named? › engineeri? What should the Profile be named? › engineerin? What should the Profile be named? › engineering✔ What should the Profile be named? … engineering
+? Which Context Modules? ›  
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    a: Toggle all
+    enter/return: Complete answer
+◯   example-context? Which Context Modules? ›  
+Instructions:
+    ↑/↓: Highlight option
+    ←/→/[space]: Toggle selection
+    a: Toggle all
+    enter/return: Complete answer
+◉   example-context✔ Which Context Modules? › example-context
+Initialized Agent Profile Kit Workspace and settings at
+  ~/.agents/agent-profile-kit/workspace
+A Profile is a named selection of Context and Skills to
+  adapt for your projects.
+Detected Agent Hosts:
+  antigravity, claude, codex, grok, opencode, pi
+Created Profile engineering at
+  <SANDBOX>/w60-new/home/.agents/agent-profile-kit/workspace/profiles/engineering.yaml
+  Context: example-context
+Available Context Modules: example-context
+Available Skills: none
+Next: from the project you want to try, run
+  apkit install engineering
+
+[exit 0]
+$ apkit install engineering --host codex --auto-confirm
+Installed engineering for hello
+  Profile: engineering
+  Hosts: codex
+Next: apkit status
+To check that codex loaded Profile engineering, start a
+  new codex session in hello and ask codex what Profile
+  material it loaded; the installed material should appear
+  in its answer.
+
+Details: apkit details
+
+[exit 0]
