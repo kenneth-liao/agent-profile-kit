@@ -1424,7 +1424,7 @@ describe("project-bound release candidate", () => {
     // Inventory: supported Hosts and available Profiles from canonical sources.
     const hosts = await runCli(home, ["list", "hosts"]);
     expectExitCode(hosts, 0);
-    expect(hosts.stdout).toContain("  codex\n");
+    expect(hosts.stdout).toContain("  codex — installed\n");
 
     const profiles = await runCli(home, ["list", "profiles"]);
     expectExitCode(profiles, 0);

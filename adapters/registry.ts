@@ -75,14 +75,24 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
 /**
  * Advisory detection of installed supported Agent Hosts on the machine.
  * Evaluates registered Adapters concurrently and returns detected Hosts in
- * canonical SUPPORTED_HOSTS order. Detection is advisory and never throws.
+ * canonical SUPPORTED_HOSTS order. Detection is advisory and never throws:
+ * the per-Adapter guard here makes that contract true by construction — an
+ * Adapter whose probe rejects degrades to not-detected while every other
+ * Host still reports truthfully (issue #512, ADR-0016 targeted exception).
  */
 export async function detectInstalledHosts(
   options: { readonly env?: NodeJS.ProcessEnv } = {},
 ): Promise<readonly SupportedHost[]> {
   const detections = await Promise.all(
     HOST_REGISTRY.map(async (entry) => {
-      const detected = await entry.adapter.detectHost(options);
+      let detected: boolean;
+      try {
+        detected = await entry.adapter.detectHost(options);
+      } catch {
+        // A misbehaving Adapter degrades to not-detected; it can never
+        // reject the shared authority and fail an advisory consumer.
+        detected = false;
+      }
       return detected ? entry.host : undefined;
     }),
   );

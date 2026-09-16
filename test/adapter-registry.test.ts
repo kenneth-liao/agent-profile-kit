@@ -232,5 +232,35 @@ exit 2
     });
     expect(brokenDetected).toEqual([]);
   });
+
+  test("one Adapter whose detectHost rejects degrades to not found without failing the inventory", async () => {
+    // The per-Adapter guard in detectInstalledHosts is structural: an
+    // Adapter that throws must not reject the shared detection authority
+    // and take a previously infallible read-only command down with it.
+    const registration = HOST_REGISTRY[0]!;
+    const originalDetectHost = registration.adapter.detectHost.bind(registration.adapter);
+    registration.adapter.detectHost = () => Promise.reject(new Error("adapter probe rejected"));
+    try {
+      const bin = temporaryDirectory("apkit-detect-throwing-bin-");
+      // Stubs for the five non-throwing Adapters; the throwing Adapter's
+      // probe rejects before touching PATH.
+      for (const [name, output] of [
+        ["claude", "2.1.0 (Claude Code)"],
+        ["codex", "codex-cli 0.145.0"],
+        ["grok", "grok 0.2.111"],
+        ["opencode", "1.18.23"],
+        ["pi", "pi 0.82.1"],
+      ] as const) {
+        writeFileSync(join(bin, name), `#!/bin/sh\necho '${output}'\n`);
+        chmodSync(join(bin, name), 0o755);
+      }
+
+      const detected = await detectInstalledHosts({ env: { ...process.env, PATH: bin } });
+
+      expect(detected).toEqual(["claude", "codex", "grok", "opencode", "pi"]);
+    } finally {
+      registration.adapter.detectHost = originalDetectHost;
+    }
+  });
 });
 

@@ -190,25 +190,33 @@ locator renders once after the entries. `--verbose`, `apkit details`, and
 `--json` keep the full home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
-`list hosts` leads with the canonical Hosts supported for configured Projects
-without probing the machine. `list profiles <profile>` shows one Profile's
-selected Context Module and Skill names in their authored definition order;
-it is read-only, works independently of installation state, and an unknown
-name is rejected with the available choices and a near-match suggestion
-instead of an empty view:
+`list hosts` leads with the canonical Hosts supported for configured Projects,
+labeling each Host's advisory executable detection as installed/not found
+without implying Profile loading (US-018); a Host the probe does not detect
+stays listed and selectable:
 
 ```
 $ apkit list hosts
 Supported Hosts:
-  antigravity
-  claude
-  codex
-  grok
-  opencode
-  pi
+  antigravity — installed
+  claude — installed
+  codex — not found
+  grok — not found
+  opencode — installed
+  pi — installed
 
-Use <host> with apkit install to select it for a Project.
+"not found" means the Host executable was not detected here.
+Every Host stays selectable with apkit install.
 ```
+
+Executable detection is advisory: a "not found" label reports the executable
+only, never whether the Host can load a Profile, and it never removes the Host
+from available installation choices.
+
+`list profiles <profile>` shows one Profile's selected Context Module and Skill
+names in their authored definition order; it is read-only, works independently
+of installation state, and an unknown name is rejected with the available
+choices and a near-match suggestion instead of an empty view:
 
 ```
 $ apkit list profiles example

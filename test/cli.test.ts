@@ -53,6 +53,7 @@ import {
   controlledPath,
   controlledToolPath,
 } from "./support/controlled-environment.js";
+import { installControlledHosts, pathWithoutHostStub } from "./support/fleet-fixture.js";
 import { humanText } from "./support/human-text.js";
 import { retireBindingByHand } from "./support/retire-receipt.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
@@ -11195,20 +11196,85 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts leads with ordinary supported Hosts without temporary eligibility", async () => {
+  test("hosts labels detected executables without temporary eligibility", async () => {
     const home = isolatedHome();
 
+    // No Host stub on PATH: detection degrades to "not found" for every
+    // Host, and every Host stays listed and selectable.
     const result = await runCliWithPath(home, controlledPath(home), "list", "hosts");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
-        SUPPORTED_HOSTS.map((host) => `  ${host}\n`).join("") +
-        "\nUse <host> with apkit install to select it for a Project.\n",
+        SUPPORTED_HOSTS.map((host) => `  ${host} — not found\n`).join("") +
+        "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("Temporary Profile Installation");
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("hosts labels installed detected executables", async () => {
+    const home = isolatedHome();
+
+    const result = await runCliWithPath(
+      home,
+      installControlledHosts(home),
+      "list",
+      "hosts",
+    );
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+      "Supported Hosts:\n" +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — installed\n`).join("") +
+        "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
+    );
+  });
+
+  test("hosts labels a missing controlled Host stub not found while keeping it selectable", async () => {
+    const home = isolatedHome();
+
+    // One controlled Host stub deliberately absent: that Host degrades to
+    // "not found" while every other Host reports installed, and the
+    // undetected Host stays listed as an available installation choice.
+    // The call only seeds home/bin, which pathWithoutHostStub symlinks from.
+    installControlledHosts(home);
+    const result = await runCliWithPath(home, pathWithoutHostStub(home, "codex"), "list", "hosts");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("  codex — not found\n");
+    for (const host of SUPPORTED_HOSTS) {
+      if (host === "codex") continue;
+      expect(result.stdout).toContain(`  ${host} — installed\n`);
+    }
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  });
+
+  test("hosts labels failing executables not found without leaking probe diagnostics", async () => {
+    const home = isolatedHome();
+    const failingHostBin = join(home, "failing-host-bin");
+    mkdirSync(failingHostBin, { recursive: true });
+    for (const host of SUPPORTED_HOSTS) {
+      const executable = join(failingHostBin, host);
+      writeFileSync(executable, "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n");
+      chmodSync(executable, 0o755);
+    }
+
+    // A failing (non-hanging) probe degrades to "not found": the advisory
+    // detection never fails the command or leaks the stub's diagnostics.
+    const result = await runCliWithPath(home, failingHostBin, "list", "hosts");
+
+    expectExitCode(result, 0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toBe(
+      "Supported Hosts:\n" +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — not found\n`).join("") +
+        "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
+    );
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
