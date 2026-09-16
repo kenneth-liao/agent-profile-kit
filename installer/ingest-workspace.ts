@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import {
   type ContextModule,
@@ -73,28 +73,28 @@ async function sourceFiles(
 
 /**
  * Ingest one artifact into its category, refusing a repeated Artifact ID. The
- * duplicate fact carries the first-ingested artifact's Workspace-relative
- * canonical file as its `path` — the one canonical home for that locator
- * (#508). Each call site composes the locator it already reads through.
+ * duplicate fact carries the existing artifact's Workspace-relative canonical
+ * file as its `path`, derived from the already-stored record — the entries map
+ * stays the one home for that locator (#508). `locatorOf` exists because the
+ * Skill record's `path` is the absolute source directory, while Context Module
+ * and Profile records carry the workspace-relative file directly.
  */
-function addUnique<T extends { readonly id: string }>(
+function addUnique<T extends { readonly id: string; readonly path: string }>(
   entries: Map<string, T>,
-  locators: Map<string, string>,
   entry: T,
   artifactType: CreationArtifactType,
-  locator: string,
+  locatorOf: (existing: T) => string,
 ): void {
-  const existing = locators.get(entry.id);
+  const existing = entries.get(entry.id);
   if (existing !== undefined) {
     throw new InstallerToolError({
       kind: "duplicate-artifact-name",
       artifactType,
       id: entry.id,
-      path: existing,
+      path: locatorOf(existing),
     });
   }
   entries.set(entry.id, entry);
-  locators.set(entry.id, locator);
 }
 
 /**
@@ -107,28 +107,23 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   const contexts = new Map<string, ContextModule>();
   const profiles = new Map<string, Profile>();
   const skills = new Map<string, Skill>();
-  const contextLocators = new Map<string, string>();
-  const profileLocators = new Map<string, string>();
-  const skillLocators = new Map<string, string>();
 
   for (const name of await sourceFiles(join(path, "context"), ".md")) {
     const relativePath = `context/${name}`;
     addUnique(
       contexts,
-      contextLocators,
       parseContextModule(await readFile(join(path, relativePath), "utf8"), relativePath),
       "Context Module",
-      relativePath,
+      (existing) => existing.path,
     );
   }
   for (const name of await sourceFiles(join(path, "profiles"), ".yaml")) {
     const relativePath = `profiles/${name}`;
     addUnique(
       profiles,
-      profileLocators,
       parseProfile(await readFile(join(path, relativePath), "utf8"), relativePath),
       "Profile",
-      relativePath,
+      (existing) => existing.path,
     );
   }
   for (const name of await skillPaths(join(path, "skills"))) {
@@ -144,7 +139,6 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
     }
     addUnique(
       skills,
-      skillLocators,
       parseSkill(
         await readFile(join(sourcePath, "SKILL.md"), "utf8"),
         relativePath,
@@ -153,7 +147,7 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
-      relativePath,
+      (existing) => join(relative(path, existing.path), "SKILL.md"),
     );
   }
 

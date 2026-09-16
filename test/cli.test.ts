@@ -804,6 +804,28 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stderr).toContain("apkit validate");
   });
 
+  test("validate identifies a duplicated Profile ID and offers editing one of the conflicting files", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const profiles = join(workspacePath(home), "profiles");
+    writeFileSync(join(profiles, "dup-one.yaml"), "id: dup\ncontext: [example-context]\nskills: []\n");
+    writeFileSync(join(profiles, "dup-two.yaml"), "id: dup\ncontext: [example-context]\nskills: []\n");
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 1);
+    // The duplicate diagnostic identifies the existing artifact's real file,
+    // states what was unchanged, and offers editing plus revalidation without
+    // a fabricated creation retry (US-015, #508).
+    expect(result.stderr).toContain("A Profile named 'dup' already exists at profiles/dup-one.yaml");
+    expect(result.stderr).toContain("Nothing was created or changed");
+    expect(result.stderr).toContain("unique Artifact ID");
+    expect(result.stderr).toContain("apkit validate");
+    expect(result.stderr).not.toContain("apkit new");
+    expect(readFileSync(join(profiles, "dup-one.yaml"), "utf8")).toContain("id: dup");
+    expect(readFileSync(join(profiles, "dup-two.yaml"), "utf8")).toContain("id: dup");
+  });
+
   test("validate suggests the nearest name for a typo'd Profile reference (US-025)", async () => {
     const home = isolatedHome();
     await initialize(home);
@@ -14218,7 +14240,7 @@ describe("packed CLI new skill", () => {
     // unchanged, and offers editing it or another name (US-015, #508).
     expect(duplicated.stderr).toContain("A Skill named 'review-pr' already exists at");
     expect(duplicated.stderr).toContain("Nothing was created or changed");
-    expect(duplicated.stderr).toContain("Edit ");
+    expect(duplicated.stderr).toContain("Edit skills/review-pr/SKILL.md");
     expect(duplicated.stderr).toMatch(/apkit new skill <name>/);
     expect(readFileSync(skillFile, "utf8")).toContain("Hand-authored follow-up.\n");
 

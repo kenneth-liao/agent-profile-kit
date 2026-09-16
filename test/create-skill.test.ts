@@ -106,7 +106,8 @@ describe("createSkill", () => {
         artifactType: "Skill",
         id: "review-pr",
         path: "skills/elsewhere/SKILL.md",
-      });    } finally {
+      });
+    } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });

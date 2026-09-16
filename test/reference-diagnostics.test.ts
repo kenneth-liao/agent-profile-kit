@@ -16,7 +16,6 @@ import { nearestName } from "../cli/nearest-match.js";
 import type { WorkspaceIngestionErrorFact, InstallerToolErrorFact } from "../installer/tool-errors.js";
 import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
 import type { DiagnosticDocumentParts } from "../cli/diagnostics.js";
-import { InstallerToolError } from "../installer/tool-errors.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
 import { flatInlineText } from "../cli/inline-content.js";
