@@ -10500,32 +10500,6 @@ describe("apkit root help", () => {
     expect(nestedShortVersion.stdout).toBe(help.stdout);
   });
 
-/** A digest of every file under the given trees (no .git), so tests can prove nothing changed. */
-function treeDigest(roots: readonly string[]): string {
-  const hash = createHash("sha256");
-  const walk = (path: string, prefix: string): void => {
-    // A path absent before the invocation must stay absent; missing files
-    // contribute nothing rather than failing the digest.
-    if (!existsSync(path)) return;
-    if (statSync(path).isFile()) {
-      hash.update(prefix);
-      hash.update(readFileSync(path));
-      return;
-    }
-    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name === ".git") continue;
-      const relative = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) walk(join(path, entry.name), relative);
-      else {
-        hash.update(relative);
-        hash.update(readFileSync(join(path, entry.name)));
-      }
-    }
-  };
-  for (const root of roots) walk(root, root);
-  return hash.digest("hex");
-}
-
   test("removed preview invocations receive ordinary unknown-command handling without a compatibility execution path", async () => {
     const home = isolatedHome();
     for (const arguments_ of [
@@ -15335,12 +15309,40 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
   });
 });
 
+/** Every file path under one tree, POSIX-sorted, relative to the root; a file root is the empty path; an absent root is empty. */
+function treeEntries(root: string): string[] {
+  if (!existsSync(root)) return [];
+  if (statSync(root).isFile()) return [""];
+  const entries: string[] = [];
+  const walk = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === ".git") continue;
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) walk(join(directory, entry.name), relative);
+      else entries.push(relative);
+    }
+  };
+  walk(root, "");
+  return entries;
+}
+
+/** A digest of every file under the given trees (no .git), so tests can prove nothing changed. */
+function treeDigest(roots: readonly string[]): string {
+  const hash = createHash("sha256");
+  for (const root of roots) {
+    for (const relative of treeEntries(root)) {
+      hash.update(relative);
+      hash.update(readFileSync(join(root, relative)));
+    }
+  }
+  return hash.digest("hex");
+}
+
 describe("packed CLI validate of a folder that is not connected (#595)", () => {
   /** One Workspace folder at an arbitrary (non-default) path: the connectable shape. */
   function workspaceFolder(home: string): string {
     return join(home, "workspaces", "handbook");
   }
-
   function writeValidWorkspaceFolder(workspace: string, options: { profile?: string } = {}): void {
     mkdirSync(join(workspace, "context"), { recursive: true });
     mkdirSync(join(workspace, "skills"), { recursive: true });
@@ -15356,20 +15358,6 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
         `id: "${options.profile}"\ncontext:\n  - handbook\nskills: []\n`,
       );
     }
-  }
-
-  /** Every file path inside a directory tree, POSIX-sorted, relative to the root. */
-  function treeEntries(root: string): string[] {
-    const entries: string[] = [];
-    const walk = (directory: string, prefix: string): void => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const path = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-        if (entry.isDirectory()) walk(join(directory, entry.name), path);
-        else entries.push(path);
-      }
-    };
-    walk(root, "");
-    return entries.sort();
   }
 
   test("validate <path> validates a valid Workspace folder in a fresh home and writes nothing", async () => {
@@ -15500,7 +15488,26 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     expect(result.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
     expect(humanText(result.stdout)).toContain("Workspace: ~/workspaces/handbook");
     expect(humanText(result.stdout)).toContain("Profiles found: deploy");
+    expect(humanText(result.stdout)).toContain("Context Modules found: handbook");
+    expect(humanText(result.stdout)).toContain("Skills found: none");
     expect(existsSync(configPath(home))).toBe(true);
+  });
+
+  test("validate <path> ignores existing Local Configuration", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    // A corrupt Local Configuration would fail any command that reads it; the
+    // folder form must validate without consulting or changing it.
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "not: [valid\n");
+    defaultCliPath(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
+    expect(readFileSync(configPath(home), "utf8")).toBe("not: [valid\n");
   });
 
   test("validate expands a home-relative path and keeps the authored spelling in errors", async () => {

@@ -1511,6 +1511,22 @@ export function workspaceValidationDocument(
         parts: [result.profiles.length === 0 ? "none" : result.profiles.join(", ")],
       },
     },
+    {
+      kind: "key-value",
+      key: "Context Modules found",
+      value: {
+        kind: "prose",
+        parts: [result.contexts.length === 0 ? "none" : result.contexts.join(", ")],
+      },
+    },
+    {
+      kind: "key-value",
+      key: "Skills found",
+      value: {
+        kind: "prose",
+        parts: [result.skills.length === 0 ? "none" : result.skills.join(", ")],
+      },
+    },
   ];
 }
 

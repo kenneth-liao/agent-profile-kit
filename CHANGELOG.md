@@ -6,7 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Added folder validation to `apkit validate <path>`: any folder now validates as a Workspace whether or not apkit is set up on the machine, reading and writing no Local Configuration, while relative paths including `.` validate the named folder and bare `apkit validate` keeps checking the connected Workspace and settings (#595)
+- Added folder validation to `apkit validate <path>`: any folder now validates as a Workspace whether or not apkit is set up on the machine, reading and writing no Local Configuration, while relative paths including `.` validate the named folder and bare `apkit validate` keeps checking the connected Workspace and settings; rejected flags on the path form follow the positional-argument wording (for example `validate does not accept flag '--json' as a Workspace path`) (#595)
 
 - Fixed Host detection to decide by executable presence on `PATH` alone: `list hosts`, `init`, and guided `install` no longer start Host CLIs, so detecting commands can no longer hang on a Host executable or write Host state files into the user's home; the lookup itself is deadline-bounded against stalled `PATH` entries and lifecycle capability probing is unchanged (#594)
 
