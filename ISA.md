@@ -278,8 +278,9 @@ validation enforces.
 - [ ] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
   never fails validation without the output naming every change needed.
   Probe: validate retained fixtures kept from each release that changed the
-  contract, and a copy of the principal's Workspace made when the probe runs; a
-  failure without a complete change list fails. bash
+  contract, including a realistic-scale fixture with neutral content modeled on
+  the principal's Workspace; a failure without a complete change list fails.
+  bash
 - [ ] **ISC-47.1:** **Anti:** Detecting which Hosts are installed never starts a
   Host program.
   Probe: run every command that detects installed Hosts with fake Host
@@ -341,8 +342,9 @@ validation enforces.
     validation names every change needed (ISC-46).
   - Host detection stays advisory (ISC-47.1, ISC-47.2).
   - Contradicts ADR-0007 (fixed default Workspace path; refusal to select a
-    different Workspace). A superseding ADR is required before that behaviour
-    changes.
+    different Workspace) and `docs/USER-JOURNEY.md` stage 2 (`init` creates the
+    Workspace at that default path). A superseding ADR and a journey update are
+    required before that behaviour changes.
   - Dead end: the fixed default `~/.agents/agent-profile-kit/workspace/`.
     ADR-0007 names it but records no reason for it, and in testing the user
     learned the location only from the final receipt (O1).
