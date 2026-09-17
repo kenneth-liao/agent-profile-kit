@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { fileTree } from "./support/file-tree.js";
 
 import { DEFAULT_ADAPTER_PLANNING_MATERIALS } from "../adapters/skill-package.js";
 
@@ -180,16 +182,16 @@ exit 2
       expect(typeof registration.adapter.detectHost).toBe("function");
     }
 
+    // Detection decides by executable presence on PATH alone (spec #593,
+    // US-009, DEC-012): a stub that exits 1 when started still reports its
+    // Host as installed, because detection never starts the executable.
     const bin = temporaryDirectory("apkit-detect-all-bin-");
-    writeFileSync(join(bin, "agy"), "#!/bin/sh\necho 'Antigravity 1.1.13'\n");
-    writeFileSync(join(bin, "claude"), "#!/bin/sh\necho '2.1.0 (Claude Code)'\n");
-    writeFileSync(join(bin, "codex"), "#!/bin/sh\necho 'codex-cli 0.145.0'\n");
-    writeFileSync(
-      join(bin, "grok"),
-      `#!/bin/sh\nif [ "$1" = "version" ]; then echo 'grok 0.2.111'; exit 0; fi\nexit 2\n`,
-    );
-    writeFileSync(join(bin, "opencode"), "#!/bin/sh\necho '1.18.23'\n");
-    writeFileSync(join(bin, "pi"), "#!/bin/sh\necho 'pi 0.82.1'\n");
+    writeFileSync(join(bin, "agy"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(bin, "claude"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(bin, "grok"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(bin, "opencode"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(bin, "pi"), "#!/bin/sh\nexit 1\n");
     for (const name of ["agy", "claude", "codex", "grok", "opencode", "pi"]) {
       chmodSync(join(bin, name), 0o755);
     }
@@ -206,8 +208,8 @@ exit 2
 
     // Partial detection: only codex and pi
     const partialBin = temporaryDirectory("apkit-detect-partial-bin-");
-    writeFileSync(join(partialBin, "codex"), "#!/bin/sh\necho 'codex-cli 0.145.0'\n");
-    writeFileSync(join(partialBin, "pi"), "#!/bin/sh\necho 'pi 0.82.1'\n");
+    writeFileSync(join(partialBin, "codex"), "#!/bin/sh\nexit 1\n");
+    writeFileSync(join(partialBin, "pi"), "#!/bin/sh\nexit 1\n");
     chmodSync(join(partialBin, "codex"), 0o755);
     chmodSync(join(partialBin, "pi"), 0o755);
 
@@ -223,14 +225,61 @@ exit 2
     });
     expect(emptyDetected).toEqual([]);
 
-    // Failed/unreadable probe does not throw and returns false
-    const brokenBin = temporaryDirectory("apkit-detect-broken-bin-");
-    writeFileSync(join(brokenBin, "codex"), "#!/bin/sh\nexit 1\n");
-    chmodSync(join(brokenBin, "codex"), 0o755);
-    const brokenDetected = await detectInstalledHosts({
-      env: { ...process.env, PATH: brokenBin },
+    // Presence that is not an executable file is not an installation: a
+    // directory named like the Host executable and a non-executable file
+    // both stay undetected (the lookup's shape rules).
+    const wrongShapeBin = temporaryDirectory("apkit-detect-wrong-shape-bin-");
+    mkdirSync(join(wrongShapeBin, "codex"));
+    writeFileSync(join(wrongShapeBin, "pi"), "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+    const wrongShapeDetected = await detectInstalledHosts({
+      env: { ...process.env, PATH: wrongShapeBin },
     });
-    expect(brokenDetected).toEqual([]);
+    expect(wrongShapeDetected).toEqual([]);
+  });
+
+  test("detecting installed Hosts starts no Host executable and writes nothing (TEST-011)", async () => {
+    // Fake Host executables that write a marker the moment they start: if
+    // any detecting command spawns a Host, the marker appears and the test
+    // fails. TEST-011 also compares the isolated home and working directory
+    // file trees before and after detection.
+    const bin = temporaryDirectory("apkit-detect-markers-bin-");
+    const home = temporaryDirectory("apkit-detect-markers-home-");
+    const markers = join(home, "started-markers");
+    mkdirSync(markers);
+    for (const [name] of [
+      ["agy", "Antigravity 1.1.13"],
+      ["claude", "2.1.0 (Claude Code)"],
+      ["codex", "codex-cli 0.145.0"],
+      ["grok", "grok 0.2.111"],
+      ["opencode", "1.18.23"],
+      ["pi", "pi 0.82.1"],
+    ] as const) {
+      // Marker via shell-builtin redirection: the stub inherits the detecting
+      // command's environment, whose PATH contains only the stub bin, so an
+      // external command like `touch` would not resolve.
+      writeFileSync(
+        join(bin, name),
+        `#!/bin/sh\necho started > '${join(markers, name)}'\n`,
+      );
+      chmodSync(join(bin, name), 0o755);
+    }
+
+    const treeBefore = fileTree(home);
+    const detected = await detectInstalledHosts({ env: { ...process.env, PATH: bin } });
+    expect(detected).toEqual([
+      "antigravity",
+      "claude",
+      "codex",
+      "grok",
+      "opencode",
+      "pi",
+    ]);
+
+    // No Host executable was started: no marker file exists inside the
+    // directory the fakes would write into.
+    expect(readdirSync(markers)).toEqual([]);
+    // No file in the isolated home changed.
+    expect(fileTree(home)).toEqual(treeBefore);
   });
 
   test("one Adapter whose detectHost rejects degrades to not found without failing the inventory", async () => {

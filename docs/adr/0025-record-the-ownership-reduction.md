@@ -38,3 +38,13 @@ The maintained glossary (`CONTEXT.md`) owns the canonical Blocker definition; `d
 ### Amendment: advisory Host detection during first-run initialization (DEC-022)
 
 Spec #373 (ticket #444) adds non-gating advisory Host detection during first-run `init` so the initialization receipt's suggested `bind` command can select an installed Host on the user's machine without hardcoding an absent Host. `init` executes only the registered Adapter version probes (`CompleteHostAdapter.detectHost`) on newly created Workspaces, and failed or unreadable probes never block initialization. `status` strictly retains its no-process execution guarantee, and Host Resolution remains native to each Agent Host.
+
+### Amendment: Host detection during init is a `PATH` presence check (spec #593, US-009, DEC-012, issue #594)
+
+The amendment above described `init` executing the registered Adapter version
+probes. Since spec #593 (US-009, DEC-012, ticket #594), `detectHost` is a
+read-only `PATH` executable-presence check: it never spawns the Host CLI and
+never writes, so first-run initialization can no longer hang on a Host
+executable, time out its probe, or leave Host state files behind. The
+advisory, non-gating contract is unchanged, and version and capability
+evidence stays in lifecycle capability probing.

@@ -126,3 +126,25 @@ The exception is deliberately narrow:
 - Inventory still writes no state.
 - Every other inventory topic, `info`, `status`, `validate`, and all other
   read-only commands keep their unaffected no-probe discovery guarantees.
+
+### Amendment: Host detection is a bounded `PATH` presence check (spec #593, US-009, DEC-012, issue #594)
+
+The detection amendment above recorded probes that could hang: a Host CLI
+ignoring termination held every detecting command for one bounded probe
+deadline plus the cleanup window, and starting a Host CLI at all writes Host
+state files into the user's home. Detection now decides by executable
+presence on `PATH` alone — the shared read-only lookup in
+`adapters/services/executable-lookup.ts`, reached through each Adapter's
+`detectHost`. It never spawns the Host and never writes; the probe's process
+deadline and cleanup window no longer apply to detection, but completion
+stays bounded: the whole search shares one 10-second budget (the historical
+probe budget), and a stalled `PATH` entry — a stat a network mount can hold
+indefinitely — degrades the lookup to "not found" instead of hanging the
+detecting command. The residual is one in-flight stat that may occupy a
+threadpool slot after the lookup has returned; the command's own completion
+is bounded either way. Empty `PATH` entries are skipped, so detection never
+depends on the working directory's contents (an empty entry would otherwise
+mean the current directory). Version and capability checks keep the shared
+bounded executor (ADR-0027) in lifecycle capability probing, which is
+unchanged. The asymmetry guard stands: `list hosts --json` remains probe-free
+and inventory still writes no state.

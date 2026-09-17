@@ -81,9 +81,11 @@ export interface AdapterProjectResult {
 export interface CompleteHostAdapter {
   readonly host: SupportedHost;
   /**
-   * Advisory detection of whether the Host executable is installed on PATH.
-   * Reuses the Adapter's existing version/probe boundary. Fails closed (returns false)
-   * on missing executable or probe failure and never throws.
+   * Advisory detection of whether the Host executable is installed: the
+   * bounded, read-only `PATH` presence check (spec #593, US-009, DEC-012)
+   * that never spawns the Host and never writes. Fails closed (returns
+   * false) when the executable is absent, the lookup budget is exhausted,
+   * or the check cannot be proven, and never throws.
    */
   detectHost(options?: { readonly env?: NodeJS.ProcessEnv }): Promise<boolean>;
   planProject(

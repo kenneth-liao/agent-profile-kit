@@ -32,6 +32,7 @@ import {
   hostileAmbient,
 } from "./support/controlled-environment.js";
 import { humanText } from "./support/human-text.js";
+import { fileTree } from "./support/file-tree.js";
 import { expectElidedProjectLine } from "./support/project-line.js";
 import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import {
@@ -2341,45 +2342,49 @@ describe("project-bound release candidate", () => {
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
 
-  test("initialization completes without hanging when a Host probe ignores SIGTERM (TEST-016, PROD-001)", async () => {
+  test("detecting commands never start Host executables on PATH (TEST-011)", async () => {
+    // A fake Codex executable that writes a marker and never exits when
+    // started: every detecting command must report presence without running
+    // it (spec #593, US-009, DEC-012). Detection previously spawned the
+    // Host CLI, hung init on SIGTERM-resistant stubs (PROD-001), and wrote
+    // Host state files into the user's home.
     const home = isolatedHome();
     const stubBin = join(home, "bin");
     mkdirSync(stubBin, { recursive: true });
+    const markerFile = join(home, "started-marker");
     const pidFile = join(home, "stub.pid");
     writeFileSync(
       join(stubBin, "codex"),
-      `#!/bin/sh\necho $$ > '${pidFile}'\ntrap '' TERM\n/bin/sleep 30\n`,
+      `#!/bin/sh\necho $$ > '${pidFile}'\necho started > '${markerFile}'\n/bin/sleep 30\n`,
     );
     execFileSync("chmod", ["+x", join(stubBin, "codex")]);
+    const stubPath = `${stubBin}:${allowlistBin(home)}`;
 
-    // The probe's own 10s deadline and SIGKILL escalation bound the stub, so
-    // init must still complete successfully, on the tolerant absent path.
-    const init = await runCli(home, ["init"], {
-      path: `${stubBin}:${allowlistBin(home)}`,
-      deadlineMs: 20_000,
-    });
+    // 1. init reports the present executable without starting it.
+    const init = await runCli(home, ["init"], { path: stubPath });
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("Detected Agent Hosts: none");
+    expect(init.stdout).toContain("Detected Agent Hosts: codex");
     expect(init.stdout).toContain(
       "Next: from the project you want to try, run apkit install example",
     );
+    // Discriminating negative: the old output contained "--host codex" here.
     expect(init.stdout).not.toContain("--host");
 
-    // No hanging processes: the SIGTERM-resistant stub group is gone.
-    const pid = Number(readFileSync(pidFile, "utf8").trim());
-    expect(pid).toBeGreaterThan(0);
-    let deadline = Date.now() + 2_000;
-    let alive = true;
-    while (Date.now() < deadline) {
-      try {
-        process.kill(pid, 0);
-      } catch {
-        alive = false;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    expect(alive, "SIGTERM-resistant stub pid must be gone after init completes").toBe(false);
+    // 2. list hosts is the read-only detecting command: its isolated home
+    // and working directory are unchanged and the fake stays silent.
+    const cwd = project();
+    const homeBefore = fileTree(home);
+    const cwdBefore = fileTree(cwd);
+    const hosts = await runCli(home, ["list", "hosts"], { path: stubPath, cwd });
+    expectExitCode(hosts, 0);
+    expect(hosts.stdout).toContain("codex — installed");
+    expect(fileTree(home)).toEqual(homeBefore);
+    expect(fileTree(cwd)).toEqual(cwdBefore);
+
+    // The SIGTERM-resistant stub group never started: no pid, no marker, no
+    // lingering process (the old detection timed out and killed the stub).
+    expect(existsSync(markerFile)).toBe(false);
+    expect(existsSync(pidFile)).toBe(false);
   }, 30_000);
 
   test("bare init after adopting an external aliased Workspace renders the authored alias (TEST-016)", async () => {

@@ -11385,27 +11385,42 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts labels failing executables not found without leaking probe diagnostics", async () => {
+  test("hosts reports executables installed by PATH presence alone, never starting them", async () => {
     const home = isolatedHome();
     const failingHostBin = join(home, "failing-host-bin");
+    const markers = join(home, "started-markers");
     mkdirSync(failingHostBin, { recursive: true });
-    for (const host of SUPPORTED_HOSTS) {
-      const executable = join(failingHostBin, host);
-      writeFileSync(executable, "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n");
-      chmodSync(executable, 0o755);
+    mkdirSync(markers);
+    for (const [host, executableName] of [
+      ["antigravity", "agy"],
+      ["claude", "claude"],
+      ["codex", "codex"],
+      ["grok", "grok"],
+      ["opencode", "opencode"],
+      ["pi", "pi"],
+    ] as const) {
+      // Each fake writes a marker (shell-builtin redirection, so it resolves
+      // without a PATH lookup) and fails loudly if ever started. Detection
+      // decides by presence alone (spec #593, US-009, DEC-012): the stubs
+      // are reported installed, nothing starts, and no diagnostic leaks.
+      writeFileSync(
+        join(failingHostBin, executableName),
+        `#!/bin/sh\necho started > '${join(markers, host)}'\necho 'unexpected Host probe' >&2\nexit 97\n`,
+      );
+      chmodSync(join(failingHostBin, executableName), 0o755);
     }
 
-    // A failing (non-hanging) probe degrades to "not found": the advisory
-    // detection never fails the command or leaks the stub's diagnostics.
     const result = await runCliWithPath(home, failingHostBin, "list", "hosts");
 
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
-        SUPPORTED_HOSTS.map((host) => `  ${host} — not found\n`).join("") +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — installed\n`).join("") +
         "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
     );
+    // No Host executable was started and the command wrote nothing.
+    expect(readdirSync(markers)).toEqual([]);
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
