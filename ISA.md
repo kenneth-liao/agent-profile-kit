@@ -1,10 +1,10 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/20
+progress: 0/49
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
-updated: 2026-09-12
+updated: 2026-09-17
 ---
 
 # Ideal State — Agent Profile Kit
@@ -16,6 +16,8 @@ simple task: use their Profiles across Projects and keep installations updated.
 Passing command tests alone has not established a clear, polished experience.
 Qualification can also consume repeated work without establishing which tests
 actually ran or whether the published package is the package they exercised.
+New users cannot tell where setup puts the Workspace, what a valid Workspace
+must contain, or how to use the Context and Skills they already have.
 
 ## Vision
 
@@ -24,18 +26,26 @@ efficiently, even across many Projects. The interface feels calm and carefully
 finished, with useful guidance at the point of need.
 Maintainers can qualify changes efficiently using trustworthy evidence, and
 users receive the exact package that passed release qualification.
+A new user turns what they already have, or nothing, into a Workspace they
+chose and own, knowing exactly what it must contain.
 
 ## Out of Scope
 
 - AI generation of substantive Context or Skill content.
 - A built-in text editor; content editing belongs in the user's editor.
 - Automatic verification of Profile loading inside an Agent Host.
+- apkit finding, importing, copying, or converting scattered Context and Skill
+  files into a Workspace; the user or their agent moves material.
+- Recovering Project selections after the machine-local settings folder is lost.
 
 ## Goal
 
 Make apkit intuitive for beginners and efficient for regular users: easy to create Profiles, install them into Projects with chosen Hosts, and update or remove installations. Keep the interface polished, actions predictable, and edits protected. Show what matters now, with deeper detail easy to find.
 Qualify changes without unnecessary repeated work or weaker fault detection,
 and tie each released package to complete evidence for its supported environment.
+Let a user start from nothing or from existing material and reach a valid,
+connected Workspace in a location they chose, against a published contract that
+validation enforces.
 
 ## Claims
 
@@ -121,6 +131,131 @@ and tie each released package to complete evidence for its supported environment
   change; a repeated check without an identified invalidation or hypothesis
   fails. manual
 
+- [ ] **ISC-19:** An unfamiliar user starting with no Context or Skills reaches
+  a valid, connected Workspace without coaching.
+  Probe: observe a newcomer from a fresh install using only public guidance and
+  CLI output; coaching, or an invalid or unconnected Workspace, fails. manual
+- [ ] **ISC-20:** An unfamiliar user with scattered Context and Skill files
+  reaches a valid, connected Workspace that contains that material without
+  coaching.
+  Probe: observe a newcomer given prepared scattered material and only public
+  guidance; coaching, missing material, or an unconnected Workspace fails. manual
+- [ ] **ISC-21:** An agent in a fresh session, given only the README link and
+  scattered material, reaches a valid, connected Workspace.
+  Probe: run a fresh agent session with only the README link and the material;
+  human help, missing material, or an unconnected Workspace fails. manual
+- [ ] **ISC-22:** A user can connect an existing valid Workspace with one
+  explicit command.
+  Probe: packed CLI without a TTY connects a valid fixture Workspace in one
+  command; a later `validate` that reports another Workspace fails. bash
+- [ ] **ISC-23:** **Anti:** apkit never uses a Workspace location that the user
+  did not choose or confirm.
+  Probe: run setup interactively (accept and decline) and without a TTY, with
+  and without a path, in fresh homes; any Workspace created or connected at an
+  unchosen location fails. bash
+- [ ] **ISC-24:** Before setup writes anything, it shows the full path of the
+  chosen folder and what making it the Workspace means.
+  Probe: principal reviews rendered interactive setup screens at 100 and 60
+  columns; a write before that confirmation, a shortened path, or a missing
+  explanation fails. manual
+- [ ] **ISC-25:** Setup without a TTY and without a Workspace path refuses
+  before writing and names the command that supplies a path.
+  Probe: packed CLI setup without a TTY or path in a fresh home; any write, or
+  no executable next command, fails. bash
+- [ ] **ISC-26:** A relative Workspace path, including `.`, sets up the folder
+  the user named.
+  Probe: packed CLI setup with `.` and a relative path; recorded Workspace other
+  than the named folder fails. bash
+- [ ] **ISC-27:** After confirmation, setup adds only the missing required
+  Workspace pieces; declining adds nothing.
+  Probe: set up an empty folder and a folder with unrelated files, accepting and
+  declining; any difference other than the missing pieces after accepting, or
+  any difference after declining, fails. bash
+- [ ] **ISC-28:** **Anti:** Setup never changes, moves, or deletes a file other
+  than the Workspace pieces it adds.
+  Probe: compare file trees before and after setup of valid, incomplete, and
+  invalid folders with unrelated files; any change to another file fails. bash
+- [ ] **ISC-29:** **Anti:** An invalid Workspace is never connected.
+  Probe: set up a folder with invalid material; a changed Workspace selection,
+  or no complete validation report, fails. bash
+- [ ] **ISC-30:** A user can connect a different Workspace after setup without
+  hand-editing settings.
+  Probe: packed CLI connects a second valid Workspace after setup; needing a
+  hand edit, or the first Workspace staying selected, fails. bash
+- [ ] **ISC-31:** Connecting a different Workspace keeps existing Project
+  selections.
+  Probe: connect a second Workspace on a machine with selected Projects; any
+  lost or changed selection fails. bash
+- [ ] **ISC-32:** After connecting a different Workspace, every Project selection
+  whose Profile that Workspace lacks is reported.
+  Probe: connect a Workspace that lacks a selected Profile; an unreported
+  selection fails. bash
+- [ ] **ISC-33:** **Anti:** Connecting a Workspace, first or again, never changes
+  its files.
+  Probe: compare a valid Workspace's file tree before and after first and repeat
+  connection, with and without a TTY; any change fails. bash
+- [ ] **ISC-34:** The Workspace contract is readable from the README before
+  installing apkit.
+  Probe: from the public README, reach the complete contract without installing
+  apkit; failure to reach it fails. manual
+- [ ] **ISC-35:** Every rule that Workspace validation enforces is stated in the
+  contract.
+  Probe: map each validation failure kind to a contract statement; an enforced
+  rule the contract does not state fails. manual
+- [ ] **ISC-36:** The contract's valid and invalid Workspace examples validate as
+  the contract says.
+  Probe: validate each contract example; an outcome different from the
+  contract's statement fails. bash
+- [ ] **ISC-37:** The contract states which machine-local files hold the
+  Workspace selection and Project selections.
+  Probe: read the contract; a missing location for either fact fails. manual
+- [ ] **ISC-38:** A standard Agent Skill is valid Workspace material without
+  edits.
+  Probe: copy real standard Skill packages unchanged into a Workspace and
+  validate; any required edit fails. bash
+- [ ] **ISC-39:** An existing Markdown Context file becomes valid after adding
+  only the metadata the contract states.
+  Probe: add only contract-stated metadata to real instruction files and
+  validate; any other required edit fails. bash
+- [ ] **ISC-40:** A folder that is not connected can be validated without
+  creating settings.
+  Probe: packed CLI validates an unconnected folder in a fresh home; no report,
+  or created settings, fails. bash
+- [ ] **ISC-41:** One validation run reports every contract violation in a
+  Workspace.
+  Probe: validate a Workspace seeded with several violations across categories;
+  any violation missing from one run fails. bash
+- [ ] **ISC-42:** Each reported contract violation names its path and the
+  change that fixes it.
+  Probe: trigger each violation kind; a report without the path or the fix
+  fails. bash
+- [ ] **ISC-43:** Failed Workspace validation points to the contract.
+  Probe: trigger each violation kind; output without a contract reference fails.
+  bash
+- [ ] **ISC-44:** **Anti:** A file under `context/` or `skills/` that does not
+  follow the contract is never silently ignored.
+  Probe: validate non-conforming files in both folders; any unreported file
+  fails. bash
+- [ ] **ISC-45:** An agent can repair an invalid Workspace using only validation
+  output.
+  Probe: run a fresh agent session on an invalid Workspace without the guides;
+  human help, or a Workspace still invalid, fails. manual
+- [ ] **ISC-46:** **Anti:** A previously valid Workspace never fails validation
+  without the output naming every change needed.
+  Probe: validate current-format fixtures and a copy of the principal's
+  Workspace with the changed engine; failure without a complete change list
+  fails. bash
+- [ ] **ISC-47:** **Anti:** Detecting installed Hosts never starts a Host program
+  or writes files.
+  Probe: run every detecting command with fake Host executables that write a
+  marker when started; any marker or changed home file fails. bash
+
+## Not yet specified
+
+- What scattered sample material ISC-20 and ISC-21 must contain to represent
+  real users (which Host folders and instruction files).
+- Whether the agent probes (ISC-21, ISC-45) require a specific agent or Host.
+
 ## Decisions
 
 - 2026-09-10 — refined: the principal accepted the concise Goal after reviewing
@@ -142,3 +277,24 @@ and tie each released package to complete evidence for its supported environment
   as the direction, then authorized this extension before specification.
   Existing user-journey claims and required human evidence remain in force;
   no new claim is closed by accepting the destination.
+- 2026-09-17 — refined: after hands-on first-use testing (#519 O1–O4), the
+  principal extended the destination to Workspace setup: "we should build around
+  those 2 starting points because I think that's where most clients will start,
+  most users will start and we should optimize around that." The starting points
+  are no material, and scattered existing material (the expected common path);
+  connecting an existing valid Workspace is included. Accepted:
+  - No default Workspace location. Interactive setup asks whether to use the
+    current folder or a named path; without a TTY a path is required.
+  - Setup offers to add only missing Workspace pieces to any chosen folder;
+    unrelated files do not matter and are never changed.
+  - Context and Skills both ship working; minimal documented metadata is
+    allowed, and validation names what is missing so the user or their agent
+    can fix it.
+  - One canonical contract, linked from the README and shown by the CLI.
+  - A contract change may invalidate existing Workspaces (pre-1.0) only with a
+    complete change list (ISC-46).
+  - Host detection must stay advisory (ISC-47).
+  Dead end: the hidden fixed default `~/.agents/agent-profile-kit/workspace/`
+  had no recorded rationale beyond ADR-0007's single default, and hid the
+  Workspace from the user who owns it. Recovering lost machine-local Project
+  selections was rejected: it needs a second home for that fact.
