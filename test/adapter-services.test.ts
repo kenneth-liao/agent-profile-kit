@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { invokeExecutable, mapProcessResult, type ExecutableInvocationError } from "../adapters/services/executable.js";
+import { executableOnPath } from "../adapters/services/executable-lookup.js";
 import { MAX_OUTPUT_BYTES_PER_STREAM, type ProcessOutputLimitResult, type ProcessTimeoutResult } from "../process/process-executor.js";
 import { classifyFileSystemEntry } from "../adapters/services/project-surface.js";
 import {
@@ -20,6 +21,48 @@ afterEach(() => {
 });
 
 describe("shared Adapter services", () => {
+  test("reports an executable present on PATH and absent otherwise", () => {
+    const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-"));
+    temporaryDirectories.push(root);
+    writeFileSync(join(root, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    expect(executableOnPath("codex", { PATH: root })).toBe(true);
+    expect(executableOnPath("codex", { PATH: join(root, "missing") })).toBe(false);
+  });
+
+  test("accepts only executable regular files, following symlinks", () => {
+    const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-shape-"));
+    temporaryDirectories.push(root);
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(bin, "agy"));
+    writeFileSync(join(bin, "not-executable"), "#!/bin/sh\nexit 0\n", { mode: 0o644 });
+    const real = join(root, "real-claude");
+    writeFileSync(real, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    symlinkSync(real, join(bin, "claude"));
+
+    // A directory named like the Host executable is not an installation.
+    expect(executableOnPath("agy", { PATH: bin })).toBe(false);
+    // A non-executable file is not an installation.
+    expect(executableOnPath("not-executable", { PATH: bin })).toBe(false);
+    // A symlink to an executable (Homebrew, npm, pip shims) is one.
+    expect(executableOnPath("claude", { PATH: bin })).toBe(true);
+  });
+
+  test("skips empty PATH entries and never leaks the ambient PATH under an override", () => {
+    const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-empty-"));
+    temporaryDirectories.push(root);
+    // An executable file named like a Host sits in the working directory.
+    writeFileSync(join(root, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    // POSIX empty entries mean the current directory; detection must not
+    // depend on working-directory contents, so empty entries are skipped.
+    expect(executableOnPath("codex", { PATH: `:${join(root, "missing")}:` })).toBe(false);
+    // An override environment is the whole search space: the ambient PATH
+    // (where this repository's own `bun` and `node` live) cannot leak in.
+    expect(executableOnPath("bun", { PATH: join(root, "missing") })).toBe(false);
+  });
+
   test("normalizes and compares core semantic versions without Host policy", () => {
     expect(normalizeCoreSemanticVersion("01", "145", "0")).toBe("1.145.0");
     expect(compareCoreSemanticVersions("0.99.0", "0.145.0")).toBe(-1);

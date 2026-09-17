@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed Host detection to decide by executable presence on `PATH` alone: `list hosts`, `init`, and guided `install` no longer start Host CLIs, so detecting commands can no longer hang on a Host executable or write Host state files into the user's home; lifecycle capability probing is unchanged (#594)
+
 - Changed authoring guides to render as terminal content: focused guides and the complete human guide now print headings without markdown decoration, wrapping prose, and verbatim copyable example bodies with no code fences, while the agent workflow reference stays byte-identical raw markdown for its agent consumer (#510)
 
 - Changed Host-loading guidance to appear only when it is relevant: first installations and Host additions now offer the optional loading check beside the install receipt, while ordinary repeated content updates close with the readiness reminder alone and no longer repeat the check (#515)

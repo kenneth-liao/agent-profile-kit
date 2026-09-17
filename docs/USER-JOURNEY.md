@@ -192,8 +192,8 @@ locator renders once after the entries. `--verbose`, `apkit details`, and
 `list profiles` reads Profile selections from the selected Workspace, and
 `list hosts` leads with the canonical Hosts supported for configured Projects,
 labeling each Host's advisory executable detection as installed/not found
-without implying Profile loading (US-018); a Host the probe does not detect
-stays listed and selectable:
+without implying Profile loading (US-018); a Host whose executable is absent
+from `PATH` stays listed and selectable:
 
 ```
 $ apkit list hosts

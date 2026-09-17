@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { lstat, readFile } from "node:fs/promises";
 import { join, posix, resolve } from "node:path";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { PI_ADAPTER_VERSION } from "./host-catalog.js";
@@ -51,6 +52,9 @@ export const PI_HOST_VERSION_WITH_INVOCATION =
 export const PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION =
   "native-project-append-system-shared-skills-invocation-v1";
 export const PI_MINIMUM_CLI_VERSION = "0.82.1";
+
+/** The Pi CLI executable, shared by capability probing and detection. */
+const PI_EXECUTABLE = "pi";
 export const PI_CONTEXT_PATH = posix.join(".pi", "APPEND_SYSTEM.md");
 /** Pi discovers Profile Skills through the qualified shared project surface. */
 export const PI_PROJECT_SKILLS_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
@@ -199,7 +203,7 @@ export function assertPiCliVersionSupported(
 async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string> {
   if (options.resolveVersion) return parsePiCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await invokeExecutable("pi", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable(PI_EXECUTABLE, ["--version"], {
       ...(options.env === undefined ? {} : { env: options.env }),
       timeoutMs: 10_000,
     });
@@ -434,14 +438,10 @@ export async function planPiProject(
 export const piAdapter = {
   host: "pi",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolvePiCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(PI_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;

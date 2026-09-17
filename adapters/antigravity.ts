@@ -1,6 +1,7 @@
 import { lstat } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
@@ -60,6 +61,9 @@ export const ANTIGRAVITY_CONTEXT_REQUIREMENTS = [
 ] as const;
 
 const ANTIGRAVITY_RULE_FRONTMATTER = "---\ntrigger: always_on\n---\n\n";
+
+/** The Antigravity CLI executable, shared by capability probing and detection. */
+const ANTIGRAVITY_EXECUTABLE = "agy";
 const ANTIGRAVITY_RULE_PREFIX = "agent-profile-kit";
 const ANTIGRAVITY_RULE_SEQUENCE_WIDTH = 3;
 
@@ -146,7 +150,7 @@ async function resolveAntigravityCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return parseAntigravityCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await invokeExecutable("agy", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable(ANTIGRAVITY_EXECUTABLE, ["--version"], {
       ...(options.env === undefined ? {} : { env: options.env }),
       timeoutMs: 10_000,
     });
@@ -412,14 +416,10 @@ export async function planAntigravityProject(
 export const antigravityAdapter = {
   host: "antigravity",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolveAntigravityCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(ANTIGRAVITY_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;

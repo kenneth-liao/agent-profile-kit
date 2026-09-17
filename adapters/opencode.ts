@@ -13,6 +13,7 @@ import {
 } from "./capability.js";
 import { generatedSourceGuidance } from "./generated-notice.js";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -62,6 +63,9 @@ export const OPENCODE_HOST_VERSION_WITH_INVOCATION =
  * model loading, and explicit native Skill command activation.
  */
 export const OPENCODE_MINIMUM_CLI_VERSION = "1.18.23";
+
+/** The OpenCode CLI executable, shared by capability probing and detection. */
+const OPENCODE_EXECUTABLE = "opencode";
 
 /** OpenCode native project Skill discovery root. */
 export const OPENCODE_PROJECT_SKILLS_ROOT = SHARED_SKILLS_DISCOVERY_ROOT;
@@ -156,7 +160,7 @@ async function resolveOpenCodeCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return parseOpenCodeCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await invokeExecutable("opencode", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable(OPENCODE_EXECUTABLE, ["--version"], {
       env: options.env ?? process.env,
       timeoutMs: 10_000,
     });
@@ -515,14 +519,10 @@ export async function planOpenCodeProject(
 export const opencodeAdapter = {
   host: "opencode",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolveOpenCodeCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(OPENCODE_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     // Profile-policy refusals throw: an Adapter that cannot plan valid output

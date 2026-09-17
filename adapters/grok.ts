@@ -17,6 +17,7 @@ import {
 } from "./capability.js";
 import { composeSkillEntryDocument } from "./generated-notice.js";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -76,6 +77,9 @@ export const GROK_HOST_VERSION_WITH_INVOCATION =
  * closed when that topology cannot be determined.
  */
 export const GROK_MINIMUM_CLI_VERSION = "0.2.0";
+
+/** The Grok Build CLI executable, shared by capability probing and detection. */
+const GROK_EXECUTABLE = "grok";
 
 /** Owned unscoped Grok project rule path (always-scanned `.grok/rules/*.md`). */
 export const GROK_CONTEXT_RULE_PATH = posix.join(
@@ -226,7 +230,7 @@ export function assertGrokCliVersionSupported(
 export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Promise<string> {
   if (options.resolveVersion) return options.resolveVersion();
   try {
-    const { stdout, stderr } = await invokeExecutable("grok", ["version"], {
+    const { stdout, stderr } = await invokeExecutable(GROK_EXECUTABLE, ["version"], {
       env: options.env ?? process.env,
       timeoutMs: 10_000,
     });
@@ -543,7 +547,7 @@ export async function inspectGrokProject(
     ? await options.resolveVersion()
     : await resolveGrokCliVersion(options);
   try {
-    const { stdout } = await invokeExecutable("grok", ["inspect", "--json"], {
+    const { stdout } = await invokeExecutable(GROK_EXECUTABLE, ["inspect", "--json"], {
       cwd: project,
       env,
       timeoutMs: 15_000,
@@ -938,14 +942,10 @@ export async function planGrokProject(
 export const grokAdapter = {
   host: "grok",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolveGrokCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(GROK_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;

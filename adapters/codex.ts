@@ -17,6 +17,7 @@ import type {
 } from "./project-plan.js";
 import { identifierPart } from "../cli/inline-content.js";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 import {
   compareCoreSemanticVersions,
   normalizeCoreSemanticVersion,
@@ -132,6 +133,9 @@ function resolveCodexHome(home: string, env: NodeJS.ProcessEnv = process.env): s
   return configured ? resolve(configured) : join(home, ".codex");
 }
 
+/** The Codex CLI executable, shared by capability probing and detection. */
+const CODEX_EXECUTABLE = "codex";
+
 /**
  * Parse a Codex version from `codex --version` output into a core `MAJOR.MINOR.PATCH`.
  * Accepts an optional leading `codex-cli`/`codex` label, optional `v` prefix, optional
@@ -186,7 +190,7 @@ async function resolveCodexCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return parseCodexCliVersion(await options.resolveVersion());
   try {
-    const { stdout, stderr } = await invokeExecutable("codex", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable(CODEX_EXECUTABLE, ["--version"], {
       env: options.env ?? process.env,
       timeoutMs: 10_000,
     });
@@ -439,14 +443,10 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
 export const codexAdapter = {
   host: "codex",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolveCodexCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(CODEX_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;

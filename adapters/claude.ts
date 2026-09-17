@@ -19,6 +19,7 @@ import {
   type ProposedProjectOutput,
 } from "./project-plan.js";
 import { invokeExecutable } from "./services/executable.js";
+import { executableOnPath } from "./services/executable-lookup.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -106,6 +107,9 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+/** The Claude Code CLI executable, shared by capability probing and detection. */
+const CLAUDE_EXECUTABLE = "claude";
+
 
 function memberBytesAsString(bytes: string | Uint8Array): string {
   return typeof bytes === "string" ? bytes : Buffer.from(bytes).toString("utf8");
@@ -168,7 +172,7 @@ async function resolveClaudeCliVersion(
 ): Promise<string> {
   if (options.resolveVersion) return options.resolveVersion();
   try {
-    const { stdout, stderr } = await invokeExecutable("claude", ["--version"], {
+    const { stdout, stderr } = await invokeExecutable(CLAUDE_EXECUTABLE, ["--version"], {
       env: options.env ?? process.env,
       timeoutMs: 10_000,
     });
@@ -368,14 +372,10 @@ function contextRule(
 export const claudeAdapter = {
   host: "claude",
   async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    try {
-      await resolveClaudeCliVersion(
-        options.env === undefined ? {} : { env: options.env },
-      );
-      return true;
-    } catch {
-      return false;
-    }
+    // Detection is the read-only PATH presence check (spec #593, US-009,
+    // DEC-012): it never starts the Host CLI and never writes. Version and
+    // capability evidence stays in lifecycle capability probing.
+    return executableOnPath(CLAUDE_EXECUTABLE, options.env);
   },
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
