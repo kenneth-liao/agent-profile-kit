@@ -143,12 +143,12 @@ test("legacy artifact roots stay absent from the engine source tree", () => {
   }
 });
 
-test("private release artifact cannot publish to npm", () => {
+test("public release artifact can publish to npm", () => {
   const manifest = JSON.parse(
     readFileSync(join(repositoryRoot, "package.json"), "utf8"),
   ) as Record<string, unknown>;
 
-  expect(manifest.private).toBe(true);
+  expect(manifest.private).toBeUndefined();
   expect(manifest.publishConfig).toBeUndefined();
 });
 
