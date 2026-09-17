@@ -90,6 +90,24 @@ export function expandConfiguredPath(
   return value;
 }
 
+/**
+ * Expand an authored CLI Workspace path argument: `~/` expands to the home
+ * directory and every other relative form (including `.`) resolves against
+ * the process working directory. The shared expansion rule stays the one home
+ * for the home-relative and wildcard rules; only this argument shape accepts
+ * working-directory-relative forms.
+ */
+export function expandWorkspaceArgument(
+  value: string,
+  home: string,
+  origin: ConfiguredPathOrigin,
+): string {
+  if (!value.startsWith("~")) {
+    return expandConfiguredPath(resolve(value), home, origin, "workspace");
+  }
+  return expandConfiguredPath(value, home, origin, "workspace");
+}
+
 export function isSameOrDescendant(path: string, ancestor: string): boolean {
   const relativePath = relative(ancestor, path);
   return (

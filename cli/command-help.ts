@@ -111,8 +111,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "validate",
     group: "common",
-    syntax: "validate",
-    summary: "Check Workspace and settings validity",
+    syntax: "validate [workspace]",
+    summary: "Check a Workspace folder or the connected Workspace and settings",
     examples: COMMAND_EXAMPLES.validate,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("status"), "."],

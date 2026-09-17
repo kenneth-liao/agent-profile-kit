@@ -57,6 +57,7 @@ import {
   temporaryInventoryDocument,
   type LifecycleCommand,
   validationResultDocument,
+  workspaceValidationDocument,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
 import { runDetailsCommand } from "./details-command.js";
@@ -89,6 +90,7 @@ import { StateReadFailureError } from "../installer/installation-state.js";
 import {
   statusApplication,
   validateApplication,
+  validateWorkspaceFolder,
 } from "../installer/commands.js";
 import {
   installTemporaryProfile,
@@ -629,6 +631,18 @@ function parseNoArguments(command: string, arguments_: readonly string[]): { rea
   return { valid: true };
 }
 
+function parseValidateArguments(arguments_: readonly string[]): { readonly workspace?: string } {
+  if (arguments_.length === 0) return {};
+  if (arguments_.length > 1) {
+    throw new Error("validate accepts at most one Workspace path");
+  }
+  const workspace = positionalArgument("validate", "a Workspace path", arguments_[0]!);
+  if (workspace === "") {
+    throw new Error("validate requires a Workspace path");
+  }
+  return { workspace };
+}
+
 function parseInfoArguments(arguments_: readonly string[]): { readonly json: boolean } {
   return { json: parseOptionalFlag("info", arguments_, "--json") };
 }
@@ -1067,10 +1081,19 @@ async function main(): Promise<void> {
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "validate") {
-    const parsed = parseOrExit("validate", () => parseNoArguments("validate", arguments_.slice(1)));
+    const parsed = parseOrExit("validate", () => parseValidateArguments(arguments_.slice(1)));
     if (parsed === undefined) return;
-    const result = await validateApplication(home);
-    writeHumanDocument(process.stdout, validationResultDocument(result), stdoutPresentationContext);
+    if (parsed.workspace === undefined) {
+      const result = await validateApplication(home);
+      writeHumanDocument(process.stdout, validationResultDocument(result), stdoutPresentationContext);
+      return;
+    }
+    const result = await validateWorkspaceFolder(home, parsed.workspace);
+    writeHumanDocument(
+      process.stdout,
+      workspaceValidationDocument(result, parsed.workspace),
+      stdoutPresentationContext,
+    );
     return;
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {

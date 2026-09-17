@@ -73,6 +73,8 @@ function configuredPathDescription(origin: ConfiguredPathOrigin): readonly Inlin
         : [`Local Configuration ${origin.configurationPath} bindings[${origin.bindingIndex}]`];
     case "init":
       return [commandPart(COMMAND_NAME, [arg("init")])];
+    case "validate":
+      return [commandPart(COMMAND_NAME, [arg("validate")])];
     case "install-temp":
       return ["install-temp"];
     case "project-target":
