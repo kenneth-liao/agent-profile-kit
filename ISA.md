@@ -159,8 +159,8 @@ validation enforces.
   and upgrading legacy Local Configuration that has no `workspace` value; any
   Workspace created or selected at a location not given or confirmed fails.
   bash
-- [ ] **ISC-24.1:** Setup writes nothing before the user confirms the chosen
-  folder.
+- [ ] **ISC-24.1:** Interactive setup writes nothing before the user confirms
+  the chosen folder.
   Probe: hold interactive setup at its confirmation and compare the file tree
   and Local Configuration with the starting state; any write fails. bash
 - [ ] **ISC-24.2:** The setup confirmation shows the full path of the chosen
@@ -249,7 +249,7 @@ validation enforces.
   Probe: add only contract-stated metadata to real instruction files and
   validate; any other required edit fails. bash
 - [ ] **ISC-40.1:** A folder that is not connected can be validated.
-  Probe: packed CLI validates an unconnected folder in a fresh home; no
+  Probe: packed CLI validates a folder that is not connected in a fresh home; no
   validation report fails. bash
 - [ ] **ISC-40.2:** Validating a folder that is not connected creates no Local
   Configuration.
@@ -275,19 +275,19 @@ validation enforces.
   output.
   Probe: run a fresh agent session on an invalid Workspace without the guides;
   human help, or a Workspace that is still invalid, fails. manual
-- [ ] **ISC-46:** **Anti:** A Workspace that was valid in the previous release
+- [ ] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
   never fails validation without the output naming every change needed.
-  Probe: validate retained fixtures of Workspaces valid in the previous release,
-  including a fixture copied from a long-lived real Workspace; a failure without
-  a complete change list fails. bash
+  Probe: validate retained fixtures kept from each release that changed the
+  contract, and a copy of the principal's Workspace made when the probe runs; a
+  failure without a complete change list fails. bash
 - [ ] **ISC-47.1:** **Anti:** Detecting which Hosts are installed never starts a
   Host program.
-  Probe: run every Host-detection consumer with fake Host executables that write
-  a marker when started; any marker fails. bash
+  Probe: run every command that detects installed Hosts with fake Host
+  executables that write a marker when started; any marker fails. bash
 - [ ] **ISC-47.2:** **Anti:** Detecting which Hosts are installed never writes a
   file.
-  Probe: compare the isolated home and working directory before and after each
-  Host-detection consumer; any new or changed file fails. bash
+  Probe: compare the isolated home and working directory before and after every
+  command that detects installed Hosts; any new or changed file fails. bash
 - [ ] **ISC-48:** When apkit refuses to connect an invalid Workspace, it shows
   the complete validation report.
   Probe: set up and connect folders with several violations; output missing any
