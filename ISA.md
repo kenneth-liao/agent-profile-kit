@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/49
+progress: 0/62
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-09-17
@@ -36,7 +36,7 @@ chose and own, knowing exactly what it must contain.
 - Automatic verification of Profile loading inside an Agent Host.
 - apkit finding, importing, copying, or converting scattered Context and Skill
   files into a Workspace; the user or their agent moves material.
-- Recovering Project selections after the machine-local settings folder is lost.
+- Recovering Project Bindings after Local Configuration is lost.
 
 ## Goal
 
@@ -130,70 +130,95 @@ validation enforces.
   Probe: inspect implementation and review verification records for a completed
   change; a repeated check without an identified invalidation or hypothesis
   fails. manual
-
 - [ ] **ISC-19:** An unfamiliar user starting with no Context or Skills reaches
   a valid, connected Workspace without coaching.
   Probe: observe a newcomer from a fresh install using only public guidance and
-  CLI output; coaching, or an invalid or unconnected Workspace, fails. manual
+  CLI output; coaching, or a Workspace that is invalid or not connected, fails.
+  manual
 - [ ] **ISC-20:** An unfamiliar user with scattered Context and Skill files
   reaches a valid, connected Workspace that contains that material without
   coaching.
   Probe: observe a newcomer given prepared scattered material and only public
-  guidance; coaching, missing material, or an unconnected Workspace fails. manual
+  guidance; coaching, missing material, or a Workspace that is invalid or not
+  connected, fails. manual
 - [ ] **ISC-21:** An agent in a fresh session, given only the README link and
-  scattered material, reaches a valid, connected Workspace.
+  scattered material, reaches a valid, connected Workspace that contains that
+  material.
   Probe: run a fresh agent session with only the README link and the material;
-  human help, missing material, or an unconnected Workspace fails. manual
-- [ ] **ISC-22:** A user can connect an existing valid Workspace with one
-  explicit command.
-  Probe: packed CLI without a TTY connects a valid fixture Workspace in one
-  command; a later `validate` that reports another Workspace fails. bash
-- [ ] **ISC-23:** **Anti:** apkit never uses a Workspace location that the user
-  did not choose or confirm.
-  Probe: run setup interactively (accept and decline) and without a TTY, with
-  and without a path, in fresh homes; any Workspace created or connected at an
-  unchosen location fails. bash
-- [ ] **ISC-24:** Before setup writes anything, it shows the full path of the
-  chosen folder and what making it the Workspace means.
-  Probe: principal reviews rendered interactive setup screens at 100 and 60
-  columns; a write before that confirmation, a shortened path, or a missing
-  explanation fails. manual
-- [ ] **ISC-25:** Setup without a TTY and without a Workspace path refuses
-  before writing and names the command that supplies a path.
-  Probe: packed CLI setup without a TTY or path in a fresh home; any write, or
-  no executable next command, fails. bash
-- [ ] **ISC-26:** A relative Workspace path, including `.`, sets up the folder
+  human help, missing material, or a Workspace that is invalid or not connected,
+  fails. manual
+- [ ] **ISC-22:** On a machine that is not set up, `apkit` names the command
+  that connects an existing valid Workspace.
+  Probe: in a fresh home, run bare `apkit`, then run the named command without a
+  TTY on a valid fixture Workspace; no such command, or a Workspace that is not
+  connected afterwards, fails. bash
+- [ ] **ISC-23:** **Anti:** apkit never selects a Workspace location that the
+  user did not give or confirm.
+  Probe: in fresh homes, run every command that creates or selects a Workspace:
+  setup (accept and decline, with and without a TTY or path), connecting again,
+  and upgrading legacy Local Configuration that has no `workspace` value; any
+  Workspace created or selected at a location not given or confirmed fails.
+  bash
+- [ ] **ISC-24.1:** Setup writes nothing before the user confirms the chosen
+  folder.
+  Probe: hold interactive setup at its confirmation and compare the file tree
+  and Local Configuration with the starting state; any write fails. bash
+- [ ] **ISC-24.2:** The setup confirmation shows the full path of the chosen
+  folder.
+  Probe: run interactive setup from folders with long and home-relative paths; a
+  shortened or missing path fails. bash
+- [ ] **ISC-24.3:** The setup confirmation explains what making the folder the
+  Workspace means.
+  Probe: principal reviews rendered setup confirmation screens at 100 and 60
+  columns; a missing or unclear explanation fails. manual
+- [ ] **ISC-25.1:** Setup without a TTY and without a Workspace path writes
+  nothing.
+  Probe: packed CLI setup without a TTY or path in a fresh home; any write fails.
+  bash
+- [ ] **ISC-25.2:** Setup without a TTY and without a Workspace path prints an
+  executable command that supplies a path.
+  Probe: run the printed command with a valid fixture path supplied; a missing
+  or failing command fails. bash
+- [ ] **ISC-26:** A relative Workspace path, including `.`, selects the folder
   the user named.
-  Probe: packed CLI setup with `.` and a relative path; recorded Workspace other
-  than the named folder fails. bash
-- [ ] **ISC-27:** After confirmation, setup adds only the missing required
-  Workspace pieces; declining adds nothing.
-  Probe: set up an empty folder and a folder with unrelated files, accepting and
-  declining; any difference other than the missing pieces after accepting, or
-  any difference after declining, fails. bash
-- [ ] **ISC-28:** **Anti:** Setup never changes, moves, or deletes a file other
-  than the Workspace pieces it adds.
-  Probe: compare file trees before and after setup of valid, incomplete, and
-  invalid folders with unrelated files; any change to another file fails. bash
+  Probe: packed CLI setup with `.` and with a relative path, then `validate` from
+  a different directory; a Workspace other than the named folder fails. bash
+- [ ] **ISC-27.1:** Accepting setup adds every missing part of the Workspace
+  structure that the contract requires.
+  Probe: accept setup of an empty folder and of a folder with unrelated files;
+  any required part still missing fails. bash
+- [ ] **ISC-27.2:** Accepting setup adds nothing to the chosen folder that the
+  contract does not require.
+  Probe: compare file trees before and after accepting setup; any added entry
+  that the contract does not require fails. bash
+- [ ] **ISC-27.3:** Declining setup adds nothing.
+  Probe: compare file trees and Local Configuration before and after declining;
+  any difference fails. bash
+- [ ] **ISC-28:** **Anti:** Setup never changes, moves, or deletes an existing
+  file in the chosen folder.
+  Probe: compare existing entries before and after setup of valid, incomplete,
+  and invalid folders that contain unrelated files; any changed, moved, or
+  deleted entry fails. bash
 - [ ] **ISC-29:** **Anti:** An invalid Workspace is never connected.
-  Probe: set up a folder with invalid material; a changed Workspace selection,
-  or no complete validation report, fails. bash
+  Probe: set up, connect, and connect again to folders with invalid material;
+  Local Configuration that selects any of them fails. bash
 - [ ] **ISC-30:** A user can connect a different Workspace after setup without
-  hand-editing settings.
+  hand-editing Local Configuration.
   Probe: packed CLI connects a second valid Workspace after setup; needing a
   hand edit, or the first Workspace staying selected, fails. bash
-- [ ] **ISC-31:** Connecting a different Workspace keeps existing Project
-  selections.
-  Probe: connect a second Workspace on a machine with selected Projects; any
-  lost or changed selection fails. bash
-- [ ] **ISC-32:** After connecting a different Workspace, every Project selection
-  whose Profile that Workspace lacks is reported.
-  Probe: connect a Workspace that lacks a selected Profile; an unreported
-  selection fails. bash
+- [ ] **ISC-31:** Connecting a Workspace again, the same one or a different one,
+  keeps existing Project Bindings.
+  Probe: connect the same Workspace, then a different one, on a machine with
+  Project Bindings; any lost or changed binding fails. bash
+- [ ] **ISC-32:** After connecting a Workspace, every Project Binding whose
+  Profile that Workspace lacks is reported.
+  Probe: connect a Workspace that lacks a bound Profile; an unreported binding
+  fails. bash
 - [ ] **ISC-33:** **Anti:** Connecting a Workspace, first or again, never changes
   its files.
-  Probe: compare a valid Workspace's file tree before and after first and repeat
-  connection, with and without a TTY; any change fails. bash
+  Probe: compare valid Workspaces' file trees before and after first
+  connection, connecting the same Workspace again, and connecting a different
+  Workspace, with and without a TTY; any change fails. bash
 - [ ] **ISC-34:** The Workspace contract is readable from the README before
   installing apkit.
   Probe: from the public README, reach the complete contract without installing
@@ -202,33 +227,43 @@ validation enforces.
   contract.
   Probe: map each validation failure kind to a contract statement; an enforced
   rule the contract does not state fails. manual
-- [ ] **ISC-36:** The contract's valid and invalid Workspace examples validate as
-  the contract says.
+- [ ] **ISC-36.1:** The contract includes a valid Workspace example.
+  Probe: read the contract; no valid Workspace example fails. manual
+- [ ] **ISC-36.2:** The contract includes invalid Workspace examples.
+  Probe: read the contract; no invalid Workspace example fails. manual
+- [ ] **ISC-36.3:** Each contract example validates as the contract says.
   Probe: validate each contract example; an outcome different from the
   contract's statement fails. bash
-- [ ] **ISC-37:** The contract states which machine-local files hold the
-  Workspace selection and Project selections.
-  Probe: read the contract; a missing location for either fact fails. manual
+- [ ] **ISC-37.1:** The contract states where this machine records the selected
+  Workspace location.
+  Probe: read the contract; a missing or wrong location fails. manual
+- [ ] **ISC-37.2:** The contract states where this machine records Project
+  Bindings.
+  Probe: read the contract; a missing or wrong location fails. manual
 - [ ] **ISC-38:** A standard Agent Skill is valid Workspace material without
   edits.
   Probe: copy real standard Skill packages unchanged into a Workspace and
   validate; any required edit fails. bash
-- [ ] **ISC-39:** An existing Markdown Context file becomes valid after adding
-  only the metadata the contract states.
+- [ ] **ISC-39:** An existing Markdown instruction file becomes a valid Context
+  Module after adding only the metadata the contract states.
   Probe: add only contract-stated metadata to real instruction files and
   validate; any other required edit fails. bash
-- [ ] **ISC-40:** A folder that is not connected can be validated without
-  creating settings.
-  Probe: packed CLI validates an unconnected folder in a fresh home; no report,
-  or created settings, fails. bash
+- [ ] **ISC-40.1:** A folder that is not connected can be validated.
+  Probe: packed CLI validates an unconnected folder in a fresh home; no
+  validation report fails. bash
+- [ ] **ISC-40.2:** Validating a folder that is not connected creates no Local
+  Configuration.
+  Probe: compare the fresh home before and after that validation; any created
+  Local Configuration fails. bash
 - [ ] **ISC-41:** One validation run reports every contract violation in a
   Workspace.
   Probe: validate a Workspace seeded with several violations across categories;
   any violation missing from one run fails. bash
-- [ ] **ISC-42:** Each reported contract violation names its path and the
-  change that fixes it.
-  Probe: trigger each violation kind; a report without the path or the fix
-  fails. bash
+- [ ] **ISC-42.1:** Each reported contract violation names its path.
+  Probe: trigger each violation kind; a report without the path fails. bash
+- [ ] **ISC-42.2:** Each reported contract violation names the change that fixes
+  it.
+  Probe: trigger each violation kind; a report without the fix fails. bash
 - [ ] **ISC-43:** Failed Workspace validation points to the contract.
   Probe: trigger each violation kind; output without a contract reference fails.
   bash
@@ -239,16 +274,27 @@ validation enforces.
 - [ ] **ISC-45:** An agent can repair an invalid Workspace using only validation
   output.
   Probe: run a fresh agent session on an invalid Workspace without the guides;
-  human help, or a Workspace still invalid, fails. manual
-- [ ] **ISC-46:** **Anti:** A previously valid Workspace never fails validation
-  without the output naming every change needed.
-  Probe: validate current-format fixtures and a copy of the principal's
-  Workspace with the changed engine; failure without a complete change list
-  fails. bash
-- [ ] **ISC-47:** **Anti:** Detecting installed Hosts never starts a Host program
-  or writes files.
-  Probe: run every detecting command with fake Host executables that write a
-  marker when started; any marker or changed home file fails. bash
+  human help, or a Workspace that is still invalid, fails. manual
+- [ ] **ISC-46:** **Anti:** A Workspace that was valid in the previous release
+  never fails validation without the output naming every change needed.
+  Probe: validate retained fixtures of Workspaces valid in the previous release,
+  including a fixture copied from a long-lived real Workspace; a failure without
+  a complete change list fails. bash
+- [ ] **ISC-47.1:** **Anti:** Detecting which Hosts are installed never starts a
+  Host program.
+  Probe: run every Host-detection consumer with fake Host executables that write
+  a marker when started; any marker fails. bash
+- [ ] **ISC-47.2:** **Anti:** Detecting which Hosts are installed never writes a
+  file.
+  Probe: compare the isolated home and working directory before and after each
+  Host-detection consumer; any new or changed file fails. bash
+- [ ] **ISC-48:** When apkit refuses to connect an invalid Workspace, it shows
+  the complete validation report.
+  Probe: set up and connect folders with several violations; output missing any
+  violation that `validate` reports fails. bash
+- [ ] **ISC-49:** The CLI shows the Workspace contract on request.
+  Probe: find the contract command from `apkit --help` and run it; output that
+  differs from the canonical contract fails. bash
 
 ## Not yet specified
 
@@ -281,20 +327,24 @@ validation enforces.
   principal extended the destination to Workspace setup: "we should build around
   those 2 starting points because I think that's where most clients will start,
   most users will start and we should optimize around that." The starting points
-  are no material, and scattered existing material (the expected common path);
-  connecting an existing valid Workspace is included. Accepted:
+  are no material, and scattered existing material (the expected common path).
+  Connecting an existing valid Workspace is included. Accepted:
   - No default Workspace location. Interactive setup asks whether to use the
-    current folder or a named path; without a TTY a path is required.
-  - Setup offers to add only missing Workspace pieces to any chosen folder;
-    unrelated files do not matter and are never changed.
-  - Context and Skills both ship working; minimal documented metadata is
-    allowed, and validation names what is missing so the user or their agent
-    can fix it.
+    current folder or a given path. Without a TTY, a path is required.
+  - Setup offers to add only the missing parts of the Workspace structure to any
+    chosen folder. Other files do not matter and are never changed.
+  - Context Modules and Skills both stay supported. The contract may require
+    minimal documented metadata. Validation names what is missing so that the
+    user or their agent can fix it.
   - One canonical contract, linked from the README and shown by the CLI.
-  - A contract change may invalidate existing Workspaces (pre-1.0) only with a
-    complete change list (ISC-46).
-  - Host detection must stay advisory (ISC-47).
-  Dead end: the hidden fixed default `~/.agents/agent-profile-kit/workspace/`
-  had no recorded rationale beyond ADR-0007's single default, and hid the
-  Workspace from the user who owns it. Recovering lost machine-local Project
-  selections was rejected: it needs a second home for that fact.
+  - Before 1.0, a contract change may make an existing Workspace invalid only if
+    validation names every change needed (ISC-46).
+  - Host detection stays advisory (ISC-47.1, ISC-47.2).
+  - Contradicts ADR-0007 (fixed default Workspace path; refusal to select a
+    different Workspace). A superseding ADR is required before that behaviour
+    changes.
+  - Dead end: the fixed default `~/.agents/agent-profile-kit/workspace/`.
+    ADR-0007 names it but records no reason for it, and in testing the user
+    learned the location only from the final receipt (O1).
+  - Dead end: recovering Project Bindings after Local Configuration is lost. It
+    needs a second home for that fact.
