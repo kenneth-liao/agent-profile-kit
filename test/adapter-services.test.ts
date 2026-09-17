@@ -21,16 +21,16 @@ afterEach(() => {
 });
 
 describe("shared Adapter services", () => {
-  test("reports an executable present on PATH and absent otherwise", () => {
+  test("reports an executable present on PATH and absent otherwise", async () => {
     const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-"));
     temporaryDirectories.push(root);
     writeFileSync(join(root, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 
-    expect(executableOnPath("codex", { PATH: root })).toBe(true);
-    expect(executableOnPath("codex", { PATH: join(root, "missing") })).toBe(false);
+    expect(await executableOnPath("codex", { PATH: root })).toBe(true);
+    expect(await executableOnPath("codex", { PATH: join(root, "missing") })).toBe(false);
   });
 
-  test("accepts only executable regular files, following symlinks", () => {
+  test("accepts only executable regular files, following symlinks", async () => {
     const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-shape-"));
     temporaryDirectories.push(root);
     const bin = join(root, "bin");
@@ -42,14 +42,25 @@ describe("shared Adapter services", () => {
     symlinkSync(real, join(bin, "claude"));
 
     // A directory named like the Host executable is not an installation.
-    expect(executableOnPath("agy", { PATH: bin })).toBe(false);
+    expect(await executableOnPath("agy", { PATH: bin })).toBe(false);
     // A non-executable file is not an installation.
-    expect(executableOnPath("not-executable", { PATH: bin })).toBe(false);
+    expect(await executableOnPath("not-executable", { PATH: bin })).toBe(false);
     // A symlink to an executable (Homebrew, npm, pip shims) is one.
-    expect(executableOnPath("claude", { PATH: bin })).toBe(true);
+    expect(await executableOnPath("claude", { PATH: bin })).toBe(true);
   });
 
-  test("skips empty PATH entries and never leaks the ambient PATH under an override", () => {
+  test("fails closed when the lookup budget is exhausted", async () => {
+    const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-bound-"));
+    temporaryDirectories.push(root);
+    writeFileSync(join(root, "codex"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+    // An exhausted budget degrades the advisory lookup to not-found instead
+    // of blocking the detecting command (PROD-2 on #611): a stalled PATH
+    // entry can hold a stat indefinitely, so the search gives up bounded.
+    expect(await executableOnPath("codex", { PATH: root }, { timeoutMs: 0 })).toBe(false);
+  });
+
+  test("skips empty PATH entries and never leaks the ambient PATH under an override", async () => {
     const root = mkdtempSync(join(tmpdir(), "apkit-executable-lookup-empty-"));
     temporaryDirectories.push(root);
     // An executable file named like a Host sits in the working directory.
@@ -57,10 +68,10 @@ describe("shared Adapter services", () => {
 
     // POSIX empty entries mean the current directory; detection must not
     // depend on working-directory contents, so empty entries are skipped.
-    expect(executableOnPath("codex", { PATH: `:${join(root, "missing")}:` })).toBe(false);
+    expect(await executableOnPath("codex", { PATH: `:${join(root, "missing")}:` })).toBe(false);
     // An override environment is the whole search space: the ambient PATH
     // (where this repository's own `bun` and `node` live) cannot leak in.
-    expect(executableOnPath("bun", { PATH: join(root, "missing") })).toBe(false);
+    expect(await executableOnPath("bun", { PATH: join(root, "missing") })).toBe(false);
   });
 
   test("normalizes and compares core semantic versions without Host policy", () => {

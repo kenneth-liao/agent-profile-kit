@@ -663,4 +663,35 @@ describe("machine-level Host capability probes within one invocation", () => {
     }
     expect(readProbeLog(home)).toEqual([]);
   });
+
+  test("a present-but-broken Host CLI stays detected and fails visibly at capability probing", async () => {
+    // Detection decides by presence alone (spec #593, US-009, DEC-012): an
+    // executable on PATH that would fail when started still reports its
+    // Host as installed. The moved failure must stay visible where
+    // capability is actually needed — the lifecycle probe names the Host
+    // and the fix (PROD-1/INT-2 on #611).
+    const home = temporaryDirectory("apk-host-probe-broken-");
+    await fleetWorkspace({
+      home,
+      bindings: [{ hosts: ["codex"], profile: "context-only" }],
+    });
+    const bin = join(home, "broken-bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "codex"), "#!/bin/sh\necho 'unexpected Host probe' >&2\nexit 97\n");
+    chmodSync(join(bin, "codex"), 0o755);
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+    });
+
+    expect(desired.installations).toHaveLength(1);
+    const warnings = desired.installations[0]!.capabilityWarnings;
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.host).toBe("codex");
+    const message = flatInlineText(warnings[0]!.warning.parts);
+    // The failure names the Host and the fix, so the "installed but broken"
+    // Host steered in by advisory detection meets a visible, actionable probe.
+    expect(message).toContain("Codex CLI version could not be detected");
+    expect(message).toContain("install a supported Codex release");
+  });
 });

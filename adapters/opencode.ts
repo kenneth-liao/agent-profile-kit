@@ -13,7 +13,7 @@ import {
 } from "./capability.js";
 import { generatedSourceGuidance } from "./generated-notice.js";
 import { invokeExecutable } from "./services/executable.js";
-import { executableOnPath } from "./services/executable-lookup.js";
+import { detectHostByPresence } from "./services/executable-lookup.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -518,12 +518,7 @@ export async function planOpenCodeProject(
 
 export const opencodeAdapter = {
   host: "opencode",
-  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    // Detection is the read-only PATH presence check (spec #593, US-009,
-    // DEC-012): it never starts the Host CLI and never writes. Version and
-    // capability evidence stays in lifecycle capability probing.
-    return executableOnPath(OPENCODE_EXECUTABLE, options.env);
-  },
+  detectHost: detectHostByPresence(OPENCODE_EXECUTABLE),
   async planProject(input, services) {
     // Profile-policy refusals throw: an Adapter that cannot plan valid output
     // must fail the invocation rather than return a partial plan.

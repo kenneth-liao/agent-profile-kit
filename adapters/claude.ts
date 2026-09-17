@@ -19,7 +19,7 @@ import {
   type ProposedProjectOutput,
 } from "./project-plan.js";
 import { invokeExecutable } from "./services/executable.js";
-import { executableOnPath } from "./services/executable-lookup.js";
+import { detectHostByPresence } from "./services/executable-lookup.js";
 import { classifyFileSystemEntry } from "./services/project-surface.js";
 import {
   compareCoreSemanticVersions,
@@ -371,12 +371,7 @@ function contextRule(
  */
 export const claudeAdapter = {
   host: "claude",
-  async detectHost(options: { readonly env?: NodeJS.ProcessEnv } = {}): Promise<boolean> {
-    // Detection is the read-only PATH presence check (spec #593, US-009,
-    // DEC-012): it never starts the Host CLI and never writes. Version and
-    // capability evidence stays in lifecycle capability probing.
-    return executableOnPath(CLAUDE_EXECUTABLE, options.env);
-  },
+  detectHost: detectHostByPresence(CLAUDE_EXECUTABLE),
   async planProject(input, services) {
     const requireContext = input.resolvedContexts.length > 0;
     const requireDisabledModelInvocation = skillsRequireDisabledModelInvocation(

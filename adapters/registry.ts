@@ -77,8 +77,10 @@ export function adapterVersionFor(hosts: readonly SupportedHost[]): string {
  * Evaluates registered Adapters concurrently and returns detected Hosts in
  * canonical SUPPORTED_HOSTS order. Detection is advisory and never throws:
  * the per-Adapter guard here makes that contract true by construction — an
- * Adapter whose probe rejects degrades to not-detected while every other
- * Host still reports truthfully (issue #512, ADR-0016 targeted exception).
+ * Adapter whose detectHost rejects degrades to not-detected while every
+ * other Host still reports truthfully (issue #512, ADR-0016 targeted
+ * exception). Since spec #593 (US-009, DEC-012), each Adapter's detection
+ * is the bounded read-only `PATH` presence check.
  */
 export async function detectInstalledHosts(
   options: { readonly env?: NodeJS.ProcessEnv } = {},
