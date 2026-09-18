@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -17,6 +17,14 @@ import { planGrokProject, GROK_CONTEXT_RULE_PATH } from "../adapters/grok.js";
 import { planOpenCodeProject, OPENCODE_CONTEXT_PATH } from "../adapters/opencode.js";
 import { planPiProject, PI_CONTEXT_PATH } from "../adapters/pi.js";
 import { normalizeAdapterPlans } from "../installer/project-plan.js";
+import { applyReconciliation } from "../installer/reconcile.js";
+import { buildDesiredState, stateManifestPath } from "../installer/project-plan.js";
+import { ingestSelectedWorkspace } from "../installer/local-configuration.js";
+import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import { createProfile } from "../installer/create-profile.js";
+import { createSkill } from "../installer/create-skill.js";
+import { configureProfileMembership } from "../installer/configure-profile.js";
+import { listProfileDetail, listProfiles } from "../installer/inventory.js";
 
 /**
  * Context Module identity is its path under `context/` without `.md`, with
@@ -58,6 +66,11 @@ async function ingestionFact(workspace: string): Promise<Record<string, unknown>
 /** Cast one captured schema-rejection detail to the workspace-artifact wording input. */
 function reasonFor(detail: Record<string, unknown>): WorkspaceArtifactRejectionReason {
   return detail as WorkspaceArtifactRejectionReason;
+}
+
+/** Ingest the connected Workspace, surfacing the typed failure instead of swallowing it. */
+async function ingestSelectedWorkspaceOrThrow(home: string) {
+  return ingestSelectedWorkspace(home);
 }
 
 describe("Context Module identity by path (spec #593 DEC-004/005, #600)", () => {
@@ -296,5 +309,148 @@ describe("a Profile naming a moved Context ID gets the closest-ID suggestion (sp
     const diagnostic = formatWorkspaceIngestionErrorDiagnostic(fact);
     const why = diagnostic.why?.map((parts) => parts.map((part) => (typeof part === "string" ? part : "")).join("")).join("\n");
     expect(why).not.toContain("Did you mean");
+  });
+});
+describe("the path grammar stays Context-only (PR #618 review INT-1)", () => {
+  test("a Profile's skills list still rejects a '/' reference under the flat grammar", async () => {
+    const home = mkdtempSync(join(tmpdir(), "apkit-context-identity-"));
+    try {
+      const workspace = scaffoldWorkspace(home);
+      writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: []\nskills:\n  - review/pr\n");
+      try {
+        await ingestWorkspace(workspace);
+        throw new Error("expected ingestion to reject the workspace");
+      } catch (error) {
+        expect(error).toBeInstanceOf(SchemaRejectionError);
+        const detail = (error as SchemaRejectionError).reason.detail as Record<string, unknown>;
+        expect(detail).toEqual({
+          case: "invalid-artifact-id",
+          artifact: "Profile",
+          path: "profiles/coding.yaml",
+          section: "skills",
+        });
+        // The Skill wording stays flat: no path grammar leaked into it.
+        expect(formatWorkspaceArtifactError(reasonFor(detail))).toBe(
+          "Profile profiles/coding.yaml skills must be a lowercase kebab-case name without wildcards",
+        );
+      }
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("Profile and Skill names still reject a '/' under the flat Artifact ID grammar", async () => {
+    const home = mkdtempSync(join(tmpdir(), "apkit-context-identity-"));
+    try {
+      await initializeWorkspace(home);
+      for (const rejection of [
+        () => createProfile({ home, name: "engineering/coding", contexts: [], skills: [] }),
+        () => createSkill({ home, name: "review/pr" }),
+      ]) {
+        try {
+          await rejection();
+          throw new Error("expected creation to reject the name");
+        } catch (error) {
+          expect(error).toBeInstanceOf(SchemaRejectionError);
+          expect((error as SchemaRejectionError).reason).toMatchObject({
+            schema: "artifact-id",
+            detail: { case: "invalid-artifact-id" },
+          });
+        }
+      }
+      await ingestSelectedWorkspaceOrThrow(home);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("nested Context IDs through writers, inventory, and receipts (PR #618 review INT-2, #600 box 6)", () => {
+  function initializedNestedHome(): Promise<string> {
+    return (async () => {
+      const home = mkdtempSync(join(tmpdir(), "apkit-context-identity-"));
+      await initializeWorkspace(home);
+      const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+      mkdirSync(join(workspace, "context", "engineering"), { recursive: true });
+      writeFileSync(join(workspace, "context", "engineering", "team-rules.md"), "Body.\n");
+      mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
+      writeFileSync(
+        join(workspace, "skills", "review-pr", "SKILL.md"),
+        "---\nname: review-pr\ndescription: Describes review-pr.\n---\n\n# review-pr\n",
+      );
+      return home;
+    })();
+  }
+
+  test("new profile writes and validates a Profile selecting a nested Context ID", async () => {
+    const home = await initializedNestedHome();
+    try {
+      const result = await createProfile({ home, name: "coding", contexts: ["engineering/team-rules"], skills: [] });
+      expect(result.availableContexts).toContain("engineering/team-rules");
+      const source = readFileSync(
+        join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
+        "utf8",
+      );
+      expect(source).toContain('"engineering/team-rules"');
+      const workspace = await ingestSelectedWorkspaceOrThrow(home);
+      expect(workspace.profiles.get("coding")!.context).toEqual(["engineering/team-rules"]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("configure profile selects a nested Context ID and inventory shows it", async () => {
+    const home = await initializedNestedHome();
+    try {
+      await createProfile({ home, name: "coding", contexts: ["engineering/team-rules"], skills: [] });
+      writeFileSync(
+        join(home, ".agents", "agent-profile-kit", "workspace", "context", "extra.md"),
+        "Extra.\n",
+      );
+      const configured = await configureProfileMembership({
+        home,
+        profile: "coding",
+        contexts: ["engineering/team-rules", "extra"],
+      });
+      expect(configured.contexts).toEqual(["engineering/team-rules", "extra"]);
+      // `list profiles <profile>` detail keeps the authored selection order
+      // and shows the nested ID verbatim.
+      const detail = await listProfileDetail(home, "coding");
+      expect(detail.context).toEqual(["engineering/team-rules", "extra"]);
+      const profiles = await listProfiles(home);
+      expect(profiles).toContainEqual({ id: "coding", contextModules: 2, skills: 0 });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("an Installation Receipt records the nested Context's projected output path", async () => {
+    const home = await initializedNestedHome();
+    const project = mkdtempSync(join(tmpdir(), "apkit-context-identity-project-"));
+    try {
+      const application = join(home, ".agents", "agent-profile-kit");
+      const workspace = join(application, "workspace");
+      writeFileSync(join(workspace, "profiles", "coding.yaml"), "context:\n  - engineering/team-rules\nskills: []\n");
+      writeFileSync(
+        join(application, "config.yaml"),
+        `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [antigravity]\n`,
+      );
+      const desired = await buildDesiredState(home, { checkHostCapability: false });
+      await applyReconciliation(home, desired.installations);
+
+      const state = JSON.parse(readFileSync(stateManifestPath(home), "utf8")) as {
+        receipts: readonly { profile_id: string; outputs: readonly { path: string }[] }[];
+      };
+      expect(state.receipts).toHaveLength(1);
+      expect(state.receipts[0]!.profile_id).toBe("coding");
+      // The nested Context's Antigravity rule keeps the flattened, safe name
+      // in the receipt's recorded output paths.
+      expect(state.receipts[0]!.outputs.map((output) => output.path)).toContain(
+        ".agents/rules/agent-profile-kit-010-engineering.team-rules.md",
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
