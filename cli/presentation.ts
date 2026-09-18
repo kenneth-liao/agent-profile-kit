@@ -134,7 +134,7 @@ import {
 } from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
-import type { ValidationResult } from "../installer/commands.js";
+import type { ValidationResult, WorkspaceFolderValidation } from "../installer/commands.js";
 import type {
   UninstallApplicationResult,
   UninstallCompletedProject,
@@ -1465,6 +1465,66 @@ export function validationResultDocument(result: ValidationResult): Presentation
           kind: "text",
           value: result.bindings === 0 ? "install <profile> --host <host>" : "status",
         }],
+      },
+    },
+  ];
+}
+
+/**
+ * The folder-validation view as a presentation document (#595): the validated
+ * Workspace folder plus the artifact facts, without the settings facts only a
+ * connected run can report.
+ */
+export function workspaceValidationDocument(
+  result: WorkspaceFolderValidation,
+  authored: string,
+): PresentationDocument {
+  const countClause = `${plural(result.profiles.length, "Profile")}, ${plural(
+    result.contexts.length,
+    "Context Module",
+  )}, ${plural(result.skills.length, "Skill")}`;
+  return [
+    // Severity is the validation outcome fact: the view only renders valid results.
+    {
+      kind: "notice",
+      severity: "success",
+      nodes: [{
+        kind: "prose",
+        parts: ["Workspace valid ", identifierPart(`(${countClause})`)],
+      }],
+    },
+    {
+      kind: "key-value",
+      key: "Workspace",
+      value: {
+        kind: "path",
+        canonicalPath: result.path,
+        authoredPath: authored,
+        scope: "fleet",
+      },
+    },
+    {
+      kind: "key-value",
+      key: "Profiles found",
+      value: {
+        kind: "prose",
+        parts: [result.profiles.length === 0 ? "none" : result.profiles.join(", ")],
+      },
+    },
+    {
+      kind: "key-value",
+      key: "Context Modules found",
+      value: {
+        kind: "prose",
+        parts: [result.contexts.length === 0 ? "none" : result.contexts.join(", ")],
+      },
+    },
+    {
+      kind: "key-value",
+      key: "Skills found",
+      value: {
+        kind: "prose",
+        parts: [result.skills.length === 0 ? "none" : result.skills.join(", ")],
       },
     },
   ];

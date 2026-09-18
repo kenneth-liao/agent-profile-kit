@@ -466,6 +466,11 @@ Restore the Context Module, or remove or update Profile 'broken'.
 Correct profiles/broken.yaml, then run apkit validate.
 ```
 
+`apkit validate <path>` checks any folder as a Workspace without reading or
+writing Local Configuration, so a Workspace that is not connected yet can be
+validated before `apkit init <path>` connects it (#595). Relative paths,
+including `.`, name the folder the command runs from.
+
 ### 7. Plan
 
 `status` defaults to the complete fleet and groups every actionable Project

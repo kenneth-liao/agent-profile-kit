@@ -15,7 +15,7 @@ export const COMMAND_EXAMPLES = {
     `install ${profile} --host codex --auto-confirm`,
     `install ${profile} ${project} --host codex --host claude --auto-confirm`,
   ],
-  validate: ["validate"],
+  validate: ["validate", `validate ${workspace}`],
   configure: [
     `configure profile ${profile} --context ${AUTHORING_EXAMPLES.context.id} --auto-confirm`,
     `configure profile ${profile} --skill example-skill --auto-confirm`,

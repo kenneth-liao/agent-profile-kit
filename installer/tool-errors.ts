@@ -18,6 +18,7 @@ export type ConfiguredPathOrigin =
       readonly bindingIndex?: number;
     }
   | { readonly source: "init" }
+  | { readonly source: "validate" }
   | { readonly source: "install-temp" }
   | { readonly source: "project-target"; readonly command: "update" | "status" | "install" | "uninstall" }
   | { readonly source: "project-binding" };

@@ -35,6 +35,9 @@ import {
   withReceipts,
 } from "./ownership-state.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
+import type { ConfiguredPathOrigin } from "./tool-errors.js";
+import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
+import { ingestWorkspace } from "./ingest-workspace.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -79,6 +82,36 @@ function planningInstrumentation(
   return instrumentation === undefined
     ? {}
     : { planningInstrumentation: instrumentation.planning };
+}
+
+/** The read-only validation outcome for one explicitly authored Workspace folder. */
+export interface WorkspaceFolderValidation {
+  readonly path: string;
+  readonly contexts: readonly string[];
+  readonly profiles: readonly string[];
+  readonly skills: readonly string[];
+}
+
+/**
+ * Validate the Workspace folder at an explicitly authored path without reading
+ * or writing Local Configuration (#595): any folder, connected or not. The
+ * shared expansion rule makes every relative form, including `.`, name the
+ * folder the user ran from; the canonical realpath is the validated identity.
+ */
+export async function validateWorkspaceFolder(
+  home: string,
+  authored: string,
+): Promise<WorkspaceFolderValidation> {
+  const origin: ConfiguredPathOrigin = { source: "validate" };
+  const expanded = expandWorkspaceArgument(authored, home, origin);
+  const canonical = await requireExistingDirectory(expanded, authored, origin, "workspace");
+  const workspace = await ingestWorkspace(canonical);
+  return {
+    path: canonical,
+    contexts: [...workspace.contexts.keys()].sort(),
+    profiles: [...workspace.profiles.keys()].sort(),
+    skills: [...workspace.skills.keys()].sort(),
+  };
 }
 
 export async function validateApplication(

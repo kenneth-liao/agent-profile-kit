@@ -10500,32 +10500,6 @@ describe("apkit root help", () => {
     expect(nestedShortVersion.stdout).toBe(help.stdout);
   });
 
-/** A digest of every file under the given trees (no .git), so tests can prove nothing changed. */
-function treeDigest(roots: readonly string[]): string {
-  const hash = createHash("sha256");
-  const walk = (path: string, prefix: string): void => {
-    // A path absent before the invocation must stay absent; missing files
-    // contribute nothing rather than failing the digest.
-    if (!existsSync(path)) return;
-    if (statSync(path).isFile()) {
-      hash.update(prefix);
-      hash.update(readFileSync(path));
-      return;
-    }
-    for (const entry of readdirSync(path, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      if (entry.name === ".git") continue;
-      const relative = `${prefix}/${entry.name}`;
-      if (entry.isDirectory()) walk(join(path, entry.name), relative);
-      else {
-        hash.update(relative);
-        hash.update(readFileSync(join(path, entry.name)));
-      }
-    }
-  };
-  for (const root of roots) walk(root, root);
-  return hash.digest("hex");
-}
-
   test("removed preview invocations receive ordinary unknown-command handling without a compatibility execution path", async () => {
     const home = isolatedHome();
     for (const arguments_ of [
@@ -11174,8 +11148,8 @@ function treeDigest(roots: readonly string[]): string {
 
     const badValidateFlag = await runCli(home, "validate", "--json");
     expectExitCode(badValidateFlag, 1);
-    expect(badValidateFlag.stderr).toContain("validate does not accept argument '--json'");
-    expect(badValidateFlag.stderr).toContain("Usage: apkit validate");
+    expect(badValidateFlag.stderr).toContain("validate does not accept flag '--json' as a Workspace path");
+    expect(badValidateFlag.stderr).toContain("Usage: apkit validate [workspace]");
 
     const badUninstallFlag = await runCli(home, "uninstall", "--verbose");
     expectExitCode(badUninstallFlag, 1);
@@ -15332,5 +15306,241 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expectExitCode(update, 0);
     expect(() => JSON.parse(update.stdout)).not.toThrow();
     expect(update.stdout).not.toContain("Details: apkit details");
+  });
+});
+
+/** Every file path under one tree, POSIX-sorted, relative to the root; a file root is the empty path; an absent root is empty. */
+function treeEntries(root: string): string[] {
+  if (!existsSync(root)) return [];
+  if (statSync(root).isFile()) return [""];
+  const entries: string[] = [];
+  const walk = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === ".git") continue;
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) walk(join(directory, entry.name), relative);
+      else entries.push(relative);
+    }
+  };
+  walk(root, "");
+  return entries;
+}
+
+/** A digest of every file under the given trees (no .git), so tests can prove nothing changed. */
+function treeDigest(roots: readonly string[]): string {
+  const hash = createHash("sha256");
+  for (const root of roots) {
+    for (const relative of treeEntries(root)) {
+      hash.update(relative);
+      hash.update(readFileSync(join(root, relative)));
+    }
+  }
+  return hash.digest("hex");
+}
+
+describe("packed CLI validate of a folder that is not connected (#595)", () => {
+  /** One Workspace folder at an arbitrary (non-default) path: the connectable shape. */
+  function workspaceFolder(home: string): string {
+    return join(home, "workspaces", "handbook");
+  }
+  function writeValidWorkspaceFolder(workspace: string, options: { profile?: string } = {}): void {
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    if (options.profile !== undefined) {
+      writeFileSync(
+        join(workspace, "context", "handbook.md"),
+        "---\nid: \"handbook\"\ndependencies: []\n---\n\nHandbook instructions.\n",
+      );
+      writeFileSync(
+        join(workspace, "profiles", `${options.profile}.yaml`),
+        `id: "${options.profile}"\ncontext:\n  - handbook\nskills: []\n`,
+      );
+    }
+  }
+
+  test("validate <path> validates a valid Workspace folder in a fresh home and writes nothing", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    // The controlled PATH fixture writes its stubs into the home on first use;
+    // materialize it before the snapshot so the comparison isolates validate.
+    defaultCliPath(home);
+    const before = treeEntries(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
+    expect(result.stdout).toContain("Profiles found: deploy");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(join(home, ".agents", "agent-profile-kit"))).toBe(false);
+    expect(treeEntries(home)).toEqual(before);
+  });
+  test("validate <path> reports the violation for an incomplete folder and writes nothing", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    mkdirSync(workspace, { recursive: true });
+    defaultCliPath(home);
+    const before = treeEntries(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Workspace is incomplete at");
+    expect(result.stderr).toContain(realpathSync(workspace));
+    expect(result.stderr).toContain("missing required file 'workspace.yaml'");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(join(home, ".agents", "agent-profile-kit"))).toBe(false);
+    expect(treeEntries(home)).toEqual(before);
+  });
+
+  test("validate <path> reports a missing Context reference with its fix", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(workspace, "profiles", "deploy.yaml"),
+      "id: \"deploy\"\ncontext:\n  - handbook\nskills: []\n",
+    );
+    defaultCliPath(home);
+    const before = treeEntries(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("Profile 'deploy' in profiles/deploy.yaml");
+    expect(result.stderr).toContain("selects missing Context Module");
+    expect(result.stderr).toContain("'handbook'");
+    expect(result.stderr).toContain("No Context Modules exist in the Workspace");
+    expect(result.stderr).toContain("Correct profiles/deploy.yaml, then run apkit validate");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(treeEntries(home)).toEqual(before);
+  });
+
+  test("validate <path> reports a path that is not an existing directory", async () => {
+    const home = isolatedHome();
+
+    const result = await runCliAt(home, home, "validate", "workspaces/absent");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain(
+      "apkit validate workspace 'workspaces/absent' must be an existing directory",
+    );
+    expect(existsSync(configPath(home))).toBe(false);
+  });
+
+  test("validate accepts `.` and a relative path from the working directory", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    defaultCliPath(home);
+
+    const here = await runCliAt(home, workspace, "validate", ".");
+    expectExitCode(here, 0);
+    expect(here.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
+
+    const relative = await runCliAt(home, home, "validate", "workspaces/handbook");
+    expectExitCode(relative, 0);
+    expect(relative.stdout).toContain("Profiles found: deploy");
+    expect(existsSync(configPath(home))).toBe(false);
+  });
+
+  test("validate without a path keeps validating the connected Workspace and settings", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("Agent Profile Kit is not set up on this machine");
+    expect(result.stderr).not.toContain("Workspace valid");
+  });
+
+  test("apkit --help and apkit help validate show the folder form", async () => {
+    const home = isolatedHome();
+
+    const root = await runCli(home, "--help");
+    expectExitCode(root, 0);
+    expect(humanText(root.stdout)).toContain(
+      "validate Check a Workspace folder or the connected Workspace and settings",
+    );
+
+    const focused = await runCli(home, "help", "validate");
+    expectExitCode(focused, 0);
+    expect(humanText(focused.stdout)).toContain("validate [workspace]");
+    expect(humanText(focused.stdout)).toContain("apkit validate ~/agent-profile-workspace");
+  });
+
+  test("validate <path> validates a folder on a machine that is already set up", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    defaultCliPath(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
+    expect(humanText(result.stdout)).toContain("Workspace: ~/workspaces/handbook");
+    expect(humanText(result.stdout)).toContain("Profiles found: deploy");
+    expect(humanText(result.stdout)).toContain("Context Modules found: handbook");
+    expect(humanText(result.stdout)).toContain("Skills found: none");
+    expect(existsSync(configPath(home))).toBe(true);
+  });
+
+  test("validate <path> ignores existing Local Configuration", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    // A corrupt Local Configuration would fail any command that reads it; the
+    // folder form must validate without consulting or changing it.
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), "not: [valid\n");
+    defaultCliPath(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 0);
+    expect(result.stdout).toContain("Workspace valid (1 Profile, 1 Context Module, 0 Skills)");
+    expect(readFileSync(configPath(home), "utf8")).toBe("not: [valid\n");
+  });
+
+  test("validate expands a home-relative path and keeps the authored spelling in errors", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate", "~/workspaces/absent");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain(
+      "apkit validate workspace '~/workspaces/absent' must be an existing directory",
+    );
+    expect(existsSync(configPath(home))).toBe(false);
+  });
+
+  test("validate rejects a wildcard path argument", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate", "workspaces/*");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain(
+      "apkit validate workspace must be an explicit directory path without wildcards",
+    );
+    expect(existsSync(configPath(home))).toBe(false);
+  });
+
+  test("validate refuses an empty path argument", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate", "");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("validate requires a Workspace path");
+    expect(existsSync(configPath(home))).toBe(false);
   });
 });
