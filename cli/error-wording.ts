@@ -47,8 +47,9 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * The explicit init command forms (spec #593 #601): there is no default
- * Workspace location, so every setup or migration remedy names a path the
- * user gives. One home so diagnostics and the bare screen cannot drift.
+ * Workspace location, so every diagnostic remedy names a path the user
+ * gives. One home for the diagnostics' shared remedy; the bare screen
+ * authors its own sentence because its lead-in differs (US-001).
  */
 function initLocationRemedies(prefix: string): readonly InlineContent[] {
   return [

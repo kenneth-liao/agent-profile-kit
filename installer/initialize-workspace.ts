@@ -555,17 +555,18 @@ async function migrateLegacyConfiguration(
       // A legacy file with no authored `workspace` has no selection to
       // preserve; without a user-given path there is nothing to upgrade to
       // (spec #593 #601, DEC-011). The re-read under the lock may differ from
-      // the outer check, so this gate lives at the ingestion of this source.
-      if (parsed.workspace === undefined && requestedWorkspace === undefined) {
-        throw new InstallerToolError({ kind: "init-workspace-path-required" });
-      }
+      // the outer check, so this gate lives at the ingestion of this source
+      // (the branch-local refusal below).
 
       let selectedWorkspace: string;
       if (parsed.workspace === undefined) {
         // No authored selection to conflict-check: the user-given path is the
         // first connection, set up like any explicit destination and then
         // recorded (keeping the legacy Project Bindings).
-        selectedWorkspace = requestedWorkspace!;
+        if (requestedWorkspace === undefined) {
+          throw new InstallerToolError({ kind: "init-workspace-path-required" });
+        }
+        selectedWorkspace = requestedWorkspace;
       } else {
         selectedWorkspace = parsed.workspace;
         if (requestedWorkspace !== undefined) {

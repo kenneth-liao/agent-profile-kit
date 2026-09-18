@@ -372,6 +372,15 @@ describe("typed Installer tool errors", () => {
     expect(machine).toBe("Local Configuration is missing at /home/.agents/agent-profile-kit/config.yaml; run apkit init <path>");
   });
 
+  test("the zero-argument init refusal names both executable forms (ISC-25.2)", () => {
+    const fact: InstallerToolErrorFact = { kind: "init-workspace-path-required" };
+    const error = new InstallerToolError(fact);
+    const diagnostic = errorDiagnosticParts(error);
+    const remedy = flatInlineText(diagnostic.whatToType![0]!);
+    expect(remedy).toContain("apkit init <path>");
+    expect(remedy).toContain("apkit init .");
+  });
+
   test("workspace-open-failed diagnostic carries failure detail and runnable recovery command", () => {
     const fact: InstallerToolErrorFact = {
       kind: "workspace-open-failed",

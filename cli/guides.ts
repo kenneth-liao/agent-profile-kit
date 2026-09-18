@@ -132,7 +132,7 @@ export function guideIndexDocument(): PresentationDocument {
   }
   nodes.push(spacer(), { kind: "heading", text: "Examples:" });
   for (const args of [
-    ["init"],
+    ["init", "<path>"],
     ["new", "skill", "<skill>"],
     ["guide", "profile"],
     ["install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
@@ -190,12 +190,14 @@ export interface FocusedGuideWorkspaceInput {
 
 function focusedGuideWorkspaceNode(input?: FocusedGuideWorkspaceInput): PresentationNode {
   if (input === undefined || input.configurationState === "not-configured" || input.workspace === null) {
+    // No Workspace location was ever given: there is no default to name, so
+    // the remedy names the explicit path form (spec #593 #601, ADR-0049).
     if (input?.configurationState === "legacy") {
       return {
         kind: "sentence",
         parts: [
           "Workspace: Legacy configuration; run ",
-          commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
+          commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }, { kind: "text", value: "<path>" }]),
         ],
       };
     }
@@ -203,7 +205,7 @@ function focusedGuideWorkspaceNode(input?: FocusedGuideWorkspaceInput): Presenta
       kind: "sentence",
       parts: [
         "Workspace: Not configured (run ",
-        commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }]),
+        commandPart(COMMAND_NAME, [{ kind: "text", value: "init" }, { kind: "text", value: "<path>" }]),
         ")",
       ],
     };

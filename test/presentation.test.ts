@@ -9314,7 +9314,7 @@ describe("guide documents (#390)", () => {
       "  apkit guide skill",
       "  apkit guide --full",
       "  apkit guide --agent",
-      "  apkit init",
+      "  apkit init <path>",
       "  apkit new skill <skill>",
       "  apkit guide profile",
       "  apkit install example --host codex",
@@ -9474,7 +9474,7 @@ describe("guide documents (#390)", () => {
       kind: "sentence",
       parts: [
         "Workspace: Not configured (run ",
-        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }, { kind: "text", value: "<path>" }] },
         ")",
       ],
     });
@@ -9489,7 +9489,7 @@ describe("guide documents (#390)", () => {
       kind: "sentence",
       parts: [
         "Workspace: Legacy configuration; run ",
-        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }] },
+        { kind: "command", program: "apkit", args: [{ kind: "text", value: "init" }, { kind: "text", value: "<path>" }] },
       ],
     });
 

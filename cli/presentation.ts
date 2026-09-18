@@ -4135,13 +4135,20 @@ export function uninstallReplacementCommandDocument(
 }
 
 /** The cancelled guided-init diagnostic (DEC-033): what happened, and that
- * initialization changed nothing. */
-export function initCancelledDocument(): PresentationDocument {
+ * initialization changed nothing. The remedy names the explicit path form
+ * when the cancelled invocation carried one, so a printed remedy never
+ * dead-ends in the zero-argument refusal (spec #593 #601, ADR-0049). */
+export function initCancelledDocument(
+  options: { readonly workspace?: string } = {},
+): PresentationDocument {
+  const initArguments: readonly CommandArg[] = options.workspace === undefined
+    ? [{ kind: "text", value: "init" }]
+    : [{ kind: "text", value: "init" }, { kind: "text", value: options.workspace }];
   return diagnosticDocument({
     happened: ["init was cancelled; nothing was initialized or created"],
     whatToType: [[
       "To initialize without the first-Profile guidance, run ",
-      commandPart(COMMAND_NAME, [arg("init")]),
+      commandPart(COMMAND_NAME, initArguments),
     ]],
   });
 }

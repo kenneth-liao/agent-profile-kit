@@ -191,7 +191,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   );
   const offer = await guidedPrompts.yesNo(OFFER_QUESTION);
   if (offer === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }), stderrContext);
     return { exitCode: 1 };
   }
   if (offer === "declined") {
@@ -201,7 +201,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
 
   const nameAnswer = await guidedPrompts.text(NAME_QUESTION);
   if (nameAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }), stderrContext);
     return { exitCode: 1 };
   }
   // Pre-commit validation keeps every refusal before any change: an invalid
@@ -241,7 +241,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (contextAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }), stderrContext);
     return { exitCode: 1 };
   }
   const skillAnswer = preview.skills.length > 0
@@ -252,7 +252,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (skillAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(parsed.workspace === undefined ? {} : { workspace: parsed.workspace }), stderrContext);
     return { exitCode: 1 };
   }
   const contexts = contextAnswer.values;

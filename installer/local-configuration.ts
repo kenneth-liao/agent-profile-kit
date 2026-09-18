@@ -720,7 +720,6 @@ export async function ingestSelectedWorkspace(home: string): Promise<Workspace> 
     legacyMigrationCommand(parsed),
   );
   return ingestWorkspaceFromConfiguration(home, workspace, path);
-  return ingestWorkspaceFromConfiguration(home, workspace, path);
 }
 
 /**

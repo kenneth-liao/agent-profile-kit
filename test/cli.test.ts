@@ -1612,7 +1612,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(realWorkspace, "NOTES.md"), "user-owned source\n");
     symlinkSync(realWorkspace, alias);
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     const legacy = `schema_version: 1\nworkspace: ${alias}\nbindings: []\n`;
     writeFileSync(configPath(home), legacy);
 
@@ -1631,7 +1630,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("init migrates a legacy configuration without a Workspace value to the path the user gives, preserving authored content", async () => {
     const home = isolatedHome();
     mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    const projectPath = project();
+    const legacy =
+      "schema_version: 1\n# keep this note\nbindings:\n" +
+      `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), legacy);
 
     // Without a path there is nothing to upgrade to: no default exists.
@@ -1640,7 +1642,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
     expect(existsSync(workspacePath(home))).toBe(false);
 
-    // A path the user gives upgrades the legacy file and keeps its content.
+    // A path the user gives upgrades the legacy file and keeps its Project
+    // Bindings and authored content (spec #593 #601, DEC-011).
     const chosen = join(home, "chosen-workspace");
     mkdirSync(chosen, { recursive: true });
     writeFileSync(join(chosen, "workspace.yaml"), "schema_version: 1\n");
@@ -1652,7 +1655,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(migrated).toMatch(/schema_version:\s*2/);
     expect(migrated).toContain(`workspace: ${chosen}`);
     expect(migrated).toContain("# keep this note");
-    expect(migrated).toContain("bindings: []");
+    expect(parse(migrated).bindings).toEqual([
+      { project: projectPath, profile: "coding", hosts: ["codex"] },
+    ]);
   });
 
   test("init migrates a legacy custom Workspace without changing its authored path or source", async () => {
@@ -8717,7 +8722,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const result = await sharedReadOnlyCapture("guide", topic);
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
-      const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
+      const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init <path>)");
       const scaffoldIndex = result.stdout.indexOf("  apkit new ");
       const exampleIndex = result.stdout.indexOf("An example ");
       expect(wsIndex).toBeGreaterThan(-1);

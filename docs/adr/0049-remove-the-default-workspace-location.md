@@ -26,12 +26,16 @@ completion for a manifest-present folder.
 2. **Zero-argument `init` requires an already-selected Workspace.** On a
    machine with no selected Workspace — a fresh home, or a legacy version-1
    Local Configuration without a `workspace` value — zero-argument `init`
-   refuses before any write (including the application directories and the
-   configuration lock) and names the executable forms `apkit init <path>` and
-   `apkit init .`. Interactive `init` without a path refuses minimally until
-   interactive setup lands (#603). On a machine that already selects a
-   Workspace, zero-argument `init` validates that selection and selects
-   nothing new; connecting-again semantics remain #607's (DEC-002).
+   refuses without upgrading or creating anything. A fresh home refuses
+   before any write, including the application directories and the
+   configuration lock; a legacy file refuses at the freshly-read source
+   before the lock (the same rule re-checked on the re-read under the lock
+   for the file-swap race). The refusal names the executable forms
+   `apkit init <path>` and `apkit init .`. Interactive `init` without a path
+   refuses minimally until interactive setup lands (#603). On a machine that
+   already selects a Workspace, zero-argument `init` validates that
+   selection and selects nothing new; connecting-again semantics remain
+   #607's (DEC-002).
 3. **Legacy version-1 Local Configuration is upgraded only to a path the user
    gives.** A legacy file with an authored `workspace` keeps that path, as
    before; an explicit request must resolve to the same canonical Workspace.

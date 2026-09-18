@@ -149,7 +149,7 @@ Complete references:
     Agent workflow reference
 
 Examples:
-  apkit init
+  apkit init <path>
   apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
@@ -164,7 +164,7 @@ Profile
 A Profile selects reusable material for a kind of work through its context and
   skills lists.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create its Context Module, then the Profile selecting it:
   apkit new context <context>
@@ -197,7 +197,7 @@ A Context Module is an independently reusable unit of always-loaded guidance.
   Profiles select it by its path under \`context/\` without \`.md\`, and apkit reads
   no frontmatter.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create one, then select it into a Profile:
   apkit new context <context>
@@ -222,7 +222,7 @@ Skill
 A Skill is a reusable workflow package. Profiles select it by its frontmatter
   \`name\`, and its description tells an Agent Host when the workflow applies.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create one, then select it into a Profile:
   apkit new skill <skill>
