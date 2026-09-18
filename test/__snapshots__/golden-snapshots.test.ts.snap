@@ -416,8 +416,9 @@ A Context Module is a Markdown file under \`context/\` with frontmatter
   Context. A Skill is a standard Agent Skills package under \`skills/\`, rooted at
   \`SKILL.md\`; its standard \`name\` is its stable Artifact ID. The frontmatter
   needs a lowercase hyphenated \`name\` and a non-empty \`description\`. Scripts,
-  references, and assets remain ordinary standard Skill content. If a Skill
-  needs Agent Profile Kit-only dependency metadata, put it in an optional
+  references, and assets remain ordinary standard Skill content. A Profile's
+  \`context\` and \`skills\` lists are the only source of what is installed: list
+  every needed artifact there; there are no Dependencies and no
   \`agent-profile-kit.yaml\` sidecar.
 
 Skill model-invocation policy
@@ -480,12 +481,10 @@ Existing source \`agents/openai.yaml\` content is preserved. An equivalent
   warning, and the planned policy fields are written regardless — the Adapter
   never silently omits or weakens what it plans.
 
-Artifacts may declare required Dependencies with explicit typed references.
-  Put Context Module Dependencies in their frontmatter and Skill Dependencies in
-  each Skill's Agent Profile Kit sidecar. Each reference contains \`type\`
-  (\`context\` or \`skill\`) and its stable \`id\`. Dependencies are resolved
-  transitively and every resolved reason remains available in live planning.
-  Inclusion reasons are not persisted in Installation State.
+Profiles are the only place that says what gets installed together (ADR-0045):
+  list each needed Context Module and Skill explicitly. A Profile's \`context\`
+  and \`skills\` lists install exactly what they name — nothing is pulled in
+  transitively. Inclusion reasons are not persisted in Installation State.
 
 A Profile is a YAML file under \`profiles/\` with exactly an \`id\`, a \`context\`
   array, and a \`skills\` array. At least one of \`context\` or \`skills\` must be
@@ -499,16 +498,8 @@ A Profile is a YAML file under \`profiles/\` with exactly an \`id\`, a \`context
 
 ---
 id: engineering-rules
-dependencies:
-  - type: context
-    id: security-rules
 ---
 Keep project facts in the project repository.
-
-# skills/review-pr/agent-profile-kit.yaml
-dependencies:
-  - type: skill
-    id: write-release-notes
 
 id: coding
 context:
@@ -749,17 +740,16 @@ Pi receives Profile Context through the owned project file
   \`.agents/skills\` surfaces. Profiles with portable Skills receive one shared
   package per resolved Artifact ID under \`.agents/skills/<Artifact ID>/\`;
   standard package bytes and modes are preserved apart from the generated-source
-  notice that opens each projected \`SKILL.md\` body (ADR-0041), and
-  \`agent-profile-kit.yaml\` is omitted. Codex and Pi co-own one normalized
-  package when both are selected; the package carries every required Host policy
-  field without adding consumer metadata to Skill source. Pi owns Skill
-  resolution across personal, project, ancestor, package, extension, and
-  configured sources. Disabled model-invocation Skills receive top-level
-  \`disable-model-invocation: true\` in generated \`SKILL.md\` while the canonical
-  Workspace source remains unchanged and explicit \`/skill:<Artifact ID>\`
-  activation remains available. Malformed or unreadable relevant settings warn
-  without blocking. Pi's native project trust, authentication, settings, prompt
-  files, and per-session overrides remain Host-owned.
+  notice that opens each projected \`SKILL.md\` body (ADR-0041). Codex and Pi
+  co-own one normalized package when both are selected; the package carries
+  every required Host policy field without adding consumer metadata to Skill
+  source. Pi owns Skill resolution across personal, project, ancestor, package,
+  extension, and configured sources. Disabled model-invocation Skills receive
+  top-level \`disable-model-invocation: true\` in generated \`SKILL.md\` while the
+  canonical Workspace source remains unchanged and explicit \`/skill:<Artifact
+  ID>\` activation remains available. Malformed or unreadable relevant settings
+  warn without blocking. Pi's native project trust, authentication, settings,
+  prompt files, and per-session overrides remain Host-owned.
 
 OpenCode
 
@@ -984,14 +974,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
 6. Validate before updating. Context Modules use \`id\` frontmatter and flat
-   Profiles contain \`id\`, \`context\`, and \`skills\` only. Dependencies use
-   explicit \`{ type, id }\` references. Run \`apkit validate\`, review
+   Profiles contain \`id\`, \`context\`, and \`skills\` only; the Profile lists are
+   the only source of what is installed (no Dependencies, no sidecar files).
+   Run \`apkit validate\`, review
    the concise fleet outcome from \`apkit status --all\`, and ask before updating
    all configured Project Bindings with \`apkit update --all\`. Use Project-scoped
    \`update [project]\` only when the user intends one bound Project. Use
    \`apkit status --verbose\` or \`apkit update --verbose\` when complete
-   per-output diagnostics, resolved artifact reasons, or composed Context are
-   needed. For automation, add \`--json\` on those two commands: exit \`0\` means
+   per-output diagnostics or composed Context are needed. For automation, add
+   \`--json\` on those two commands: exit \`0\` means
    no tool error and no blockers (JSON \`outcome\` may still be \`attention\`),
    exit \`1\` is a tool error, and exit \`2\` means blockers. The current Workspace
    schema version is 1.
@@ -1072,7 +1063,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.205.0
+Engine version: 0.206.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1945,7 +1936,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.205.0
+Engine version: 0.206.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1955,7 +1946,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.205.0\x1B[0m
+\x1B[35mEngine version: 0.206.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1965,7 +1956,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.205.0
+Engine version: 0.206.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1975,7 +1966,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.205.0\x1B[0m
+\x1B[35mEngine version: 0.206.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

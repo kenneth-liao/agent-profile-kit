@@ -79,14 +79,15 @@ Use this workflow when helping a person author their Workspace and bind projects
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
 6. Validate before updating. Context Modules use `id` frontmatter and flat
-   Profiles contain `id`, `context`, and `skills` only. Dependencies use
-   explicit `{ type, id }` references. Run `apkit validate`, review
+   Profiles contain `id`, `context`, and `skills` only; the Profile lists are
+   the only source of what is installed (no Dependencies, no sidecar files).
+   Run `apkit validate`, review
    the concise fleet outcome from `apkit status --all`, and ask before updating
    all configured Project Bindings with `apkit update --all`. Use Project-scoped
    `update [project]` only when the user intends one bound Project. Use
    `apkit status --verbose` or `apkit update --verbose` when complete
-   per-output diagnostics, resolved artifact reasons, or composed Context are
-   needed. For automation, add `--json` on those two commands: exit `0` means
+   per-output diagnostics or composed Context are needed. For automation, add
+   `--json` on those two commands: exit `0` means
    no tool error and no blockers (JSON `outcome` may still be `attention`),
    exit `1` is a tool error, and exit `2` means blockers. The current Workspace
    schema version is 1.

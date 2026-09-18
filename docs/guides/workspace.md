@@ -163,8 +163,9 @@ one stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill
 is a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
 standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
 hyphenated `name` and a non-empty `description`. Scripts, references, and assets
-remain ordinary standard Skill content. If a Skill needs Agent Profile Kit-only
-dependency metadata, put it in an optional `agent-profile-kit.yaml` sidecar.
+remain ordinary standard Skill content. A Profile's `context` and `skills`
+lists are the only source of what is installed: list every needed artifact
+there; there are no Dependencies and no `agent-profile-kit.yaml` sidecar.
 
 ### Skill model-invocation policy
 
@@ -219,12 +220,10 @@ shapes. Probing is advisory: an older, missing, or unreadable CLI produces a
 warning, and the planned policy fields are written regardless — the Adapter
 never silently omits or weakens what it plans.
 
-Artifacts may declare required Dependencies with explicit typed references. Put
-Context Module Dependencies in their frontmatter and Skill Dependencies in each
-Skill's Agent Profile Kit sidecar. Each reference contains `type` (`context` or
-`skill`) and its stable `id`. Dependencies are resolved transitively and every resolved reason remains
-available in live planning. Inclusion reasons are not
-persisted in Installation State.
+Profiles are the only place that says what gets installed together (ADR-0045):
+list each needed Context Module and Skill explicitly. A Profile's `context`
+and `skills` lists install exactly what they name — nothing is pulled in
+transitively. Inclusion reasons are not persisted in Installation State.
 
 A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
 array, and a `skills` array. At least one of `context` or `skills` must be
@@ -238,18 +237,8 @@ machinery). Profiles do not inherit, use wildcards, or carry Host settings.
 ```md
 ---
 id: engineering-rules
-dependencies:
-  - type: context
-    id: security-rules
 ---
 Keep project facts in the project repository.
-```
-
-```yaml
-# skills/review-pr/agent-profile-kit.yaml
-dependencies:
-  - type: skill
-    id: write-release-notes
 ```
 
 ```yaml
@@ -496,8 +485,7 @@ Context writes; Skill-bearing Profiles instead prove the shared `.agents` and
 `.agents/skills` surfaces. Profiles with portable Skills receive one shared
 package per resolved Artifact ID under `.agents/skills/<Artifact ID>/`;
 standard package bytes and modes are preserved apart from the generated-source
-notice that opens each projected `SKILL.md` body (ADR-0041), and
-`agent-profile-kit.yaml` is omitted. Codex and Pi co-own one normalized package when both are selected;
+notice that opens each projected `SKILL.md` body (ADR-0041). Codex and Pi co-own one normalized package when both are selected;
 the package carries every required Host policy field without adding consumer
 metadata to Skill source. Pi owns Skill resolution across personal, project,
 ancestor, package, extension, and configured sources. Disabled
