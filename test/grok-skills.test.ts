@@ -758,16 +758,16 @@ describe("Grok Skill model-invocation projection", () => {
     );
 
     const disabled =
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n";
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\n---\n\n# To spec\n";
     const projected = emitGrokSkillMarkdown("to-spec", disabled, "disabled");
     expect(projected).toContain("disable-model-invocation: true");
-    expect(projected).toContain("agent-profile-kit.model-invocation: disabled");
+    expect(projected).not.toContain("agent-profile-kit.model-invocation");
   });
 
   test("disabled Skill plans Host SKILL.md restriction and invocation Capability Contract", async () => {
     const source = temporaryDirectory("apk-grok-mi-");
     const body =
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n";
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\n---\n\n# To spec\n";
     writeSkillPackage(source, { "SKILL.md": { bytes: body } });
     const plan = await planGrokProject("coding", [{ id: "team-rules", content: "rules\n" }], [
       skill("to-spec", source, "disabled"),

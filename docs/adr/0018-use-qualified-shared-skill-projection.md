@@ -97,3 +97,22 @@ decision's projector performed no longer exists — a Skill package containing
 `agent-profile-kit.yaml` fails Workspace validation (ADR-0045), so the
 projector never encounters one. The notice, policy projection, and coalescing
 rules stand unchanged.
+
+## Amendment: the standard `disable-model-invocation` field is the canonical authority
+
+Spec #593 (DEC-007, DEC-015; ticket #597) replaces this decision's canonical
+Workspace policy source. The standard top-level `disable-model-invocation`
+boolean in `SKILL.md` is now the sole authority: `true` disables model
+invocation, and absence (or `false`) allows it. The retired
+`metadata.agent-profile-kit.model-invocation` key is no longer read; a Skill
+carrying it fails Workspace validation with a violation that names the
+standard field as the replacement. Skill frontmatter accepts and ignores other
+top-level fields beyond those Agent Profile Kit reads (DEC-015), so standard
+Agent Skill packages — including Host-specific fields — validate and install
+unchanged, and authored Host-shaped fields reach each Host as written. The
+shared projector, its generated-policy comments, Codex coalescing, and the
+project-scoped conflict/invalid `agents/openai.yaml` Blocker are unchanged;
+only the named canonical authority in that Blocker's wording is the standard
+field. A Skill may author `disable-model-invocation` directly, and the
+projector still emits the deterministic restriction with its explanatory
+comment for qualified consumers.

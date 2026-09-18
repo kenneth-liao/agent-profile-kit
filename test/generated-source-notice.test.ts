@@ -91,7 +91,7 @@ function memberText(output: ProposedProjectDirectoryOutput, path: string): strin
 const ALLOWED_SOURCE_SKILL =
   "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n\nPreserved body bytes.\n";
 const DISABLED_SOURCE_SKILL =
-  "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n\nPreserved body bytes.\n";
+  "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n\nPreserved body bytes.\n";
 
 /** One canonical Skill package with the notice targets plus supporting bytes. */
 function writeNoticeSkillPackage(

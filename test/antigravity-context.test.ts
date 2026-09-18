@@ -166,7 +166,7 @@ describe("Antigravity Context Adapter", () => {
     const disabledSource = temporaryDirectory("apkit-antigravity-disabled-skill-");
     writeFileSync(
       join(disabledSource, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     const disabled = await planAntigravityProject(
       "engineering",
@@ -262,7 +262,7 @@ describe("Antigravity Context Adapter", () => {
     mkdirSync(join(skillRoot, "agents"), { recursive: true });
     writeFileSync(
       join(skillRoot, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     writeFileSync(
       join(skillRoot, "agents", "openai.yaml"),

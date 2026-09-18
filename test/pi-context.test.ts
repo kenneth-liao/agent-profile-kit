@@ -299,7 +299,7 @@ describe("Pi Adapter", () => {
 
   test("projects disabled model invocation into the shared Skill frontmatter while preserving explicit Skill identity", () => {
     const source =
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n";
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n";
 
     expect(emitSharedSkillMarkdown("review-pr", source, "allowed")).toBe(
       projectedSkillDocument(source),
@@ -308,7 +308,7 @@ describe("Pi Adapter", () => {
 
     expect(projected).toContain("name: review-pr");
     expect(projected).toContain("disable-model-invocation: true");
-    expect(projected).toContain("agent-profile-kit.model-invocation: disabled");
+    expect(projected).toContain("# Agent Profile Kit: keep Skill invocation explicit.");
     expect(projected).toContain("# Review");
     expect(projected).not.toBe(source);
     expect(() =>
@@ -340,7 +340,7 @@ describe("Pi Adapter", () => {
     const source = temporaryDirectory("apk-pi-invocation-source-");
     writeFileSync(
       join(source, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     const disabled = {
       id: "review-pr",
@@ -375,7 +375,9 @@ describe("Pi Adapter", () => {
       PI_CONTEXT_PATH,
       ".agents/skills/review-pr",
     ]);
-    expect(readFileSync(join(source, "SKILL.md"), "utf8")).not.toContain("disable-model-invocation: true");
+    // The Workspace source package is never rewritten by planning.
+    const sourceBytes = readFileSync(join(source, "SKILL.md"), "utf8");
+    expect(sourceBytes.startsWith("---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n")).toBe(true);
   });
 
   test("plans only the canonical composed Context at Pi's append-system surface", async () => {
@@ -609,7 +611,7 @@ describe("Pi Adapter", () => {
 
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     const disabled = await buildDesiredState(home, { checkHostCapability: false });
     const disabledOutput = disabled.installations[0]?.outputs.find(
@@ -633,7 +635,7 @@ describe("Pi Adapter", () => {
     ]);
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -649,8 +651,9 @@ describe("Pi Adapter", () => {
     expect(readFileSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "disable-model-invocation: true",
     );
-    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"), "utf8")).not.toContain(
-      "disable-model-invocation: true",
+    // The canonical Workspace source stays byte-identical.
+    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
   });
 
@@ -864,7 +867,7 @@ describe("Pi Adapter", () => {
     mkdirSync(source, { recursive: true });
     writeFileSync(
       join(source, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     await expect(
       planPiProject(

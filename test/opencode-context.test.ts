@@ -725,7 +725,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
 
     writeFileSync(

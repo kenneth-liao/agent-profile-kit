@@ -10,6 +10,17 @@ export type ModelInvocationPolicy = "allowed" | "disabled";
 export const MODEL_INVOCATION_METADATA_KEY = "agent-profile-kit.model-invocation";
 
 /**
+ * The retired Agent Profile Kit-only metadata key for model invocation
+ * (spec #593 DEC-007): a Skill carrying it is a violation that names the
+ * standard top-level replacement field.
+ */
+export const RETIRED_MODEL_INVOCATION_METADATA_FIELD =
+  `metadata.${MODEL_INVOCATION_METADATA_KEY}`;
+
+/** Standard top-level Agent Skills field that disables model invocation. */
+const STANDARD_MODEL_INVOCATION_FIELD = "disable-model-invocation";
+
+/**
  * The retired Agent Profile Kit-only Skill sidecar name (spec #593 DEC-006).
  * A Skill package containing it is a leftover from an earlier release and is
  * one violation with that file's path.
@@ -18,39 +29,37 @@ export const SKILL_PACKAGE_SIDECAR = "agent-profile-kit.yaml";
 
 export interface Skill {
   readonly id: string;
-  /** Normalized model-invocation policy; absence of metadata defaults to allowed. */
+  /** Normalized model-invocation policy; absence of the standard field defaults to allowed. */
   readonly modelInvocation: ModelInvocationPolicy;
   readonly path: string;
 }
 
-const STANDARD_FIELDS = [
-  "name",
-  "description",
-  "license",
-  "compatibility",
-  "metadata",
-  "allowed-tools",
-] as const;
-
 function parseModelInvocation(
+  header: Record<string, unknown>,
   metadata: Record<string, unknown> | undefined,
   path: string,
 ): ModelInvocationPolicy {
-  if (metadata === undefined || !(MODEL_INVOCATION_METADATA_KEY in metadata)) {
+  if (metadata !== undefined && MODEL_INVOCATION_METADATA_KEY in metadata) {
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "leftover-model-invocation-metadata", path },
+    });
+  }
+  const field = header[STANDARD_MODEL_INVOCATION_FIELD];
+  if (field === undefined) {
     return "allowed";
   }
-  const value = metadata[MODEL_INVOCATION_METADATA_KEY];
-  if (value !== "allowed" && value !== "disabled") {
+  if (typeof field !== "boolean") {
     throw rejectSchema({
       schema: "workspace-artifact",
       detail: {
         case: "invalid-model-invocation",
         path,
-        key: MODEL_INVOCATION_METADATA_KEY,
+        key: STANDARD_MODEL_INVOCATION_FIELD,
       },
     });
   }
-  return value;
+  return field ? "disabled" : "allowed";
 }
 
 function parseYaml(source: string, detail: WorkspaceArtifactRejectionReason): unknown {
@@ -126,21 +135,6 @@ export function parseSkill(
   sourcePath: string,
 ): Skill {
   const header = frontmatter(source, path);
-  const unknown = Object.keys(header).filter(
-    (field) => !STANDARD_FIELDS.includes(field as (typeof STANDARD_FIELDS)[number]),
-  );
-  if (unknown.length > 0) {
-    throw rejectSchema({
-      schema: "workspace-artifact",
-      detail: {
-        case: "unknown-fields",
-        artifact: "Skill",
-        path,
-        section: "frontmatter",
-        fields: unknown,
-      },
-    });
-  }
   const id = requireString(header.name, path, "name", 64);
   if (!ARTIFACT_ID.test(id)) {
     throw rejectSchema({
@@ -160,7 +154,7 @@ export function parseSkill(
       })
     : undefined;
   if ("allowed-tools" in header) requireString(header["allowed-tools"], path, "allowed-tools");
-  const modelInvocation = parseModelInvocation(metadata, path);
+  const modelInvocation = parseModelInvocation(header, metadata, path);
 
   return {
     id,

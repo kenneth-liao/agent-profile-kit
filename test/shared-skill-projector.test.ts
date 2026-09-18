@@ -58,7 +58,7 @@ describe("shared .agents Skill projector", () => {
   test("preserves package members and Codex metadata while adding the stable disabled policy union", async () => {
     const source = temporaryDirectory("apk-shared-skill-disabled-");
     const sourceSkill =
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n  author: maintainer\n---\n\n# Review\n";
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\nmetadata:\n  author: maintainer\n---\n\n# Review\n";
     const interfaceYaml =
       "interface:\n  display_name: Review PR\ndependencies:\n  - helper\n";
     const script = "#!/bin/sh\necho review\n";
@@ -87,7 +87,6 @@ describe("shared .agents Skill projector", () => {
     expect(parse(generatedSkill.slice(4, generatedFrontmatterEnd))).toMatchObject({
       name: "review-pr",
       metadata: {
-        "agent-profile-kit.model-invocation": "disabled",
         author: "maintainer",
       },
       "disable-model-invocation": true,
@@ -129,7 +128,7 @@ describe("shared .agents Skill projector", () => {
       }
       expect(isAdapterCapabilityError(caught)).toBe(true);
       if (!isAdapterCapabilityError(caught)) continue;
-      expect(caught.message).toContain("canonical Workspace metadata.agent-profile-kit.model-invocation");
+      expect(caught.message).toContain("canonical Workspace disable-model-invocation");
       expect(caught.message).toContain(`${SHARED_SKILL_OPENAI_YAML} policy.allow_implicit_invocation`);
       expect(caught.remedy).toContain("Repair the canonical Workspace Skill 'review-pr'");
       expect(caught.affectedItems).toEqual([
@@ -149,7 +148,7 @@ describe("shared .agents Skill projector", () => {
     mkdirSync(join(skillRoot, "agents"), { recursive: true });
     writeFileSync(
       join(skillRoot, "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     writeFileSync(
       join(skillRoot, "agents", "openai.yaml"),
@@ -209,7 +208,7 @@ describe("shared .agents Skill projector", () => {
   test("preserves frontmatter comments, key order, scalar style, and body bytes when disabled", async () => {
     const source = temporaryDirectory("apk-shared-skill-formatting-");
     const sourceSkill =
-      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n\nPreserved body bytes.\n";
+      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# Review\n\nPreserved body bytes.\n";
     writeSkillPackage(source, {
       "SKILL.md": { bytes: sourceSkill },
     });
@@ -223,7 +222,7 @@ describe("shared .agents Skill projector", () => {
     if (!skillMember || skillMember.type !== "file") throw new Error("expected SKILL.md");
     const generatedSkill = Buffer.from(skillMember.bytes).toString("utf8");
     expect(generatedSkill).toBe(
-      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
+      "---\n# Primary comment\nname: review-pr\n# Description comment\ndescription: 'Review a pull request.'\nlicense: \"MIT\"\nmetadata:\n  # Maintainer comment\n  author: 'maintainer'\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
         `${generatedMarkdownNotice()}\n\n# Review\n\nPreserved body bytes.\n`,
     );
   });
