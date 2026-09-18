@@ -1,4 +1,3 @@
-import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { hostsEqual } from "../installer/bind-project.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
 import { COMMAND_NAME } from "../installer/version.js";
@@ -178,7 +177,12 @@ export interface InitReceiptInput {
   readonly outcome: "created" | "migrated" | "unchanged";
   readonly path: string;
   readonly authoredPath: string;
-  readonly workspaceScaffolded?: boolean;
+  /**
+   * True when setup created the named Workspace folder itself (it did not
+   * exist; spec #593 #599). The created folder is reported in the receipt so
+   * the user sees exactly what setup wrote.
+   */
+  readonly folderCreated?: boolean;
   readonly detectedHosts?: readonly SupportedHost[];
   /**
    * The guided flow reports the Profile it just created — and that
@@ -226,34 +230,30 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       },
     ];
   }
-  // The one next action names the Profile this initialization left in the
-  // Workspace: the scaffolded example when it scaffolded one (example-only
-  // initialization), otherwise the delivered validate pointer for a
-  // pre-existing valid Workspace. Detection is advisory (DEC-011) and Host
-  // choice stays with install's searchable choices (ADR-0034), so the next
-  // action never names a Host. When the guided flow's Profile completion
-  // follows, it owns the one next action and the receipt prints none.
+  // The one next action is the delivered validate pointer: setup adds no
+  // example material (spec #593 DEC-003, #599), so there is no scaffolded
+  // Profile to recommend. Detection is advisory (DEC-011) and Host choice
+  // stays with install's searchable choices (ADR-0034), so the next action
+  // never names a Host. When the guided flow's Profile completion follows, it
+  // owns the one next action and the receipt prints none.
   const nextAction = input.guidedProfileFollows === true
     ? undefined
-    : input.workspaceScaffolded === true
-      ? createdProfileInstallNextActionDocument(AUTHORING_EXAMPLES.profile.id)
-      : [{
-        kind: "sentence" as const,
-        parts: [
-          "Next: run ",
-          commandPart(COMMAND_NAME, [arg("validate")]),
-        ],
-        category: "command" as const,
-      }];
+    : [{
+      kind: "sentence" as const,
+      parts: [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+      ],
+      category: "command" as const,
+    }];
   const detectedHosts = input.detectedHosts ?? [];
 
   return [
     {
       kind: "sentence",
-      parts: [
-        `Initialized Agent Profile Kit Workspace and ${localConfiguration} at `,
-        workspace,
-      ],
+      parts: input.folderCreated === true
+        ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace and ", localConfiguration, " at ", workspace]
+        : [`Initialized Agent Profile Kit Workspace and ${localConfiguration} at `, workspace],
       category: "success",
     },
     {

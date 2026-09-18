@@ -860,7 +860,7 @@ describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () =
     expect(exitCode).toBe(1);
     const err = plain(streams.errorText());
     expect(err).toContain("Profile 'codin' does not exist in this Workspace.");
-    expect(err).toContain("Available Profiles: coding, example.");
+    expect(err).toContain("Available Profiles: coding.");
     expect(err).toContain("Did you mean 'coding'?");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });

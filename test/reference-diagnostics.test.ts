@@ -419,8 +419,10 @@ describe("authoring rejection diagnostics (US-015, #508)", () => {
   };
 
   const initCollision: InstallerToolErrorFact = {
-    kind: "init-planned-profile-conflict",
-    profile: "example",
+    kind: "artifact-path-occupied",
+    artifactType: "Profile",
+    id: "example",
+    path: "profiles/example.yaml",
   };
 
   test("a duplicate name at creation identifies the existing file and offers editing it or another name", () => {
@@ -508,12 +510,10 @@ describe("authoring rejection diagnostics (US-015, #508)", () => {
     );
   });
 
-  test("an init first-Profile name colliding with the planned example scaffold names what init will create", () => {
+  test("an init first-Profile name colliding with an existing Profile names the occupied path", () => {
     const parts = formatInstallerToolErrorDiagnostic(initCollision);
     expect(flatInlineText(parts.happened)).toBe(
-      "Profile 'example' is the example Profile this init will scaffold",
+      "Profile 'example' already has material at profiles/example.yaml",
     );
-    const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
-    expect(whatToType).toBe("Choose a different Profile name.");
   });
 });

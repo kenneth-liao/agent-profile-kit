@@ -305,11 +305,16 @@ Initialize
 
 apkit init ~/projects/agent-profile-workspace
 
-When Local Configuration is absent, an explicit missing or empty non-symlink
-  destination is fully scaffolded and recorded. A valid existing Workspace,
-  including a symlink alias, is adopted without changing its source. Rerunning
-  is safe: it never overwrites the Workspace or current configuration, and it
-  does not restore optional scaffolding that you removed from a valid Workspace.
+When Local Configuration is absent, setup adds exactly the missing required
+  parts — \`workspace.yaml\`, \`context/\`, \`skills/\`, and \`profiles/\` — in place to
+  the named folder and records the selection (spec #593 DEC-003, ADR-0047). A
+  path that does not exist is created only when its parent directory exists; a
+  parent that is missing too is refused, and nothing is written outside the
+  named path. A valid existing Workspace, including a symlink alias, is adopted,
+  adding only its still-missing required parts; existing entries are never
+  changed, moved, or deleted. A folder whose existing material is invalid is
+  refused with its violation and nothing is added. Rerunning is safe: it never
+  overwrites the Workspace or current configuration.
 
 To keep the Workspace as an independent Git repository elsewhere, set the
   required \`workspace\` field in Local Configuration to one existing absolute or
@@ -368,29 +373,20 @@ The restored file preserves the pre-migration Workspace selection and Project
   Bindings. This reverses only the Local Configuration schema transition; it
   does not undo later Workspace content changes.
 
-Required structure vs initialization scaffolding
+Required structure vs optional files
 
 A valid Workspace needs only a supported \`workspace.yaml\`. That Manifest is
-  the Workspace marker. Missing artifact directories are treated as empty
-  categories; present ones are validated and ingested normally. \`README.md\`,
-  \`AGENTS.md\`, and \`.gitignore\` are optional user-owned files that the engine
-  never requires.
+  the Workspace marker. \`context/\`, \`skills/\`, and \`profiles/\` are the required
+  artifact directories, which setup adds when missing; missing categories are
+  treated as empty collections, and present ones are validated and ingested
+  normally. \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are optional user-owned
+  files that the engine never requires.
 
-When creating a new Workspace, \`init\` still scaffolds a friendly layout so you
-  can discover where material belongs:
-
-- artifact directories \`profiles/\`, \`context/\`, \`skills/\`, \`agents/\`, \`hooks/\`,
-  and \`tools/\` (with \`.gitkeep\` placeholders)
-- a bindable \`profiles/example.yaml\` and its \`context/example-context.md\`
-- short bootstrap \`README.md\` and \`AGENTS.md\` pointers to the current guides
-- a starter \`.gitignore\`
-
-The example gives a new user one complete \`install\` → \`status\` → \`update\`
-  path. Delete both \`profiles/example.yaml\` and \`context/example-context.md\`
-  together, unused empty directories, or bootstrap docs if you prefer a minimal
-  tree; later \`init\` runs do not restore removed optional scaffolding;
-  validation, status, update, and uninstall keep working. Do not treat generated
-  Host output as source material.
+When creating a new Workspace, \`init\` adds only the required parts and no
+  example material (spec #593 DEC-003, ADR-0047). For a complete worked example
+  — a bindable \`profiles/example.yaml\` and its \`context/example-context.md\` —
+  run \`apkit guide profile\`, which prints both files' example bytes, or see
+  \`apkit guide context\` and \`apkit guide skill\` for single artifacts.
 
 Author the Workspace
 
@@ -907,16 +903,17 @@ exports[`golden snapshots of every human view agent guide: agent-guide 1`] = `
 Use this workflow when helping a person author their Workspace and bind projects.
 
 1. Read this guide first. Then inspect the Workspace: start with \`workspace.yaml\`
-   and its schema version. A valid Workspace needs only that Manifest; missing
-   artifact directories are empty categories, and bootstrap files such as
-   \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are optional scaffolding from
-   \`init\`, not format requirements. Use \`apkit init\` for the fixed
-   default or \`apkit init <workspace>\` for one explicit absolute or
-   home-relative destination; missing and empty non-symlink destinations are
-   scaffolded, while valid existing Workspaces are adopted without source
-   changes. Inspect any present artifact directories next. Treat the Workspace
-   as the canonical source; do not infer reusable material from generated Host
-   output.
+   and its schema version. A valid Workspace needs that Manifest plus the
+   \`context/\`, \`skills/\`, and \`profiles/\` directories, which \`apkit init\` adds
+   when missing; missing artifact directories are empty collections, and
+   bootstrap files such as \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are
+   optional user-owned files, not format requirements. Use \`apkit init\` for the
+   fixed default or \`apkit init <workspace>\` for one explicit destination:
+   setup adds exactly the missing required parts in place and never touches
+   other entries, while a folder whose existing material is invalid is refused
+   with its violation (spec #593 DEC-003, ADR-0047). Inspect any present
+   artifact directories next. Treat the Workspace as the canonical source; do
+   not infer reusable material from generated Host output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,
@@ -1075,7 +1072,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.208.0
+Engine version: 0.209.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1161,12 +1158,12 @@ Create one with apkit machine install-temp <profile> <project> --host <host>.
 
 exports[`golden snapshots of every human view init: init 1`] = `
 "--- stdout ---
-Initialized Agent Profile Kit Workspace and settings at
-  ~/.agents/agent-profile-kit/workspace
+Created the Workspace folder and initialized Agent Profile Kit Workspace and
+  settings at ~/.agents/agent-profile-kit/workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
-Next: from the project you want to try, run apkit install example
+Next: run apkit validate
 --- stderr ---
 "
 `;
@@ -1948,7 +1945,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.208.0
+Engine version: 0.209.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1958,7 +1955,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.208.0\x1B[0m
+\x1B[35mEngine version: 0.209.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1968,7 +1965,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.208.0
+Engine version: 0.209.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1978,7 +1975,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.208.0\x1B[0m
+\x1B[35mEngine version: 0.209.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

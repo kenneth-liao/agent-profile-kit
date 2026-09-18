@@ -1,16 +1,5 @@
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  realpath,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { lstat, mkdir, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { parseDocument } from "yaml";
 
 import {
@@ -41,46 +30,12 @@ import {
   withConfigurationLock,
 } from "./local-configuration-publication.js";
 import {
-  validateWorkspaceStructure,
+  lstatEntry,
   WORKSPACE_ARTIFACT_DIRECTORIES,
   workspacePath,
 } from "./workspace.js";
-import { AUTHORING_EXAMPLES } from "./authoring-examples.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
-import { COMMAND_NAME } from "./version.js";
 import { InstallerToolError } from "./tool-errors.js";
-
-const WORKSPACE_ROOT_FILES = {
-  [WORKSPACE_MANIFEST_FILE]: WORKSPACE_MANIFEST,
-  "README.md": `# Agent Profile Kit Workspace
-
-This Workspace is the canonical source for your Profiles, Context Modules, and
-Skills. Lasting edits belong here; installed project files are generated files.
-
-- A **Context Module** (under \`context/\`) carries standing instructions, preferences, and background an agent should always know.
-- A **Skill** (under \`skills/<skill>/SKILL.md\`) carries reusable instructions for one task.
-- A **Profile** packages chosen Context and Skills to install together, so a project installs one selection with one command.
-
-Scaffold with \`${COMMAND_NAME} new\`, select the artifact into a Profile, and install:
-
-\`\`\`sh
-${COMMAND_NAME} new skill <skill>
-${COMMAND_NAME} configure profile           # pick a Profile and toggle the new Skill
-${COMMAND_NAME} install ${AUTHORING_EXAMPLES.profile.id} --host codex   # from a project directory
-\`\`\`
-
-After editing Workspace source, run \`${COMMAND_NAME} update\` to refresh installations.
-
-Run \`${COMMAND_NAME} guide --full\` for complete authoring guidance.
-`,
-  "AGENTS.md": `# Agent Profile Kit Workspace
-
-Before editing this Workspace, run \`${COMMAND_NAME} guide --agent\` and follow the current agent-oriented authoring guidance.
-`,
-  ".gitignore": ".DS_Store\n",
-} as const;
-
-const STAGING_DIRECTORY_PREFIX = ".workspace-init-";
 
 export { workspacePath } from "./workspace.js";
 
@@ -89,7 +44,8 @@ export interface InitializationResult {
   readonly path: string;
   /** The effective authored Workspace spelling this outcome rendered. */
   readonly authoredPath: string;
-  readonly workspaceScaffolded: boolean;
+  /** True when setup created the named folder itself (it did not exist). */
+  readonly folderCreated: boolean;
   readonly warnings: readonly string[];
 }
 
@@ -105,6 +61,7 @@ export interface InitializeWorkspaceOptions {
 async function ensureLocalConfiguration(
   applicationRoot: string,
   workspace: string,
+  fileSystem: LocalConfigurationFileSystem,
 ): Promise<boolean> {
   const path = join(applicationRoot, LOCAL_CONFIGURATION_FILE);
   try {
@@ -114,7 +71,7 @@ async function ensureLocalConfiguration(
     if (!hasErrorCode(error, "ENOENT")) throw error;
   }
   try {
-    await writeFile(path, createEmptyLocalConfiguration(workspace), { flag: "wx" });
+    await fileSystem.writeFile(path, createEmptyLocalConfiguration(workspace), { flag: "wx" });
     return true;
   } catch (error) {
     if (hasErrorCode(error, "EEXIST")) return false;
@@ -130,6 +87,18 @@ export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * Normalize one authored CLI Workspace argument to the spelling setup records
+ * and resolves downstream (spec #593 ISC-26, #599): home-relative forms keep
+ * their authored `~/…` spelling (cwd-stable by construction), while every
+ * working-directory-relative form — including `.` — is resolved to the named
+ * absolute folder, because a relative spelling would select a different
+ * folder when later commands run from another directory.
+ */
+function normalizeAuthoredWorkspace(value: string): string {
+  return value === "~" || value.startsWith("~/") ? value : resolve(value);
+}
+
 async function assertWorkspaceSelectionPath(
   home: string,
   authored: string,
@@ -139,9 +108,15 @@ async function assertWorkspaceSelectionPath(
   return destination;
 }
 
-async function inspectWorkspace(
+/**
+ * The path facts of one setup destination, checked before any write: a
+ * missing folder is provisionable, anything present must resolve to a real
+ * directory, and the established symlink refusals stand — a symlink is
+ * followed only when its target is a non-empty directory.
+ */
+async function inspectDestinationPath(
   path: string,
-): Promise<"missing" | "empty" | "valid"> {
+): Promise<"missing" | "present"> {
   let pathEntryStats;
   try {
     pathEntryStats = await lstat(path);
@@ -166,19 +141,120 @@ async function inspectWorkspace(
     throw new InstallerToolError({ kind: "init-path-not-directory", path });
   }
 
-  const entries = await readdir(path);
-  if (entries.length === 0) {
-    if (pathEntryStats.isSymbolicLink()) {
+  if (pathEntryStats.isSymbolicLink()) {
+    const entries = await readdir(path);
+    if (entries.length === 0) {
       throw new InstallerToolError({ kind: "init-empty-symlink-target", path });
     }
-    return "empty";
   }
-  if (!entries.includes(WORKSPACE_MANIFEST_FILE)) {
-    throw new InstallerToolError({ kind: "init-not-workspace-directory", path });
-  }
+  return "present";
+}
 
-  await validateWorkspaceStructure(path);
-  return "valid";
+/**
+ * Refuse a missing named folder whose parent directory is missing too
+ * (spec #593 #599): nothing is ever written outside the named path, so setup
+ * never creates missing parent directories.
+ */
+async function requireProvisionableDestination(
+  destination: string,
+  allowMissingParents: boolean,
+): Promise<void> {
+  const state = await inspectDestinationPath(destination);
+  if (state === "missing" && !allowMissingParents) {
+    const parent = dirname(destination);
+    let parentStats;
+    try {
+      parentStats = await stat(parent);
+    } catch (error) {
+      if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
+        throw new InstallerToolError({
+          kind: "init-missing-parent-directory",
+          path: destination,
+          parent,
+        });
+      }
+      throw error;
+    }
+    if (!parentStats.isDirectory()) {
+      throw new InstallerToolError({
+        kind: "init-missing-parent-directory",
+        path: destination,
+        parent,
+      });
+    }
+  }
+}
+
+/**
+ * The write-free validation of a folder's would-be Workspace state (spec #593
+ * DEC-011, #599): the on-disk manifest when present, otherwise the canonical
+ * manifest setup would write. Returns whether the manifest already exists, so
+ * the caller knows which parts the transaction still owes.
+ */
+async function validateWouldBeWorkspace(destination: string): Promise<boolean> {
+  const manifestPath = join(destination, WORKSPACE_MANIFEST_FILE);
+  const manifestPresent = (await lstatEntry(manifestPath)) !== undefined;
+  await ingestWorkspace(destination, manifestPresent ? undefined : WORKSPACE_MANIFEST);
+  return manifestPresent;
+}
+
+/**
+ * The one setup write transaction (spec #593 DEC-003, #599, DEC-011): the
+ * folder's would-be state is validated write-free before anything is written
+ * — the on-disk manifest when present, otherwise the canonical manifest setup
+ * is about to write — so an invalid folder is refused with its violation and
+ * zero writes. Valid folders then receive exactly their missing required
+ * parts, added in place; existing entries are never changed, moved, or
+ * deleted. A failure after some parts were added reports exactly what was
+ * added (`init-partial-setup`); a re-run adds only the still-missing parts.
+ */
+async function prepareWorkspaceDestination(
+  destination: string,
+  options: {
+    readonly fileSystem: LocalConfigurationFileSystem;
+    readonly ensureConfiguration: boolean;
+    readonly allowMissingParents: boolean;
+  },
+): Promise<{ readonly folderCreated: boolean; readonly added: readonly string[] }> {
+  await requireProvisionableDestination(destination, options.allowMissingParents);
+  const state = await inspectDestinationPath(destination);
+  const folderCreated = state === "missing";
+  const manifestPath = join(destination, WORKSPACE_MANIFEST_FILE);
+  const manifestPresent = await validateWouldBeWorkspace(destination);
+
+  const added: string[] = [];
+  const commit = async (): Promise<void> => {
+    if (folderCreated) {
+      await options.fileSystem.mkdir(destination);
+      added.push(destination);
+    }
+    if (!manifestPresent) {
+      await options.fileSystem.writeFile(manifestPath, WORKSPACE_MANIFEST);
+      added.push(WORKSPACE_MANIFEST_FILE);
+    }
+    // A folder that already satisfies the structure is never re-scaffolded by
+    // a re-init; only the first connection completes a manifest-present
+    // folder's missing directories (connecting again is #607's).
+    if (!manifestPresent || options.ensureConfiguration) {
+      for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
+        if ((await lstatEntry(join(destination, directory))) === undefined) {
+          await options.fileSystem.mkdir(join(destination, directory));
+          added.push(directory);
+        }
+      }
+    }
+  };
+  try {
+    await commit();
+  } catch (error) {
+    throw new InstallerToolError({
+      kind: "init-partial-setup",
+      path: destination,
+      added: [...added],
+      cause: errorMessage(error),
+    });
+  }
+  return { folderCreated, added: [...added] };
 }
 
 /**
@@ -186,48 +262,37 @@ async function inspectWorkspace(
  * guided initialization can offer material selections before committing any
  * change (US-054, DEC-031). One home beside the resolution logic it mirrors:
  * the destination is resolved the same way init resolves it, and the material
- * is read through the canonical Workspace ingestion boundary. On a missing or
- * empty destination, the preview reports the example material init is about
- * to scaffold. Ambiguous targets (invalid Workspace, legacy migration, unread
- * material) return undefined, meaning "do not offer guidance": init then
- * behaves exactly as it does today and explains any problem itself.
+ * is read through the canonical Workspace ingestion boundary. Setup no longer
+ * scaffolds example material (spec #593 DEC-003, #599), so a missing or empty
+ * destination previews no material and the guided first-Profile offer fires
+ * only for a destination that already has material but no Profile. Ambiguous
+ * targets (invalid Workspace, legacy migration, unread material) return
+ * undefined, meaning "do not offer guidance": init then behaves exactly as it
+ * does today and explains any problem itself.
  */
 export interface InitTargetPreview {
   /** Absolute destination path this init will target. */
   readonly destinationPath: string;
-  /** True when init will scaffold the example material into the destination. */
-  readonly willScaffold: boolean;
-  /** Profile IDs init will scaffold into a missing or empty destination. */
-  readonly plannedScaffoldProfiles: readonly string[];
-  /** Existing Profile IDs at the destination (after any scaffold). */
+  /** Existing Profile IDs at the destination. */
   readonly profiles: readonly string[];
-  /** Existing Context Module IDs at the destination (after any scaffold). */
+  /** Existing Context Module IDs at the destination. */
   readonly contexts: readonly string[];
-  /** Existing Skill IDs at the destination (after any scaffold). */
+  /** Existing Skill IDs at the destination. */
   readonly skills: readonly string[];
 }
 
 async function previewWorkspaceDestination(
   destination: string,
 ): Promise<InitTargetPreview | undefined> {
-  const state = await inspectWorkspace(destination).catch(() => undefined);
-  if (state === "missing" || state === "empty") {
-    return {
-      destinationPath: destination,
-      willScaffold: true,
-      plannedScaffoldProfiles: [AUTHORING_EXAMPLES.profile.id],
-      profiles: [],
-      contexts: [AUTHORING_EXAMPLES.context.id],
-      skills: [],
-    };
-  }
+  const state = await inspectDestinationPath(destination).catch(() => undefined);
   if (state === undefined) return undefined;
+  if (state === "missing") {
+    return { destinationPath: destination, profiles: [], contexts: [], skills: [] };
+  }
   try {
     const workspace = await ingestWorkspace(await realpath(destination));
     return {
       destinationPath: destination,
-      willScaffold: false,
-      plannedScaffoldProfiles: [],
       profiles: [...workspace.profiles.keys()].sort(),
       contexts: [...workspace.contexts.keys()].sort(),
       skills: [...workspace.skills.keys()].sort(),
@@ -246,6 +311,9 @@ export async function previewInitTarget(
   home: string,
   options: { readonly workspace?: string } = {},
 ): Promise<InitTargetPreview | undefined> {
+  const requested = options.workspace === undefined
+    ? undefined
+    : normalizeAuthoredWorkspace(options.workspace);
   const configPath = localConfigurationPath(home);
   let source: string;
   try {
@@ -255,7 +323,7 @@ export async function previewInitTarget(
     try {
       const destination = await assertWorkspaceSelectionPath(
         home,
-        options.workspace ?? workspacePath(home),
+        requested ?? workspacePath(home),
       );
       return await previewWorkspaceDestination(destination);
     } catch {
@@ -273,14 +341,14 @@ export async function previewInitTarget(
   }
   const configured = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
   try {
-    if (options.workspace !== undefined) {
+    if (requested !== undefined) {
       // Share init's read-only explicit-selection eligibility check: the same
       // resolution and canonical-match comparison initialization performs, so
       // a selection init will refuse never enters guidance; init then explains
       // the conflict itself.
       const eligible = await initializeExplicitWorkspaceSelection(
         home,
-        options.workspace,
+        requested,
         configured,
         configPath,
       );
@@ -312,7 +380,7 @@ async function initializeConfiguredWorkspace(
     outcome: "unchanged",
     path: resolved.path,
     authoredPath: resolved.authored,
-    workspaceScaffolded: false,
+    folderCreated: false,
     warnings: [],
   };
 }
@@ -335,7 +403,7 @@ async function initializeExplicitWorkspaceSelection(
     outcome: "unchanged",
     path: requestedWorkspace.path,
     authoredPath: requested,
-    workspaceScaffolded: false,
+    folderCreated: false,
     warnings: [],
   };
 }
@@ -372,105 +440,39 @@ async function initializeWorkspaceAt(
   home: string,
   authored: string,
   ensureConfiguration: boolean,
+  allowMissingParents: boolean,
+  fileSystem: LocalConfigurationFileSystem,
 ): Promise<InitializationResult> {
   const applicationRoot = applicationDirectory(home);
   const destination = await assertWorkspaceSelectionPath(home, authored);
-  const workspaceState = await inspectWorkspace(destination);
+  const { folderCreated, added } = await prepareWorkspaceDestination(destination, {
+    fileSystem,
+    ensureConfiguration,
+    allowMissingParents,
+  });
 
-  if (workspaceState === "valid") {
-    if (ensureConfiguration) {
-      await mkdir(applicationRoot, { recursive: true });
-      const configurationCreated = await ensureLocalConfiguration(applicationRoot, authored);
-      return {
-        outcome: configurationCreated ? "created" : "unchanged",
-        path: await realpath(destination),
-        authoredPath: authored,
-        workspaceScaffolded: false,
-        warnings: [],
-      };
-    }
-    return {
-      outcome: "unchanged",
-      path: await realpath(destination),
-      authoredPath: authored,
-      workspaceScaffolded: false,
-      warnings: [],
-    };
-  }
-
-  await Promise.all([
-    mkdir(applicationRoot, { recursive: true }),
-    mkdir(dirname(destination), { recursive: true }),
-  ]);
-  const stagingDirectory = await mkdtemp(
-    join(dirname(destination), STAGING_DIRECTORY_PREFIX),
-  );
-
-  try {
-    await Promise.all([
-      ...Object.entries(WORKSPACE_ROOT_FILES).map(([file, contents]) =>
-        writeFile(join(stagingDirectory, file), contents),
-      ),
-      ...WORKSPACE_ARTIFACT_DIRECTORIES.map(async (directory) => {
-        const path = join(stagingDirectory, directory);
-        await mkdir(path);
-        await writeFile(join(path, ".gitkeep"), "");
-      }),
-    ]);
-    await Promise.all(
-      [AUTHORING_EXAMPLES.profile, AUTHORING_EXAMPLES.context].map((example) =>
-        writeFile(join(stagingDirectory, example.path), example.contents),
-      ),
-    );
-    await rename(stagingDirectory, destination);
-  } catch (error) {
-    const followUpErrors: unknown[] = [];
+  let configurationCreated = false;
+  if (ensureConfiguration) {
     try {
-      await rm(stagingDirectory, { recursive: true, force: true });
-    } catch (cleanupError) {
-      followUpErrors.push(cleanupError);
+      await mkdir(applicationRoot, { recursive: true });
+      configurationCreated = await ensureLocalConfiguration(applicationRoot, authored, fileSystem);
+    } catch (error) {
+      // The folder transaction already wrote entries: the failure fact
+      // reports exactly what was added (spec #593 DEC-003, #599).
+      throw new InstallerToolError({
+        kind: "init-partial-setup",
+        path: destination,
+        added: [...added],
+        cause: errorMessage(error),
+      });
     }
-
-    if (hasErrorCode(error, "EEXIST") || hasErrorCode(error, "ENOTEMPTY")) {
-      try {
-        if ((await inspectWorkspace(destination)) === "valid") {
-          const configurationCreated = ensureConfiguration
-            ? await ensureLocalConfiguration(applicationRoot, authored)
-            : false;
-          const cleanupWarnings = followUpErrors.map(
-            (cleanupError) =>
-              `Could not remove unused staging directory ${stagingDirectory}: ${errorMessage(cleanupError)}`,
-          );
-          return {
-            outcome: configurationCreated ? "created" : "unchanged",
-            path: await realpath(destination),
-            authoredPath: authored,
-            workspaceScaffolded: false,
-            warnings: cleanupWarnings,
-          };
-        }
-      } catch (inspectionError) {
-        followUpErrors.push(inspectionError);
-      }
-    }
-
-    if (followUpErrors.length > 0) {
-      throw new AggregateError(
-        [error, ...followUpErrors],
-        `Initialization failed and follow-up handling was incomplete for ${destination}`,
-      );
-    }
-    throw error;
   }
 
-  const configurationCreated = ensureConfiguration
-    ? await ensureLocalConfiguration(applicationRoot, authored)
-    : false;
   return {
-    outcome: "created",
+    outcome: configurationCreated ? "created" : "unchanged",
     path: await realpath(destination),
     authoredPath: authored,
-    workspaceScaffolded: true,
+    folderCreated,
     warnings: [],
   };
 }
@@ -478,8 +480,9 @@ async function initializeWorkspaceAt(
 async function initializeDefaultWorkspace(
   home: string,
   ensureConfiguration: boolean,
+  fileSystem: LocalConfigurationFileSystem,
 ): Promise<InitializationResult> {
-  return initializeWorkspaceAt(home, workspacePath(home), ensureConfiguration);
+  return initializeWorkspaceAt(home, workspacePath(home), ensureConfiguration, true, fileSystem);
 }
 
 async function initializeWithoutConfiguration(
@@ -487,11 +490,20 @@ async function initializeWithoutConfiguration(
   configPath: string,
   fileSystem: LocalConfigurationFileSystem,
   lockTimeoutMs: number,
-  options: InitializeWorkspaceOptions,
+  requested: string | undefined,
 ): Promise<InitializationResult> {
-  const authored = options.workspace ?? workspacePath(home);
+  const authored = requested ?? workspacePath(home);
   const destination = await assertWorkspaceSelectionPath(home, authored);
-  await inspectWorkspace(destination);
+  await requireProvisionableDestination(
+    destination,
+    // The conventional default lives inside the application directory, whose
+    // parents setup creates; an explicit named folder never gets parents.
+    requested === undefined,
+  );
+  // Refuse an invalid folder before any side effect at all — including the
+  // application directories and the Local Configuration lock file (DEC-011,
+  // #599). The transaction re-validates inside the lock.
+  await validateWouldBeWorkspace(destination);
   await mkdir(dirname(configPath), { recursive: true });
 
   const initialized = await withConfigurationLock(
@@ -504,14 +516,14 @@ async function initializeWithoutConfiguration(
         await fileSystem.readFile(configPath, "utf8");
       } catch (error) {
         if (!hasErrorCode(error, "ENOENT")) throw error;
-        return options.workspace === undefined
-          ? initializeDefaultWorkspace(home, true)
-          : initializeWorkspaceAt(home, options.workspace, true);
+        return requested === undefined
+          ? initializeDefaultWorkspace(home, true, fileSystem)
+          : initializeWorkspaceAt(home, requested, true, false, fileSystem);
       }
       return undefined;
     },
   );
-  return initialized ?? initializeWorkspace(home, options);
+  return initialized ?? initializeWorkspace(home, requested === undefined ? {} : { workspace: requested });
 }
 
 function migrateLegacyConfigurationSource(source: string, workspace: string): string {
@@ -568,7 +580,13 @@ async function migrateLegacyConfiguration(
         }
       }
       const workspaceResult = parsed.workspace === undefined
-        ? await initializeWorkspaceAt(home, selectedWorkspace, false)
+        ? await initializeWorkspaceAt(
+          home,
+          selectedWorkspace,
+          false,
+          requestedWorkspace === undefined,
+          fileSystem,
+        )
         : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
@@ -586,7 +604,7 @@ async function migrateLegacyConfiguration(
         outcome: "migrated",
         path: workspaceResult.path,
         authoredPath: workspaceResult.authoredPath,
-        workspaceScaffolded: workspaceResult.workspaceScaffolded,
+        folderCreated: workspaceResult.folderCreated,
         warnings: workspaceResult.warnings,
       };
     },
@@ -597,6 +615,9 @@ export async function initializeWorkspace(
   home: string,
   options: InitializeWorkspaceOptions = {},
 ): Promise<InitializationResult> {
+  const requested = options.workspace === undefined
+    ? undefined
+    : normalizeAuthoredWorkspace(options.workspace);
   const configPath = localConfigurationPath(home);
   const fileSystem = options.fileSystem ?? defaultFileSystem;
   const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
@@ -611,7 +632,7 @@ export async function initializeWorkspace(
         configPath,
         fileSystem,
         lockTimeoutMs,
-        options,
+        requested,
       );
     }
     throw error;
@@ -624,21 +645,21 @@ export async function initializeWorkspace(
       configPath,
       fileSystem,
       lockTimeoutMs,
-      options.workspace,
+      requested,
     );
-    return migrated ?? initializeWorkspace(home, options);
+    return migrated ?? initializeWorkspace(home, requested === undefined ? {} : { workspace: requested });
   }
   const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
-  if (options.workspace !== undefined) {
+  if (requested !== undefined) {
     return initializeExplicitWorkspaceSelection(
       home,
-      options.workspace,
+      requested,
       authoredWorkspace,
       configPath,
     );
   }
   if (selectsConventionalDefaultWorkspace(home, authoredWorkspace)) {
-    return initializeDefaultWorkspace(home, false);
+    return initializeDefaultWorkspace(home, false, fileSystem);
   }
   return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);
 }

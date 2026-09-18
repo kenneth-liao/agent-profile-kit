@@ -712,12 +712,14 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize ${fact.path}: the Workspace path exists and is not a directory`];
     case "init-empty-symlink-target":
       return [`Cannot initialize ${fact.path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`];
-    case "init-not-workspace-directory":
-      return [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`];
+    case "init-missing-parent-directory":
+      return [`Cannot initialize ${fact.path}: parent directory ${fact.parent} does not exist; nothing was written`];
+    case "init-partial-setup":
+      return [fact.added.length === 0
+        ? `Cannot initialize ${fact.path}: ${fact.cause}; nothing was added`
+        : `Cannot initialize ${fact.path}: ${fact.cause}; setup added ${fact.added.join(", ")} and stopped — existing files are unchanged, and re-running init adds only the still-missing parts`];
     case "init-workspace-selection-conflict":
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
-    case "init-planned-profile-conflict":
-      return [`Profile '${fact.profile}' is the example Profile this init will scaffold`];
     case "foreign-diagnostic":
       return [fact.detail];
     case "artifact-path-occupied":
@@ -902,15 +904,24 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         happened: [`Cannot initialize ${fact.path}: the Workspace symlink target is empty`],
         whatToType: [["Remove the symlink and run init, or populate its target with a valid Workspace before retrying."]],
       };
-    case "init-not-workspace-directory":
-      return { happened: [`Cannot initialize ${fact.path}: directory is non-empty and is not an Agent Profile Kit Workspace`] };
+    case "init-missing-parent-directory":
+      return {
+        happened: [`Cannot initialize ${fact.path}: parent directory ${fact.parent} does not exist`],
+        whatToType: [["Create the parent folder first, or choose a path whose parent exists; nothing was written."]],
+      };
+    case "init-partial-setup":
+      return {
+        happened: [fact.added.length === 0
+          ? `Cannot initialize ${fact.path}: ${fact.cause}`
+          : `Cannot initialize ${fact.path}: ${fact.cause}; setup added ${fact.added.join(", ")} and stopped`],
+        whatToType: [[
+          "Existing files are unchanged and Local Configuration was not written; re-run ",
+          commandPart(COMMAND_NAME, [arg("init"), arg(fact.path)]),
+          " to add only the still-missing parts.",
+        ]],
+      };
     case "init-workspace-selection-conflict":
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
-    case "init-planned-profile-conflict":
-      return {
-        happened: [`Profile '${fact.profile}' is the example Profile this init will scaffold`],
-        whatToType: [["Choose a different Profile name."]],
-      };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
     case "artifact-path-occupied":

@@ -143,9 +143,11 @@ function addUnique<T extends { readonly id: string; readonly path: string }>(
  * Ingest a Workspace at an already-resolved path (typically the canonical
  * realpath from Local Configuration resolution). When given a home directory
  * path that still needs the fixed default layout, pass `workspacePath(home)`.
+ * `manifestSource` has the same meaning as in `validateWorkspaceStructure`:
+ * setup's write-free validation of a manifest-missing folder.
  */
-export async function ingestWorkspace(path: string): Promise<Workspace> {
-  await validateWorkspaceStructure(path);
+export async function ingestWorkspace(path: string, manifestSource?: string): Promise<Workspace> {
+  await validateWorkspaceStructure(path, manifestSource);
   const contexts = new Map<string, ContextModule>();
   const profiles = new Map<string, Profile>();
   const skills = new Map<string, Skill>();

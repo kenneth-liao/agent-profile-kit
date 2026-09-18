@@ -80,6 +80,12 @@ function gitRepository(prefix: string): string {
 async function prepareHome(project: string): Promise<string> {
   const home = temporaryDirectory("apkit-evidence-home-");
   await initializeWorkspace(home);
+  // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
+  // this fixture binds the canonical example pair, so it writes it.
+  const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+  writeFileSync(join(workspace, "context", "example-context.md"),
+    "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n");
+  writeFileSync(join(workspace, "profiles", "example.yaml"), 'context:\n  - "example-context"\nskills: []\n');
   const application = join(home, ".agents", "agent-profile-kit");
   writeFileSync(
     join(application, "config.yaml"),
