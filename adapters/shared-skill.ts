@@ -18,7 +18,11 @@ import {
   type SkillPackageProjection,
 } from "./skill-package.js";
 import type { SupportedHost } from "../schemas/local-configuration.js";
-import type { ModelInvocationPolicy, Skill } from "../schemas/skill.js";
+import {
+  STANDARD_MODEL_INVOCATION_FIELD,
+  type ModelInvocationPolicy,
+  type Skill,
+} from "../schemas/skill.js";
 
 /** Shared native Skill discovery root used by qualified Agent Hosts. */
 export const SHARED_SKILLS_DISCOVERY_ROOT = posix.join(".agents", "skills");
@@ -30,8 +34,6 @@ export const SHARED_SKILL_DISCOVERY_REQUIREMENT =
 /** Codex's additional policy file inside a shared Skill package. */
 export const SHARED_SKILL_OPENAI_YAML = "agents/openai.yaml";
 
-/** The canonical Workspace Skill model-invocation authority (spec #593 DEC-007). */
-const CANONICAL_MODEL_INVOCATION_FIELD = "disable-model-invocation";
 const CODEX_INVOCATION_FIELD =
   "policy.allow_implicit_invocation";
 const SKILL_INVOCATION_COMMENT =
@@ -61,14 +63,14 @@ function policyAuthorityFailure(
   kind: "conflict" | "invalid",
 ): ReturnType<typeof capabilityFailure> {
   const canonical =
-    `canonical Workspace ${CANONICAL_MODEL_INVOCATION_FIELD} is '${skill.modelInvocation}'`;
+    `canonical Workspace ${STANDARD_MODEL_INVOCATION_FIELD} is '${skill.modelInvocation}'`;
   const hostLabel = `${skill.consumerHost[0]?.toUpperCase() ?? ""}${skill.consumerHost.slice(1)}`;
   const host = `${hostLabel} ${SHARED_SKILL_OPENAI_YAML} ${detail}`;
   const problem =
     `Skill '${skill.id}' has ${kind === "conflict" ? "conflicting" : "invalid"} ` +
     `model-invocation authorities: ${canonical}; ${host}`;
   const remedy =
-    `Repair the canonical Workspace Skill '${skill.id}' so ${CANONICAL_MODEL_INVOCATION_FIELD} ` +
+    `Repair the canonical Workspace Skill '${skill.id}' so ${STANDARD_MODEL_INVOCATION_FIELD} ` +
     `remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`;
   const yamlPath = join(skill.path, SHARED_SKILL_OPENAI_YAML);
   return capabilityFailure(
@@ -82,7 +84,7 @@ function policyAuthorityFailure(
       identifierPart(skill.id),
       `' has ${kind === "conflict" ? "conflicting" : "invalid"} model-invocation authorities: ${canonical}; ${host}; Repair the canonical Workspace Skill '`,
       identifierPart(skill.id),
-      `' so ${CANONICAL_MODEL_INVOCATION_FIELD} remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`,
+      `' so ${STANDARD_MODEL_INVOCATION_FIELD} remains authoritative and ${SHARED_SKILL_OPENAI_YAML} is absent or agrees, then retry`,
     ],
   );
 }

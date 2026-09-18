@@ -151,18 +151,13 @@ describe("Skill model-invocation policy", () => {
     );
   });
 
-  test("accepts allowed and disabled string values under namespaced metadata", () => {
+  test("rejects the retired namespaced metadata key and non-boolean standard values", () => {
+    const leftoverKey = `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation is no longer read; move the policy to the standard top-level field 'disable-model-invocation' (true disables model invocation), then remove the metadata key`;
     expect(
       parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
       ),
-    ).toBe(
-      `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation is no longer read; move the policy to the standard top-level field 'disable-model-invocation' (true disables model invocation), then remove the metadata key`,
-    );
-  });
-
-  test("rejects the retired namespaced metadata key and non-boolean standard values", () => {
-    const leftoverKey = `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation is no longer read; move the policy to the standard top-level field 'disable-model-invocation' (true disables model invocation), then remove the metadata key`;
+    ).toBe(leftoverKey);
     expect(
       parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: maybe\n---\n\n# To spec\n",

@@ -18,7 +18,7 @@ export const RETIRED_MODEL_INVOCATION_METADATA_FIELD =
   `metadata.${MODEL_INVOCATION_METADATA_KEY}`;
 
 /** Standard top-level Agent Skills field that disables model invocation. */
-const STANDARD_MODEL_INVOCATION_FIELD = "disable-model-invocation";
+export const STANDARD_MODEL_INVOCATION_FIELD = "disable-model-invocation";
 
 /**
  * The retired Agent Profile Kit-only Skill sidecar name (spec #593 DEC-006).
