@@ -34,6 +34,7 @@ import {
 import {
   writeHumanDocument,
   type PresentationDocument,
+  type PresentationRenderOptions,
 } from "./presentation-document.js";
 import { diagnosticDocument } from "./diagnostics.js";
 import { errorDiagnosticDocument } from "./error-wording.js";
@@ -127,6 +128,7 @@ async function initializeAndReport(
   parsed: ParsedInitArguments,
   stdoutContext: TerminalPresentationContext,
   stderrContext: TerminalPresentationContext,
+  renderOptions: PresentationRenderOptions,
   options: { readonly guidedProfileFollows?: boolean } = {},
 ): Promise<void> {
   const result = await initializeWorkspace(request.home, parsed);
@@ -138,6 +140,7 @@ async function initializeAndReport(
         severity: "attention",
       }),
       stderrContext,
+      renderOptions,
     );
   }
   const { guidedProfileFollows = false } = options ?? {};
@@ -152,6 +155,7 @@ async function initializeAndReport(
       ...(detectedHosts !== undefined ? { detectedHosts } : {}),
     }),
     stdoutContext,
+    renderOptions,
   );
 }
 
@@ -168,6 +172,10 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   }
 
   const interactive = isInteractiveInput(request.input);
+  // One render environment for the whole invocation: the working directory
+  // the user is in and the machine's Local Configuration home, so path
+  // spellings render against the invocation, not the renderer's defaults.
+  const renderOptions = { cwd: request.cwd ?? process.cwd(), home: request.home };
   // The one classification read routes the interactive flow and the commit
   // alike (spec #593 #603): first connections ask and confirm; already-
   // connected destinations keep the delivered behavior.
@@ -206,6 +214,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       request.stdout,
       initLocationDocument({ destinationPath: cwd, authoredPath: "." }),
       stdoutContext,
+      renderOptions,
     );
     const currentFolder = await prompts.yesNo(LOCATION_QUESTION);
     if (currentFolder === "cancelled") {
@@ -251,6 +260,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         missingParts: plan.missingParts,
       }),
       stdoutContext,
+      renderOptions,
     );
     const confirmed = await prompts.yesNo(CONFIRM_QUESTION);
     if (confirmed === "cancelled") {
@@ -291,6 +301,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       authored === undefined ? {} : { workspace: authored },
       stdoutContext,
       stderrContext,
+      renderOptions,
     );
     return { exitCode: 0 };
   }
@@ -302,6 +313,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     request.stdout,
     [{ kind: "sentence", parts: [PROFILE_EXPLANATION_SENTENCE] }],
     stdoutContext,
+    renderOptions,
   );
   const offer = await prompts.yesNo(OFFER_QUESTION);
   if (offer === "cancelled") {
@@ -314,6 +326,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       authored === undefined ? {} : { workspace: authored },
       stdoutContext,
       stderrContext,
+      renderOptions,
     );
     return { exitCode: 0 };
   }
@@ -342,6 +355,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         path: join(preview.destinationPath, "profiles", `${name}.yaml`),
       })),
       stderrContext,
+      renderOptions,
     );
     return { exitCode: 1 };
   }
@@ -386,6 +400,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         availableSkills: [...preview.skills],
       })),
       stderrContext,
+      renderOptions,
     );
     return { exitCode: 1 };
   }
@@ -401,6 +416,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     authored === undefined ? {} : { workspace: authored },
     stdoutContext,
     stderrContext,
+    renderOptions,
     {
       guidedProfileFollows: true,
     },
