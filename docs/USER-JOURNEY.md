@@ -267,7 +267,8 @@ before any write confirms the chosen folder: it shows the full path, states
 that Context and Skill files will be stored in and loaded from that folder,
 and lists exactly the parts setup will add (or that nothing needs to be
 added). Declining or cancelling writes nothing (spec #593 #603, US-001,
-ISC-24). Adds exactly the missing required
+ISC-24): declining exits 0 with a neutral note; cancelling exits 1 with a
+cancelled diagnostic. Adds exactly the missing required
 parts — `workspace.yaml`, `context/`,
 `skills/`, and `profiles/` — in place to the chosen folder, records a
 `schema_version: 2` `config.yaml`, and adds nothing else: no example Profile,

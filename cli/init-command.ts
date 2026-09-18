@@ -275,6 +275,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         request.stderr,
         initCancelledDocument(authored === undefined ? {} : { workspace: authored }),
         stderrContext,
+        renderOptions,
       );
       return { exitCode: 1 };
     }

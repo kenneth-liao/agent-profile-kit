@@ -697,7 +697,7 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(plain(streams.humanText())).toContain("~/apkit-workspace");
   }, 20_000);
 
-  test("cancelling at the location question and at the folder prompt writes nothing", async () => {
+  test("cancelling at the location question writes nothing", async () => {
     const home = isolatedHome();
     const cwd = isolatedHome("init-cwd-");
     const input = fakeInteractiveInput();
@@ -715,6 +715,26 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     );
     // The remedy names an executable path form, not the bare refusal form.
     expect(plain(first.streams.errorText())).toContain("apkit init <path>");
+  }, 20_000);
+
+  test("cancelling at the folder prompt writes nothing", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("n");
+    await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
+    input.end();
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(cwd).size).toBe(0);
+    expect(plain(streams.errorText())).toContain(
+      "init was cancelled; nothing was initialized or created",
+    );
   }, 20_000);
 
   test("cancelling at the confirmation writes nothing", async () => {
