@@ -20,8 +20,8 @@ Common commands:
   init
     Initialize or adopt the canonical Workspace and settings
   guide
-    Show a topic index, full Workspace guidance, or one focused authoring
-      example
+    Show a topic index, the Workspace contract, full Workspace guidance, or
+      one focused authoring example
   new
     Create a Skill, Context Module, or Profile scaffold in the configured
       Workspace
@@ -126,8 +126,8 @@ exports[`golden snapshots of every human view guide index: guide-index 1`] = `
 "--- stdout ---
 Agent Profile Kit guide
 
-Choose a focused authoring topic, read the complete human guide, or open the
-  agent workflow reference.
+Choose a focused authoring topic, read the Workspace contract, the complete
+  human guide, or the agent workflow reference.
 
 Topics:
   apkit guide profile
@@ -143,6 +143,8 @@ Topics:
       workflow applies.
 
 Complete references:
+  apkit guide --contract
+    The Workspace contract: every rule validation enforces
   apkit guide --full
     Complete human Workspace guide
   apkit guide --agent
@@ -184,7 +186,8 @@ Keep project-specific instructions in the project repository.
 
 Next: from the project you want to try, run \`apkit install example --host codex\`.
 
-For complete authoring guidance, run apkit guide --full.
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -210,7 +213,8 @@ Keep project-specific instructions in the project repository.
 
 Next: run \`apkit validate\`, then select it into a Profile with \`apkit configure profile\`.
 
-For complete authoring guidance, run apkit guide --full.
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -242,7 +246,8 @@ Describe what changed, how it was verified, and any follow-up work.
 
 Next: run \`apkit validate\`, then select it into a Profile with \`apkit configure profile\`.
 
-For complete authoring guidance, run apkit guide --full.
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -375,20 +380,27 @@ The restored file preserves the pre-migration Workspace selection and Project
 
 Required structure vs optional files
 
-A valid Workspace needs only a supported \`workspace.yaml\`. That Manifest is
-  the Workspace marker. \`context/\`, \`skills/\`, and \`profiles/\` are the required
-  artifact directories, which setup adds when missing; missing categories are
-  treated as empty collections, and present ones are validated and ingested
-  normally. \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are optional user-owned
-  files that the engine never requires.
+The Workspace contract (run \`apkit guide --contract\`) states the required
+  structure and every rule validation enforces. In short: a valid Workspace
+  needs a supported \`workspace.yaml\` — the Workspace marker — plus the
+  \`context/\`, \`skills/\`, and \`profiles/\` artifact directories, which setup adds
+  when missing; missing categories are treated as empty collections, and present
+  ones are validated and ingested normally. \`README.md\`, \`AGENTS.md\`, and
+  \`.gitignore\` are optional user-owned files that the engine never requires.
 
 When creating a new Workspace, \`init\` adds only the required parts and no
   example material (spec #593 DEC-003, ADR-0047). For a complete worked example
   — a bindable \`profiles/example.yaml\` and its \`context/example-context.md\` —
   run \`apkit guide profile\`, which prints both files' example bytes, or see
-  \`apkit guide context\` and \`apkit guide skill\` for single artifacts.
+  \`apkit guide context\` and \`apkit guide skill\` for single artifacts. The
+  contract's minimal valid Workspace shows all four required parts together.
 
 Author the Workspace
+
+The Workspace contract (run \`apkit guide --contract\`) states the complete
+  authoring format: Context Module identity and delivery, the Skill package
+  rules, the Profile shape, and model-invocation policy. This guide covers how
+  that material reaches each Host.
 
 This release supports Profile Context and Context Modules for Antigravity,
   Codex, Claude Code, Grok, OpenCode, and Pi, and portable Skills for
@@ -400,27 +412,7 @@ This release supports Profile Context and Context Modules for Antigravity,
   model-invocation Skills are projected with the shared
   \`disable-model-invocation: true\` field while explicit \`/skill:<Artifact ID>\`
   activation (or OpenCode \`/<Artifact ID>\` command activation) remains
-  available. Profiles are named by their file name under \`profiles/\` and contain
-  only \`context\` and \`skills\`; Agents, Hooks, and Tools are not delivered by
-  this release. A Profile must select at least one supported artifact overall
-  (Context Module, Skill, or both); no individual category is mandatory.
-  Context-only, Skills-only, and combined Profiles are valid.
-
-A Context Module is any Markdown file under \`context/\`, at any depth; its ID
-  is its path under \`context/\` without \`.md\`, with \`/\` between folders (for
-  example \`engineering/review-findings\`). apkit reads no Context frontmatter and
-  requires none: the file's bytes are delivered as written inside the generated
-  Context output, whose header precedes all module content, so frontmatter in a
-  Context file never becomes Host frontmatter. Moving or renaming the file
-  changes its ID by design. Every folder and file name under \`context/\` must be
-  a lowercase kebab-case name, because together they form the ID. A Skill is a
-  standard Agent Skills package under \`skills/\`, rooted at \`SKILL.md\`; its
-  standard \`name\` is its stable Artifact ID. The frontmatter needs a lowercase
-  hyphenated \`name\` and a non-empty \`description\`. Scripts, references, and
-  assets remain ordinary standard Skill content. A Profile's \`context\` and
-  \`skills\` lists are the only source of what is installed: list every needed
-  artifact there; there are no Dependencies and no \`agent-profile-kit.yaml\`
-  sidecar.
+  available. Agents, Hooks, and Tools are not delivered by this release.
 
 Skill model-invocation policy
 
@@ -432,17 +424,14 @@ By default, Hosts may invoke a Skill implicitly when the model matches its
 disable-model-invocation: true
 
 The field is a boolean: \`true\` disables model invocation, and absence (or
-  \`false\`) allows it. Non-boolean values fail at Workspace ingestion with the
+  \`false\`) allows it; non-boolean values fail at Workspace ingestion with the
   fix.
 
-This standard field is the only policy authority (ADR-0018). The retired Agent
-  Profile Kit metadata key \`agent-profile-kit.model-invocation\` is no longer
-  read: a Skill carrying it fails validation, and the fix names
-  \`disable-model-invocation\` as the replacement. Other top-level frontmatter
-  fields beyond those Agent Profile Kit reads — including Host-specific fields —
-  are accepted and ignored, so standard Agent Skill packages validate and
-  install unchanged, and those fields reach each Host as written. The Installer
-  never rewrites Workspace \`SKILL.md\` during validate, status, or update.
+The standard field is the only policy authority (ADR-0018); the Workspace
+  contract states the full rule set, including the retired
+  \`agent-profile-kit.model-invocation\` metadata key and the accepted-and-ignored
+  other top-level fields. The Installer never rewrites Workspace \`SKILL.md\`
+  during validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -488,20 +477,14 @@ Existing source \`agents/openai.yaml\` content is preserved. An equivalent
 Profiles are the only place that says what gets installed together (ADR-0045):
   list each needed Context Module and Skill explicitly. A Profile's \`context\`
   and \`skills\` lists install exactly what they name — nothing is pulled in
-  transitively.
-
-A Profile is a YAML file directly under \`profiles/\`; its file name without
-  \`.yaml\` is the Profile's ID, and the file holds exactly a \`context\` array and
-  a \`skills\` array. The file name must be a lowercase kebab-case name; Profiles
-  in nested folders are not accepted. At least one of \`context\` or \`skills\` must
-  be non-empty. A Skills-only Profile installs only selected Skill packages for
-  Hosts that support them and Installer lifecycle metadata—no Context snapshot,
-  Codex SessionStart hooks, or Claude Context rule. Antigravity Skills-only
-  bindings check only the shared \`.agents\` and \`.agents/skills\` surfaces. Host
-  capability probing is scoped to the selected categories (Skills-only does not
-  require Context machinery). Profiles do not inherit, use wildcards, or carry
-  Host settings. Renaming the file renames the Profile; Project Bindings select
-  Profiles by that name.
+  transitively. The Workspace contract states the Profile shape; a Skills-only
+  Profile installs only selected Skill packages for Hosts that support them and
+  Installer lifecycle metadata—no Context snapshot, Codex SessionStart hooks, or
+  Claude Context rule. Antigravity Skills-only bindings check only the shared
+  \`.agents\` and \`.agents/skills\` surfaces. Host capability probing is scoped to
+  the selected categories (Skills-only does not require Context machinery).
+  Renaming a Profile file renames its ID; Project Bindings select Profiles by
+  that name.
 
 Rollback caveat: this Profile shape is a CLI 0.208.0+ acceptance change. A
   Workspace whose Profiles carry no \`id\` line fails validation on an older
@@ -514,10 +497,10 @@ Keep project facts in the project repository.
 <!-- context/engineering/review-findings.md -->
 Review findings and the reasoning behind them.
 
-A Context Module is a plain Markdown file: no frontmatter is required or read.
-  A Context file that still carries frontmatter from an earlier release is valid
-  — its bytes are delivered as written — and you can delete the frontmatter at
-  your leisure.
+A Context Module is a plain Markdown file: no frontmatter is required or read
+  (the Workspace contract states the full rule). A Context file that still
+  carries frontmatter from an earlier release is valid — its bytes are delivered
+  as written — and you can delete the frontmatter at your leisure.
 
 Rollback caveat: Context path identity is a CLI 0.210.0+ acceptance change. A
   Workspace whose Context Modules carry no frontmatter \`id\` fails validation on
@@ -926,7 +909,9 @@ exports[`golden snapshots of every human view agent guide: agent-guide 1`] = `
 Use this workflow when helping a person author their Workspace and bind projects.
 
 1. Read this guide first. Then inspect the Workspace: start with \`workspace.yaml\`
-   and its schema version. A valid Workspace needs that Manifest plus the
+   and its schema version. The Workspace contract (run \`apkit guide --contract\`)
+   states the required structure and every rule \`apkit validate\` enforces; in
+   short, a valid Workspace has the \`workspace.yaml\` Manifest plus the
    \`context/\`, \`skills/\`, and \`profiles/\` directories, which \`apkit init\` adds
    when missing; missing artifact directories are empty collections, and
    bootstrap files such as \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are
@@ -945,15 +930,14 @@ Use this workflow when helping a person author their Workspace and bind projects
 3. Create the smallest useful artifact set. This release accepts Profile Context
    and shared Skills for Antigravity, plus portable Context and Skills for Codex,
    Claude Code, Grok, OpenCode, and Pi. Put standing facts in
-   Context Modules and reusable procedures in Skills. A Profile needs at least
+   Context Modules and reusable procedures in Skills. Author each artifact to
+   the Workspace contract, which states every rule validation enforces —
+   Context Module identity and delivery, the Skill
+   package rules including the standard \`disable-model-invocation\` field, and
+   the Profile shape (file name is the ID; the file holds exactly \`context\`
+   and \`skills\`). A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
-   Skills-only Profile is valid. For Skills that must not fire implicitly, set
-   the standard top-level \`disable-model-invocation: true\` field in \`SKILL.md\`
-   (absent means allowed); the retired \`metadata.agent-profile-kit.model-invocation\`
-   key fails validation and other top-level fields are accepted and ignored.
-   Profiles
-   live directly in \`profiles/\`; the file name without \`.yaml\` is the Profile's
-   ID, and the file contains exactly \`context\` and \`skills\`. Do not create a new artifact merely because
+   Skills-only Profile is valid. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.
@@ -1097,7 +1081,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.211.0
+Engine version: 0.212.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1694,9 +1678,9 @@ Common commands:
     Initialize or adopt the canonical
       Workspace and settings
   guide
-    Show a topic index, full Workspace
-      guidance, or one focused authoring
-      example
+    Show a topic index, the Workspace
+      contract, full Workspace guidance,
+      or one focused authoring example
   new
     Create a Skill, Context Module, or
       Profile scaffold in the configured
@@ -1785,9 +1769,9 @@ Agent Profile Kit composes reusable
     Initialize or adopt the canonical
       Workspace and settings
 \x1B[36m  guide\x1B[0m
-    Show a topic index, full Workspace
-      guidance, or one focused authoring
-      example
+    Show a topic index, the Workspace
+      contract, full Workspace guidance,
+      or one focused authoring example
 \x1B[36m  new\x1B[0m
     Create a Skill, Context Module, or
       Profile scaffold in the configured
@@ -1868,7 +1852,8 @@ Common commands:
   init
     Initialize or adopt the canonical Workspace and settings
   guide
-    Show a topic index, full Workspace guidance, or one focused authoring example
+    Show a topic index, the Workspace contract, full Workspace guidance, or one focused authoring
+      example
   new
     Create a Skill, Context Module, or Profile scaffold in the configured Workspace
   open
@@ -1929,7 +1914,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  init\x1B[0m
     Initialize or adopt the canonical Workspace and settings
 \x1B[36m  guide\x1B[0m
-    Show a topic index, full Workspace guidance, or one focused authoring example
+    Show a topic index, the Workspace contract, full Workspace guidance, or one focused authoring
+      example
 \x1B[36m  new\x1B[0m
     Create a Skill, Context Module, or Profile scaffold in the configured Workspace
 \x1B[36m  open\x1B[0m
@@ -1970,7 +1956,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.211.0
+Engine version: 0.212.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1980,7 +1966,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.211.0\x1B[0m
+\x1B[35mEngine version: 0.212.0\x1B[0m
 Workspace: \x1B[35m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1990,7 +1976,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.211.0
+Engine version: 0.212.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2000,7 +1986,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.211.0\x1B[0m
+\x1B[35mEngine version: 0.212.0\x1B[0m
 Workspace: \x1B[35m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

@@ -64,8 +64,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "guide",
     group: "common",
-    syntax: "guide [profile|context|skill|--full|--agent]",
-    summary: "Show a topic index, full Workspace guidance, or one focused authoring example",
+    syntax: "guide [profile|context|skill|--full|--agent|--contract]",
+    summary: "Show a topic index, the Workspace contract, full Workspace guidance, or one focused authoring example",
     examples: COMMAND_EXAMPLES.guide,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("validate"), " after editing your Workspace."],

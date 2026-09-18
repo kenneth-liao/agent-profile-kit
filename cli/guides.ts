@@ -27,6 +27,16 @@ export function humanGuide(): Promise<string> {
   return readFile(guidePath("workspace.md"), "utf8");
 }
 
+/**
+ * The Workspace contract (spec #593 US-004, DEC-010, #602): the one canonical
+ * document stating every rule Workspace validation enforces. Shipped with the
+ * guides and linked from the README so it is readable before installing
+ * apkit; other guides link to it instead of restating its rules.
+ */
+export function workspaceContract(): Promise<string> {
+  return readFile(guidePath("workspace-contract.md"), "utf8");
+}
+
 export function agentGuide(): Promise<string> {
   return readFile(guidePath("agent-workflow.md"), "utf8");
 }
@@ -81,12 +91,19 @@ export const TOPIC_GUIDES = {
   },
 } as const;
 
-/** The route to the complete reference, shared by every focused guide. Guide
+/** The route to the complete references, shared by every focused guide. Guide
  * prose carries no category (the focused-guide presentation rule), so the
- * pointer renders as plain prose around its atomic command part. */
+ * pointer renders as plain prose around its atomic command parts. The
+ * contract leads: its rules are what the focused topics summarize (DEC-010,
+ * #602). */
 const FULL_GUIDE_POINTER = {
   kind: "sentence",
-  parts: ["For complete authoring guidance, run ",
+  parts: ["For the Workspace contract, run ",
+    commandPart(COMMAND_NAME, [
+      { kind: "text" as const, value: "guide" },
+      { kind: "text" as const, value: "--contract" },
+    ]),
+    "; for complete authoring guidance, run ",
     commandPart(COMMAND_NAME, [
       { kind: "text" as const, value: "guide" },
       { kind: "text" as const, value: "--full" },
@@ -107,7 +124,7 @@ export function guideIndexDocument(): PresentationDocument {
     {
       kind: "sentence",
       parts: [
-        "Choose a focused authoring topic, read the complete human guide, or open the agent workflow reference.",
+        "Choose a focused authoring topic, read the Workspace contract, the complete human guide, or the agent workflow reference.",
       ],
     },
     spacer(),
@@ -122,6 +139,7 @@ export function guideIndexDocument(): PresentationDocument {
   }
   nodes.push(spacer(), { kind: "heading", text: "Complete references:" });
   for (const [route, description] of [
+    [["guide", "--contract"], "The Workspace contract: every rule validation enforces"],
     [["guide", "--full"], "Complete human Workspace guide"],
     [["guide", "--agent"], "Agent workflow reference"],
   ] as const) {

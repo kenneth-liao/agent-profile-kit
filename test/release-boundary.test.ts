@@ -161,6 +161,7 @@ test("packed npm artifacts exclude personal, legacy, and generated content", asy
       "README.md",
       "dist/cli.js",
       "docs/guides/agent-workflow.md",
+      "docs/guides/workspace-contract.md",
       "docs/guides/workspace.md",
       "package.json",
     ]);

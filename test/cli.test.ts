@@ -8579,8 +8579,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("packed package ships both maintained guides and the public overview", async () => {
+  test("packed package ships the contract, both maintained guides, and the public overview", async () => {
     const packageRoot = resolve(cliPath, "..", "..");
+    expect(existsSync(join(packageRoot, "docs", "guides", "workspace-contract.md"))).toBe(true);
     expect(existsSync(join(packageRoot, "docs", "guides", "workspace.md"))).toBe(true);
     expect(existsSync(join(packageRoot, "docs", "guides", "agent-workflow.md"))).toBe(true);
     expect(existsSync(join(packageRoot, "README.md"))).toBe(true);
@@ -8764,20 +8765,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("bare guide indexes topics while --full and --agent serve maintained guides", async () => {
+  test("bare guide indexes topics while --contract, --full, and --agent serve the canonical references", async () => {
     const home = isolatedHome();
     const packageRoot = resolve(cliPath, "..", "..");
 
     const human = await runCli(home, "guide");
     const full = await runCli(home, "guide", "--full");
     const agent = await runCli(home, "guide", "--agent");
+    const contract = await runCli(home, "guide", "--contract");
 
     expectExitCode(human, 0);
     expectExitCode(full, 0);
     expectExitCode(agent, 0);
+    expectExitCode(contract, 0);
     expect(human.stdout).toContain("apkit guide profile");
     expect(human.stdout).toContain("apkit guide context");
     expect(human.stdout).toContain("apkit guide skill");
+    expect(human.stdout).toContain("apkit guide --contract");
     expect(human.stdout).toContain("apkit guide --full");
     expect(human.stdout).toContain("apkit guide --agent");
     expect(human.stdout).toContain("Profiles select it by its");
@@ -8796,6 +8800,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(full.stdout).not.toContain("```sh");
     expect(agent.stdout).toBe(
       readFileSync(join(packageRoot, "docs", "guides", "agent-workflow.md"), "utf8"),
+    );
+    // The Workspace contract renders verbatim: the output is the canonical
+    // document byte-for-byte, so an agent reading the README's link and one
+    // running `apkit guide --contract` see the same rules (DEC-010, #602).
+    expect(contract.stdout).toBe(
+      readFileSync(join(packageRoot, "docs", "guides", "workspace-contract.md"), "utf8"),
     );
     expect(existsSync(workspacePath(home))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
@@ -8839,7 +8849,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/README\.md/);
     expect(result.stdout).toMatch(/optional/i);
     expect(result.stdout).toMatch(/profiles\//);
-    expect(result.stdout).toMatch(/at least one supported artifact|Skills-only Profile|no individual category is mandatory/i);
+    // The authoring-format rules moved to the contract; the guide carries the
+    // Host-delivery detail, including the Skills-only Profile behavior.
+    expect(result.stdout).toMatch(/Skills-only/i);
+    expect(result.stdout).toMatch(/Workspace contract/i);
   });
 
   test("packed human guide separates universal Workspace source ownership from managed delivery", async () => {
@@ -8922,6 +8935,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readme).toMatch(/fleet by default/i);
     expect(readme).toContain("apkit uninstall --here");
     expect(readme).toContain("apkit guide --full");
+    // The contract is reachable before installing apkit (ISC-34, #602): the
+    // README links the canonical document and the CLI route that shows it.
+    expect(readme).toContain("apkit guide --contract");
+    expect(readme).toContain("docs/guides/workspace-contract.md");
     // Retired public-bind vocabulary no longer appears in the overview.
     expect(readme).not.toMatch(/\bbound (project|Profile)|Project Bindings?/i);
     expect(readme).toMatch(/macOS/i);
@@ -10975,7 +10992,9 @@ describe("apkit root help", () => {
     expectExitCode(wide, 0);
     expect(narrow.stdout).not.toBe(wide.stdout);
     expect(narrow.stdout).not.toContain("SessionStart");
-    expect(narrow.stdout.split("\n").length).toBeLessThan(40);
+    // One line per topic plus three complete references (#602 added the
+    // contract): the index stays well under two terminal screens.
+    expect(narrow.stdout.split("\n").length).toBeLessThan(43);
     for (const line of narrow.stdout.split("\n")) {
       expect(line.length).toBeLessThanOrEqual(40);
     }
@@ -10999,7 +11018,7 @@ describe("apkit root help", () => {
     const result = await sharedReadOnlyCapture("guide", "--help");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
+    expect(result.stdout).toContain("Usage: apkit guide [profile|context|skill|--full|--agent|--contract]");
     for (const topic of ["profile", "context", "skill"]) {
       expect(result.stdout).toContain(`apkit guide ${topic}`);
     }
@@ -11105,7 +11124,7 @@ describe("apkit root help", () => {
     const badGuideFlag = await runCli(home, "guide", "--json");
     expectExitCode(badGuideFlag, 1);
     expect(badGuideFlag.stderr).toContain("guide does not accept argument '--json'");
-    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--full|--agent]");
+    expect(badGuideFlag.stderr).toContain("Usage: apkit guide [profile|context|skill|--full|--agent|--contract]");
 
     const agentAfterTopic = await runCli(home, "guide", "profile", "--agent");
     expectExitCode(agentAfterTopic, 1);
