@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { formatLifecycleJson } from "../cli/presentation.js";
+import { blockerWording } from "../cli/blocker-wording.js";
+import { brokenProfileViolations } from "../installer/ingest-workspace.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { validateApplication } from "../installer/commands.js";
@@ -58,6 +60,7 @@ interface BrokenFleetFixture {
   readonly blockedProject: string;
   readonly healthyProject: string;
   readonly home: string;
+  readonly workspace: string;
 }
 
 /**
@@ -86,7 +89,7 @@ async function brokenFleetFixture(prefix: string): Promise<BrokenFleetFixture> {
     join(application, "config.yaml"),
     `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${blockedProject}\n    profile: broken\n    hosts: [codex]\n  - project: ${healthyProject}\n    profile: healthy\n    hosts: [codex]\n`,
   );
-  return { blockedProject, healthyProject, home };
+  return { blockedProject, healthyProject, home, workspace: realpathSync(workspace) };
 }
 
 describe("broken-Profile project-scoped Blockers (#606)", () => {
@@ -102,7 +105,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       missingContexts: ["gone-context"],
       missingSkills: ["gone-skill"],
     }]);
-    expect(desired.referenceViolations.map(workspaceViolationToken).sort()).toEqual([
+    expect(brokenProfileViolations(desired.brokenProfiles).map(workspaceViolationToken).sort()).toEqual([
       "missing-context-reference",
       "missing-skill-reference",
     ]);
@@ -128,13 +131,13 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
   });
 
   test("status blocks only the bound Project; the report names every broken Profile", async () => {
-    const { blockedProject, healthyProject, home } = await brokenFleetFixture("apkit-606-status-");
+    const { blockedProject, healthyProject, home, workspace } = await brokenFleetFixture("apkit-606-status-");
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
       schemaVersion: 9,
-    }, { brokenProfileViolations: desired.referenceViolations });
+    }, { brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles) });
 
     const blockedRecord = report.projects.find((project) => project.canonicalProject === blockedProject);
     expect(blockedRecord).toMatchObject({ state: { kind: "blocked" } });
@@ -151,6 +154,10 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
         missingSkills: ["gone-skill"],
       },
     });
+    // The remedy's editor command names the Profile file by absolute path.
+    expect(blockerWording(blockedRecord!.blockers[0]!).remedy).toContain(
+      join(workspace, "profiles/broken.yaml"),
+    );
 
     const healthyRecord = report.projects.find((project) => project.canonicalProject === healthyProject);
     expect(healthyRecord).toMatchObject({ state: { kind: "addition" } });
@@ -166,6 +173,14 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     const json = JSON.parse(formatLifecycleJson("status", report));
     expect(json.outcome).toBe("blocked");
     expect(json.brokenProfileViolations).toHaveLength(2);
+    // Lifecycle JSON publishes the shared `{rule, path, message}` shape (#606).
+    for (const entry of json.brokenProfileViolations) {
+      expect(Object.keys(entry).sort()).toEqual(["message", "path", "rule"]);
+    }
+    expect(json.brokenProfileViolations.map((entry: { rule: string }) => entry.rule).sort()).toEqual([
+      "missing-context-reference",
+      "missing-skill-reference",
+    ]);
   });
 
   test("update writes the healthy Project and leaves the blocked Project's installed output unchanged", async () => {
@@ -174,7 +189,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     // skipped and gets nothing written.
     const before = await buildDesiredState(home, { checkHostCapability: false });
     const firstReport = await applyReconciliation(home, before.installations, {
-      brokenProfileViolations: before.referenceViolations,
+      brokenProfileViolations: brokenProfileViolations(before.brokenProfiles),
     });
     expect(reportItems(firstReport.receipt).find((item) => item.project === healthyProject)?.kind).toBe("addition");
     // No blocked work is planned: the Apply Receipt carries nothing for it.
@@ -222,7 +237,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     let blockedReport;
     try {
       await applyReconciliation(home, desired.installations, {
-        brokenProfileViolations: desired.referenceViolations,
+        brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
       });
       throw new Error("expected ApplyBlockedError");
     } catch (error) {
@@ -286,7 +301,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       receipts: [],
       removedTemporaryInstallationIds: [],
       schemaVersion: 9,
-    }, { brokenProfileViolations: desired.referenceViolations });
+    }, { brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles) });
     expect(report.projects).toEqual([]);
     expect(reportBlockers(report)).toEqual([]);
     expect(report.brokenProfileViolations).toHaveLength(1);
@@ -294,6 +309,8 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
 
   test("install of a broken Profile is blocked before any write; nothing is published", async () => {
     const { blockedProject, home } = await brokenFleetFixture("apkit-606-install-");
+    const configurationPath = join(home, ".agents", "agent-profile-kit", "config.yaml");
+    const before = readFileSync(configurationPath, "utf8");
     let thrown: unknown;
     try {
       await executeInstall(home, { profile: "broken", hosts: ["codex"], project: blockedProject });
@@ -313,9 +330,8 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       ]);
     }
     // Nothing was published: no binding, no generated output, no receipt.
-    const configuration = readFileSync(join(home, ".agents", "agent-profile-kit", "config.yaml"), "utf8");
-    expect(configuration).toContain(`project: ${blockedProject}`);
-    expect(configuration).toContain("profile: broken");
+    const after = readFileSync(configurationPath, "utf8");
+    expect(after).toBe(before);
     expect(existsSync(join(blockedProject, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(blockedProject, ".codex"))).toBe(false);
     expect((await readInstallationState(home)).receipts).toHaveLength(0);

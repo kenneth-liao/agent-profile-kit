@@ -1116,7 +1116,11 @@ describe("broken-Profile fleet scope qualification (spec #593 US-007, TEST-009, 
     const status = await runCli(home, pathWithHosts, "status", "--json");
     expectExitCode(status, 2);
     const statusPayload = JSON.parse(status.stdout) as {
-      readonly brokenProfileViolations: readonly { readonly fact?: { readonly kind: string } }[];
+      readonly brokenProfileViolations: readonly {
+        readonly rule: string;
+        readonly path: string;
+        readonly message: string;
+      }[];
       readonly projects: readonly {
         readonly blockers: readonly { readonly kind: string; readonly message: string }[];
         readonly canonicalProject: string;
@@ -1124,6 +1128,11 @@ describe("broken-Profile fleet scope qualification (spec #593 US-007, TEST-009, 
       }[];
     };
     expect(statusPayload.brokenProfileViolations).toHaveLength(2);
+    expect(
+      statusPayload.brokenProfileViolations.every(
+        (violation) => violation.rule === "missing-context-reference",
+      ),
+    ).toBe(true);
     expect(
       statusPayload.projects.filter((project) => project.state.kind === "blocked"),
     ).toHaveLength(6);

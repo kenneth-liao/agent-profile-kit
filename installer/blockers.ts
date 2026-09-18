@@ -112,6 +112,8 @@ export interface BrokenProfileReferenceFact {
   readonly missingSkills: readonly string[];
   /** The broken Profile's Artifact ID. */
   readonly profile: string;
+  /** Absolute Workspace path that owns `file`. */
+  readonly workspace: string;
 }
 
 /** Common evidence every blocker carries. */
@@ -349,10 +351,10 @@ export function brokenProfileBlocker(options: {
   readonly brokenProfile: BrokenProfileReferenceFact;
   readonly project: string;
 }): ProjectScopedBlockerInput {
-  const { file, missingContexts, missingSkills, profile } = options.brokenProfile;
+  const { file, missingContexts, missingSkills, profile, workspace } = options.brokenProfile;
   return {
     affectedItems: [],
-    brokenProfile: { file, missingContexts, missingSkills, profile },
+    brokenProfile: { file, missingContexts, missingSkills, profile, workspace },
     kind: BROKEN_PROFILE,
     project: options.project,
     scope: "project" as const,
@@ -623,6 +625,7 @@ function validateBrokenProfileFact(
   const fact = value as Record<string, unknown>;
   requireTextProperty(fact, "profile", "broken-profile fact", input);
   requireTextProperty(fact, "file", "broken-profile fact", input);
+  requireTextProperty(fact, "workspace", "broken-profile fact", input);
   if (
     !Array.isArray(fact.missingContexts) ||
     !Array.isArray(fact.missingSkills) ||

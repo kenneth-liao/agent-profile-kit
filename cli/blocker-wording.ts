@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { COMMAND_NAME } from "../installer/version.js";
 import { OPENCODE_UNCLAIMED_CONFIG_LOCATIONS } from "../adapters/opencode.js";
 
@@ -731,7 +733,7 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
       ];
       const remedy = compact([
         "Restore the missing artifacts in the Workspace, or edit ",
-        editorCommand(broken.file),
+        editorCommand(join(broken.workspace, broken.file)),
         " to remove the entries. Run ",
         apkit("validate"),
         " for the complete Workspace report, then run ",

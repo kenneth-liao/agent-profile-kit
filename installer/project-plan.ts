@@ -37,7 +37,7 @@ import {
   stateDirectory,
   type ProjectBindingSelection,
 } from "./local-configuration.js";
-import type { BrokenProfileReference } from "./ingest-workspace.js";
+import type { BrokenProfileReference, Workspace } from "./ingest-workspace.js";
 import {
   createLifecyclePlanningContext,
   type LifecyclePlanningContext,
@@ -56,11 +56,6 @@ import { type ResolvedProfile } from "./resolve-profile.js";
 import { ENGINE_VERSION } from "./version.js";
 import { type GitWorktree, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
-import {
-  isProfileReferenceViolation,
-  type Workspace,
-} from "./ingest-workspace.js";
-import type { WorkspaceViolation } from "./tool-errors.js";
 import type { AdapterCapabilityFailure } from "../adapters/capability.js";
 import { compareCoreSemanticVersions } from "../adapters/services/semantic-version.js";
 
@@ -231,12 +226,14 @@ export function appendDiagnosticWarnings(
 }
 
 export interface DesiredState {
-  /** Grouped missing references of every broken Profile, from tolerant ingestion (#606). */
+  /**
+   * Grouped missing references of every broken Profile, from tolerant
+   * ingestion (#606): the one home for the verbatim #604 reference facts —
+   * readers flatten them through `brokenProfileViolations`.
+   */
   readonly brokenProfiles: readonly BrokenProfileReference[];
   readonly bindingCount: number;
   readonly installations: readonly DesiredInstallation[];
-  /** The original #604 reference facts, verbatim, for `validate`'s failure report (#606). */
-  readonly referenceViolations: readonly WorkspaceViolation[];
   readonly workspace: Workspace;
 }
 
@@ -702,7 +699,6 @@ export async function buildDesiredState(
   const { brokenProfiles, configuration, workspace } = options.rejectReferenceViolations === true
     ? { ...await ingestApplication(home, selection), brokenProfiles: [] }
     : await ingestApplicationToleratingReferenceViolations(home, selection);
-  const referenceViolations = brokenProfiles.flatMap((broken) => broken.referenceViolations);
   const installations = await planDesiredInstallations(home, [...configuration.bindings], workspace, {
     ...(options.checkHostCapability === undefined ? {} : { checkHostCapability: options.checkHostCapability }),
     brokenProfiles,
@@ -720,7 +716,6 @@ export async function buildDesiredState(
     bindingCount: configuration.bindings.length,
     brokenProfiles,
     installations,
-    referenceViolations,
     workspace,
   };
 }

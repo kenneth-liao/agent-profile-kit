@@ -37,7 +37,7 @@ import {
 import type { ProjectBindingSelection } from "./local-configuration.js";
 import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
-import { collectWorkspaceViolations } from "./ingest-workspace.js";
+import { brokenProfileViolations, collectWorkspaceViolations } from "./ingest-workspace.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -180,7 +180,7 @@ export async function applyApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   return applyReconciliation(home, desired.installations, {
-    brokenProfileViolations: desired.referenceViolations,
+    brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
     scheduler,
     scope: reconciliationScope(options.selection),
     ...(options.selection?.filter === undefined ? {} : { filter: options.selection.filter }),
@@ -220,7 +220,7 @@ export async function statusApplication(
       home,
       desired.installations,
       error,
-      desired.referenceViolations,
+      brokenProfileViolations(desired.brokenProfiles),
     );
   }
   // Let each Adapter resolve its topology from the prior Manifest and keep
@@ -236,7 +236,7 @@ export async function statusApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   const report = await previewReconciliation(desired.installations, state, {
-    brokenProfileViolations: desired.referenceViolations,
+    brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
     gitInspection,
     ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
     scheduler,

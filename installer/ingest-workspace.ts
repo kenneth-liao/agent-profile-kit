@@ -336,8 +336,13 @@ export interface TolerantWorkspaceIngestion {
   readonly workspace: Workspace;
   /** One grouped fact per broken Profile, sorted by Profile ID. */
   readonly brokenProfiles: readonly BrokenProfileReference[];
-  /** The original collected reference facts, verbatim from the #604 parser. */
-  readonly referenceViolations: readonly WorkspaceViolation[];
+}
+
+/** The flat verbatim #604 reference facts of every broken Profile (#606). */
+export function brokenProfileViolations(
+  brokenProfiles: readonly BrokenProfileReference[],
+): readonly WorkspaceViolation[] {
+  return brokenProfiles.flatMap((broken) => broken.referenceViolations);
 }
 
 /**
@@ -358,7 +363,6 @@ export async function ingestWorkspaceToleratingReferenceViolations(
     return {
       workspace: { path, contexts: contents.contexts, profiles: contents.profiles, skills: contents.skills },
       brokenProfiles: [],
-      referenceViolations: [],
     };
   }
   if (referenceViolations.length !== contents.violations.length) {
@@ -392,12 +396,12 @@ export async function ingestWorkspaceToleratingReferenceViolations(
     missingContexts: [...entry.missingContexts].sort(),
     missingSkills: [...entry.missingSkills].sort(),
     referenceViolations: entry.referenceViolations,
+    workspace: path,
   }));
   brokenProfiles.sort((left, right) => left.profile.localeCompare(right.profile));
   return {
     workspace: { path, contexts: contents.contexts, profiles: contents.profiles, skills: contents.skills },
     brokenProfiles,
-    referenceViolations,
   };
 }
 

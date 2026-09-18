@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  brokenProfileViolations,
   ingestWorkspace,
   ingestWorkspaceToleratingReferenceViolations,
   isProfileReferenceViolation,
@@ -84,7 +85,7 @@ describe("Profile reference tolerance at the lifecycle ingestion boundary (#606)
       expect(broken.referenceViolations.length).toBeGreaterThan(0);
       expect([...broken.referenceViolations].every(isProfileReferenceViolation)).toBe(true);
     }
-    expect(result.referenceViolations.map(workspaceViolationToken).sort()).toEqual([
+    expect(brokenProfileViolations(result.brokenProfiles).map(workspaceViolationToken).sort()).toEqual([
       "missing-context-reference",
       "missing-context-reference",
       "missing-skill-reference",
@@ -94,7 +95,7 @@ describe("Profile reference tolerance at the lifecycle ingestion boundary (#606)
     expect([...result.workspace.contexts.keys()]).toEqual(["notes"]);
     expect([...result.workspace.skills.keys()]).toEqual(["review"]);
     expect(result.brokenProfiles.every((fact) => fact.missingContexts.length + fact.missingSkills.length > 0)).toBe(true);
-    expect([...result.referenceViolations].every(isProfileReferenceViolation)).toBe(true);
+    expect([...brokenProfileViolations(result.brokenProfiles)].every(isProfileReferenceViolation)).toBe(true);
   });
 
   test("a mixed-invalid Workspace throws the identical aggregate violation fact", async () => {
@@ -141,7 +142,7 @@ describe("Profile reference tolerance at the lifecycle ingestion boundary (#606)
     );
     const result = await ingestWorkspaceToleratingReferenceViolations(workspace);
     expect(result.brokenProfiles).toEqual([]);
-    expect(result.referenceViolations).toEqual([]);
+    expect(brokenProfileViolations(result.brokenProfiles)).toEqual([]);
     expect([...result.workspace.profiles.keys()]).toEqual(["fine"]);
   });
 

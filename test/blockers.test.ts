@@ -596,6 +596,7 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
       missingContexts: ["gone-context"],
       missingSkills: ["gone-skill"],
       profile: "broken",
+      workspace: "/workspace",
     },
     kind: "broken-profile",
     project: "/project-a",

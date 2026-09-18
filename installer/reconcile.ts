@@ -1055,7 +1055,10 @@ export interface PreviewReconciliationOptions {
   /**
    * The verbatim #604 reference facts from desired-state planning (#606): the
    * one report-every-broken-Profile channel, covering Profiles bound to no
-   * Project. Omitted only by callers that plan no broken Profile.
+   * Project. Optional only for adapter and test seams that plan no broken
+   * Profile; every production entry point (`installer/commands.ts`,
+   * `installer/install-application.ts`) passes it, because an omitted list
+   * silently drops unbound broken Profiles from the report.
    */
   readonly brokenProfileViolations?: readonly WorkspaceViolation[];
 }
@@ -1887,7 +1890,11 @@ export interface ApplyReconciliationOptions {
       /**
        * The verbatim #604 reference facts from desired-state planning (#606),
        * carried onto every report this apply produces so unbound broken
-       * Profiles are reported too.
+       * Profiles are reported too. Optional only for adapter and test seams
+       * that plan no broken Profile; every production entry point
+       * (`installer/commands.ts`, `installer/install-application.ts`) passes
+       * it, because an omitted list silently drops unbound broken Profiles
+       * from the report.
        */
       readonly brokenProfileViolations?: readonly WorkspaceViolation[];
       /**

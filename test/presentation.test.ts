@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
@@ -51,6 +51,7 @@ import {
   formatLifecycleToolErrorJson,
   hostInventoryDocument,
   infoDocument,
+  installBlockedDocument,
   inventoryIndexDocument,
   lifecycleStatusDocument as rawLifecycleStatusDocument,
   type LifecycleHumanOptions,
@@ -138,6 +139,11 @@ import {
   humanBlockerWording,
   opencodeConfigOccupiedRemedy,
 } from "../cli/blocker-wording.js";
+import {
+  brokenProfileViolations,
+  ingestWorkspaceToleratingReferenceViolations,
+} from "../installer/ingest-workspace.js";
+import type { WorkspaceViolation } from "../installer/tool-errors.js";
 import type {
   OutputConsumerEvidence,
   OutputReconciliationItem,
@@ -11311,3 +11317,99 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
   });
 });
 
+
+describe("broken Profile reporting in lifecycle and install views (#606)", () => {
+  /** One real missing-reference violation collected through tolerant ingestion. */
+  async function brokenFleetViolations(): Promise<{
+    readonly cleanup: () => void;
+    readonly violations: readonly WorkspaceViolation[];
+  }> {
+    const workspace = mkdtempSync(join(tmpdir(), "agent-profile-kit-broken-presentation-"));
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(workspace, "context", "notes.md"), "Notes.\n");
+    writeFileSync(
+      join(workspace, "profiles", "broken.yaml"),
+      "context: [gone-context]\nskills: []\n",
+    );
+    const ingestion = await ingestWorkspaceToleratingReferenceViolations(workspace);
+    return {
+      cleanup: () => rmSync(workspace, { recursive: true, force: true }),
+      violations: brokenProfileViolations(ingestion.brokenProfiles),
+    };
+  }
+
+  /** A healthy pending Project beside the unbound broken Profile. */
+  function pendingReport(violations: readonly WorkspaceViolation[]): ReconciliationReport {
+    return {
+      ...emptyReport({
+        desired: [{
+          canonicalProject: "/project-a",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "healthy",
+          project: "/project-a",
+          resolvedArtifacts: [],
+        }],
+        items: [{ kind: "addition", project: "/project-a" }],
+        outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      }),
+      brokenProfileViolations: violations,
+    };
+  }
+
+  test("concise status lists every broken Profile", async () => {
+    const { cleanup, violations } = await brokenFleetViolations();
+    try {
+      const rendered = renderBoundary(lifecycleStatusDocument(pendingReport(violations)));
+      expect(rendered).toContain("Broken Profiles (missing reference");
+      expect(rendered).toContain("broken");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("concise update lists every broken Profile", async () => {
+    const { cleanup, violations } = await brokenFleetViolations();
+    try {
+      const report = pendingReport(violations);
+      const rendered = renderBoundary(applyReportDocument(applyResult(report)));
+      expect(rendered).toContain("Broken Profiles (missing reference");
+      expect(rendered).toContain("broken");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("verbose status lists every broken Profile", async () => {
+    const { cleanup, violations } = await brokenFleetViolations();
+    try {
+      const rendered = renderBoundary(
+        lifecycleStatusDocument(pendingReport(violations), { verbose: true }),
+      );
+      expect(rendered).toContain("Broken Profiles (missing reference");
+      expect(rendered).toContain("broken");
+    } finally {
+      cleanup();
+    }
+  });
+
+  test("the blocked install view lists every broken Profile", async () => {
+    const { cleanup, violations } = await brokenFleetViolations();
+    try {
+      const report = asBlockedReport({
+        ...emptyReport({ blockers: [fixtureBlocker("occupied output", "/project-a")] }),
+        brokenProfileViolations: violations,
+      });
+      const rendered = renderBoundary(
+        installBlockedDocument(report, [{ kind: "text", value: "install" }]),
+      );
+      expect(rendered).toContain("Broken Profiles (missing reference");
+      expect(rendered).toContain("broken");
+    } finally {
+      cleanup();
+    }
+  });
+});

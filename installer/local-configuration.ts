@@ -30,7 +30,6 @@ import {
   type TolerantWorkspaceIngestion,
   type Workspace,
 } from "./ingest-workspace.js";
-import type { WorkspaceViolation } from "./tool-errors.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
 import { validateWorkspaceStructure } from "./workspace.js";
@@ -619,38 +618,22 @@ async function ingestParsedApplicationModel(
   options: { readonly allowMissingProjects?: boolean; readonly toleratingReferenceViolations?: true } = {},
 ): Promise<IngestedApplicationSource & {
   readonly brokenProfiles: readonly BrokenProfileReference[];
-  readonly referenceViolations: readonly WorkspaceViolation[];
 }> {
-  if (options.toleratingReferenceViolations === true) {
-    const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
-    const ingestion = await ingestWorkspaceToleratingReferenceViolations(resolved.path);
-    const bindings = await normalizeProjectBindings(home, bindingsToNormalize, path, {
-      allowMissingProjects: options.allowMissingProjects ?? false,
-      kind: "application",
-      profiles: ingestion.workspace.profiles,
-    });
-    return {
-      bindings,
-      brokenProfiles: ingestion.brokenProfiles,
-      referenceViolations: ingestion.referenceViolations,
-      schemaVersion: parsed.schemaVersion,
-      workspace: parsed.workspace,
-      workspaceModel: ingestion.workspace,
-    };
-  }
-  const workspaceModel = await ingestWorkspaceFromConfiguration(home, parsed.workspace, path);
+  const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
+  const ingestion = options.toleratingReferenceViolations === true
+    ? await ingestWorkspaceToleratingReferenceViolations(resolved.path)
+    : { workspace: await ingestWorkspace(resolved.path), brokenProfiles: [] };
   const bindings = await normalizeProjectBindings(home, bindingsToNormalize, path, {
     allowMissingProjects: options.allowMissingProjects ?? false,
     kind: "application",
-    profiles: workspaceModel.profiles,
+    profiles: ingestion.workspace.profiles,
   });
   return {
     bindings,
-    brokenProfiles: [],
-    referenceViolations: [],
+    brokenProfiles: ingestion.brokenProfiles,
     schemaVersion: parsed.schemaVersion,
     workspace: parsed.workspace,
-    workspaceModel,
+    workspaceModel: ingestion.workspace,
   };
 }
 
@@ -665,6 +648,7 @@ export async function ingestApplicationFromSource(
   selection: ProjectBindingSelection = { kind: "all" },
   options: { readonly toleratingReferenceViolations?: true } = {},
 ): Promise<{
+  readonly brokenProfiles: readonly BrokenProfileReference[];
   readonly configuration: LocalConfiguration;
   readonly workspace: Workspace;
 }> {
@@ -680,6 +664,7 @@ export async function ingestApplicationFromSource(
   );
   const model = await ingestParsedApplicationModel(home, parsed, selectedBindings, path, options);
   return {
+    brokenProfiles: model.brokenProfiles,
     configuration: {
       bindings: model.bindings.map((binding) => ({
         canonicalProject: binding.canonicalProject!,
@@ -805,37 +790,10 @@ export async function ingestApplicationToleratingReferenceViolations(
 ): Promise<{
   readonly brokenProfiles: readonly BrokenProfileReference[];
   readonly configuration: LocalConfiguration;
-  readonly referenceViolations: readonly WorkspaceViolation[];
   readonly workspace: Workspace;
 }> {
   const { path, source } = await readLocalConfigurationSource(home);
-  const parsed = requireCurrentApplicationConfiguration(
-    parseLocalConfiguration(source, path),
-    path,
-  );
-  const selectedBindings = await selectParsedProjectBindings(
-    home,
-    parsed.bindings,
-    path,
-    selection,
-  );
-  const model = await ingestParsedApplicationModel(home, parsed, selectedBindings, path, {
+  return ingestApplicationFromSource(home, source, path, selection, {
     toleratingReferenceViolations: true,
   });
-  return {
-    brokenProfiles: model.brokenProfiles,
-    configuration: {
-      bindings: model.bindings.map((binding) => ({
-        canonicalProject: binding.canonicalProject!,
-        project: binding.project,
-        profile: binding.profile,
-        hosts: binding.hosts,
-      })),
-      path,
-      schemaVersion: model.schemaVersion,
-      workspace: model.workspace,
-    },
-    referenceViolations: model.referenceViolations,
-    workspace: model.workspaceModel,
-  };
 }

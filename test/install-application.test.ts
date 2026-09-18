@@ -122,6 +122,47 @@ describe("install recovery restores the previous selection", () => {
     expect(installationsOf(home)).toBe(0);
   });
 
+  test("an output-write fault while an unrelated Profile is broken still restores the selection", async () => {
+    const home = await setupHome();
+    // An unbound broken Profile rides along on the report channel; it must not
+    // disturb the healthy install's recovery path (#606).
+    writeFileSync(
+      join(workspacePath(home), "profiles", "broken.yaml"),
+      "context: [gone]\nskills: []\n",
+    );
+    const projectPath = projectDirectory();
+    const installed = await executeInstall(home, {
+      profile: "coding",
+      hosts: ["codex"],
+      project: projectPath,
+    });
+    expect(installed.binding.outcome).toBe("created");
+    const before = readFileSync(configPath(home), "utf8");
+    const failingOutputs = {
+      ...nodeFileSystem,
+      writeFile: async (): Promise<void> => {
+        throw new Error("simulated generated-output write failure");
+      },
+    };
+
+    const failure = await executeInstall(home, {
+      profile: "coding",
+      hosts: ["codex", "claude"],
+      project: projectPath,
+      reconcileFileSystem: failingOutputs,
+    }).then(
+      () => { throw new Error("expected install to fail"); },
+      (error: unknown) => error,
+    );
+
+    expect(failure).toBeInstanceOf(InstallExecutionError);
+    const installFailure = failure as InstallExecutionError;
+    expect(installFailure.failure.selectionRestored).toBe(true);
+    expect(installFailure.failure.restoreFailure).toBeUndefined();
+    // The restored selection is byte-identical to the committed one.
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+  });
+
   test("an output fault on a changed installation re-publishes the previous selection", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();

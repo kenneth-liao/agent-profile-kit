@@ -65,6 +65,7 @@ import {
   type ChangedOutputConsentRequest,
   type ReconciliationFileSystem,
 } from "./reconcile.js";
+import { brokenProfileViolations } from "./ingest-workspace.js";
 import { createLifecycleGitInspectionContext } from "./lifecycle-git-inspection.js";
 import type { LifecycleGitInspection } from "./lifecycle-git-inspection.js";
 import { createLifecycleOwnershipInspectionContext } from "./lifecycle-ownership-inspection.js";
@@ -344,7 +345,7 @@ async function planProspectiveInstallation(
     throw new Error(`install planning produced no installation for ${preview.canonicalProject}`);
   }
   return {
-    brokenProfileViolations: ingestion.referenceViolations,
+    brokenProfileViolations: brokenProfileViolations(ingestion.brokenProfiles),
     installation,
   };
 }
@@ -400,7 +401,7 @@ export async function executeInstall(
   // Phase A (no locks, no writes): plan the prospective installation and run
   // the shared consent gate against it. Refusal, decline, or cancellation
   // throws before any configuration or output write.
-  const { brokenProfileViolations, installation: prospective } =
+  const { brokenProfileViolations: prospectiveViolations, installation: prospective } =
     await planProspectiveInstallation(home, preview, options);
   const instrumentation = options.instrumentation;
   const createGitInspection = options.createGitInspection ??
@@ -416,7 +417,7 @@ export async function executeInstall(
         home,
         [prospective],
         error,
-        brokenProfileViolations,
+        prospectiveViolations,
       )),
     );
   }
@@ -426,7 +427,7 @@ export async function executeInstall(
       // construction, mirroring the update path.
       const phaseAOwnership = createOwnershipInspection();
       const preflight = await previewReconciliation([prospective], before, {
-        brokenProfileViolations,
+        brokenProfileViolations: prospectiveViolations,
         gitInspection: createGitInspection(),
         ownershipInspection: phaseAOwnership,
         scheduler: createProjectReadScheduler(),
@@ -546,7 +547,7 @@ export async function executeInstall(
             let applied: ApplyReconciliationResult;
             try {
               applied = await applyReconciliationWithLifecycleLock(home, desired.installations, {
-                brokenProfileViolations: desired.referenceViolations,
+                brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
                 scheduler: commitScheduler,
                 scope: { kind: "project" },
                 confirmChangedOutputReplacement: commitConfirmer,
