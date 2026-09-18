@@ -157,7 +157,13 @@ describe("optional Workspace scaffolding after initialization", () => {
     );
 
     const violations = await collectViolations(workspacePath(home));
-    expect(violationTokens(violations)).toEqual(["workspace-artifact/obsolete-fields"]);
+    // One run also reports the Profile's (unresolvable) team-rules reference:
+    // field-level problems are recorded while the lists stay readable
+    // (spec #593 DEC-009, #604, PR #622 INT-1).
+    expect([...violationTokens(violations)].sort()).toEqual([
+      "missing-context-reference",
+      "workspace-artifact/obsolete-fields",
+    ]);
     const detail = violations[0]!;
     if (detail.via !== "artifact") throw new Error("expected the artifact rejection");
     expect(formatWorkspaceArtifactError(detail.detail)).toBe(

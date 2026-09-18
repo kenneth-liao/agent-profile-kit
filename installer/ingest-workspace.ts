@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   type ContextModule,
   parseContextModule,
-  parseProfile,
+  parseProfileCollected,
   type Profile,
 } from "../schemas/context-profile.js";
 import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
@@ -209,6 +209,8 @@ export async function collectWorkspaceViolations(
   manifestSource?: string,
 ): Promise<WorkspaceViolationCollection> {
   const violations: WorkspaceViolation[] = [];
+  /** Profile files whose field-level problems were recorded this run. */
+  let lenientProfilePaths: ReadonlySet<string> = new Set();
   const structure = await collectWorkspaceStructure(path, manifestSource);
   violations.push(...structure.violations);
   const contexts = new Map<string, ContextModule>();
@@ -240,16 +242,29 @@ export async function collectWorkspaceViolations(
   if (structure.readableCategories.has("profiles")) {
     const profileEntries = (await readCategoryEntries(join(path, "profiles")))
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    // Profiles whose field-level problems were recorded still register when
+    // their lists stayed readable, so their references are checked in the
+    // same run (spec #593 DEC-009, #604, PR #622 INT-1); the reported ID is
+    // the file name, never an authored `id` field.
+    const lenientProfiles = new Set<string>();
     for (const entry of profileEntries) {
       if (entry.isFile() && entry.name.endsWith(".yaml")) {
         const relativePath = `profiles/${entry.name}`;
         try {
-          addUnique(
-            profiles,
-            parseProfile(await readFile(join(path, relativePath), "utf8"), relativePath),
-            "Profile",
-            (existing) => existing.path,
+          const collected = parseProfileCollected(
+            await readFile(join(path, relativePath), "utf8"),
+            relativePath,
           );
+          violations.push(...collected.violations.map((detail) => ({ via: "artifact", detail }) as const));
+          if (collected.profile !== undefined) {
+            if (collected.violations.length > 0) lenientProfiles.add(collected.profile.path);
+            addUnique(
+              profiles,
+              collected.profile,
+              "Profile",
+              (existing) => existing.path,
+            );
+          }
         } catch (error) {
           violations.push(collectedViolation(error));
         }
@@ -262,6 +277,7 @@ export async function collectWorkspaceViolations(
         }
       }
     }
+    lenientProfilePaths = lenientProfiles;
   }
 
   if (structure.readableCategories.has("skills")) {
@@ -299,7 +315,14 @@ export async function collectWorkspaceViolations(
   for (const profile of profiles.values()) {
     // At least one currently supported artifact category must be selected. No single
     // category (including Context) is mandatory; empty Profiles fail at ingestion.
-    if (profile.context.length === 0 && profile.skills.length === 0) {
+    // A Profile whose field-level problems were already reported skips this
+    // shape check — its parse violations are the report, and its lists may
+    // not have been fully readable (spec #593 DEC-009, #604).
+    if (
+      !lenientProfilePaths.has(profile.path) &&
+      profile.context.length === 0 &&
+      profile.skills.length === 0
+    ) {
       violations.push({
         via: "ingestion",
         fact: {

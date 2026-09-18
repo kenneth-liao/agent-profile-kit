@@ -170,9 +170,18 @@ function fixtureViolations(workspace: string): Promise<readonly WorkspaceViolati
   return collectViolations(workspace);
 }
 
-/** The workspace-relative rule+path identity of one collected violation. */
+/** The workspace-relative rule+path identity of one collected violation, with the selected artifact for reference facts. */
 function violationIdentity(violation: WorkspaceViolation): string {
-  return `${workspaceViolationToken(violation)} ${workspaceViolationPath(violation)}`;
+  const fact = violation.via === "ingestion" ? violation.fact : violation.detail;
+  const locator = workspaceViolationPath(violation);
+  const subject = "contextId" in fact
+    ? fact.contextId
+    : "skillId" in fact
+    ? fact.skillId
+    : "";
+  return subject === ""
+    ? `${workspaceViolationToken(violation)} ${locator}`
+    : `${workspaceViolationToken(violation)} ${locator} ${subject}`;
 }
 
 describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", () => {
@@ -180,13 +189,13 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
-    // One run names every required change: both authored `id` fields and the
-    // leftover Skill sidecar (spec #593 DEC-013, DEC-009). The Profile
-    // reference change is reported on the next run: a Profile carrying an
-    // `id` field is one violation per file, so its references are checked
-    // after the id fix.
+    // One run names every required change (spec #593 DEC-013, DEC-009, AC 5):
+    // both authored `id` fields, the leftover Skill sidecar, and the Profile
+    // reference that must change — the id field is a field-level violation,
+    // recorded while the Profile's lists stay readable and reference-checked.
     expect((await fixtureViolations(workspace)).map(violationIdentity).sort()).toEqual([
       "leftover-skill-sidecar skills/review-pr/agent-profile-kit.yaml",
+      "missing-context-reference profiles/example.yaml legacy-rules",
       "workspace-artifact/profile-id-field profiles/coding.yaml",
       "workspace-artifact/profile-id-field profiles/example.yaml",
     ]);
@@ -205,7 +214,7 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     const violations = await fixtureViolations(workspace);
     expect(violations.map(violationIdentity).sort()).toEqual([
       "leftover-skill-sidecar skills/review-pr/agent-profile-kit.yaml",
-      "missing-context-reference profiles/example.yaml",
+      "missing-context-reference profiles/example.yaml legacy-rules",
     ]);
 
     const validate = await runCli(home, "validate", workspace);
@@ -232,7 +241,7 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     // exists: the fix is the file rename that keeps that ID (path identity,
     // spec #593 DEC-004, #600), never a silent rebinding.
     const violations = await fixtureViolations(workspace);
-    expect(violations.map(violationIdentity)).toEqual(["missing-context-reference profiles/example.yaml"]);
+    expect(violations.map(violationIdentity)).toEqual(["missing-context-reference profiles/example.yaml legacy-rules"]);
     const fact = violations[0]!;
     if (fact.via !== "ingestion" || fact.fact.kind !== "missing-context-reference") {
       throw new Error("expected the missing-context-reference fact");
@@ -256,21 +265,24 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     );
   });
 
-  test("the realistic-scale 0.204.0 fixture names every required change (TEST-010, ISC-46)", async () => {
+  test("the realistic-scale 0.204.0 fixture names every required change in one run (TEST-010, ISC-46)", async () => {
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-realistic"), workspace, {});
 
-    // Stage 1 — the raw 0.204.0-era source: every Profile's authored `id`
-    // field, every leftover sidecar, and both leftover invocation-metadata
-    // keys, each named with its path. The reference changes are proven on
-    // stage 2, not omitted: one typed violation per Profile file is DEC-014's
-    // design (a Profile carrying an `id` field cannot be parsed, so its
-    // references are unreportable until the id fix lands) — the staged runs
-    // together name every required change, and stage 3 proves the list was
-    // complete by applying exactly the named fixes.
-    const stage1 = await fixtureViolations(workspace);
-    expect(stage1.map(violationIdentity).sort()).toEqual([
+    // One run names all 45 required changes (spec #593 DEC-013, DEC-009,
+    // AC 5): every Profile's authored `id` field, every leftover sidecar,
+    // both leftover invocation-metadata keys, and every old Context ID that
+    // must become its path ID — the id field is a field-level violation,
+    // recorded while the Profile's lists stay readable and reference-checked.
+    const engineeringSubjects = [
+      "subject-03", "subject-06", "subject-05", "subject-08", "subject-11", "subject-04", "subject-02",
+    ];
+    const personalSubjects = [
+      "subject-12", "subject-14", "subject-16", "subject-17", "subject-15", "subject-18", "subject-19",
+    ];
+    const violations = await fixtureViolations(workspace);
+    expect(violations.map(violationIdentity).sort()).toEqual([
       "leftover-skill-sidecar skills/group-a/skill-03/agent-profile-kit.yaml",
       "leftover-skill-sidecar skills/group-a/skill-04/agent-profile-kit.yaml",
       "leftover-skill-sidecar skills/group-c/skill-11/agent-profile-kit.yaml",
@@ -285,22 +297,24 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
       ...["profile-01", "profile-02", "profile-03", "profile-04", "profile-05"].map(
         (profile) => `workspace-artifact/profile-id-field profiles/${profile}.yaml`,
       ),
+      ...["profile-01", "profile-02", "profile-03"].flatMap((profile) =>
+        engineeringSubjects.map(
+          (subject) => `missing-context-reference profiles/${profile}.yaml ${subject}`,
+        ),
+      ),
+      "missing-context-reference profiles/profile-04.yaml subject-01",
+      ...personalSubjects.map(
+        (subject) => `missing-context-reference profiles/profile-05.yaml ${subject}`,
+      ),
+      ...["profile-01", "profile-02", "profile-03"].map(
+        (profile) => `missing-skill-reference profiles/${profile}.yaml skill-20`,
+      ),
     ].sort());
 
-    // Stage 2, after removing the authored id fields (each matched its file
-    // name, so every Profile ID that bindings reference is kept): one run
-    // names all 40 remaining changes — every old Context ID that must become
-    // its path ID, with the suggested path, plus the sidecars and metadata
-    // keys with their replacements.
-    for (const profile of ["profile-01", "profile-02", "profile-03", "profile-04", "profile-05"]) {
-      const file = join(workspace, "profiles", `${profile}.yaml`);
-      writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
-    }
-    const stage2 = await fixtureViolations(workspace);
-    expect(violationTokens(stage2).filter((token) => token === "missing-context-reference")).toHaveLength(29);
-    expect(violationTokens(stage2).filter((token) => token === "leftover-skill-sidecar")).toHaveLength(9);
-    expect(violationTokens(stage2).filter((token) => token === "workspace-artifact/leftover-model-invocation-metadata")).toHaveLength(2);
-    for (const violation of stage2) {
+    // Every old Context ID gets the moved-file fix: the reference to the old
+    // flat ID names the path-derived ID it must become (spec #593 US-006,
+    // DEC-013).
+    for (const violation of violations) {
       const evidence = violation.via === "ingestion" ? violation.fact : violation.detail;
       if (!("contextId" in evidence) || !("available" in evidence)) continue;
       const suggestion = evidence.available.find((id) =>
@@ -309,10 +323,11 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
       expect(suggestion, `${evidence.contextId} in ${evidence.file}`).toBeDefined();
     }
 
-    // Applying the named fixes exactly — path IDs into the Profiles, delete
-    // the sidecars, move the invocation policy to the standard field — leaves
-    // a valid Workspace, proving the change list was complete (ISC-46).
-    for (const violation of stage2) {
+    // Applying the named fixes exactly — remove the id fields, path IDs into
+    // the Profiles, delete the sidecars, move the invocation policy to the
+    // standard field — leaves a valid Workspace, proving the one-run change
+    // list was complete (ISC-46).
+    for (const violation of violations) {
       const evidence = violation.via === "ingestion" ? violation.fact : violation.detail;
       if ("contextId" in evidence && "available" in evidence) {
         const suggested = evidence.available.find(
@@ -323,11 +338,21 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
           file,
           readFileSync(file, "utf8").replace(new RegExp(`^  - ${evidence.contextId}$`, "m"), `  - ${suggested}`),
         );
-      } else if ("file" in evidence && evidence.file!.endsWith("agent-profile-kit.yaml")) {
-        rmSync(join(workspace, evidence.file!));
-      } else if ("path" in evidence && String(evidence.path).endsWith("SKILL.md")) {
+      } else if ("skillId" in evidence) {
+        // The missing Skill is the metadata-key Skill; its named repair (the
+        // standard-field replacement below) makes it readable, so the
+        // reference resolves without a separate change.
+      } else if ("case" in evidence && evidence.case === "profile-id-field") {
         const file = join(workspace, evidence.path);
-        writeFileSync(file, readFileSync(file, "utf8").replace(/^metadata:\n  agent-profile-kit\.model-invocation: disabled\n/m, ""));
+        writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
+      } else if ("file" in evidence && evidence.file.endsWith("agent-profile-kit.yaml")) {
+        rmSync(join(workspace, evidence.file));
+      } else if ("case" in evidence && evidence.case === "leftover-model-invocation-metadata") {
+        const file = join(workspace, evidence.path);
+        writeFileSync(
+          file,
+          readFileSync(file, "utf8").replace(/^metadata:\n  agent-profile-kit\.model-invocation: disabled\n/m, ""),
+        );
       }
     }
     await expect(ingestWorkspace(workspace)).resolves.toBeDefined();
