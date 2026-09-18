@@ -17,7 +17,11 @@ import type {
   WorkspaceManifestRejectionReason,
 } from "../schemas/schema-rejections.js";
 import { RETIRED_MODEL_INVOCATION_METADATA_FIELD } from "../schemas/skill.js";
-import { PROFILE_DIRECTORY, PROFILE_EXTENSION } from "../schemas/context-profile.js";
+import {
+  PROFILE_DIRECTORY,
+  PROFILE_EXTENSION,
+  profileIdFromPath,
+} from "../schemas/context-profile.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   ProjectTargetError,
@@ -569,7 +573,7 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
       // The fix keeps existing Project Bindings and Installation Receipts
       // working: an authored id that differs from the file name can be kept
       // by renaming the file, never by silently rebinding the ID (#598).
-      const fileName = path.slice(PROFILE_DIRECTORY.length, -PROFILE_EXTENSION.length);
+      const fileName = profileIdFromPath(path);
       const base =
         `Profile ${path} must not contain an 'id' field; a Profile's ID is its file name without '.yaml'. Remove the 'id' field`;
       if (reason.id === undefined || reason.id === fileName) return base;

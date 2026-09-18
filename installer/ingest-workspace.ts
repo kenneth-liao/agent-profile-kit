@@ -166,7 +166,7 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   // Entries are visited in sorted order so the first reported violation is
   // deterministic.
   const profileEntries = (await readCategoryEntries(join(path, "profiles")))
-    .sort((left, right) => left.name.localeCompare(right.name));
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   for (const entry of profileEntries) {
     if (entry.isFile() && entry.name.endsWith(".yaml")) {
       const relativePath = `profiles/${entry.name}`;

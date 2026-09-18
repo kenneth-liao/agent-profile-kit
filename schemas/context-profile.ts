@@ -144,7 +144,7 @@ export const PROFILE_EXTENSION = ".yaml";
  * Profile identity boundary (spec #593 DEC-014, #598). A Profile's ID is its
  * file name under `profiles/` without `.yaml`.
  */
-function profileIdFromPath(path: string): string {
+export function profileIdFromPath(path: string): string {
   if (!path.startsWith(PROFILE_DIRECTORY) || !path.endsWith(PROFILE_EXTENSION)) {
     throw new Error(`Profile path must be '${PROFILE_DIRECTORY}<name>${PROFILE_EXTENSION}': ${path}`);
   }

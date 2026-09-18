@@ -153,7 +153,8 @@ Host behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
 activation (or OpenCode `/<Artifact ID>` command activation) remains available.
-Profiles contain only `id`, `context`, and `skills`; Agents, Hooks, and Tools
+Profiles are named by their file name under `profiles/` and contain only
+`context` and `skills`; Agents, Hooks, and Tools
 are not delivered by this release. A Profile must select at least one supported
 artifact overall (Context Module, Skill, or both); no individual category is
 mandatory. Context-only, Skills-only, and combined Profiles are valid.
