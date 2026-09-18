@@ -1,7 +1,10 @@
+import { join } from "node:path";
+
 import { COMMAND_NAME } from "../installer/version.js";
 import { OPENCODE_UNCLAIMED_CONFIG_LOCATIONS } from "../adapters/opencode.js";
 
 import {
+  BROKEN_PROFILE,
   INSTALLATION_OWNERSHIP,
   INSTALLATION_STATE_UNREADABLE,
   normalizeBlocker,
@@ -710,6 +713,34 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
         ]),
         requirement,
       };
+    }
+    case BROKEN_PROFILE: {
+      const broken = blocker.brokenProfile;
+      const missing: string[] = [
+        ...broken.missingContexts.map((id) => `the Context Module 'context/${id}.md'`),
+        ...broken.missingSkills.map((id) => `the Skill '${id}'`),
+      ];
+      const missingList = missing.length === 1
+        ? missing[0]!
+        : `${missing.slice(0, -1).join(", ")}, and ${missing[missing.length - 1]!}`;
+      const problem: readonly InlineContent[] = [
+        `Profile '${broken.profile}' names artifacts that do not exist in the Workspace: ` +
+          `${missingList}.`,
+      ];
+      const requirement: readonly InlineContent[] = [
+        "Agent Profile Kit blocks Projects bound to a broken Profile: their installed " +
+          "files stay unchanged until the Workspace is repaired.",
+      ];
+      const remedy = compact([
+        "Restore the missing artifacts in the Workspace, or edit ",
+        editorCommand(join(broken.workspace, broken.file)),
+        " to remove the entries. Run ",
+        apkit("validate"),
+        " for the complete Workspace report, then run ",
+        apkit("update", quoted(blocker.project!)),
+        ".",
+      ]);
+      return { message: problem, problem, remedy, requirement };
     }
   }
 }

@@ -62,6 +62,7 @@ import {
   parseGeneratedJsonc,
   projectedSkillDocument,
 } from "./support/generated-notice.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -502,12 +503,12 @@ describe("OpenCode lifecycle: status and apply", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
 
-    expect(installation.profile.skills).toEqual(["review-pr", "deploy"]);
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).profile.skills).toEqual(["review-pr", "deploy"]);
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".agents/skills/deploy",
       ".agents/skills/review-pr",
     ]);
-    expect(installation.setupSteps).toEqual([]);
+    expect(plannedInstallation(installation!).setupSteps).toEqual([]);
 
     const applied = await applyReconciliation(home, desired.installations);
     expect(reportBlockers(applied.receipt)).toEqual([]);
@@ -544,7 +545,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     const installation = desired.installations[0]!;
 
     // Package is planned once under .agents/skills/review-pr
-    expect(installation.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path)).toEqual([
       ".agents/skills/review-pr",
     ]);
 
@@ -590,8 +591,8 @@ describe("OpenCode lifecycle: status and apply", () => {
 
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
-    expect(installation.capabilityWarnings).toEqual([]);
-    expect(installation.outputs.map((o) => o.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!).outputs.map((o) => o.path).sort()).toEqual([
       ".agents/skills/deploy",
       ".opencode/opencode.jsonc",
     ]);
@@ -826,11 +827,11 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
 
     // Equivalent candidates across the two discovery roots are Host Resolution:
     // no Agent Profile Kit diagnostic and no capability warning.
-    expect(installation.warnings).toEqual([]);
-    expect(installation.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!).warnings).toEqual([]);
+    expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
 
     // Both outputs are planned
-    const outputPaths = installation.outputs.map((o) => o.path).sort();
+    const outputPaths = plannedInstallation(installation!).outputs.map((o) => o.path).sort();
     expect(outputPaths).toContain(".claude/skills/deploy");
     expect(outputPaths).toContain(".claude/skills/review-pr");
     expect(outputPaths).toContain(".agents/skills/deploy");
@@ -862,8 +863,8 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
 
-    expect(installation.warnings).toEqual([]);
-    expect(installation.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!).warnings).toEqual([]);
+    expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
   });
 
   test("reconciles Claude and OpenCode co-selected binding, applies cleanly, and status reports current without warnings", async () => {
@@ -888,8 +889,8 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.warnings).toEqual([]);
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(desired.installations[0]!)?.warnings).toEqual([]);
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
 
     // AC 2: Apply succeeds without blocking
     const applied = await applyReconciliation(home, desired.installations);

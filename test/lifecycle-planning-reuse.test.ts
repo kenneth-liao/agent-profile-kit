@@ -16,6 +16,7 @@ import {
   buildDesiredState,
   type LifecyclePlanningInstrumentation,
 } from "../installer/project-plan.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -141,7 +142,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     });
 
     expect(desired.installations).toHaveLength(4);
-    expect(new Set(desired.installations.map((item) => item.sourceHash)).size).toBe(1);
+    expect(new Set(desired.installations.map((item) => plannedInstallation(item).sourceHash)).size).toBe(1);
     expect(instrumentation.counts.resolveProfile).toBe(1);
     expect(instrumentation.counts.hashWorkspaceInputs).toBe(1);
     expect(instrumentation.counts.readSkillPackage).toBe(1);
@@ -171,10 +172,10 @@ describe("lifecycle planning reuse within one invocation", () => {
     // One plan per Host for the shared Profile material and identical options.
     expect(instrumentation.counts.planHost).toBe(3);
     for (const installation of desired.installations) {
-      expect(installation.outputs.map((output) => output.path).sort()).toEqual(
-        desired.installations[0]!.outputs.map((output) => output.path).sort(),
+      expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual(
+        plannedInstallation(desired.installations[0]!).outputs.map((output) => output.path).sort(),
       );
-      expect(installation.sourceHash).toBe(desired.installations[0]!.sourceHash);
+      expect(plannedInstallation(installation!).sourceHash).toBe(plannedInstallation(desired.installations[0]!).sourceHash);
     }
   });
 
@@ -223,7 +224,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     expect(instrumentation.counts.planHost).toBe(2);
 
     const hooks = desired.installations.map((installation) => {
-      const output = installation.outputs.find((item) => item.path === ".codex/hooks.json");
+      const output = plannedInstallation(installation!).outputs.find((item) => item.path === ".codex/hooks.json");
       if (!output || output.type !== "file") throw new Error("missing hooks.json");
       return typeof output.bytes === "string"
         ? output.bytes
@@ -232,9 +233,9 @@ describe("lifecycle planning reuse within one invocation", () => {
     expect(hooks[0]).not.toBe(hooks[1]);
     // The two plain Projects share identical topology and therefore identical hooks.
     const plainHooks = desired.installations
-      .filter((installation) => installation.gitProject === undefined)
+      .filter((installation) => plannedInstallation(installation).gitProject === undefined)
       .map((installation) => {
-        const output = installation.outputs.find((item) => item.path === ".codex/hooks.json");
+        const output = plannedInstallation(installation!).outputs.find((item) => item.path === ".codex/hooks.json");
         if (!output || output.type !== "file") throw new Error("missing hooks.json");
         return typeof output.bytes === "string"
           ? output.bytes
@@ -278,7 +279,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     });
 
     expect(desired.installations).toHaveLength(4);
-    expect(new Set(desired.installations.map((item) => item.profile.id)).size).toBe(2);
+    expect(new Set(desired.installations.map((item) => plannedInstallation(item).profile.id)).size).toBe(2);
     expect(instrumentation.counts.resolveProfile).toBe(2);
     expect(instrumentation.counts.hashWorkspaceInputs).toBe(2);
     expect(instrumentation.counts.readSkillPackage).toBe(1);
@@ -363,7 +364,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     const expectedFingerprint = sha(JSON.stringify(historicalInput));
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const skillFingerprint = desired.installations[0]?.artifactFingerprints.find(
+    const skillFingerprint = plannedInstallation(desired.installations[0]!)?.artifactFingerprints.find(
       (fingerprint) => fingerprint.reference.id === "review-pr",
     )?.fingerprint;
     expect(skillFingerprint).toBe(expectedFingerprint);

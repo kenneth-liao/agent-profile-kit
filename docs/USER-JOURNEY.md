@@ -556,6 +556,14 @@ Next: apkit update
 Details: apkit status --verbose
 ```
 
+A Profile that names a missing Context Module or Skill blocks only the
+Projects bound to it: each bound Project gets a project-scoped
+`broken-profile` Blocker and its installed files stay unchanged until the
+Profile is repaired. `status`, `install`, and `update` list every such
+Profile under a "Broken Profiles (missing references)" section — including
+Profiles no Project uses — while `apkit validate` still fails for the
+Workspace (#606).
+
 Narrowing replaces verbosity as the route to a smaller question (US-011,
 DEC-006): `--stale` selects existing installations needing updates or
 restoration, excluding never-installed and Blocked Projects; `--blocked`
@@ -585,7 +593,7 @@ Details: apkit status --stale --verbose
 per-output causes, Blocker evidence with scope and affected paths, Git
 exclusion attention, and actionable Host Setup Steps — omitting the composed
 Context bodies, unchanged output paths, and Capability Contract identifiers
-that narrowing replaced. Machine JSON (`--json`, `schemaVersion: 15`) keeps
+that narrowing replaced. Machine JSON (`--json`, `schemaVersion: 16`) keeps
 its meanings and exit codes unchanged and agrees with the human selection
 (US-060, US-061, DEC-040).
 

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
@@ -254,19 +255,19 @@ function canonicalProjects(desired: DesiredState): readonly string[] {
 
 function desiredProjection(desired: DesiredState): unknown {
   return desired.installations.map((installation) => ({
-    adapterVersion: installation.adapterVersion,
+    adapterVersion: plannedInstallation(installation!).adapterVersion,
     canonicalProject: installation.binding.canonicalProject,
-    gitRoot: installation.gitProject?.root,
-    hostVersions: installation.hostVersions,
-    outputs: installation.outputs.map((output) => ({
+    gitRoot: plannedInstallation(installation!).gitProject?.root,
+    hostVersions: plannedInstallation(installation!).hostVersions,
+    outputs: plannedInstallation(installation!).outputs.map((output) => ({
       hash: output.hash,
       mode: output.mode,
       path: output.path,
       type: output.type,
     })),
-    profile: installation.profile.id,
-    sourceHash: installation.sourceHash,
-    warnings: installation.warnings,
+    profile: plannedInstallation(installation!).profile.id,
+    sourceHash: plannedInstallation(installation!).sourceHash,
+    warnings: plannedInstallation(installation!).warnings,
   }));
 }
 

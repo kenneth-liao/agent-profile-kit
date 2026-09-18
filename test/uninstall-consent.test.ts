@@ -181,7 +181,7 @@ describe("uninstall changed-output consent", () => {
       completed: unknown[];
       unattempted: { project: string }[];
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.outcome).toBe("error");
     expect(payload.completed).toEqual([]);
     expect(payload.unattempted.map((entry) => entry.project)).toEqual([drifted]);

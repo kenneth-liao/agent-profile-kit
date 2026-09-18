@@ -2906,7 +2906,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly schemaVersion: number;
       readonly projects: readonly { readonly outputs: readonly { readonly kind: string }[] }[];
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.projects.flatMap((project) => project.outputs)
       .filter((output) => output.kind === "update")).toHaveLength(12);
 
@@ -3039,12 +3039,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly command: string;
         readonly schemaVersion: number;
       };
-      expect(payload.schemaVersion).toBe(15);
+      expect(payload.schemaVersion).toBe(16);
       expect(payload.command).toBe(command);
 
       const both = await runCli(home, command, "--verbose", "--json");
       expectExitCode(both, 0);
-      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 15 });
+      expect(JSON.parse(both.stdout)).toMatchObject({ command, schemaVersion: 16 });
 
       const unsupported = await runCli(home, command, "--yaml");
       expectExitCode(unsupported, 1);
@@ -3066,7 +3066,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(status.stderr).toBe("");
     expect(JSON.parse(status.stdout)).toMatchObject({
       command: "status",
-      schemaVersion: 15,
+      schemaVersion: 16,
       projects: [{
         blockers: [],
         warnings: [],
@@ -3231,7 +3231,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(cleanJson.stdout)).toMatchObject({
         command,
         outcome: "clean",
-        schemaVersion: 15,
+        schemaVersion: 16,
       });
     }
 
@@ -3278,7 +3278,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         readonly schemaVersion: number;
       };
       expect(payload).toMatchObject({
-        schemaVersion: 15,
+        schemaVersion: 16,
         command,
         outcome: "error",
       });
@@ -3298,14 +3298,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(JSON.parse(pending.stdout)).toMatchObject({
         command,
         outcome: "attention",
-        schemaVersion: 15,
+        schemaVersion: 16,
       });
     }
     const firstApply = await runCli(pendingHome, "update", "--json");
     expectExitCode(firstApply, 0);
     expect(JSON.parse(firstApply.stdout)).toMatchObject({
       command: "update",
-      schemaVersion: 15,
+      schemaVersion: 16,
     });
     expect(["clean", "attention"]).toContain(
       (JSON.parse(firstApply.stdout) as { readonly outcome: string }).outcome,
@@ -4041,7 +4041,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly outcome: string;
       readonly projects: readonly { readonly canonicalProject: string }[];
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.outcome).toBe("blocked");
     expect(payload.projects).toHaveLength(1);
 
@@ -4626,7 +4626,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         }[];
       }[];
     };
-    expect(statusJson.schemaVersion).toBe(15);
+    expect(statusJson.schemaVersion).toBe(16);
     expect(statusJson.outcome).toBe("attention");
     expect(statusJson.globalBlockers).toEqual([]);
     const retiringProject = statusJson.projects.find(

@@ -29,6 +29,7 @@ import { flatInlineText } from "../adapters/project-plan.js";
 import {
   reportItems,
 } from "./support/reconciliation-report.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -179,7 +180,7 @@ describe("Codex complete Context delivery", () => {
     try {
       const desired = await buildDesiredState(home);
       expect(
-        desired.installations[0]?.capabilityWarnings.some((entry) =>
+        plannedInstallation(desired.installations[0]!)?.capabilityWarnings.some((entry) =>
           flatInlineText(entry.warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);
@@ -241,8 +242,8 @@ describe("Codex complete Context delivery", () => {
     });
 
     const corrected = await buildDesiredState(home, { checkHostCapability: false });
-    expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
-    expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+    expect(plannedInstallation(corrected.installations[0]!)?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(plannedInstallation(corrected.installations[0]!)?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
     const report = await applyReconciliation(home, corrected.installations);
     expect(reportItems(report.receipt)).toContainEqual({
       kind: "update",
@@ -319,8 +320,8 @@ describe("Codex complete Context delivery", () => {
     });
 
     const corrected = await buildDesiredState(home, { checkHostCapability: false });
-    expect(corrected.installations[0]?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
-    expect(corrected.installations[0]?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
+    expect(plannedInstallation(corrected.installations[0]!)?.adapterVersion).toBe(CODEX_ADAPTER_VERSION);
+    expect(plannedInstallation(corrected.installations[0]!)?.hostVersions.codex).toBe(CODEX_HOST_VERSION);
     const report = await applyReconciliation(home, corrected.installations);
     expect(reportItems(report.receipt)).toContainEqual({
       kind: "update",

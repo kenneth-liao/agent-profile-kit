@@ -131,6 +131,7 @@ export async function publishBindingUnderLock(
   fileSystem: BindProjectFileSystem,
   operation: string,
   binding: PublishBindingUnderLockOptions,
+  options: { readonly toleratingReferenceViolations?: true } = {},
 ): Promise<BindProjectResult> {
   const description = `Local Configuration ${configurationPath}`;
   // Legacy claim-aside residue is restored only under proven exclusive ownership.
@@ -150,10 +151,15 @@ export async function publishBindingUnderLock(
   }
 
   // Exact snapshot being edited is the sole input to the trusted semantic boundary.
+  // The install commit path tolerates Profile reference violations (#606):
+  // it publishes a binding for a Profile the install flow already planned or
+  // blocked; every other violation keeps the strict rejection.
   const { configuration, workspace } = await ingestApplicationFromSource(
     binding.home,
     source,
     configurationPath,
+    { kind: "all" },
+    options,
   );
   requireProfile(workspace.profiles, binding.profile);
 
@@ -276,6 +282,7 @@ export async function removeBindingUnderLock(
   fileSystem: BindProjectFileSystem,
   operation: string,
   canonicalProject: string,
+  options: { readonly toleratingReferenceViolations?: true } = {},
 ): Promise<{ readonly removed: boolean }> {
   const description = `Local Configuration ${configurationPath}`;
   await recoverHeldConfiguration(configurationPath, fileSystem);
@@ -295,6 +302,8 @@ export async function removeBindingUnderLock(
     home,
     source,
     configurationPath,
+    { kind: "all" },
+    options,
   );
   const existingIndex = configuration.bindings.findIndex(
     (entry) => entry.canonicalProject === canonicalProject,

@@ -23,7 +23,13 @@ import {
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
 import { applicationDirectory } from "./application-directory.js";
-import { ingestWorkspace, type Workspace } from "./ingest-workspace.js";
+import {
+  ingestWorkspace,
+  ingestWorkspaceToleratingReferenceViolations,
+  type BrokenProfileReference,
+  type TolerantWorkspaceIngestion,
+  type Workspace,
+} from "./ingest-workspace.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
 import { validateWorkspaceStructure } from "./workspace.js";
@@ -595,7 +601,7 @@ export async function ingestApplicationModelFromSource(
   home: string,
   source: string,
   path: string = localConfigurationPath(home),
-  options: { readonly allowMissingProjects?: boolean } = {},
+  options: { readonly allowMissingProjects?: boolean; readonly toleratingReferenceViolations?: true } = {},
 ): Promise<IngestedApplicationSource> {
   const parsed = requireCurrentApplicationConfiguration(
     parseLocalConfiguration(source, path),
@@ -609,19 +615,25 @@ async function ingestParsedApplicationModel(
   parsed: ParsedCurrentLocalConfiguration,
   bindingsToNormalize: readonly ParsedProjectBinding[],
   path: string,
-  options: { readonly allowMissingProjects?: boolean } = {},
-): Promise<IngestedApplicationSource> {
-  const workspaceModel = await ingestWorkspaceFromConfiguration(home, parsed.workspace, path);
+  options: { readonly allowMissingProjects?: boolean; readonly toleratingReferenceViolations?: true } = {},
+): Promise<IngestedApplicationSource & {
+  readonly brokenProfiles: readonly BrokenProfileReference[];
+}> {
+  const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
+  const ingestion = options.toleratingReferenceViolations === true
+    ? await ingestWorkspaceToleratingReferenceViolations(resolved.path)
+    : { workspace: await ingestWorkspace(resolved.path), brokenProfiles: [] };
   const bindings = await normalizeProjectBindings(home, bindingsToNormalize, path, {
     allowMissingProjects: options.allowMissingProjects ?? false,
     kind: "application",
-    profiles: workspaceModel.profiles,
+    profiles: ingestion.workspace.profiles,
   });
   return {
     bindings,
+    brokenProfiles: ingestion.brokenProfiles,
     schemaVersion: parsed.schemaVersion,
     workspace: parsed.workspace,
-    workspaceModel,
+    workspaceModel: ingestion.workspace,
   };
 }
 
@@ -634,7 +646,9 @@ export async function ingestApplicationFromSource(
   source: string,
   path: string = localConfigurationPath(home),
   selection: ProjectBindingSelection = { kind: "all" },
+  options: { readonly toleratingReferenceViolations?: true } = {},
 ): Promise<{
+  readonly brokenProfiles: readonly BrokenProfileReference[];
   readonly configuration: LocalConfiguration;
   readonly workspace: Workspace;
 }> {
@@ -648,8 +662,9 @@ export async function ingestApplicationFromSource(
     path,
     selection,
   );
-  const model = await ingestParsedApplicationModel(home, parsed, selectedBindings, path);
+  const model = await ingestParsedApplicationModel(home, parsed, selectedBindings, path, options);
   return {
+    brokenProfiles: model.brokenProfiles,
     configuration: {
       bindings: model.bindings.map((binding) => ({
         canonicalProject: binding.canonicalProject!,
@@ -723,6 +738,28 @@ export async function ingestSelectedWorkspace(home: string): Promise<Workspace> 
 }
 
 /**
+ * Tolerant Workspace read for the install selection (spec #593 US-007, #606):
+ * Profile reference violations do not hide the Workspace's Profiles from the
+ * install pickers — a broken Profile still resolves by name so its install is
+ * blocked through the project Blocker instead of failing ingestion. Every
+ * other violation keeps the strict rejection. The classification is never
+ * re-derived here: the tolerant Workspace boundary reuses #604's facts.
+ */
+export async function ingestSelectedWorkspaceToleratingReferenceViolations(
+  home: string,
+): Promise<TolerantWorkspaceIngestion> {
+  const { path, source } = await readLocalConfigurationSource(home);
+  const parsed = parseLocalConfigurationSelection(source, path);
+  const workspace = requireCurrentWorkspaceSelection(
+    parsed,
+    path,
+    legacyMigrationCommand(parsed),
+  );
+  const resolved = await resolveWorkspaceRoot(home, workspace, path);
+  return ingestWorkspaceToleratingReferenceViolations(resolved.path);
+}
+
+/**
  * Shared desired-state ingestion boundary: resolve Local Configuration first so
  * validate/status/apply select the same explicitly configured Workspace.
  * `init` reuses `resolveWorkspaceRoot` separately; `uninstall` does not call
@@ -737,4 +774,26 @@ export async function ingestApplication(
 }> {
   const { path, source } = await readLocalConfigurationSource(home);
   return ingestApplicationFromSource(home, source, path, selection);
+}
+
+/**
+ * Tolerant desired-state ingestion for the lifecycle commands (spec #593
+ * US-007, DEC-009 project scope, #606): Profile reference violations do not
+ * invalidate the ingestion — the commands block only the Projects bound to
+ * the broken Profile — while every other violation keeps the identical
+ * strict-ingestion rejection. The classification is never re-derived here:
+ * the tolerant Workspace boundary reuses #604's collected facts.
+ */
+export async function ingestApplicationToleratingReferenceViolations(
+  home: string,
+  selection: ProjectBindingSelection = { kind: "all" },
+): Promise<{
+  readonly brokenProfiles: readonly BrokenProfileReference[];
+  readonly configuration: LocalConfiguration;
+  readonly workspace: Workspace;
+}> {
+  const { path, source } = await readLocalConfigurationSource(home);
+  return ingestApplicationFromSource(home, source, path, selection, {
+    toleratingReferenceViolations: true,
+  });
 }

@@ -5,6 +5,7 @@ import { requireProfile } from "./profile-selection.js";
 import {
   ingestProjectBindings,
   ingestSelectedWorkspace,
+  ingestSelectedWorkspaceToleratingReferenceViolations,
 } from "./local-configuration.js";
 import type { InstallerToolErrorFact } from "./tool-errors.js";
 import { readTemporaryInstallations } from "./installation-state.js";
@@ -73,11 +74,17 @@ export function listHosts(): readonly HostInventoryRecord[] {
 /**
  * Read Profile selections from the normalized Workspace model. This deliberately
  * stops before Project Binding, Installation State, Git, or Host inspection.
+ * `toleratingReferenceViolations` reads the Workspace through the tolerant
+ * boundary (#606) so a broken Profile still appears in a picker; every other
+ * violation keeps the strict rejection.
  */
 export async function listProfiles(
   home: string,
+  options: { readonly toleratingReferenceViolations?: true } = {},
 ): Promise<readonly ProfileInventoryRecord[]> {
-  const workspace = await ingestSelectedWorkspace(home);
+  const workspace = options.toleratingReferenceViolations === true
+    ? (await ingestSelectedWorkspaceToleratingReferenceViolations(home)).workspace
+    : await ingestSelectedWorkspace(home);
   return [...workspace.profiles.values()]
     .map((profile) => ({
       contextModules: profile.context.length,

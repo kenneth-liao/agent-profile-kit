@@ -41,7 +41,7 @@ import {
   planRegisteredAdapter,
   normalizeAdapterPlans,
   assertResolvedOutputOrigins,
-  type DesiredInstallation,
+  type PlannedInstallation,
 } from "./project-plan.js";
 import {
   desiredOutputConflicts,
@@ -187,7 +187,7 @@ async function planTemporaryDesiredInstallation(options: {
   readonly profileId: string;
   readonly project: string;
   readonly authoredProject: string;
-}): Promise<DesiredInstallation> {
+}): Promise<PlannedInstallation> {
   const { configuration, workspace } = await ingestApplication(options.home);
   void configuration;
   const profile = requireProfile(workspace.profiles, options.profileId);
@@ -226,6 +226,7 @@ async function planTemporaryDesiredInstallation(options: {
   assertResolvedOutputOrigins(outputs, resolvedProfile);
   return {
     adapterVersion: adapterVersionFor(hosts),
+    kind: "planned" as const,
     artifactFingerprints,
     binding: {
       canonicalProject: options.project,

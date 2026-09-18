@@ -95,9 +95,10 @@ import {
 } from "./local-configuration.js";
 import {
   hashBytes,
+  isPlannedInstallation,
   planDesiredInstallations,
-  type DesiredInstallation,
   type DesiredProjectOutput,
+  type PlannedInstallation,
 } from "./project-plan.js";
 import type { Workspace } from "./ingest-workspace.js";
 import { InstallerToolError, type ConfiguredPathOrigin } from "./tool-errors.js";
@@ -595,7 +596,7 @@ export async function executeUninstall(
   // computation per partial Project feeding the consent report, the
   // commit-time authorization, retention, receipt delta, and reporting.
   const survivingPlans = new Map<string, SurvivingHostPlan>();
-  const desiredInstallations: DesiredInstallation[] = [];
+  const desiredInstallations: PlannedInstallation[] = [];
   // The Workspace resolves only when a partial removal needs it (A2):
   // whole-removal never touches source, and an unresolvable Workspace
   // skips the partial Projects explicitly instead of guessing retention.
@@ -689,7 +690,7 @@ export async function executeUninstall(
     ownershipInspection: phaseAOwnership,
     removeAuthorized,
     replaceAuthorized,
-    report: { globalBlockers: [], projects: reportProjects },
+    report: { brokenProfileViolations: [], globalBlockers: [], projects: reportProjects },
   });
 
   const completed: UninstallCompletedProject[] = [];
@@ -846,8 +847,8 @@ async function removalReportProject(
  * survivor selection and the shared-output retention cannot disagree.
  */
 export interface SurvivingHostPlan {
+  readonly desired: PlannedInstallation;
   readonly survivingHosts: readonly SupportedHost[];
-  readonly desired: DesiredInstallation;
 }
 
 export async function planSurvivingInstallation(
@@ -881,6 +882,12 @@ export async function planSurvivingInstallation(
   const desired = installations[0];
   if (desired === undefined) {
     throw new Error(`surviving-Host plan produced no installation for ${item.project}`);
+  }
+  if (!isPlannedInstallation(desired)) {
+    throw new Error(
+      `surviving-Host plan produced a blocked installation for ${item.project}; ` +
+        "the Workspace cannot plan the surviving Hosts",
+    );
   }
   return { survivingHosts, desired };
 }

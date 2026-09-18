@@ -10,6 +10,7 @@ import {
 } from "../schemas/context-profile.js";
 import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
+import type { BrokenProfileReferenceFact } from "./blockers.js";
 import {
   collectWorkspaceStructure,
   validateWorkspaceStructure,
@@ -291,12 +292,117 @@ function collectedViolation(error: unknown): WorkspaceViolation {
 export async function ingestWorkspace(path: string, manifestSource?: string): Promise<Workspace> {
   const collection = await collectWorkspaceViolations(path, manifestSource);
   if (collection.outcome === "valid") return collection.workspace;
+  throw workspaceViolationsError(path, collection.violations);
+}
+
+/** The one aggregate rejection for an invalid Workspace: the complete collected list. */
+function workspaceViolationsError(path: string, violations: readonly WorkspaceViolation[]): InstallerToolError {
   const fact: WorkspaceViolationsFact = {
     kind: "workspace-violations",
     workspace: path,
-    violations: collection.violations,
+    violations,
   };
-  throw new InstallerToolError(fact);
+  return new InstallerToolError(fact);
+}
+
+/** One Profile's missing references, grouped for lifecycle Blocker evidence (#606). */
+export interface BrokenProfileReference extends BrokenProfileReferenceFact {
+  /**
+   * The verbatim #604 facts of this Profile's invalid references. One home at
+   * the tolerant-ingestion boundary — lifecycle planning and the report
+   * channel reuse these bytes and never re-filter them by kind (#606).
+   */
+  readonly referenceViolations: readonly WorkspaceViolation[];
+}
+
+/**
+ * Whether one collected violation is a Profile reference violation (spec #593
+ * DEC-009 project scope, #606). #604's collecting parser is the one
+ * classification home: this predicate only reuses its `missing-context-reference`
+ * and `missing-skill-reference` ingestion facts, so the reference/artifact
+ * distinction cannot drift between validation and lifecycle blocking.
+ */
+export function isProfileReferenceViolation(violation: WorkspaceViolation): boolean {
+  return violation.via === "ingestion" &&
+    (violation.fact.kind === "missing-context-reference" ||
+      violation.fact.kind === "missing-skill-reference");
+}
+
+/**
+ * The tolerant lifecycle ingestion outcome (spec #593 US-007, #606): the
+ * Workspace plus the grouped missing references of every broken Profile.
+ */
+export interface TolerantWorkspaceIngestion {
+  readonly workspace: Workspace;
+  /** One grouped fact per broken Profile, sorted by Profile ID. */
+  readonly brokenProfiles: readonly BrokenProfileReference[];
+}
+
+/** The flat verbatim #604 reference facts of every broken Profile (#606). */
+export function brokenProfileViolations(
+  brokenProfiles: readonly BrokenProfileReference[],
+): readonly WorkspaceViolation[] {
+  return brokenProfiles.flatMap((broken) => broken.referenceViolations);
+}
+
+/**
+ * Ingest a Workspace for the lifecycle commands (spec #593 DEC-009 project
+ * scope, #606): Profile reference violations do not invalidate the Workspace —
+ * the commands block only the Projects bound to the broken Profile — while
+ * every other violation keeps the Workspace invalid for every command and
+ * throws the identical aggregate fact strict {@link ingestWorkspace} throws.
+ * The classification itself is never re-derived here: #604's collected facts
+ * are partitioned by {@link isProfileReferenceViolation}.
+ */
+export async function ingestWorkspaceToleratingReferenceViolations(
+  path: string,
+): Promise<TolerantWorkspaceIngestion> {
+  const contents = await collectWorkspaceContents(path);
+  const referenceViolations = contents.violations.filter(isProfileReferenceViolation);
+  if (contents.violations.length === 0) {
+    return {
+      workspace: { path, contexts: contents.contexts, profiles: contents.profiles, skills: contents.skills },
+      brokenProfiles: [],
+    };
+  }
+  if (referenceViolations.length !== contents.violations.length) {
+    throw workspaceViolationsError(path, contents.violations);
+  }
+  const broken = new Map<string, {
+    file: string;
+    missingContexts: Set<string>;
+    missingSkills: Set<string>;
+    referenceViolations: WorkspaceViolation[];
+  }>();
+  for (const violation of referenceViolations) {
+    if (violation.via !== "ingestion") continue;
+    const fact = violation.fact;
+    if (fact.kind !== "missing-context-reference" && fact.kind !== "missing-skill-reference") continue;
+    let entry = broken.get(fact.profile);
+    if (entry === undefined) {
+      entry = { file: fact.file, missingContexts: new Set(), missingSkills: new Set(), referenceViolations: [] };
+      broken.set(fact.profile, entry);
+    }
+    if (fact.kind === "missing-context-reference") {
+      entry.missingContexts.add(fact.contextId);
+    } else {
+      entry.missingSkills.add(fact.skillId);
+    }
+    entry.referenceViolations.push(violation);
+  }
+  const brokenProfiles = [...broken.entries()].map(([profile, entry]) => ({
+    profile,
+    file: entry.file,
+    missingContexts: [...entry.missingContexts].sort(),
+    missingSkills: [...entry.missingSkills].sort(),
+    referenceViolations: entry.referenceViolations,
+    workspace: path,
+  }));
+  brokenProfiles.sort((left, right) => left.profile.localeCompare(right.profile));
+  return {
+    workspace: { path, contexts: contents.contexts, profiles: contents.profiles, skills: contents.skills },
+    brokenProfiles,
+  };
 }
 
 /**
@@ -306,6 +412,18 @@ export async function ingestWorkspace(path: string, manifestSource?: string): Pr
 export type WorkspaceViolationCollection =
   | { readonly outcome: "valid"; readonly workspace: Workspace }
   | { readonly outcome: "invalid"; readonly violations: readonly WorkspaceViolation[] };
+
+/**
+ * The internal collection result: the complete violation list plus every
+ * parsed artifact map, so tolerant lifecycle ingestion (#606) can build the
+ * lenient Workspace when only Profile reference violations were collected.
+ */
+interface CollectedWorkspaceContents {
+  readonly violations: readonly WorkspaceViolation[];
+  readonly contexts: ReadonlyMap<string, ContextModule>;
+  readonly profiles: ReadonlyMap<string, Profile>;
+  readonly skills: ReadonlyMap<string, Skill>;
+}
 
 /**
  * Collect every Workspace violation in one run (spec #593 DEC-009, #604):
@@ -319,6 +437,24 @@ export async function collectWorkspaceViolations(
   path: string,
   manifestSource?: string,
 ): Promise<WorkspaceViolationCollection> {
+  const contents = await collectWorkspaceContents(path, manifestSource);
+  return contents.violations.length === 0
+    ? {
+      outcome: "valid",
+      workspace: {
+        path,
+        contexts: contents.contexts,
+        profiles: contents.profiles,
+        skills: contents.skills,
+      },
+    }
+    : { outcome: "invalid", violations: contents.violations };
+}
+
+async function collectWorkspaceContents(
+  path: string,
+  manifestSource?: string,
+): Promise<CollectedWorkspaceContents> {
   const violations: WorkspaceViolation[] = [];
   /** Profile files whose field-level problems were recorded this run. */
   let lenientProfilePaths: ReadonlySet<string> = new Set();
@@ -513,7 +649,10 @@ export async function collectWorkspaceViolations(
     }
   }
 
-  return violations.length === 0
-    ? { outcome: "valid", workspace: { path, contexts, profiles, skills } }
-    : { outcome: "invalid", violations };
+  return {
+    violations,
+    contexts,
+    profiles,
+    skills,
+  };
 }

@@ -21,6 +21,7 @@ import {
 import type { WorkspaceFolderValidation } from "../installer/commands.js";
 import {
   workspaceContractRecovery,
+  workspaceViolationBulletParts,
   workspaceViolationMessage,
   workspaceViolationsDiagnostic,
 } from "./error-wording.js";
@@ -1652,11 +1653,7 @@ export function formatWorkspaceValidationJson(
     command: "validate",
     outcome: "invalid",
     workspace: result.path,
-    violations: result.violations.map((violation) => ({
-      rule: workspaceViolationToken(violation),
-      path: workspaceViolationPath(violation),
-      message: workspaceViolationMessage(violation),
-    })),
+    violations: result.violations.map(machineWorkspaceViolation),
   });
 }
 
@@ -3877,6 +3874,8 @@ function conciseApplyDocument(
 
   const globalBlockers = globalBlockerNodes(report, groups, scope);
   if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
+  const brokenProfiles = brokenProfileNodes(report);
+  if (brokenProfiles.length > 0) nodes.push(spacerNode(), ...brokenProfiles);
 
   const blockedSummary = blocked ? aggregateLine("update", report, groups) : undefined;
   if (blockedSummary !== undefined) {
@@ -4644,6 +4643,13 @@ export function installWarningNodes(report: ReconciliationReport): PresentationD
   return warningNodes(report, groupProjects(report).groups, "project");
 }
 
+/** The broken-Profile section for install views (#606): every broken Profile
+ * is named, whether or not the installed Project is bound to it. Empty when
+ * every Profile is healthy. */
+export function installBrokenProfileNodes(report: ReconciliationReport): PresentationDocument {
+  return brokenProfileNodes(report);
+}
+
 /** The blocked-install diagnostic (DEC-005/DEC-006): ownership, path-safety,
  * or global Blockers stop the install before any write, with each Blocker's
  * own requirement and remedy plus the concrete retry. Single-Project scope
@@ -4670,6 +4676,7 @@ export function installBlockedDocument(
       nodes.push(...conciseBlockerNodes(blocker, displayProject, groups, "", scope));
     }
   }
+  nodes.push(...brokenProfileNodes(report));
   nodes.push({
     kind: "prose",
     parts: [
@@ -4955,6 +4962,22 @@ function verboseBlockerNodes(
   return nodes;
 }
 
+/** The every-broken-Profile section (spec #593 US-007, #606): one bullet per
+ * #604 reference fact through the single wording home, whether or not any
+ * Project is bound to the Profile. Empty when every Profile is healthy. */
+function brokenProfileNodes(report: ReconciliationReport): PresentationNode[] {
+  if (report.brokenProfileViolations.length === 0) return [];
+  const word = report.brokenProfileViolations.length === 1 ? "reference" : "references";
+  return [
+    { kind: "heading", text: `Broken Profiles (missing ${word}):`, category: "error" },
+    ...report.brokenProfileViolations.map((violation): PresentationNode => ({
+      kind: "prose",
+      parts: workspaceViolationBulletParts(violation),
+      category: "error",
+    })),
+  ];
+}
+
 /** The typed global-Blocker section; empty when no global Blocker exists. */
 function globalBlockerNodes(
   report: ReconciliationReport,
@@ -5152,6 +5175,7 @@ function verboseLifecycleSections(
       nodes.push(...verboseBlockerNodes(blocker, groups, shorten, options.scope));
     }
   }
+  nodes.push(...brokenProfileNodes(report));
   nodes.push(...verboseDetailNodes(
     report,
     groups,
@@ -5356,6 +5380,7 @@ function conciseStatusDocument(
   const grouped = groupProjects(report);
   const groups = grouped.groups;
   const blocked = reportBlockers(report).length > 0;
+  const brokenProfiles = brokenProfileNodes(report);
   const emptyStatus =
     !blocked && reportDesired(report).length === 0 && reportItems(report).length === 0;
   const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
@@ -5365,7 +5390,10 @@ function conciseStatusDocument(
     // unconfigured fleet: render the filter's empty outcome without bind or
     // inventory guidance (DEC-006).
     if (options.selection.filter !== undefined) {
-      return [statusOutcomeNotice(report, options.selection, grouped.identities)];
+      return [
+        statusOutcomeNotice(report, options.selection, grouped.identities),
+        ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
+      ];
     }
     return [
       {
@@ -5384,6 +5412,7 @@ function conciseStatusDocument(
           " to install one.",
         ],
       },
+      ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
     ];
   }
 
@@ -5392,6 +5421,7 @@ function conciseStatusDocument(
     ...warningNodes(report, groups, scope),
   ];
   if (fullyCurrentStatus) {
+    if (brokenProfiles.length > 0) nodes.push(spacerNode(), ...brokenProfiles);
     return nodes;
   }
 
@@ -5424,6 +5454,9 @@ function conciseStatusDocument(
     if (globalBlockers.length > 0) {
       nodes.push(spacerNode(), ...globalBlockers);
     }
+    if (brokenProfiles.length > 0) {
+      nodes.push(spacerNode(), ...brokenProfiles);
+    }
     const blockedSummary = aggregateLine("status", report, groups);
     if (blockedSummary !== undefined) {
       nodes.push(spacerNode(), {
@@ -5440,6 +5473,9 @@ function conciseStatusDocument(
     return nodes;
   }
 
+  if (brokenProfiles.length > 0) {
+    nodes.push(spacerNode(), ...brokenProfiles);
+  }
   nodes.push(...readyStatusGuidanceNodes(report, options));
   return nodes;
 }
@@ -5502,7 +5538,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 15 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 16 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -5512,6 +5548,19 @@ const LIFECYCLE_MACHINE_SCHEMA_VERSION = 15 as const;
  * the same number.
  */
 const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
+
+/** One Workspace violation in the shared `{rule, path, message}` machine shape (#606). */
+function machineWorkspaceViolation(violation: WorkspaceViolation): {
+  readonly rule: string;
+  readonly path: string;
+  readonly message: string;
+} {
+  return {
+    rule: workspaceViolationToken(violation),
+    path: workspaceViolationPath(violation),
+    message: workspaceViolationMessage(violation),
+  };
+}
 
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   const wording = blockerWording(blocker);
@@ -5599,6 +5648,7 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
 
 function canonicalMachineSnapshot(report: ReconciliationReport): unknown {
   return {
+    brokenProfileViolations: report.brokenProfileViolations.map(machineWorkspaceViolation),
     globalBlockers: report.globalBlockers.map(machineBlocker),
     projects: report.projects.map(canonicalMachineProject),
   };
@@ -5749,6 +5799,7 @@ export function formatApplyVerificationFailureJson(
     command,
     outcome: "error",
     error: message,
+    brokenProfileViolations: [],
     globalBlockers: [],
     projects: [],
     applied: canonicalMachineSnapshot(receipt),
@@ -5767,6 +5818,7 @@ export function formatLifecycleToolErrorJson(
     command,
     outcome: "error",
     error: message,
+    brokenProfileViolations: [],
     globalBlockers: [],
     projects: [],
     ...(recovery === undefined ? {} : { selectionRecovery: recovery }),

@@ -37,7 +37,7 @@ import {
 import type { ProjectBindingSelection } from "./local-configuration.js";
 import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
-import { collectWorkspaceViolations } from "./ingest-workspace.js";
+import { brokenProfileViolations, collectWorkspaceViolations } from "./ingest-workspace.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -141,6 +141,8 @@ export async function validateApplication(
     checkHostCapability: false,
     gitInspection: createLifecycleGitInspectionContext(instrumentation?.git),
     ...planningInstrumentation(instrumentation),
+    // `validate` still fails while any Profile is broken (spec #593 US-007, #606).
+    rejectReferenceViolations: true,
     scheduler: createProjectReadScheduler(),
   });
   return {
@@ -151,7 +153,9 @@ export async function validateApplication(
     profiles: [...desired.workspace.profiles.keys()].sort(),
     warnings: [...new Set(
       desired.installations.flatMap((installation) =>
-        installation.warnings.map((warning) => flatInlineText(warning.parts))
+        installation.kind === "planned"
+          ? installation.warnings.map((warning) => flatInlineText(warning.parts))
+          : [],
       ),
     )].sort(),
   };
@@ -176,6 +180,7 @@ export async function applyApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   return applyReconciliation(home, desired.installations, {
+    brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
     scheduler,
     scope: reconciliationScope(options.selection),
     ...(options.selection?.filter === undefined ? {} : { filter: options.selection.filter }),
@@ -211,7 +216,12 @@ export async function statusApplication(
       scheduler,
       ...(options.selection === undefined ? {} : { selection: options.selection }),
     });
-    return unreadableInstallationStateReport(home, desired.installations, error);
+    return unreadableInstallationStateReport(
+      home,
+      desired.installations,
+      error,
+      brokenProfileViolations(desired.brokenProfiles),
+    );
   }
   // Let each Adapter resolve its topology from the prior Manifest and keep
   // desired-state planning probe-free: status performs no Agent Host process
@@ -226,6 +236,7 @@ export async function statusApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   const report = await previewReconciliation(desired.installations, state, {
+    brokenProfileViolations: brokenProfileViolations(desired.brokenProfiles),
     gitInspection,
     ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
     scheduler,
