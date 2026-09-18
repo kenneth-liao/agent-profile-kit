@@ -469,13 +469,13 @@ describe("Pi Adapter", () => {
     const project = temporaryDirectory("apk-pi-skill-lifecycle-project-");
     mkdirSync(join(project, ".agents", "skills", "unrelated"), { recursive: true });
     writeFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "keep\n");
-    await writePiSkillWorkspace(home, project, ["top-skill"], [
+    await writePiSkillWorkspace(home, project, ["shared-base", "left-skill", "right-skill", "top-skill"], [
       { id: "shared-base", path: "library/shared-base" },
       { id: "left-skill", path: "group/left-skill" },
       { id: "right-skill", path: "group/right-skill" },
       { id: "top-skill", path: "top-skill", scriptMode: 0o755 },
       { id: "unselected-skill", path: "other/unselected-skill" },
-    ], ["shared-base", "left-skill", "right-skill", "top-skill"]);
+    ]);
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
@@ -531,7 +531,7 @@ describe("Pi Adapter", () => {
     );
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [left-skill]\n",
+      "id: coding\ncontext: [team-rules]\nskills: [left-skill, shared-base]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, deselected.installations);

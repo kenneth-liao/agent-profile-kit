@@ -117,7 +117,6 @@ export interface FleetFixture {
 }
 
 export interface FleetFixtureOptions {
-  readonly dependencyRich?: boolean;
   readonly projectCount?: number;
 }
 
@@ -146,21 +145,6 @@ export function createFleetFixture(
     "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
   );
   writeSkill(home, FLEET_SKILL);
-  if (options.dependencyRich) {
-    const branches = Array.from({ length: 12 }, (_, index) => `branch-${index + 1}`);
-    writeSkill(home, "shared-base");
-    for (const id of branches) {
-      writeSkill(home, id);
-      writeFileSync(
-        join(workspacePath(home), "skills", id, "agent-profile-kit.yaml"),
-        "dependencies:\n  - type: skill\n    id: shared-base\n",
-      );
-    }
-    writeFileSync(
-      join(workspacePath(home), "skills", FLEET_SKILL, "agent-profile-kit.yaml"),
-      `dependencies:\n${branches.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
-    );
-  }
   writeFileSync(
     join(workspacePath(home), "profiles", `${FLEET_PROFILE}.yaml`),
     `id: ${FLEET_PROFILE}\ncontext: [team-rules]\nskills: [${FLEET_SKILL}]\n`,

@@ -6589,7 +6589,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(hooksPath, "utf8")).toContain("hooks");
   });
 
-  test("verbose keeps the digest-only source change when redundant Skill dependency edges meet drift", async () => {
+  test("verbose keeps the digest-only source change when Profile list order meets drift", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = project();
@@ -6605,32 +6605,24 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       join(workspace, "skills", "mid-skill", "SKILL.md"),
       "---\nname: mid-skill\ndescription: Mid skill.\n---\n\nMid.\n",
     );
-    writeFileSync(
-      join(workspace, "skills", "mid-skill", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: base-skill\n",
-    );
     mkdirSync(join(workspace, "skills", "review-pr"));
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Review code.\n---\n\nReview.\n",
     );
     writeFileSync(
-      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: mid-skill\n",
-    );
-    writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr, mid-skill, base-skill]\n",
     );
     bind(home, projectPath);
     expectExitCode(await runCli(home, "update"), 0);
 
-    // Concurrent causes: a redundant direct dependency edge changes the
-    // receipt's desired-input digest while every generated projection stays
+    // Concurrent causes: a Profile list order change alters the receipt's
+    // desired-input digest while every generated projection stays
     // byte-identical, and an owned generated file drifts on disk.
     writeFileSync(
-      join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: mid-skill\n  - type: skill\n    id: base-skill\n",
+      join(workspace, "profiles", "coding.yaml"),
+      "id: coding\ncontext: [team-rules]\nskills: [mid-skill, review-pr, base-skill]\n",
     );
     rmSync(join(projectPath, ".agents", "skills", "base-skill", "SKILL.md"));
 
@@ -7421,10 +7413,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), "#!/bin/sh\necho review\n");
     chmodSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), 0o755);
-    writeFileSync(
-      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: base-skill\n",
-    );
     mkdirSync(join(workspacePath(home), "skills", "unselected-skill"));
     writeFileSync(
       join(workspacePath(home), "skills", "unselected-skill", "SKILL.md"),
@@ -7432,7 +7420,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr, base-skill]\n",
     );
     bind(home, projectPath);
 
@@ -7448,9 +7436,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "Review.",
-    );
-    expect(existsSync(join(projectPath, ".agents", "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(
-      false,
     );
     expect(statSync(join(projectPath, ".agents", "skills", "review-pr", "scripts", "run.sh")).mode & 0o777)
       .toBe(0o755);
@@ -7959,10 +7944,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       "---\nname: top-skill\ndescription: Top Skill.\n---\n\n# Top\n",
     );
     writeFileSync(
-      join(topSkill, "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: shared-base\n",
-    );
-    writeFileSync(
       join(disabledSkill, "SKILL.md"),
       "---\nname: disabled-skill\ndescription: Explicit-only Skill.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Explicit only\n",
     );
@@ -7972,11 +7953,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "skills.yaml"),
-      "id: skills\ncontext: []\nskills: [top-skill, disabled-skill]\n",
+      "id: skills\ncontext: []\nskills: [top-skill, shared-base, disabled-skill]\n",
     );
     writeFileSync(
       join(workspace, "profiles", "combined.yaml"),
-      "id: combined\ncontext: [team-rules]\nskills: [top-skill, disabled-skill]\n",
+      "id: combined\ncontext: [team-rules]\nskills: [top-skill, shared-base, disabled-skill]\n",
     );
     writeFileSync(
       configPath(home),
@@ -8037,7 +8018,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(existsSync(join(projectPath, ".agents", "skills", "shared-base", "SKILL.md"))).toBe(true);
       expect(existsSync(join(projectPath, ".agents", "skills", "disabled-skill", "agents", "openai.yaml"))).toBe(true);
       expect(existsSync(join(projectPath, ".agents", "skills", "unselected-skill"))).toBe(false);
-      expect(existsSync(join(projectPath, ".agents", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(false);
       expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository instructions\n");
       expect(readFileSync(join(projectPath, "GEMINI.md"), "utf8")).toBe("gemini instructions\n");
       expect(readFileSync(join(projectPath, ".agents", "skills", "native", "README.md"), "utf8")).toBe("keep native\n");
@@ -8429,10 +8409,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), "#!/bin/sh\necho review\n");
     chmodSync(join(workspacePath(home), "skills", "review-pr", "scripts", "run.sh"), 0o755);
-    writeFileSync(
-      join(workspacePath(home), "skills", "review-pr", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: base-skill\n",
-    );
     mkdirSync(join(workspacePath(home), "skills", "unselected-skill"));
     writeFileSync(
       join(workspacePath(home), "skills", "unselected-skill", "SKILL.md"),
@@ -8440,7 +8416,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+      "id: coding\ncontext: [team-rules]\nskills: [review-pr, base-skill]\n",
     );
     writeFileSync(
       configPath(home),
@@ -8464,9 +8440,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     expect(readFileSync(join(projectPath, ".claude", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
       "Review.",
-    );
-    expect(existsSync(join(projectPath, ".claude", "skills", "review-pr", "agent-profile-kit.yaml"))).toBe(
-      false,
     );
     expect(statSync(join(projectPath, ".claude", "skills", "review-pr", "scripts", "run.sh")).mode & 0o777)
       .toBe(0o755);

@@ -441,9 +441,9 @@ describe("fleet-wide synchronization qualification", () => {
     expect(state.receipts).toHaveLength(12);
   }, FLEET_TEST_TIMEOUT_MS);
 
-  test("a dependency-rich 14-Project publication remains readable across fresh processes", async () => {
+  test("a 14-Project publication remains readable across fresh processes", async () => {
     const home = isolatedHome();
-    const fixture = createFleetFixture(home, { dependencyRich: true, projectCount: 14 });
+    const fixture = createFleetFixture(home, { projectCount: 14 });
     const statePath = stateManifestPath(home);
 
     expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);

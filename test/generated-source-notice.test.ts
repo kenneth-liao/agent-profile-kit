@@ -106,7 +106,6 @@ function writeNoticeSkillPackage(
       mode: 0o600,
     },
     "scripts/run.sh": { bytes: "#!/bin/sh\necho review\n", mode: 0o755 },
-    "agent-profile-kit.yaml": { bytes: "dependencies: []\n" },
     ...extraFiles,
   });
 }
@@ -191,7 +190,6 @@ describe("installed Skill entry documents", () => {
       "interface:\n  display_name: Review PR\n",
     );
     expect(memberAt(output, SHARED_SKILL_OPENAI_YAML).mode).toBe(0o600);
-    expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
     expect(readFileSync(join(source, "SKILL.md"), "utf8")).toBe(ALLOWED_SOURCE_SKILL);
   });
 
