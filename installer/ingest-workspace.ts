@@ -23,6 +23,26 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
+/**
+ * Find the first retired Skill sidecar entry under one Skill package root,
+ * depth-first in sorted order; a package that does not contain one yields
+ * undefined. Symlinked directories are not traversed: packages are read from
+ * regular files and directories only.
+ */
+async function findSkillSidecar(directory: string, prefix: string): Promise<string | undefined> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of sorted) {
+    const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.name === SKILL_PACKAGE_SIDECAR) return relative;
+    if (entry.isDirectory()) {
+      const nested = await findSkillSidecar(join(directory, entry.name), relative);
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
+}
+
 /** Read directory entries; a missing category directory is an empty collection. */
 async function readCategoryEntries(directory: string) {
   try {
@@ -128,14 +148,15 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   for (const name of await skillPaths(join(path, "skills"))) {
     const sourcePath = join(path, "skills", name);
     const relativePath = skillEntryRelativePath(path, sourcePath);
-    // A retired Agent Profile Kit sidecar inside a Skill package is one
-    // violation naming its file (spec #593 DEC-006): Profile lists are the
-    // only source of what is installed, so the sidecar has no reader left.
-    const entries = await readdir(sourcePath, { withFileTypes: true });
-    if (entries.some((entry) => entry.name === SKILL_PACKAGE_SIDECAR)) {
+    // A retired Agent Profile Kit sidecar anywhere inside a Skill package is
+    // one violation naming its file (spec #593 DEC-006): Profile lists are
+    // the only source of what is installed, so the sidecar has no reader
+    // left, and a nested copy would otherwise project into Host output.
+    const nested = await findSkillSidecar(sourcePath, "");
+    if (nested !== undefined) {
       throw new InstallerToolError({
         kind: "leftover-skill-sidecar",
-        file: `skills/${name}/${SKILL_PACKAGE_SIDECAR}`,
+        file: `skills/${name}/${nested}`,
       });
     }
     addUnique(

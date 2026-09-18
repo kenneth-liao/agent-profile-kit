@@ -1,8 +1,16 @@
 #!/bin/sh
 # Produce the 0.204.0 compatibility fixtures for issue #596 (TEST-010).
 # Usage: produce.sh <packed-cli-from-0.204.0> <fixture-output-dir>
+# The binary must report 0.204.0 (commit 531f12f — the commit carrying
+# version 0.204.0; no release tag exists), so the reproduction path is
+# self-enforcing.
 set -eu
 APKIT="$1"; OUT="$2"
+reported="$($APKIT --version)"
+if [ "$reported" != "0.204.0" ]; then
+  echo "produce.sh expects the 0.204.0 packed CLI; the given binary reports '$reported'" >&2
+  exit 1
+fi
 stage="$(mktemp -d /tmp/apk-compat-0204.XXXXXX)"
 stage="$(cd "$stage" && pwd -P)"
 home="$stage/home"; project="$stage/project"

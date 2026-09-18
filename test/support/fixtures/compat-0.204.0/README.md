@@ -38,4 +38,7 @@ produced from the commit that carried version `0.204.0` in `package.json`:
    (including dependency and inclusion-reason semantics).
 
 The committed script is the single reproduction path; regenerate this
-directory only by re-running it against the recorded commit.
+directory only by re-running it against the recorded commit. Regeneration is
+byte-identical except for the receipts' random `installation_id` UUID, which
+the journey's install run generates fresh each time; the desired-input
+digest, output hashes, and every other record are deterministic.

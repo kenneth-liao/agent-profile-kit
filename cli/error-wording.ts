@@ -210,7 +210,7 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
           ? "No Skills exist in the Workspace"
           : `Available Skills: ${fact.available.join(", ")}`);
     case "leftover-skill-sidecar":
-      return `Skill sidecar ${fact.file} is no longer read; list the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file`;
+      return `Skill sidecar ${fact.file} is no longer read; list the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file from the Workspace (version control can recover it if you need the old list)`;
   }
 }
 
@@ -433,7 +433,7 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
       return {
         happened: [`Skill sidecar ${fact.file} is no longer read.`],
         whatToType: [
-          ["List the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file."],
+          ["List the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file; version control can recover it if you need the old list."],
         ],
       };
   }

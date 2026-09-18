@@ -96,6 +96,25 @@ describe("leftover Skill sidecars (spec #593 DEC-006, #596)", () => {
     }
   });
 
+  test("a sidecar in a subdirectory of a Skill package names its nested path", async () => {
+    const home = isolatedHome();
+    try {
+      const workspace = scaffoldWorkspace(home);
+      mkdirSync(join(workspace, "skills", "deploy", "scripts"), { recursive: true });
+      writeFileSync(join(workspace, "skills", "deploy", "scripts", "run.sh"), "#!/bin/sh\ntrue\n");
+      writeFileSync(
+        join(workspace, "skills", "deploy", "scripts", "agent-profile-kit.yaml"),
+        "dependencies: []\n",
+      );
+      expect(await ingestionFact(workspace)).toEqual({
+        kind: "leftover-skill-sidecar",
+        file: "skills/deploy/scripts/agent-profile-kit.yaml",
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("an agent-profile-kit.yaml outside any Skill package is not a sidecar violation", async () => {
     const home = isolatedHome();
     try {

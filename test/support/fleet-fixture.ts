@@ -142,7 +142,7 @@ export function createFleetFixture(
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
   writeFileSync(
     join(workspacePath(home), "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "---\nid: team-rules\n---\nAlways preserve the project boundary.\n",
   );
   writeSkill(home, FLEET_SKILL);
   writeFileSync(
