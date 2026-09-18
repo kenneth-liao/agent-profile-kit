@@ -28,6 +28,7 @@ import {
   suggestedContextModulePath,
 } from "../schemas/context-profile.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
+import { SKILL_FILE_NAME } from "../installer/workspace.js";
 import {
   ProjectTargetError,
   type ProjectTargetErrorReason,
@@ -46,6 +47,9 @@ import type { PresentationDocument } from "./presentation-document.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
+
+/** The `skills/` artifact folder name, as wording references it (#605). */
+const SKILL_DIRECTORY = "skills";
 
 /**
  * The explicit init command forms (spec #593 #601): there is no default
@@ -241,7 +245,24 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
       return `Skill sidecar ${fact.file} is no longer read; list the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file from the Workspace (version control can recover it if you need the old list)`;
     case "nested-profile":
       return `Profile ${fact.file} is inside a nested folder; Profiles live directly in the ${PROFILE_DIRECTORY} folder — move the file to ${PROFILE_DIRECTORY}${fact.file.split("/").pop()} (that file name without '${PROFILE_EXTENSION}' becomes its ID)`;
+    case "stray-context-file":
+      return `Context entry ${fact.file} is not Markdown; only '${CONTEXT_MODULE_EXTENSION}' files under the ${CONTEXT_DIRECTORY} folder are Context Modules — rename it with a '${CONTEXT_MODULE_EXTENSION}' extension or move it out of '${CONTEXT_DIRECTORY}'${strayLinkSentence(fact.symlink)}`;
+    case "stray-skill-file":
+      return `Skill entry ${fact.file} does not belong to a Skill package; every non-hidden file under the '${SKILL_DIRECTORY}' folder must be inside a Skill package (a folder with a '${SKILL_FILE_NAME}' file) — move it into a Skill package as a Skill Resource, give it its own package, or move it out of '${SKILL_DIRECTORY}'${strayLinkSentence(fact.symlink)}`;
+    case "stray-profile-file":
+      return `Profile entry ${fact.file} is not a '${PROFILE_EXTENSION}' file directly under the ${PROFILE_DIRECTORY} folder — rename it with a '${PROFILE_EXTENSION}' extension or move it out of '${PROFILE_DIRECTORY}'${strayLinkSentence(fact.symlink)}`;
   }
+}
+
+/**
+ * The link-specific fix appended to every stray-file sentence for a symlink
+ * entry (#605): validation never follows links, so the remedy is replacing
+ * the link, not renaming it.
+ */
+function strayLinkSentence(symlink: boolean | undefined): string {
+  return symlink
+    ? "; validation never follows links — remove the link and put the real file or folder in its place"
+    : "";
 }
 
 /*
@@ -555,7 +576,38 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
           [`Profiles live directly in the ${PROFILE_DIRECTORY} folder; move the file to ${PROFILE_DIRECTORY}${fact.file.split("/").pop()}, whose name without '${PROFILE_EXTENSION}' becomes its ID.`],
         ],
       };
+    case "stray-context-file":
+      return {
+        happened: [`Context entry ${fact.file} is not Markdown.`],
+        whatToType: [
+          [`Only '${CONTEXT_MODULE_EXTENSION}' files under the ${CONTEXT_DIRECTORY} folder are Context Modules; rename it with a '${CONTEXT_MODULE_EXTENSION}' extension or move it out of '${CONTEXT_DIRECTORY}'.`],
+          ...strayLinkRemedy(fact.symlink),
+        ],
+      };
+    case "stray-skill-file":
+      return {
+        happened: [`Skill entry ${fact.file} does not belong to a Skill package.`],
+        whatToType: [
+          [`Every non-hidden file under the '${SKILL_DIRECTORY}' folder must be inside a Skill package (a folder with a '${SKILL_FILE_NAME}' file); move it into a Skill package as a Skill Resource, give it its own package, or move it out of '${SKILL_DIRECTORY}'.`],
+          ...strayLinkRemedy(fact.symlink),
+        ],
+      };
+    case "stray-profile-file":
+      return {
+        happened: [`Profile entry ${fact.file} is not a '${PROFILE_EXTENSION}' file directly under the ${PROFILE_DIRECTORY} folder.`],
+        whatToType: [
+          [`Rename it with a '${PROFILE_EXTENSION}' extension or move it out of '${PROFILE_DIRECTORY}'.`],
+          ...strayLinkRemedy(fact.symlink),
+        ],
+      };
   }
+}
+
+/** The link-specific remedy line for a symlink stray (#605). */
+function strayLinkRemedy(symlink: boolean | undefined): readonly (readonly string[])[] {
+  return symlink
+    ? [["Validation never follows links; remove the link and put the real file or folder in its place."]]
+    : [];
 }
 
 /** The carried sentence parts for one typed Local Configuration rejection. */
@@ -893,6 +945,9 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "missing-skill-reference":
     case "leftover-skill-sidecar":
     case "nested-profile":
+    case "stray-context-file":
+    case "stray-skill-file":
+    case "stray-profile-file":
       return [formatWorkspaceIngestionError(fact)];
     case "workspace-violations": {
       const diagnostic = workspaceViolationsDiagnostic(fact);
@@ -1157,6 +1212,9 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "missing-skill-reference":
     case "leftover-skill-sidecar":
     case "nested-profile":
+    case "stray-context-file":
+    case "stray-skill-file":
+    case "stray-profile-file":
       return formatWorkspaceIngestionErrorDiagnostic(fact);
     case "workspace-violations":
       return workspaceViolationsDiagnostic(fact);

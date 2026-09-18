@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { open } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
@@ -122,9 +122,11 @@ describe("createSkill", () => {
   test("refuses an occupied destination and leaves existing material untouched", async () => {
     const home = await initializedHome();
     try {
+      // An empty destination directory occupies the path without violating
+      // the contract (DEC-008 binds files, #605), so the workspace stays
+      // valid and the occupancy check is what refuses creation.
       const skillRoot = join(workspacePath(home), "skills", "review-pr");
-      mkdirSync(join(skillRoot, "scripts"), { recursive: true });
-      writeFileSync(join(skillRoot, "scripts", "run.sh"), "#!/bin/sh\necho owned\n");
+      mkdirSync(skillRoot);
 
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
@@ -152,6 +154,34 @@ describe("createSkill", () => {
         ),
       ).toBe(true);
 
+      // The occupied directory survives untouched, and nothing was created.
+      expect(readdirSync(skillRoot)).toEqual([]);
+      expect(existsSync(join(skillRoot, "SKILL.md"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("pre-existing non-package material is a stray that refuses creation untouched", async () => {
+    const home = await initializedHome();
+    try {
+      const skillRoot = join(workspacePath(home), "skills", "review-pr");
+      mkdirSync(join(skillRoot, "scripts"), { recursive: true });
+      writeFileSync(join(skillRoot, "scripts", "run.sh"), "#!/bin/sh\necho owned\n");
+
+      const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
+      // The seeded material outside a Skill package is a DEC-008 stray
+      // (#605), so the workspace is invalid and ingestion refuses with the
+      // complete list before the occupancy check (DEC-009: an invalid
+      // Workspace is invalid for every command). Nothing is written or
+      // removed: the foreign bytes survive byte-for-byte.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-skill-file", file: "skills/review-pr/scripts/run.sh" } },
+      ]);
+
       expect(readFileSync(join(skillRoot, "scripts", "run.sh"), "utf8")).toBe("#!/bin/sh\necho owned\n");
       expect(existsSync(join(skillRoot, "SKILL.md"))).toBe(false);
     } finally {
@@ -167,7 +197,15 @@ describe("createSkill", () => {
 
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
+      // A plain file directly under skills/ is a DEC-008 stray (#605): the
+      // invalid workspace is refused with the complete list, and the foreign
+      // bytes are untouched.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-skill-file", file: "skills/review-pr" } },
+      ]);
       expect(readFileSync(occupied, "utf8")).toBe("not a directory\n");
       expect(existsSync(join(occupied, "SKILL.md"))).toBe(false);
     } finally {
@@ -184,8 +222,16 @@ describe("createSkill", () => {
 
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
-
+      // A symlink under skills/ is a DEC-008 stray (#605): the invalid
+      // workspace is refused before the occupancy check, and the link is
+      // never followed or written through.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-skill-file", file: "skills/review-pr", symlink: true } },
+      ]);
+      // The link target stays untouched.
       const outsideEntries = Array.from(new Bun.Glob("*").scanSync({ cwd: outside }));
       expect(outsideEntries).toEqual([]);
       rmSync(outside, { recursive: true, force: true });

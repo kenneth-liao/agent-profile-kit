@@ -124,8 +124,31 @@ export type WorkspaceIngestionErrorFact =
       readonly kind: "nested-profile";
       /** Workspace-relative path of the nested Profile file. */
       readonly file: string;
+    }
+  | {
+      /** A non-hidden entry under `context/` that is not a regular `.md` file (spec #593 DEC-008, #605). */
+      readonly kind: "stray-context-file";
+      /** Workspace-relative path of the stray entry. */
+      readonly file: string;
+      /** Set only for a symlink entry: validation never follows links. */
+      readonly symlink?: boolean;
+    }
+  | {
+      /** A non-hidden entry under `skills/` outside a Skill package (spec #593 DEC-008, #605). */
+      readonly kind: "stray-skill-file";
+      /** Workspace-relative path of the stray entry. */
+      readonly file: string;
+      /** Set only for a symlink entry: validation never follows links. */
+      readonly symlink?: boolean;
+    }
+  | {
+      /** A non-hidden entry under `profiles/` that is not a `.yaml` Profile directly under `profiles/` (spec #593 DEC-008, #605). */
+      readonly kind: "stray-profile-file";
+      /** Workspace-relative path of the stray entry. */
+      readonly file: string;
+      /** Set only for a symlink entry: validation never follows links. */
+      readonly symlink?: boolean;
     };
-
 /** Workspace ingestion plus the manifest rejections it composes. */
 export type WorkspaceErrorFact = WorkspaceIngestionErrorFact | WorkspaceManifestRejectionReason;
 

@@ -26,10 +26,24 @@ adds exactly these parts, and nothing else, to a folder you name.
 - `context/`, `skills/`, and `profiles/` must be directories, not files.
   Each must be a real directory: a dangling symlink is invalid.
 - A missing artifact folder is treated as an empty collection.
+- Hidden files and folders — names starting with `.` — are ignored
+  everywhere: validation never reports them and never looks inside them.
+  Outside a Skill package they are not Workspace source: a hidden file is
+  never a Context Module, a Skill, or a Profile, and a Profile naming one
+  reports it missing. A hidden file inside a Skill package stays ordinary
+  package content.
+- Every non-hidden entry under the artifact folders must be a real file or
+  directory. Outside a Skill package, a symlink is a violation, because
+  validation never follows links; inside a Skill package a symlink stays
+  ordinary package content.
+- Empty folders violate nothing: the rules below bind files.
 
 ## Context Modules
 
 - Every `.md` file under `context/`, at any depth, is a Context Module.
+- Under `context/`, every non-hidden file must be Markdown (`.md`) — anything
+  else is a violation. Give the file a `.md` extension or move it out of
+  `context/`.
 - A Context Module's ID is its path under `context/` without `.md`, with `/`
   between folders (for example `engineering/review-findings`). Moving or
   renaming the file changes its ID by design.
@@ -45,6 +59,11 @@ adds exactly these parts, and nothing else, to a folder you name.
 A Skill is a standard Agent Skills package: a folder under `skills/` (folders
 may group packages) rooted at a `SKILL.md` file. Supporting scripts,
 references, and assets stay ordinary package files.
+
+- Under `skills/`, every non-hidden file must belong to a Skill package (a
+  folder with a `SKILL.md`); folders may group Skill packages. A file outside
+  a Skill package is a violation — move it into a package as a Skill
+  Resource, give it its own package, or move it out of `skills/`.
 
 - A Skill's `SKILL.md` must open with YAML frontmatter, and it must close its
   YAML frontmatter. Profile files are YAML mappings, and `SKILL.md`
@@ -83,6 +102,10 @@ gets installed together.
 - A Profile is a `.yaml` file directly under `profiles/`. Profile files live
   directly in `profiles/`; a `.yaml` file inside a `profiles/` subfolder is a
   violation (move the file up; its file name becomes its ID).
+- Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+  in `profiles/` — a non-`.yaml` file anywhere under `profiles/`, including
+  inside a subfolder, is a violation; a `.yml` extension is not accepted.
+  Rename the file with a `.yaml` extension or move it out of `profiles/`.
 - A Profile's file name, without `.yaml`, must be a lowercase kebab-case
   name; that name is the Profile's ID. A Profile carries no `id` field: its
   ID is its file name without `.yaml` — remove the field, and rename the file
@@ -411,4 +434,69 @@ schema_version: 1
 
 <!-- context/empty.md -->
 ```markdown
+```
+
+### Invalid: a non-Markdown file under `context/`
+
+<!-- expects violations: stray-context-file -->
+Under `context/`, every non-hidden file must be Markdown (`.md`).
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/notes.txt -->
+```text
+Some notes.
+```
+
+### Invalid: a file under `skills/` outside a Skill package
+
+<!-- expects violations: stray-skill-file -->
+Under `skills/`, every non-hidden file must belong to a Skill package (a
+folder with a `SKILL.md`).
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/README.md -->
+```markdown
+Notes about the Skills in this Workspace.
+```
+
+### Invalid: a Profile file with a `.yml` extension
+
+<!-- expects violations: stray-profile-file -->
+Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+in `profiles/` — a `.yml` extension is not accepted.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/team.yml -->
+```yaml
+context: []
+skills: []
+```
+
+### Invalid: a non-`.yaml` file inside a `profiles/` subfolder
+
+<!-- expects violations: stray-profile-file -->
+Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+in `profiles/` — a non-`.yaml` file anywhere under `profiles/`, including
+inside a subfolder, is a violation.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/archive/notes.txt -->
+```text
+Some notes.
 ```

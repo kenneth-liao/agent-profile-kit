@@ -194,6 +194,9 @@ const INGESTION_CONTRACT_STATEMENTS: Record<WorkspaceIngestionErrorFact["kind"],
   // Ingestion.
   "duplicate-artifact-name": "Two Skill packages must not declare the same `name`",
   "nested-profile": "Profile files live directly in `profiles/`; a `.yaml` file inside a `profiles/` subfolder is a violation",
+  "stray-context-file": "Under `context/`, every non-hidden file must be Markdown (`.md`)",
+  "stray-skill-file": "Under `skills/`, every non-hidden file must belong to a Skill package",
+  "stray-profile-file": "Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly in `profiles/`",
   "leftover-skill-sidecar": "A Skill package must not contain an `agent-profile-kit.yaml` sidecar",
   "profile-without-artifacts":
     "A Profile must select at least one artifact: its `context` list, its `skills` list, or both must be non-empty",

@@ -298,13 +298,20 @@ describe("configureProfileMembership", () => {
         profile: "example",
         skills: ["review-pr"],
       }).then(
-        () => "resolved",
+        () => "resolved" as const,
         (error: unknown) => error,
       );
-      // Ingestion only reads regular files, so the symlinked Profile is
-      // invisible to the Workspace boundary: configure refuses without
-      // touching the link or its target (never writes through links).
-      expect(failure).toBeInstanceOf(MissingProfileError);
+      // A symlink under profiles/ is a DEC-008 stray (#605): the symlinked
+      // Profile file is reported by the collecting run, and configure refuses
+      // on the invalid workspace without touching the link or its target
+      // (never writes through links).
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      if (!(failure instanceof InstallerToolError)) throw new Error("expected an InstallerToolError");
+      expect(failure.fact.kind).toBe("workspace-violations");
+      if (failure.fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(failure.fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-profile-file", file: "profiles/example.yaml", symlink: true } },
+      ]);
       expect(readFileSync(outside, "utf8")).toBe(linkSource);
       expect(lstatSync(target).isSymbolicLink()).toBe(true);
     } finally {

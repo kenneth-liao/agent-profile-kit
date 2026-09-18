@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 
@@ -308,13 +308,41 @@ describe("createProfile", () => {
         createProfile({ home, name: "engineering", contexts: ["example-context"], skills: [] }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
+      // A symlink under profiles/ is a DEC-008 stray (#605): the invalid
+      // workspace is refused before the occupancy check, and the link is
+      // never followed or written through.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-profile-file", file: "profiles/engineering.yaml", symlink: true } },
+      ]);
 
       const outsideEntries = Array.from(new Bun.Glob("*").scanSync({ cwd: outside }));
       expect(outsideEntries).toEqual([]);
     } finally {
       rmSync(home, { recursive: true, force: true });
       rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an occupied empty directory with artifact-path-occupied and creates nothing", async () => {
+    const home = await initializedHome();
+    try {
+      // An empty folder violates nothing (DEC-008 binds files, #605), so the
+      // workspace stays valid and the destination's occupancy is what
+      // refuses creation.
+      const occupied = join(workspacePath(home), "profiles", "engineering.yaml");
+      mkdirSync(occupied);
+
+      const failure = await rejection(() =>
+        createProfile({ home, name: "engineering", contexts: ["example-context"], skills: [] }),
+      );
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
+      expect(readdirSync(occupied)).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
     }
   });
 

@@ -14345,13 +14345,16 @@ describe("packed CLI new skill", () => {
     expect(existsSync(join(workspacePath(home), "skills", "Review_PR"))).toBe(false);
     expect(existsSync(join(workspacePath(home), "skills", "..", "escape"))).toBe(false);
 
-    // A symlink destination is refused and never written through.
+    // A symlink destination is refused and never written through: the symlink
+    // is a DEC-008 stray (#605) whose violation names the link and the
+    // link-specific fix, and the target stays untouched.
     const outside = mkdtempSync(join(tmpdir(), "apkit-new-skill-outside-"));
     temporaryDirectories.push(outside);
     symlinkSync(outside, join(workspacePath(home), "skills", "link-skill"));
     const linked = await runCli(home, "new", "skill", "link-skill");
     expectExitCode(linked, 1);
-    expect(linked.stderr).toContain("already has material");
+    expect(linked.stderr).toContain("skills/link-skill does not belong to a Skill package");
+    expect(linked.stderr).toContain("never follows links");
     expect(Array.from(new Bun.Glob("*").scanSync({ cwd: outside }))).toEqual([]);
   });
 });
