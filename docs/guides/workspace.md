@@ -242,6 +242,11 @@ machinery). Profiles do not inherit, use wildcards, or carry Host settings.
 Renaming the file renames the Profile; Project Bindings select Profiles by
 that name.
 
+Rollback caveat: this Profile shape is a **CLI 0.208.0+** acceptance change.
+A Workspace whose Profiles carry no `id` line fails validation on an older
+binary — before rolling a CLI back, re-add an `id` line matching each
+Profile's file name, or keep every shared Workspace on 0.208+.
+
 ```md
 ---
 id: engineering-rules

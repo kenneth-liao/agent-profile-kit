@@ -573,7 +573,15 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
       // The fix keeps existing Project Bindings and Installation Receipts
       // working: an authored id that differs from the file name can be kept
       // by renaming the file, never by silently rebinding the ID (#598).
-      const fileName = profileIdFromPath(path);
+      // The formatter is total: profileIdFromPath's path-shape guard cannot
+      // throw for any fact parseProfile raises, and a non-canonical path
+      // simply omits the rename clause.
+      let fileName: string | undefined;
+      try {
+        fileName = profileIdFromPath(path);
+      } catch {
+        fileName = undefined;
+      }
       const base =
         `Profile ${path} must not contain an 'id' field; a Profile's ID is its file name without '.yaml'. Remove the 'id' field`;
       if (reason.id === undefined || reason.id === fileName) return base;

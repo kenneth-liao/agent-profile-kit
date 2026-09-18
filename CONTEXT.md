@@ -78,7 +78,7 @@ _Avoid_: Repository Exclusion Record (as a separately persisted record), shared 
 
 **Artifact ID**:
 The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml`.
-_Avoid_: File path, display name
+_Avoid_: Display name, organizational path (except a Profile's file name, which is its ID)
 
 **Credential Requirement**:
 A semantic declaration that an artifact needs authenticated access, independent of how an Agent Host or system supplies it. Credential values never belong to Agent Profile Kit source or Installation State.
