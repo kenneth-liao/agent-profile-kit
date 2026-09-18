@@ -261,7 +261,14 @@ Next: run apkit validate
 Setup requires a path the user gives: there is no default Workspace location
 (spec #593 DEC-001, ADR-0049), so `init` without a path on a machine with no
 selected Workspace writes nothing and prints the explicit forms
-(`apkit init <path>`, `apkit init .`). Adds exactly the missing required
+(`apkit init <path>`, `apkit init .`). With a terminal, `init` asks whether
+to use the current folder — shown as its full path — or another path, and
+before any write confirms the chosen folder: it shows the full path, states
+that Context and Skill files will be stored in and loaded from that folder,
+and lists exactly the parts setup will add (or that nothing needs to be
+added). Declining or cancelling writes nothing (spec #593 #603, US-001,
+ISC-24): declining exits 0 with a neutral note; cancelling exits 1 with a
+cancelled diagnostic. Adds exactly the missing required
 parts — `workspace.yaml`, `context/`,
 `skills/`, and `profiles/` — in place to the chosen folder, records a
 `schema_version: 2` `config.yaml`, and adds nothing else: no example Profile,

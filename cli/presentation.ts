@@ -9,7 +9,7 @@ import {
   describeStateReadFailure,
   humanBlockerWording,
 } from "./blocker-wording.js";
-import { formatInstallerToolError } from "./error-wording.js";
+import { formatInstallerToolError, initLocationRemedies } from "./error-wording.js";
 import { diagnosticDocument } from "./diagnostics.js";
 import type { InstallerToolErrorFact } from "../installer/tool-errors.js";
 import {
@@ -4135,22 +4135,46 @@ export function uninstallReplacementCommandDocument(
 }
 
 /** The cancelled guided-init diagnostic (DEC-033): what happened, and that
- * initialization changed nothing. The remedy names the explicit path form
- * when the cancelled invocation carried one, so a printed remedy never
- * dead-ends in the zero-argument refusal (spec #593 #601, ADR-0049). */
+ * initialization changed nothing. The remedy names an executable path form:
+ * without a given path the bare form would refuse, so the remedy names the
+ * explicit forms instead (spec #593 #601, #603, ADR-0049). */
 export function initCancelledDocument(
   options: { readonly workspace?: string } = {},
 ): PresentationDocument {
-  const initArguments: readonly CommandArg[] = options.workspace === undefined
-    ? [{ kind: "text", value: "init" }]
-    : [{ kind: "text", value: "init" }, { kind: "text", value: options.workspace }];
   return diagnosticDocument({
     happened: ["init was cancelled; nothing was initialized or created"],
-    whatToType: [[
-      "To initialize without the first-Profile guidance, run ",
-      commandPart(COMMAND_NAME, initArguments),
-    ]],
+    whatToType: [options.workspace === undefined
+      ? initLocationRemedies("To initialize without the first-Profile guidance, run ")
+      : [
+        "To initialize without the first-Profile guidance, run ",
+        commandPart(COMMAND_NAME, [
+          { kind: "text", value: "init" },
+          { kind: "text", value: options.workspace },
+        ]),
+      ]],
   });
+}
+
+/** The declined setup confirmation (spec #593 #603, ISC-27.3): a safe,
+ * neutral outcome, not an error — nothing was initialized or created, and
+ * the explicit path form is always available. */
+export function initDeclinedDocument(
+  options: { readonly workspace?: string } = {},
+): PresentationDocument {
+  const remedy = options.workspace === undefined
+    ? initLocationRemedies("Run ")
+    : [
+      "Run ",
+      commandPart(COMMAND_NAME, [
+        { kind: "text", value: "init" },
+        { kind: "text", value: options.workspace },
+      ]),
+      " to set up that folder later.",
+    ];
+  return [{
+    kind: "sentence",
+    parts: ["Setup declined; nothing was initialized or created. ", ...remedy],
+  }];
 }
 
 /** How the declined answer was given: an explicit no, or the default no. */

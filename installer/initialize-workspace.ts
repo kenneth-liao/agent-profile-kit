@@ -86,17 +86,20 @@ export function errorMessage(error: unknown): string {
 
 /**
  * Normalize one authored CLI Workspace argument to the spelling setup records
- * and resolves downstream (spec #593 ISC-26, #599): home-relative forms keep
+ * and resolves downstream (spec #593 ISC-26, #599, #603): home-relative forms keep
  * their authored `~/…` spelling (cwd-stable by construction), while every
  * working-directory-relative form — including `.` — is resolved to the named
  * absolute folder, because a relative spelling would select a different
  * folder when later commands run from another directory. Any other `~…`
  * form (for example `~otheruser/x`) is passed through untouched so the
  * shared path-shape boundary rejects it as a relative path instead of
- * resolving it to a literal directory under the working directory.
+ * resolving it to a literal directory under the working directory. The one
+ * home of this rule: the interactive location question resolves the user's
+ * answer against the invocation's working directory by calling it with that
+ * directory.
  */
-function normalizeAuthoredWorkspace(value: string): string {
-  return value.startsWith("~") ? value : resolve(value);
+export function normalizeAuthoredWorkspace(value: string, cwd: string = process.cwd()): string {
+  return value.startsWith("~") ? value : resolve(cwd, value);
 }
 
 async function assertWorkspaceSelectionPath(
@@ -153,43 +156,74 @@ async function inspectDestinationPath(
 /**
  * Refuse a missing named folder whose parent directory is missing too
  * (spec #593 #599): nothing is ever written outside the named path, so setup
- * never creates missing parent directories.
+ * never creates missing parent directories. Checked once in the read-only
+ * setup plan; if the parent vanishes before the commit, the exclusive-create
+ * folder write fails closed and reports the partial-setup fact.
  */
-async function requireProvisionableDestination(
-  destination: string,
-  allowMissingParents: boolean,
-): Promise<void> {
-  const state = await inspectDestinationPath(destination);
-  if (state === "missing" && !allowMissingParents) {
-    const parent = dirname(destination);
-    let parentStats;
-    try {
-      parentStats = await stat(parent);
-    } catch (error) {
-      if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
-        throw new InstallerToolError({
-          kind: "init-missing-parent-directory",
-          path: destination,
-          parent,
-        });
-      }
-      throw error;
-    }
-    if (!parentStats.isDirectory()) {
+async function requireExistingParentDirectory(destination: string): Promise<void> {
+  const parent = dirname(destination);
+  let parentStats;
+  try {
+    parentStats = await stat(parent);
+  } catch (error) {
+    if (hasErrorCode(error, "ENOENT") || hasErrorCode(error, "ENOTDIR")) {
       throw new InstallerToolError({
         kind: "init-missing-parent-directory",
         path: destination,
         parent,
       });
     }
+    throw error;
   }
+  if (!parentStats.isDirectory()) {
+    throw new InstallerToolError({
+      kind: "init-missing-parent-directory",
+      path: destination,
+      parent,
+    });
+  }
+}
+
+/**
+ * The required structure parts setup can add, in canonical order: the
+ * manifest file and the artifact directories (spec #593 DEC-003, ADR-0047).
+ */
+const WORKSPACE_SETUP_PARTS = [
+  WORKSPACE_MANIFEST_FILE,
+  ...WORKSPACE_ARTIFACT_DIRECTORIES,
+] as const;
+
+/**
+ * The read-only plan of one first-connection setup (spec #593 #599, #603):
+ * the resolved selection, the destination's path facts, and exactly the
+ * required parts setup would add. The one home of the selection resolution
+ * and the pre-write validation — the interactive confirmation consumes this
+ * plan for its wording, and the write transaction consumes the same plan
+ * shape at commit time.
+ */
+export interface FirstConnectionSetupPlan {
+  /** The authored Workspace spelling setup records. */
+  readonly authoredPath: string;
+  /** The resolved absolute destination folder. */
+  readonly destinationPath: string;
+  /** True when setup must create the named folder itself (it does not exist). */
+  readonly folderMissing: boolean;
+  /** The required parts (from `WORKSPACE_SETUP_PARTS`) still missing. */
+  readonly missingParts: readonly string[];
+  /** Existing Profile IDs at the destination. */
+  readonly profiles: readonly string[];
+  /** Existing Context Module IDs at the destination. */
+  readonly contexts: readonly string[];
+  /** Existing Skill IDs at the destination. */
+  readonly skills: readonly string[];
 }
 
 /**
  * The write-free validation of a folder's would-be Workspace state (spec #593
  * DEC-011, #599): the on-disk manifest when present, otherwise the canonical
  * manifest setup would write. Returns whether the manifest already exists, so
- * the caller knows which parts the transaction still owes.
+ * the caller knows which parts the transaction still owes. One home shared by
+ * the read-only plan and the commit's between-plan-and-commit re-check.
  */
 async function validateWouldBeWorkspace(destination: string): Promise<boolean> {
   const manifestPath = join(destination, WORKSPACE_MANIFEST_FILE);
@@ -198,24 +232,102 @@ async function validateWouldBeWorkspace(destination: string): Promise<boolean> {
   return manifestPresent;
 }
 
+async function missingWorkspaceParts(destination: string): Promise<readonly string[]> {
+  const missing: string[] = [];
+  for (const part of WORKSPACE_SETUP_PARTS) {
+    if ((await lstatEntry(join(destination, part))) === undefined) {
+      missing.push(part);
+    }
+  }
+  return missing;
+}
+
 /**
- * The one setup write transaction (spec #593 DEC-003, #599, DEC-011): the
- * folder's would-be state is validated write-free before anything is written
- * — the on-disk manifest when present, otherwise the canonical manifest setup
- * is about to write — so an invalid folder is refused with its violation and
- * zero writes. Valid folders then receive exactly their missing required
- * parts, added in place; existing entries are never changed, moved, or
- * deleted. A failure after some parts were added reports exactly what was
- * added (`init-partial-setup`); a re-run adds only the still-missing parts.
+ * Plan one first-connection setup without writing anything (spec #593
+ * #599, #603, DEC-011): the selection is resolved with the same path-shape
+ * boundary the commit uses, the destination's path facts are checked, and
+ * the folder's would-be Workspace state is validated write-free — the
+ * on-disk manifest when present, otherwise the canonical manifest setup
+ * would write. Every pre-write refusal (`init-missing-parent-directory`,
+ * `init-path-not-directory`, the symlink refusals, an invalid folder)
+ * surfaces here, so interactive setup can confirm the plan before any
+ * write and a declined or cancelled confirmation records nothing. The
+ * interactive caller may pass an already-normalized spelling —
+ * normalization here is idempotent.
  */
-async function prepareWorkspaceDestination(
+export async function planFirstConnectionSetup(
+  home: string,
+  workspace: string,
+): Promise<FirstConnectionSetupPlan> {
+  const authored = normalizeAuthoredWorkspace(workspace);
+  const destination = await assertWorkspaceSelectionPath(home, authored);
+  const state = await inspectDestinationPath(destination);
+  if (state === "missing") {
+    await requireExistingParentDirectory(destination);
+    return {
+      authoredPath: authored,
+      destinationPath: destination,
+      folderMissing: true,
+      missingParts: [...WORKSPACE_SETUP_PARTS],
+      profiles: [],
+      contexts: [],
+      skills: [],
+    };
+  }
+  const manifestPresent = await validateWouldBeWorkspace(destination);
+  return {
+    authoredPath: authored,
+    destinationPath: destination,
+    folderMissing: false,
+    missingParts: await missingWorkspaceParts(destination),
+    ...(await plannedMaterial(destination, manifestPresent)),
+  };
+}
+
+/**
+ * The material one plan would select from, read through the canonical
+ * Workspace ingestion boundary. The manifest-present fact comes from the
+ * same `validateWouldBeWorkspace` call that validated the would-be state —
+ * one home — and decides whether ingestion supplies the canonical manifest
+ * setup would write. Only reached after that validation proved the would-be
+ * state valid, so ingestion here cannot fail differently.
+ */
+async function plannedMaterial(
   destination: string,
-  options: {
-    readonly fileSystem: LocalConfigurationFileSystem;
-    readonly allowMissingParents: boolean;
-  },
+  manifestPresent: boolean,
+): Promise<{
+  readonly profiles: readonly string[];
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+}> {
+  const workspace = await ingestWorkspace(destination, manifestPresent ? undefined : WORKSPACE_MANIFEST);
+  return {
+    profiles: [...workspace.profiles.keys()].sort(),
+    contexts: [...workspace.contexts.keys()].sort(),
+    skills: [...workspace.skills.keys()].sort(),
+  };
+}
+
+/**
+ * The one setup write transaction, consuming a plan produced by
+ * `planFirstConnectionSetup` (spec #593 DEC-003, #599, #603). Only what can
+ * change between plan and commit is re-checked — the destination's presence
+ * and its would-be Workspace state — and the exclusive-create writes
+ * converge on the folder and manifest races: an EEXIST from a concurrent
+ * creator converges only when the winner is a real directory (a file or
+ * symlink at the path fails closed), and a manifest that appeared between
+ * validation and the write converges on the on-disk state, failing closed
+ * when it is not a valid Workspace. Valid folders then receive exactly the
+ * missing required parts, added in place; existing entries are never
+ * changed, moved, or deleted. A failure after some parts were added reports
+ * exactly what was added (`init-partial-setup`); a re-run adds only the
+ * still-missing parts.
+ */
+async function commitSetupPlan(
+  plan: FirstConnectionSetupPlan,
+  fileSystem: LocalConfigurationFileSystem,
 ): Promise<{ readonly folderCreated: boolean; readonly added: readonly string[] }> {
-  await requireProvisionableDestination(destination, options.allowMissingParents);
+  const destination = plan.destinationPath;
   const state = await inspectDestinationPath(destination);
   const folderCreated = state === "missing";
   const manifestPath = join(destination, WORKSPACE_MANIFEST_FILE);
@@ -230,13 +342,13 @@ async function prepareWorkspaceDestination(
    */
   const ensureDirectory = async (path: string): Promise<boolean> => {
     try {
-      await options.fileSystem.mkdir(path);
+      await fileSystem.mkdir(path);
       return true;
     } catch (error) {
       if (!hasErrorCode(error, "EEXIST")) throw error;
       let stats;
       try {
-        stats = await options.fileSystem.stat(path);
+        stats = await fileSystem.stat(path);
       } catch (statError) {
         throw statError;
       }
@@ -251,7 +363,7 @@ async function prepareWorkspaceDestination(
     if (!manifestPresent) {
       let manifestWritten = true;
       try {
-        await options.fileSystem.writeFile(manifestPath, WORKSPACE_MANIFEST, { flag: "wx" });
+        await fileSystem.writeFile(manifestPath, WORKSPACE_MANIFEST, { flag: "wx" });
       } catch (error) {
         if (!hasErrorCode(error, "EEXIST")) throw error;
         // A manifest appeared between validation and the write: converge on
@@ -332,16 +444,28 @@ async function previewWorkspaceDestination(
 }
 
 /**
- * Preview the init target for guided initialization without changing anything.
- * Mirrors `initializeWorkspace`'s destination selection read-only; see
- * `InitTargetPreview`'s undefined contract. Zero-argument init on a machine
- * with no selected Workspace refuses (spec #593 #601), so it previews no
- * target.
+ * Preview the init target for guided initialization without changing
+ * anything, for destinations Local Configuration already selects (the
+ * first-connection destinations are planned by `planFirstConnectionSetup`).
+ * Shares init's selection functions so a selection init will refuse never
+ * enters guidance; see `InitTargetPreview`'s undefined contract.
  */
 export async function previewInitTarget(
   home: string,
   options: { readonly workspace?: string } = {},
 ): Promise<InitTargetPreview | undefined> {
+  // First connections plan through `planFirstConnectionSetup` (spec #593
+  // #603): zero-argument init on a machine with no selected Workspace
+  // refuses there, and an explicit path confirms from the plan. The
+  // classification shares init's error behavior, but guidance stays
+  // advisory: an ambiguous target lets init explain the problem itself.
+  try {
+    if ((await classifyInitSetup(home)).kind !== "already-connected") {
+      return undefined;
+    }
+  } catch {
+    return undefined;
+  }
   const requested = options.workspace === undefined
     ? undefined
     : normalizeAuthoredWorkspace(options.workspace);
@@ -349,15 +473,8 @@ export async function previewInitTarget(
   let source: string;
   try {
     source = await readFile(configPath, "utf8");
-  } catch (error) {
-    if (!hasErrorCode(error, "ENOENT")) throw error;
-    try {
-      if (requested === undefined) return undefined;
-      const destination = await assertWorkspaceSelectionPath(home, requested);
-      return await previewWorkspaceDestination(destination);
-    } catch {
-      return undefined;
-    }
+  } catch {
+    return undefined;
   }
   let parsed;
   try {
@@ -450,31 +567,28 @@ function assertCanonicalWorkspaceMatch(
   });
 }
 
-async function initializeWorkspaceAt(
+async function connectFromPlan(
   home: string,
-  authored: string,
-  ensureConfiguration: boolean,
-  allowMissingParents: boolean,
-  fileSystem: LocalConfigurationFileSystem,
+  plan: FirstConnectionSetupPlan,
+  options: {
+    readonly fileSystem: LocalConfigurationFileSystem;
+    readonly ensureConfiguration: boolean;
+  },
 ): Promise<InitializationResult> {
   const applicationRoot = applicationDirectory(home);
-  const destination = await assertWorkspaceSelectionPath(home, authored);
-  const { folderCreated, added } = await prepareWorkspaceDestination(destination, {
-    fileSystem,
-    allowMissingParents,
-  });
+  const { folderCreated, added } = await commitSetupPlan(plan, options.fileSystem);
 
   let configurationCreated = false;
-  if (ensureConfiguration) {
+  if (options.ensureConfiguration) {
     try {
       await mkdir(applicationRoot, { recursive: true });
-      configurationCreated = await ensureLocalConfiguration(applicationRoot, authored, fileSystem);
+      configurationCreated = await ensureLocalConfiguration(applicationRoot, plan.authoredPath, options.fileSystem);
     } catch (error) {
       // The folder transaction already wrote entries: the failure fact
       // reports exactly what was added (spec #593 DEC-003, #599).
       throw new InstallerToolError({
         kind: "init-partial-setup",
-        path: destination,
+        path: plan.destinationPath,
         added: [...added],
         cause: errorMessage(error),
       });
@@ -483,48 +597,11 @@ async function initializeWorkspaceAt(
 
   return {
     outcome: configurationCreated ? "created" : "unchanged",
-    path: await realpath(destination),
-    authoredPath: authored,
+    path: await realpath(plan.destinationPath),
+    authoredPath: plan.authoredPath,
     folderCreated,
     warnings: [],
   };
-}
-
-async function initializeWithoutConfiguration(
-  home: string,
-  configPath: string,
-  fileSystem: LocalConfigurationFileSystem,
-  lockTimeoutMs: number,
-  requested: string,
-): Promise<InitializationResult> {
-  // No default Workspace location exists (spec #593 #601, DEC-001): setup
-  // never selects a location the user did not give, so zero-argument init
-  // refuses before any side effect — including the application directories
-  // and the Local Configuration lock file (ISC-23, ISC-25.1).
-  const destination = await assertWorkspaceSelectionPath(home, requested);
-  await requireProvisionableDestination(destination, false);
-  // Refuse an invalid folder before any side effect at all — including the
-  // application directories and the Local Configuration lock file (DEC-011,
-  // #599). The transaction re-validates inside the lock.
-  await validateWouldBeWorkspace(destination);
-  await mkdir(dirname(configPath), { recursive: true });
-
-  const initialized = await withConfigurationLock(
-    configPath,
-    fileSystem,
-    lockTimeoutMs,
-    "init",
-    async () => {
-      try {
-        await fileSystem.readFile(configPath, "utf8");
-      } catch (error) {
-        if (!hasErrorCode(error, "ENOENT")) throw error;
-        return initializeWorkspaceAt(home, requested, true, false, fileSystem);
-      }
-      return undefined;
-    },
-  );
-  return initialized ?? initializeWorkspace(home, { workspace: requested });
 }
 
 function migrateLegacyConfigurationSource(source: string, workspace: string): string {
@@ -579,7 +656,11 @@ async function migrateLegacyConfiguration(
         }
       }
       const workspaceResult = parsed.workspace === undefined
-        ? await initializeWorkspaceAt(home, selectedWorkspace, false, false, fileSystem)
+        ? await connectFromPlan(
+          home,
+          await planFirstConnectionSetup(home, selectedWorkspace),
+          { fileSystem, ensureConfiguration: false },
+        )
         : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
@@ -604,6 +685,44 @@ async function migrateLegacyConfiguration(
   );
 }
 
+/**
+ * The read-only classification of one machine's setup state (spec #593 #601,
+ * #603): the one home of the config-shape branching that routes both the
+ * command layer's interactive flow and `initializeWorkspace`'s commit. A
+ * first connection is a fresh home (no Local Configuration) or a legacy
+ * version-1 file with no authored `workspace` — both reach setup only at a
+ * path the user gives. Everything else is already connected: setup selects
+ * nothing new (connecting-again semantics are #607's, DEC-002).
+ */
+export type InitSetupClassification =
+  | {
+    readonly kind: "first-connection";
+    /** What the configuration source looked like when classified. */
+    readonly configuration: "absent" | "legacy-unselected";
+  }
+  | { readonly kind: "already-connected" };
+
+export async function classifyInitSetup(
+  home: string,
+  options: { readonly fileSystem?: LocalConfigurationFileSystem } = {},
+): Promise<InitSetupClassification> {
+  const configPath = localConfigurationPath(home);
+  let source: string;
+  try {
+    source = await (options.fileSystem ?? defaultFileSystem).readFile(configPath, "utf8");
+  } catch (error) {
+    if (!hasErrorCode(error, "ENOENT")) throw error;
+    return { kind: "first-connection", configuration: "absent" };
+  }
+  const parsed = parseLocalConfiguration(source, configPath);
+  if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+    return parsed.workspace === undefined
+      ? { kind: "first-connection", configuration: "legacy-unselected" }
+      : { kind: "already-connected" };
+  }
+  return { kind: "already-connected" };
+}
+
 export async function initializeWorkspace(
   home: string,
   options: InitializeWorkspaceOptions = {},
@@ -615,35 +734,55 @@ export async function initializeWorkspace(
   const fileSystem = options.fileSystem ?? defaultFileSystem;
   const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
 
-  let source: string;
-  try {
-    source = await fileSystem.readFile(configPath, "utf8");
-  } catch (error) {
-    if (hasErrorCode(error, "ENOENT")) {
-      if (requested === undefined) {
-        // Refuse before any side effect at all — the application directories,
-        // the Workspace, and the Local Configuration lock file (spec #593
-        // #601, DEC-001, ISC-23, ISC-25.1).
-        throw new InstallerToolError({ kind: "init-workspace-path-required" });
+  const classification = await classifyInitSetup(home, { fileSystem });
+  if (classification.kind === "already-connected") {
+    let source: string;
+    try {
+      source = await fileSystem.readFile(configPath, "utf8");
+    } catch (error) {
+      // The configuration vanished after classification: re-classify.
+      if (hasErrorCode(error, "ENOENT")) {
+        return initializeWorkspace(home, options);
       }
-      return initializeWithoutConfiguration(
+      throw error;
+    }
+    const parsed = parseLocalConfiguration(source, configPath);
+    if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+      const migrated = await migrateLegacyConfiguration(
         home,
         configPath,
         fileSystem,
         lockTimeoutMs,
         requested,
       );
+      return migrated ?? initializeWorkspace(home, requested === undefined ? {} : { workspace: requested });
     }
-    throw error;
+    const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
+    if (requested !== undefined) {
+      return initializeExplicitWorkspaceSelection(
+        home,
+        requested,
+        authoredWorkspace,
+        configPath,
+      );
+    }
+    return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);
   }
 
-  const parsed = parseLocalConfiguration(source, configPath);
-  if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
-    if (requested === undefined && parsed.workspace === undefined) {
-      // Fail fast before the configuration lock: a legacy file without a
-      // `workspace` value is never upgraded to a default location (DEC-011).
-      throw new InstallerToolError({ kind: "init-workspace-path-required" });
-    }
+  // First connection (spec #593 #601, #603): a path the user gives is
+  // required, and the read-only setup plan owns every pre-write refusal.
+  if (requested === undefined) {
+    // No default Workspace location exists (DEC-001): setup never selects a
+    // location the user did not give, so zero-argument init refuses before
+    // any side effect — the application directories, the Workspace, and the
+    // Local Configuration lock file (ISC-23, ISC-25.1).
+    throw new InstallerToolError({ kind: "init-workspace-path-required" });
+  }
+  const plan = await planFirstConnectionSetup(home, requested);
+  if (classification.configuration === "legacy-unselected") {
+    // The upgrade is a first connection at a user-given path: the plan's
+    // pre-write refusals already surfaced; the migration re-verifies the
+    // legacy source under the lock and commits from a fresh plan.
     const migrated = await migrateLegacyConfiguration(
       home,
       configPath,
@@ -651,16 +790,25 @@ export async function initializeWorkspace(
       lockTimeoutMs,
       requested,
     );
-    return migrated ?? initializeWorkspace(home, requested === undefined ? {} : { workspace: requested });
+    return migrated ?? initializeWorkspace(home, { workspace: requested });
   }
-  const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
-  if (requested !== undefined) {
-    return initializeExplicitWorkspaceSelection(
-      home,
-      requested,
-      authoredWorkspace,
-      configPath,
-    );
-  }
-  return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);
+  // A fresh home: refuse-free plan in hand, create the application
+  // directories and record the configuration under the lock.
+  await mkdir(dirname(configPath), { recursive: true });
+  const initialized = await withConfigurationLock(
+    configPath,
+    fileSystem,
+    lockTimeoutMs,
+    "init",
+    async () => {
+      try {
+        await fileSystem.readFile(configPath, "utf8");
+      } catch (error) {
+        if (!hasErrorCode(error, "ENOENT")) throw error;
+        return connectFromPlan(home, plan, { fileSystem, ensureConfiguration: true });
+      }
+      return undefined;
+    },
+  );
+  return initialized ?? initializeWorkspace(home, { workspace: requested });
 }

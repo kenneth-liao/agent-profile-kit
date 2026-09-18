@@ -26,6 +26,7 @@ import { basename, dirname } from "node:path";
 import { existsSync, watch, writeFileSync } from "node:fs";
 
 import { runConfigureCommand } from "../../cli/configure-command.js";
+import { runInitCommand } from "../../cli/init-command.js";
 import { runInstallCommand } from "../../cli/install-command.js";
 import { runUninstallCommand } from "../../cli/uninstall-command.js";
 import {
@@ -95,6 +96,25 @@ if (mode === "select") {
     stdout: process.stdout,
     stderr: process.stderr,
     input: process.stdin,
+  });
+  process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
+  process.exit(outcome.exitCode);
+} else if (mode === "init") {
+  // Interactive `init` under a real PTY (ticket #603, TEST-002): the
+  // location question, the confirmation, and decline/cancel keyboard
+  // behavior, rendered at the controller's column width. The invocation's
+  // working directory is injected so the current-folder choice and typed
+  // relative paths resolve against it.
+  const home = process.argv[3] ?? "";
+  const cwd = process.argv[4];
+  const initArguments = process.argv.slice(5);
+  const outcome = await runInitCommand({
+    home,
+    arguments: initArguments,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    input: process.stdin,
+    ...(cwd === undefined ? {} : { cwd }),
   });
   process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
   process.exit(outcome.exitCode);

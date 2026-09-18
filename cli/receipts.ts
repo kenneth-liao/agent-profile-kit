@@ -12,6 +12,7 @@ import {
   commandPart,
   identifierPart,
   pathPart,
+  type InlineContent,
   type PathPart,
   type CommandArg,
   type PresentationDocument,
@@ -190,6 +191,115 @@ export interface InitReceiptInput {
    * receipt carries no parallel next action of its own (spec #491, US-016).
    */
   readonly guidedProfileFollows?: boolean;
+}
+
+export interface InitConfirmationInput {
+  /** The resolved absolute destination folder. */
+  readonly destinationPath: string;
+  /** The authored Workspace spelling, kept for the display identity. */
+  readonly authoredPath: string;
+  /** True when setup must create the named folder itself. */
+  readonly folderMissing: boolean;
+  /** The required parts setup would add, in canonical order. */
+  readonly missingParts: readonly string[];
+}
+
+/** The displayed spelling of one setup folder: never elided — the
+ * confirmation and the location question show the full path (ISC-24.2). */
+function initSetupPathPart(destinationPath: string, authoredPath?: string): PathPart {
+  return pathPart(destinationPath, "fleet", authoredPath);
+}
+
+/**
+ * The setup parts in presentation order, as the USER-JOURNEY Initialize stage
+ * names them (one home beside that stage's wording). Every canonical part
+ * must have a display label here: a part planned for writing but missing
+ * from this map fails fast, so the confirmation can never understate the
+ * write.
+ */
+const SETUP_PART_LABELS: Record<string, string> = {
+  "workspace.yaml": "workspace.yaml",
+  context: "context/",
+  skills: "skills/",
+  profiles: "profiles/",
+};
+
+/**
+ * The ordered display spelling of the parts setup will add. An unknown part
+ * is an authoring error at this boundary, never a silently dropped list item.
+ */
+function orderedSetupParts(missingParts: readonly string[]): readonly string[] {
+  const ordered = [
+    ...missingParts.filter((part) => part === "workspace.yaml"),
+    ...["context", "skills", "profiles"].filter((part) => missingParts.includes(part)),
+  ];
+  if (ordered.length !== missingParts.length ||
+    ordered.some((part) => SETUP_PART_LABELS[part] === undefined)
+  ) {
+    throw new Error(`unpresentable setup part: ${missingParts.join(", ")}`);
+  }
+  return ordered.map((part) => SETUP_PART_LABELS[part]!);
+}
+
+/**
+ * The pre-write confirmation screen for one interactive first-connection
+ * setup (spec #593 #603, US-001, ISC-24.2–24.3): the full chosen path, what
+ * making it the Workspace means, and exactly the parts setup would add — or
+ * that nothing will be. The canonical home of the confirmation copy; the
+ * principal's rendered-screen review (#610) tunes the wording here.
+ */
+export function initConfirmationDocument(input: InitConfirmationInput): PresentationDocument {
+  const workspace = initSetupPathPart(input.destinationPath, input.authoredPath);
+  const nodes: PresentationNode[] = [
+    {
+      kind: "sentence",
+      parts: ["Context and Skill files will be stored in and loaded from ", workspace, "."],
+    },
+  ];
+  if (input.folderMissing) {
+    nodes.push({
+      kind: "sentence",
+      parts: ["The folder does not exist yet; setup will create it."],
+    });
+  }
+  if (input.missingParts.length === 0) {
+    nodes.push({
+      kind: "sentence",
+      parts: ["Nothing needs to be added — ", workspace, " already satisfies the Workspace contract."],
+    });
+  } else {
+    const ordered = orderedSetupParts(input.missingParts);
+    const partParts: InlineContent[] = [];
+    ordered.forEach((label, index) => {
+      if (index > 0) partParts.push(index === ordered.length - 1 ? " and " : ", ");
+      partParts.push(identifierPart(label));
+    });
+    nodes.push({ kind: "sentence", parts: ["Setup will add ", ...partParts, "."] });
+  }
+  return nodes;
+}
+
+/**
+ * The location question's screen for one interactive first-connection setup
+ * without a path (spec #593 #603, US-001, ISC-24.2): the current folder,
+ * shown as its full path, is the first offered choice.
+ */
+export function initLocationDocument(input: {
+  readonly destinationPath: string;
+  readonly authoredPath?: string;
+}): PresentationDocument {
+  return [
+    {
+      kind: "sentence",
+      parts: [
+        "Your Workspace is a folder you choose.",
+      ],
+    },
+    {
+      kind: "sentence",
+      parts: ["Current folder: ", initSetupPathPart(input.destinationPath, input.authoredPath)],
+    },
+  ];
 }
 
 /** The receipt document for one `init` invocation. */

@@ -14497,7 +14497,9 @@ describe("packed CLI new profile", () => {
     const result = await runCliInPtyWithInput(
       home,
       80,
-      ["y", "my-profile\r", " \r"],
+      // The given path is confirmed before any write (#603), then the
+      // guided first-Profile offer follows.
+      ["y", "y", "my-profile\r", " \r"],
       "init",
       workspace,
     );

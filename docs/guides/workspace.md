@@ -51,8 +51,14 @@ records the authored path when Local Configuration is absent:
 apkit init ~/projects/agent-profile-workspace
 ```
 
-`apkit init .` uses the current folder. Without a path on a machine that has
-no selected Workspace, `init` writes nothing and prints those two forms.
+`apkit init .` uses the current folder. With a terminal, `init` asks whether
+to use the current folder — shown as its full path — or another path, and
+confirms the chosen folder before any write: it states that Context and Skill
+files will be stored in and loaded from it and lists the parts setup will add
+(or that nothing needs to be added); declining or cancelling writes nothing
+(spec #593 #603). Without a path on a machine that has no selected Workspace
+and without a terminal, `init` writes nothing and prints those two forms;
+supplying the path counts as the confirmation.
 
 When Local Configuration is absent, setup adds exactly the missing required
 parts — `workspace.yaml`, `context/`, `skills/`, and `profiles/` — in place to

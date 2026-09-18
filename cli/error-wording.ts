@@ -47,11 +47,12 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
  * The explicit init command forms (spec #593 #601): there is no default
- * Workspace location, so every diagnostic remedy names a path the user
- * gives. One home for the diagnostics' shared remedy; the bare screen
- * authors its own sentence because its lead-in differs (US-001).
+ * Workspace location, so every remedy names a path the user gives. One home
+ * for the diagnostics' and the cancelled/declined setup screens' shared
+ * remedy; the bare screen authors its own sentence because its lead-in
+ * differs (US-001).
  */
-function initLocationRemedies(prefix: string): readonly InlineContent[] {
+export function initLocationRemedies(prefix: string): readonly InlineContent[] {
   return [
     prefix,
     commandPart(COMMAND_NAME, [arg("init"), arg("<path>")]),
