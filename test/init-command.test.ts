@@ -9,7 +9,7 @@
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
@@ -97,7 +97,7 @@ function startInit(
   home: string,
   arguments_: readonly string[],
   input: Readable,
-  options: { readonly env?: NodeJS.ProcessEnv } = {},
+  options: { readonly env?: NodeJS.ProcessEnv; readonly cwd?: string } = {},
 ): StartedInit {
   const streams = capturedStreams();
   const pending = runInitCommand({
@@ -107,6 +107,7 @@ function startInit(
     stderr: streams.stderr as Writable & { isTTY?: boolean },
     input,
     ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
   }).then((outcome) => ({ exitCode: outcome.exitCode, streams }));
   return { pending, streams };
 }
@@ -236,6 +237,11 @@ describe("guided first-Profile init", () => {
     const home = isolatedHome();
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspacePath(home)], input);
+
+    // Interactive setup confirms the given path before writing (#603); with
+    // no material there is nothing to offer first-Profile guidance about.
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    input.write("y");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
@@ -524,21 +530,6 @@ describe("zero-argument init requires a user-given location", () => {
     expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
   }, 20_000);
 
-  test("a fresh home refuses interactively too until interactive setup lands (#603)", async () => {
-    const home = isolatedHome();
-    const input = fakeInteractiveInput();
-    const { pending } = startInit(home, [], input);
-    let failure: unknown;
-    try {
-      await pending;
-    } catch (error) {
-      failure = error;
-    }
-    expect(failure).toBeInstanceOf(InstallerToolError);
-    expect((failure as InstallerToolError).fact.kind).toBe("init-workspace-path-required");
-    expect(existsSync(join(home, ".agents"))).toBe(false);
-  }, 20_000);
-
   test("a legacy configuration without workspace is never upgraded without a path", async () => {
     const home = isolatedHome();
     const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
@@ -616,4 +607,150 @@ describe("zero-argument init requires a user-given location", () => {
     expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
   }, 20_000);
 
+});
+
+/**
+ * Interactive setup asks where the Workspace goes and confirms the chosen
+ * folder before any write (spec #593 #603, US-001, US-002, ISC-24.1–24.2,
+ * ISC-27.3, ISC-33). The prompt seam drives the flow on injectable streams;
+ * `test/init-pty.test.ts` qualifies keyboard behavior and 100/60-column
+ * rendering through a real PTY.
+ */
+describe("interactive setup asks and confirms the Workspace folder (#603)", () => {
+  /**
+   * The TEST-003 TTY rows: one file-tree snapshot of paths, bytes, and modes,
+   * so any write beyond the added required parts fails the comparison.
+   */
+  function fileTreeSnapshot(root: string): Map<string, { readonly bytes: string; readonly mode: number }> {
+    const snapshot = new Map<string, { readonly bytes: string; readonly mode: number }>();
+    const visit = (directory: string, prefix: string): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+        if (entry.isDirectory()) {
+          snapshot.set(`${relative}/`, { bytes: "", mode: 0 });
+          visit(join(directory, entry.name), relative);
+        } else {
+          const stats = lstatSync(join(directory, entry.name));
+          snapshot.set(relative, {
+            bytes: readFileSync(join(directory, entry.name)).toString("base64"),
+            mode: stats.mode & 0o777,
+          });
+        }
+      }
+    };
+    visit(root, "");
+    return snapshot;
+  }
+
+  test("offers the current folder by its full path and initializes at it after confirmation", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    // The location question shows the current folder's full path (ISC-24.2)
+    // and nothing is written while it waits (ISC-24.1).
+    await waitForOutput(streams.humanText, "Current folder:");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(join(cwd, "workspace.yaml"))).toBe(false);
+    input.write("y");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    // Waiting at the confirmation writes nothing: the file tree and Local
+    // Configuration match the starting state (ISC-24.1).
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(cwd).size).toBe(0);
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    // Every missing part was added at the confirmed folder, and the
+    // configuration records the resolved absolute folder (ISC-26).
+    expect(existsSync(join(cwd, "workspace.yaml"))).toBe(true);
+    for (const directory of ["context", "skills", "profiles"]) {
+      expect(existsSync(join(cwd, directory))).toBe(true);
+    }
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${cwd}`);
+    const human = plain(streams.humanText());
+    expect(human).toContain(cwd);
+  }, 20_000);
+
+  test("choosing another path prompts for the folder and records the home-relative spelling", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("n");
+    await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
+    input.write("~/apkit-workspace\r");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(join(home, "apkit-workspace", "workspace.yaml"))).toBe(true);
+    // The home-relative spelling is kept in the recording (ADR-0047).
+    expect(readFileSync(configPath(home), "utf8")).toContain("workspace: ~/apkit-workspace");
+    expect(plain(streams.humanText())).toContain("~/apkit-workspace");
+  }, 20_000);
+
+  test("cancelling at the location question and at the folder prompt writes nothing", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const first = startInit(home, [], input, { cwd });
+
+    await waitForOutput(first.streams.humanText, "Current folder:");
+    input.end();
+    const { exitCode } = await first.pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(cwd).size).toBe(0);
+    expect(plain(first.streams.errorText())).toContain(
+      "init was cancelled; nothing was initialized or created",
+    );
+    // The remedy names an executable path form, not the bare refusal form.
+    expect(plain(first.streams.errorText())).toContain("apkit init <path>");
+  }, 20_000);
+
+  test("cancelling at the confirmation writes nothing", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("y");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    input.end();
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(cwd).size).toBe(0);
+  }, 20_000);
+
+  test("declining the confirmation writes nothing and exits neutrally", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    writeFileSync(join(cwd, "notes.txt"), "user material\n");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("y");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    input.write("n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(configPath(home))).toBe(false);
+    const tree = fileTreeSnapshot(cwd);
+    expect(tree.size).toBe(1);
+    expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("user material\n");
+    // Declining is a safe, neutral outcome: no error diagnostic on stderr.
+    expect(streams.errorText()).toBe("");
+  }, 20_000);
 });
