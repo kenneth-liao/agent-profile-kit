@@ -616,32 +616,32 @@ describe("zero-argument init requires a user-given location", () => {
  * `test/init-pty.test.ts` qualifies keyboard behavior and 100/60-column
  * rendering through a real PTY.
  */
-describe("interactive setup asks and confirms the Workspace folder (#603)", () => {
-  /**
-   * The TEST-003 TTY rows: one file-tree snapshot of paths, bytes, and modes,
-   * so any write beyond the added required parts fails the comparison.
-   */
-  function fileTreeSnapshot(root: string): Map<string, { readonly bytes: string; readonly mode: number }> {
-    const snapshot = new Map<string, { readonly bytes: string; readonly mode: number }>();
-    const visit = (directory: string, prefix: string): void => {
-      for (const entry of readdirSync(directory, { withFileTypes: true })) {
-        const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
-        if (entry.isDirectory()) {
-          snapshot.set(`${relative}/`, { bytes: "", mode: 0 });
-          visit(join(directory, entry.name), relative);
-        } else {
-          const stats = lstatSync(join(directory, entry.name));
-          snapshot.set(relative, {
-            bytes: readFileSync(join(directory, entry.name)).toString("base64"),
-            mode: stats.mode & 0o777,
-          });
-        }
+/**
+ * The TEST-003 TTY rows: one file-tree snapshot of paths, bytes, and modes,
+ * so any write beyond the added required parts fails the comparison.
+ */
+function fileTreeSnapshot(root: string): Map<string, { readonly bytes: string; readonly mode: number }> {
+  const snapshot = new Map<string, { readonly bytes: string; readonly mode: number }>();
+  const visit = (directory: string, prefix: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const relative = prefix === "" ? entry.name : `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        snapshot.set(`${relative}/`, { bytes: "", mode: 0 });
+        visit(join(directory, entry.name), relative);
+      } else {
+        const stats = lstatSync(join(directory, entry.name));
+        snapshot.set(relative, {
+          bytes: readFileSync(join(directory, entry.name)).toString("base64"),
+          mode: stats.mode & 0o777,
+        });
       }
-    };
-    visit(root, "");
-    return snapshot;
-  }
+    }
+  };
+  visit(root, "");
+  return snapshot;
+}
 
+describe("interactive setup asks and confirms the Workspace folder (#603)", () => {
   test("offers the current folder by its full path and initializes at it after confirmation", async () => {
     const home = isolatedHome();
     const cwd = isolatedHome("init-cwd-");
@@ -684,7 +684,9 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     input.write("n");
     await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
     input.write("~/apkit-workspace\r");
-    await waitForOutput(streams.humanText, "stored in and loaded from");
+    await waitForOutput(streams.humanText, "Setup will add");
+    // The typed folder does not exist yet; setup will create it.
+    expect(plain(streams.humanText())).toContain("The folder does not exist yet; setup will create it.");
     input.write("y");
     const { exitCode } = await pending;
 
@@ -752,5 +754,193 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("user material\n");
     // Declining is a safe, neutral outcome: no error diagnostic on stderr.
     expect(streams.errorText()).toBe("");
+  }, 20_000);
+});
+
+describe("the setup confirmation content and scope (#603)", () => {
+  test("lists the missing parts for a folder with unrelated files and adds exactly them", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    writeFileSync(join(cwd, "notes.txt"), "user material\n");
+    mkdirSync(join(cwd, "src"));
+    writeFileSync(join(cwd, "src", "app.ts"), "export {};\n");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("y");
+    await waitForOutput(streams.humanText, "Setup will add");
+    const confirmation = plain(streams.humanText());
+    // Every required part is named, in full.
+    expect(confirmation).toContain("workspace.yaml");
+    expect(confirmation).toContain("context/");
+    expect(confirmation).toContain("skills/");
+    expect(confirmation).toContain("profiles/");
+    // The current folder exists; setup never creates it.
+    expect(confirmation).not.toContain("The folder does not exist yet");
+    expect(confirmation).toContain(cwd);
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    // Accepting adds every missing part and nothing the contract does not
+    // require (ISC-27.1, ISC-27.2).
+    expect(existsSync(join(cwd, "workspace.yaml"))).toBe(true);
+    for (const directory of ["context", "skills", "profiles"]) {
+      expect(existsSync(join(cwd, directory))).toBe(true);
+    }
+    expect(existsSync(join(cwd, "notes.txt"))).toBe(true);
+    expect(existsSync(join(cwd, "src", "app.ts"))).toBe(true);
+  }, 20_000);
+
+  test("lists exactly the still-missing parts for an incomplete Workspace and completes it", async () => {
+    const home = isolatedHome();
+    const chosen = join(home, "chosen");
+    mkdirSync(chosen, { recursive: true });
+    // A manifest-present folder missing its artifact directories (PR #617
+    // review INT-1 shape): the confirmation lists only those directories.
+    writeFileSync(join(chosen, "workspace.yaml"), WORKSPACE_MANIFEST);
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [chosen], input);
+
+    await waitForOutput(streams.humanText, "Setup will add");
+    const confirmation = plain(streams.humanText());
+    expect(confirmation).toContain("context/");
+    expect(confirmation).toContain("skills/");
+    expect(confirmation).toContain("profiles/");
+    expect(confirmation).not.toContain("The folder does not exist yet");
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    for (const directory of ["context", "skills", "profiles"]) {
+      expect(existsSync(join(chosen, directory))).toBe(true);
+    }
+  }, 20_000);
+
+  test("connecting a complete valid Workspace with a TTY adds nothing and changes no files", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "valid");
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills", "release-check"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(workspace, "context", "team-rules.md"), "Team rules.\n");
+    writeFileSync(
+      join(workspace, "profiles", "coding.yaml"),
+      "context:\n  - team-rules\nskills:\n  - release-check\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "release-check", "SKILL.md"),
+      '---\nname: "release-check"\ndescription: Check the release state.\n---\n\n# release-check\n',
+    );
+    const before = fileTreeSnapshot(workspace);
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [workspace], input);
+
+    // The confirmation states that nothing needs to be added (ISC-33).
+    await waitForOutput(streams.humanText, "Nothing needs to be added");
+    expect(fileTreeSnapshot(workspace)).toEqual(before);
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspace}`);
+    // Connecting never changes the Workspace's files (ISC-33).
+    expect(fileTreeSnapshot(workspace)).toEqual(before);
+    // A first connection at a fully valid folder writes the configuration
+    // and nothing else (US-002, ISC-27.2).
+    expect(plain(streams.humanText())).toContain("Initialized Agent Profile Kit Workspace and settings");
+    expect(existsSync(join(workspace, "profiles", "example.yaml"))).toBe(false);
+  }, 20_000);
+
+  test("an invalid folder is refused with its violation before any prompt or write", async () => {
+    const home = isolatedHome();
+    const chosen = join(home, "chosen");
+    mkdirSync(join(chosen, "skills", "broken"), { recursive: true });
+    writeFileSync(join(chosen, "skills", "broken", "SKILL.md"), "no frontmatter\n");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [chosen], input);
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(chosen).size).toBeGreaterThan(0);
+    expect(existsSync(join(chosen, "workspace.yaml"))).toBe(false);
+    expect(existsSync(join(chosen, "context"))).toBe(false);
+    expect(plain(streams.humanText())).not.toContain("Set up this folder as your Workspace?");
+  }, 20_000);
+
+  test("a legacy configuration without workspace upgrades to the confirmed folder interactively", async () => {
+    const home = isolatedHome();
+    const config = configPath(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    writeFileSync(config, legacy);
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input);
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("n");
+    await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
+    input.write("~/chosen\r");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    input.write("y");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    for (const directory of ["context", "skills", "profiles"]) {
+      expect(existsSync(join(home, "chosen", directory))).toBe(true);
+    }
+    const migrated = readFileSync(config, "utf8");
+    expect(migrated).toMatch(/schema_version:\s*2/);
+    expect(migrated).toContain("workspace: ~/chosen");
+    expect(migrated).toContain("# keep this note");
+    expect(migrated).toContain("bindings: []");
+    expect(plain(streams.humanText())).toMatch(/migrat/i);
+  }, 20_000);
+
+  test("the guided first-Profile offer follows the confirmation for material without a Profile", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "material");
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(workspace, "context", "team-rules.md"), "Team rules.\n");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [workspace], input);
+
+    // Confirmation first (US-001), then the guided offer (DEC-003).
+    await waitForOutput(streams.humanText, "Set up this folder as your Workspace?");
+    expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
+    input.write("y");
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(configPath(home))).toBe(true);
+    expect(existsSync(join(workspace, "profiles", "my-profile.yaml"))).toBe(false);
+  }, 20_000);
+
+  test("an empty typed folder path is refused before any write", async () => {
+    const home = isolatedHome();
+    const cwd = isolatedHome("init-cwd-");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input, { cwd });
+
+    await waitForOutput(streams.humanText, "Current folder:");
+    input.write("n");
+    await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
+    input.write("\r");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(fileTreeSnapshot(cwd).size).toBe(0);
   }, 20_000);
 });
