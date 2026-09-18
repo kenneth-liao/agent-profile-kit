@@ -34,7 +34,11 @@ import {
   WORKSPACE_ARTIFACT_DIRECTORIES,
 } from "./workspace.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
-import { InstallerToolError } from "./tool-errors.js";
+import {
+  InstallerToolError,
+  workspaceViolationPath,
+  workspaceViolationToken,
+} from "./tool-errors.js";
 
 export interface InitializationResult {
   readonly outcome: "created" | "migrated" | "unchanged";
@@ -82,6 +86,21 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 export function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * The carried cause of one failure inside the setup transaction: an aggregate
+ * collected-violations error composes its rule and locator per violation
+ * (#604) so the partial-setup refusal names the problems instead of the
+ * aggregate error's non-prose message; any other error keeps its message.
+ */
+function collectedCause(error: unknown): string {
+  if (error instanceof InstallerToolError && error.fact.kind === "workspace-violations") {
+    return error.fact.violations
+      .map((violation) => `${workspaceViolationToken(violation)} ${workspaceViolationPath(violation)}`)
+      .join("; ");
+  }
+  return errorMessage(error);
 }
 
 /**
@@ -392,7 +411,7 @@ async function commitSetupPlan(
       kind: "init-partial-setup",
       path: destination,
       added: [...added],
-      cause: errorMessage(error),
+      cause: collectedCause(error),
     });
   }
   return { folderCreated, added: [...added] };
@@ -590,7 +609,7 @@ async function connectFromPlan(
         kind: "init-partial-setup",
         path: plan.destinationPath,
         added: [...added],
-        cause: errorMessage(error),
+        cause: collectedCause(error),
       });
     }
   }

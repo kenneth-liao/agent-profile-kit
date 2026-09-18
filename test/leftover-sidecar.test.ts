@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { ingestionFactOf, singleViolation } from "./support/workspace-violations.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import type { WorkspaceIngestionErrorFact } from "../installer/tool-errors.js";
 
@@ -33,13 +34,7 @@ function scaffoldWorkspace(home: string): string {
 }
 
 async function ingestionFact(workspace: string): Promise<WorkspaceIngestionErrorFact> {
-  try {
-    await ingestWorkspace(workspace);
-  } catch (error) {
-    if (error instanceof InstallerToolError) return error.fact as WorkspaceIngestionErrorFact;
-    throw error;
-  }
-  throw new Error("expected ingestWorkspace to reject the workspace");
+  return ingestionFactOf(await singleViolation(workspace));
 }
 
 describe("leftover Skill sidecars (spec #593 DEC-006, #596)", () => {

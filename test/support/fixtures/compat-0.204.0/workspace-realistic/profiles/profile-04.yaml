@@ -1,0 +1,7 @@
+id: profile-04
+context:
+  - subject-01
+skills:
+  - skill-05
+  - skill-04
+  - skill-03

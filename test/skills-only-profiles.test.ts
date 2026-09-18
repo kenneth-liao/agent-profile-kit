@@ -22,6 +22,7 @@ import {
 import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { singleViolation, violationError, violationEvidence } from "./support/workspace-violations.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
@@ -120,12 +121,10 @@ describe("Skills-only Profiles", () => {
       "context: []\nskills: []\n",
     );
 
-    const failure = await ingestWorkspace(workspacePath(home)).then(
-      () => undefined,
-      (error) => error as InstallerAuthoredError,
-    );
-    expect(flatInlineText(installerErrorSentence(failure) ?? [])).toBe(
-      "Profile 'empty' must select at least one supported artifact (Context Module or Skill)",
+    const violation = await singleViolation(workspacePath(home));
+    expect(violationEvidence(violation)).toMatchObject({ kind: "profile-without-artifacts", profile: "empty" });
+    expect(flatInlineText(installerErrorSentence(violationError(violation)) ?? [])).toBe(
+      "Profile profiles/empty.yaml must select at least one supported artifact (Context Module or Skill)",
     );
   });
 

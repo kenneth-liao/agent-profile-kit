@@ -473,19 +473,28 @@ Next: apkit status
 
 Successful validation derives its next action from the configured Project
 count: zero points to `apkit install`, while one or more points to `apkit
-status`. Validation remains read-only. Invalid Workspace references are
-explained down to the offending file, the invalid value, and the available
-names, with a nearest-name suggestion when one exists (US-025, US-026,
-DEC-017):
+status`. Validation remains read-only. Invalid Workspaces report every violation in
+one run (#604, DEC-009), each naming its path and the change that fixes it,
+with a nearest-name suggestion when one exists (US-025, US-026, DEC-017),
+and failed output points to the Workspace contract:
 
 ```
 $ apkit validate
-apkit: Profile 'broken' in profiles/broken.yaml selects missing Context Module
-  'team-rulez'.
-Available Context Modules: example-context, review-standards.
-Restore the Context Module, or remove or update Profile 'broken'.
-Correct profiles/broken.yaml, then run apkit validate.
+apkit: Workspace is invalid at ~/apkit-workspace; 2 violations found:
+- Profile 'broken' in profiles/broken.yaml selects missing Context Module
+  'team-rulez'. Available Context Modules: example-context,
+  review-standards. Restore the Context Module, or remove or update Profile
+  'broken'. Correct profiles/broken.yaml, then run apkit validate.
+- Skill skills/old-flow/agent-profile-kit.yaml is no longer read. List the
+  needed Context Modules and Skills in a Profile's 'context' and 'skills'
+  lists, then delete the file.
+The Workspace contract states every rule Workspace validation enforces; run
+apkit guide --contract to read it.
 ```
+
+`validate --json <path>` publishes the same violations as the human report:
+one entry per violation with its rule token, path, and fix wording, so an
+agent can repair from the JSON list alone (TEST-006, ISC-45).
 
 `apkit validate <path>` checks any folder as a Workspace without reading or
 writing Local Configuration, so a Workspace that is not connected yet can be

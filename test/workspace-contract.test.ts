@@ -5,11 +5,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { AUTHORING_EXAMPLES, newProfileScaffold } from "../installer/authoring-examples.js";
-import { ingestWorkspace } from "../installer/ingest-workspace.js";
-import { InstallerToolError } from "../installer/tool-errors.js";
-import { SchemaRejectionError } from "../installer/tool-errors.js";
-import type { WorkspaceArtifactRejectionReason, WorkspaceManifestRejectionReason } from "../schemas/schema-rejections.js";
+import { collectWorkspaceViolations, ingestWorkspace } from "../installer/ingest-workspace.js";
+import { workspaceViolationToken } from "../installer/tool-errors.js";
 import type { WorkspaceIngestionErrorFact } from "../installer/tool-errors.js";
+import type {
+  WorkspaceArtifactRejectionReason,
+  WorkspaceManifestRejectionReason,
+} from "../schemas/schema-rejections.js";
 import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
 
 /**
@@ -105,14 +107,7 @@ function writeExampleTree(example: ContractExample): string {
   return root;
 }
 
-/** The one violation token normalization: Installer facts by kind, schema rejections by `schema/case`. */
-function enforcedViolationToken(error: unknown): string {
-  if (error instanceof InstallerToolError) return error.fact.kind;
-  if (error instanceof SchemaRejectionError) {
-    return `${error.reason.schema}/${error.reason.detail.case}`;
-  }
-  throw error;
-}
+/** The example harness publishes tokens through the shared token home (#604). */
 
 describe("workspace contract examples (TEST-005)", () => {
   test("the document declares at least one valid and one invalid example", () => {
@@ -139,17 +134,14 @@ describe("workspace contract examples (TEST-005)", () => {
       }
       const root = writeExampleTree(example);
       try {
-        // Validation reports one violation at a time today (#604 will collect
-        // them): assert set equality against the document's named set so this
-        // assertion is already the tightened form. Each invalid example is
-        // constructed so its tree contains no violation other than the one it
-        // names, so this equality keeps holding when #604 reports the full set.
-        try {
-          await ingestWorkspace(root);
-          throw new Error(`'${example.title}' was expected to be rejected`);
-        } catch (error) {
-          expect([enforcedViolationToken(error)]).toEqual([...named]);
-        }
+        // Exact-set equality over the collected run (#604): one validation
+        // run reports every violation, and the collected token set must
+        // equal the document's named set — no hidden extra violation, none
+        // missing.
+        const collected = await collectWorkspaceViolations(root);
+        expect(collected.outcome).toBe("invalid");
+        if (collected.outcome !== "invalid") throw new Error("expected an invalid collection");
+        expect(collected.violations.map(workspaceViolationToken).sort()).toEqual([...named].sort());
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

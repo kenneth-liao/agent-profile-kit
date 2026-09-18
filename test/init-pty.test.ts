@@ -9,8 +9,11 @@
  * Synchronization rule (#542): input is sent only after the required prompt
  * state is OBSERVED — the transcript offset is captured immediately before
  * each triggering write, and each wait matches only content appended after
- * it. The confirmation must be observed before accepting, so a stale render
- * can never consume an answer.
+ * it. The required state for a keystroke is the question prompt itself, not
+ * a document fragment that renders before it: a keystroke written while the
+ * tty is still canonical (before the prompt enables raw mode) is echoed but
+ * held in the line buffer and never delivered to the prompt (PR #622
+ * INT-FLAKE-1), so every answer waits for its question text first.
  *
  * Rendering the setup screens for principal review (#610): the same harness
  * renders them interactively —
@@ -69,11 +72,16 @@ async function acceptCurrentFolder(
   const session = await startPtySession(["init", home, cwd], columns);
   temporaryDirectories.push(session.runDirectory);
   try {
-    await session.waitForTranscript("Current folder:");
-    expect(squash(session.transcript())).toContain(squash(displaySpelling(cwd, home)));
+    // Each keystroke is gated on its own question prompt being OBSERVED, per
+    // the offset-sync contract — never on a document fragment that precedes
+    // the prompt: a keystroke written while the tty is still canonical is
+    // echoed but never delivered when the prompt switches to raw mode (the
+    // PTY-CONTROLLER-WATCHDOG flake root cause, PR #622 INT-FLAKE-1).
+    await session.waitForTranscript("Use the current folder as your Workspace?");
     const chooseOffset = session.transcriptLength();
     session.write("y");
     await session.waitForTranscript("stored in and loaded from", { after: chooseOffset });
+    await session.waitForTranscript("Set up this folder as your Workspace?", { after: chooseOffset });
     const confirmOffset = session.transcriptLength();
     session.write("y");
     await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
@@ -125,10 +133,12 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     try {
       await session.waitForTranscript("Current folder:");
       expect(squash(session.transcript())).toContain(squash(`Current folder: ${cwd}`));
+      await session.waitForTranscript("Use the current folder as your Workspace?");
       const chooseOffset = session.transcriptLength();
       session.write("y");
       await session.waitForTranscript("stored in and loaded from", { after: chooseOffset });
       expect(squash(session.transcript())).toContain(squash(`stored in and loaded from ${cwd}.`));
+      await session.waitForTranscript("Set up this folder as your Workspace?", { after: chooseOffset });
       const confirmOffset = session.transcriptLength();
       session.write("y");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
@@ -146,10 +156,10 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     const session = await startPtySession(["init", home, cwd], 60, { expectedExitCode: 0 });
     temporaryDirectories.push(session.runDirectory);
     try {
-      await session.waitForTranscript("Current folder:");
+      await session.waitForTranscript("Use the current folder as your Workspace?");
       const chooseOffset = session.transcriptLength();
       session.write("y");
-      await session.waitForTranscript("stored in and loaded from", { after: chooseOffset });
+      await session.waitForTranscript("Set up this folder as your Workspace?", { after: chooseOffset });
       const confirmOffset = session.transcriptLength();
       session.write("n");
       const { text } = await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
@@ -171,7 +181,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     const session = await startPtySession(["init", home, cwd], 100, { expectedExitCode: 1 });
     temporaryDirectories.push(session.runDirectory);
     try {
-      await session.waitForTranscript("Current folder:");
+      await session.waitForTranscript("Use the current folder as your Workspace?");
       const chooseOffset = session.transcriptLength();
       session.write("y");
       await session.waitForTranscript("Set up this folder as your Workspace?", { after: chooseOffset });
@@ -200,6 +210,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       // The typed (missing) folder is created by setup, as the confirmation
       // states.
       expect(plain(session.transcript())).toContain("The folder does not exist yet; setup will create it.");
+      await session.waitForTranscript("Set up this folder as your Workspace?");
       const confirmOffset = session.transcriptLength();
       session.write("y");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });

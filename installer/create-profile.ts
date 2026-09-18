@@ -101,6 +101,7 @@ export async function createProfile(options: CreateProfileOptions): Promise<Crea
     throw new InstallerToolError({
       kind: "profile-without-artifacts",
       profile: id,
+      file: `profiles/${id}.yaml`,
       availableContexts,
       availableSkills,
     });

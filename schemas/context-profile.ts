@@ -216,26 +216,55 @@ export function profileIdFromPath(path: string): string {
   return path.slice(PROFILE_DIRECTORY.length, -PROFILE_EXTENSION.length);
 }
 
-export function parseProfile(source: string, path: string): Profile {
-  // Identity comes from the file name before any content is read: a Profile
-  // file name that cannot form a valid Artifact ID is one violation, and a
-  // nested folder's derived name (carrying `/`) fails the same rule.
+/**
+ * The collected parse of one Profile file (spec #593 DEC-014, #604): every
+ * field-level violation is recorded and the `context`/`skills` lists stay
+ * readable where they can be, so a Profile's references are checked in the
+ * same validation run that reports its field-level problems. The reported ID
+ * is always the file name — an authored `id` field is never adopted.
+ */
+export interface CollectedProfileParse {
+  /**
+   * The best-effort Profile when at least one list was readable: its ID is
+   * the file name, and each list holds the entries that satisfy the list
+   * grammar (invalid entries are reported, not carried).
+   */
+  readonly profile?: Profile;
+  /** Every field-level violation, in detection order. */
+  readonly violations: readonly WorkspaceArtifactRejectionReason[];
+}
+
+/**
+ * Collect one Profile's field-level violations instead of stopping at the
+ * first: identity, YAML shape, field set, and each list's entries are checked
+ * independently, and unreadable YAML/mapping shapes end that file's parse
+ * (nothing further is readable). Detection order matches the strict parser's
+ * throw order, so a strict re-raise of the first violation is identical.
+ */
+export function parseProfileCollected(source: string, path: string): CollectedProfileParse {
+  const violations: WorkspaceArtifactRejectionReason[] = [];
   const id = profileIdFromPath(path);
   if (!ARTIFACT_ID.test(id)) {
-    throw rejectSchema({
-      schema: "workspace-artifact",
-      detail: { case: "profile-file-name", path, name: id },
-    });
+    violations.push({ case: "profile-file-name", path, name: id });
   }
-  const value = parseYaml(source, { case: "invalid-yaml", artifact: "Profile", path });
-  const mapping = requireMapping(value, { case: "not-a-mapping", artifact: "Profile", path });
+  let value: unknown;
+  try {
+    value = parse(source);
+  } catch {
+    return {
+      violations: [...violations, { case: "invalid-yaml", artifact: "Profile", path }],
+    };
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {
+      violations: [...violations, { case: "not-a-mapping", artifact: "Profile", path }],
+    };
+  }
+  const mapping = value as Record<string, unknown>;
   const fields = ["context", "skills"] as const;
   const obsoleteFields = ["agents", "hooks", "tools"].filter((field) => field in mapping);
   if (obsoleteFields.length > 0) {
-    throw rejectSchema({
-      schema: "workspace-artifact",
-      detail: { case: "obsolete-fields", path, fields: obsoleteFields },
-    });
+    violations.push({ case: "obsolete-fields", path, fields: obsoleteFields });
   }
   // A Profile's ID is its file name (spec #593 DEC-014, #598): an authored
   // `id` field is never read. The violation names the fix — remove the field,
@@ -243,33 +272,96 @@ export function parseProfile(source: string, path: string): Profile {
   // when the authored value differs from the file name.
   if ("id" in mapping) {
     const authored = mapping.id;
-    throw rejectSchema({
-      schema: "workspace-artifact",
-      detail: {
-        case: "profile-id-field",
-        path,
-        ...(typeof authored === "string" ? { id: authored } : {}),
-      },
+    violations.push({
+      case: "profile-id-field",
+      path,
+      ...(typeof authored === "string" ? { id: authored } : {}),
     });
   }
-  requireExactFields(mapping, fields, {
-    case: "unknown-fields",
-    artifact: "Profile",
-    path,
-    fields: Object.keys(mapping).filter((key) => !fields.includes(key as (typeof fields)[number])),
-  });
+  // The authored `id` key and the obsolete placeholder keys are field-level
+  // violation territory above, not unknown fields — the same key must never
+  // be reported twice.
+  const unknown = Object.keys(mapping).filter(
+    (key) =>
+      key !== "id" &&
+      !obsoleteFields.includes(key) &&
+      !fields.includes(key as (typeof fields)[number]),
+  );
+  if (unknown.length > 0) {
+    violations.push({ case: "unknown-fields", artifact: "Profile", path, fields: unknown });
+  }
   for (const field of fields) {
     if (!(field in mapping)) {
-      throw rejectSchema({
-        schema: "workspace-artifact",
-        detail: { case: "missing-field", path, field },
-      });
+      violations.push({ case: "missing-field", path, field });
     }
   }
+  // Field-level problems are recorded above; the lists stay readable where
+  // they can be, so references are checked in the same run (spec #593
+  // DEC-009, #604). An unreadable list (missing or not an array) is skipped.
+  const context = collectProfileList(mapping, "context", path, violations);
+  const skills = collectProfileList(mapping, "skills", path, violations);
+  if (context === undefined && skills === undefined) {
+    return { violations };
+  }
   return {
-    id,
-    context: requireStringArray(mapping.context, path, "context"),
-    skills: requireStringArray(mapping.skills, path, "skills"),
-    path,
+    violations,
+    profile: {
+      id,
+      context: context ?? [],
+      skills: skills ?? [],
+      path,
+    },
   };
+}
+
+/** Collect one list's valid entries; an unreadable list yields undefined. */
+function collectProfileList(
+  mapping: Record<string, unknown>,
+  field: "context" | "skills",
+  path: string,
+  violations: WorkspaceArtifactRejectionReason[],
+): readonly string[] | undefined {
+  if (!(field in mapping)) return undefined;
+  const value = mapping[field];
+  if (!Array.isArray(value)) {
+    violations.push({ case: "not-array-of-names", path, field });
+    return undefined;
+  }
+  // Context entries use the path grammar (`/`-separated segments, DEC-004);
+  // Skills stay flat. Each invalid entry is one violation naming the file and
+  // section; valid entries are still reference-checked.
+  const ids: string[] = [];
+  for (const entry of value) {
+    const valid = field === "context"
+      ? typeof entry === "string" && entry.length > 0 && isValidContextModuleId(entry)
+      : typeof entry === "string" && ARTIFACT_ID.test(entry);
+    if (!valid) {
+      violations.push({
+        case: "invalid-artifact-id",
+        artifact: "Profile",
+        path,
+        section: field,
+      });
+      continue;
+    }
+    ids.push(entry);
+  }
+  if (new Set(ids).size !== ids.length) {
+    violations.push({ case: "duplicate-name", path, field });
+  }
+  return ids;
+}
+
+/**
+ * Parse one Profile file, rejecting it on its first field-level violation.
+ * The ingest-or-throw composition over {@link parseProfileCollected}: the
+ * first collected violation is raised in original error form, so creation
+ * and other strict callers keep their exact behavior.
+ */
+export function parseProfile(source: string, path: string): Profile {
+  const collected = parseProfileCollected(source, path);
+  if (collected.violations.length === 0 && collected.profile !== undefined) {
+    return collected.profile;
+  }
+  throw rejectSchema({ schema: "workspace-artifact", detail: collected.violations[0]! });
 }

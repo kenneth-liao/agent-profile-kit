@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { collectViolations, singleViolation, violationEvidence, violationTokens } from "./support/workspace-violations.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import type { InstallerToolErrorFact } from "../installer/tool-errors.js";
 import { formatWorkspaceIngestionErrorDiagnostic, formatWorkspaceArtifactError } from "../cli/error-wording.js";
@@ -51,16 +52,7 @@ function writeMinimalSkill(workspace: string, id: string): void {
 }
 
 async function ingestionFact(workspace: string): Promise<Record<string, unknown>> {
-  try {
-    await ingestWorkspace(workspace);
-  } catch (error) {
-    if (error instanceof InstallerToolError) return error.fact as Record<string, unknown>;
-    if (error instanceof SchemaRejectionError) {
-      return error.reason.detail as Record<string, unknown>;
-    }
-    throw error;
-  }
-  throw new Error("expected ingestWorkspace to reject the workspace");
+  return violationEvidence(await singleViolation(workspace));
 }
 
 /** Cast one captured schema-rejection detail to the workspace-artifact wording input. */
@@ -162,24 +154,20 @@ describe("Context Module identity by path (spec #593 DEC-004/005, #600)", () => 
     try {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(join(workspace, "profiles", "coding.yaml"), "context:\n  - Bad_Name\nskills: []\n");
-      try {
-        await ingestWorkspace(workspace);
-        throw new Error("expected ingestion to reject the workspace");
-      } catch (error) {
-        expect(error).toBeInstanceOf(SchemaRejectionError);
-        const detail = (error as SchemaRejectionError).reason.detail as Record<string, unknown>;
-        expect(detail).toEqual({
-          case: "invalid-artifact-id",
-          artifact: "Profile",
-          path: "profiles/coding.yaml",
-          section: "context",
-        });
-        expect(formatWorkspaceArtifactError(
-          reasonFor(detail),
-        )).toBe(
-          "Profile profiles/coding.yaml context must be a Context Module ID: lowercase kebab-case segments joined by '/'",
-        );
-      }
+      const violations = await collectViolations(workspace);
+      expect(violationTokens(violations)).toEqual(["workspace-artifact/invalid-artifact-id"]);
+      const detail = violationEvidence(violations[0]!);
+      expect(detail).toEqual({
+        case: "invalid-artifact-id",
+        artifact: "Profile",
+        path: "profiles/coding.yaml",
+        section: "context",
+      });
+      expect(formatWorkspaceArtifactError(
+        reasonFor(detail),
+      )).toBe(
+        "Profile profiles/coding.yaml context must be a Context Module ID: lowercase kebab-case segments joined by '/'",
+      );
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -317,23 +305,19 @@ describe("the path grammar stays Context-only (PR #618 review INT-1)", () => {
     try {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: []\nskills:\n  - review/pr\n");
-      try {
-        await ingestWorkspace(workspace);
-        throw new Error("expected ingestion to reject the workspace");
-      } catch (error) {
-        expect(error).toBeInstanceOf(SchemaRejectionError);
-        const detail = (error as SchemaRejectionError).reason.detail as Record<string, unknown>;
-        expect(detail).toEqual({
-          case: "invalid-artifact-id",
-          artifact: "Profile",
-          path: "profiles/coding.yaml",
-          section: "skills",
-        });
-        // The Skill wording stays flat: no path grammar leaked into it.
-        expect(formatWorkspaceArtifactError(reasonFor(detail))).toBe(
-          "Profile profiles/coding.yaml skills must be a lowercase kebab-case name without wildcards",
-        );
-      }
+      const violations = await collectViolations(workspace);
+      expect(violationTokens(violations)).toEqual(["workspace-artifact/invalid-artifact-id"]);
+      const detail = violationEvidence(violations[0]!);
+      expect(detail).toEqual({
+        case: "invalid-artifact-id",
+        artifact: "Profile",
+        path: "profiles/coding.yaml",
+        section: "skills",
+      });
+      // The Skill wording stays flat: no path grammar leaked into it.
+      expect(formatWorkspaceArtifactError(reasonFor(detail))).toBe(
+        "Profile profiles/coding.yaml skills must be a lowercase kebab-case name without wildcards",
+      );
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

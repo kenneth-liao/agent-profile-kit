@@ -98,14 +98,21 @@ describe("createSkill", () => {
       const failure = await rejection(() => createSkill({ home, name: "review-pr" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("duplicate-artifact-name");
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
       // Every duplicate fact carries the existing artifact's real path
-      // (US-015, #508); ingestion names the first ingested claimant.
-      expect(fact).toEqual({
-        kind: "duplicate-artifact-name",
-        artifactType: "Skill",
-        id: "review-pr",
-        path: "skills/elsewhere/SKILL.md",
+      // (US-015, #508); ingestion names the first ingested claimant. The
+      // collected aggregate (#604) carries the duplicate fact as its only
+      // violation.
+      expect(fact.violations).toHaveLength(1);
+      expect(fact.violations[0]).toEqual({
+        via: "ingestion",
+        fact: {
+          kind: "duplicate-artifact-name",
+          artifactType: "Skill",
+          id: "review-pr",
+          path: "skills/elsewhere/SKILL.md",
+        },
       });
     } finally {
       rmSync(home, { recursive: true, force: true });

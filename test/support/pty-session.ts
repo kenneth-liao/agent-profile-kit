@@ -18,6 +18,14 @@
  * stable U+FFFD on every poll — fragments are matched after that boundary,
  * which is why offsets are captured at input boundaries.) No terminal
  * emulator is implemented or needed.
+ *
+ * The required prompt state for a keystroke is the question prompt itself,
+ * never a document fragment that renders before it: the PTY slave starts in
+ * canonical mode, so a keystroke written before the prompt enables raw mode
+ * is echoed but held un-newlined in the line buffer and is never delivered
+ * once ICANON is switched off (PR #622 INT-FLAKE-1) — the prompt then waits
+ * forever. Gating on a prompt fragment, never on preceding document text,
+ * is what makes a wait's completion a safe signal to write.
  */
 import { readFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";

@@ -9,6 +9,8 @@ import type {
   InstallerAuthoredError,
   WorkspaceErrorFact,
   WorkspaceIngestionErrorFact,
+  WorkspaceViolation,
+  WorkspaceViolationsFact,
 } from "../installer/tool-errors.js";
 import type { LocalConfigurationRejectionReason } from "../schemas/local-configuration.js";
 import type {
@@ -223,7 +225,7 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
     case "duplicate-artifact-name":
       return `${fact.artifactType} name '${fact.id}' is duplicated`;
     case "profile-without-artifacts":
-      return `Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`;
+      return `Profile ${fact.file} must select at least one supported artifact (Context Module or Skill)`;
     case "missing-context-reference":
       return `Profile '${fact.profile}' in ${fact.file} selects missing Context Module '${fact.contextId}'. ` +
         `Restore the Context Module, or remove or update Profile '${fact.profile}'. ` +
@@ -240,6 +242,81 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
     case "nested-profile":
       return `Profile ${fact.file} is inside a nested folder; Profiles live directly in the ${PROFILE_DIRECTORY} folder — move the file to ${PROFILE_DIRECTORY}${fact.file.split("/").pop()} (that file name without '${PROFILE_EXTENSION}' becomes its ID)`;
   }
+}
+
+/*
+ * The structured diagnostic for one collected violation (#604): the
+ * per-kind diagnostic homes stay the single home, so a violation inside a
+ * collected list renders with the same suggestions and fix commands it
+ * renders with when it is the only problem. Manifest and artifact
+ * rejections carry their sentence as the happened line.
+ */
+export function workspaceViolationDiagnostic(violation: WorkspaceViolation): DiagnosticDocumentParts {
+  switch (violation.via) {
+    case "ingestion":
+      return formatWorkspaceIngestionErrorDiagnostic(violation.fact);
+    case "manifest":
+      return { happened: [formatWorkspaceManifestError(violation.detail)] };
+    case "artifact":
+      return { happened: [formatWorkspaceArtifactError(violation.detail)] };
+  }
+}
+
+/**
+ * The bullet parts of one collected violation (#604): what happened, why,
+ * and the fix, as one InlineContent sequence that keeps the per-kind homes'
+ * atomic parts (copyable commands and identifiers) whole (ADR-0016). One
+ * home so the machine message and the human bullet are the same wording.
+ */
+export function workspaceViolationBulletParts(violation: WorkspaceViolation): readonly InlineContent[] {
+  const diagnostic = workspaceViolationDiagnostic(violation);
+  const parts: InlineContent[] = [...diagnostic.happened];
+  for (const line of [...(diagnostic.why ?? []), ...(diagnostic.whatToType ?? [])]) {
+    if (line.length === 0) continue;
+    parts.push(" ", ...line);
+  }
+  return parts;
+}
+
+/**
+ * The complete presentation text of one violation — the machine payload's
+ * message: the bullet's parts flattened, with atomic parts carrying their
+ * plain-text projections (ADR-0016).
+ */
+export function workspaceViolationMessage(violation: WorkspaceViolation): string {
+  return flatInlineText(["- ", ...workspaceViolationBulletParts(violation)]);
+}
+
+/**
+ * The failed-validation pointer to the Workspace contract (spec #593 ISC-43,
+ * #604): one home shared by the validate report and every Workspace-invalid
+ * diagnostic, so the route to the contract cannot drift.
+ */
+export function workspaceContractRecovery(): readonly InlineContent[] {
+  return [
+    "The Workspace contract states every rule Workspace validation enforces; run ",
+    commandPart(COMMAND_NAME, [arg("guide"), arg("--contract")]),
+    " to read it.",
+  ];
+}
+
+/**
+ * The structured diagnostic for the aggregate collected-violations fact
+ * (spec #593 DEC-009, #604): one bullet per violation carrying its complete
+ * presentation text through the per-kind diagnostic homes (suggestions and
+ * fix commands included), then the contract pointer. Shared by the
+ * lifecycle diagnostic (the aggregate error's rendering) and the validate
+ * failure report, so both present the same complete list.
+ */
+export function workspaceViolationsDiagnostic(fact: WorkspaceViolationsFact): DiagnosticDocumentParts {
+  const count = fact.violations.length;
+  return {
+    happened: [
+      `Workspace is invalid at ${fact.workspace}; ${count} ${count === 1 ? "violation" : "violations"} found:`,
+    ],
+    why: fact.violations.map((violation) => ["- ", ...workspaceViolationBulletParts(violation)]),
+    whatToType: [workspaceContractRecovery()],
+  };
 }
 
 /** Maximum number of available choices displayed inline before explicit overflow count. */
@@ -420,7 +497,7 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
           ? " No Skills exist in the Workspace."
           : ` Available Skills: ${fact.availableSkills.join(", ")}.`);
       return {
-        happened: [`Profile '${fact.profile}' must select at least one supported artifact (Context Module or Skill)`],
+        happened: [`Profile ${fact.file} must select at least one supported artifact (Context Module or Skill)`],
         ...(contextGuidance === "" && skillGuidance === "" ? {} : {
           why: [
             [`${contextGuidance}${skillGuidance}`.trim()],
@@ -528,15 +605,15 @@ export function formatLocalConfigurationError(
 export function formatWorkspaceManifestError(reason: WorkspaceManifestRejectionReason): string {
   switch (reason.case) {
     case "invalid-yaml":
-      return "Workspace Manifest is invalid YAML; correct workspace.yaml before retrying";
+      return "workspace.yaml is invalid YAML; correct it before retrying";
     case "schema-version-missing":
-      return `Workspace Manifest must contain schema_version: ${reason.schemaVersion}`;
+      return `workspace.yaml must contain schema_version: ${reason.schemaVersion}`;
     case "schema-version-not-positive":
-      return "Workspace Manifest schema_version must be a positive integer";
+      return "workspace.yaml schema_version must be a positive integer";
     case "unsupported-schema-version":
-      return `Unsupported Workspace schema version ${reason.found}; this Agent Profile Kit version supports version ${reason.supported}. Use an explicit Workspace migration before retrying.`;
+      return `workspace.yaml: Unsupported Workspace schema version ${reason.found}; this Agent Profile Kit version supports version ${reason.supported}. Use an explicit Workspace migration before retrying.`;
     case "unknown-fields":
-      return `Workspace Manifest schema version ${reason.schemaVersion} does not allow fields: ${reason.fields.join(", ")}`;
+      return `workspace.yaml: Workspace Manifest schema version ${reason.schemaVersion} does not allow fields: ${reason.fields.join(", ")}`;
   }
 }
 
@@ -817,6 +894,15 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "leftover-skill-sidecar":
     case "nested-profile":
       return [formatWorkspaceIngestionError(fact)];
+    case "workspace-violations": {
+      const diagnostic = workspaceViolationsDiagnostic(fact);
+      return [
+        ...diagnostic.happened,
+        ...(diagnostic.why ?? []).flat(),
+        "\n",
+        ...(diagnostic.whatToType ?? []).flat(),
+      ];
+    }
     default:
       return formatConfiguredPathError(fact);
   }
@@ -1072,6 +1158,8 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "leftover-skill-sidecar":
     case "nested-profile":
       return formatWorkspaceIngestionErrorDiagnostic(fact);
+    case "workspace-violations":
+      return workspaceViolationsDiagnostic(fact);
     default:
       return formatConfiguredPathErrorDiagnostic(fact);
   }

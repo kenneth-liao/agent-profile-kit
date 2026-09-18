@@ -54,3 +54,17 @@ provable:
   authored ID, so the 0.204.0 → current migration exercises both Context
   repairs: the file rename that keeps the referenced ID and the
   delivered-as-written frontmatter bytes (spec #593 DEC-004/005).
+- #604 added `workspace-realistic/` — a realistic-scale Workspace with
+  **fully synthetic names and content** (TEST-010, DEC-013). Only the
+  structure was modeled, from the Workspace folder recorded in the
+  maintainer machine's Local Configuration: folder nesting (three top-level
+  Context groups, one module nested two folders deep, grouped Skill
+  packages, one package under a grouping folder), file counts per Skill
+  package, Resource-file presence, which Profiles select which artifacts,
+  9 leftover Skill sidecars, and 2 leftover invocation-metadata keys. No
+  real Context file name, folder name under personal or creator folders,
+  Profile name, Skill name, or content was copied: names and bodies are
+  synthetic (`subject-NN`, `skill-NN`, `profile-0N`, `area-a…area-c`,
+  `group-a…group-c`), and every Profile carries an authored `id` field
+  matching its file name, as the modeled 0.204.0-era source did. Platform
+  junk files (`.DS_Store`) were not mirrored.
