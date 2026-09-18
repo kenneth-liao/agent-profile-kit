@@ -7,8 +7,7 @@ import {
   parseProfile,
   type Profile,
 } from "../schemas/context-profile.js";
-import { parseSkill, type Skill } from "../schemas/skill.js";
-import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
+import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
 import { validateWorkspaceStructure, workspacePath, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
 import { InstallerToolError, type CreationArtifactType } from "./tool-errors.js";
 
@@ -22,6 +21,26 @@ export interface Workspace {
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
+}
+
+/**
+ * Find the first retired Skill sidecar entry under one Skill package root,
+ * depth-first in sorted order; a package that does not contain one yields
+ * undefined. Symlinked directories are not traversed: packages are read from
+ * regular files and directories only.
+ */
+async function findSkillSidecar(directory: string, prefix: string): Promise<string | undefined> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of sorted) {
+    const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.name === SKILL_PACKAGE_SIDECAR) return relative;
+    if (entry.isDirectory()) {
+      const nested = await findSkillSidecar(join(directory, entry.name), relative);
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
 }
 
 /** Read directory entries; a missing category directory is an empty collection. */
@@ -129,13 +148,16 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   for (const name of await skillPaths(join(path, "skills"))) {
     const sourcePath = join(path, "skills", name);
     const relativePath = skillEntryRelativePath(path, sourcePath);
-    let sidecar: string | undefined;
-    try {
-      sidecar = await readFile(join(sourcePath, "agent-profile-kit.yaml"), "utf8");
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
+    // A retired Agent Profile Kit sidecar anywhere inside a Skill package is
+    // one violation naming its file (spec #593 DEC-006): Profile lists are
+    // the only source of what is installed, so the sidecar has no reader
+    // left, and a nested copy would otherwise project into Host output.
+    const nested = await findSkillSidecar(sourcePath, "");
+    if (nested !== undefined) {
+      throw new InstallerToolError({
+        kind: "leftover-skill-sidecar",
+        file: `skills/${name}/${nested}`,
+      });
     }
     addUnique(
       skills,
@@ -143,15 +165,12 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         await readFile(join(sourcePath, SKILL_FILE_NAME), "utf8"),
         relativePath,
         sourcePath,
-        sidecar,
-        sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
       (existing) => skillEntryRelativePath(path, existing.path),
     );
   }
 
-  validateDependencyCatalog(contexts, skills);
   for (const profile of profiles.values()) {
     // At least one currently supported artifact category must be selected. No single
     // category (including Context) is mandatory; empty Profiles fail at ingestion.
@@ -185,7 +204,6 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         });
       }
     }
-    resolveProfileDependencies(profile, contexts, skills);
   }
 
   return { path, contexts, profiles, skills };

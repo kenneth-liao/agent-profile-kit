@@ -1,16 +1,11 @@
 import { parse } from "yaml";
 
-import {
-  parseArtifactDependencies,
-  ARTIFACT_ID,
-  type ArtifactReference,
-} from "./dependencies.js";
+import { ARTIFACT_ID } from "./dependencies.js";
 
 export { requireArtifactId } from "./dependencies.js";
 import { rejectSchema, type WorkspaceArtifactRejectionReason } from "./schema-rejections.js";
 
 export interface ContextModule {
-  readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
   readonly content: string;
   /** Workspace-relative source file this module was parsed from. */
@@ -117,6 +112,9 @@ export function parseContextModule(source: string, path: string): ContextModule 
     path,
     fields: Object.keys(mapping).filter((key) => !["id", "dependencies"].includes(key)),
   });
+  // `dependencies` remains a tolerated legacy key whose value is never read
+  // (spec #593 DEC-006, ADR-0045): Profile lists are the only source of what
+  // is installed.
   if (typeof mapping.id !== "string" || !ARTIFACT_ID.test(mapping.id)) {
     throw rejectSchema({
       schema: "workspace-artifact",
@@ -133,11 +131,6 @@ export function parseContextModule(source: string, path: string): ContextModule 
   }
   return {
     content,
-    dependencies: parseArtifactDependencies(mapping.dependencies, {
-      artifact: "Context Module",
-      path,
-      section: "dependencies",
-    }),
     id,
     path,
   };

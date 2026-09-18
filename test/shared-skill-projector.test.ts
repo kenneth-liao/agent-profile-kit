@@ -51,7 +51,7 @@ function writeSkillPackage(
 }
 
 function skillAt(path: string, modelInvocation: Skill["modelInvocation"]): Skill {
-  return { dependencies: [], id: "review-pr", modelInvocation, path };
+  return { id: "review-pr", modelInvocation, path };
 }
 
 describe("shared .agents Skill projector", () => {
@@ -66,7 +66,6 @@ describe("shared .agents Skill projector", () => {
       "SKILL.md": { bytes: sourceSkill, mode: 0o644 },
       "agents/openai.yaml": { bytes: interfaceYaml, mode: 0o600 },
       "scripts/run.sh": { bytes: script, mode: 0o755 },
-      "agent-profile-kit.yaml": { bytes: "dependencies: []\n" },
     });
 
     const output = await planSharedSkillPackageDirectory(
@@ -79,7 +78,6 @@ describe("shared .agents Skill projector", () => {
     expect(output.requirements).toContain(
       "Shared .agents Skill policy prevents implicit invocation in SKILL.md and Codex agents/openai.yaml",
     );
-    expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
 
     const skillMember = output.members.find((member) => member.path === "SKILL.md");
     expect(skillMember?.type).toBe("file");

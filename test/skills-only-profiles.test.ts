@@ -55,7 +55,7 @@ function temporaryDirectory(prefix: string): string {
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, modelInvocation: "allowed", path };
+  return { id, modelInvocation: "allowed", path };
 }
 
 function writeSkill(workspace: string, id: string): void {

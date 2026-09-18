@@ -1,0 +1,7 @@
+schema_version: 2
+workspace: __FIXTURE_HOME__/.agents/agent-profile-kit/workspace
+bindings:
+  - project: __FIXTURE_PROJECT__
+    profile: coding
+    hosts:
+      - codex

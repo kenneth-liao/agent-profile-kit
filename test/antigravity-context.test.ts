@@ -62,8 +62,7 @@ describe("Antigravity Context Adapter", () => {
   test("blocks one oversized Context Module instead of truncating it", async () => {
     let error: unknown;
     try {
-      await planAntigravityProject("engineering", [{
-        id: "oversized",
+      await planAntigravityProject("engineering", [{ id: "oversized",
         content: "x".repeat(ANTIGRAVITY_RULE_CHARACTER_LIMIT),
       }], []);
     } catch (caught) {
@@ -105,9 +104,7 @@ describe("Antigravity Context Adapter", () => {
       "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
     );
 
-    const plan = await planAntigravityProject("engineering", [], [{
-      dependencies: [],
-      id: "review-pr",
+    const plan = await planAntigravityProject("engineering", [], [{ id: "review-pr",
       modelInvocation: "allowed",
       path: source,
     }]);
@@ -162,7 +159,7 @@ describe("Antigravity Context Adapter", () => {
     const allowed = await planAntigravityProject(
       "engineering",
       [{ id: "rules", content: "Keep project rules authoritative.\n" }],
-      [{ dependencies: [], id: "review-pr", modelInvocation: "allowed", path: allowedSource }],
+      [{ id: "review-pr", modelInvocation: "allowed", path: allowedSource }],
     );
     expect(allowed.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS);
 
@@ -174,7 +171,7 @@ describe("Antigravity Context Adapter", () => {
     const disabled = await planAntigravityProject(
       "engineering",
       [{ id: "rules", content: "Keep project rules authoritative.\n" }],
-      [{ dependencies: [], id: "review-pr", modelInvocation: "disabled", path: disabledSource }],
+      [{ id: "review-pr", modelInvocation: "disabled", path: disabledSource }],
     );
     expect(disabled.hostVersion).toBe(ANTIGRAVITY_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
     const disabledPackage = disabled.outputs.find((output) => output.path === ".agents/skills/review-pr");
@@ -201,9 +198,7 @@ describe("Antigravity Context Adapter", () => {
 
     let error: unknown;
     try {
-      await planAntigravityProject("engineering", [], [{
-        dependencies: [],
-        id: "review-pr",
+      await planAntigravityProject("engineering", [], [{ id: "review-pr",
         modelInvocation: "disabled",
         path: source,
       }]);
@@ -228,9 +223,7 @@ describe("Antigravity Context Adapter", () => {
 
     let error: unknown;
     try {
-      await planAntigravityProject("engineering", [], [{
-        dependencies: [],
-        id: "review-pr",
+      await planAntigravityProject("engineering", [], [{ id: "review-pr",
         modelInvocation: "allowed",
         path: source,
       }]);
@@ -252,9 +245,7 @@ describe("Antigravity Context Adapter", () => {
       join(source, "SKILL.md"),
       "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
     );
-    const plan = await planAntigravityProject("engineering", [], [{
-      dependencies: [],
-      id: "review-pr",
+    const plan = await planAntigravityProject("engineering", [], [{ id: "review-pr",
       modelInvocation: "disabled",
       path: source,
     }]);

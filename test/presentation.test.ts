@@ -4278,11 +4278,7 @@ describe("status concise terminology", () => {
         outputs: [".agent-profile-kit/codex/context.md"],
         profile: "coding",
         project: "/project-a",
-        resolvedArtifacts: [{
-          id: "team-rules",
-          inclusionReasons: [{ path: [], profile: "coding" }],
-          type: "context",
-        }],
+        resolvedArtifacts: [{ id: "team-rules", type: "context" }],
       }],
       items: [{ kind: "stale source", project: "/project-a" }],
       outputs: [
@@ -10502,13 +10498,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
           ".agent-profile-kit/unchanged.txt",
         ],
         profile: "full-stack",
-        resolvedArtifacts: [
-          {
-            id: "full-stack-rules",
-            inclusionReasons: [{ path: ["base-rules"], profile: "full-stack" }],
-            type: "context",
-          },
-        ],
+        resolvedArtifacts: [{ id: "full-stack-rules", type: "context" }],
       },
       repositoryExclusions: [
         {

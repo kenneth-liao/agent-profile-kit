@@ -36,12 +36,9 @@ const skillReference: WorkspaceIngestionErrorFact = {
   available: ["deploy"],
 };
 
-const dependencyReference: WorkspaceIngestionErrorFact = {
-  kind: "missing-dependency-reference",
-  label: "Context Module",
-  id: "no-such-context",
-  file: "context/team-rules.md",
-  available: ["team-rules", "writing-style"],
+const leftoverSidecar: WorkspaceIngestionErrorFact = {
+  kind: "leftover-skill-sidecar",
+  file: "skills/deploy/agent-profile-kit.yaml",
 };
 
 describe("invalid-reference diagnostics (US-025/026, DEC-014/017)", () => {
@@ -78,15 +75,13 @@ describe("invalid-reference diagnostics (US-025/026, DEC-014/017)", () => {
     expect(whatToType).toContain("profiles/broken.yaml");
   });
 
-  test("dependency references carry the same evidence through the same structure", () => {
-    const parts = formatWorkspaceIngestionErrorDiagnostic(dependencyReference);
+  test("leftover Skill sidecars carry the same evidence through the same structure (spec #593 DEC-006, #596)", () => {
+    const parts = formatWorkspaceIngestionErrorDiagnostic(leftoverSidecar);
     const happened = flatInlineText(parts.happened);
-    const why = (parts.why ?? []).map((line) => flatInlineText(line)).join("\n");
     const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
-    expect(happened).toContain("context/team-rules.md");
-    expect(happened).toContain("no-such-context");
-    expect(why).toContain("team-rules");
-    expect(whatToType).toContain("apkit validate");
+    expect(happened).toContain("skills/deploy/agent-profile-kit.yaml");
+    expect(whatToType).toContain("'context' and 'skills'");
+    expect(whatToType).toContain("delete the file");
   });
 
   test("the carried sentence exposes file, invalid value, and available names", () => {

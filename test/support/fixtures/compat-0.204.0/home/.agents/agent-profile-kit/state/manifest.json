@@ -1,0 +1,45 @@
+{
+  "schema_version": 9,
+  "receipts": [
+    {
+      "installation_id": "fadabdbe-a9cb-4d60-9818-325eeaaf41be",
+      "lifetime": "ordinary",
+      "project": "__FIXTURE_PROJECT__",
+      "profile_id": "coding",
+      "desired_input_digest": "sha256:68caa00981b417e7480ca6bbea3be76960e135db9029ef6b7c8ac551d45f8411",
+      "hosts": {
+        "codex": {
+          "adapter_version": "codex-project-v3",
+          "capability_contract": "native-project-sessionstart-complete-context-v1"
+        }
+      },
+      "outputs": [
+        {
+          "path": ".agent-profile-kit/codex/context.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:cab497aea5bbe95c4c0deb7cd93305e43d12dd076f9db89b80f5ef2796f8ae2c"
+        },
+        {
+          "path": ".agents/skills/base-skill",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:2f64698c728c37cbd5373e6b1cb855f26cc9db17f4f49f1a64c2f01cc73b3b2b"
+        },
+        {
+          "path": ".agents/skills/review-pr",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:5e217c10b2e9d8a4701c9743e73b553f4df7c15dc3445c7e316e487c3456494e"
+        },
+        {
+          "path": ".codex/hooks.json",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:9a13cd30603c621ffa578c4ca2b7bb2f8f826e58a12f3741d7a05c6edf001ad1"
+        }
+      ]
+    }
+  ],
+  "removed_temporary_installation_ids": []
+}

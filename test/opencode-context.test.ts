@@ -83,7 +83,7 @@ function gitRepository(prefix: string): string {
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, modelInvocation: "allowed", path };
+  return { id, modelInvocation: "allowed", path };
 }
 
 describe("OpenCode Context Adapter planning", () => {

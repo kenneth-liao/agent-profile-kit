@@ -19,3 +19,11 @@ tmp/
 .codex/
 .agents/
 *.log
+
+# Compatibility fixture material (issue #596, TEST-010) intentionally records
+# Host-shaped directories and paths that the repo-level ignore rules above
+# would otherwise exclude; re-include them inside the fixture tree only.
+!test/support/fixtures/compat-0.204.0/**/.agents/
+!test/support/fixtures/compat-0.204.0/**/.agents/**
+!test/support/fixtures/compat-0.204.0/**/.codex/
+!test/support/fixtures/compat-0.204.0/**/.codex/**

@@ -209,13 +209,8 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
         (fact.available.length === 0
           ? "No Skills exist in the Workspace"
           : `Available Skills: ${fact.available.join(", ")}`);
-    case "missing-dependency-reference":
-      return `${fact.file} references missing ${fact.label} '${fact.id}'. ` +
-        (fact.available.length === 0
-          ? `No ${fact.label}s exist in the Workspace`
-          : `Available ${fact.label}s: ${fact.available.join(", ")}`);
-    case "dependency-cycle":
-      return `Dependency cycle: ${fact.cycle}`;
+    case "leftover-skill-sidecar":
+      return `Skill sidecar ${fact.file} is no longer read; list the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file from the Workspace (version control can recover it if you need the old list)`;
   }
 }
 
@@ -434,17 +429,13 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
             file: fact.file,
             remedy: `Restore the Skill, or remove or update Profile '${fact.profile}'.`,
           });
-    case "missing-dependency-reference":
-      return missingReferenceDiagnostic({
-        happened: [`${fact.file} references missing ${fact.label} '${fact.id}'.`],
-        invalid: fact.id,
-        label: fact.label,
-        available: fact.available,
-        file: fact.file,
-        remedy: `Restore the missing ${fact.label}, or remove the dependency reference.`,
-      });
-    case "dependency-cycle":
-      return { happened: [`Dependency cycle: ${fact.cycle}`] };
+    case "leftover-skill-sidecar":
+      return {
+        happened: [`Skill sidecar ${fact.file} is no longer read.`],
+        whatToType: [
+          ["List the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file; version control can recover it if you need the old list."],
+        ],
+      };
   }
 }
 
@@ -565,18 +556,6 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
       return `${description} must be a lowercase kebab-case name without wildcards`;
     case "invalid-model-invocation":
       return `Skill ${reason.path} metadata.${reason.key} must be the string 'allowed' or 'disabled'`;
-    case "dependencies-not-array":
-      return `${description} must be an array of typed Artifact references`;
-    case "reference-not-mapping":
-      return `${description} must be a YAML mapping`;
-    case "reference-extra-fields":
-      return `${description} must contain only type and id`;
-    case "reference-invalid-id":
-      return `${description} id must be a lowercase kebab-case name without wildcards`;
-    case "reference-invalid-type":
-      return `${description} type must be one of: context, skill`;
-    case "duplicate-reference":
-      return `${description} must not contain an Artifact reference more than once`;
   }
 }
 
@@ -743,8 +722,7 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "profile-without-artifacts":
     case "missing-context-reference":
     case "missing-skill-reference":
-    case "missing-dependency-reference":
-    case "dependency-cycle":
+    case "leftover-skill-sidecar":
       return [formatWorkspaceIngestionError(fact)];
     default:
       return formatConfiguredPathError(fact);
@@ -970,8 +948,7 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "profile-without-artifacts":
     case "missing-context-reference":
     case "missing-skill-reference":
-    case "missing-dependency-reference":
-    case "dependency-cycle":
+    case "leftover-skill-sidecar":
       return formatWorkspaceIngestionErrorDiagnostic(fact);
     default:
       return formatConfiguredPathErrorDiagnostic(fact);

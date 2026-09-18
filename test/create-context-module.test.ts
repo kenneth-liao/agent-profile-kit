@@ -73,7 +73,9 @@ describe("createContextModule", () => {
 
       const source = readFileSync(contextFile, "utf8");
       expect(source).toContain("id: \"review-standards\"");
-      expect(source).toContain("dependencies:");
+      // The scaffold carries no dependency data: Profile lists are the only
+      // source of what is installed (spec #593 DEC-006, #596).
+      expect(source).not.toContain("dependencies:");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

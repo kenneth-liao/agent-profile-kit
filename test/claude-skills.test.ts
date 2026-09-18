@@ -63,7 +63,7 @@ function writeSkillPackage(
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, modelInvocation: "allowed", path };
+  return { id, modelInvocation: "allowed", path };
 }
 
 function enableCodexHooks(home: string): void {
@@ -78,7 +78,6 @@ async function workspaceWithSkills(
   skills: ReadonlyArray<{
     readonly id: string;
     readonly body?: string;
-    readonly dependencies?: readonly string[];
     readonly path?: string;
     readonly scriptMode?: number;
   }>,
@@ -107,12 +106,6 @@ async function workspaceWithSkills(
       writeFileSync(script, `#!/bin/sh\necho ${entry.id}\n`);
       chmodSync(script, entry.scriptMode);
     }
-    if (entry.dependencies) {
-      writeFileSync(
-        join(skillRoot, "agent-profile-kit.yaml"),
-        `dependencies:\n${entry.dependencies.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
-      );
-    }
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -135,10 +128,6 @@ describe("Claude project Skill packages", () => {
       "scripts/run.sh": {
         bytes: "#!/bin/sh\necho review\n",
         mode: 0o755,
-      },
-      "agent-profile-kit.yaml": {
-        bytes: "dependencies: []\n",
-        mode: 0o644,
       },
     });
     const binaryAsset = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x41]);
@@ -175,12 +164,9 @@ describe("Claude project Skill packages", () => {
       .toBe(true);
     expect(asset?.type).toBe("file");
     expect(Buffer.from((asset as { bytes: Uint8Array }).bytes)).toEqual(binaryAsset);
-    expect(packageOutput.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(
-      false,
-    );
   });
 
-  test("resolves direct and transitive Skills once, installs by Artifact ID, and omits unselected Skills", async () => {
+  test("installs each Profile-listed Skill once, by Artifact ID, and omits unselected Skills", async () => {
     const home = temporaryDirectory("apk-claude-skill-home-");
     const project = temporaryDirectory("apk-claude-skill-project-");
     await workspaceWithSkills(
@@ -189,25 +175,16 @@ describe("Claude project Skill packages", () => {
       ["claude"],
       [
         { id: "shared-base", path: "library/shared-base" },
-        {
-          id: "left-skill",
-          path: "group/left-skill",
-          dependencies: ["shared-base"],
-        },
-        {
-          id: "right-skill",
-          path: "group/right-skill",
-          dependencies: ["shared-base"],
-        },
+        { id: "left-skill", path: "group/left-skill" },
+        { id: "right-skill", path: "group/right-skill" },
         {
           id: "top-skill",
           path: "group/top-skill",
-          dependencies: ["left-skill", "right-skill"],
           scriptMode: 0o755,
         },
         { id: "unselected-skill", path: "other/unselected-skill" },
       ],
-      ["top-skill"],
+      ["shared-base", "left-skill", "right-skill", "top-skill"],
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -224,11 +201,6 @@ describe("Claude project Skill packages", () => {
       ".claude/skills/top-skill",
     ]);
 
-    const sharedResolved = installation.resolvedProfile.artifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
-
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
@@ -243,22 +215,11 @@ describe("Claude project Skill packages", () => {
     expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
     );
-    const sharedReasons = reportDesired(preview)[0]?.resolvedArtifacts.find(
-      (artifact) => artifact.id === "shared-base",
-    )?.inclusionReasons ?? [];
-    expect(sharedReasons.length).toBeGreaterThanOrEqual(2);
-    // Preview formats each path step as "type:id" already.
-    const reasonPaths = sharedReasons.map((reason) => reason.path.join(" -> "));
-    expect(reasonPaths.some((path) => path.includes("skill:left-skill"))).toBe(true);
-    expect(reasonPaths.some((path) => path.includes("skill:right-skill"))).toBe(true);
 
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".claude", "skills", "top-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "shared-base", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".claude", "skills", "unselected-skill"))).toBe(false);
-    expect(existsSync(join(project, ".claude", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(
-      false,
-    );
     expect(statSync(join(project, ".claude", "skills", "top-skill", "scripts", "run.sh")).mode & 0o777)
       .toBe(0o755);
     expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
@@ -451,9 +412,9 @@ describe("Claude project Skill packages", () => {
       ["codex", "claude"],
       [
         { id: "base-skill" },
-        { id: "review-pr", dependencies: ["base-skill"], scriptMode: 0o755 },
+        { id: "review-pr", scriptMode: 0o755 },
       ],
-      ["review-pr"],
+      ["base-skill", "review-pr"],
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });

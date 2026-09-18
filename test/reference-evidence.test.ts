@@ -80,7 +80,7 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
     }
   });
 
-  test("a Context Module dependency to a missing artifact names the declaring file", async () => {
+  test("a dangling Context Module dependency declaration is tolerated and has no effect (spec #593 DEC-006, #596)", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
@@ -88,33 +88,12 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
         join(workspace, "context", "team-rules.md"),
         "---\nid: team-rules\ndependencies:\n  - type: context\n    id: no-such-context\n---\n\n# Team rules\n",
       );
-      expect(await ingestionFact(workspace)).toEqual({
-        kind: "missing-dependency-reference",
-        label: "Context Module",
-        id: "no-such-context",
-        file: "context/team-rules.md",
-        available: ["team-rules"],
-      });
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  test("a Skill sidecar dependency to a missing artifact names the declaring sidecar file", async () => {
-    const home = isolatedHome();
-    try {
-      const workspace = scaffoldWorkspace(home);
       writeFileSync(
-        join(workspace, "skills", "deploy", "agent-profile-kit.yaml"),
-        "dependencies:\n  - type: context\n    id: no-such-context\n",
+        join(workspace, "profiles", "coding.yaml"),
+        "id: coding\ncontext: [team-rules]\nskills: [deploy]\n",
       );
-      expect(await ingestionFact(workspace)).toEqual({
-        kind: "missing-dependency-reference",
-        label: "Context Module",
-        id: "no-such-context",
-        file: "skills/deploy/agent-profile-kit.yaml",
-        available: ["team-rules"],
-      });
+      const ingested = await ingestWorkspace(workspace);
+      expect(ingested.contexts.get("team-rules")).toBeDefined();
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

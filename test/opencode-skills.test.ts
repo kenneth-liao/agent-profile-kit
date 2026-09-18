@@ -90,7 +90,7 @@ function writeSkillPackage(
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, modelInvocation: "allowed", path };
+  return { id, modelInvocation: "allowed", path };
 }
 
 async function workspaceWithSkills(
@@ -297,9 +297,7 @@ describe("OpenCode Skills planning", () => {
       "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
     );
 
-    const disabledSkill: Skill = {
-      dependencies: [],
-      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: source,
     };
@@ -382,9 +380,9 @@ describe("OpenCode Skills planning", () => {
     );
 
     const skills: Skill[] = [
-      { dependencies: [], id: "review-pr", modelInvocation: "allowed", path: allowedSource },
-      { dependencies: [], id: "zebra-deploy", modelInvocation: "disabled", path: zebraSource },
-      { dependencies: [], id: "alpha-deploy", modelInvocation: "disabled", path: alphaSource },
+      { id: "review-pr", modelInvocation: "allowed", path: allowedSource },
+      { id: "zebra-deploy", modelInvocation: "disabled", path: zebraSource },
+      { id: "alpha-deploy", modelInvocation: "disabled", path: alphaSource },
     ];
 
     const plan = await planOpenCodeProject("engineering", [], skills);
@@ -422,7 +420,7 @@ describe("OpenCode Skills planning", () => {
 
     const modules = [{ id: "team-rules", content: "Always follow conventions.\n" }];
     const skills: Skill[] = [
-      { dependencies: [], id: "deploy", modelInvocation: "disabled", path: source },
+      { id: "deploy", modelInvocation: "disabled", path: source },
     ];
 
     const plan = await planOpenCodeProject("engineering", modules, skills);
@@ -460,15 +458,11 @@ describe("OpenCode Skills planning", () => {
       "---\nname: deploy\ndescription: Deploy.\n---\n\n# Deploy\n",
     );
 
-    const allowedSkill: Skill = {
-      dependencies: [],
-      id: "review-pr",
+    const allowedSkill: Skill = { id: "review-pr",
       modelInvocation: "allowed",
       path: allowedSource,
     };
-    const disabledSkill: Skill = {
-      dependencies: [],
-      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: disabledSource,
     };
@@ -778,9 +772,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
       "SKILL.md": { bytes: authoredSkillContent, mode: 0o644 },
     });
 
-    const disabledSkill: Skill = {
-      dependencies: [],
-      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: source,
     };

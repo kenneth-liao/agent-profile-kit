@@ -91,3 +91,9 @@ the omitted sidecar, the untouched Codex policy file, and the coalescing rule
 are unchanged. This is the accepted exception to "portable members keep source
 bytes": the notice is projection-owned generated text, not Skill content or
 policy, and it grants no ownership. See ADR-0041 for the whole notice policy.
+
+Amendment: since spec #593 (DEC-006, ticket #596), the sidecar omission this
+decision's projector performed no longer exists — a Skill package containing
+`agent-profile-kit.yaml` fails Workspace validation (ADR-0045), so the
+projector never encounters one. The notice, policy projection, and coalescing
+rules stand unchanged.

@@ -72,7 +72,6 @@ describe("authoring example/scaffold YAML consistency", () => {
       "context/example-context.md",
     );
     expect(contextModule.id).toBe("example-context");
-    expect(contextModule.dependencies).toEqual([]);
 
     const skill = parseSkill(
       AUTHORING_EXAMPLES.skill.contents,

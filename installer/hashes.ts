@@ -7,7 +7,7 @@ import { skillPackageMembers } from "../adapters/skill-package.js";
 import { type ContextModule, type Profile } from "../schemas/context-profile.js";
 import { type Skill } from "../schemas/skill.js";
 import { type ArtifactReference } from "../schemas/dependencies.js";
-import { type ResolvedProfile } from "./resolve-dependencies.js";
+import { type ResolvedProfile } from "./resolve-profile.js";
 import { WORKSPACE_SCHEMA_VERSION } from "../schemas/workspace-manifest.js";
 
 function sha256(source: string | Uint8Array): string {
@@ -86,8 +86,6 @@ function skillInputFromMembers(
 }
 
 async function skillInput(skill: Skill): Promise<unknown> {
-  // Sidecar omission matches skillPackageMembers so fingerprint and projection
-  // share one portable package shape.
   return skillInputFromMembers(skill, await skillPackageMembers(skill));
 }
 
@@ -98,34 +96,6 @@ export async function hashSkillCatalog(skills: ReadonlyMap<string, Skill>): Prom
       .map((skill) => skillInput(skill)),
   );
   return sha256(JSON.stringify({ skills: entries, workspace_schema_version: WORKSPACE_SCHEMA_VERSION }));
-}
-
-function normalizedInclusionReasons(
-  inclusionReasons: ResolvedProfile["artifacts"][number]["inclusionReasons"],
-): readonly {
-  readonly path: readonly { readonly id: string; readonly type: string }[];
-  readonly profile: string;
-}[] {
-  return inclusionReasons
-    .map((reason) => ({
-      path: reason.path.map((reference) => ({ id: reference.id, type: reference.type })),
-      profile: reason.profileId,
-    }))
-    .sort((left, right) => {
-      const profileOrder = left.profile.localeCompare(right.profile);
-      if (profileOrder !== 0) return profileOrder;
-      return JSON.stringify(left.path).localeCompare(JSON.stringify(right.path));
-    });
-}
-
-function normalizedDependencies(
-  dependencies: readonly { readonly id: string; readonly type: string }[],
-): readonly { readonly id: string; readonly type: string }[] {
-  return [...dependencies]
-    .map((dependency) => ({ id: dependency.id, type: dependency.type }))
-    .sort((left, right) =>
-      left.type.localeCompare(right.type) || left.id.localeCompare(right.id)
-    );
 }
 
 /** Normalized canonical source fingerprint for one resolved artifact. */
@@ -154,7 +124,7 @@ function fingerprintContextContent(content: string): string {
   return sha256(JSON.stringify({ content }));
 }
 
-/** Deterministic normalized fingerprint for one Skill package tree (sidecar excluded). */
+/** Deterministic normalized fingerprint for one Skill package tree. */
 function fingerprintSkillInput(input: unknown): string {
   return sha256(JSON.stringify(input));
 }
@@ -166,10 +136,10 @@ export async function hashWorkspaceInputs(
 ): Promise<WorkspaceInputs> {
   const fingerprints: ResolvedArtifactFingerprint[] = [];
   const readSkillPackage = options.readSkillPackage ?? skillPackageMembers;
-  // Hash Host package contents separately from dependency/inclusion semantics.
-  // Sidecar file bytes are omitted so formatting noise does not force reinstalls,
-  // but normalized dependencies and inclusion reasons must participate so Manifest
-  // reasons stay fresh when only a redundant dependency edge changes.
+  // Hash Host package contents separately from Profile selection semantics.
+  // A Profile's explicit `context` and `skills` lists and each artifact's
+  // content are the desired inputs; no dependency or inclusion-reason data
+  // exists to participate (spec #593 DEC-006).
   const resolvedArtifacts = await Promise.all(
     resolvedProfile.artifacts.map(async (resolved) => {
       if (resolved.reference.type === "context") {
@@ -180,9 +150,7 @@ export async function hashWorkspaceInputs(
         });
         return {
           content: context.content,
-          dependencies: normalizedDependencies(context.dependencies),
           id: context.id,
-          inclusion_reasons: normalizedInclusionReasons(resolved.inclusionReasons),
           type: "context" as const,
         };
       }
@@ -193,9 +161,7 @@ export async function hashWorkspaceInputs(
         reference: resolved.reference,
       });
       return {
-        dependencies: normalizedDependencies(skill.dependencies),
         id: skill.id,
-        inclusion_reasons: normalizedInclusionReasons(resolved.inclusionReasons),
         input,
         type: "skill" as const,
       };

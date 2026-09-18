@@ -49,7 +49,7 @@ import {
   type LifecycleGitInspection,
 } from "./lifecycle-git-inspection.js";
 import { requireProfile } from "./profile-selection.js";
-import { type ResolvedProfile } from "./resolve-dependencies.js";
+import { type ResolvedProfile } from "./resolve-profile.js";
 import { ENGINE_VERSION } from "./version.js";
 import { type GitWorktree, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";

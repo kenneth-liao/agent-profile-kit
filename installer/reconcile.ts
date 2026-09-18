@@ -168,10 +168,6 @@ export interface OutputConsumerEvidence {
 
 export interface DesiredResolvedArtifactPreview {
   readonly id: string;
-  readonly inclusionReasons: readonly {
-    readonly path: readonly string[];
-    readonly profile: string;
-  }[];
   readonly type: string;
 }
 
@@ -201,10 +197,10 @@ export interface ReconciliationProjectRecord {
   };
   readonly state: Omit<ReconciliationItem, "project">;
   /** The receipt's desired-input digest differs from current Workspace input
-   * (normalized dependency or inclusion-reason change) even when no generated
-   * projection changed, so no per-output fact can own the source change.
-   * Recorded only when proven by the receipt comparison at the reconciliation
-   * boundary; presentation renders it once at Project scope. */
+   * even when no generated projection changed, so no per-output fact can own
+   * the source change. Recorded only when proven by the receipt comparison at
+   * the reconciliation boundary; presentation renders it once at Project
+   * scope. */
   readonly sourceInputChanged?: true;
   readonly outputs: readonly ReconciliationProjectOutput[];
   readonly blockers: readonly ReconciliationBlocker[];
@@ -1063,10 +1059,6 @@ export async function previewReconciliation(
       project: installation.binding.project,
       resolvedArtifacts: installation.resolvedProfile.artifacts.map((artifact) => ({
         id: artifact.reference.id,
-        inclusionReasons: artifact.inclusionReasons.map((reason) => ({
-          path: reason.path.map((reference) => `${reference.type}:${reference.id}`),
-          profile: reason.profileId,
-        })),
         type: artifact.reference.type,
       })),
       setupSteps: installation.setupSteps,
@@ -1088,10 +1080,10 @@ export async function previewReconciliation(
   const desiredResults = await scheduler.run(desired.map((installation) => async () => {
     const previous = previousFor(installation, byProject);
     const id = previous?.installationId ?? newInstallationId();
-    // Receipt-proven Project input change: the digest covers normalized
-    // dependency and inclusion-reason semantics that may leave every generated
-    // projection byte-identical, so it is recorded independently of the
-    // primary-state branch and never inferred from output evidence.
+    // Receipt-proven Project input change: the digest covers the desired
+    // input shape that may leave every generated projection byte-identical,
+    // so it is recorded independently of the primary-state branch and never
+    // inferred from output evidence.
     const sourceInputChanged = previous !== undefined &&
       previous.desiredInputDigest !== installation.sourceHash ? true : undefined;
     const projectedManifest = manifestFor(installation, id);

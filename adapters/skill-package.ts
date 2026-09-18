@@ -9,9 +9,6 @@ import type {
   ProposedProjectDirectoryOutput,
 } from "./project-plan.js";
 
-/** Agent Profile Kit-only Skill sidecars are never projected into Host discovery. */
-export const SKILL_PACKAGE_SIDECAR = "agent-profile-kit.yaml";
-
 /**
  * Semantic requirement attached when a Skill disables implicit model invocation.
  * Selected Hosts must preserve this effect via Adapter capability preflight or reject.
@@ -52,8 +49,8 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 /**
  * Enumerate portable Skill package members for Host installation.
- * Preserves source file bytes and modes; omits Agent Profile Kit sidecars.
- * Host-native translation of model-invocation policy is Adapter-owned.
+ * Preserves source file bytes and modes. Host-native translation of
+ * model-invocation policy is Adapter-owned.
  */
 export async function skillPackageMembers(
   skill: Skill,
@@ -65,12 +62,6 @@ export async function skillPackageMembers(
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
       const relativePath = prefix.length === 0 ? entry.name : posix.join(prefix, entry.name);
-      if (
-        relativePath === SKILL_PACKAGE_SIDECAR ||
-        relativePath.startsWith(`${SKILL_PACKAGE_SIDECAR}/`)
-      ) {
-        continue;
-      }
       const absolutePath = join(directory, entry.name);
       const mode = (await lstat(absolutePath)).mode & 0o7777;
       if (entry.isDirectory()) {
