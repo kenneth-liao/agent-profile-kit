@@ -47,9 +47,16 @@ const temporaryDirectories: string[] = [];
 let packageArchiveCleanup = (): void => undefined;
 let cliPath = "";
 
-const MANIFEST_SNAPSHOT =
-  `file workspace.yaml 100644 ${Buffer.from(WORKSPACE_MANIFEST).toString("hex")}`;
-const REQUIRED_PARTS = ["dir context 40755", "dir profiles 40755", "dir skills 40755", MANIFEST_SNAPSHOT];
+/**
+ * Structure of one file-tree snapshot with mode bits masked (INT-3): kinds
+ * and paths only. Modes stay umask-sensitive on the runner, and the byte
+ * contract for the manifest is pinned separately against WORKSPACE_MANIFEST.
+ */
+function structureOf(tree: readonly string[]): string[] {
+  return tree.map((entry) => entry.split(" ").slice(0, 2).join(" "));
+}
+
+const REQUIRED_PARTS = ["dir context", "dir profiles", "dir skills", "file workspace.yaml"];
 
 beforeAll(async () => {
   const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-setup-pack-");
@@ -113,8 +120,9 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
     const result = await runCli(home, undefined, "init", destination);
     expectExitCode(result, 0);
 
-    expect(fileTree(destination).filter((entry) => !before.includes(entry)).sort())
+    expect(structureOf(fileTree(destination).filter((entry) => !before.includes(entry))).sort())
       .toEqual(REQUIRED_PARTS.slice().sort());
+    expect(readFileSync(join(destination, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
     expect(parse(readFileSync(configPath(home), "utf8"))).toEqual({
       schema_version: 2,
       workspace: destination,
@@ -136,8 +144,9 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
 
     const after = fileTree(destination);
     for (const entry of before) expect(after).toContain(entry);
-    expect(after.filter((entry) => !before.includes(entry)).sort())
+    expect(structureOf(after.filter((entry) => !before.includes(entry))).sort())
       .toEqual(REQUIRED_PARTS.slice().sort());
+    expect(readFileSync(join(destination, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
   });
 
   test("a Git repository receives the missing parts and Git metadata stays untouched", async () => {
@@ -155,8 +164,9 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
 
     const after = fileTree(destination);
     for (const entry of before) expect(after).toContain(entry);
-    expect(after.filter((entry) => !before.includes(entry)).sort())
+    expect(structureOf(after.filter((entry) => !before.includes(entry))).sort())
       .toEqual(REQUIRED_PARTS.slice().sort());
+    expect(readFileSync(join(destination, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
     controlledPath(home); // materialize the fixture bin before the sibling check
     expectOnlyNamedSiblingAdded(home, "repo");
   });
@@ -173,8 +183,8 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
     const result = await runCli(home, undefined, "init", destination);
     expectExitCode(result, 0);
 
-    expect(fileTree(destination).filter((entry) => !before.includes(entry)).sort()).toEqual([
-      "dir skills 40755",
+    expect(structureOf(fileTree(destination).filter((entry) => !before.includes(entry))).sort()).toEqual([
+      "dir skills",
     ]);
   });
 
@@ -290,6 +300,18 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
     expect(existsSync(configPath(home))).toBe(true); // untouched by the refusal
   });
 
+  test("a personal home-relative form (`~otheruser/…`) is refused as a relative path", async () => {
+    const home = isolatedHome();
+    controlledPath(home); // materialize the allowlist bin before the snapshot
+    const before = fileTree(home);
+
+    const result = await runCli(home, undefined, "init", "~otheruser/workspace");
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toMatch(/absolute path or\s+home-relative/i);
+    expect(fileTree(home)).toEqual(before);
+  });
+
   test("a non-directory path is reported and nothing is written", async () => {
     const home = isolatedHome();
     const filePath = join(home, "as-file");
@@ -341,6 +363,105 @@ describe("setup write transaction (unit seams)", () => {
     expect(existsSync(join(destination, "context"))).toBe(false);
     expect(existsSync(join(destination, "skills"))).toBe(false);
     expect(readFileSync(join(destination, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+    expect(existsSync(configPath(home))).toBe(false);
+  });
+
+  test("a manifest appearing between validation and the write converges on the on-disk state", async () => {
+    const home = isolatedHome();
+    const destination = join(home, "converged-manifest");
+    mkdirSync(destination);
+    writeFileSync(join(destination, "NOTES.md"), "user-owned source\n");
+
+    // Simulate the concurrent winner: the manifest exists on disk by the time
+    // the exclusive write runs, so the write loses the race with EEXIST
+    // (spec #593 #599, PROD-1).
+    const racingWrite: LocalConfigurationFileSystem = {
+      ...defaultFileSystem,
+      writeFile: async (path, data, options) => {
+        if (path === join(destination, "workspace.yaml")) {
+          await defaultFileSystem.writeFile(path, WORKSPACE_MANIFEST);
+          throw Object.assign(new Error("simulated concurrent creation"), { code: "EEXIST" });
+        }
+        return defaultFileSystem.writeFile(path, data, options);
+      },
+    };
+
+    const result = await initializeWorkspace(home, { workspace: destination, fileSystem: racingWrite });
+
+    expect(result.outcome).toBe("created");
+    expect(readFileSync(join(destination, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
+    for (const directory of ["context", "profiles", "skills"]) {
+      expect(existsSync(join(destination, directory))).toBe(true);
+    }
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(destination);
+  });
+
+  test("a losing manifest race against invalid material fails closed", async () => {
+    const home = isolatedHome();
+    const destination = join(home, "converged-invalid");
+    mkdirSync(destination);
+    writeFileSync(join(destination, "NOTES.md"), "user-owned source\n");
+
+    const invalidWinner: LocalConfigurationFileSystem = {
+      ...defaultFileSystem,
+      writeFile: async (path, data, options) => {
+        if (path === join(destination, "workspace.yaml")) {
+          await defaultFileSystem.writeFile(path, "schema_version: 99\n");
+          throw Object.assign(new Error("simulated concurrent creation"), { code: "EEXIST" });
+        }
+        return defaultFileSystem.writeFile(path, data, options);
+      },
+    };
+
+    let failure: unknown;
+    try {
+      await initializeWorkspace(home, { workspace: destination, fileSystem: invalidWinner });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(InstallerToolError);
+    expect((failure as InstallerToolError).fact.kind).toBe("init-partial-setup");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(readFileSync(join(destination, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+  });
+
+  test("an EEXIST from a concurrent creator on a part path fails closed for a non-directory", async () => {
+    const home = isolatedHome();
+    const destination = join(home, "occupied-part");
+    mkdirSync(destination);
+    writeFileSync(join(destination, "NOTES.md"), "user-owned source\n");
+
+    const fakeStats = { isDirectory: () => false } as unknown as import("node:fs").Stats;
+    const occupiedPart: LocalConfigurationFileSystem = {
+      ...defaultFileSystem,
+      mkdir: (async (
+        path: Parameters<typeof defaultFileSystem.mkdir>[0],
+        options?: Parameters<typeof defaultFileSystem.mkdir>[1],
+      ) => {
+        if (path === join(destination, "context")) {
+          throw Object.assign(new Error("simulated concurrent creation"), { code: "EEXIST" });
+        }
+        return defaultFileSystem.mkdir(path as never, options as never);
+      }) as typeof defaultFileSystem.mkdir,
+      stat: (async (path: Parameters<typeof defaultFileSystem.stat>[0]) => {
+        if (path === join(destination, "context")) return fakeStats;
+        return defaultFileSystem.stat(path);
+      }) as typeof defaultFileSystem.stat,
+    };
+
+    let failure: unknown;
+    try {
+      await initializeWorkspace(home, { workspace: destination, fileSystem: occupiedPart });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(InstallerToolError);
+    const fact = (failure as InstallerToolError).fact;
+    expect(fact.kind).toBe("init-partial-setup");
+    expect((fact as { added: readonly string[] }).added).toEqual(["workspace.yaml", "profiles"]);
+    expect(existsSync(join(destination, "context"))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
   });
 

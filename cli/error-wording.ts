@@ -714,10 +714,15 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Cannot initialize ${fact.path}: the Workspace symlink target is empty; remove the symlink and run init, or populate its target with a valid Workspace before retrying`];
     case "init-missing-parent-directory":
       return [`Cannot initialize ${fact.path}: parent directory ${fact.parent} does not exist; nothing was written`];
-    case "init-partial-setup":
-      return [fact.added.length === 0
-        ? `Cannot initialize ${fact.path}: ${fact.cause}; nothing was added`
-        : `Cannot initialize ${fact.path}: ${fact.cause}; setup added ${fact.added.join(", ")} and stopped — existing files are unchanged, and re-running init adds only the still-missing parts`];
+    case "init-partial-setup": {
+      // The provisioned folder is named by the fact's path, so it renders
+      // separately from the workspace-relative parts it contains.
+      const parts = fact.added[0] === fact.path ? fact.added.slice(1) : fact.added;
+      const wrote = fact.added.length === 0
+        ? "nothing was added"
+        : `setup ${fact.added[0] === fact.path ? "created the folder and added" : "added"} ${parts.join(", ")}`;
+      return [`Cannot initialize ${fact.path}: ${fact.cause}; ${wrote} and stopped — existing files are unchanged, and re-running init adds only the still-missing parts`];
+    }
     case "init-workspace-selection-conflict":
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "foreign-diagnostic":
@@ -909,17 +914,22 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         happened: [`Cannot initialize ${fact.path}: parent directory ${fact.parent} does not exist`],
         whatToType: [["Create the parent folder first, or choose a path whose parent exists; nothing was written."]],
       };
-    case "init-partial-setup":
+    case "init-partial-setup": {
+      const parts = fact.added[0] === fact.path ? fact.added.slice(1) : fact.added;
+      const wrote = fact.added.length === 0
+        ? ["nothing was added"]
+        : fact.added[0] === fact.path
+          ? ["setup created the folder and added ", parts.join(", ")]
+          : ["setup added ", parts.join(", ")];
       return {
-        happened: [fact.added.length === 0
-          ? `Cannot initialize ${fact.path}: ${fact.cause}`
-          : `Cannot initialize ${fact.path}: ${fact.cause}; setup added ${fact.added.join(", ")} and stopped`],
+        happened: [`Cannot initialize ${fact.path}: ${fact.cause}; `, ...wrote, " and stopped"],
         whatToType: [[
           "Existing files are unchanged and Local Configuration was not written; re-run ",
           commandPart(COMMAND_NAME, [arg("init"), arg(fact.path)]),
           " to add only the still-missing parts.",
         ]],
       };
+    }
     case "init-workspace-selection-conflict":
       return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
     case "foreign-diagnostic":

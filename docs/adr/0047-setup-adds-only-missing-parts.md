@@ -49,7 +49,17 @@ Profile could be connected (spec #593, US-002–US-003, DEC-003, DEC-011).
    path>`; ISC-26). Home-relative spellings keep recording their authored
    `~/…` form; working-directory-relative forms record the resolved absolute
    folder, so later commands from another directory select the same Workspace.
-7. **First-Profile guidance narrows to its purpose.** Because setup no longer
+7. **Completion on already-connected legacy paths is deferred.** The gate that
+   completes a manifest-present folder's missing directories is first
+   connection, so the two legacy paths that reach setup with the structure
+   already connected — legacy version-1 migration without `workspace`, and
+   zero-argument `init` with Local Configuration selecting the conventional
+   default — do not complete a partial folder. Both paths are removed by
+   #601 (DEC-001, DEC-011 legacy), and completing an already-connected
+   Workspace is connecting-again semantics owned by #607 (DEC-002); this
+   deferral is recorded instead of widening #599 into #601's scope.
+   First-connection and explicit-path setup always complete the folder.
+8. **First-Profile guidance narrows to its purpose.** Because setup no longer
    scaffolds example material, the guided offer fires only for a destination
    that already has material but no Profile (DEC-003); the planned-example-
    scaffold machinery is removed. Connecting-again behavior (previewing and

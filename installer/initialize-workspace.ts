@@ -93,10 +93,13 @@ export function errorMessage(error: unknown): string {
  * their authored `~/…` spelling (cwd-stable by construction), while every
  * working-directory-relative form — including `.` — is resolved to the named
  * absolute folder, because a relative spelling would select a different
- * folder when later commands run from another directory.
+ * folder when later commands run from another directory. Any other `~…`
+ * form (for example `~otheruser/x`) is passed through untouched so the
+ * shared path-shape boundary rejects it as a relative path instead of
+ * resolving it to a literal directory under the working directory.
  */
 function normalizeAuthoredWorkspace(value: string): string {
-  return value === "~" || value.startsWith("~/") ? value : resolve(value);
+  return value.startsWith("~") ? value : resolve(value);
 }
 
 async function assertWorkspaceSelectionPath(
@@ -223,24 +226,52 @@ async function prepareWorkspaceDestination(
   const manifestPresent = await validateWouldBeWorkspace(destination);
 
   const added: string[] = [];
+  /**
+   * Exclusive creation for one directory entry (spec #593 #599, PROD-1):
+   * an EEXIST from a concurrent creator converges only when the winner is a
+   * real directory; a file or symlink at the path fails closed instead of
+   * being silently adopted or written through.
+   */
+  const ensureDirectory = async (path: string): Promise<boolean> => {
+    try {
+      await options.fileSystem.mkdir(path);
+      return true;
+    } catch (error) {
+      if (!hasErrorCode(error, "EEXIST")) throw error;
+      let stats;
+      try {
+        stats = await options.fileSystem.stat(path);
+      } catch (statError) {
+        throw statError;
+      }
+      if (!stats.isDirectory()) throw error;
+      return false;
+    }
+  };
   const commit = async (): Promise<void> => {
     if (folderCreated) {
-      await options.fileSystem.mkdir(destination);
-      added.push(destination);
+      if (await ensureDirectory(destination)) added.push(destination);
     }
     if (!manifestPresent) {
-      await options.fileSystem.writeFile(manifestPath, WORKSPACE_MANIFEST);
-      added.push(WORKSPACE_MANIFEST_FILE);
+      let manifestWritten = true;
+      try {
+        await options.fileSystem.writeFile(manifestPath, WORKSPACE_MANIFEST, { flag: "wx" });
+      } catch (error) {
+        if (!hasErrorCode(error, "EEXIST")) throw error;
+        // A manifest appeared between validation and the write: converge on
+        // the on-disk state, failing closed when it is not a valid Workspace.
+        manifestWritten = false;
+        await ingestWorkspace(destination);
+      }
+      if (manifestWritten) added.push(WORKSPACE_MANIFEST_FILE);
     }
     // A folder that already satisfies the structure is never re-scaffolded by
     // a re-init; only the first connection completes a manifest-present
     // folder's missing directories (connecting again is #607's).
     if (!manifestPresent || options.ensureConfiguration) {
       for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
-        if ((await lstatEntry(join(destination, directory))) === undefined) {
-          await options.fileSystem.mkdir(join(destination, directory));
-          added.push(directory);
-        }
+        const created = await ensureDirectory(join(destination, directory));
+        if (created) added.push(directory);
       }
     }
   };
