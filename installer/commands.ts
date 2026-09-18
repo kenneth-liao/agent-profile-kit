@@ -35,9 +35,9 @@ import {
   withReceipts,
 } from "./ownership-state.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
-import type { ConfiguredPathOrigin } from "./tool-errors.js";
+import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
-import { ingestWorkspace } from "./ingest-workspace.js";
+import { collectWorkspaceViolations } from "./ingest-workspace.js";
 
 export interface ValidationResult {
   readonly bindings: number;
@@ -84,19 +84,33 @@ function planningInstrumentation(
     : { planningInstrumentation: instrumentation.planning };
 }
 
-/** The read-only validation outcome for one explicitly authored Workspace folder. */
-export interface WorkspaceFolderValidation {
-  readonly path: string;
-  readonly contexts: readonly string[];
-  readonly profiles: readonly string[];
-  readonly skills: readonly string[];
-}
+/**
+ * The read-only validation outcome for one explicitly authored Workspace
+ * folder (spec #593 DEC-009, #604): a valid Workspace carries its found
+ * artifacts; an invalid one carries the complete collected violation list —
+ * an invalid Workspace is a result of validation, not an exceptional failure.
+ */
+export type WorkspaceFolderValidation =
+  | {
+      readonly outcome: "valid";
+      readonly path: string;
+      readonly contexts: readonly string[];
+      readonly profiles: readonly string[];
+      readonly skills: readonly string[];
+    }
+  | {
+      readonly outcome: "invalid";
+      readonly path: string;
+      readonly violations: readonly WorkspaceViolation[];
+    };
 
 /**
  * Validate the Workspace folder at an explicitly authored path without reading
  * or writing Local Configuration (#595): any folder, connected or not. The
  * shared expansion rule makes every relative form, including `.`, name the
  * folder the user ran from; the canonical realpath is the validated identity.
+ * Path-shape failures (an absent directory, a dangling symlink) remain
+ * thrown tool errors; contract violations are a result.
  */
 export async function validateWorkspaceFolder(
   home: string,
@@ -105,13 +119,17 @@ export async function validateWorkspaceFolder(
   const origin: ConfiguredPathOrigin = { source: "validate" };
   const expanded = expandWorkspaceArgument(authored, home, origin);
   const canonical = await requireExistingDirectory(expanded, authored, origin, "workspace");
-  const workspace = await ingestWorkspace(canonical);
-  return {
-    path: canonical,
-    contexts: [...workspace.contexts.keys()].sort(),
-    profiles: [...workspace.profiles.keys()].sort(),
-    skills: [...workspace.skills.keys()].sort(),
-  };
+  const { violations, workspace } = await collectWorkspaceViolations(canonical);
+  if (workspace !== undefined) {
+    return {
+      outcome: "valid",
+      path: canonical,
+      contexts: [...workspace.contexts.keys()].sort(),
+      profiles: [...workspace.profiles.keys()].sort(),
+      skills: [...workspace.skills.keys()].sort(),
+    };
+  }
+  return { outcome: "invalid", path: canonical, violations };
 }
 
 export async function validateApplication(

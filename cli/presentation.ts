@@ -8,10 +8,22 @@ import {
   describeOwnershipFailure,
   describeStateReadFailure,
   humanBlockerWording,
+  substituteInline,
 } from "./blocker-wording.js";
 import { formatInstallerToolError, initLocationRemedies } from "./error-wording.js";
 import { diagnosticDocument } from "./diagnostics.js";
-import type { InstallerToolErrorFact } from "../installer/tool-errors.js";
+import {
+  workspaceViolationToken,
+  workspaceViolationPath,
+  type InstallerToolErrorFact,
+  type WorkspaceViolation,
+} from "../installer/tool-errors.js";
+import type { WorkspaceFolderValidation } from "../installer/commands.js";
+import {
+  workspaceContractRecovery,
+  workspaceViolationMessage,
+  workspaceViolationsDiagnostic,
+} from "./error-wording.js";
 import {
   STATE_READ_FAILURE_CASES,
   type StateReadFailureFact,
@@ -134,7 +146,7 @@ import {
 } from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
-import type { ValidationResult, WorkspaceFolderValidation } from "../installer/commands.js";
+import type { ValidationResult } from "../installer/commands.js";
 import type {
   UninstallApplicationResult,
   UninstallCompletedProject,
@@ -1506,7 +1518,7 @@ export function validationResultDocument(result: ValidationResult): Presentation
  * connected run can report.
  */
 export function workspaceValidationDocument(
-  result: WorkspaceFolderValidation,
+  result: Extract<WorkspaceFolderValidation, { readonly outcome: "valid" }>,
   authored: string,
 ): PresentationDocument {
   const countClause = `${plural(result.profiles.length, "Profile")}, ${plural(
@@ -1558,6 +1570,104 @@ export function workspaceValidationDocument(
       },
     },
   ];
+}
+
+/**
+ * The human failure report for one invalid Workspace folder (spec #593
+ * DEC-009, #604): the complete collected violation list through the shared
+ * aggregate diagnostic, so the report and every Workspace-invalid lifecycle
+ * diagnostic present the same list through the same wording homes.
+ */
+export function workspaceViolationsDocument(
+  workspace: string,
+  violations: readonly WorkspaceViolation[],
+): PresentationDocument {
+  const diagnostic = workspaceViolationsDiagnostic({ kind: "workspace-violations", workspace, violations });
+  return diagnosticDocument({
+    ...diagnostic,
+    happened: substituteInline(diagnostic.happened),
+    ...(diagnostic.why === undefined ? {} : { why: diagnostic.why.map(substituteInline) }),
+    ...(diagnostic.whatToType === undefined
+      ? {}
+      : { whatToType: diagnostic.whatToType.map(substituteInline) }),
+  });
+}
+
+/** The machine payload family for `validate <workspace>` (spec #593 #604). */
+interface WorkspaceValidationMachinePayloadBase {
+  readonly schemaVersion: 1;
+  readonly command: "validate";
+}
+
+interface WorkspaceValidationMachineErrorPayload extends WorkspaceValidationMachinePayloadBase {
+  readonly outcome: "error";
+  readonly error: string;
+}
+
+interface WorkspaceValidationMachineInvalidPayload extends WorkspaceValidationMachinePayloadBase {
+  readonly outcome: "invalid";
+  readonly workspace: string;
+  readonly violations: readonly {
+    readonly rule: string;
+    readonly path: string;
+    /** The presentation-owned wording the human report shows, verbatim. */
+    readonly message: string;
+  }[];
+}
+
+interface WorkspaceValidationMachineSuccessPayload extends WorkspaceValidationMachinePayloadBase {
+  readonly outcome: "success";
+  readonly workspace: string;
+  readonly profiles: readonly string[];
+  readonly contexts: readonly string[];
+  readonly skills: readonly string[];
+}
+
+export type WorkspaceValidationMachinePayload =
+  | WorkspaceValidationMachineErrorPayload
+  | WorkspaceValidationMachineInvalidPayload
+  | WorkspaceValidationMachineSuccessPayload;
+
+function serializeWorkspaceValidationMachinePayload(payload: WorkspaceValidationMachinePayload): string {
+  return `${JSON.stringify(payload, null, 2)}\n`;
+}
+
+/** The machine JSON for one `validate <workspace>` run outcome (#604). */
+export function formatWorkspaceValidationJson(
+  result: WorkspaceFolderValidation,
+): string {
+  if (result.outcome === "valid") {
+    return serializeWorkspaceValidationMachinePayload({
+      schemaVersion: 1,
+      command: "validate",
+      outcome: "success",
+      workspace: result.path,
+      profiles: result.profiles,
+      contexts: result.contexts,
+      skills: result.skills,
+    });
+  }
+  return serializeWorkspaceValidationMachinePayload({
+    schemaVersion: 1,
+    command: "validate",
+    outcome: "invalid",
+    workspace: result.path,
+    violations: result.violations.map((violation) => ({
+      rule: workspaceViolationToken(violation),
+      path: workspaceViolationPath(violation),
+      message: workspaceViolationMessage(violation),
+    })),
+  });
+}
+
+/** The machine error payload for one hard `validate <workspace>` failure (#604). */
+export function formatWorkspaceValidationErrorJson(message: string): string {
+  return serializeWorkspaceValidationMachinePayload({
+    schemaVersion: 1,
+    command: "validate",
+    outcome: "error",
+    error: message,
+  });
 }
 
 /** The interactive general-confirmation question for uninstall (DEC-004). */

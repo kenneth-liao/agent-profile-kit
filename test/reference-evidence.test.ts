@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { ingestionFactOf, singleViolation } from "./support/workspace-violations.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import type { WorkspaceIngestionErrorFact } from "../installer/tool-errors.js";
 
@@ -17,7 +18,7 @@ function scaffoldWorkspace(home: string): string {
   mkdirSync(join(workspace, "context"), { recursive: true });
   mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
-  writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: []\nskills: []\n");
+  writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: [team-rules]\nskills: [deploy]\n");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "\n# Team rules\n",
@@ -30,13 +31,7 @@ function scaffoldWorkspace(home: string): string {
 }
 
 async function ingestionFact(workspace: string): Promise<WorkspaceIngestionErrorFact> {
-  try {
-    await ingestWorkspace(workspace);
-  } catch (error) {
-    if (error instanceof InstallerToolError) return error.fact as WorkspaceIngestionErrorFact;
-    throw error;
-  }
-  throw new Error("expected ingestWorkspace to reject the workspace");
+  return ingestionFactOf(await singleViolation(workspace));
 }
 
 describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {

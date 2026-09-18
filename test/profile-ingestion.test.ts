@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { singleViolation, violationEvidence } from "./support/workspace-violations.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 
@@ -39,16 +40,7 @@ function writeMinimalContext(workspace: string, id: string): void {
 }
 
 async function ingestionFact(workspace: string): Promise<Record<string, unknown>> {
-  try {
-    await ingestWorkspace(workspace);
-  } catch (error) {
-    if (error instanceof InstallerToolError) return error.fact as Record<string, unknown>;
-    if (error instanceof SchemaRejectionError) {
-      return error.reason.detail as Record<string, unknown>;
-    }
-    throw error;
-  }
-  throw new Error("expected ingestWorkspace to reject the workspace");
+  return violationEvidence(await singleViolation(workspace));
 }
 
 async function ingestionMap(workspace: string): Promise<ReadonlyMap<string, string>> {

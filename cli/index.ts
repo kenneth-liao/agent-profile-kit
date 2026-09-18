@@ -59,6 +59,9 @@ import {
   type LifecycleCommand,
   validationResultDocument,
   workspaceValidationDocument,
+  workspaceViolationsDocument,
+  formatWorkspaceValidationJson,
+  formatWorkspaceValidationErrorJson,
 } from "./presentation.js";
 import { runApplyCommand } from "./apply-command.js";
 import { runDetailsCommand } from "./details-command.js";
@@ -634,16 +637,33 @@ function parseNoArguments(command: string, arguments_: readonly string[]): { rea
   return { valid: true };
 }
 
-function parseValidateArguments(arguments_: readonly string[]): { readonly workspace?: string } {
-  if (arguments_.length === 0) return {};
-  if (arguments_.length > 1) {
+function parseValidateArguments(
+  arguments_: readonly string[],
+): { readonly json: boolean; readonly workspace?: string } {
+  const positional: string[] = [];
+  let json = false;
+  for (const argument of arguments_) {
+    if (argument === "--json") {
+      json = true;
+      continue;
+    }
+    positional.push(argument);
+  }
+  if (positional.length > 1) {
     throw new Error("validate accepts at most one Workspace path");
   }
-  const workspace = positionalArgument("validate", "a Workspace path", arguments_[0]!);
+  const workspace = positional.length === 1
+    ? positionalArgument("validate", "a Workspace path", positional[0]!)
+    : undefined;
   if (workspace === "") {
     throw new Error("validate requires a Workspace path");
   }
-  return { workspace };
+  // The JSON payload family publishes Workspace outcomes (#604); the
+  // application route has no Workspace result to serialize.
+  if (json && workspace === undefined) {
+    throw new Error("validate --json requires a Workspace path");
+  }
+  return { json, ...(workspace === undefined ? {} : { workspace }) };
 }
 
 function parseInfoArguments(arguments_: readonly string[]): { readonly json: boolean } {
@@ -1096,13 +1116,38 @@ async function main(): Promise<void> {
       writeHumanDocument(process.stdout, validationResultDocument(result), stdoutPresentationContext);
       return;
     }
-    const result = await validateWorkspaceFolder(home, parsed.workspace);
-    writeHumanDocument(
-      process.stdout,
-      workspaceValidationDocument(result, parsed.workspace),
-      stdoutPresentationContext,
-    );
-    return;
+    try {
+      const result = await validateWorkspaceFolder(home, parsed.workspace);
+      if (parsed.json) {
+        process.stdout.write(formatWorkspaceValidationJson(result));
+      } else if (result.outcome === "valid") {
+        writeHumanDocument(
+          process.stdout,
+          workspaceValidationDocument(result, parsed.workspace),
+          stdoutPresentationContext,
+        );
+      } else {
+        writeHumanDocument(
+          process.stderr,
+          workspaceViolationsDocument(result.path, result.violations),
+          stderrPresentationContext,
+        );
+      }
+      if (result.outcome === "invalid") process.exitCode = 1;
+      return;
+    } catch (error) {
+      if (parsed.json) {
+        process.stdout.write(formatWorkspaceValidationErrorJson(formatError(error)));
+      } else {
+        writeHumanDocument(
+          process.stderr,
+          errorDiagnosticDocument(error),
+          stderrPresentationContext,
+        );
+      }
+      process.exitCode = 1;
+      return;
+    }
   }
   if (arguments_.length >= 1 && arguments_[0] === "info") {
     const parsed = parseOrExit("info", () => parseInfoArguments(arguments_.slice(1)));

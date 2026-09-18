@@ -405,6 +405,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       errorDiagnosticDocument(new InstallerToolError({
         kind: "profile-without-artifacts",
         profile: name,
+        file: `profiles/${name}.yaml`,
         availableContexts: [...preview.contexts],
         availableSkills: [...preview.skills],
       })),

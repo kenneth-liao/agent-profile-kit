@@ -16,8 +16,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
-import { InstallerToolError, type InstallerToolErrorFact } from "../installer/tool-errors.js";
+import { InstallerToolError, type WorkspaceViolation, workspaceViolationToken } from "../installer/tool-errors.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
+import { collectViolations, violationTokens } from "./support/workspace-violations.js";
 import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import { controlledEnvironment, controlledPath, controlledToolPath } from "./support/controlled-environment.js";
 import { expectExitCode, runProcess, TEST_CHILD_DEADLINE_MS } from "../process/process-executor.js";
@@ -156,33 +157,39 @@ interface ReceiptRecord {
   }[];
 }
 
-async function ingestionFact(workspace: string): Promise<InstallerToolErrorFact | { schema: string; detail: Record<string, unknown> }> {
-  try {
-    await ingestWorkspace(workspace);
-  } catch (error) {
-    if (error instanceof InstallerToolError) return error.fact;
-    if (error instanceof SchemaRejectionError) {
-      return { schema: error.reason.schema, detail: error.reason.detail as Record<string, unknown> };
-    }
-    throw error;
-  }
-  throw new Error("expected ingestWorkspace to reject the 0.204.0 Workspace");
+/**
+ * Collect the 0.204.0 Workspace's violations in one run; the fixture tests
+ * assert the complete collected list (spec #593 DEC-009, #604).
+ */
+function fixtureViolations(workspace: string): Promise<readonly WorkspaceViolation[]> {
+  return collectViolations(workspace);
+}
+
+/** The workspace-relative rule+path identity of one collected violation. */
+function violationIdentity(violation: WorkspaceViolation): string {
+  const fact = violation.via === "ingestion" ? violation.fact : violation.detail;
+  const path = "path" in fact ? fact.path : "file" in fact ? fact.file : "name" in fact ? fact.name : "";
+  return `${workspaceViolationToken(violation)} ${path}`;
 }
 
 describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", () => {
-  test("the untouched 0.204.0 Workspace fixture first reports the Profile id field with its path and fix", async () => {
-    // Profiles ingest before Skills, so the first reported violation of the
-    // raw fixture is the authored `id` field (spec #593 DEC-014, #598).
+  test("the untouched 0.204.0 Workspace fixture reports every required change in one run", async () => {
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
-    expect(await ingestionFact(workspace)).toEqual({
-      schema: "workspace-artifact",
-      detail: { case: "profile-id-field", path: "profiles/coding.yaml", id: "coding" },
-    });
+    // One run names every required change: both authored `id` fields and the
+    // leftover Skill sidecar (spec #593 DEC-013, DEC-009). The Profile
+    // reference change is reported on the next run: a Profile carrying an
+    // `id` field is one violation per file, so its references are checked
+    // after the id fix.
+    expect((await fixtureViolations(workspace)).map(violationIdentity).sort()).toEqual([
+      "leftover-skill-sidecar skills/review-pr/agent-profile-kit.yaml",
+      "workspace-artifact/profile-id-field profiles/coding.yaml",
+      "workspace-artifact/profile-id-field profiles/example.yaml",
+    ]);
   });
 
-  test("after removing the Profile id fields, the fixture reports the leftover Skill sidecar with its path and fix", async () => {
+  test("after removing the Profile id fields, one run names the sidecar and the reference changes", async () => {
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
@@ -192,18 +199,21 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
       const file = join(workspace, "profiles", profile);
       writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
     }
-    expect(await ingestionFact(workspace)).toEqual({
-      kind: "leftover-skill-sidecar",
-      file: "skills/review-pr/agent-profile-kit.yaml",
-    });
+    const violations = await fixtureViolations(workspace);
+    expect(violations.map(violationIdentity).sort()).toEqual([
+      "leftover-skill-sidecar skills/review-pr/agent-profile-kit.yaml",
+      "missing-context-reference profiles/example.yaml",
+    ]);
 
     const validate = await runCli(home, "validate", workspace);
     expectExitCode(validate, 1);
     const output = validate.stderr + validate.stdout;
     const normalized = output.replace(/\s+/g, " ");
+    expect(normalized).toContain("2 violations found");
     expect(normalized).toContain("skills/review-pr/agent-profile-kit.yaml");
     expect(normalized).toContain("'context' and 'skills'");
     expect(normalized).toContain("delete the file");
+    expect(normalized).toContain("apkit guide --contract");
   });
 
   test("after the Profile and sidecar fixes, the divergent frontmatter id is the only remaining change, naming the file rename", async () => {
@@ -218,13 +228,15 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     // The Profile references the authored frontmatter id, which no longer
     // exists: the fix is the file rename that keeps that ID (path identity,
     // spec #593 DEC-004, #600), never a silent rebinding.
-    expect(await ingestionFact(workspace)).toEqual({
-      kind: "missing-context-reference",
-      profile: "example",
-      contextId: "legacy-rules",
-      file: "profiles/example.yaml",
-      available: ["example-context", "extra-rules", "legacy-name", "team-rules"],
-    });
+    const violations = await fixtureViolations(workspace);
+    expect(violations.map(violationIdentity)).toEqual(["missing-context-reference profiles/example.yaml"]);
+    const fact = violations[0]!;
+    if (fact.via !== "ingestion" || fact.fact.kind !== "missing-context-reference") {
+      throw new Error("expected the missing-context-reference fact");
+    }
+    expect(fact.fact.profile).toBe("example");
+    expect(fact.fact.contextId).toBe("legacy-rules");
+    expect(fact.fact.available).toEqual(["example-context", "extra-rules", "legacy-name", "team-rules"]);
 
     renameSync(join(workspace, "context", "legacy-name.md"), join(workspace, "context", "legacy-rules.md"));
     const ingested = await ingestWorkspace(workspace);
@@ -239,6 +251,78 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     expect(ingested.contexts.get("legacy-rules")!.content).toBe(
       "---\nid: legacy-rules\n---\nLegacy rules body.\n",
     );
+  });
+
+  test("the realistic-scale 0.204.0 fixture names every required change in one run (TEST-010, ISC-46)", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "workspace");
+    copyWithToken(join(FIXTURES, "workspace-realistic"), workspace, {});
+
+    // Stage 1 — the raw 0.204.0-era source: every Profile's authored `id`
+    // field, every leftover sidecar, and both leftover invocation-metadata
+    // keys, each named with its path.
+    const stage1 = await fixtureViolations(workspace);
+    expect(stage1.map(violationIdentity).sort()).toEqual([
+      "leftover-skill-sidecar skills/group-a/skill-03/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-a/skill-04/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-11/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-12/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-13/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-14/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-15/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-16/agent-profile-kit.yaml",
+      "leftover-skill-sidecar skills/group-c/skill-17/agent-profile-kit.yaml",
+      "workspace-artifact/leftover-model-invocation-metadata skills/group-c/skill-09/SKILL.md",
+      "workspace-artifact/leftover-model-invocation-metadata skills/group-c/skill-20/SKILL.md",
+      ...["profile-01", "profile-02", "profile-03", "profile-04", "profile-05"].map(
+        (profile) => `workspace-artifact/profile-id-field profiles/${profile}.yaml`,
+      ),
+    ].sort());
+
+    // Stage 2, after removing the authored id fields (each matched its file
+    // name, so every Profile ID that bindings reference is kept): one run
+    // names all 40 remaining changes — every old Context ID that must become
+    // its path ID, with the suggested path, plus the sidecars and metadata
+    // keys with their replacements.
+    for (const profile of ["profile-01", "profile-02", "profile-03", "profile-04", "profile-05"]) {
+      const file = join(workspace, "profiles", `${profile}.yaml`);
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
+    }
+    const stage2 = await fixtureViolations(workspace);
+    expect(violationTokens(stage2).filter((token) => token === "missing-context-reference")).toHaveLength(29);
+    expect(violationTokens(stage2).filter((token) => token === "leftover-skill-sidecar")).toHaveLength(9);
+    expect(violationTokens(stage2).filter((token) => token === "workspace-artifact/leftover-model-invocation-metadata")).toHaveLength(2);
+    for (const violation of stage2) {
+      const evidence = violation.via === "ingestion" ? violation.fact : violation.detail;
+      if (!("contextId" in evidence) || !("available" in evidence)) continue;
+      const suggestion = evidence.available.find((id) =>
+        id.slice(id.lastIndexOf("/") + 1) === evidence.contextId,
+      );
+      expect(suggestion, `${evidence.contextId} in ${evidence.file}`).toBeDefined();
+    }
+
+    // Applying the named fixes exactly — path IDs into the Profiles, delete
+    // the sidecars, move the invocation policy to the standard field — leaves
+    // a valid Workspace, proving the change list was complete (ISC-46).
+    for (const violation of stage2) {
+      const evidence = violation.via === "ingestion" ? violation.fact : violation.detail;
+      if ("contextId" in evidence && "available" in evidence) {
+        const suggested = evidence.available.find(
+          (id) => id.slice(id.lastIndexOf("/") + 1) === evidence.contextId,
+        )!;
+        const file = join(workspace, evidence.file!);
+        writeFileSync(
+          file,
+          readFileSync(file, "utf8").replace(new RegExp(`^  - ${evidence.contextId}$`, "m"), `  - ${suggested}`),
+        );
+      } else if ("file" in evidence && evidence.file!.endsWith("agent-profile-kit.yaml")) {
+        rmSync(join(workspace, evidence.file!));
+      } else if ("path" in evidence && String(evidence.path).endsWith("SKILL.md")) {
+        const file = join(workspace, evidence.path);
+        writeFileSync(file, readFileSync(file, "utf8").replace(/^metadata:\n  agent-profile-kit\.model-invocation: disabled\n/m, ""));
+      }
+    }
+    await expect(ingestWorkspace(workspace)).resolves.toBeDefined();
   });
 
   test("update completes safely on 0.204.0 Installation State and installed output", async () => {

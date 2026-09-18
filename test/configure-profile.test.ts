@@ -369,13 +369,17 @@ describe("configureProfileMembership", () => {
       writeFileSync(nestedFile, "context:\n  - example-context\nskills: []\n");
 
       // Profiles live directly in profiles/: the nested file is one typed
-      // violation naming its path, so configure can never target it.
+      // violation naming its path, carried by the collected aggregate (#604),
+      // so configure can never target it.
       await expect(configureProfileMembership({
         home,
         profile: "nested",
         skills: ["review-pr"],
       })).rejects.toMatchObject({
-        fact: { kind: "nested-profile", file: "profiles/team/nested.yaml" },
+        fact: {
+          kind: "workspace-violations",
+          violations: [{ via: "ingestion", fact: { kind: "nested-profile", file: "profiles/team/nested.yaml" } }],
+        },
       });
       expect(readFileSync(nestedFile, "utf8")).toBe("context:\n  - example-context\nskills: []\n");
     } finally {

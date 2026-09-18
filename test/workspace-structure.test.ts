@@ -14,12 +14,13 @@ import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { collectViolations, violationTokens } from "./support/workspace-violations.js";
 import {
   validateWorkspaceStructure,
   WORKSPACE_ARTIFACT_DIRECTORIES,
 } from "../installer/workspace.js";
 import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
-import { installerErrorSentence } from "../cli/error-wording.js";
+import { formatWorkspaceArtifactError, installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
 
@@ -155,12 +156,11 @@ describe("optional Workspace scaffolding after initialization", () => {
       "context: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const failure = await ingestWorkspace(workspacePath(home)).then(
-      () => undefined,
-      (error) => error as InstallerAuthoredError,
-    );
-    expect(failure).toBeInstanceOf(Object);
-    expect(rejectionSentence(failure)).toBe(
+    const violations = await collectViolations(workspacePath(home));
+    expect(violationTokens(violations)).toEqual(["workspace-artifact/obsolete-fields"]);
+    const detail = violations[0]!;
+    if (detail.via !== "artifact") throw new Error("expected the artifact rejection");
+    expect(formatWorkspaceArtifactError(detail.detail)).toBe(
       "Profile profiles/legacy.yaml no longer supports fields: agents, hooks, tools. Remove these obsolete Profile fields; earlier releases allowed them only as empty placeholders",
     );
   });
@@ -174,14 +174,18 @@ describe("optional Workspace scaffolding after initialization", () => {
     // assumption A1) or an invalid path segment — both still fail at the
     // ingestion boundary, each with its own typed rule.
     writeFileSync(join(path, "context", "broken.md"), "");
-    await expect(ingestWorkspace(workspacePath(home))).rejects.toThrow(/empty-content/);
+    expect(violationTokens(await collectViolations(workspacePath(home)))).toEqual([
+      "workspace-artifact/empty-content",
+    ]);
 
     const segmentHome = isolatedHome();
     const segmentPath = writeManifestOnlyWorkspace(segmentHome);
     mkdirSync(join(segmentPath, "context"), { recursive: true });
     mkdirSync(join(segmentPath, "context", "Bad_Segment"));
     writeFileSync(join(segmentPath, "context", "Bad_Segment", "rules.md"), "Body.\n");
-    await expect(ingestWorkspace(workspacePath(segmentHome))).rejects.toThrow(/context-module-file-name/);
+    expect(violationTokens(await collectViolations(workspacePath(segmentHome)))).toEqual([
+      "workspace-artifact/context-module-file-name",
+    ]);
   });
 
   test("a present artifact path that is not a directory is a structural error", async () => {

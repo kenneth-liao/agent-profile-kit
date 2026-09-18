@@ -1,7 +1,9 @@
 import { MissingProfileError } from "./profile-selection.js";
+import { WORKSPACE_MANIFEST_FILE } from "../schemas/workspace-manifest.js";
 import {
   SchemaRejectionError,
   type SchemaRejectionReason,
+  type WorkspaceArtifactRejectionReason,
   type WorkspaceManifestRejectionReason,
 } from "../schemas/schema-rejections.js";
 
@@ -79,6 +81,8 @@ export type WorkspaceIngestionErrorFact =
   | {
       readonly kind: "profile-without-artifacts";
       readonly profile: string;
+      /** Workspace-relative path of the Profile file (#604, ISC-42.1). */
+      readonly file: string;
       /** Sorted available Context Module names, as selection guidance. */
       readonly availableContexts?: readonly string[];
       /** Sorted available Skill names, as selection guidance. */
@@ -124,6 +128,69 @@ export type WorkspaceIngestionErrorFact =
 
 /** Workspace ingestion plus the manifest rejections it composes. */
 export type WorkspaceErrorFact = WorkspaceIngestionErrorFact | WorkspaceManifestRejectionReason;
+
+/**
+ * One collected Workspace violation (spec #593 DEC-009, #604): the typed fact
+ * exactly as the catching parser raised it, tagged by its schema family. The
+ * tag keeps the rule token unambiguous — manifest and artifact rejection
+ * cases overlap textually (`invalid-yaml` exists in both families).
+ */
+export type WorkspaceViolation =
+  | { readonly via: "ingestion"; readonly fact: WorkspaceIngestionErrorFact }
+  | { readonly via: "manifest"; readonly detail: WorkspaceManifestRejectionReason }
+  | { readonly via: "artifact"; readonly detail: WorkspaceArtifactRejectionReason };
+
+/**
+ * The rule token of one collected violation: the ingestion fact's kind, or
+ * the `schema/case` token of a portable-schema rejection. One home shared by
+ * machine JSON and the contract-execution tests, so the token space cannot
+ * drift between them.
+ */
+export function workspaceViolationToken(violation: WorkspaceViolation): string {
+  switch (violation.via) {
+    case "ingestion":
+      return violation.fact.kind;
+    case "manifest":
+      return `workspace-manifest/${violation.detail.case}`;
+    case "artifact":
+      return `workspace-artifact/${violation.detail.case}`;
+  }
+}
+
+/**
+ * The Workspace-relative locator of one collected violation's offending file:
+ * the artifact file, the Profile file carrying the reference, the retired
+ * sidecar, or the Manifest itself for facts whose subject is the root or a
+ * category (a missing Manifest is located at `workspace.yaml`). One home so
+ * machine JSON cannot name a different file than the human report.
+ */
+export function workspaceViolationPath(violation: WorkspaceViolation): string {
+  switch (violation.via) {
+    case "ingestion": {
+      const fact = violation.fact;
+      if ("file" in fact) return fact.file;
+      if ("path" in fact) return fact.path;
+      if ("name" in fact) return fact.name;
+      return WORKSPACE_MANIFEST_FILE;
+    }
+    case "manifest":
+      return WORKSPACE_MANIFEST_FILE;
+    case "artifact":
+      return violation.detail.path;
+  }
+}
+
+/**
+ * Every Workspace violation found in one ingestion run (spec #593 DEC-009,
+ * #604). Validation collects before reporting, so a rejecting Workspace is
+ * carried by this one aggregate fact instead of the first problem; each
+ * entry renders through its existing per-kind sentence home.
+ */
+export type WorkspaceViolationsFact = {
+  readonly kind: "workspace-violations";
+  readonly workspace: string;
+  readonly violations: readonly WorkspaceViolation[];
+};
 
 /**
  * The artifact kinds an authoring command can create, named by their display
@@ -275,7 +342,8 @@ export type InstallerToolErrorFact =
       readonly path: string;
     }
   | ConfiguredPathErrorFact
-  | WorkspaceIngestionErrorFact;
+  | WorkspaceIngestionErrorFact
+  | WorkspaceViolationsFact;
 
 /**
  * Typed errors the Installer authors. Presentation renders each through its

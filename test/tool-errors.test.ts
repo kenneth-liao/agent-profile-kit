@@ -5,7 +5,7 @@ import { join } from "node:path";
 
 import { bindProject } from "../installer/bind-project.js";
 import { ingestApplicationModelFromSource } from "../installer/local-configuration.js";
-import { ingestWorkspace } from "../installer/ingest-workspace.js";
+import { collectViolations, ingestionFactOf, violationTokens } from "./support/workspace-violations.js";
 import { expandConfiguredPath, requireExistingDirectory } from "../installer/local-configuration.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { installTemporaryProfile, removeTemporaryProfile } from "../installer/temporary-installation.js";
@@ -245,10 +245,10 @@ describe("typed Installer tool errors", () => {
         join(workspace, "profiles", "broken.yaml"),
         "context:\n  - no-such-context\nskills: []\n",
       );
-      const failure = await rejection(() => ingestWorkspace(workspace));
-      expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("missing-context-reference");
-      expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
+      const violations = await collectViolations(workspace);
+      expect(violationTokens(violations)).toEqual(["missing-context-reference"]);
+      const fact = ingestionFactOf(violations[0]!);
+      expect(flatInlineText(formatInstallerToolError(fact))).toBe(
         "Profile 'broken' in profiles/broken.yaml selects missing Context Module 'no-such-context'. " +
           "Restore the Context Module, or remove or update Profile 'broken'. " +
           "Available Context Modules: team-rules",

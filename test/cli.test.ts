@@ -792,12 +792,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("Profile 'example' in profiles/example.yaml");
-    expect(result.stderr).toContain("missing Context");
-    expect(result.stderr).toContain("'example-context'");
-    expect(result.stderr).toContain("Restore the Context Module, or remove or update Profile 'example'");
-    expect(result.stderr).toContain("No Context Modules exist in the Workspace");
-    expect(result.stderr).toContain("apkit validate");
+    const report = humanText(result.stderr);
+    expect(report).toContain("1 violation found");
+    expect(report).toContain("Profile 'example' in profiles/example.yaml");
+    expect(report).toContain("missing Context");
+    expect(report).toContain("'example-context'");
+    expect(report).toContain("Restore the Context Module, or remove or update Profile 'example'");
+    expect(report).toContain("No Context Modules exist in the Workspace");
+    expect(report).toContain("apkit validate");
   });
 
   test("validate reports a nested Profile file with its path and fix (#598)", async () => {
@@ -813,9 +815,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("profiles/archive/old-work.yaml");
-    expect(result.stderr).toContain("nested folder");
-    expect(result.stderr).toContain("profiles/old-work.yaml");
+    const report = humanText(result.stderr);
+    expect(report).toContain("profiles/archive/old-work.yaml");
+    expect(report).toContain("nested folder");
+    expect(report).toContain("profiles/old-work.yaml");
   });
 
   test("validate suggests the nearest name for a typo'd Profile reference (US-025)", async () => {
@@ -836,11 +839,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("Profile 'typo' in profiles/typo.yaml");
-    expect(result.stderr).toContain("'deplo'");
-    expect(result.stderr).toContain("Available Skills: deploy");
-    expect(result.stderr).toContain("Did you mean 'deploy'?");
-    expect(result.stderr).toContain("apkit validate");
+    const report = humanText(result.stderr);
+    expect(report).toContain("Profile 'typo' in profiles/typo.yaml");
+    expect(report).toContain("'deplo'");
+    expect(report).toContain("Available Skills: deploy");
+    expect(report).toContain("Did you mean 'deploy'?");
+    expect(report).toContain("apkit validate");
   });
 
   test("a distant invalid reference still names file, value, and available names (US-026)", async () => {
@@ -7663,7 +7667,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const emptyValidate = await runCli(emptyHome, "validate");
     expectExitCode(emptyValidate, 1);
-    expect(emptyValidate.stderr).toMatch(/at least one supported artifact/i);
+    expect(humanText(emptyValidate.stderr)).toMatch(/at least one supported artifact/i);
 
     const validate = await runCliWithPath(home, pathValue, "validate");
     expectExitCode(validate, 0);
@@ -11132,7 +11136,9 @@ describe("apkit root help", () => {
 
     const badValidateFlag = await runCli(home, "validate", "--json");
     expectExitCode(badValidateFlag, 1);
-    expect(badValidateFlag.stderr).toContain("validate does not accept flag '--json' as a Workspace path");
+    // --json is a real flag on validate (#604); without a Workspace path the
+    // JSON payload family has no Workspace outcome to publish.
+    expect(badValidateFlag.stderr).toContain("validate --json requires a Workspace path");
     expect(badValidateFlag.stderr).toContain("Usage: apkit validate [workspace]");
 
     const badUninstallFlag = await runCli(home, "uninstall", "--verbose");
@@ -14571,9 +14577,9 @@ describe("packed CLI new profile", () => {
 
     const empty = await runCli(home, "new", "profile", "engineering");
     expectExitCode(empty, 1);
-    expect(empty.stderr).toContain("at least one supported artifact");
-    expect(empty.stderr).toContain("Available Context Modules: example-context");
-    expect(empty.stderr).toContain("Available Skills: review-pr");
+    expect(humanText(empty.stderr)).toContain("at least one supported artifact");
+    expect(humanText(empty.stderr)).toContain("Available Context Modules: example-context");
+    expect(humanText(empty.stderr)).toContain("Available Skills: review-pr");
     expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
   });
 
@@ -15400,11 +15406,12 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     const result = await runCliAt(home, home, "validate", "workspaces/handbook");
 
     expectExitCode(result, 1);
-    expect(result.stderr).toContain("Profile 'deploy' in profiles/deploy.yaml");
-    expect(result.stderr).toContain("selects missing Context Module");
-    expect(result.stderr).toContain("'handbook'");
-    expect(result.stderr).toContain("No Context Modules exist in the Workspace");
-    expect(result.stderr).toContain("Correct profiles/deploy.yaml, then run apkit validate");
+    const report = humanText(result.stderr);
+    expect(report).toContain("Profile 'deploy' in profiles/deploy.yaml");
+    expect(report).toContain("selects missing Context Module");
+    expect(report).toContain("'handbook'");
+    expect(report).toContain("No Context Modules exist in the Workspace");
+    expect(report).toContain("Correct profiles/deploy.yaml, then run apkit validate");
     expect(existsSync(configPath(home))).toBe(false);
     expect(treeEntries(home)).toEqual(before);
   });
@@ -15529,5 +15536,148 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     expectExitCode(result, 1);
     expect(humanText(result.stderr)).toContain("validate requires a Workspace path");
     expect(existsSync(configPath(home))).toBe(false);
+  });describe("packed CLI validate reports every violation in one run (#604, DEC-009)", () => {
+  /** One Workspace carrying three violations across three categories. */
+  function writeViolatingWorkspace(workspace: string): void {
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
+    mkdirSync(join(workspace, "skills", "retired"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(workspace, "context", "handbook.md"), "Handbook instructions.\n");
+    writeFileSync(
+      join(workspace, "skills", "deploy", "SKILL.md"),
+      "---\nname: deploy\ndescription: Deploys the handbook.\n---\n\nDeploy body.\n",
+    );
+    writeFileSync(
+      join(workspace, "skills", "retired", "SKILL.md"),
+      "---\nname: retired\ndescription: Retired.\n---\n\nBody.\n",
+    );
+    writeFileSync(join(workspace, "skills", "retired", "agent-profile-kit.yaml"), "context: []\n");
+    writeFileSync(
+      join(workspace, "profiles", "alpha.yaml"),
+      "id: alpha\ncontext: [handbook]\nskills: [deploy]\n",
+    );
+    writeFileSync(
+      join(workspace, "profiles", "beta.yaml"),
+      "context: [absent-topic]\nskills: []\n",
+    );
+  }
+
+  test("one run reports every violation with path, fix, and the contract pointer", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeViolatingWorkspace(workspace);
+    defaultCliPath(home);
+    const before = treeEntries(home);
+
+    const result = await runCliAt(home, home, "validate", "workspaces/handbook");
+
+    expectExitCode(result, 1);
+    const report = humanText(result.stderr);
+    // One run, complete list (ISC-41).
+    expect(report).toContain("3 violations found");
+    // Path and fix per violation (ISC-42.1, ISC-42.2).
+    expect(report).toContain("profiles/alpha.yaml must not contain an 'id' field");
+    expect(report).toContain("skills/retired/agent-profile-kit.yaml is no longer read");
+    expect(report).toContain("selects missing Context Module 'absent-topic'");
+    // Failed output points to the contract and how to show it (ISC-43).
+    expect(report).toContain("The Workspace contract states every rule Workspace validation enforces");
+    expect(report).toContain("apkit guide --contract");
+    // Validating a folder that is not connected writes nothing (ISC-40.2).
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(treeEntries(home)).toEqual(before);
+  });
+
+  test("validate --json carries the same violations as the human report", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeViolatingWorkspace(workspace);
+    defaultCliPath(home);
+
+    const human = await runCliAt(home, home, "validate", "workspaces/handbook");
+    expectExitCode(human, 1);
+    const result = await runCliAt(home, home, "validate", "--json", "workspaces/handbook");
+
+    expectExitCode(result, 1);
+    const payload = JSON.parse(result.stdout) as {
+      readonly schemaVersion: number;
+      readonly command: string;
+      readonly outcome: string;
+      readonly workspace: string;
+      readonly violations: readonly {
+        readonly rule: string;
+        readonly path: string;
+        readonly message: string;
+      }[];
+    };
+    expect(payload.schemaVersion).toBe(1);
+    expect(payload.command).toBe("validate");
+    expect(payload.outcome).toBe("invalid");
+    expect(payload.workspace).toBe(realpathSync(workspace));
+    expect(payload.violations.map((violation) => violation.rule).sort()).toEqual([
+      "leftover-skill-sidecar",
+      "missing-context-reference",
+      "workspace-artifact/profile-id-field",
+    ]);
+    expect(payload.violations.map((violation) => violation.path).sort()).toEqual([
+      "profiles/alpha.yaml",
+      "profiles/beta.yaml",
+      "skills/retired/agent-profile-kit.yaml",
+    ]);
+    // The machine list is the human list: every message appears in the report.
+    const report = humanText(human.stderr);
+    for (const violation of payload.violations) {
+      expect(report).toContain(humanText(violation.message));
+    }
+  });
+
+  test("validate --json reports a valid Workspace with its found artifacts", async () => {
+    const home = isolatedHome();
+    const workspace = workspaceFolder(home);
+    writeValidWorkspaceFolder(workspace, { profile: "deploy" });
+    defaultCliPath(home);
+
+    const result = await runCliAt(home, home, "validate", "--json", "workspaces/handbook");
+
+    expectExitCode(result, 0);
+    const payload = JSON.parse(result.stdout) as {
+      readonly outcome: string;
+      readonly workspace: string;
+      readonly profiles: readonly string[];
+      readonly contexts: readonly string[];
+      readonly skills: readonly string[];
+    };
+    expect(payload.outcome).toBe("success");
+    expect(payload.workspace).toBe(realpathSync(workspace));
+    expect(payload.profiles).toEqual(["deploy"]);
+    expect(payload.contexts).toEqual(["handbook"]);
+    expect(payload.skills).toEqual([]);
+  });
+
+  test("validate --json without a Workspace path is an argument error", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate", "--json");
+
+    expectExitCode(result, 1);
+    expect(humanText(result.stderr)).toContain("validate --json requires a Workspace path");
+  });
+
+  test("validate --json publishes an error payload for a hard failure", async () => {
+    const home = isolatedHome();
+
+    const result = await runCli(home, "validate", "--json", "workspaces/absent");
+
+    expectExitCode(result, 1);
+    const payload = JSON.parse(result.stdout) as {
+      readonly outcome: string;
+      readonly error: string;
+    };
+    expect(payload.outcome).toBe("error");
+    expect(payload.error).toContain("must be an existing directory");
   });
 });
+
+});
+

@@ -78,6 +78,7 @@ export function planConfigureMembership(input: {
     throw new InstallerToolError({
       kind: "profile-without-artifacts",
       profile: input.profile,
+      file: `profiles/${input.profile}.yaml`,
       availableContexts: availableContextNames,
       availableSkills: availableSkillNames,
     });
