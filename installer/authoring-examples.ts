@@ -15,17 +15,18 @@ const skill = "example-skill";
 
 /** Canonical YAML for one whole-file Profile. */
 export function newProfileScaffold(
-  id: string,
   contexts: readonly string[],
   skills: readonly string[],
 ): string {
   // requireArtifactId and the Workspace boundary run before scaffolding, so
   // every name is [a-z0-9-] only and the double-quoted YAML scalars are safe.
+  // A Profile's ID is its file name (spec #593 DEC-014, #598), so the scaffold
+  // carries no `id` field — the parser derives the ID from the written path.
   const field = (label: string, names: readonly string[]): string =>
     names.length === 0
       ? `${label}: []\n`
       : `${label}:\n${names.map((name) => `  - "${name}"\n`).join("")}`;
-  return `id: "${id}"\n${field("context", contexts)}${field("skills", skills)}`;
+  return `${field("context", contexts)}${field("skills", skills)}`;
 }
 
 /** Canonical frontmatter YAML for one Context Module (the part before the body). */
@@ -82,7 +83,7 @@ export const AUTHORING_EXAMPLES = {
   profile: {
     id: profile,
     path: `profiles/${profile}.yaml`,
-    contents: newProfileScaffold(profile, ["example-context"], []),
+    contents: newProfileScaffold(["example-context"], []),
   },
   context: {
     id: "example-context",

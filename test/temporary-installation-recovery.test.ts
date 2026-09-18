@@ -80,7 +80,7 @@ async function prepareHome(): Promise<string> {
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
+    "context:\n  - team-rules\nskills:\n  - review-pr\n",
   );
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -110,7 +110,7 @@ async function prepareClaudeHome(): Promise<string> {
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
+    "context:\n  - team-rules\nskills:\n  - review-pr\n",
   );
   const bin = join(home, "bin");
   mkdirSync(bin, { recursive: true });

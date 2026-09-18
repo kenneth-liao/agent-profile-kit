@@ -58,7 +58,7 @@ describe("nested Project reconciliation report", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -145,7 +145,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -187,7 +187,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -292,7 +292,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -330,7 +330,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -367,7 +367,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -399,7 +399,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -463,7 +463,7 @@ describe("injected project filesystem failures", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -504,7 +504,7 @@ describe("previous-version Marker migration", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -547,7 +547,7 @@ describe("previous-version Marker migration", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -626,7 +626,7 @@ describe("previous-version Marker migration", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -665,7 +665,7 @@ describe("previous-version Marker migration", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -765,7 +765,7 @@ describe("uninstall failure safety and exclusion publication races", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -1007,7 +1007,7 @@ describe("recorded Host selection equivalence", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills:\n  - review-pr\n",
+      "context: []\nskills:\n  - review-pr\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

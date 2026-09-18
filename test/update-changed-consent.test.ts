@@ -194,7 +194,7 @@ describe("update changed-file authorization", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [review-pr]\n",
+      "context: [team-rules]\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

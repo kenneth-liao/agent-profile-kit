@@ -153,7 +153,8 @@ Host behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
 activation (or OpenCode `/<Artifact ID>` command activation) remains available.
-Profiles contain only `id`, `context`, and `skills`; Agents, Hooks, and Tools
+Profiles are named by their file name under `profiles/` and contain only
+`context` and `skills`; Agents, Hooks, and Tools
 are not delivered by this release. A Profile must select at least one supported
 artifact overall (Context Module, Skill, or both); no individual category is
 mandatory. Context-only, Skills-only, and combined Profiles are valid.
@@ -228,14 +229,23 @@ list each needed Context Module and Skill explicitly. A Profile's `context`
 and `skills` lists install exactly what they name — nothing is pulled in
 transitively.
 
-A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
-array, and a `skills` array. At least one of `context` or `skills` must be
+A Profile is a YAML file directly under `profiles/`; its file name without
+`.yaml` is the Profile's ID, and the file holds exactly a `context` array and a
+`skills` array. The file name must be a lowercase kebab-case name; Profiles in
+nested folders are not accepted. At least one of `context` or `skills` must be
 non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
 probing is scoped to the selected categories (Skills-only does not require Context
 machinery). Profiles do not inherit, use wildcards, or carry Host settings.
+Renaming the file renames the Profile; Project Bindings select Profiles by
+that name.
+
+Rollback caveat: this Profile shape is a **CLI 0.208.0+** acceptance change.
+A Workspace whose Profiles carry no `id` line fails validation on an older
+binary — before rolling a CLI back, re-add an `id` line matching each
+Profile's file name, or keep every shared Workspace on 0.208+.
 
 ```md
 ---
@@ -245,7 +255,7 @@ Keep project facts in the project repository.
 ```
 
 ```yaml
-id: coding
+# profiles/coding.yaml
 context:
   - engineering-rules
 skills:

@@ -44,7 +44,7 @@ function writeProfiles(home: string): void {
   for (const name of ["engineering", "docs"]) {
     writeFileSync(
       join(workspacePath(home), "profiles", `${name}.yaml`),
-      `id: ${name}\ncontext:\n  - team-rules\nskills: []\n`,
+      `context:\n  - team-rules\nskills: []\n`,
     );
   }
 }

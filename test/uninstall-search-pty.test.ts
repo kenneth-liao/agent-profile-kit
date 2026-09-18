@@ -65,7 +65,7 @@ async function setupInstalledPair(): Promise<{
   mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "profiles", "engineering.yaml"),
-    "id: engineering\ncontext:\n  - team-rules\nskills: []\n",
+    "context:\n  - team-rules\nskills: []\n",
   );
   writeFileSync(
     configPath(home),

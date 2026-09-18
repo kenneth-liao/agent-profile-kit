@@ -62,7 +62,7 @@ async function setupHome(profile = "coding"): Promise<string> {
   mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "profiles", `${profile}.yaml`),
-    `id: ${profile}\ncontext:\n  - team-rules\nskills: []\n`,
+    `context:\n  - team-rules\nskills: []\n`,
   );
   writeFileSync(
     configPath(home),

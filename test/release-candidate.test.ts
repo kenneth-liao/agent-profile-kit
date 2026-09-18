@@ -373,7 +373,7 @@ function writeWorkspaceAuthoring(home: string): void {
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills: []\n",
+    "context:\n  - team-rules\nskills: []\n",
   );
 }
 
@@ -407,7 +407,7 @@ function writeProfile(
   const skills = options.skills ?? [];
   writeFileSync(
     join(workspacePath(home), "profiles", `${profileId}.yaml`),
-    `id: ${profileId}\ncontext: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\n`,
+    `context: [${context.join(", ")}]\nskills: [${skills.join(", ")}]\n`,
   );
 }
 
@@ -1105,7 +1105,7 @@ describe("project-bound release candidate", () => {
 
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\nagents: [reviewer]\nhooks: []\ntools: []\n",
+      "context: [team-rules]\nskills: []\nagents: [reviewer]\nhooks: []\ntools: []\n",
     );
     writeBindings(home, [{ project: projectPath, hosts: ["codex"] }]);
     const unsupportedAgents = await runCli(home, ["update"]);
@@ -1370,7 +1370,7 @@ describe("project-bound release candidate", () => {
     mkdirSync(join(workspace, "profiles"), { recursive: true });
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+      "context: []\nskills: [review-pr]\n",
     );
     expect(existsSync(join(workspace, "context"))).toBe(false);
     expect(existsSync(join(workspace, "agents"))).toBe(false);

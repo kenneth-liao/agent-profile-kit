@@ -357,7 +357,7 @@ async function trackedSkillsHome(paths: readonly string[]): Promise<{ home: stri
     writeFileSync(join(directory, "SKILL.md"), `---\nname: ${skill}\ndescription: Count fixture.\n---\nFixture content.\n`);
   }
   writeFileSync(join(workspacePath(home), "profiles", "counts.yaml"),
-    `id: counts\ncontext: []\nskills: ${JSON.stringify(skills)}\n`);
+    `context: []\nskills: ${JSON.stringify(skills)}\n`);
   for (const path of paths) {
     mkdirSync(join(project, path), { recursive: true });
     writeFileSync(join(project, path, "SKILL.md"), "tracked fixture content\n");

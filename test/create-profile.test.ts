@@ -99,9 +99,10 @@ describe("createProfile", () => {
         path: "profiles/example.yaml",
         stage: "creation",
       });
-      // The existing Profile file is preserved untouched.
-      expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toContain(
-        "id: \"example\"",
+      // The existing Profile file is preserved untouched; it now carries the
+      // new shape with no `id` field (its ID is its file name).
+      expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toBe(
+        "context:\n  - \"example-context\"\nskills: []\n",
       );
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -217,38 +218,46 @@ describe("createProfile", () => {
     }
   });
 
-  test("refuses an occupied destination and leaves existing material untouched", async () => {
+  test("refuses an occupied destination whose occupant matches the requested ID, leaves material untouched", async () => {
     const home = await initializedHome();
     try {
       const profileFile = join(workspacePath(home), "profiles", "engineering.yaml");
-      writeFileSync(profileFile, "id: mine\ncontext: [example-context]\nskills: []\n");
+      // An existing Profile occupying the requested ID is the more precise
+      // duplicate diagnosis (#508): its ID is its file name, so the
+      // duplicate-artifact-name fact fires before the occupancy check.
+      writeFileSync(profileFile, "context: [example-context]\nskills: []\n");
 
       const failure = await rejection(() =>
         createProfile({ home, name: "engineering", contexts: ["example-context"], skills: [] }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("artifact-path-occupied");
-      if (fact.kind === "artifact-path-occupied") {
+      expect(fact.kind).toBe("duplicate-artifact-name");
+      if (fact.kind === "duplicate-artifact-name") {
         expect(fact.artifactType).toBe("Profile");
-        expect(fact.path).toBe(realpathSync(profileFile));
+        expect(fact.id).toBe("engineering");
+        expect(fact.path).toBe("profiles/engineering.yaml");
+        expect(fact.stage).toBe("creation");
       }
+      // The occupied file is preserved untouched.
+      expect(readFileSync(profileFile, "utf8")).toBe("context: [example-context]\nskills: []\n");
       // Presentation owns the sentence and the structured diagnostic (DEC-014);
-      // the diagnostic must carry a runnable recovery command (INT-1, US-022).
-      const sentence = flatInlineText(formatInstallerToolError(fact));
-      expect(sentence).toContain("engineering");
-      expect(sentence).toContain(realpathSync(profileFile));
+      // the creation-stage duplicate diagnostic names the existing file and
+      // carries a runnable recovery command (INT-1, US-022).
       const diagnostic = formatInstallerToolErrorDiagnostic(fact);
+      const happened = flatInlineText(diagnostic.happened);
+      expect(happened).toContain("A Profile named 'engineering'");
+      expect(happened).toContain("profiles/engineering.yaml");
       expect(diagnostic.whatToType).toBeDefined();
       const recovery = flatInlineText(diagnostic.whatToType!.flat());
-      expect(recovery).toContain("apkit new profile <different-name>");
+      expect(recovery).toContain("Edit profiles/engineering.yaml");
       expect(
         diagnostic.whatToType!.flat().some(
           (part) => typeof part !== "string" && part.kind === "command",
         ),
       ).toBe(true);
 
-      expect(readFileSync(profileFile, "utf8")).toContain("id: mine");
+      expect(readFileSync(profileFile, "utf8")).toBe("context: [example-context]\nskills: []\n");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

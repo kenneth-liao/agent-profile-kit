@@ -43,6 +43,29 @@ async function findSkillSidecar(directory: string, prefix: string): Promise<stri
   return undefined;
 }
 
+/**
+ * Find the first `.yaml` file under one `profiles/` subdirectory, depth-first
+ * in sorted order; a subdirectory without one yields undefined. Symlinked
+ * directories are not traversed, matching the Skill-package reader's
+ * regular-files-and-directories boundary.
+ */
+async function findNestedProfileYaml(directory: string, prefix: string): Promise<string | undefined> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
+    if (hasErrorCode(error, "ENOENT")) return [];
+    throw error;
+  });
+  const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name));
+  for (const entry of sorted) {
+    const relative = `${prefix}/${entry.name}`;
+    if (entry.isFile() && entry.name.endsWith(".yaml")) return relative;
+    if (entry.isDirectory()) {
+      const nested = await findNestedProfileYaml(join(directory, entry.name), relative);
+      if (nested !== undefined) return nested;
+    }
+  }
+  return undefined;
+}
+
 /** Read directory entries; a missing category directory is an empty collection. */
 async function readCategoryEntries(directory: string) {
   try {
@@ -126,7 +149,6 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   const contexts = new Map<string, ContextModule>();
   const profiles = new Map<string, Profile>();
   const skills = new Map<string, Skill>();
-
   for (const name of await sourceFiles(join(path, "context"), ".md")) {
     const relativePath = `context/${name}`;
     addUnique(
@@ -136,14 +158,32 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
       (existing) => existing.path,
     );
   }
-  for (const name of await sourceFiles(join(path, "profiles"), ".yaml")) {
-    const relativePath = `profiles/${name}`;
-    addUnique(
-      profiles,
-      parseProfile(await readFile(join(path, relativePath), "utf8"), relativePath),
-      "Profile",
-      (existing) => existing.path,
-    );
+  // Profiles live directly in `profiles/` (spec #593 DEC-014, #598): each
+  // Profile's ID is its top-level file name without `.yaml`, so nested
+  // folders hold no Profiles. Every `.yaml` under a subdirectory is one
+  // violation naming its path — a moved Profile is never silently ignored.
+  // Other stray entries under `profiles/` are DEC-008's violations (#605).
+  // Entries are visited in sorted order so the first reported violation is
+  // deterministic.
+  const profileEntries = (await readCategoryEntries(join(path, "profiles")))
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  for (const entry of profileEntries) {
+    if (entry.isFile() && entry.name.endsWith(".yaml")) {
+      const relativePath = `profiles/${entry.name}`;
+      addUnique(
+        profiles,
+        parseProfile(await readFile(join(path, relativePath), "utf8"), relativePath),
+        "Profile",
+        (existing) => existing.path,
+      );
+      continue;
+    }
+    if (entry.isDirectory()) {
+      const nested = await findNestedProfileYaml(join(path, "profiles", entry.name), entry.name);
+      if (nested !== undefined) {
+        throw new InstallerToolError({ kind: "nested-profile", file: `profiles/${nested}` });
+      }
+    }
   }
   for (const name of await skillPaths(join(path, "skills"))) {
     const sourcePath = join(path, "skills", name);

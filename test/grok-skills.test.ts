@@ -130,7 +130,7 @@ async function workspaceWithSkills(
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: ${includeContext ? "[team-rules]" : "[]"}\nskills: [${selectedSkills.join(", ")}]\n`,
+    `context: ${includeContext ? "[team-rules]" : "[]"}\nskills: [${selectedSkills.join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -382,7 +382,7 @@ describe("Grok project Skill packages", () => {
 
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: [write-notes]\n",
+      "context: [team-rules]\nskills: [write-notes]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
     const deselectPreview = await previewReconciliation(

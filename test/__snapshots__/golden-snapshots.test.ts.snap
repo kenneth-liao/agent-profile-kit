@@ -171,7 +171,6 @@ Create its Context Module, then the Profile selecting it:
 
 An example profiles/example.yaml:
 
-id: "example"
 context:
   - "example-context"
 skills: []
@@ -405,11 +404,11 @@ This release supports Profile Context and Context Modules for Antigravity,
   model-invocation Skills are projected with the shared
   \`disable-model-invocation: true\` field while explicit \`/skill:<Artifact ID>\`
   activation (or OpenCode \`/<Artifact ID>\` command activation) remains
-  available. Profiles contain only \`id\`, \`context\`, and \`skills\`; Agents, Hooks,
-  and Tools are not delivered by this release. A Profile must select at least
-  one supported artifact overall (Context Module, Skill, or both); no individual
-  category is mandatory. Context-only, Skills-only, and combined Profiles are
-  valid.
+  available. Profiles are named by their file name under \`profiles/\` and contain
+  only \`context\` and \`skills\`; Agents, Hooks, and Tools are not delivered by
+  this release. A Profile must select at least one supported artifact overall
+  (Context Module, Skill, or both); no individual category is mandatory.
+  Context-only, Skills-only, and combined Profiles are valid.
 
 A Context Module is a Markdown file under \`context/\` with frontmatter
   containing one stable, lowercase kebab-case \`id\`; the Markdown body is the
@@ -489,22 +488,30 @@ Profiles are the only place that says what gets installed together (ADR-0045):
   and \`skills\` lists install exactly what they name — nothing is pulled in
   transitively.
 
-A Profile is a YAML file under \`profiles/\` with exactly an \`id\`, a \`context\`
-  array, and a \`skills\` array. At least one of \`context\` or \`skills\` must be
-  non-empty. A Skills-only Profile installs only selected Skill packages for
+A Profile is a YAML file directly under \`profiles/\`; its file name without
+  \`.yaml\` is the Profile's ID, and the file holds exactly a \`context\` array and
+  a \`skills\` array. The file name must be a lowercase kebab-case name; Profiles
+  in nested folders are not accepted. At least one of \`context\` or \`skills\` must
+  be non-empty. A Skills-only Profile installs only selected Skill packages for
   Hosts that support them and Installer lifecycle metadata—no Context snapshot,
   Codex SessionStart hooks, or Claude Context rule. Antigravity Skills-only
   bindings check only the shared \`.agents\` and \`.agents/skills\` surfaces. Host
   capability probing is scoped to the selected categories (Skills-only does not
   require Context machinery). Profiles do not inherit, use wildcards, or carry
-  Host settings.
+  Host settings. Renaming the file renames the Profile; Project Bindings select
+  Profiles by that name.
+
+Rollback caveat: this Profile shape is a CLI 0.208.0+ acceptance change. A
+  Workspace whose Profiles carry no \`id\` line fails validation on an older
+  binary — before rolling a CLI back, re-add an \`id\` line matching each
+  Profile's file name, or keep every shared Workspace on 0.208+.
 
 ---
 id: engineering-rules
 ---
 Keep project facts in the project repository.
 
-id: coding
+# profiles/coding.yaml
 context:
   - engineering-rules
 skills:
@@ -924,7 +931,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    (absent means allowed); the retired \`metadata.agent-profile-kit.model-invocation\`
    key fails validation and other top-level fields are accepted and ignored.
    Profiles
-   contain exactly \`id\`, \`context\`, and \`skills\`. Do not create a new artifact merely because
+   live directly in \`profiles/\`; the file name without \`.yaml\` is the Profile's
+   ID, and the file contains exactly \`context\` and \`skills\`. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.
@@ -976,8 +984,9 @@ Use this workflow when helping a person author their Workspace and bind projects
    authored spelling. To keep generated files in place instead, remove the
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
-6. Validate before updating. Context Modules use \`id\` frontmatter and flat
-   Profiles contain \`id\`, \`context\`, and \`skills\` only; the Profile lists are
+6. Validate before updating. Context Modules use \`id\` frontmatter and
+   Profiles are named by their file name and contain \`context\` and \`skills\`
+   only; the Profile lists are
    the only source of what is installed (no Dependencies, no sidecar files).
    Run \`apkit validate\`, review
    the concise fleet outcome from \`apkit status --all\`, and ask before updating
@@ -1066,7 +1075,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.207.0
+Engine version: 0.208.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1939,7 +1948,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.207.0
+Engine version: 0.208.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1949,7 +1958,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.207.0\x1B[0m
+\x1B[35mEngine version: 0.208.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1959,7 +1968,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.207.0
+Engine version: 0.208.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1969,7 +1978,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.207.0\x1B[0m
+\x1B[35mEngine version: 0.208.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

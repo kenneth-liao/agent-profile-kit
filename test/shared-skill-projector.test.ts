@@ -156,7 +156,7 @@ describe("shared .agents Skill projector", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: []\nskills: [review-pr]\n",
+      "context: []\nskills: [review-pr]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
