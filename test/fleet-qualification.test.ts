@@ -535,6 +535,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const result = await benchmarkWarmRuns(home, {
       mutateSkill: FLEET_SKILL,
+      workspaceRoot: workspacePath(home),
       path: pathWithHosts,
       runCount: 2,
     });
