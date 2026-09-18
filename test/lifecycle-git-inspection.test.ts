@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
@@ -220,7 +221,7 @@ describe("lifecycle Git inspection batching", () => {
 
     const { desired, report } = await previewWithInspection(home, instrumentation);
     const generatedPathCount = desired.installations.reduce(
-      (total, installation) => total + installation.outputs.length + 1,
+      (total, installation) => total + plannedInstallation(installation!).outputs.length + 1,
       0,
     );
 
@@ -345,7 +346,7 @@ describe("lifecycle Git inspection batching", () => {
     const instrumentation = emptyInstrumentation();
     const { desired, report } = await previewWithInspection(home, instrumentation);
 
-    expect(desired.installations.every((installation) => installation.gitProject === undefined)).toBe(true);
+    expect(desired.installations.every((installation) => plannedInstallation(installation).gitProject === undefined)).toBe(true);
     expect(instrumentation.counts.classifyTrackedPaths).toBe(0);
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report).every((item) => item.kind === "addition")).toBe(true);

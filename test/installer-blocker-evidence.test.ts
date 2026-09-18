@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -306,7 +307,7 @@ describe("structured Installer blocker evidence", () => {
     writeFileSync(join(project, ".codex", "hooks.json"), "occupied\n");
 
     const conflicts = await desiredOutputConflicts(
-      installation,
+      plannedInstallation(installation),
       undefined,
       createLifecycleOwnershipInspectionContext(),
     );
@@ -334,8 +335,8 @@ describe("structured Installer blocker evidence", () => {
     const installation = desired.installations[0]!;
     const canonicalProject = installation.binding.canonicalProject;
     const installationId = "evidence-installation-id";
-    const manifest = manifestFor(installation, installationId);
-    for (const output of installation.outputs) {
+    const manifest = manifestFor(plannedInstallation(installation), installationId);
+    for (const output of plannedInstallation(installation).outputs) {
       const destination = join(canonicalProject, output.path);
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, "drifted content\n");
@@ -343,7 +344,7 @@ describe("structured Installer blocker evidence", () => {
     // Keep one recorded root byte-identical to the receipt's recorded hash:
     // it is the continuity anchor that proves the drifted sibling is Agent
     // Profile Kit's own output rather than a different Project's material.
-    for (const output of installation.outputs) {
+    for (const output of plannedInstallation(installation!).outputs) {
       const destination = join(canonicalProject, output.path);
       mkdirSync(dirname(destination), { recursive: true });
       writeFileSync(destination, output.path.endsWith("hooks.json") ? (output as { bytes: string }).bytes : "drifted content\n");
@@ -397,7 +398,7 @@ describe("structured Installer blocker evidence", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
     const canonicalProject = installation.binding.canonicalProject;
-    const manifest = manifestFor(installation, "ordinary-installation-id");
+    const manifest = manifestFor(plannedInstallation(installation), "ordinary-installation-id");
     const state: OwnershipState = {
       ...emptyState(),
       receipts: [manifest],

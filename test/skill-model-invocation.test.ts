@@ -58,6 +58,7 @@ function parseRejectionSentence(source: string): string {
 import {
   reportBlockers,
 } from "./support/reconciliation-report.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const SKILL_PATH = "skills/to-spec/SKILL.md";
 const SOURCE_PATH = "/tmp/workspace/skills/to-spec";
@@ -382,7 +383,7 @@ describe("Skill model-invocation policy", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.hostVersions).toEqual({
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION_WITH_INVOCATION,
       codex: CODEX_HOST_VERSION_WITH_INVOCATION,
     });
@@ -596,7 +597,7 @@ describe("Skill model-invocation policy", () => {
       // Context floor (0.145.0) is checked before the invocation floor (0.99.0)
       // so one upgrade message covers Profiles that need both capabilities.
       expect(
-        desired.installations[0]?.capabilityWarnings.some((entry) =>
+        plannedInstallation(desired.installations[0]!)?.capabilityWarnings.some((entry) =>
           flatInlineText(entry.warning.parts).includes("cannot deliver complete Context"),
         ),
       ).toBe(true);

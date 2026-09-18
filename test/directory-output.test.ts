@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation, type PlannedInstallation } from "./support/planned-installation.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import {
@@ -140,10 +141,11 @@ async function contextInstallation(
 function withDirectoryOutput(
   installation: DesiredInstallation,
   directory: DesiredProjectOutput,
-): DesiredInstallation {
+): PlannedInstallation {
+  const planned = plannedInstallation(installation);
   return {
-    ...installation,
-    outputs: [...installation.outputs, directory].sort((left, right) =>
+    ...planned,
+    outputs: [...planned.outputs, directory].sort((left, right) =>
       left.path.localeCompare(right.path)
     ),
   };
@@ -354,8 +356,8 @@ describe("Installer-owned artifact-directory outputs", () => {
     const directory = normalizedDirectory();
     await applyReconciliation(home, [withDirectoryOutput(base, directory)]);
     const bytes = "replacement file\n";
-    const changed: DesiredInstallation = {
-      ...base,
+    const changed: PlannedInstallation = {
+      ...plannedInstallation(base),
       outputs: withDirectoryOutput(base, directory).outputs.map((output) =>
         output.path === directory.path
           ? {

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import {
   existsSync,
@@ -234,14 +235,14 @@ describe("Skills-only Profiles", () => {
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
 
-    expect(installation.profile.context).toEqual([]);
-    expect(installation.resolvedProfile.contexts).toEqual([]);
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).profile.context).toEqual([]);
+    expect(plannedInstallation(installation!).resolvedProfile.contexts).toEqual([]);
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".agents/skills/review-pr",
     ]);
-    expect(installation.setupSteps).toEqual([]);
+    expect(plannedInstallation(installation!).setupSteps).toEqual([]);
     expect(
-      installation.warnings.some((warning) => /Context discovery/i.test(flatInlineText(warning.parts))),
+      plannedInstallation(installation!).warnings.some((warning) => /Context discovery/i.test(flatInlineText(warning.parts))),
     ).toBe(false);
 
     const applied = await applyReconciliation(home, desired.installations);
@@ -272,7 +273,7 @@ describe("Skills-only Profiles", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".claude/skills/review-pr",
     ]);
 
@@ -290,7 +291,7 @@ describe("Skills-only Profiles", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".agents/skills/review-pr",
       ".claude/skills/review-pr",
     ]);
@@ -335,11 +336,11 @@ describe("Skills-only Profiles", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    const paths = installation.outputs.map((output) => output.path).sort();
+    const paths = plannedInstallation(installation!).outputs.map((output) => output.path).sort();
     expect(paths).toContain(".agent-profile-kit/codex/context.md");
     expect(paths).toContain(".codex/hooks.json");
     expect(paths).toContain(".agents/skills/review-pr");
-    expect(installation.setupSteps).toEqual([
+    expect(plannedInstallation(installation!).setupSteps).toEqual([
       {
         consequence: "Declining the hook prevents Profile Context from loading.",
         host: "codex",
@@ -365,16 +366,16 @@ describe("Skills-only Profiles", () => {
       },
     ]);
     expect(
-      installation.warnings.some((warning) => flatInlineText(warning.parts).includes("not a Git worktree")),
+      plannedInstallation(installation!).warnings.some((warning) => flatInlineText(warning.parts).includes("not a Git worktree")),
     ).toBe(false);
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
       schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
-    expect(reportDesired(report)[0]?.setupSteps).toEqual(installation.setupSteps);
+    expect(reportDesired(report)[0]?.setupSteps).toEqual(plannedInstallation(installation!).setupSteps);
 
-    const context = installation.outputs.find(
+    const context = plannedInstallation(installation!).outputs.find(
       (output) => output.path === ".agent-profile-kit/codex/context.md",
     );
     expect(context?.type).toBe("file");
@@ -410,11 +411,11 @@ describe("Skills-only Profiles", () => {
     desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".agents/skills/review-pr",
       ".claude/skills/review-pr",
     ]);
-    expect(installation.profile.context).toEqual([]);
+    expect(plannedInstallation(installation!).profile.context).toEqual([]);
 
     const preview = await previewReconciliation(
       desired.installations,

@@ -39,7 +39,7 @@ import {
 } from "./bind-project.js";
 import {
   ingestApplication,
-  ingestSelectedWorkspace,
+  ingestSelectedWorkspaceToleratingReferenceViolations,
   localConfigurationPath,
   normalizeProject,
   requireExistingDirectory,
@@ -79,7 +79,6 @@ import {
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import type { ProjectBinding } from "../schemas/local-configuration.js";
-import { listProfiles } from "./inventory.js";
 import { requireProfile } from "./profile-selection.js";
 import { InstallerToolError, type ConfiguredPathOrigin } from "./tool-errors.js";
 import { readInstallationState, writeInstallationState } from "./installation-state.js";
@@ -282,8 +281,12 @@ export async function previewInstall(
   const hosts = normalizeInstallHosts(options.hosts);
   const target = options.target ?? await resolveInstallTarget(home, options);
 
-  const profiles = await listProfiles(home);
-  requireProfile(new Map(profiles.map((entry) => [entry.id, entry])), profile);
+  // Tolerant Profile lookup (spec #593 US-007, #606): a broken Profile still
+  // resolves by name — its install is blocked through the project Blocker —
+  // while other Profiles install normally and every non-reference violation
+  // keeps the strict rejection.
+  const ingestion = await ingestSelectedWorkspaceToleratingReferenceViolations(home);
+  requireProfile(ingestion.workspace.profiles, profile);
 
   return {
     profile,
@@ -306,7 +309,11 @@ async function planProspectiveInstallation(
     "env" | "instrumentation" | "createGitInspection"
   >,
 ): Promise<DesiredInstallation> {
-  const workspace = await ingestSelectedWorkspace(home);
+  // Tolerant planning (spec #593 US-007, #606): a selected broken Profile
+  // plans as a blocked installation — no outputs, nothing written — while
+  // every non-reference violation keeps the strict rejection.
+  const ingestion = await ingestSelectedWorkspaceToleratingReferenceViolations(home);
+  const workspace = ingestion.workspace;
   const gitInspection = (options.createGitInspection ??
     (() => createLifecycleGitInspectionContext(options.instrumentation?.git)))();
   const scheduler = createProjectReadScheduler();
@@ -321,7 +328,9 @@ async function planProspectiveInstallation(
     ...(options.instrumentation === undefined
       ? {}
       : { planningInstrumentation: options.instrumentation.planning }),
+    brokenProfiles: ingestion.brokenProfiles,
     gitInspection,
+    referenceViolations: ingestion.referenceViolations,
     scheduler,
   });
   const installation = installations.find(

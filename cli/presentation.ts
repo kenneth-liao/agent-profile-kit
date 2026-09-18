@@ -21,6 +21,7 @@ import {
 import type { WorkspaceFolderValidation } from "../installer/commands.js";
 import {
   workspaceContractRecovery,
+  workspaceViolationBulletParts,
   workspaceViolationMessage,
   workspaceViolationsDiagnostic,
 } from "./error-wording.js";
@@ -3877,6 +3878,8 @@ function conciseApplyDocument(
 
   const globalBlockers = globalBlockerNodes(report, groups, scope);
   if (globalBlockers.length > 0) nodes.push(spacerNode(), ...globalBlockers);
+  const brokenProfiles = brokenProfileNodes(report);
+  if (brokenProfiles.length > 0) nodes.push(spacerNode(), ...brokenProfiles);
 
   const blockedSummary = blocked ? aggregateLine("update", report, groups) : undefined;
   if (blockedSummary !== undefined) {
@@ -4955,6 +4958,22 @@ function verboseBlockerNodes(
   return nodes;
 }
 
+/** The every-broken-Profile section (spec #593 US-007, #606): one bullet per
+ * #604 reference fact through the single wording home, whether or not any
+ * Project is bound to the Profile. Empty when every Profile is healthy. */
+function brokenProfileNodes(report: ReconciliationReport): PresentationNode[] {
+  if (report.brokenProfileViolations.length === 0) return [];
+  const word = report.brokenProfileViolations.length === 1 ? "reference" : "references";
+  return [
+    { kind: "heading", text: `Broken Profiles (missing ${word}):`, category: "error" },
+    ...report.brokenProfileViolations.map((violation): PresentationNode => ({
+      kind: "prose",
+      parts: workspaceViolationBulletParts(violation),
+      category: "error",
+    })),
+  ];
+}
+
 /** The typed global-Blocker section; empty when no global Blocker exists. */
 function globalBlockerNodes(
   report: ReconciliationReport,
@@ -5424,6 +5443,10 @@ function conciseStatusDocument(
     if (globalBlockers.length > 0) {
       nodes.push(spacerNode(), ...globalBlockers);
     }
+    const brokenProfiles = brokenProfileNodes(report);
+    if (brokenProfiles.length > 0) {
+      nodes.push(spacerNode(), ...brokenProfiles);
+    }
     const blockedSummary = aggregateLine("status", report, groups);
     if (blockedSummary !== undefined) {
       nodes.push(spacerNode(), {
@@ -5513,6 +5536,18 @@ const LIFECYCLE_MACHINE_SCHEMA_VERSION = 15 as const;
  */
 const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
 
+/** One verbatim #604 violation fact beside its single-home presentation wording (#606). */
+function machineViolationFact(violation: WorkspaceViolation): unknown {
+  return {
+    via: violation.via,
+    ...(violation.via === "ingestion"
+      ? { fact: violation.fact, message: workspaceViolationMessage(violation) }
+      : violation.via === "manifest"
+        ? { detail: violation.detail, message: workspaceViolationMessage(violation) }
+        : { detail: violation.detail, message: workspaceViolationMessage(violation) }),
+  };
+}
+
 function machineBlocker(blocker: ReconciliationBlocker): MachineBlocker {
   const wording = blockerWording(blocker);
   return {
@@ -5599,6 +5634,7 @@ function canonicalMachineProject(project: ReconciliationProjectRecord): unknown 
 
 function canonicalMachineSnapshot(report: ReconciliationReport): unknown {
   return {
+    brokenProfileViolations: report.brokenProfileViolations.map(machineViolationFact),
     globalBlockers: report.globalBlockers.map(machineBlocker),
     projects: report.projects.map(canonicalMachineProject),
   };
@@ -5749,6 +5785,7 @@ export function formatApplyVerificationFailureJson(
     command,
     outcome: "error",
     error: message,
+    brokenProfileViolations: [],
     globalBlockers: [],
     projects: [],
     applied: canonicalMachineSnapshot(receipt),
@@ -5767,6 +5804,7 @@ export function formatLifecycleToolErrorJson(
     command,
     outcome: "error",
     error: message,
+    brokenProfileViolations: [],
     globalBlockers: [],
     projects: [],
     ...(recovery === undefined ? {} : { selectionRecovery: recovery }),

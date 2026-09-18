@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation, type PlannedInstallation } from "./support/planned-installation.js";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -150,10 +151,11 @@ async function contextInstallation(
 function withDirectoryOutput(
   installation: DesiredInstallation,
   directory: DesiredProjectOutput,
-): DesiredInstallation {
+): PlannedInstallation {
+  const planned = plannedInstallation(installation);
   return {
-    ...installation,
-    outputs: [...installation.outputs, directory].sort((left, right) =>
+    ...planned,
+    outputs: [...planned.outputs, directory].sort((left, right) =>
       left.path.localeCompare(right.path)
     ),
   };
@@ -182,10 +184,10 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const project = temporaryDirectory("apk-own-inspect-dir-once-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
     const installation = desired[0]!;
-    const expectedFiles = installation.outputs.filter(
+    const expectedFiles = plannedInstallation(installation!).outputs.filter(
       (output) => output.type === "file",
     ).length;
-    const expectedDirectories = installation.outputs.filter(
+    const expectedDirectories = plannedInstallation(installation!).outputs.filter(
       (output) => output.type === "directory",
     ).length;
     expect(expectedDirectories).toBeGreaterThan(0);
@@ -205,14 +207,14 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // ownership proof and output planning both consult it.
     expect(instrumentation.counts.inspectFile).toBe(expectedFiles);
     expect(instrumentation.counts.inspectDirectory).toBe(expectedDirectories);
-    expect(instrumentation.counts.unsafeParent).toBe(installation.outputs.length);
+    expect(instrumentation.counts.unsafeParent).toBe(plannedInstallation(installation!).outputs.length);
   });
 
   test("directory drift reports one generated root while sharing one directory walk", async () => {
     const home = temporaryDirectory("apk-own-inspect-drift-home-");
     const project = temporaryDirectory("apk-own-inspect-drift-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
-    const directory = desired[0]!.outputs.find((output) => output.type === "directory");
+    const directory = plannedInstallation(desired[0]!).outputs.find((output) => output.type === "directory");
     if (!directory || directory.type !== "directory") throw new Error("expected directory output");
     const member = join(project, directory.path, "SKILL.md");
     writeFileSync(member, "# Drifted\n");
@@ -239,7 +241,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     // ordinary file outputs are each read once by ownership proof.
     expect(instrumentation.counts.inspectDirectory).toBe(1);
     expect(instrumentation.counts.inspectFile).toBe(
-      desired[0]!.outputs.filter(
+      plannedInstallation(desired[0]!).outputs.filter(
         (output) => output.type === "file",
       ).length,
     );
@@ -297,7 +299,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const home = temporaryDirectory("apk-own-inspect-unreadable-home-");
     const project = temporaryDirectory("apk-own-inspect-unreadable-project-");
     const { desired } = await appliedDirectoryInstallation(home, project);
-    const directory = desired[0]!.outputs.find((output) => output.type === "directory");
+    const directory = plannedInstallation(desired[0]!).outputs.find((output) => output.type === "directory");
     if (!directory || directory.type !== "directory") throw new Error("expected directory output");
     chmodSync(join(project, directory.path), 0o000);
     try {

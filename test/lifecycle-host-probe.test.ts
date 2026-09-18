@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallations, plannedInstallation } from "./support/planned-installation.js";
 import {
   chmodSync,
   existsSync,
@@ -232,7 +233,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(instrumentation.counts.probeHostCapability).toBe(1);
     expect(readProbeLog(home)).toEqual(["codex: --version"]);
     for (const installation of desired.installations) {
-      expect(installation.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
     }
   });
 
@@ -267,16 +268,16 @@ describe("machine-level Host capability probes within one invocation", () => {
     );
     expect(contextInstallations).toHaveLength(2);
     // Identical cached probe failures deduplicate to one warning per invocation.
-    expect(contextInstallations[0]?.capabilityWarnings).toHaveLength(1);
+    expect(plannedInstallation(contextInstallations[0]!)?.capabilityWarnings).toHaveLength(1);
     expect(
-      flatInlineText(contextInstallations[0]?.capabilityWarnings[0]?.warning.parts ?? []),
+      flatInlineText(plannedInstallation(contextInstallations[0]!)?.capabilityWarnings[0]?.warning.parts ?? []),
     ).toContain("cannot deliver complete Context");
-    expect(contextInstallations[1]?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(contextInstallations[1]!)?.capabilityWarnings).toEqual([]);
     // The disabled-invocation Project must not reuse the incompatible failure.
     const disabledInstallation = desired.installations.find(
       (installation) => installation.binding.profile === "skills-disabled",
     );
-    expect(disabledInstallation?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(disabledInstallation!)?.capabilityWarnings).toEqual([]);
   });
 
   test("an outdated Host emits one warning per Host per invocation across distinct requirement sets", async () => {
@@ -301,7 +302,7 @@ describe("machine-level Host capability probes within one invocation", () => {
 
     expect(desired.installations).toHaveLength(3);
     const claudeWarnings = desired.installations.flatMap((installation) =>
-      installation.capabilityWarnings.filter((entry) => entry.host === "claude"),
+      plannedInstallation(installation!).capabilityWarnings.filter((entry) => entry.host === "claude"),
     );
     // One warning per Host per invocation (DEC-014), regardless of how many
     // distinct requirement messages the Host produced.
@@ -339,11 +340,11 @@ describe("machine-level Host capability probes within one invocation", () => {
     );
     const obstructed = byProject.get(realpathSync(projects[1]!));
     const clean = byProject.get(realpathSync(projects[0]!));
-    expect(clean?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(clean!)?.capabilityWarnings).toEqual([]);
     // Project-surface evidence is Project-specific, so it stays on its own Project.
-    expect(obstructed?.capabilityWarnings).toHaveLength(1);
+    expect(plannedInstallation(obstructed!)?.capabilityWarnings).toHaveLength(1);
     expect(
-      flatInlineText(obstructed?.capabilityWarnings[0]?.warning.parts ?? []),
+      flatInlineText(plannedInstallation(obstructed!)?.capabilityWarnings[0]?.warning.parts ?? []),
     ).toContain("Pi shared project surface cannot host Skills");
   });
 
@@ -392,7 +393,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(desired.installations).toHaveLength(2);
     expect(instrumentation.counts.probeHostCapability).toBe(2);
     const codexWarnings = desired.installations.flatMap((installation) =>
-      installation.capabilityWarnings.filter((entry) => entry.host === "codex"),
+      plannedInstallation(installation!).capabilityWarnings.filter((entry) => entry.host === "codex"),
     );
     // One warning per Host per invocation, and it names the strictest floor:
     // the surviving 0.145.0+ warning is sufficient guidance for every Project,
@@ -429,12 +430,12 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(desired.installations).toHaveLength(2);
     // One distinct warning per affected Project, not one collapsed Host warning.
     const warned = desired.installations.filter(
-      (installation) => installation.capabilityWarnings.length > 0,
+      (installation) => plannedInstallation(installation).capabilityWarnings.length > 0,
     );
     expect(warned).toHaveLength(2);
     for (const installation of warned) {
-      expect(installation.capabilityWarnings[0]?.host).toBe("grok");
-      expect(flatInlineText(installation.capabilityWarnings[0]?.warning.parts ?? [])).toContain(
+      expect(plannedInstallation(installation!).capabilityWarnings[0]?.host).toBe("grok");
+      expect(flatInlineText(plannedInstallation(installation!).capabilityWarnings[0]?.warning.parts ?? [])).toContain(
         "Grok project inspection failed",
       );
     }
@@ -464,7 +465,7 @@ describe("machine-level Host capability probes within one invocation", () => {
       "grok: inspect --json",
     ]);
     for (const installation of desired.installations) {
-      expect(installation.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
     }
   });
 
@@ -544,15 +545,15 @@ describe("machine-level Host capability probes within one invocation", () => {
       expect(desired.installations).toHaveLength(2);
       for (const installation of desired.installations) {
         if (scenario.expected === "") {
-          expect(installation.capabilityWarnings).toEqual([]);
+          expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
         } else if (installation === desired.installations[0]) {
-          expect(installation.capabilityWarnings).toHaveLength(1);
+          expect(plannedInstallation(installation!).capabilityWarnings).toHaveLength(1);
           expect(
-            flatInlineText(installation.capabilityWarnings[0]?.warning.parts ?? []),
+            flatInlineText(plannedInstallation(installation!).capabilityWarnings[0]?.warning.parts ?? []),
           ).toContain(scenario.expected);
         } else {
           // The identical missing/outdated/malformed failure warns once per invocation.
-          expect(installation.capabilityWarnings).toEqual([]);
+          expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
         }
       }
     }
@@ -635,7 +636,7 @@ describe("machine-level Host capability probes within one invocation", () => {
       pi: 1,
     });
     for (const installation of desired.installations) {
-      expect(installation.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
     }
   });
 
@@ -685,7 +686,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     });
 
     expect(desired.installations).toHaveLength(1);
-    const warnings = desired.installations[0]!.capabilityWarnings;
+    const warnings = plannedInstallation(desired.installations[0]!).capabilityWarnings;
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.host).toBe("codex");
     const message = flatInlineText(warnings[0]!.warning.parts);

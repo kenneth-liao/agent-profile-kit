@@ -312,6 +312,7 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
   }
   const firstProject = [...keys][0];
   return {
+    brokenProfileViolations: [],
     globalBlockers: fixture.blockers.filter((blocker) => blocker.scope === "global"),
     projects: [...keys].sort().map((key) => {
       const installation = desired.find((candidate) => candidate.canonicalProject === key || candidate.project === key);
@@ -392,7 +393,7 @@ function machineReport(
   projects: readonly ReconciliationProjectRecord[] = [],
   globalBlockers: readonly ReconciliationBlocker[] = [],
 ): ReconciliationReport {
-  return { globalBlockers, projects } as ReconciliationReport;
+  return { brokenProfileViolations: [], globalBlockers, projects } as ReconciliationReport;
 }
 
 function machineApplyResult(
@@ -5199,6 +5200,7 @@ describe("Machine surface JSON and exit codes", () => {
         command,
         outcome: "error",
         error: "missing",
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [],
       });
@@ -7717,6 +7719,7 @@ describe("update presentation documents", () => {
 describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
   test("concise lifecycle output groups identical warnings and reports affected-Project count", () => {
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7753,6 +7756,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
   test("concise lifecycle output reports (1 Project) for a single affected project", () => {
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7772,6 +7776,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
   test("verbose lifecycle output renders each semantic warning once and lists every affected project", () => {
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7802,6 +7807,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
   test("distinct warning kinds, messages, consequences, or copyable values do not collapse", () => {
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7850,6 +7856,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
   test("machine JSON retains normalized warning under each Project without embedded Project prefix in message", () => {
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7892,6 +7899,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
   test("semantically distinct same-message groups supplied in non-output order sort deterministically (INT-1)", () => {
     // Supplied in reverse order of canonical sort
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-4", {
@@ -7952,6 +7960,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     };
 
     const receiptReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -7964,6 +7973,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     };
 
     const resultingStateReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -8005,6 +8015,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     };
 
     const statusReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [
         machineProject("/project-a", {
@@ -8043,6 +8054,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
     // 5. Blocked apply document (concise & verbose)
     const blockedReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [normalizeBlocker({
         affectedItems: [{ kind: "path", value: "/home/.agents/agent-profile-kit/state/manifest.json" }],
         detail: "Global failure",
@@ -9962,6 +9974,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const p6 = createRecord({ canonicalProject: "/project-6", project: "/project-6", state: { kind: "current" } });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1, p2, p3, p4, p5, p6],
       };
@@ -9990,6 +10003,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects,
       };
@@ -10016,6 +10030,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const p6 = createRecord({ canonicalProject: "/project-6", project: "/project-6", state: { kind: "current" } });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1, p2, p3, p4, p5, p6],
       };
@@ -10049,6 +10064,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1, p2],
       };
@@ -10075,6 +10091,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const p2 = createRecord({ canonicalProject: "/project-2", project: "/project-2", state: { kind: "current" } });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1, p2],
       };
@@ -10100,6 +10117,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1],
       };
@@ -10122,6 +10140,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1],
       };
@@ -10193,6 +10212,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [beta, removalFirst, alpha, removalSecond, pending, settled],
       };
@@ -10309,6 +10329,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [beta, alpha, removal, pending, settled],
       };
@@ -10421,6 +10442,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [pMissing, pChanged, pSettled],
       };
@@ -10458,6 +10480,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       });
 
       const report: ReconciliationReport = {
+        brokenProfileViolations: [],
         globalBlockers: [],
         projects: [p1, p2],
       };
@@ -10547,6 +10570,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     });
 
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [multiCauseProject],
     };
@@ -10636,6 +10660,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     });
 
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [cleanProject],
     };
@@ -10681,6 +10706,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     });
 
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects,
     };
@@ -10759,11 +10785,13 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     });
 
     const receiptReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [receiptProject],
     };
 
     const resultingStateReport: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [multiCauseProject],
     };
@@ -10820,7 +10848,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
       ],
       state: { kind: "drifted output" },
     });
-    const report: ReconciliationReport = { globalBlockers: [], projects: [mixedProject] };
+    const report: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [mixedProject] };
 
     for (const document of [
       lifecycleStatusDocument(report, { verbose: true }),
@@ -10860,7 +10888,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
       state: { kind: "drifted output", reason: ".agents/skills/base-skill" },
       sourceInputChanged: true,
     });
-    const report: ReconciliationReport = { globalBlockers: [], projects: [inputChangeProject] };
+    const report: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [inputChangeProject] };
 
     const verboseDoc = lifecycleStatusDocument(report, { verbose: true });
     const nodes = flattenPresentationNodes(verboseDoc);
@@ -10889,7 +10917,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
       sourceInputChanged: true,
     });
     const staleDoc = lifecycleStatusDocument(
-      { globalBlockers: [], projects: [staleProject] },
+      { brokenProfileViolations: [], globalBlockers: [], projects: [staleProject] },
       { verbose: true },
     );
     const staleLine = (value: string, label: string) => flattenPresentationNodes(staleDoc).some((node) =>
@@ -10917,7 +10945,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
       sourceInputChanged: true,
     });
     const attributedDoc = lifecycleStatusDocument(
-      { globalBlockers: [], projects: [attributedProject] },
+      { brokenProfileViolations: [], globalBlockers: [], projects: [attributedProject] },
       { verbose: true },
     );
     const attributedLine = (value: string, label: string) =>
@@ -11135,7 +11163,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
     const p1 = createRecord({ canonicalProject: "/fleet/p1", project: "/fleet/p1", state: { kind: "current" } });
     const p2 = createRecord({ canonicalProject: "/fleet/p2", project: "/fleet/p2", state: { kind: "current" } });
     const p3 = createRecord({ canonicalProject: "/fleet/p3", project: "/fleet/p3", state: { kind: "current" } });
-    const report: ReconciliationReport = { globalBlockers: [], projects: [p1, p2, p3] };
+    const report: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [p1, p2, p3] };
 
     const doc = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     const rendered = renderBoundary(doc);
@@ -11149,7 +11177,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
     const p3 = createRecord({ canonicalProject: "/fleet/project-gamma", project: "/fleet/project-gamma", state: { kind: "current" } });
 
     // 1. Single-Project scope via --here:
-    const hereReport: ReconciliationReport = { globalBlockers: [], projects: [p1] };
+    const hereReport: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [p1] };
     const hereDoc = lifecycleStatusDocument(hereReport, {
       selection: { command: "status", kind: "project", match: "containing", target: "/fleet/project-alpha" },
     });
@@ -11170,7 +11198,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
     expect(targetRendered).not.toContain("project-gamma");
 
     // 3. Selected-subset scope (e.g. 2 of 3 projects checked):
-    const subsetReport: ReconciliationReport = { globalBlockers: [], projects: [p1, p2] };
+    const subsetReport: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [p1, p2] };
     const subsetDoc = lifecycleStatusDocument(subsetReport, {
       selection: { command: "status", kind: "project", match: "containing", target: "/fleet" },
     });
@@ -11193,7 +11221,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
       project: "/fleet/p1",
       state: { kind: "current" },
     });
-    const report: ReconciliationReport = { globalBlockers: [], projects: [p1] };
+    const report: ReconciliationReport = { brokenProfileViolations: [], globalBlockers: [], projects: [p1] };
 
     const json = JSON.parse(formatLifecycleJson("status", report));
     expect(json.command).toBe("status");
@@ -11242,6 +11270,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
     });
 
     const report: ReconciliationReport = {
+      brokenProfileViolations: [],
       globalBlockers: [],
       projects: [notInstalled, changed, missing, source, settled, blocked, removal],
     };

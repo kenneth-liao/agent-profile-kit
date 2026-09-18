@@ -35,7 +35,7 @@ import {
   withReceipts,
 } from "./ownership-state.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
-import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
+import { InstallerToolError, type ConfiguredPathOrigin, type WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
 import { collectWorkspaceViolations } from "./ingest-workspace.js";
 
@@ -143,6 +143,16 @@ export async function validateApplication(
     ...planningInstrumentation(instrumentation),
     scheduler: createProjectReadScheduler(),
   });
+  // `validate` still fails while any Profile is broken (spec #593 US-007,
+  // #606): the same aggregate #604 fact the strict boundary throws, so the
+  // complete violation report and exit behavior are identical to today.
+  if (desired.brokenProfiles.length > 0) {
+    throw new InstallerToolError({
+      kind: "workspace-violations",
+      violations: desired.referenceViolations,
+      workspace: desired.workspace.path,
+    });
+  }
   return {
     bindings: desired.bindingCount,
     hosts: [...new Set(
@@ -151,7 +161,9 @@ export async function validateApplication(
     profiles: [...desired.workspace.profiles.keys()].sort(),
     warnings: [...new Set(
       desired.installations.flatMap((installation) =>
-        installation.warnings.map((warning) => flatInlineText(warning.parts))
+        installation.kind === "planned"
+          ? installation.warnings.map((warning) => flatInlineText(warning.parts))
+          : [],
       ),
     )].sort(),
   };
@@ -176,6 +188,7 @@ export async function applyApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   return applyReconciliation(home, desired.installations, {
+    brokenProfileViolations: desired.referenceViolations,
     scheduler,
     scope: reconciliationScope(options.selection),
     ...(options.selection?.filter === undefined ? {} : { filter: options.selection.filter }),
@@ -226,6 +239,7 @@ export async function statusApplication(
     ...(options.selection === undefined ? {} : { selection: options.selection }),
   });
   const report = await previewReconciliation(desired.installations, state, {
+    brokenProfileViolations: desired.referenceViolations,
     gitInspection,
     ownershipInspection: createLifecycleOwnershipInspectionContext(instrumentation?.ownership),
     scheduler,

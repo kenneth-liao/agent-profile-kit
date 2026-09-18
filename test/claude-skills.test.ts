@@ -35,6 +35,7 @@ import {
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -190,7 +191,7 @@ describe("Claude project Skill packages", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    const skillPaths = installation.outputs
+    const skillPaths = plannedInstallation(installation!).outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
@@ -251,7 +252,7 @@ describe("Claude project Skill packages", () => {
     rmSync(join(workspace, "skills", "engineering"), { recursive: true, force: true });
 
     const second = await buildDesiredState(home, { checkHostCapability: false });
-    const skillOutput = second.installations[0]?.outputs.find(
+    const skillOutput = plannedInstallation(second.installations[0]!)?.outputs.find(
       (output) => output.path === ".claude/skills/review-pr",
     );
     expect(skillOutput?.type).toBe("directory");
@@ -421,7 +422,7 @@ describe("Claude project Skill packages", () => {
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
     expect(installation.binding.hosts).toEqual(["claude", "codex"]);
-    const skillPaths = installation.outputs
+    const skillPaths = plannedInstallation(installation!).outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
@@ -431,8 +432,8 @@ describe("Claude project Skill packages", () => {
       ".claude/skills/base-skill",
       ".claude/skills/review-pr",
     ]);
-    expect(installation.outputs.some((output) => output.path === CLAUDE_CONTEXT_RULE_PATH)).toBe(true);
-    expect(installation.outputs.some((output) => output.path === ".codex/hooks.json")).toBe(true);
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path === CLAUDE_CONTEXT_RULE_PATH)).toBe(true);
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path === ".codex/hooks.json")).toBe(true);
 
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],

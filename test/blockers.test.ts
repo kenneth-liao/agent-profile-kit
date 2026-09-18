@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -12,6 +13,7 @@ import {
 import {
   AFFECTED_ITEM_KINDS,
   BLOCKER_KINDS,
+  brokenProfileBlocker,
   installationStateUnreadableBlocker,
   isStructuredBlocker,
   normalizeBlocker,
@@ -202,6 +204,7 @@ describe("shared blocker contract", () => {
       "installation-ownership",
       "temporary-installation-conflict",
       "temporary-installation-removal",
+      "broken-profile",
     ]);
     expect(AFFECTED_ITEM_KINDS).toEqual(["host", "path", "installation-id"]);
   });
@@ -584,6 +587,86 @@ describe("shared blocker contract", () => {
   });
 });
 
+describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
+  const BROKEN_PROFILE_INPUT = {
+    affectedItems: [],
+    brokenProfile: {
+      file: "profiles/broken.yaml",
+      missingContexts: ["gone-context"],
+      missingSkills: ["gone-skill"],
+      profile: "broken",
+    },
+    kind: "broken-profile",
+    project: "/project-a",
+    scope: "project",
+  } as const;
+
+  test("normalizes complete broken-Profile evidence into a project-scoped blocker", () => {
+    const blocker = normalizeBlocker(brokenProfileBlocker({
+      brokenProfile: BROKEN_PROFILE_INPUT.brokenProfile,
+      project: "/project-a",
+    }));
+    if (blocker.kind !== "broken-profile") throw new Error(`expected broken-profile, got ${blocker.kind}`);
+
+    expect(isStructuredBlocker(blocker)).toBe(true);
+    expect(blocker.kind).toBe("broken-profile");
+    expect(blocker.scope).toBe("project");
+    expect(blocker.project).toBe("/project-a");
+    expect(blocker.affectedItems).toEqual([]);
+    expect(blocker.brokenProfile).toEqual(BROKEN_PROFILE_INPUT.brokenProfile);
+    expect(Object.isFrozen(blocker.brokenProfile)).toBe(true);
+    expect("problem" in blocker).toBe(false);
+    expect("message" in blocker).toBe(false);
+  });
+
+  test("wording is presentation-owned and names the Profile, the missing artifacts, and the fix", () => {
+    const blocker = normalizeBlocker(BROKEN_PROFILE_INPUT);
+    if (blocker.kind !== "broken-profile") throw new Error(`expected broken-profile, got ${blocker.kind}`);
+    const wording = blockerWording(blocker);
+    expect(wording.problem).toContain("broken");
+    expect(wording.problem).toContain("gone-context");
+    expect(wording.problem).toContain("gone-skill");
+    expect(wording.remedy).toContain("profiles/broken.yaml");
+    expect(wording.remedy).toContain("apkit validate");
+    const human = humanBlockerWording(blocker);
+    expect(flatInlineText(human.problem)).toContain("gone-context");
+    expect(flatInlineText(human.remedy)).toContain("profiles/broken.yaml");
+  });
+
+  test("malformed broken-Profile evidence is rejected loudly", () => {
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      brokenProfile: { ...BROKEN_PROFILE_INPUT.brokenProfile, missingContexts: [], missingSkills: [] },
+    })).toThrow(/at least one missing reference/);
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      brokenProfile: { ...BROKEN_PROFILE_INPUT.brokenProfile, profile: "" },
+    })).toThrow(/non-empty profile/);
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      brokenProfile: { ...BROKEN_PROFILE_INPUT.brokenProfile, file: "" },
+    })).toThrow(/non-empty file/);
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      brokenProfile: { ...BROKEN_PROFILE_INPUT.brokenProfile, missingContexts: ["x"], missingSkills: undefined as never },
+    })).toThrow();
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      scope: "global",
+    } as never)).toThrow(/always project-scoped/);
+    // Prose fields stay unrepresentable.
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      problem: "prose",
+    } as never)).toThrow(/typed facts only/);
+    // Cross-kind facts are rejected.
+    expect(() => normalizeBlocker({
+      ...BROKEN_PROFILE_INPUT,
+      stateFailure: { case: "unproven" } as never,
+    })).toThrow(/must not carry/);
+  });
+});
+
 describe("tracked-output ownership conflicts", () => {
   test("real tracked-path conflicts aggregate into one typed project blocker", async () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-ownership-home-"));
@@ -664,7 +747,7 @@ describe("tracked-output ownership conflicts", () => {
     // boundary, so both the direct projection and the machine JSON carry the
     // grouped conflict count.
     const conflicts = await desiredOutputConflicts(
-      desired.installations[0]!,
+      plannedInstallation(desired.installations[0]!),
       undefined,
       createLifecycleOwnershipInspectionContext(),
     );

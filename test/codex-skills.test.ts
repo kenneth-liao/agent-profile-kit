@@ -30,6 +30,7 @@ import {
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -213,7 +214,7 @@ describe("Codex project Skill packages", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    const skillPaths = installation.outputs
+    const skillPaths = plannedInstallation(installation!).outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
@@ -265,7 +266,7 @@ describe("Codex project Skill packages", () => {
     rmSync(join(workspace, "skills", "engineering"), { recursive: true, force: true });
 
     const second = await buildDesiredState(home, { checkHostCapability: false });
-    const skillOutput = second.installations[0]?.outputs.find(
+    const skillOutput = plannedInstallation(second.installations[0]!)?.outputs.find(
       (output) => output.path === ".agents/skills/review-pr",
     );
     expect(skillOutput?.type).toBe("directory");

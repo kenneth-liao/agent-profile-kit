@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import {
 
   chmodSync,
@@ -93,9 +94,9 @@ function oldPiManifest(
   installationId: string,
   oldPath: string,
 ): { readonly manifest: ReturnType<typeof manifestFor>; readonly desiredOutput: DesiredProjectDirectoryOutput } {
-  const manifest = manifestFor(installation, installationId);
+  const manifest = manifestFor(plannedInstallation(installation), installationId);
   const sharedPath = ".agents/skills/review-pr";
-  const desiredOutput = installation.outputs.find(
+  const desiredOutput = plannedInstallation(installation).outputs.find(
     (output): output is DesiredProjectDirectoryOutput => output.path === sharedPath && output.type === "directory",
   );
   if (!desiredOutput) throw new Error("expected shared Skill output");

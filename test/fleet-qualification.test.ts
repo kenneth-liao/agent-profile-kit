@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { plannedInstallations, plannedInstallation } from "./support/planned-installation.js";
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -340,7 +341,7 @@ describe("fleet-wide synchronization qualification", () => {
     );
     expect(reportBlockers(report)).toEqual([]);
     expect(reportItems(report).every((item) => item.kind === "current")).toBe(true);
-    const expected = ownedOutputCounts(steadyDesired.installations);
+    const expected = ownedOutputCounts(plannedInstallations(steadyDesired.installations));
     expect(expected.files).toBeGreaterThan(0);
     expect(expected.directories).toBeGreaterThan(0);
     // Each owned generated output is inspected once per pass.
@@ -375,7 +376,7 @@ describe("fleet-wide synchronization qualification", () => {
       scheduler: createProjectReadScheduler(),
     });
     for (const installation of desired.installations) {
-      expect(installation.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
     }
     // One machine-level probe per supported Host requirement set for the
     // Context+Skill Profile during apply's planning.
@@ -432,7 +433,7 @@ describe("fleet-wide synchronization qualification", () => {
     // per-Project pre-transaction proof (fresh ownership/path-safety plus
     // changed-file authorization), and post-commit verification — each
     // inspects every owned file and directory.
-    const expected = ownedOutputCounts(changed.installations);
+    const expected = ownedOutputCounts(plannedInstallations(changed.installations));
     expect(instrumentation.counts.inspectFile).toBe(3 * expected.files);
     expect(instrumentation.counts.inspectDirectory).toBe(3 * expected.directories);
     expect(reportBlockers(applied.resultingState)).toEqual([]);
@@ -1071,4 +1072,114 @@ describe("integrated fleet recovery qualification", () => {
       expect(projectRecord.blockers).toEqual([]);
     }
   }, 240_000);
+});
+
+describe("broken-Profile fleet scope qualification (spec #593 US-007, TEST-009, #606)", () => {
+  test("a broken Profile blocks only its bound Projects; the rest update normally; validate fails", async () => {
+    const home = isolatedHome();
+    const fixture = createPackedFleet(home);
+    const projects = fixture.projects;
+    const pathWithHosts = fixture.pathWithHosts;
+
+    // Initial fleet sync: every Project installs the shared Profile.
+    expectExitCode(await runCli(home, pathWithHosts, "update", "--json"), 0);
+
+    // Split the fleet: the first half keeps `engineering`; the second half
+    // switches to a new, initially valid `writing` Profile.
+    writeFileSync(
+      join(workspacePath(home), "profiles", "writing.yaml"),
+      "context: [team-rules]\nskills: [review-pr]\n",
+    );
+    writeBindings(
+      home,
+      projects.map((project, index) => ({
+        project,
+        hosts: FLEET_HOSTS[index % FLEET_HOSTS.length]!,
+        profile: index < 6 ? "engineering" : "writing",
+      })),
+    );
+    expectExitCode(await runCli(home, pathWithHosts, "update", "--json"), 0);
+
+    // An unbound broken Profile must still be reported by every lifecycle command.
+    writeFileSync(
+      join(workspacePath(home), "profiles", "orphan.yaml"),
+      "context: [vanished]\nskills: []\n",
+    );
+
+    // Break the `writing` Profile: its Context Module reference goes missing.
+    writeFileSync(
+      join(workspacePath(home), "profiles", "writing.yaml"),
+      "context: [moved-rules]\nskills: [review-pr]\n",
+    );
+
+    // Status reports every broken Profile and blocks only the bound Projects.
+    const status = await runCli(home, pathWithHosts, "status", "--json");
+    expectExitCode(status, 2);
+    const statusPayload = JSON.parse(status.stdout) as {
+      readonly brokenProfileViolations: readonly { readonly fact?: { readonly kind: string } }[];
+      readonly projects: readonly {
+        readonly blockers: readonly { readonly kind: string; readonly message: string }[];
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+      }[];
+    };
+    expect(statusPayload.brokenProfileViolations).toHaveLength(2);
+    expect(
+      statusPayload.projects.filter((project) => project.state.kind === "blocked"),
+    ).toHaveLength(6);
+    for (const project of statusPayload.projects) {
+      if (project.state.kind === "blocked") {
+        expect(project.blockers.map((blocker) => blocker.kind)).toEqual(["broken-profile"]);
+        expect(project.blockers[0]!.message).toContain("Profile 'writing'");
+      } else {
+        expect(project.state.kind).toBe("current");
+        expect(project.blockers).toEqual([]);
+      }
+    }
+    const blockedSet = new Set(
+      statusPayload.projects
+        .filter((project) => project.state.kind === "blocked")
+        .map((project) => project.canonicalProject),
+    );
+    expect(blockedSet).toEqual(new Set(projects.slice(6)));
+
+    // The blocked Project's installed output is snapshotted before the update.
+    const blockedProject = projects[6]!;
+    const installedBefore = new Map<string, string>();
+    const walk = (directory: string, into: Map<string, string>): void => {
+      for (const entry of readdirSync(directory, { withFileTypes: true })) {
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) walk(path, into);
+        else into.set(path, createHash("sha256").update(readFileSync(path)).digest("hex"));
+      }
+    };
+    walk(blockedProject, installedBefore);
+
+    // Give the healthy Projects pending work, then update: the healthy half
+    // updates, the blocked half is skipped with its output untouched.
+    writeSkill(home, FLEET_SKILL, "# review-pr\n\nStricter review checks.\n");
+    const apply = await runCli(home, pathWithHosts, "update", "--json");
+    const applyPayload = JSON.parse(apply.stdout) as {
+      readonly brokenProfileViolations: readonly unknown[];
+      readonly projects: readonly {
+        readonly canonicalProject: string;
+        readonly state: { readonly kind: string };
+      }[];
+    };
+    expect(applyPayload.brokenProfileViolations).toHaveLength(2);
+    expect(applyPayload.projects.filter((project) => project.state.kind === "blocked")).toHaveLength(6);
+    expect(applyPayload.projects.filter((project) => project.state.kind === "current")).toHaveLength(6);
+    // The healthy half received the Skill update on disk; the blocked half did not.
+    const healthyProject = projects[0]!;
+    expect(readFileSync(join(healthyProject, ".agents", "skills", "review-pr", "SKILL.md"), "utf8"))
+      .toContain("Stricter review checks.");
+
+    // The blocked Project's existing installed output is unchanged, byte for byte.
+    const installedAfter = new Map<string, string>();
+    walk(blockedProject, installedAfter);
+    expect([...installedAfter.entries()].sort()).toEqual([...installedBefore.entries()].sort());
+
+    // validate still fails while any Profile is broken.
+    expectExitCode(await runCli(home, pathWithHosts, "validate"), 1);
+  }, FLEET_TEST_TIMEOUT_MS);
 });

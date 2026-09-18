@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
@@ -303,15 +304,15 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
 
-    expect(installation.profile.context).toEqual(["team-rules"]);
-    expect(installation.profile.skills).toEqual(["review-pr"]);
-    expect(installation.outputs.map((output) => output.path).sort()).toEqual([
+    expect(plannedInstallation(installation!).profile.context).toEqual(["team-rules"]);
+    expect(plannedInstallation(installation!).profile.skills).toEqual(["review-pr"]);
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path).sort()).toEqual([
       ".agent-profile-kit/opencode/context.md",
       ".agents/skills/review-pr",
       ".opencode/opencode.jsonc",
     ]);
 
-    expect(installation.setupSteps).toEqual([
+    expect(plannedInstallation(installation!).setupSteps).toEqual([
       {
         consequence:
           "A running OpenCode session keeps its previously loaded configuration until restarted.",
@@ -532,7 +533,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
 
-    const plannedOutputPaths = installation.outputs.map((output) => output.path).sort();
+    const plannedOutputPaths = plannedInstallation(installation!).outputs.map((output) => output.path).sort();
     expect(plannedOutputPaths).toContain(".agent-profile-kit/opencode/context.md");
     expect(plannedOutputPaths).toContain(".opencode/opencode.jsonc");
     expect(plannedOutputPaths).toContain(".agents/skills/review-pr");

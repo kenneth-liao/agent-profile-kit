@@ -52,6 +52,7 @@ import {
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -208,7 +209,7 @@ describe("Grok project Skill packages", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
-    const skillPaths = installation.outputs
+    const skillPaths = plannedInstallation(installation!).outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
@@ -266,7 +267,7 @@ describe("Grok project Skill packages", () => {
     rmSync(join(workspace, "skills", "engineering"), { recursive: true, force: true });
 
     const second = await buildDesiredState(home, { checkHostCapability: false });
-    const skillOutput = second.installations[0]?.outputs.find(
+    const skillOutput = plannedInstallation(second.installations[0]!)?.outputs.find(
       (output) => output.path === ".grok/skills/review-pr",
     );
     expect(skillOutput?.type).toBe("directory");
@@ -425,9 +426,9 @@ describe("Grok project Skill packages", () => {
       { context: false },
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const paths = desired.installations[0]?.outputs.map((output) => output.path).sort();
+    const paths = plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path).sort();
     expect(paths).toEqual([".grok/skills/review-pr"]);
-    expect(desired.installations[0]?.hostVersions.grok).toBe(GROK_HOST_VERSION_WITH_SKILLS);
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions.grok).toBe(GROK_HOST_VERSION_WITH_SKILLS);
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".grok", "skills", "review-pr", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(false);
@@ -438,8 +439,8 @@ describe("Grok project Skill packages", () => {
     const project = temporaryDirectory("apk-grok-context-only-project-");
     await workspaceWithSkills(home, project, ["grok"], [{ id: "unselected" }], []);
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.hostVersions.grok).toBe(GROK_HOST_VERSION);
-    expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions.grok).toBe(GROK_HOST_VERSION);
+    expect(plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path)).toEqual([
       GROK_CONTEXT_RULE_PATH,
     ]);
   });
@@ -464,7 +465,7 @@ describe("Grok project Skill packages", () => {
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected installation");
     expect(installation.binding.hosts).toEqual(["claude", "codex", "grok"]);
-    const skillPaths = installation.outputs
+    const skillPaths = plannedInstallation(installation!).outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
@@ -476,8 +477,8 @@ describe("Grok project Skill packages", () => {
       ".grok/skills/base-skill",
       ".grok/skills/review-pr",
     ]);
-    expect(installation.outputs.some((output) => output.path === CLAUDE_CONTEXT_RULE_PATH)).toBe(true);
-    expect(installation.hostVersions).toEqual({
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path === CLAUDE_CONTEXT_RULE_PATH)).toBe(true);
+    expect(plannedInstallation(installation!).hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,
       grok: GROK_HOST_VERSION_WITH_SKILLS,
@@ -726,9 +727,9 @@ exit 2
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
     expect(
-      desired.installations[0]?.warnings.some((warning) =>
+      plannedInstallation(desired.installations[0]!)?.warnings.some((warning) =>
         /Grok.*review-pr.*disabled.*may not load/i.test(flatInlineText(warning.parts)),
       ),
     ).toBe(true);
