@@ -82,11 +82,19 @@ export async function requireRealCategory(workspacePath: string, name: string): 
 /**
  * Require a supported Workspace Manifest. Missing artifact directories are empty
  * categories; present ones must be directories. Bootstrap docs are not required.
+ *
+ * `manifestSource` replaces the on-disk `workspace.yaml` with in-memory bytes
+ * (spec #593 #599): setup validates a folder whose manifest is missing against
+ * the canonical manifest it would write, so an invalid folder is refused
+ * without any transient write. The source stays the one read boundary: the
+ * bytes supplied here are the canonical `WORKSPACE_MANIFEST`, never user text.
  */
-export async function validateWorkspaceStructure(path: string): Promise<void> {
-  await requireWorkspaceManifestFile(path);
-  const manifest = await readFile(join(path, WORKSPACE_MANIFEST_FILE), "utf8");
-  parseWorkspaceManifest(manifest);
+export async function validateWorkspaceStructure(path: string, manifestSource?: string): Promise<void> {
+  if (manifestSource === undefined) {
+    await requireWorkspaceManifestFile(path);
+    manifestSource = await readFile(join(path, WORKSPACE_MANIFEST_FILE), "utf8");
+  }
+  parseWorkspaceManifest(manifestSource);
 
   await Promise.all(
     WORKSPACE_ARTIFACT_DIRECTORIES.map((directory) =>

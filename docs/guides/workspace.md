@@ -51,11 +51,16 @@ explicit absolute or home-relative path to choose another destination:
 apkit init ~/projects/agent-profile-workspace
 ```
 
-When Local Configuration is absent, an explicit missing or empty non-symlink
-destination is fully scaffolded and recorded. A valid existing Workspace,
-including a symlink alias, is adopted without changing its source. Rerunning is
-safe: it never overwrites the Workspace or current configuration, and it does
-not restore optional scaffolding that you removed from a valid Workspace.
+When Local Configuration is absent, setup adds exactly the missing required
+parts — `workspace.yaml`, `context/`, `skills/`, and `profiles/` — in place to
+the named folder and records the selection (spec #593 DEC-003, ADR-0047). A
+path that does not exist is created only when its parent directory exists; a
+parent that is missing too is refused, and nothing is written outside the
+named path. A valid existing Workspace, including a symlink alias, is adopted,
+adding only its still-missing required parts; existing entries are never
+changed, moved, or deleted. A folder whose existing material is invalid is
+refused with its violation and nothing is added. Rerunning is safe: it never
+overwrites the Workspace or current configuration.
 
 To keep the Workspace as an independent Git repository elsewhere, set the
 required `workspace` field in Local Configuration to one existing absolute or
@@ -118,28 +123,20 @@ The restored file preserves the pre-migration Workspace selection and Project
 Bindings. This reverses only the Local Configuration schema transition; it does
 not undo later Workspace content changes.
 
-### Required structure vs initialization scaffolding
+### Required structure vs optional files
 
 A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the
-Workspace marker. Missing artifact directories are treated as empty categories;
-present ones are validated and ingested normally. `README.md`, `AGENTS.md`, and
-`.gitignore` are optional user-owned files that the engine never requires.
+Workspace marker. `context/`, `skills/`, and `profiles/` are the required
+artifact directories, which setup adds when missing; missing categories are
+treated as empty collections, and present ones are validated and ingested
+normally. `README.md`, `AGENTS.md`, and `.gitignore` are optional user-owned
+files that the engine never requires.
 
-When creating a **new** Workspace, `init` still scaffolds a friendly layout so
-you can discover where material belongs:
-
-- artifact directories `profiles/`, `context/`, `skills/`, `agents/`, `hooks/`,
-  and `tools/` (with `.gitkeep` placeholders)
-- a bindable `profiles/example.yaml` and its `context/example-context.md`
-- short bootstrap `README.md` and `AGENTS.md` pointers to the current guides
-- a starter `.gitignore`
-
-The example gives a new user one complete `install` → `status` → `update` path.
-Delete both `profiles/example.yaml` and `context/example-context.md` together,
-unused empty directories, or bootstrap docs if you prefer a minimal tree;
-later `init` runs do not restore removed optional scaffolding; validation,
-status, update, and uninstall keep working. Do not treat generated Host
-output as source material.
+When creating a **new** Workspace, `init` adds only the required parts and no
+example material (spec #593 DEC-003, ADR-0047). For a complete worked example
+— a bindable `profiles/example.yaml` and its `context/example-context.md` —
+run `apkit guide profile`, which prints both files' example bytes, or see
+`apkit guide context` and `apkit guide skill` for single artifacts.
 
 ## Author the Workspace
 

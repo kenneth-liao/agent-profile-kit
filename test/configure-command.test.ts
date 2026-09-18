@@ -256,7 +256,7 @@ describe("explicit configure profile", () => {
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
     expect(diagnostic).toContain("Profile 'codin' does not exist in this Workspace.");
-    expect(diagnostic).toContain("Available Profiles: coding, example.");
+    expect(diagnostic).toContain("Available Profiles: coding.");
     expect(diagnostic).toContain("Did you mean 'coding'?");
   });
 

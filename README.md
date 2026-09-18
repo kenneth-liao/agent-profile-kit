@@ -27,7 +27,7 @@ npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
 ## First run
 
 ```sh
-apkit init                              # scaffold your Workspace
+apkit init                              # set up your Workspace
 apkit install <profile> --host <host>   # install a Profile into the current project
 apkit status                            # review the fleet plan
 apkit update                            # refresh installations from the Workspace (fleet by default)

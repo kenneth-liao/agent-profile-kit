@@ -192,17 +192,29 @@ export type InstallerToolErrorFact =
   | { readonly kind: "init-symlink-target-missing"; readonly path: string }
   | { readonly kind: "init-path-not-directory"; readonly path: string }
   | { readonly kind: "init-empty-symlink-target"; readonly path: string }
-  | { readonly kind: "init-not-workspace-directory"; readonly path: string }
   | {
       /**
-       * The authored first-Profile name equals the example Profile the
-       * guided init plans to scaffold (#508). No file exists at the collision
-       * point — the planned scaffold does not exist yet — so this is its own
-       * fact kind rather than a duplicate-artifact-name with a fabricated
-       * path.
+       * The named Workspace folder does not exist and its parent directory is
+       * missing too (spec #593 #599): nothing is ever written outside the
+       * named path, so creating missing parent directories is refused.
        */
-      readonly kind: "init-planned-profile-conflict";
-      readonly profile: string;
+      readonly kind: "init-missing-parent-directory";
+      readonly path: string;
+      readonly parent: string;
+    }
+  | {
+      /**
+       * A setup I/O failure after some required parts were already added in
+       * place (spec #593 DEC-003, #599). `added` is the exact list of entries
+       * the transaction wrote before the failure — the named folder itself
+       * when setup provisioned it, then each added part — in write order;
+       * existing entries are never touched and Local Configuration was not
+       * written. A re-run adds only the still-missing parts.
+       */
+      readonly kind: "init-partial-setup";
+      readonly path: string;
+      readonly added: readonly string[];
+      readonly cause: string;
     }
   | {
       readonly kind: "init-workspace-selection-conflict";

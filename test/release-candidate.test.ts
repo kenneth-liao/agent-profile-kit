@@ -18,6 +18,8 @@ import { basename, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse } from "yaml";
 
+import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+
 import { findFormerCommandInvocations } from "./support/current-command-guidance.js";
 import {
   cleanupTemporaryDirectories,
@@ -375,6 +377,17 @@ function writeWorkspaceAuthoring(home: string): void {
     join(workspace, "profiles", "coding.yaml"),
     "context:\n  - team-rules\nskills: []\n",
   );
+}
+
+/**
+ * Setup no longer scaffolds example material (spec #593 DEC-003, #599);
+ * journeys that bind and install the canonical example pair write it
+ * explicitly through the single authoring-examples authority.
+ */
+function writeExampleMaterial(home: string): void {
+  const workspace = workspacePath(home);
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.profile.path), AUTHORING_EXAMPLES.profile.contents);
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.context.path), AUTHORING_EXAMPLES.context.contents);
 }
 
 function writeSkill(
@@ -1627,6 +1640,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
+    writeExampleMaterial(home);
 
     // Six Projects, one per primary cause plus one multi-cause Project: the
     // mixed fleet from TEST-003 with multi-cause and Blocked members (TEST-004).
@@ -1914,17 +1928,17 @@ describe("project-bound release candidate", () => {
       expect(init.stdout).not.toContain(`--host ${absentHost}`);
     }
     // Init guidance leaves Host choice to install's searchable choices
-    // (spec #491, US-016, ADR-0034): the one printed command the newcomer
-    // needs names the example Profile and never a Host. The negative is
-    // discriminating: the old output contained "--host claude" here.
+    // (spec #491, US-016, ADR-0034) and, with no example material scaffolded
+    // (spec #593 DEC-003, #599), points at validate.
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
-      "run apkit install example",
+      "Next: run apkit validate",
     );
     expect(init.stdout).not.toContain("--host");
 
-    // 3. Follow the printed install form, made project-specific the way the
-    // printed sentence says ("from the project you want to try"). Pipes add
-    // --auto-confirm for the interactive general confirmation.
+    // 3. Author the canonical example pair, then follow the printed install
+    // form, made project-specific the way the printed sentence says. Pipes
+    // add --auto-confirm for the interactive general confirmation.
+    writeExampleMaterial(home);
     const installExample = await runCli(
       home,
       ["install", "example", firstProject, "--host", "claude", "--auto-confirm"],
@@ -2052,33 +2066,33 @@ describe("project-bound release candidate", () => {
     expect(help.stdout).toContain("Common commands:\n  init");
     expect(help.stdout).toContain("More commands:\n  Inventory:");
 
-    // 2. Initialize: scaffold default Workspace and settings.
+    // 2. Initialize: create the default Workspace folder and settings; setup
+    // adds only the required parts (spec #593 DEC-003, #599).
     const init = await runCli(home, ["init"], { path: pathWithHosts });
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("Initialized Agent Profile Kit Workspace and settings at");
+    expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace and settings at");
     expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
-    expect(init.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(init.stdout).toContain("Next: run apkit validate");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
     enableCodexHooks(home);
 
-    // 3. Validate: check empty initial state points to bind example.
+    // 3. Validate: check the empty initial state points to authoring.
     const validate = await runCli(home, ["validate"], { path: pathWithHosts });
     expectExitCode(validate, 0);
     expect(validate.stdout).toContain(
-      "Workspace and settings valid (1 Profile, 0 configured Projects)",
+      "Workspace and settings valid (0 Profiles, 0 configured Projects)",
     );
-    expect(validate.stdout).toContain("Profiles found: example");
+    expect(validate.stdout).toContain("Profiles found: none");
     expect(validate.stdout).toContain("Hosts bound: none");
     expect(validate.stdout).toContain("Next: apkit install <profile> --host <host>");
 
-    // 4. Install: install the scaffolded example Profile into the configured
-    // Git Project in one action (pipes add --auto-confirm for the interactive
-    // general confirmation).
+    // 4. Author the canonical example pair, then install it into the
+    // configured Git Project in one action (pipes add --auto-confirm for the
+    // interactive general confirmation).
+    writeExampleMaterial(home);
     const install = await runCli(
       home,
       ["install", "example", boundProject, "--host", "codex", "--auto-confirm"],
@@ -2286,9 +2300,7 @@ describe("project-bound release candidate", () => {
     const allInit = await runCli(allHome, ["init"], { path: allPath });
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
-    expect(allInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(allInit.stdout).toContain("Next: run apkit validate");
 
     // 2. Single host present (only codex): still no Host in init guidance
     const codexHome = isolatedHome();
@@ -2303,9 +2315,7 @@ describe("project-bound release candidate", () => {
     const codexInit = await runCli(codexHome, ["init"], { path: codexPath });
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
-    expect(codexInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(codexInit.stdout).toContain("Next: run apkit validate");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(codexInit.stdout).not.toContain("--host");
 
@@ -2322,9 +2332,7 @@ describe("project-bound release candidate", () => {
     const claudeInit = await runCli(claudeHome, ["init"], { path: claudePath });
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
-    expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain("Next: run apkit validate");
     // Discriminating negative: the old output contained "--host claude" here.
     expect(claudeInit.stdout).not.toContain("--host");
 
@@ -2337,9 +2345,7 @@ describe("project-bound release candidate", () => {
     const noHostsInit = await runCli(noHostsHome, ["init"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
     expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
-    expect(noHostsInit.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(noHostsInit.stdout).toContain("Next: run apkit validate");
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
 
@@ -2365,9 +2371,7 @@ describe("project-bound release candidate", () => {
     const init = await runCli(home, ["init"], { path: stubPath });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("Detected Agent Hosts: codex");
-    expect(init.stdout).toContain(
-      "Next: from the project you want to try, run apkit install example",
-    );
+    expect(init.stdout).toContain("Next: run apkit validate");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(init.stdout).not.toContain("--host");
 
@@ -2419,6 +2423,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(await runCli(home, ["init"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
+    writeExampleMaterial(home);
     // A Project whose path contains spaces: the copyable Next and Details
     // command arguments must survive the shell that runs them.
     const spacedProject = mkdtempSync(join(tmpdir(), "agent profile kit rc spaced-"));

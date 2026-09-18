@@ -244,26 +244,25 @@ Project lifecycle diagnostic.
 
 ```
 $ apkit init
-Initialized Agent Profile Kit Workspace and settings at
-  ~/.agents/agent-profile-kit/workspace
+Created the Workspace folder and initialized Agent Profile Kit Workspace and
+  settings at ~/.agents/agent-profile-kit/workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: claude, codex, opencode
-Next: from the project you want to try, run apkit install example
+Next: run apkit validate
 ```
 
-Scaffolds `workspace.yaml`, six artifact directories, an installable `example`
-Profile and its Context Module, `README.md`, `AGENTS.md`, `.gitignore`, and a
-`schema_version: 2` `config.yaml`. Re-running is safe, and does not restore a
-removed example or overwrite any valid existing Workspace. The Workspace
-location is stated in actionable home-relative form (US-036), the receipt
-explains what a Profile is in one sentence at the moment one is first needed
-(US-033), and detection is advisory: it names the supported Agent Hosts found
-on the machine (US-037) and never blocks. The suggested first install names
-the Profile the initialization actually left in the Workspace (the scaffolded
-example, or the Profile the guided first-Profile flow created), and leaves
-Host choice to install's searchable choices (spec #491, US-016, ADR-0034);
-it never names a Host itself.
+Adds exactly the missing required parts — `workspace.yaml`, `context/`,
+`skills/`, and `profiles/` — in place to the chosen folder, records a
+`schema_version: 2` `config.yaml`, and adds nothing else: no example Profile,
+Context Module, README, AGENTS.md, or other file (spec #593 DEC-003, ADR-0047).
+A folder whose existing material is invalid is refused with its violation and
+nothing is added. Re-running is safe: it does not overwrite any valid existing
+Workspace or restore removed optional entries. The Workspace location is
+stated in actionable home-relative form (US-036), the receipt explains what a
+Profile is in one sentence at the moment one is first needed (US-033), and
+detection is advisory: it names the supported Agent Hosts found on the
+machine (US-037) and never blocks.
 
 ### 3. Learn the format
 

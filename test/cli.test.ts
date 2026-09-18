@@ -402,6 +402,18 @@ function removeScaffoldedExample(home: string): void {
   rmSync(join(workspace, "context", "example-context.md"), { force: true });
 }
 
+/**
+ * Setup no longer scaffolds example material (spec #593 DEC-003, #599); tests
+ * that need the canonical bindable example pair write it through the single
+ * authoring-examples authority, byte for byte.
+ */
+function writeExampleMaterial(home: string): void {
+  const workspace = workspacePath(home);
+  mkdirSync(join(workspace, "profiles"), { recursive: true });
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.profile.path), AUTHORING_EXAMPLES.profile.contents);
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.context.path), AUTHORING_EXAMPLES.context.contents);
+}
+
 /** Put a controlled Claude Code stub first on PATH for Host capability preflight. */
 /**
  * Controlled Codex stub that records every invocation to a probe log, so tests
@@ -682,7 +694,7 @@ function sharedReadOnlyCapture(
 }
 
 describe("agent-profile-kit project-bound lifecycle", () => {
-  test("a fresh Workspace includes a bindable example Profile and Context Module", async () => {
+  test("a fresh Workspace contains the required parts and no example material until authored", async () => {
     const home = isolatedHome();
     const projectPath = project();
 
@@ -690,17 +702,15 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(init, 0);
 
     const workspace = workspacePath(home);
-    // The scaffolded example Profile carries the new shape: no `id` field —
-    // its file name is its ID (spec #593 DEC-014, #598).
-    expect(readFileSync(join(workspace, "profiles", "example.yaml"), "utf8")).toContain(
-      "context:\n",
-    );
-    expect(readFileSync(join(workspace, "profiles", "example.yaml"), "utf8")).not.toContain(
-      "id:",
-    );
-    expect(readFileSync(join(workspace, "context", "example-context.md"), "utf8")).toContain(
-      "id: \"example-context\"\n",
-    );
+    // Setup adds no example material (spec #593 DEC-003, #599).
+    expect(existsSync(join(workspace, "profiles", "example.yaml"))).toBe(false);
+    expect(existsSync(join(workspace, "context", "example-context.md"))).toBe(false);
+    for (const part of ["workspace.yaml", "context", "profiles", "skills"]) {
+      expect(existsSync(join(workspace, part))).toBe(true);
+    }
+    // The canonical example pair, written through the authoring-examples
+    // authority, binds and installs unchanged.
+    writeExampleMaterial(home);
 
     const install = await runCli(home, "install", "example", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(install, 0);
@@ -732,38 +742,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(exampleContext)).toBe(false);
   });
 
-  test("init help and scaffold success recommend the same bindable example Profile", async () => {
+  test("init help and scaffold success route to validate before any Profile exists", async () => {
     const home = isolatedHome();
-    const projectPath = project();
-    const firstRunCommand = `apkit install ${AUTHORING_EXAMPLES.profile.id} --host codex`;
 
     const help = await runCli(home, "init", "--help");
     const init = await runCli(home, "init");
 
     expectExitCode(help, 0);
     expectExitCode(init, 0);
-    expect(help.stdout).toContain(`Next: Run ${firstRunCommand}.`);
-    expect(init.stdout).toContain(
-      `Next: from the project you want to try, run`,
-    );
-    // Init guidance names the example Profile and leaves Host choice to
-    // install (spec #491, US-016, ADR-0034).
-    expect(init.stdout).toContain(
-      `apkit install ${AUTHORING_EXAMPLES.profile.id}`,
-    );
-    expect(init.stdout).not.toContain(
-      `apkit install ${AUTHORING_EXAMPLES.profile.id} --host`,
-    );
-    const install = await runCliAt(
-      home,
-      projectPath,
-      "install",
-      AUTHORING_EXAMPLES.profile.id,
-      "--host",
-      "codex",
-      "--auto-confirm",
-    );
-    expectExitCode(install, 0);
+    expect(init.stdout).toContain("Next: run apkit validate");
+    // Setup adds no example material (spec #593 DEC-003, #599), so the init
+    // receipt names no Profile to install.
+    expect(init.stdout).not.toContain("install example");
   });
 
   test("init creates both canonical inputs and never overwrites either", async () => {
@@ -793,9 +783,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Next: apkit status");
   });
 
-  test("validate explains how to recover from removing only half of the scaffolded example", async () => {
+  test("validate explains how to recover from a Profile selecting a missing Context Module", async () => {
     const home = isolatedHome();
     await initialize(home);
+    writeExampleMaterial(home);
     rmSync(join(workspacePath(home), "context", "example-context.md"));
 
     const result = await runCli(home, "validate");
@@ -997,8 +988,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "validate");
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("2 Profiles");
-    expect(result.stdout).toContain("Profiles found: coding, example");
+    expect(result.stdout).toContain("1 Profile");
+    expect(result.stdout).toContain("Profiles found: coding");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
   });
@@ -1177,15 +1168,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
     expect(existsSync(workspacePath(home))).toBe(false);
     expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
+    // Setup adds exactly the required parts and nothing else (spec #593
+    // DEC-003, #599): no .gitkeep, no bootstrap docs, no example material.
     for (const directory of ["profiles", "context", "skills"]) {
-      expect(existsSync(join(custom, directory, ".gitkeep"))).toBe(true);
+      expect(existsSync(join(custom, directory))).toBe(true);
     }
-    for (const directory of ["agents", "hooks", "tools"]) {
-      expect(existsSync(join(custom, directory))).toBe(false);
+    for (const entry of ["agents", "hooks", "tools", "README.md", "AGENTS.md", ".gitignore"]) {
+      expect(existsSync(join(custom, entry))).toBe(false);
     }
-    expect(existsSync(join(custom, "README.md"))).toBe(true);
-    expect(existsSync(join(custom, "AGENTS.md"))).toBe(true);
-    expect(existsSync(join(custom, ".gitignore"))).toBe(true);
   });
 
   test("a space-containing Workspace path stays whole in the init receipt at narrow width", async () => {
@@ -1207,15 +1197,16 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init creates missing parent directories for an explicit Workspace destination", async () => {
+  test("init refuses an explicit Workspace destination whose parent directory is missing", async () => {
     const home = isolatedHome();
     const custom = join(home, "nested", "custom-workspace");
 
     const result = await runCli(home, "init", custom);
 
-    expectExitCode(result, 0);
-    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
-    expect(existsSync(join(custom, "workspace.yaml"))).toBe(true);
+    expectExitCode(result, 1);
+    expect(result.stderr).toMatch(/parent directory/i);
+    expect(existsSync(join(home, "nested"))).toBe(false);
+    expect(existsSync(configPath(home))).toBe(false);
   });
 
   test("init rejects a Workspace destination reserved by Local Configuration before creating application directories", async () => {
@@ -1335,7 +1326,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(`${configPath(home)}.lock`)).toBe(false);
   });
 
-  test("init with an explicit valid Workspace adopts it without changing its source", async () => {
+  test("init with an explicit valid Workspace adopts it and adds only its missing parts", async () => {
     const home = isolatedHome();
     const custom = join(home, "existing-workspace");
     mkdirSync(custom, { recursive: true });
@@ -1352,8 +1343,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       workspace: custom,
       bindings: [],
     });
-    expect(readdirSync(custom).sort()).toEqual(before);
     expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+    expect(readdirSync(custom).sort()).toEqual([...before, "context", "profiles", "skills"].sort());
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
@@ -1404,7 +1395,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
     expect(readFileSync(join(custom, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
-    expect(existsSync(join(custom, "profiles", ".gitkeep"))).toBe(true);
+    for (const directory of ["context", "profiles", "skills"]) {
+      expect(existsSync(join(custom, directory))).toBe(true);
+    }
     expect(existsSync(workspacePath(home))).toBe(false);
   });
 
@@ -1416,7 +1409,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(join(realWorkspace, "NOTES.md"), "user-owned source\n");
     symlinkSync(realWorkspace, alias);
-    const before = readdirSync(realWorkspace).sort();
 
     const result = await runCli(home, "init", alias);
 
@@ -1427,7 +1419,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       workspace: alias,
       bindings: [],
     });
-    expect(readdirSync(realWorkspace).sort()).toEqual(before);
+    expect(readdirSync(realWorkspace).sort()).toEqual(["NOTES.md", "context", "profiles", "skills", "workspace.yaml"].sort());
     expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
@@ -1479,10 +1471,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       readonly pattern: RegExp;
     }[] = [
       {
-        authored: () => "./relative-workspace",
-        pattern: /absolute path or\s+home-relative/i,
-      },
-      {
         authored: () => "~/projects/*",
         pattern: /without\s+wildcards/i,
       },
@@ -1505,12 +1493,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         pattern: /symlink target is empty/i,
       },
       {
-        authored: (home) => join(home, "invalid-directory"),
-        setup: (home) => {
-          mkdirSync(join(home, "invalid-directory"));
-          writeFileSync(join(home, "invalid-directory", "NOTES.md"), "not a Workspace\n");
-        },
-        pattern: /non-empty and is not an Agent Profile Kit Workspace/i,
+        authored: (home) => join(home, "missing-parent", "workspace"),
+        pattern: /parent directory/i,
       },
     ];
 
@@ -1869,8 +1853,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "validate");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("3 Profiles, 2 configured Projects");
-    expect(result.stdout).toContain("Profiles found: coding, example, writing");
+    expect(result.stdout).toContain("2 Profiles, 2 configured Projects");
+    expect(result.stdout).toContain("Profiles found: coding, writing");
     expect(result.stdout).toContain("Hosts bound: claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
     expect(result.stdout).not.toContain("Next: apkit bind");
@@ -8646,13 +8630,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(install, 0);
   });
 
-  test("guide context returns the short scaffolded Context Module example", async () => {
+  test("guide context returns the short example Context Module bytes", async () => {
     const home = isolatedHome();
     await initialize(home);
-    const scaffolded = readFileSync(
-      join(workspacePath(home), "context", "example-context.md"),
-      "utf8",
-    );
+    writeExampleMaterial(home);
+    const example = AUTHORING_EXAMPLES.context.contents;
 
     const result = await runCli(home, "guide", "context");
 
@@ -8662,7 +8644,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
     expect(result.stdout).toContain("context/example-context.md");
     // The example body renders as verbatim terminal content, no fences (#510).
-    expect(result.stdout).toContain(scaffolded);
+    expect(result.stdout).toContain(example);
     // Defect pin: the pre-#510 rendering quoted the example in ```md fences.
     expect(result.stdout).not.toContain("```md");
   });
@@ -8793,7 +8775,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(/machine[- ](path|specific)|Host preference/i);
     expect(result.stdout).toMatch(/exact bound root/);
     expect(result.stdout).toMatch(/does not claim that Agent Profile Kit manages|Do not claim that Agent Profile Kit manages/i);
-    expect(result.stdout).toMatch(/optional scaffolding|empty categor/i);
+    expect(result.stdout).toMatch(/optional\s+user-owned|no\s+example\s+material|optional\s+files/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
     expect(result.stdout).toMatch(/at least one supported artifact|Context is not mandatory|Skills-only/i);
     expect(result.stdout).toMatch(/unselected universal|universal artifact/i);
@@ -8808,12 +8790,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toMatch(/apkit unbind\b/);
   });
 
-  test("packed human guide distinguishes required Manifest from init scaffolding", async () => {
+  test("packed human guide distinguishes required structure from optional files", async () => {
     const result = await sharedReadOnlyCapture("guide", "--full");
     expectExitCode(result, 0);
-    expect(result.stdout).toMatch(/Required structure vs initialization scaffolding|valid Workspace needs only/i);
+    expect(result.stdout).toMatch(/Required structure vs optional files|valid Workspace needs only/i);
     expect(result.stdout).toMatch(/workspace\.yaml/);
-    expect(result.stdout).toMatch(/empty\s+categor/i);
+    expect(result.stdout).toMatch(/no\s+example\s+material/i);
     expect(result.stdout).toMatch(/README\.md/);
     expect(result.stdout).toMatch(/optional/i);
     expect(result.stdout).toMatch(/profiles\//);
@@ -8860,44 +8842,6 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Same-identity native delivery is delegated to the Host.
     expect(result.stdout).toMatch(/may be both universally delivered/i);
     expect(result.stdout).toMatch(/exact planned destination/i);
-  });
-
-  test("init bootstrap pointers stay short and name current guide commands", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
-    const agents = readFileSync(join(workspacePath(home), "AGENTS.md"), "utf8");
-
-    expect(readme).toContain("apkit guide");
-    expect(readme).toContain("apkit guide --full");
-    expect(agents).toContain("apkit guide --agent");
-    expect(readme).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
-    expect(agents).not.toMatch(/agent-profile-kit (plan|install|update|run)\b/);
-    // US-019 (#509) requires the README to explain Profiles, Context, Skills,
-    // and the configure/update loop, so the bound is re-derived for genuinely
-    // larger required content, not loosened; the golden snapshot pins the
-    // exact bytes, so this bound is the secondary guard.
-    expect(readme.trim().split("\n").length).toBeLessThan(24);
-    expect(agents.trim().split("\n").length).toBeLessThan(12);
-  });
-
-  test("a new Workspace README explains Profiles, standing Context, task Skills, and the configure/update loop (US-019, #509)", async () => {
-    const home = isolatedHome();
-    await initialize(home);
-    const readme = readFileSync(join(workspacePath(home), "README.md"), "utf8");
-
-    // Profiles package chosen Context and Skills to install together.
-    expect(readme).toMatch(/Profiles?[^.\n]* chosen Context and Skills/i);
-    // Context supplies standing guidance; Skills supply task instructions.
-    expect(readme).toMatch(/Context Module.*standing/i);
-    expect(readme).toMatch(/Skill.*task/i);
-    // The configure/update loop with concrete examples naming the scaffolded
-    // example Profile (derived from AUTHORING_EXAMPLES).
-    expect(readme).toContain("apkit configure profile");
-    expect(readme).toContain("apkit update");
-    expect(readme).toContain("apkit install example");
-    // Ambiguous material words are avoided where Context and Skills can be named.
-    expect(readme).not.toMatch(/\bmaterial\b/i);
   });
 
   test("init preserves an existing user-written Workspace README byte for byte (US-019, #509)", async () => {
@@ -9657,7 +9601,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expectExitCode(unknownProfile, 1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
     expect(unknownProfile.stderr.replace(/\s+/g, " ")).toContain(
-      "Available Profiles: coding, example, writing",
+      "Available Profiles: coding, writing",
     );
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
@@ -10088,8 +10032,9 @@ describe("responsive lifecycle reports", () => {
     const home = isolatedHome();
     const projectPath = project();
     await initialize(home);
+    writeContextProfile(home);
 
-    bind(home, projectPath, "example");
+    bind(home, projectPath, "coding");
 
     const narrow = await runCliInPty(home, 40, "status");
     const redirectedNarrow = await runCliWithEnvironment(home, { COLUMNS: "40" }, "status");
@@ -10140,7 +10085,8 @@ describe("responsive lifecycle reports", () => {
     const blockedHome = isolatedHome();
     const blockedProject = project();
     await initialize(blockedHome);
-    bind(blockedHome, blockedProject, "example");
+    writeContextProfile(blockedHome);
+    bind(blockedHome, blockedProject, "coding");
     mkdirSync(join(blockedProject, ".agent-profile-kit", "codex"), { recursive: true });
     writeFileSync(
       join(blockedProject, ".agent-profile-kit", "codex", "context.md"),
@@ -10313,8 +10259,9 @@ describe("delayed interactive progress", () => {
   test("interactive status never shows delayed progress even when Host CLIs would be slow", async () => {
     const home = isolatedHome();
     await initialize(home);
+    writeContextProfile(home);
     const projectPath = project();
-    bind(home, projectPath, "example");
+    bind(home, projectPath, "coding");
 
     const result = await runCliInPtyWithEnvironmentRaw(
       home,
@@ -10333,8 +10280,9 @@ describe("delayed interactive progress", () => {
   test("redirected and JSON status contain no progress bytes even when Host CLIs would be slow", async () => {
     const home = isolatedHome();
     await initialize(home);
+    writeContextProfile(home);
     const projectPath = project();
-    bind(home, projectPath, "example");
+    bind(home, projectPath, "coding");
 
     const piped = await runCliWithEnvironment(home, { APKIT_TEST_CODEX_DELAY: "0.6" }, "status");
     expectExitCode(piped, 0);
@@ -10434,8 +10382,9 @@ describe("apkit root help", () => {
   test("bare invocation on a configured machine consumes fleet state and default scope without mutating anything (US-032, TEST-020)", async () => {
     const home = isolatedHome();
     await initialize(home);
+    writeContextProfile(home);
     const boundProject = gitRepository("agent-profile-kit-452-bare-");
-    bind(home, boundProject, "example");
+    bind(home, boundProject, "coding");
     const readMachineDigest = (): string =>
       treeDigest([boundProject, configPath(home), statePath(home)]);
     const before = readMachineDigest();
@@ -14422,6 +14371,7 @@ describe("packed CLI new profile", () => {
   test("new profile creates a valid bindable Profile from explicit selections, prints the absolute created path, and completes creation → validate → bind → update", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
     const created = await runCli(
@@ -14462,6 +14412,7 @@ describe("packed CLI new profile", () => {
   test("new profile never prompts on an interactive terminal and completes without input", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
 
     const result = await runCliInPty(home, 80, "new", "profile", "pty-profile", "--context", "example-context");
     expectExitCode(result, 0);
@@ -14472,6 +14423,17 @@ describe("packed CLI new profile", () => {
 
   test("guided init accepts the offer and creates the first Profile through the packed CLI", async () => {
     const home = isolatedHome();
+    // The guided first-Profile offer fires only for a destination that has
+    // material but no Profile (spec #593 DEC-003, #599); a fresh home has
+    // neither, so the fixture prepares the destination without connecting it.
+    const workspace = workspacePath(home);
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(
+      join(workspace, "context", "example-context.md"),
+      "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n",
+    );
 
     const result = await runCliInPtyWithInput(
       home,
@@ -14498,6 +14460,7 @@ describe("packed CLI new profile", () => {
   test("new profile refuses unknown selections with available names and the nearest match", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
     const unknownContext = await runCli(
@@ -14541,6 +14504,7 @@ describe("packed CLI new profile", () => {
   test("new profile refuses zero selections with available-names guidance and creates nothing", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
     const empty = await runCli(home, "new", "profile", "engineering");
@@ -14554,6 +14518,7 @@ describe("packed CLI new profile", () => {
   test("new profile refuses duplicate selections, invalid names, occupied destinations, and unknown flags without writing", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
     // A selection repeated within one category is an argument error.
@@ -14606,28 +14571,6 @@ describe("packed CLI new profile", () => {
     expect(occupied.stderr).toMatch(/apkit new profile <name>/);
     expect(readFileSync(profileFile, "utf8")).toBe("context: [example-context]\nskills: []\n");
 
-    // A duplicate Artifact ID identifies the existing file and offers editing
-    // it or another name; nothing is created or changed (US-015, #508).
-    const duplicateProfile = await runCli(
-      home,
-      "new",
-      "profile",
-      "example",
-      "--context",
-      "example-context",
-    );
-    expectExitCode(duplicateProfile, 1);
-    expect(duplicateProfile.stderr).toContain(
-      "A Profile named 'example' already exists at",
-    );
-    expect(duplicateProfile.stderr).toContain("Nothing was created or changed");
-    expect(duplicateProfile.stderr).toMatch(/apkit new profile <name>/);
-    expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).toContain(
-      "context:\n",
-    );
-    expect(readFileSync(join(workspacePath(home), "profiles", "example.yaml"), "utf8")).not.toContain(
-      "id:",
-    );
 
     // Unknown flags are argument errors.
     const unknownFlag = await runCli(
@@ -14705,6 +14648,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
   test("a new Profile leads to installing the Profile it actually created", async () => {
     const home = isolatedHome();
     expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
 
     const profile = await runCli(
       home,

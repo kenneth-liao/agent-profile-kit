@@ -3,16 +3,17 @@
 Use this workflow when helping a person author their Workspace and bind projects.
 
 1. Read this guide first. Then inspect the Workspace: start with `workspace.yaml`
-   and its schema version. A valid Workspace needs only that Manifest; missing
-   artifact directories are empty categories, and bootstrap files such as
-   `README.md`, `AGENTS.md`, and `.gitignore` are optional scaffolding from
-   `init`, not format requirements. Use `apkit init` for the fixed
-   default or `apkit init <workspace>` for one explicit absolute or
-   home-relative destination; missing and empty non-symlink destinations are
-   scaffolded, while valid existing Workspaces are adopted without source
-   changes. Inspect any present artifact directories next. Treat the Workspace
-   as the canonical source; do not infer reusable material from generated Host
-   output.
+   and its schema version. A valid Workspace needs that Manifest plus the
+   `context/`, `skills/`, and `profiles/` directories, which `apkit init` adds
+   when missing; missing artifact directories are empty collections, and
+   bootstrap files such as `README.md`, `AGENTS.md`, and `.gitignore` are
+   optional user-owned files, not format requirements. Use `apkit init` for the
+   fixed default or `apkit init <workspace>` for one explicit destination:
+   setup adds exactly the missing required parts in place and never touches
+   other entries, while a folder whose existing material is invalid is refused
+   with its violation (spec #593 DEC-003, ADR-0047). Inspect any present
+   artifact directories next. Treat the Workspace as the canonical source; do
+   not infer reusable material from generated Host output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,

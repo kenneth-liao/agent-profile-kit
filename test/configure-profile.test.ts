@@ -25,6 +25,15 @@ function workspacePath(home: string): string {
 async function initializedHome(): Promise<string> {
   const home = mkdtempSync(join(tmpdir(), "apkit-configure-profile-"));
   await initializeWorkspace(home);
+  // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
+  // fixtures that select the canonical example pair write it explicitly.
+  mkdirSync(join(workspacePath(home), "context"), { recursive: true });
+  writeFileSync(
+    join(workspacePath(home), "context", "example-context.md"),
+    "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n",
+  );
+  mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
+  writeFileSync(join(workspacePath(home), "profiles", "example.yaml"), 'context:\n  - "example-context"\nskills: []\n');
   return home;
 }
 

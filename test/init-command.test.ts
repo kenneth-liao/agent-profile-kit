@@ -132,9 +132,18 @@ async function waitForOutput(
   }
 }
 
+/** A fixture destination with material but no Profile: the guided offer fires (DEC-003). */
+function writeGuidedFixture(home: string): void {
+  mkdirSync(join(workspacePath(home), "skills"), { recursive: true });
+  writeFileSync(join(workspacePath(home), "workspace.yaml"), WORKSPACE_MANIFEST);
+  writeMaterial(home, "team-rules");
+  writeConfig(home, workspacePath(home));
+}
+
 describe("guided first-Profile init", () => {
   test("accepts the offer, collects name and selections, and creates the Profile through the scaffolding path", async () => {
     const home = isolatedHome();
+    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
@@ -154,11 +163,11 @@ describe("guided first-Profile init", () => {
     // The written Profile carries the new shape: no `id` field — the file
     // name is its ID (spec #593 DEC-014, #598).
     expect(profile).not.toContain("id:");
-    expect(profile).toContain("- \"example-context\"");
+    expect(profile).toContain("- \"team-rules\"");
     const human = plain(streams.humanText());
     expect(human).toContain("Created Profile my-profile");
     expect(human).toContain(profileFile);
-    expect(human).toContain("Initialized Agent Profile Kit Workspace");
+    expect(human).toContain("already initialized");
     // One install next action naming the actually created Profile (spec #491,
     // US-016): no Host named in guidance, no stale equivalent-creation line
     // (the Profile exists, so `apkit new profile` would fail), no vague
@@ -173,6 +182,7 @@ describe("guided first-Profile init", () => {
 
   test("declining the offer initializes normally without creating a Profile", async () => {
     const home = isolatedHome();
+    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
@@ -182,7 +192,6 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(0);
     expect(existsSync(configPath(home))).toBe(true);
-    expect(existsSync(join(workspacePath(home), "profiles", "example.yaml"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     expect(streams.errorText()).toBe("");
     expect(plain(streams.humanText())).not.toContain("What should the Profile be named?");
@@ -190,6 +199,7 @@ describe("guided first-Profile init", () => {
 
   test("cancelling at the offer initializes nothing", async () => {
     const home = isolatedHome();
+    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
@@ -198,13 +208,13 @@ describe("guided first-Profile init", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(existsSync(configPath(home))).toBe(false);
-    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     expect(plain(streams.errorText())).toContain("init was cancelled; nothing was initialized or created");
   }, 20_000);
 
   test("cancelling after answering the name initializes nothing", async () => {
     const home = isolatedHome();
+    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
@@ -217,9 +227,26 @@ describe("guided first-Profile init", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(existsSync(configPath(home))).toBe(false);
-    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     expect(plain(streams.errorText())).toContain("init was cancelled; nothing was initialized or created");
+  }, 20_000);
+
+  test("a fresh destination without material initializes without any guidance offer", async () => {
+    const home = isolatedHome();
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(configPath(home))).toBe(true);
+    // Setup adds only the required parts and no example material (DEC-003,
+    // #599); with no material there is nothing to offer first-Profile
+    // guidance about.
+    for (const directory of ["context", "profiles", "skills"]) {
+      expect(existsSync(join(workspacePath(home), directory))).toBe(true);
+    }
+    expect(existsSync(join(workspacePath(home), "profiles", "example.yaml"))).toBe(false);
+    expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
   }, 20_000);
 
   test("non-interactive init never prompts and initializes normally", async () => {
@@ -231,13 +258,15 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(0);
     expect(existsSync(configPath(home))).toBe(true);
-    expect(existsSync(join(workspacePath(home), "profiles", "example.yaml"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "profiles", "example.yaml"))).toBe(false);
     expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
   }, 20_000);
 
   test("init with an existing Profile never offers the guidance", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home); // scaffolds the example Profile
+    await initializeWorkspace(home);
+    writeMaterial(home, "team-rules");
+    writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "context: [team-rules]\nskills: []\n");
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
     const { exitCode } = await pending;
@@ -251,6 +280,7 @@ describe("guided first-Profile init", () => {
 
   test("an invalid Profile name is refused before any initialization change", async () => {
     const home = isolatedHome();
+    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [], input);
 
@@ -261,14 +291,12 @@ describe("guided first-Profile init", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(existsSync(configPath(home))).toBe(false);
-    expect(existsSync(workspacePath(home))).toBe(false);
+    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
   }, 20_000);
 
   test("offers both categories when both have material and records the combined selection", async () => {
     const home = isolatedHome();
     await initializeWorkspace(home);
-    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
     writeMaterial(home, "team-rules");
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
@@ -305,7 +333,6 @@ describe("guided first-Profile init", () => {
   test("refuses zero selections before any initialization change", async () => {
     const home = isolatedHome();
     await initializeWorkspace(home);
-    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
     writeMaterial(home, "team-rules");
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
@@ -329,7 +356,6 @@ describe("guided first-Profile init", () => {
     expect(exitCode).toBe(1);
     expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     // The Workspace existed before this invocation; initialization did not run.
-    expect(existsSync(join(workspacePath(home), "profiles", ".gitkeep"))).toBe(true);
     expect(plain(streams.errorText())).toContain("Profile");
   }, 20_000);
 
@@ -344,7 +370,6 @@ describe("guided first-Profile init", () => {
     // stdout claims no next step for a Profile that does not exist.
     const home = isolatedHome();
     await initializeWorkspace(home);
-    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
     writeMaterial(home, "team-rules");
     writeConfig(home, workspacePath(home));
     chmodSync(join(workspacePath(home), "profiles"), 0o555);
@@ -377,8 +402,6 @@ describe("guided first-Profile init", () => {
   test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
     const home = isolatedHome();
     await initializeWorkspace(home);
-    rmSync(join(workspacePath(home), "profiles", "example.yaml"));
-    rmSync(join(workspacePath(home), "context", "example-context.md"));
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
       join(workspacePath(home), "skills", "release-check", "SKILL.md"),
@@ -443,8 +466,10 @@ describe("guided first-Profile init", () => {
     const home = isolatedHome();
     const workspace = join(home, "configured");
     await initializeWorkspace(home, { workspace }); // Local Configuration selects it
-    rmSync(join(workspace, "profiles", "example.yaml"));
-    writeMaterial(workspace, "team-rules");
+    writeFileSync(
+      join(workspace, "context", "team-rules.md"),
+      "---\nid: team-rules\ndependencies: []\n---\nContent for team-rules.\n",
+    );
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspace], input);
 
@@ -456,47 +481,4 @@ describe("guided first-Profile init", () => {
     expect(plain(streams.humanText())).toContain("already initialized");
   }, 20_000);
 
-  test("the scaffolded example Profile name is refused on a fresh destination before any write", async () => {
-    const home = isolatedHome();
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("example\r");
-    await waitForOutput(streams.errorText, "Profile 'example' is the example Profile this init will scaffold");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(1);
-    expect(existsSync(configPath(home))).toBe(false);
-    expect(existsSync(workspacePath(home))).toBe(false);
-    expect(plain(streams.errorText())).toContain(
-      "Profile 'example' is the example Profile this init will scaffold",
-    );
-    expect(plain(streams.errorText())).toContain("Choose a different Profile name.");
-  }, 20_000);
-
-  test("the scaffolded example Profile name is refused on an empty destination before any write", async () => {
-    const home = isolatedHome();
-    const empty = join(home, "empty-destination");
-    mkdirSync(empty, { recursive: true });
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [empty], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("example\r");
-    await waitForOutput(streams.errorText, "Profile 'example' is the example Profile this init will scaffold");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(empty, "workspace.yaml"))).toBe(false);
-    expect(existsSync(configPath(home))).toBe(false);
-    expect(plain(streams.errorText())).toContain(
-      "Profile 'example' is the example Profile this init will scaffold",
-    );
-    expect(plain(streams.errorText())).toContain("Choose a different Profile name.");
-  }, 20_000);
 });

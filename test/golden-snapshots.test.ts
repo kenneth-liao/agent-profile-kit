@@ -278,6 +278,11 @@ function gitProject(home: string, name: string): string {
 
 async function initialize(home: string): Promise<void> {
   expectExitCode(await runCli(home, ["init"]), 0);
+  // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
+  // fixtures that bind the canonical example pair write it explicitly.
+  const workspace = workspacePath(home);
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.profile.path), AUTHORING_EXAMPLES.profile.contents);
+  writeFileSync(join(workspace, AUTHORING_EXAMPLES.context.path), AUTHORING_EXAMPLES.context.contents);
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }

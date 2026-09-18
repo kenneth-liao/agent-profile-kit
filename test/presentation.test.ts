@@ -8724,11 +8724,13 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
       authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
-      workspaceScaffolded: true,
+      folderCreated: true,
       detectedHosts: ["codex"],
     });
     // Selective shape: kinds, categories, order, and atomic values — the
-    // carried wording is locked by the golden snapshots.
+    // carried wording is locked by the golden snapshots. Setup adds no
+    // example material (spec #593 DEC-003, #599), so the one next action is
+    // the validate pointer.
     expect(shapes(document)).toEqual([
       "sentence(success)",
       "sentence",
@@ -8748,14 +8750,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       category: "command",
       parts: [
-        "Next: from the project you want to try, run ",
+        "Next: run ",
         {
           kind: "command",
           program: "apkit",
-          args: [
-            { kind: "text", value: "install" },
-            { kind: "text", value: "example" },
-          ],
+          args: [{ kind: "text", value: "validate" }],
         },
       ],
     });
@@ -8767,7 +8766,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
       authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
-      workspaceScaffolded: true,
+      folderCreated: true,
       detectedHosts: ["antigravity", "claude", "codex"],
     });
     expect(multiHostDocument[2]).toMatchObject({
@@ -8781,14 +8780,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       category: "command",
       parts: [
-        "Next: from the project you want to try, run ",
+        "Next: run ",
         {
           kind: "command",
           program: "apkit",
-          args: [
-            { kind: "text", value: "install" },
-            { kind: "text", value: "example" },
-          ],
+          args: [{ kind: "text", value: "validate" }],
         },
       ],
     });
@@ -8801,7 +8797,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
       authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
-      workspaceScaffolded: true,
+      folderCreated: true,
       detectedHosts: ["codex"],
       guidedProfileFollows: true,
     });
@@ -8866,15 +8862,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
     );
   });
 
-  test("the created receipt with no detected Hosts states so and still names the example install action", () => {
+  test("the created receipt with no detected Hosts states so and still names the next action", () => {
     // Detection is advisory (DEC-011): undetected Hosts remain selectable
-    // install choices (ADR-0034), so the example-only next action names the
-    // example Profile and never falls back away from installation.
+    // install choices (ADR-0034); the receipt's next action never names one.
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
       authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
-      workspaceScaffolded: true,
+      folderCreated: true,
       detectedHosts: [],
     });
     expect(shapes(document)).toEqual([
@@ -8891,25 +8886,21 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       category: "command",
       parts: [
-        "Next: from the project you want to try, run ",
+        "Next: run ",
         {
           kind: "command",
           program: "apkit",
-          args: [
-            { kind: "text", value: "install" },
-            { kind: "text", value: "example" },
-          ],
+          args: [{ kind: "text", value: "validate" }],
         },
       ],
     });
   });
 
-  test("the created receipt without scaffolding points at validate", () => {
+  test("the created receipt without a created folder points at validate", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, ".agents", "agent-profile-kit", "workspace"),
       authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
-      workspaceScaffolded: false,
       detectedHosts: ["codex"],
     });
     expect(shapes(document)).toEqual([

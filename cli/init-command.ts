@@ -226,21 +226,6 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     );
     return { exitCode: 1 };
   }
-  // A missing or empty destination still receives the scaffolded example
-  // Profile before creation runs; refuse the collision before any write. The
-  // planned scaffold does not exist yet, so this is its own fact kind — a
-  // duplicate-artifact-name path would fabricate a file that is not there (#508).
-  if (preview.plannedScaffoldProfiles.includes(name)) {
-    writeHumanDocument(
-      request.stderr,
-      errorDiagnosticDocument(new InstallerToolError({
-        kind: "init-planned-profile-conflict",
-        profile: name,
-      })),
-      stderrContext,
-    );
-    return { exitCode: 1 };
-  }
 
   // Each available category is offered when material exists (US-045); a
   // category with no material is skipped — a zero-choice question cannot be

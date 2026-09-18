@@ -64,7 +64,7 @@ describe("delivered Workspace scaffolding", () => {
 
     expect(created.outcome).toBe("created");
     for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
-      expect(existsSync(join(created.path, directory, ".gitkeep"))).toBe(true);
+      expect(existsSync(join(created.path, directory))).toBe(true);
     }
     for (const directory of UNDELIVERED_ARTIFACT_DIRECTORIES) {
       expect(existsSync(join(created.path, directory))).toBe(false);
@@ -81,9 +81,10 @@ describe("delivered Workspace scaffolding", () => {
     const before = readdirSync(path).sort();
 
     const result = await initializeWorkspace(home);
-
-    expect(result.workspaceScaffolded).toBe(false);
-    expect(readdirSync(path).sort()).toEqual(before);
+    // undelivered directories are untouched (spec #593 DEC-003, #599).
+    for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
+      expect(existsSync(join(path, directory))).toBe(true);
+    }
     for (const directory of UNDELIVERED_ARTIFACT_DIRECTORIES) {
       expect(readFileSync(join(path, directory, "legacy.txt"), "utf8")).toBe(
         "user material\n",
@@ -239,24 +240,22 @@ describe("optional Workspace scaffolding after initialization", () => {
     );
   });
 
-  test("init creates the full scaffold and re-init leaves a minimal valid Workspace unchanged", async () => {
+  test("init creates the required parts and re-init leaves a minimal valid Workspace unchanged", async () => {
     const home = isolatedHome();
     const created = await initializeWorkspace(home);
     const path = created.path;
 
     expect(created.outcome).toBe("created");
     for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
-      expect(existsSync(join(path, directory, ".gitkeep"))).toBe(true);
+      expect(existsSync(join(path, directory))).toBe(true);
     }
-    expect(existsSync(join(path, "README.md"))).toBe(true);
-    expect(existsSync(join(path, "AGENTS.md"))).toBe(true);
-    expect(existsSync(join(path, ".gitignore"))).toBe(true);
+    // Setup adds no example material or bootstrap docs (spec #593 DEC-003, #599).
+    for (const entry of ["README.md", "AGENTS.md", ".gitignore"]) {
+      expect(existsSync(join(path, entry))).toBe(false);
+    }
     expect(readFileSync(join(path, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
-    expect(readFileSync(join(path, "profiles", "example.yaml"), "utf8")).toBe(
-      "context:\n  - \"example-context\"\nskills: []\n",
-    );
 
-    // Replace the full scaffold with a minimal Manifest-only Workspace.
+    // Replace the required parts with a minimal Manifest-only Workspace.
     rmSync(path, { recursive: true, force: true });
     writeManifestOnlyWorkspace(home);
     const before = readdirSync(path).sort();
@@ -266,7 +265,6 @@ describe("optional Workspace scaffolding after initialization", () => {
     expect(reinit.outcome).toBe("unchanged");
     expect(readdirSync(path).sort()).toEqual(before);
     expect(existsSync(join(path, "README.md"))).toBe(false);
-    expect(existsSync(join(path, "profiles"))).toBe(false);
   });
 
   test("symlinked valid Workspaces retain initialization and validation behavior", async () => {
@@ -281,9 +279,11 @@ describe("optional Workspace scaffolding after initialization", () => {
 
     await expect(validateWorkspaceStructure(workspacePath(home))).resolves.toBeUndefined();
     const reinit = await initializeWorkspace(home);
-    // Config is missing, so init may create config.yaml while leaving the Workspace tree alone.
+    // Config is missing, so init may create config.yaml; the first connection
+    // completes the required parts in place and adds nothing else (spec #593
+    // DEC-003, #599).
     expect(["created", "unchanged"]).toContain(reinit.outcome);
-    expect(readdirSync(realWorkspace).sort()).toEqual(["workspace.yaml"]);
-    expect(existsSync(join(realWorkspace, "profiles"))).toBe(false);
+    expect(readdirSync(realWorkspace).sort()).toEqual(["context", "profiles", "skills", "workspace.yaml"]);
+    expect(existsSync(join(realWorkspace, "README.md"))).toBe(false);
   });
 });

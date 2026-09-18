@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -258,20 +258,20 @@ describe("typed Installer tool errors", () => {
     }
   });
 
-  test("init Workspace validation rejections are typed facts", async () => {
+  test("init Workspace rejections are typed facts", async () => {
     const home = isolatedHome();
     try {
-      const destination = join(home, "occupied");
-      mkdirSync(destination, { recursive: true });
-      writeFileSync(join(destination, "unrelated.txt"), "user material\n");
+      const destination = join(home, "missing-parent", "workspace");
       const failure = await rejection(() =>
         initializeWorkspace(home, { workspace: destination }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("init-not-workspace-directory");
+      expect((failure as InstallerToolError).fact.kind).toBe("init-missing-parent-directory");
       expect(flatInlineText(formatInstallerToolError((failure as InstallerToolError).fact))).toBe(
-        `Cannot initialize ${destination}: directory is non-empty and is not an Agent Profile Kit Workspace`,
+        `Cannot initialize ${destination}: parent directory ${join(home, "missing-parent")} does not exist; nothing was written`,
       );
+      expect(existsSync(join(home, "missing-parent"))).toBe(false);
+      expect(existsSync(configPath(home))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
