@@ -245,7 +245,7 @@ describe("optional Workspace scaffolding after initialization", () => {
       (error) => error as InstallerAuthoredError,
     );
     expect(rejectionSentence(invalidYaml)).toBe(
-      "Workspace Manifest is invalid YAML; correct workspace.yaml before retrying",
+      "workspace.yaml is invalid YAML; correct it before retrying",
     );
 
     writeFileSync(join(path, "workspace.yaml"), "schema_version: 99\n");

@@ -22,7 +22,9 @@ export function violationTokens(violations: readonly WorkspaceViolation[]): read
 
 /** Collect every violation of one Workspace in one run. */
 export async function collectViolations(workspace: string): Promise<readonly WorkspaceViolation[]> {
-  return (await collectWorkspaceViolations(workspace)).violations;
+  const collected = await collectWorkspaceViolations(workspace);
+  if (collected.outcome !== "invalid") return [];
+  return collected.violations;
 }
 
 /**
@@ -45,16 +47,6 @@ export function ingestionFactOf(violation: WorkspaceViolation): WorkspaceIngesti
     throw new Error(`expected an ingestion fact, collected ${workspaceViolationToken(violation)}`);
   }
   return violation.fact;
-}
-
-/** The portable-schema rejection detail behind one collected violation. */
-export function rejectionDetailOf(
-  violation: WorkspaceViolation,
-): WorkspaceViolation extends never ? never : Exclude<WorkspaceViolation, { via: "ingestion" }>["detail"] {
-  if (violation.via === "ingestion") {
-    throw new Error(`expected a schema rejection, collected ${workspaceViolationToken(violation)}`);
-  }
-  return violation.detail;
 }
 
 /**

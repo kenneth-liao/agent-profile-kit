@@ -119,17 +119,17 @@ export async function validateWorkspaceFolder(
   const origin: ConfiguredPathOrigin = { source: "validate" };
   const expanded = expandWorkspaceArgument(authored, home, origin);
   const canonical = await requireExistingDirectory(expanded, authored, origin, "workspace");
-  const { violations, workspace } = await collectWorkspaceViolations(canonical);
-  if (workspace !== undefined) {
+  const collection = await collectWorkspaceViolations(canonical);
+  if (collection.outcome === "valid") {
     return {
       outcome: "valid",
       path: canonical,
-      contexts: [...workspace.contexts.keys()].sort(),
-      profiles: [...workspace.profiles.keys()].sort(),
-      skills: [...workspace.skills.keys()].sort(),
+      contexts: [...collection.workspace.contexts.keys()].sort(),
+      profiles: [...collection.workspace.profiles.keys()].sort(),
+      skills: [...collection.workspace.skills.keys()].sort(),
     };
   }
-  return { outcome: "invalid", path: canonical, violations };
+  return { outcome: "invalid", path: canonical, violations: collection.violations };
 }
 
 export async function validateApplication(

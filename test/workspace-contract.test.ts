@@ -138,8 +138,10 @@ describe("workspace contract examples (TEST-005)", () => {
         // run reports every violation, and the collected token set must
         // equal the document's named set — no hidden extra violation, none
         // missing.
-        const { violations } = await collectWorkspaceViolations(root);
-        expect(violations.map(workspaceViolationToken).sort()).toEqual([...named].sort());
+        const collected = await collectWorkspaceViolations(root);
+        expect(collected.outcome).toBe("invalid");
+        if (collected.outcome !== "invalid") throw new Error("expected an invalid collection");
+        expect(collected.violations.map(workspaceViolationToken).sort()).toEqual([...named].sort());
       } finally {
         rmSync(root, { recursive: true, force: true });
       }

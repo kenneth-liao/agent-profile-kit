@@ -9,6 +9,7 @@ import {
 } from "../installer/ingest-workspace.js";
 import {
   InstallerToolError,
+  workspaceViolationPath,
   workspaceViolationToken,
   type WorkspaceViolation,
 } from "../installer/tool-errors.js";
@@ -60,11 +61,15 @@ function tokens(violations: readonly WorkspaceViolation[]): readonly string[] {
   return violations.map(workspaceViolationToken).sort();
 }
 
+/** The violation list of one collected run. */
+async function violationsOf(workspace: string): Promise<readonly WorkspaceViolation[]> {
+  const collected = await collectWorkspaceViolations(workspace);
+  if (collected.outcome !== "invalid") return [];
+  return collected.violations;
+}
+
 function violationPaths(violations: readonly WorkspaceViolation[]): readonly string[] {
-  return violations
-    .map((violation) => ("fact" in violation ? violation.fact : violation.detail))
-    .map((fact) => ("path" in fact ? fact.path : "file" in fact ? fact.file : ""))
-    .sort();
+  return violations.map(workspaceViolationPath).sort();
 }
 
 describe("Workspace violation collection (spec #593 DEC-009, #604)", () => {
@@ -83,13 +88,15 @@ describe("Workspace violation collection (spec #593 DEC-009, #604)", () => {
     writeFileSync(join(workspace, "skills", "sidecar-skill", "agent-profile-kit.yaml"), "context: []\n");
 
     const collected = await collectWorkspaceViolations(workspace);
-    expect(collected.workspace).toBeUndefined();
-    expect(collected.violations.map(workspaceViolationToken).sort()).toEqual([
+    expect(collected.outcome).toBe("invalid");
+    if (collected.outcome !== "invalid") throw new Error("expected an invalid collection");
+    const runViolations = collected.violations;
+    expect(runViolations.map(workspaceViolationToken).sort()).toEqual([
       "leftover-skill-sidecar",
       "workspace-artifact/profile-id-field",
     ]);
     // Each violation names its path.
-    expect(violationPaths(collected.violations)).toEqual([
+    expect(violationPaths(runViolations)).toEqual([
       "profiles/alpha.yaml",
       "skills/sidecar-skill/agent-profile-kit.yaml",
     ]);
@@ -118,8 +125,9 @@ describe("Workspace violation collection (spec #593 DEC-009, #604)", () => {
     writeProfileFile(workspace, "p-one.yaml", "context: [topic-01]\nskills: [skill-01]\n");
 
     const collected = await collectWorkspaceViolations(workspace);
-    expect(collected.violations).toEqual([]);
-    expect(collected.workspace).toBeDefined();
+    expect(collected.outcome).toBe("valid");
+    if (collected.outcome !== "valid") throw new Error("expected a valid collection");
+    expect(collected.workspace.contexts.size).toBe(1);
     await expect(ingestWorkspace(workspace)).resolves.toBeDefined();
   });
 });
@@ -168,8 +176,8 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
     mkdirSync(join(workspace, "profiles", "nested"), { recursive: true });
     writeProfileFile(workspace, "nested/p-nested.yaml", "context: []\nskills: []\n");
 
-    const collected = await collectWorkspaceViolations(workspace);
-    expect(tokens(collected.violations)).toEqual([
+    const collected = await violationsOf(workspace);
+    expect(tokens(collected)).toEqual([
       "duplicate-artifact-name",
       "workspace-artifact/duplicate-name",
       "workspace-artifact/empty-content",
@@ -199,7 +207,7 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
 
     // The moved-file reference names the profile and file; the moved-path
     // suggestion is presentation and is asserted through the CLI report.
-    const contextReference = collected.violations.find(
+    const contextReference = collected.find(
       (violation) => workspaceViolationToken(violation) === "missing-context-reference",
     );
     expect(contextReference).toBeDefined();
@@ -221,8 +229,8 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
     const missing = makeWorkspace();
     rmSync(join(missing, "workspace.yaml"));
     writeProfileFile(missing, "p-bad.yaml", "context: []\nskills: []\n");
-    const missingCollected = await collectWorkspaceViolations(missing);
-    expect(tokens(missingCollected.violations)).toEqual([
+    const missingCollected = await violationsOf(missing);
+    expect(tokens(missingCollected)).toEqual([
       "profile-without-artifacts",
       "workspace-missing-manifest",
     ]);
@@ -231,7 +239,7 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
     const notFile = makeWorkspace();
     rmSync(join(notFile, "workspace.yaml"));
     mkdirSync(join(notFile, "workspace.yaml"));
-    expect(tokens((await collectWorkspaceViolations(notFile)).violations)).toEqual([
+    expect(tokens(await violationsOf(notFile))).toEqual([
       "workspace-manifest-not-file",
     ]);
 
@@ -242,7 +250,7 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
     symlinkSync(join(structure, "nowhere"), join(structure, "context"));
     rmSync(join(structure, "skills"), { recursive: true, force: true });
     writeFileSync(join(structure, "skills"), "not a directory\n");
-    expect(tokens((await collectWorkspaceViolations(structure)).violations)).toEqual([
+    expect(tokens(await violationsOf(structure))).toEqual([
       "workspace-category-not-directory",
       "workspace-dangling-category",
     ]);
@@ -259,7 +267,7 @@ describe("one run reports every co-reportable violation kind (TEST-006, ISC-41)"
     for (const [token, manifest] of Object.entries(cases)) {
       const workspace = makeWorkspace();
       writeFileSync(join(workspace, "workspace.yaml"), manifest);
-      expect(tokens((await collectWorkspaceViolations(workspace)).violations), token).toEqual([token]);
+      expect(tokens(await violationsOf(workspace)), token).toEqual([token]);
     }
   });
 });

@@ -244,24 +244,7 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
   }
 }
 
-/**
- * The carried sentence for one collected Workspace violation (DEC-009,
- * #604): the per-kind sentence homes stay the single home of every wording;
- * this dispatch only chooses among families, so a collected list and a
- * singly-thrown fact can never word the same violation differently.
- */
-export function formatWorkspaceViolation(violation: WorkspaceViolation): string {
-  switch (violation.via) {
-    case "ingestion":
-      return formatWorkspaceIngestionError(violation.fact);
-    case "manifest":
-      return formatWorkspaceManifestError(violation.detail);
-    case "artifact":
-      return formatWorkspaceArtifactError(violation.detail);
-  }
-}
-
-/**
+/*
  * The structured diagnostic for one collected violation (#604): the
  * per-kind diagnostic homes stay the single home, so a violation inside a
  * collected list renders with the same suggestions and fix commands it
@@ -280,6 +263,31 @@ export function workspaceViolationDiagnostic(violation: WorkspaceViolation): Dia
 }
 
 /**
+ * The bullet parts of one collected violation (#604): what happened, why,
+ * and the fix, as one InlineContent sequence that keeps the per-kind homes'
+ * atomic parts (copyable commands and identifiers) whole (ADR-0016). One
+ * home so the machine message and the human bullet are the same wording.
+ */
+export function workspaceViolationBulletParts(violation: WorkspaceViolation): readonly InlineContent[] {
+  const diagnostic = workspaceViolationDiagnostic(violation);
+  const parts: InlineContent[] = [...diagnostic.happened];
+  for (const line of [...(diagnostic.why ?? []), ...(diagnostic.whatToType ?? [])]) {
+    if (line.length === 0) continue;
+    parts.push(" ", ...line);
+  }
+  return parts;
+}
+
+/**
+ * The complete presentation text of one violation — the machine payload's
+ * message: the bullet's parts flattened, with atomic parts carrying their
+ * plain-text projections (ADR-0016).
+ */
+export function workspaceViolationMessage(violation: WorkspaceViolation): string {
+  return flatInlineText(["- ", ...workspaceViolationBulletParts(violation)]);
+}
+
+/**
  * The failed-validation pointer to the Workspace contract (spec #593 ISC-43,
  * #604): one home shared by the validate report and every Workspace-invalid
  * diagnostic, so the route to the contract cannot drift.
@@ -290,22 +298,6 @@ export function workspaceContractRecovery(): readonly InlineContent[] {
     commandPart(COMMAND_NAME, [arg("guide"), arg("--contract")]),
     " to read it.",
   ];
-}
-
-/**
- * The complete presentation text of one violation — what happened, why, and
- * the fix — as one flat string. One home so the machine list publishes the
- * exact wording the human report renders for the same violation.
- */
-export function workspaceViolationMessage(violation: WorkspaceViolation): string {
-  const diagnostic = workspaceViolationDiagnostic(violation);
-  return [
-    flatInlineText(diagnostic.happened),
-    ...(diagnostic.why ?? []).map((line) => flatInlineText(line)),
-    ...(diagnostic.whatToType ?? []).map((line) => flatInlineText(line)),
-  ]
-    .filter((line) => line.length > 0)
-    .join(" ");
 }
 
 /**
@@ -322,7 +314,7 @@ export function workspaceViolationsDiagnostic(fact: WorkspaceViolationsFact): Di
     happened: [
       `Workspace is invalid at ${fact.workspace}; ${count} ${count === 1 ? "violation" : "violations"} found:`,
     ],
-    why: fact.violations.map((violation) => [`- ${workspaceViolationMessage(violation)}`]),
+    why: fact.violations.map((violation) => ["- ", ...workspaceViolationBulletParts(violation)]),
     whatToType: [workspaceContractRecovery()],
   };
 }
@@ -613,7 +605,7 @@ export function formatLocalConfigurationError(
 export function formatWorkspaceManifestError(reason: WorkspaceManifestRejectionReason): string {
   switch (reason.case) {
     case "invalid-yaml":
-      return "Workspace Manifest is invalid YAML; correct workspace.yaml before retrying";
+      return "workspace.yaml is invalid YAML; correct it before retrying";
     case "schema-version-missing":
       return `workspace.yaml must contain schema_version: ${reason.schemaVersion}`;
     case "schema-version-not-positive":

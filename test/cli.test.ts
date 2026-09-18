@@ -15536,7 +15536,9 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     expectExitCode(result, 1);
     expect(humanText(result.stderr)).toContain("validate requires a Workspace path");
     expect(existsSync(configPath(home))).toBe(false);
-  });describe("packed CLI validate reports every violation in one run (#604, DEC-009)", () => {
+  });
+
+  describe("packed CLI validate reports every violation in one run (#604, DEC-009)", () => {
   /** One Workspace carrying three violations across three categories. */
   function writeViolatingWorkspace(workspace: string): void {
     mkdirSync(join(workspace, "context"), { recursive: true });
@@ -15678,6 +15680,4 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     expect(payload.error).toContain("must be an existing directory");
   });
 });
-
 });
-

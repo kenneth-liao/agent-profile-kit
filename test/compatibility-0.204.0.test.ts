@@ -16,7 +16,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
-import { InstallerToolError, type WorkspaceViolation, workspaceViolationToken } from "../installer/tool-errors.js";
+import {
+  InstallerToolError,
+  type WorkspaceViolation,
+  workspaceViolationPath,
+  workspaceViolationToken,
+} from "../installer/tool-errors.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import { collectViolations, violationTokens } from "./support/workspace-violations.js";
 import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
@@ -167,9 +172,7 @@ function fixtureViolations(workspace: string): Promise<readonly WorkspaceViolati
 
 /** The workspace-relative rule+path identity of one collected violation. */
 function violationIdentity(violation: WorkspaceViolation): string {
-  const fact = violation.via === "ingestion" ? violation.fact : violation.detail;
-  const path = "path" in fact ? fact.path : "file" in fact ? fact.file : "name" in fact ? fact.name : "";
-  return `${workspaceViolationToken(violation)} ${path}`;
+  return `${workspaceViolationToken(violation)} ${workspaceViolationPath(violation)}`;
 }
 
 describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", () => {
@@ -253,14 +256,19 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
     );
   });
 
-  test("the realistic-scale 0.204.0 fixture names every required change in one run (TEST-010, ISC-46)", async () => {
+  test("the realistic-scale 0.204.0 fixture names every required change (TEST-010, ISC-46)", async () => {
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-realistic"), workspace, {});
 
     // Stage 1 — the raw 0.204.0-era source: every Profile's authored `id`
     // field, every leftover sidecar, and both leftover invocation-metadata
-    // keys, each named with its path.
+    // keys, each named with its path. The reference changes are proven on
+    // stage 2, not omitted: one typed violation per Profile file is DEC-014's
+    // design (a Profile carrying an `id` field cannot be parsed, so its
+    // references are unreportable until the id fix lands) — the staged runs
+    // together name every required change, and stage 3 proves the list was
+    // complete by applying exactly the named fixes.
     const stage1 = await fixtureViolations(workspace);
     expect(stage1.map(violationIdentity).sort()).toEqual([
       "leftover-skill-sidecar skills/group-a/skill-03/agent-profile-kit.yaml",

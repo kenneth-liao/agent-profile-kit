@@ -101,13 +101,14 @@ export async function requireRealCategory(workspacePath: string, name: string): 
 
 /**
  * The collected result of the Workspace structure stage (spec #593 DEC-009,
- * #604): every structural violation at once, plus which artifact categories
- * are readable directories and may be scanned. A missing category is a valid
- * empty collection, never a violation.
- */export interface WorkspaceStructureCollection {
+ * #604): every structural violation at once in fixed category order, plus
+ * which artifact categories are readable directories and may be scanned. A
+ * missing category is a valid empty collection, never a violation.
+ */
+export interface WorkspaceStructureCollection {
   readonly violations: readonly WorkspaceViolation[];
   /** Category names backed by a readable real directory. */
-  readonly readableCategories: ReadonlySet<string>;
+  readonly readableCategories: ReadonlySet<(typeof WORKSPACE_ARTIFACT_DIRECTORIES)[number]>;
 }
 
 /**
@@ -124,7 +125,7 @@ export async function collectWorkspaceStructure(
   manifestSource?: string,
 ): Promise<WorkspaceStructureCollection> {
   const violations: WorkspaceViolation[] = [];
-  const readableCategories = new Set<string>();
+  const readableCategories = new Set<(typeof WORKSPACE_ARTIFACT_DIRECTORIES)[number]>();
   if (manifestSource === undefined) {
     try {
       await requireWorkspaceManifestFile(path);
@@ -148,20 +149,20 @@ export async function collectWorkspaceStructure(
       }
     }
   }
-  await Promise.all(
-    WORKSPACE_ARTIFACT_DIRECTORIES.map(async (directory) => {
-      try {
-        await requirePresentDirectory(path, directory);
-        readableCategories.add(directory);
-      } catch (error) {
-        if (error instanceof InstallerToolError && isStructureFact(error.fact)) {
-          violations.push({ via: "ingestion", fact: error.fact });
-        } else {
-          throw error;
-        }
+  // Category checks run in fixed WORKSPACE_ARTIFACT_DIRECTORIES order —
+  // sequential, so the collected report is deterministic (DEC-009, #604).
+  for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
+    try {
+      await requirePresentDirectory(path, directory);
+      readableCategories.add(directory);
+    } catch (error) {
+      if (error instanceof InstallerToolError && isStructureFact(error.fact)) {
+        violations.push({ via: "ingestion", fact: error.fact });
+      } else {
+        throw error;
       }
-    }),
-  );
+    }
+  }
   return { violations, readableCategories };
 }
 

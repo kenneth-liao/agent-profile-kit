@@ -178,23 +178,23 @@ function collectedViolation(error: unknown): WorkspaceViolation {
  * setup's write-free validation of a manifest-missing folder.
  */
 export async function ingestWorkspace(path: string, manifestSource?: string): Promise<Workspace> {
-  const { violations, workspace } = await collectWorkspaceViolations(path, manifestSource);
-  if (workspace !== undefined) return workspace;
+  const collection = await collectWorkspaceViolations(path, manifestSource);
+  if (collection.outcome === "valid") return collection.workspace;
   const fact: WorkspaceViolationsFact = {
     kind: "workspace-violations",
     workspace: path,
-    violations,
+    violations: collection.violations,
   };
   throw new InstallerToolError(fact);
 }
 
-/** The collected outcome of one full Workspace ingestion run (#604). */
-export interface WorkspaceViolationCollection {
-  /** Every violation, in deterministic collection order; empty when valid. */
-  readonly violations: readonly WorkspaceViolation[];
-  /** The ingested Workspace; absent when any violation was collected. */
-  readonly workspace?: Workspace;
-}
+/**
+ * The collected outcome of one full Workspace ingestion run (#604): either a
+ * fully ingested Workspace or the complete violation list — never both.
+ */
+export type WorkspaceViolationCollection =
+  | { readonly outcome: "valid"; readonly workspace: Workspace }
+  | { readonly outcome: "invalid"; readonly violations: readonly WorkspaceViolation[] };
 
 /**
  * Collect every Workspace violation in one run (spec #593 DEC-009, #604):
@@ -341,8 +341,7 @@ export async function collectWorkspaceViolations(
     }
   }
 
-  return {
-    violations,
-    ...(violations.length === 0 ? { workspace: { path, contexts, profiles, skills } } : {}),
-  };
+  return violations.length === 0
+    ? { outcome: "valid", workspace: { path, contexts, profiles, skills } }
+    : { outcome: "invalid", violations };
 }
