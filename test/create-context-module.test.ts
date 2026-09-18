@@ -23,12 +23,12 @@ function isolatedHome(): string {
 }
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 async function initializedHome(): Promise<string> {
   const home = mkdtempSync(join(tmpdir(), "apkit-create-context-"));
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   return home;
 }
 

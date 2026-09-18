@@ -141,9 +141,9 @@ describe("shared .agents Skill projector", () => {
   test("turns a Codex policy conflict into a planning refusal instead of a warning", async () => {
     const home = temporaryDirectory("apk-shared-skill-blocker-home-");
     const project = temporaryDirectory("apk-shared-skill-blocker-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     const skillRoot = join(workspace, "skills", "review-pr");
     mkdirSync(join(skillRoot, "agents"), { recursive: true });
     writeFileSync(

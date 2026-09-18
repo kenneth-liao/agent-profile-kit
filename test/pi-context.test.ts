@@ -56,9 +56,9 @@ async function writeContextWorkspace(
     readonly profile?: string;
   }[],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Preserve the project boundary.\n",
@@ -90,9 +90,9 @@ async function writePiSkillWorkspace(
   }[],
   hosts: readonly string[] = ["pi"],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Preserve the project boundary.\n",
@@ -507,7 +507,7 @@ describe("Pi Adapter", () => {
     const manifest = state.receipts[0];
     expect(manifest?.hosts.pi?.capabilityContract).toBe("native-project-append-system-shared-skills-v1");
 
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "relocated"), { recursive: true });
     renameSync(
       join(workspace, "skills", "top-skill"),
@@ -532,7 +532,7 @@ describe("Pi Adapter", () => {
       ),
     );
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
+      join(home, "apkit-workspace", "profiles", "coding.yaml"),
       "context: [team-rules]\nskills: [left-skill, shared-base]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });
@@ -610,7 +610,7 @@ describe("Pi Adapter", () => {
     }));
 
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
+      join(home, "apkit-workspace", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     const disabled = await buildDesiredState(home, { checkHostCapability: false });
@@ -634,7 +634,7 @@ describe("Pi Adapter", () => {
       { id: "review-pr", path: "review-pr" },
     ]);
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
+      join(home, "apkit-workspace", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
 
@@ -652,7 +652,7 @@ describe("Pi Adapter", () => {
       "disable-model-invocation: true",
     );
     // The canonical Workspace source stays byte-identical.
-    expect(readFileSync(join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
+    expect(readFileSync(join(home, "apkit-workspace", "skills", "review-pr", "SKILL.md"), "utf8")).toBe(
       "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
   });
@@ -692,7 +692,7 @@ describe("Pi Adapter", () => {
       { path: project, hosts: ["pi"] },
       { path: unrelatedProject, hosts: ["claude"], profile: "context-only" },
     ]);
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     const skill = join(workspace, "skills", "review-pr");
     mkdirSync(skill, { recursive: true });
     writeFileSync(

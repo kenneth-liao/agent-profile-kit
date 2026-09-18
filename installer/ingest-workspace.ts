@@ -8,7 +8,7 @@ import {
   type Profile,
 } from "../schemas/context-profile.js";
 import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
-import { validateWorkspaceStructure, workspacePath, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
+import { validateWorkspaceStructure, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
 import { InstallerToolError, type CreationArtifactType } from "./tool-errors.js";
 
 export interface Workspace {
@@ -141,8 +141,7 @@ function addUnique<T extends { readonly id: string; readonly path: string }>(
 
 /**
  * Ingest a Workspace at an already-resolved path (typically the canonical
- * realpath from Local Configuration resolution). When given a home directory
- * path that still needs the fixed default layout, pass `workspacePath(home)`.
+ * realpath from Local Configuration resolution).
  * `manifestSource` has the same meaning as in `validateWorkspaceStructure`:
  * setup's write-free validation of a manifest-missing folder.
  */
@@ -249,9 +248,4 @@ export async function ingestWorkspace(path: string, manifestSource?: string): Pr
   }
 
   return { path, contexts, profiles, skills };
-}
-
-/** Ingest the fixed-default Workspace for a home directory (tests and init helpers). */
-export async function ingestDefaultWorkspace(home: string): Promise<Workspace> {
-  return ingestWorkspace(workspacePath(home));
 }

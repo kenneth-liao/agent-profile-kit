@@ -36,7 +36,8 @@ function writeBindings(
   home: string,
   bindings: readonly { readonly project: string; readonly profile: string; readonly hosts: readonly string[] }[],
 ): void {
-  const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+  const workspace = join(home, "apkit-workspace");
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
   mkdirSync(workspace, { recursive: true });
   const body = bindings
     .map(

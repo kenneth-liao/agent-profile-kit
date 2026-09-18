@@ -65,8 +65,8 @@ function linkedWorktree(primary: string, name: string): string {
 
 async function prepareHome(): Promise<string> {
   const home = temporaryDirectory("agent-profile-kit-temp-recovery-home-");
-  await initializeWorkspace(home);
-  const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+  const workspace = join(home, "apkit-workspace");
   rmSync(join(workspace, "profiles", "example.yaml"), { force: true });
   rmSync(join(workspace, "context", "example-context.md"), { force: true });
   writeFileSync(
@@ -95,8 +95,8 @@ async function prepareHome(): Promise<string> {
 
 async function prepareClaudeHome(): Promise<string> {
   const home = temporaryDirectory("agent-profile-kit-temp-claude-home-");
-  await initializeWorkspace(home);
-  const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+  const workspace = join(home, "apkit-workspace");
   rmSync(join(workspace, "profiles", "example.yaml"), { force: true });
   rmSync(join(workspace, "context", "example-context.md"), { force: true });
   writeFileSync(
@@ -126,7 +126,7 @@ describe("Temporary Profile Installation recovery", () => {
     const project = gitRepository("agent-profile-kit-temp-capability-refusal-");
     // Make the canonical Workspace Skill unrepresentable: its own openai.yaml
     // policy conflicts with the canonical disabled-invocation metadata.
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Review the change carefully.\ndisable-model-invocation: true\n---\n\nReview the change carefully.\n",

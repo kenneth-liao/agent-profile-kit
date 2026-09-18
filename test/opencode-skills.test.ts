@@ -106,9 +106,9 @@ async function workspaceWithSkills(
   selectedSkills: readonly string[],
   hosts: readonly string[] = ["opencode"],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   for (const entry of skills) {
     const relative = entry.path ?? entry.id;
     const skillRoot = join(workspace, "skills", relative);
@@ -567,9 +567,9 @@ describe("OpenCode lifecycle: status and apply", () => {
     const home = temporaryDirectory("apk-opencode-dis-life-home-");
     const project = temporaryDirectory("apk-opencode-dis-life-proj-");
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
@@ -651,7 +651,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     expect(reportItems(initialStatus).some((item) => item.kind === "current")).toBe(true);
 
     // Add a disabled-invocation Skill to Workspace and Profile
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
@@ -690,9 +690,9 @@ describe("OpenCode lifecycle: status and apply", () => {
     const userConfig = "{\n  \"model\": \"custom-user\"\n}\n";
     writeFileSync(join(project, ".opencode", "opencode.jsonc"), userConfig);
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
@@ -841,9 +841,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const home = temporaryDirectory("apk-opencode-claude-ctx-home-");
     const project = temporaryDirectory("apk-opencode-claude-ctx-proj-");
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "context"), { recursive: true });
     writeFileSync(
       join(workspace, "context", "rules.md"),
@@ -870,9 +870,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     const home = temporaryDirectory("apk-opencode-claude-life-home-");
     const project = temporaryDirectory("apk-opencode-claude-life-proj-");
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
@@ -918,9 +918,9 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
       temporaryDirectory(`apk-opencode-claude-15-proj-${i + 1}-`),
     );
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),

@@ -52,9 +52,9 @@ async function workspaceWithSkill(
   project: string,
   hosts: readonly string[],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeSkill(join(workspace, "skills"), "review-pr");
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),

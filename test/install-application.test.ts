@@ -52,7 +52,7 @@ afterEach(() => {
 });
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -61,7 +61,7 @@ function configPath(home: string): string {
 
 async function setupHome(): Promise<string> {
   const home = isolatedHome();
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const workspace = workspacePath(home);
   mkdirSync(join(workspace, "context"), { recursive: true });
   writeFileSync(
@@ -434,7 +434,7 @@ describe("install recovery resolves home-relative paths against the real home", 
     mkdirSync(projectPath, { recursive: true });
     writeFileSync(
       configPath(home),
-      `schema_version: 2\nworkspace: ~/.agents/agent-profile-kit/workspace\nbindings: []\n`,
+      `schema_version: 2\nworkspace: ~/apkit-workspace\nbindings: []\n`,
     );
     const failingOutputs = {
       ...nodeFileSystem,

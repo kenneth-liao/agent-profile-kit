@@ -46,9 +46,9 @@ async function writeContextBinding(
   project: string,
   host: string | readonly string[],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "rules.md"),
     "Context rules.\n",

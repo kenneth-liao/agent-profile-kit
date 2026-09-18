@@ -92,7 +92,7 @@ describe("typed Installer tool errors", () => {
       expect(flatInlineText(diagnostic.happened)).toBe("Agent Profile Kit is not set up on this machine");
       expect(diagnostic.whatToType).toBeDefined();
       expect(diagnostic.whatToType!).toHaveLength(1);
-      expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init to set it up.");
+      expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init <path> to set up a Workspace in the folder you name, or apkit init . to use the current folder.");
       // The error diagnostic does not leak the internal configuration path.
       expect(flatInlineText(diagnostic.happened)).not.toContain(configPath(home));
       // No internal-only domain terms in the newcomer diagnostic.
@@ -366,10 +366,10 @@ describe("typed Installer tool errors", () => {
     const diagnostic = errorDiagnosticParts(error);
     expect(flatInlineText(diagnostic.happened)).toBe("Agent Profile Kit is not set up on this machine");
     expect(diagnostic.whatToType).toBeDefined();
-    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init to set it up.");
+    expect(flatInlineText(diagnostic.whatToType![0]!)).toBe("Run apkit init <path> to set up a Workspace in the folder you name, or apkit init . to use the current folder.");
     // Machine flattened projection still publishes the carried sentence.
     const machine = flatInlineText(formatInstallerToolError(fact));
-    expect(machine).toBe("Local Configuration is missing at /home/.agents/agent-profile-kit/config.yaml; run apkit init");
+    expect(machine).toBe("Local Configuration is missing at /home/.agents/agent-profile-kit/config.yaml; run apkit init <path>");
   });
 
   test("workspace-open-failed diagnostic carries failure detail and runnable recovery command", () => {

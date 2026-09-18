@@ -252,7 +252,7 @@ async function runCliInPty(
 }
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -277,7 +277,7 @@ function gitProject(home: string, name: string): string {
 }
 
 async function initialize(home: string): Promise<void> {
-  expectExitCode(await runCli(home, ["init"]), 0);
+  expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
   // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
   // fixtures that bind the canonical example pair write it explicitly.
   const workspace = workspacePath(home);
@@ -574,7 +574,7 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     test: "init",
     snapshot: "init",
     commandId: "init",
-    prepare: async () => ({ home: isolatedHome(), args: ["init"] }),
+    prepare: async () => ({ home: isolatedHome(), args: ["init", "~/apkit-workspace"] }),
   },
   {
     test: "open",

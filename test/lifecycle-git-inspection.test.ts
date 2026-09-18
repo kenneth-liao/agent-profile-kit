@@ -104,11 +104,11 @@ async function fleetHome(options: {
   readonly nonGitProjects: readonly string[];
 }> {
   const home = temporaryDirectory("apk-git-inspect-home-");
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Always preserve the project boundary.\n",
@@ -288,11 +288,11 @@ describe("lifecycle Git inspection batching", () => {
 
   test("reads each shared Repository Exclusion target once per reconciliation pass", async () => {
     const home = temporaryDirectory("apk-git-inspect-shared-excl-home-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",

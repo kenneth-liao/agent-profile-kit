@@ -93,10 +93,10 @@ async function writeContextWorkspace(
     readonly body?: string;
   } = {},
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   enableCodexHooks(home);
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     options.body ?? "Always preserve the project boundary.\n",
@@ -684,9 +684,9 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
   test("Context-free Claude+Grok status does not require Grok topology inspection", async () => {
     const home = temporaryDirectory("apk-context-free-status-home-");
     const project = temporaryDirectory("apk-context-free-status-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     // Skills-only Profile: no Context rule topology for Claude or Grok.
     const skillRoot = join(workspace, "skills", "review-pr");
     mkdirSync(skillRoot, { recursive: true });

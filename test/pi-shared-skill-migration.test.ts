@@ -48,9 +48,9 @@ function temporaryDirectory(prefix: string): string {
 }
 
 async function writePiSkillWorkspace(home: string, project: string): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   const skill = join(workspace, "skills", "review-pr");
   mkdirSync(skill, { recursive: true });
   writeFileSync(

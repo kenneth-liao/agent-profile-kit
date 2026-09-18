@@ -164,7 +164,7 @@ describe("changed-output confirmation gate", () => {
     // Blocked while its generated file stays drifted.
     await retireBindingByHand(fleet.home, fleet.healthyProject);
     const application = join(fleet.home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(fleet.home, "apkit-workspace");
     writeFileSync(
       join(application, "config.yaml"),
       `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${fleet.driftedProject}\n    profile: coding\n    hosts: [codex, claude]\n`,

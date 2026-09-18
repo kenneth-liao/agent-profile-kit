@@ -69,7 +69,7 @@ than duplicating it.
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
-| 2 | Initialize | `init [workspace]` | A valid Workspace and Local Configuration, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed |
+| 2 | Initialize | `init <workspace>` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed; without a path on a machine with no selected Workspace, the explicit command forms |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
@@ -111,12 +111,18 @@ removed before 1.0.
 ### 1. Discover
 
 An uninitialized machine answers a bare invocation with setup state and the
-one command that changes it:
+explicit commands that change it:
 
 ```
 $ apkit
 Agent Profile Kit is not set up on this machine.
-Next: Run apkit init to set it up.
+Your Workspace is a folder you choose. The current folder matters only if you
+  choose it.
+Next: Run
+  apkit init <path>
+  to connect an existing Workspace, or
+  apkit init .
+  to use the current folder.
 
 Run apkit --help for the full command list.
 ```
@@ -243,16 +249,20 @@ Project lifecycle diagnostic.
 ### 2. Initialize
 
 ```
-$ apkit init
+$ apkit init ~/apkit-workspace
 Created the Workspace folder and initialized Agent Profile Kit Workspace and
-  settings at ~/.agents/agent-profile-kit/workspace
+  settings at ~/apkit-workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: claude, codex, opencode
 Next: run apkit validate
 ```
 
-Adds exactly the missing required parts — `workspace.yaml`, `context/`,
+Setup requires a path the user gives: there is no default Workspace location
+(spec #593 DEC-001, ADR-0049), so `init` without a path on a machine with no
+selected Workspace writes nothing and prints the explicit forms
+(`apkit init <path>`, `apkit init .`). Adds exactly the missing required
+parts — `workspace.yaml`, `context/`,
 `skills/`, and `profiles/` — in place to the chosen folder, records a
 `schema_version: 2` `config.yaml`, and adds nothing else: no example Profile,
 Context Module, README, AGENTS.md, or other file (spec #593 DEC-003, ADR-0047).
@@ -296,7 +306,7 @@ Complete references:
     Agent workflow reference
 
 Examples:
-  apkit init
+  apkit init ~/agent-profile-workspace
   apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
@@ -316,7 +326,7 @@ $ apkit guide profile
 A Profile selects reusable material for a kind of work through its context and
   skills lists.
 
-Workspace: ~/.agents/agent-profile-kit/workspace
+Workspace: ~/apkit-workspace
 
 Create its Context Module, then the Profile selecting it:
   apkit new context <context>
@@ -570,13 +580,15 @@ Run apkit list projects to list configured Projects.
 Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
 ```
 
-An uninitialized machine is told plainly and given the initialization command;
-configuration paths do not lead the explanation (US-023, DEC-015):
+An uninitialized machine is told plainly and given the explicit
+initialization command; configuration paths do not lead the explanation
+(US-023, DEC-015):
 
 ```
 $ apkit status
 apkit: Agent Profile Kit is not set up on this machine
-Run apkit init to set it up.
+Run apkit init <path> to set up a Workspace in the folder you name, or
+  apkit init . to use the current folder.
 ```
 
 Interactive previews that outlast a short anti-flicker threshold show delayed

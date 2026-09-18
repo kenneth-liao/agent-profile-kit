@@ -38,7 +38,7 @@ export const FLEET_SKILL = "review-pr";
 export const FLEET_PROFILE = "engineering";
 
 export function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 export function configPath(home: string): string {

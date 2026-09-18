@@ -342,7 +342,7 @@ describe("the path grammar stays Context-only (PR #618 review INT-1)", () => {
   test("Profile and Skill names still reject a '/' under the flat Artifact ID grammar", async () => {
     const home = mkdtempSync(join(tmpdir(), "apkit-context-identity-"));
     try {
-      await initializeWorkspace(home);
+      await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
       for (const rejection of [
         () => createProfile({ home, name: "engineering/coding", contexts: [], skills: [] }),
         () => createSkill({ home, name: "review/pr" }),
@@ -369,8 +369,8 @@ describe("nested Context IDs through writers, inventory, and receipts (PR #618 r
   function initializedNestedHome(): Promise<string> {
     return (async () => {
       const home = mkdtempSync(join(tmpdir(), "apkit-context-identity-"));
-      await initializeWorkspace(home);
-      const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+      await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+      const workspace = join(home, "apkit-workspace");
       mkdirSync(join(workspace, "context", "engineering"), { recursive: true });
       writeFileSync(join(workspace, "context", "engineering", "team-rules.md"), "Body.\n");
       mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
@@ -388,7 +388,7 @@ describe("nested Context IDs through writers, inventory, and receipts (PR #618 r
       const result = await createProfile({ home, name: "coding", contexts: ["engineering/team-rules"], skills: [] });
       expect(result.availableContexts).toContain("engineering/team-rules");
       const source = readFileSync(
-        join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
+        join(home, "apkit-workspace", "profiles", "coding.yaml"),
         "utf8",
       );
       expect(source).toContain('"engineering/team-rules"');
@@ -404,7 +404,7 @@ describe("nested Context IDs through writers, inventory, and receipts (PR #618 r
     try {
       await createProfile({ home, name: "coding", contexts: ["engineering/team-rules"], skills: [] });
       writeFileSync(
-        join(home, ".agents", "agent-profile-kit", "workspace", "context", "extra.md"),
+        join(home, "apkit-workspace", "context", "extra.md"),
         "Extra.\n",
       );
       const configured = await configureProfileMembership({
@@ -429,7 +429,7 @@ describe("nested Context IDs through writers, inventory, and receipts (PR #618 r
     const project = mkdtempSync(join(tmpdir(), "apkit-context-identity-project-"));
     try {
       const application = join(home, ".agents", "agent-profile-kit");
-      const workspace = join(application, "workspace");
+      const workspace = join(home, "apkit-workspace");
       writeFileSync(join(workspace, "profiles", "coding.yaml"), "context:\n  - engineering/team-rules\nskills: []\n");
       writeFileSync(
         join(application, "config.yaml"),

@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -144,7 +144,7 @@ function startInstall(
 
 async function setupHome(profile = "coding"): Promise<string> {
   const home = isolatedHome();
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   writeProfile(home, profile);
   writeConfig(home, workspacePath(home));
   return home;
@@ -171,7 +171,7 @@ async function runInstall(
 describe("install argument refusals happen before any write", () => {
   test("non-interactive install without --auto-confirm refuses with the runnable remedy", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeProfile(home, "coding");
     writeConfig(home, workspacePath(home));
     const projectPath = projectDirectory();
@@ -193,7 +193,7 @@ describe("install argument refusals happen before any write", () => {
 
   test("missing Profile remains an error on every input stream", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeProfile(home, "coding");
     writeConfig(home, workspacePath(home));
     const projectPath = projectDirectory();
@@ -215,7 +215,7 @@ describe("install argument refusals happen before any write", () => {
 
   test("missing Hosts remain an error on every input stream", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeProfile(home, "coding");
     writeConfig(home, workspacePath(home));
     const projectPath = projectDirectory();
@@ -237,7 +237,7 @@ describe("install argument refusals happen before any write", () => {
 describe("explicit install records the selection and installs output in one action", () => {
   test("explicit install records the selection and installs verified output in one action", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeProfile(home, "coding");
     writeConfig(home, workspacePath(home));
     const projectPath = projectDirectory();

@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -47,7 +47,7 @@ function configPath(home: string): string {
 
 async function setupHome(): Promise<string> {
   const home = isolatedHome();
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   await createContextModule({ home, name: "team-rules" });
   await createContextModule({ home, name: "extra-rules" });
   await createSkill({ home, name: "review-pr" });

@@ -86,11 +86,11 @@ async function multiProjectWorkspace(options: {
   readonly profileCount?: number;
   readonly projectCount: number;
 }): Promise<readonly string[]> {
-  await initializeWorkspace(options.home);
+  await initializeWorkspace(options.home, { workspace: "~/apkit-workspace" });
   mkdirSync(join(options.home, ".codex"), { recursive: true });
   writeFileSync(join(options.home, ".codex", "config.toml"), "[features]\nhooks = true\n");
   const application = join(options.home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(options.home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Always preserve the project boundary.\n",
@@ -180,11 +180,11 @@ describe("lifecycle planning reuse within one invocation", () => {
 
   test("keeps Codex Project-relative Context topology out of the shared projection key", async () => {
     const home = temporaryDirectory("apk-lifecycle-reuse-codex-topology-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",
@@ -288,11 +288,11 @@ describe("lifecycle planning reuse within one invocation", () => {
   test("Skill fingerprints keep historical code-point DFS order for SKILL.md before scripts", async () => {
     const home = temporaryDirectory("apk-lifecycle-hash-order-home-");
     const project = temporaryDirectory("apk-lifecycle-hash-order-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",

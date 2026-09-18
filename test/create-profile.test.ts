@@ -16,12 +16,12 @@ import {
 import { flatInlineText } from "../cli/inline-content.js";
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 async function initializedHome(): Promise<string> {
   const home = mkdtempSync(join(tmpdir(), "apkit-create-profile-"));
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
   // fixtures that select the canonical example pair write it explicitly.
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });
@@ -188,7 +188,7 @@ describe("createProfile", () => {
       // of printing an empty list.
       const emptyHome = mkdtempSync(join(tmpdir(), "apkit-create-profile-"));
       try {
-        await initializeWorkspace(emptyHome);
+        await initializeWorkspace(emptyHome, { workspace: "~/apkit-workspace" });
         // The Workspace boundary rejects the missing Skill even when the
         // selected Context Module exists; without material the refusal is the
         // same typed missing-reference fact (spec #593 DEC-003, #599: no

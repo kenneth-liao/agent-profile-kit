@@ -126,9 +126,9 @@ async function contextInstallation(
   home: string,
   project: string,
 ): Promise<DesiredInstallation> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Shared ownership inspection context.\n",
@@ -366,9 +366,9 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const home = temporaryDirectory("apk-own-inspect-stale-fresh-home-");
     const keep = temporaryDirectory("apk-own-inspect-stale-fresh-keep-");
     const stale = temporaryDirectory("apk-own-inspect-stale-fresh-stale-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Stale removal proof context.\n",
@@ -425,9 +425,9 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const home = temporaryDirectory("apk-own-inspect-stale-mutate-home-");
     const keep = temporaryDirectory("apk-own-inspect-stale-mutate-keep-");
     const stale = temporaryDirectory("apk-own-inspect-stale-mutate-stale-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Stale mutation proof context.\n",

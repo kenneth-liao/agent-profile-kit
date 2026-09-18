@@ -194,6 +194,16 @@ export type InstallerToolErrorFact =
   | { readonly kind: "init-empty-symlink-target"; readonly path: string }
   | {
       /**
+       * `init` was invoked without a Workspace path on a machine that has no
+       * selected Workspace (spec #593 #601, DEC-001, ISC-23): a fresh home,
+       * or a legacy version-1 Local Configuration without a `workspace`
+       * value. There is no default location, so setup refuses before any
+       * write instead of selecting a location the user did not give.
+       */
+      readonly kind: "init-workspace-path-required";
+    }
+  | {
+      /**
        * The named Workspace folder does not exist and its parent directory is
        * missing too (spec #593 #599): nothing is ever written outside the
        * named path, so creating missing parent directories is refused.

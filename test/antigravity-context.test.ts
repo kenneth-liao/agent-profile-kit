@@ -122,9 +122,9 @@ describe("Antigravity Context Adapter", () => {
   test("plans selected Skills alongside Context at the desired-state boundary", async () => {
     const home = temporaryDirectory("apkit-antigravity-skills-home-");
     const project = temporaryDirectory("apkit-antigravity-skills-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
@@ -255,9 +255,9 @@ describe("Antigravity Context Adapter", () => {
   test("normalizes shared invocation policy failures as Antigravity project Blockers", async () => {
     const home = temporaryDirectory("apkit-antigravity-policy-blocker-home-");
     const project = temporaryDirectory("apkit-antigravity-policy-blocker-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     const skillRoot = join(workspace, "skills", "review-pr");
     mkdirSync(join(skillRoot, "agents"), { recursive: true });
     writeFileSync(
@@ -359,9 +359,9 @@ describe("Antigravity Context Adapter", () => {
   test("plans Antigravity Context through the ordinary desired-state boundary", async () => {
     const home = temporaryDirectory("apkit-antigravity-desired-home-");
     const project = temporaryDirectory("apkit-antigravity-desired-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
       "Keep repository instructions authoritative.\n",
@@ -389,9 +389,9 @@ describe("Antigravity Context Adapter", () => {
   test("normalizes an oversized rule into a structured project Blocker before writes", async () => {
     const home = temporaryDirectory("apkit-antigravity-oversized-home-");
     const project = temporaryDirectory("apkit-antigravity-oversized-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "oversized.md"),
       `${"x".repeat(ANTIGRAVITY_RULE_CHARACTER_LIMIT)}\n`,

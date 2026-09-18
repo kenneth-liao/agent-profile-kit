@@ -587,7 +587,7 @@ export function infoDocument(
 ): PresentationDocument {
   const workspaceValue: PresentationNode = info.workspace === null
     ? { kind: "prose", parts: info.configurationState === "legacy"
-      ? ["Legacy configuration; run ", commandPart(COMMAND_NAME, [arg("init")])]
+      ? ["Legacy configuration; run ", commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])]
       : ["Not configured"] }
     : info.configurationState === "legacy"
       ? { kind: "prose", parts: [
@@ -754,11 +754,41 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
   if (wordmark.length > 0) prefix.push({ kind: "verbatim", text: "" });
 
   if (options.info.configurationState !== "current") {
-    // The setup-needed state is stated once; the init command is carried by
+    // The setup-needed state is stated once; the command forms are carried by
     // the Next line (fact-once, US-008).
     const happened: InlineContent[] = options.info.configurationState === "not-configured"
       ? ["Agent Profile Kit is not set up on this machine."]
       : ["Legacy configuration."];
+    if (options.info.workspace === null) {
+      // No Workspace location was ever given (not configured, or a legacy
+      // file without a `workspace` value): there is no default location to
+      // name, so the screen says where setup puts the Workspace and names
+      // the explicit connect commands (spec #593 #601, US-001, ISC-22).
+      return [
+        ...prefix,
+        {
+          kind: "notice",
+          severity: "attention",
+          nodes: [{ kind: "prose", parts: happened }],
+        },
+        {
+          kind: "prose",
+          parts: ["Your Workspace is a folder you choose. The current folder matters only if you choose it."],
+        },
+        {
+          kind: "prose",
+          category: "command",
+          parts: [
+            "Next: Run ",
+            commandPart(COMMAND_NAME, [arg("init"), arg("<path>")]),
+            " to connect an existing Workspace, or ",
+            commandPart(COMMAND_NAME, [arg("init"), arg(".")]),
+            " to use the current folder.",
+          ],
+        },
+        ...bareHelpPointerNodes(),
+      ];
+    }
     return [
       ...prefix,
       {

@@ -589,9 +589,9 @@ describe("tracked-output ownership conflicts", () => {
     const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-ownership-home-"));
     const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-ownership-project-"));
     temporaryDirectories.push(home, project);
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Ownership conflict.\n",

@@ -21,7 +21,7 @@ import {
 } from "../adapters/codex.js";
 import { planOpenCodeProject } from "../adapters/opencode.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
+import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
 import type { InstallerAuthoredError } from "../installer/tool-errors.js";
@@ -32,7 +32,7 @@ import {
 import { buildDesiredState } from "../installer/project-plan.js";
 import { readInstallationState } from "../installer/installation-state.js";
 import type { Skill } from "../schemas/skill.js";
-import { workspacePath } from "../installer/workspace.js";
+import { workspacePath } from "./support/fleet-fixture.js";
 import {
   reportBlockers,
   reportDesired,
@@ -73,9 +73,9 @@ async function skillsOnlyWorkspace(
   hosts: readonly string[],
   options: { readonly includeContext?: boolean } = {},
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeSkill(workspace, "review-pr");
   if (options.includeContext) {
     writeFileSync(
@@ -97,7 +97,7 @@ async function skillsOnlyWorkspace(
 describe("Skills-only Profiles", () => {
   test("a Skills-only Profile validates when it selects at least one resolvable Skill", async () => {
     const home = temporaryDirectory("apk-skills-only-ingest-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const workspace = workspacePath(home);
     writeSkill(workspace, "review-pr");
     writeFileSync(
@@ -105,7 +105,7 @@ describe("Skills-only Profiles", () => {
       "context: []\nskills: [review-pr]\n",
     );
 
-    const ingested = await ingestDefaultWorkspace(home);
+    const ingested = await ingestWorkspace(workspacePath(home));
 
     expect(ingested.profiles.get("engineering")?.context).toEqual([]);
     expect(ingested.profiles.get("engineering")?.skills).toEqual(["review-pr"]);
@@ -113,14 +113,14 @@ describe("Skills-only Profiles", () => {
 
   test("a Profile selecting neither Context nor Skills fails at ingestion as empty", async () => {
     const home = temporaryDirectory("apk-empty-profile-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const workspace = workspacePath(home);
     writeFileSync(
       join(workspace, "profiles", "empty.yaml"),
       "context: []\nskills: []\n",
     );
 
-    const failure = await ingestDefaultWorkspace(home).then(
+    const failure = await ingestWorkspace(workspacePath(home)).then(
       () => undefined,
       (error) => error as InstallerAuthoredError,
     );

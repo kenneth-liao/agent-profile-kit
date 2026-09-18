@@ -116,9 +116,9 @@ async function contextInstallation(
   home: string,
   project: string,
 ): Promise<DesiredInstallation> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Directory ownership context.\n",

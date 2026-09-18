@@ -8722,8 +8722,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
   test("the created receipt presents a success headline, Profile explanation, detected Hosts, and the next command", () => {
     const document = initReceiptDocument({
       outcome: "created",
-      path: join(home, ".agents", "agent-profile-kit", "workspace"),
-      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
     });
@@ -8764,8 +8764,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     // one, so it cannot arbitrarily select the first detected Host.
     const multiHostDocument = initReceiptDocument({
       outcome: "created",
-      path: join(home, ".agents", "agent-profile-kit", "workspace"),
-      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["antigravity", "claude", "codex"],
     });
@@ -8795,8 +8795,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     // (spec #491, US-016); the receipt cannot print a conflicting one first.
     const document = initReceiptDocument({
       outcome: "created",
-      path: join(home, ".agents", "agent-profile-kit", "workspace"),
-      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
       guidedProfileFollows: true,
@@ -8867,8 +8867,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     // install choices (ADR-0034); the receipt's next action never names one.
     const document = initReceiptDocument({
       outcome: "created",
-      path: join(home, ".agents", "agent-profile-kit", "workspace"),
-      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: [],
     });
@@ -8899,8 +8899,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
   test("the created receipt without a created folder points at validate", () => {
     const document = initReceiptDocument({
       outcome: "created",
-      path: join(home, ".agents", "agent-profile-kit", "workspace"),
-      authoredPath: join(home, ".agents", "agent-profile-kit", "workspace"),
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
       detectedHosts: ["codex"],
     });
     expect(shapes(document)).toEqual([
