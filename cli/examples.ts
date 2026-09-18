@@ -8,7 +8,7 @@ const profile = AUTHORING_EXAMPLES.profile.id;
 
 export const COMMAND_EXAMPLES = {
   init: [`init ${workspace}`, "init ."],
-  guide: ["guide", "guide profile", "guide context", "guide skill", "guide --full", "guide --agent"],
+  guide: ["guide", "guide profile", "guide context", "guide skill", "guide --contract", "guide --full", "guide --agent"],
   new: ["new skill review-pr", "new context review-standards", `new profile my-profile --context ${AUTHORING_EXAMPLES.context.id}`],
   open: ["open"],
   install: [

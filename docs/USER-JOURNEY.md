@@ -70,7 +70,7 @@ than duplicating it.
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
 | 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed; without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049) |
-| 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction |
+| 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent\|--contract]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction, and the complete Workspace contract one command away |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
@@ -283,8 +283,8 @@ machine (US-037) and never blocks.
 $ apkit guide
 # Agent Profile Kit guide
 
-Choose a focused authoring topic, read the complete human guide, or open the
-  agent workflow reference.
+Choose a focused authoring topic, read the Workspace contract, the complete
+  human guide, or the agent workflow reference.
 
 Topics:
   apkit guide profile
@@ -300,20 +300,22 @@ Topics:
       workflow applies.
 
 Complete references:
+  apkit guide --contract
+    The Workspace contract: every rule validation enforces
   apkit guide --full
     Complete human Workspace guide
   apkit guide --agent
     Agent workflow reference
 
 Examples:
-  apkit init ~/agent-profile-workspace
+  apkit init <path>
   apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
 ```
 
-`guide --full` and `guide --agent` retain the complete human- and
-agent-facing guides. `guide profile`, `guide context`, and `guide skill` each
+`guide --contract`, `guide --full`, and `guide --agent` retain the canonical
+Workspace contract, the complete human guide, and the agent-facing guide. `guide profile`, `guide context`, and `guide skill` each
 return focused, terminal-width-aware guidance that leads with the authoring
 commands, then explains the resulting files through the canonical examples,
 and states the configured Workspace location before asking the user to create
@@ -337,7 +339,8 @@ An example `profiles/example.yaml`:
 
 Next: from the project you want to try, run `apkit install example --host codex`.
 
-For complete authoring guidance, run `apkit guide --full`.
+For the Workspace contract, run `apkit guide --contract`; for complete
+authoring guidance, run `apkit guide --full`.
 ```
 
 Long interactive guidance is paged through the configured pager, while

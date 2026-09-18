@@ -3,7 +3,9 @@
 Use this workflow when helping a person author their Workspace and bind projects.
 
 1. Read this guide first. Then inspect the Workspace: start with `workspace.yaml`
-   and its schema version. A valid Workspace needs that Manifest plus the
+   and its schema version. The Workspace contract (run `apkit guide --contract`)
+   states the required structure and every rule `apkit validate` enforces; in
+   short, a valid Workspace has the `workspace.yaml` Manifest plus the
    `context/`, `skills/`, and `profiles/` directories, which `apkit init` adds
    when missing; missing artifact directories are empty collections, and
    bootstrap files such as `README.md`, `AGENTS.md`, and `.gitignore` are
@@ -22,15 +24,14 @@ Use this workflow when helping a person author their Workspace and bind projects
 3. Create the smallest useful artifact set. This release accepts Profile Context
    and shared Skills for Antigravity, plus portable Context and Skills for Codex,
    Claude Code, Grok, OpenCode, and Pi. Put standing facts in
-   Context Modules and reusable procedures in Skills. A Profile needs at least
+   Context Modules and reusable procedures in Skills. Author each artifact to
+   the Workspace contract, which states every rule validation enforces —
+   Context Module identity and delivery, the Skill
+   package rules including the standard `disable-model-invocation` field, and
+   the Profile shape (file name is the ID; the file holds exactly `context`
+   and `skills`). A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
-   Skills-only Profile is valid. For Skills that must not fire implicitly, set
-   the standard top-level `disable-model-invocation: true` field in `SKILL.md`
-   (absent means allowed); the retired `metadata.agent-profile-kit.model-invocation`
-   key fails validation and other top-level fields are accepted and ignored.
-   Profiles
-   live directly in `profiles/`; the file name without `.yaml` is the Profile's
-   ID, and the file contains exactly `context` and `skills`. Do not create a new artifact merely because
+   Skills-only Profile is valid. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.

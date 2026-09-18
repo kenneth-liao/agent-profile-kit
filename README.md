@@ -41,5 +41,7 @@ apkit uninstall --here --auto-confirm   # remove an installation and forget its 
 
 - `apkit --help` — concise summary of every command
 - `apkit guide profile` (or `guide context`, `guide skill`) — focused authoring topics
+- `apkit guide --contract` — the Workspace contract: every rule validation enforces
 - `apkit guide --full` — the complete Workspace guide
+- [docs/guides/workspace-contract.md](docs/guides/workspace-contract.md) — the Workspace contract, readable before installing apkit
 - [docs/guides/workspace.md](docs/guides/workspace.md) — Workspace authoring guidance

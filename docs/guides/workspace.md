@@ -130,20 +130,27 @@ not undo later Workspace content changes.
 
 ### Required structure vs optional files
 
-A valid Workspace needs only a supported `workspace.yaml`. That Manifest is the
-Workspace marker. `context/`, `skills/`, and `profiles/` are the required
-artifact directories, which setup adds when missing; missing categories are
-treated as empty collections, and present ones are validated and ingested
-normally. `README.md`, `AGENTS.md`, and `.gitignore` are optional user-owned
-files that the engine never requires.
+The Workspace contract (run `apkit guide --contract`) states the required
+structure and every rule validation enforces. In short: a valid Workspace needs a
+supported `workspace.yaml` — the Workspace marker — plus the `context/`,
+`skills/`, and `profiles/` artifact directories, which setup adds when
+missing; missing categories are treated as empty collections, and present
+ones are validated and ingested normally. `README.md`, `AGENTS.md`, and
+`.gitignore` are optional user-owned files that the engine never requires.
 
 When creating a **new** Workspace, `init` adds only the required parts and no
 example material (spec #593 DEC-003, ADR-0047). For a complete worked example
 — a bindable `profiles/example.yaml` and its `context/example-context.md` —
 run `apkit guide profile`, which prints both files' example bytes, or see
-`apkit guide context` and `apkit guide skill` for single artifacts.
+`apkit guide context` and `apkit guide skill` for single artifacts. The
+contract's minimal valid Workspace shows all four required parts together.
 
 ## Author the Workspace
+
+The Workspace contract (run `apkit guide --contract`) states the complete
+authoring format: Context Module identity and delivery, the Skill package
+rules, the Profile shape, and model-invocation policy. This guide covers how
+that material reaches each Host.
 
 This release supports Profile Context and Context Modules for Antigravity,
 Codex, Claude Code, Grok, OpenCode, and Pi, and portable Skills for Antigravity,
@@ -155,27 +162,7 @@ Host behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
 activation (or OpenCode `/<Artifact ID>` command activation) remains available.
-Profiles are named by their file name under `profiles/` and contain only
-`context` and `skills`; Agents, Hooks, and Tools
-are not delivered by this release. A Profile must select at least one supported
-artifact overall (Context Module, Skill, or both); no individual category is
-mandatory. Context-only, Skills-only, and combined Profiles are valid.
-
-A Context Module is any Markdown file under `context/`, at any depth; its ID
-is its path under `context/` without `.md`, with `/` between folders (for
-example `engineering/review-findings`). apkit reads no Context frontmatter
-and requires none: the file's bytes are delivered as written inside the
-generated Context output, whose header precedes all module content, so
-frontmatter in a Context file never becomes Host frontmatter. Moving or
-renaming the file changes its ID by design. Every folder and file name under
-`context/` must be a lowercase kebab-case name, because together they form
-the ID. A Skill
-is a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
-standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
-hyphenated `name` and a non-empty `description`. Scripts, references, and assets
-remain ordinary standard Skill content. A Profile's `context` and `skills`
-lists are the only source of what is installed: list every needed artifact
-there; there are no Dependencies and no `agent-profile-kit.yaml` sidecar.
+Agents, Hooks, and Tools are not delivered by this release.
 
 ### Skill model-invocation policy
 
@@ -189,17 +176,14 @@ disable-model-invocation: true
 ```
 
 The field is a boolean: `true` disables model invocation, and absence (or
-`false`) allows it. Non-boolean values fail at Workspace ingestion with the
+`false`) allows it; non-boolean values fail at Workspace ingestion with the
 fix.
 
-This standard field is the only policy authority (ADR-0018). The retired
-Agent Profile Kit metadata key `agent-profile-kit.model-invocation` is no
-longer read: a Skill carrying it fails validation, and the fix names
-`disable-model-invocation` as the replacement. Other top-level frontmatter
-fields beyond those Agent Profile Kit reads — including Host-specific fields —
-are accepted and ignored, so standard Agent Skill packages validate and
-install unchanged, and those fields reach each Host as written. The Installer
-never rewrites Workspace `SKILL.md` during validate, status, or update.
+The standard field is the only policy authority (ADR-0018); the Workspace
+contract states the full rule set, including the retired
+`agent-profile-kit.model-invocation` metadata key and the accepted-and-ignored
+other top-level fields. The Installer never rewrites
+Workspace `SKILL.md` during validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -236,20 +220,14 @@ never silently omits or weakens what it plans.
 Profiles are the only place that says what gets installed together (ADR-0045):
 list each needed Context Module and Skill explicitly. A Profile's `context`
 and `skills` lists install exactly what they name — nothing is pulled in
-transitively.
-
-A Profile is a YAML file directly under `profiles/`; its file name without
-`.yaml` is the Profile's ID, and the file holds exactly a `context` array and a
-`skills` array. The file name must be a lowercase kebab-case name; Profiles in
-nested folders are not accepted. At least one of `context` or `skills` must be
-non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
+transitively. The Workspace contract states the Profile shape; a
+Skills-only Profile installs only selected Skill packages for Hosts that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
 probing is scoped to the selected categories (Skills-only does not require Context
-machinery). Profiles do not inherit, use wildcards, or carry Host settings.
-Renaming the file renames the Profile; Project Bindings select Profiles by
-that name.
+machinery). Renaming a Profile file renames its ID; Project Bindings select
+Profiles by that name.
 
 Rollback caveat: this Profile shape is a **CLI 0.208.0+** acceptance change.
 A Workspace whose Profiles carry no `id` line fails validation on an older
@@ -265,7 +243,8 @@ Review findings and the reasoning behind them.
 ```
 
 A Context Module is a plain Markdown file: no frontmatter is required or
-read. A Context file that still carries frontmatter from an earlier release
+read (the Workspace contract states the full rule). A Context file that still
+carries frontmatter from an earlier release
 is valid — its bytes are delivered as written — and you can delete the
 frontmatter at your leisure.
 

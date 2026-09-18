@@ -10,6 +10,7 @@ import {
   guideIndexDocument,
   humanGuide,
   humanGuideDocument,
+  workspaceContract,
   type GuideTopic,
 } from "./guides.js";
 import {
@@ -524,6 +525,7 @@ function parseGuideArguments(arguments_: readonly string[]):
   | { readonly kind: "index" }
   | { readonly kind: "full" }
   | { readonly kind: "agent" }
+  | { readonly kind: "contract" }
   | { readonly kind: "topic"; readonly topic: GuideTopic } {
   if (arguments_.length === 0) return { kind: "index" };
 
@@ -541,6 +543,7 @@ function parseGuideArguments(arguments_: readonly string[]):
   }
   if (route === "--full") return { kind: "full" };
   if (route === "--agent") return { kind: "agent" };
+  if (route === "--contract") return { kind: "contract" };
   throw new Error(`guide does not accept argument '${route}'`);
 }
 
@@ -984,6 +987,11 @@ async function main(): Promise<void> {
       }
     } else if (parsed.kind === "agent") {
       await writeGuidanceDocument(process.stdout, guideFileDocument(await agentGuide()), stdoutPresentationContext);
+    } else if (parsed.kind === "contract") {
+      // The contract renders verbatim (the --agent policy): its markdown
+      // structure is information, and ISC-49 compares the output with the
+      // canonical document byte-for-byte (DEC-010, #602).
+      await writeGuidanceDocument(process.stdout, guideFileDocument(await workspaceContract()), stdoutPresentationContext);
     } else {
       await writeGuidanceDocument(process.stdout, humanGuideDocument(await humanGuide()), stdoutPresentationContext);
     }
