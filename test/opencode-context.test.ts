@@ -277,7 +277,7 @@ async function workspaceWithContextAndSkills(
   }
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    `id: engineering\ncontext: [${selectedContexts.join(", ")}]\nskills: [${selectedSkills.join(", ")}]\n`,
+    `context: [${selectedContexts.join(", ")}]\nskills: [${selectedSkills.join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -730,7 +730,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
 
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [team-rules]\nskills: [review-pr, deploy]\n",
+      "context: [team-rules]\nskills: [review-pr, deploy]\n",
     );
 
     const configPath = join(application, "config.yaml");

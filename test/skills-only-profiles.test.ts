@@ -86,7 +86,7 @@ async function skillsOnlyWorkspace(
   const contextList = options.includeContext ? "[team-rules]" : "[]";
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    `id: engineering\ncontext: ${contextList}\nskills: [review-pr]\n`,
+    `context: ${contextList}\nskills: [review-pr]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -102,7 +102,7 @@ describe("Skills-only Profiles", () => {
     writeSkill(workspace, "review-pr");
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+      "context: []\nskills: [review-pr]\n",
     );
 
     const ingested = await ingestDefaultWorkspace(home);
@@ -117,7 +117,7 @@ describe("Skills-only Profiles", () => {
     const workspace = workspacePath(home);
     writeFileSync(
       join(workspace, "profiles", "empty.yaml"),
-      "id: empty\ncontext: []\nskills: []\n",
+      "context: []\nskills: []\n",
     );
 
     const failure = await ingestDefaultWorkspace(home).then(
@@ -405,7 +405,7 @@ describe("Skills-only Profiles", () => {
     // Drop Context from the same Profile; Skills remain selected.
     writeFileSync(
       join(workspacePath(home), "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+      "context: []\nskills: [review-pr]\n",
     );
 
     desired = await buildDesiredState(home, { checkHostCapability: false });

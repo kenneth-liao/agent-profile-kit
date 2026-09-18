@@ -27,7 +27,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    (absent means allowed); the retired `metadata.agent-profile-kit.model-invocation`
    key fails validation and other top-level fields are accepted and ignored.
    Profiles
-   contain exactly `id`, `context`, and `skills`. Do not create a new artifact merely because
+   live directly in `profiles/`; the file name without `.yaml` is the Profile's
+   ID, and the file contains exactly `context` and `skills`. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
 4. Preserve boundaries.
@@ -79,8 +80,9 @@ Use this workflow when helping a person author their Workspace and bind projects
    authored spelling. To keep generated files in place instead, remove the
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
-6. Validate before updating. Context Modules use `id` frontmatter and flat
-   Profiles contain `id`, `context`, and `skills` only; the Profile lists are
+6. Validate before updating. Context Modules use `id` frontmatter and
+   Profiles are named by their file name and contain `context` and `skills`
+   only; the Profile lists are
    the only source of what is installed (no Dependencies, no sidecar files).
    Run `apkit validate`, review
    the concise fleet outcome from `apkit status --all`, and ask before updating

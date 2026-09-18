@@ -39,11 +39,11 @@ function scaffoldWorkspace(home: string): string {
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills: []\n",
+    "context:\n  - team-rules\nskills: []\n",
   );
   writeFileSync(
     join(workspace, "profiles", "ops.yaml"),
-    "id: ops\ncontext:\n  - team-rules\nskills: []\n",
+    "context:\n  - team-rules\nskills: []\n",
   );
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
@@ -243,7 +243,7 @@ describe("typed Installer tool errors", () => {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(
         join(workspace, "profiles", "broken.yaml"),
-        "id: broken\ncontext:\n  - no-such-context\nskills: []\n",
+        "context:\n  - no-such-context\nskills: []\n",
       );
       const failure = await rejection(() => ingestWorkspace(workspace));
       expect(failure).toBeInstanceOf(InstallerToolError);

@@ -135,7 +135,7 @@ async function contextInstallation(
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules]\nskills: []\n",
+    "context: [team-rules]\nskills: []\n",
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -375,7 +375,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -434,7 +434,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
-      "id: coding\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

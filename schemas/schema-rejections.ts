@@ -91,7 +91,24 @@ export type WorkspaceArtifactRejectionReason =
       readonly section: string;
     }
   | { readonly case: "invalid-model-invocation"; readonly path: string; readonly key: string }
-  | { readonly case: "leftover-model-invocation-metadata"; readonly path: string };
+  | { readonly case: "leftover-model-invocation-metadata"; readonly path: string }
+  | {
+      /**
+       * A Profile carrying an authored `id` field (spec #593 DEC-014, #598):
+       * a Profile's ID is its file name; the field is never read. The
+       * authored value is carried when it parsed as a string, so the fix can
+       * tell the user how to keep an ID that bindings and receipts reference.
+       */
+      readonly case: "profile-id-field";
+      readonly path: string;
+      readonly id?: string;
+    }
+  | {
+      /** A Profile file name (without `.yaml`) that is not a valid Artifact ID (spec #593 DEC-014, #598). */
+      readonly case: "profile-file-name";
+      readonly path: string;
+      readonly name: string;
+    };
 
 /** Artifact ID validation outside portable-artifact parsing carries its caller label. */
 export type ArtifactIdRejectionReason = { readonly case: "invalid-artifact-id"; readonly label: string };

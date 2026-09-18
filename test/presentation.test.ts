@@ -5814,7 +5814,7 @@ describe("standalone view presentation documents (#389)", () => {
   test("focused profile detail lists authored Context Module and Skill names", () => {
     const document = profileDetailDocument({
       context: ["team-rules", "writing-style"],
-      id: "coding",
+      id: "engineering",
       skills: ["review-pr"],
     });
     expect(document.map(shape)).toEqual([
@@ -5834,8 +5834,8 @@ describe("standalone view presentation documents (#389)", () => {
     });
     // The tail names the executable next actions with the Profile's own name.
     expect(inlineCommandTexts([document[4]!])).toEqual([
-      "apkit configure profile coding",
-      "apkit install coding --host <host>",
+      "apkit configure profile engineering",
+      "apkit install engineering --host <host>",
     ]);
   });
 

@@ -77,7 +77,7 @@ The best-effort exclusion bookkeeping derived at write time from active Installa
 _Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, receipt-recorded exclusion evidence
 
 **Artifact ID**:
-The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its organizational path or display name. A Skill's Agent Skills `name` is its Artifact ID.
+The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml`.
 _Avoid_: File path, display name
 
 **Credential Requirement**:
@@ -109,7 +109,7 @@ Functionality supplied by an Agent Host or the surrounding system that Agent Pro
 _Avoid_: Tool, Skill Resource
 
 **Profile**:
-An explicit named selection containing exactly an Artifact ID, Context, and Skills suited to a kind of work and reusable across projects. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration. Agents, Hooks, and Tools are not implemented Profile selection categories.
+An explicit named selection containing exactly an Artifact ID, Context, and Skills suited to a kind of work and reusable across projects. A Profile's Artifact ID is its file name under `profiles/` without `.yaml`, and the file holds only its `context` and `skills` lists. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration. Agents, Hooks, and Tools are not implemented Profile selection categories.
 _Avoid_: Agent, Agent Host, Profile Installation
 
 **Project Binding**:

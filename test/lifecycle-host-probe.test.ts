@@ -91,15 +91,15 @@ async function fleetWorkspace(options: {
   writeSkill(workspace, "ops-run", "disabled");
   writeFileSync(
     join(workspace, "profiles", "context-only.yaml"),
-    "id: context-only\ncontext: [team-rules]\nskills: []\n",
+    "context: [team-rules]\nskills: []\n",
   );
   writeFileSync(
     join(workspace, "profiles", "skills-only.yaml"),
-    "id: skills-only\ncontext: []\nskills: [review-pr]\n",
+    "context: []\nskills: [review-pr]\n",
   );
   writeFileSync(
     join(workspace, "profiles", "skills-disabled.yaml"),
-    "id: skills-disabled\ncontext: []\nskills: [ops-run]\n",
+    "context: []\nskills: [ops-run]\n",
   );
   const projects: string[] = [];
   const bindingLines = options.bindings.map((binding) => {
@@ -361,11 +361,11 @@ describe("machine-level Host capability probes within one invocation", () => {
     writeSkill(workspace, "ops-run", "disabled");
     writeFileSync(
       join(workspace, "profiles", "context-only.yaml"),
-      "id: context-only\ncontext: [team-rules]\nskills: []\n",
+      "context: [team-rules]\nskills: []\n",
     );
     writeFileSync(
       join(workspace, "profiles", "skills-disabled.yaml"),
-      "id: skills-disabled\ncontext: []\nskills: [ops-run]\n",
+      "context: []\nskills: [ops-run]\n",
     );
     // Projects under the HOME keep canonical order deterministic: the 0.99.0
     // floor (disabled invocation) sorts first, the 0.145.0 floor (Context) second.

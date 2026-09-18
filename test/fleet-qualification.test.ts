@@ -650,7 +650,7 @@ describe("integrated fleet recovery qualification", () => {
     writeSkill(home, "deploy-helper", "# deploy-helper\n\nDeploy helper.\n");
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [team-rules]\nskills: [review-pr, deploy-helper]\n",
+      "context: [team-rules]\nskills: [review-pr, deploy-helper]\n",
     );
 
     const projectA = gitRepository();

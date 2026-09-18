@@ -91,7 +91,7 @@ async function setupHome(): Promise<string> {
   mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "profiles", "coding.yaml"),
-    "id: coding\ncontext:\n  - team-rules\nskills:\n  - review-pr\n",
+    "context:\n  - team-rules\nskills:\n  - review-pr\n",
   );
   writeFileSync(
     configPath(home),

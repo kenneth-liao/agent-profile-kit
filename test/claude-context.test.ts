@@ -105,7 +105,7 @@ async function writeContextWorkspace(
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    `id: coding\ncontext: [team-rules]\nskills: [${(options.skills ?? []).join(", ")}]\n`,
+    `context: [team-rules]\nskills: [${(options.skills ?? []).join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),

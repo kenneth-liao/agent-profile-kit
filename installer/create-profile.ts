@@ -151,7 +151,7 @@ export async function createProfile(options: CreateProfileOptions): Promise<Crea
   const fileName = `${id}${PROFILE_EXTENSION}`;
   const relativePath = `profiles/${fileName}`;
   const profileFile = join(workspace.path, "profiles", fileName);
-  const scaffold = newProfileScaffold(id, options.contexts, options.skills);
+  const scaffold = newProfileScaffold(options.contexts, options.skills);
   parseProfile(scaffold, relativePath);
 
   await requireRealCategory(workspace.path, "profiles");

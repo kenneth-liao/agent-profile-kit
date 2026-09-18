@@ -7,3 +7,9 @@ metadata this decision introduced — Context Module frontmatter `dependencies`
 and the Skill `agent-profile-kit.yaml` sidecar — is removed, and ADR-0045
 supersedes it. Typed artifact identities and portable artifacts as canonical
 source stand unchanged.
+
+Amendment: since spec #593 (DEC-014, ticket #598), a Profile's identity is its
+file name under `profiles/` without `.yaml`, and the authored `id` field this
+decision carried inside the Profile file is removed; ADR-0046 supersedes that
+part. Typed artifact identities and portable artifacts as canonical source
+stand unchanged.

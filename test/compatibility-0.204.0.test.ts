@@ -16,6 +16,7 @@ import { join } from "node:path";
 
 import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import { InstallerToolError, type InstallerToolErrorFact } from "../installer/tool-errors.js";
+import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import { obtainPackageArchive, extractPackageArchive } from "./support/package-archive.js";
 import { controlledEnvironment, controlledPath, controlledToolPath } from "./support/controlled-environment.js";
 import { expectExitCode, runProcess, TEST_CHILD_DEADLINE_MS } from "../process/process-executor.js";
@@ -121,35 +122,65 @@ function repairWorkspace(home: string): void {
   const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
   cpSync(join(FIXTURES, "workspace-source"), workspace, { recursive: true });
   rmSync(join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"));
+  // Repair to the current Profile shape: a Profile's ID is its file name
+  // (spec #593 DEC-014), so the authored `id` fields are removed. Both files
+  // matched their authored IDs, so every Project Binding and receipt keeps
+  // resolving to the same Profile identity.
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules, extra-rules]\nskills: [review-pr, base-skill]\n",
+    "context: [team-rules, extra-rules]\nskills: [review-pr, base-skill]\n",
+  );
+  writeFileSync(
+    join(workspace, "profiles", "example.yaml"),
+    'context:\n  - "example-context"\nskills: []\n',
   );
 }
 
 interface ReceiptRecord {
   readonly receipts: readonly {
     readonly desired_input_digest: string;
+    readonly profile_id: string;
     readonly project: string;
     readonly outputs: readonly { readonly path: string }[];
   }[];
 }
 
-async function ingestionFact(workspace: string): Promise<InstallerToolErrorFact> {
+async function ingestionFact(workspace: string): Promise<InstallerToolErrorFact | { schema: string; detail: Record<string, unknown> }> {
   try {
     await ingestWorkspace(workspace);
   } catch (error) {
     if (error instanceof InstallerToolError) return error.fact;
+    if (error instanceof SchemaRejectionError) {
+      return { schema: error.reason.schema, detail: error.reason.detail as Record<string, unknown> };
+    }
     throw error;
   }
   throw new Error("expected ingestWorkspace to reject the 0.204.0 Workspace");
 }
 
-describe("0.204.0 compatibility (issue #596, TEST-010)", () => {
-  test("the 0.204.0 Workspace fixture reports the leftover Skill sidecar with its path and fix", async () => {
+describe("0.204.0 compatibility (issues #596, #598; TEST-010, DEC-013)", () => {
+  test("the untouched 0.204.0 Workspace fixture first reports the Profile id field with its path and fix", async () => {
+    // Profiles ingest before Skills, so the first reported violation of the
+    // raw fixture is the authored `id` field (spec #593 DEC-014, #598).
     const home = isolatedHome();
     const workspace = join(home, "workspace");
     copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
+    expect(await ingestionFact(workspace)).toEqual({
+      schema: "workspace-artifact",
+      detail: { case: "profile-id-field", path: "profiles/coding.yaml", id: "coding" },
+    });
+  });
+
+  test("after removing the Profile id fields, the fixture reports the leftover Skill sidecar with its path and fix", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "workspace");
+    copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
+    // Apply only the Profile fix: the authored ids matched the file names, so
+    // removal alone keeps every Profile ID that bindings reference.
+    for (const profile of ["coding.yaml", "example.yaml"]) {
+      const file = join(workspace, "profiles", profile);
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
+    }
     expect(await ingestionFact(workspace)).toEqual({
       kind: "leftover-skill-sidecar",
       file: "skills/review-pr/agent-profile-kit.yaml",
@@ -172,6 +203,9 @@ describe("0.204.0 compatibility (issue #596, TEST-010)", () => {
     expect(before.receipts).toHaveLength(1);
     const recorded = before.receipts[0]!;
     expect(recorded.project).toBe(realpathSync(project));
+    // The binding and receipt name the Profile whose authored id matched its
+    // file name; that identity survives the repair unchanged (#598).
+    expect(recorded.profile_id).toBe("coding");
     const outputPaths = recorded.outputs.map((output) => output.path).sort();
 
     repairWorkspace(home);

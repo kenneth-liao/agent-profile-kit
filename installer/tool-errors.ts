@@ -114,6 +114,12 @@ export type WorkspaceIngestionErrorFact =
       readonly kind: "leftover-skill-sidecar";
       /** Workspace-relative path of the retired Skill sidecar file. */
       readonly file: string;
+    }
+  | {
+      /** A `.yaml` file under a `profiles/` subdirectory (spec #593 DEC-014, #598). */
+      readonly kind: "nested-profile";
+      /** Workspace-relative path of the nested Profile file. */
+      readonly file: string;
     };
 
 /** Workspace ingestion plus the manifest rejections it composes. */

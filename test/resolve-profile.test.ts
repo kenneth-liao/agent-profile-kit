@@ -26,7 +26,7 @@ function scaffoldWorkspace(
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules]\nskills: [primary]\n",
+    "context: [team-rules]\nskills: [primary]\n",
   );
   for (const [name, dependencies] of Object.entries(options.contextDependencies ?? {})) {
     writeFileSync(

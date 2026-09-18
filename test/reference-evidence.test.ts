@@ -17,7 +17,7 @@ function scaffoldWorkspace(home: string): string {
   mkdirSync(join(workspace, "context"), { recursive: true });
   mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
-  writeFileSync(join(workspace, "profiles", "coding.yaml"), "id: coding\ncontext: []\nskills: []\n");
+  writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: []\nskills: []\n");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "---\nid: team-rules\ndependencies: []\n---\n\n# Team rules\n",
@@ -46,7 +46,7 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(
         join(workspace, "profiles", "broken.yaml"),
-        "id: broken\ncontext:\n  - no-such-context\nskills: []\n",
+        "context:\n  - no-such-context\nskills: []\n",
       );
       expect(await ingestionFact(workspace)).toEqual({
         kind: "missing-context-reference",
@@ -66,7 +66,7 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(
         join(workspace, "profiles", "broken.yaml"),
-        "id: broken\ncontext: []\nskills:\n  - no-such-skill\n",
+        "context: []\nskills:\n  - no-such-skill\n",
       );
       expect(await ingestionFact(workspace)).toEqual({
         kind: "missing-skill-reference",
@@ -90,7 +90,7 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
       );
       writeFileSync(
         join(workspace, "profiles", "coding.yaml"),
-        "id: coding\ncontext: [team-rules]\nskills: [deploy]\n",
+        "context: [team-rules]\nskills: [deploy]\n",
       );
       const ingested = await ingestWorkspace(workspace);
       expect(ingested.contexts.get("team-rules")).toBeDefined();

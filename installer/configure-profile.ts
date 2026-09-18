@@ -126,7 +126,7 @@ export function planConfigureMembership(input: {
  * unchanged. Validation completes before any filesystem mutation, so an
  * invalid request leaves the Profile source byte-identical. Only the
  * `context`/`skills` value nodes of the canonical Profile file are
- * rewritten, preserving comments, key order, and the `id` line. Never
+ * rewritten, preserving comments and key order. Never
  * touches Local Configuration, Installation State, operation history, or
  * installed Project output: configure never installs or updates.
  */
@@ -165,7 +165,7 @@ export async function configureProfileMembership(
   // included) can never be reported as success. The preflight bytes come
   // from the one Profile writer (#514) — the same function `apkit new` uses
   // — so no second emitter of the Profile YAML shape can diverge.
-  parseProfile(newProfileScaffold(id, nextContexts, nextSkills), existing.path);
+  parseProfile(newProfileScaffold(nextContexts, nextSkills), existing.path);
 
   const entry = await lstat(profileFile).catch((error: unknown) => {
     if (hasErrorCode(error, "ENOENT")) return undefined;
@@ -192,8 +192,8 @@ export async function configureProfileMembership(
 
   // CST edit of the changed membership nodes. yaml Document.toString
   // normalizes quoting and indent of unrelated keys (same limitation as
-  // publishBindingUnderLock host updates); comment text, key order, and
-  // the id value survive. An unchanged category is not .set(), so its
+  // publishBindingUnderLock host updates); comment text and key order
+  // survive. An unchanged category is not .set(), so its
   // membership set is untouched even when formatting around it reflows.
   const document = parseDocument(source);
   const contents: unknown = document.contents;

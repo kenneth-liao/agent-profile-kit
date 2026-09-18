@@ -32,7 +32,7 @@ import { parseSkill } from "../schemas/skill.js";
 describe("authoring example/scaffold YAML consistency", () => {
   test("the example Profile bytes are the Profile writer's output", () => {
     expect(AUTHORING_EXAMPLES.profile.contents).toBe(
-      newProfileScaffold(AUTHORING_EXAMPLES.profile.id, [AUTHORING_EXAMPLES.context.id], []),
+      newProfileScaffold([AUTHORING_EXAMPLES.context.id], []),
     );
   });
 
@@ -87,8 +87,13 @@ describe("authoring example/scaffold YAML consistency", () => {
     // `true` and `123` are legal artifact IDs; unquoted YAML would coerce
     // them to boolean and number and the canonical schema would reject or
     // coerce them.
+    const scaffold = newProfileScaffold(["123"], []);
+    // The scaffold carries no `id` field: a Profile's ID is its file name
+    // (spec #593 DEC-014, #598), and the parser derives it from the path.
+    expect(scaffold.startsWith('context:\n')).toBe(true);
+    expect(scaffold).not.toContain("id");
     const profile = parseProfile(
-      newProfileScaffold("true", ["123"], []),
+      scaffold,
       "profiles/true.yaml",
     );
     expect(profile.id).toBe("true");

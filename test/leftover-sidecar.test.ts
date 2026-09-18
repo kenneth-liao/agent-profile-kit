@@ -19,7 +19,7 @@ function scaffoldWorkspace(home: string): string {
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: []\nskills: [deploy]\n",
+    "context: []\nskills: [deploy]\n",
   );
   writeFileSync(
     join(workspace, "context", "team-rules.md"),

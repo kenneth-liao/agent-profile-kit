@@ -147,7 +147,7 @@ export function createFleetFixture(
   writeSkill(home, FLEET_SKILL);
   writeFileSync(
     join(workspacePath(home), "profiles", `${FLEET_PROFILE}.yaml`),
-    `id: ${FLEET_PROFILE}\ncontext: [team-rules]\nskills: [${FLEET_SKILL}]\n`,
+    `context: [team-rules]\nskills: [${FLEET_SKILL}]\n`,
   );
   const projectCount = options.projectCount ?? FLEET_HOSTS.length;
   const projects = Array.from({ length: projectCount }, (_, index) =>

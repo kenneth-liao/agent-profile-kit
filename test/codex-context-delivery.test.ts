@@ -160,7 +160,7 @@ describe("Codex complete Context delivery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: []\n",
+      "context: [rules]\nskills: []\n",
     );
     writeFileSync(
       join(workspace, "workspace.yaml"),
@@ -200,7 +200,7 @@ describe("Codex complete Context delivery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: []\n",
+      "context: [rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -277,7 +277,7 @@ describe("Codex complete Context delivery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: []\n",
+      "context: [rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),

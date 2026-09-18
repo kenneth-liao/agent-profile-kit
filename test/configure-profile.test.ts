@@ -157,7 +157,7 @@ describe("configureProfileMembership", () => {
     }
   });
 
-  test("a styled hand-ordered Profile keeps comments, order, and id while membership changes", async () => {
+  test("a styled hand-ordered Profile keeps comments and order while membership changes", async () => {
     const home = await initializedHome();
     try {
       await createSkill({ home, name: "review-pr" });
@@ -169,7 +169,6 @@ describe("configureProfileMembership", () => {
           "skills:\n" +
           "  # review-pr is always available.\n" +
           '  - "review-pr"\n' +
-          'id: "example" # stable identity\n' +
           "context:\n" +
           "  - example-context # standing rules\n",
       );
@@ -185,11 +184,9 @@ describe("configureProfileMembership", () => {
       const after = readFileSync(profileFile, "utf8");
       // Unrelated authored content survives byte-identical.
       expect(after).toContain("# Team profile: hand-maintained, do not reformat.\n");
-      expect(after).toContain('id: "example" # stable identity\n');
       expect(after).toContain('  # review-pr is always available.\n  - "review-pr"\n');
-      // Hand key order is preserved (skills, id, context), not resorted.
-      expect(after.indexOf("skills:")).toBeLessThan(after.indexOf('id: "example"'));
-      expect(after.indexOf('id: "example"')).toBeLessThan(after.indexOf("context:"));
+      // Hand key order is preserved (skills, context), not resorted.
+      expect(after.indexOf("skills:")).toBeLessThan(after.indexOf("context:"));
       // The changed category carries the new membership in canonical order.
       expect(after).toContain("context:\n  - example-context\n  - extra-rules\n");
       // The written file still ingests with the requested membership.
@@ -336,7 +333,7 @@ describe("configureProfileMembership", () => {
       const profileFile = join(realpathSync(workspacePath(home)), "profiles", "example.yaml");
       writeFileSync(
         profileFile,
-        "id: example\ncontext:\n  - extra-rules  # keep me\n  - example-context\nskills: []\n",
+        "context:\n  - extra-rules  # keep me\n  - example-context\nskills: []\n",
       );
       const result = await configureProfileMembership({
         home,
@@ -353,25 +350,25 @@ describe("configureProfileMembership", () => {
     }
   });
 
-  test("writes through the ingested Profile path, including profiles/ subdirectories", async () => {
+  test("a nested Profile file is refused by ingestion before configure can reach it (#598)", async () => {
     const home = await initializedHome();
     try {
       await createSkill({ home, name: "review-pr" });
       const nestedDirectory = join(realpathSync(workspacePath(home)), "profiles", "team");
       mkdirSync(nestedDirectory, { recursive: true });
       const nestedFile = join(nestedDirectory, "nested.yaml");
-      writeFileSync(nestedFile, "id: nested\ncontext:\n  - example-context\nskills: []\n");
+      writeFileSync(nestedFile, "context:\n  - example-context\nskills: []\n");
 
-      const result = await configureProfileMembership({
+      // Profiles live directly in profiles/: the nested file is one typed
+      // violation naming its path, so configure can never target it.
+      await expect(configureProfileMembership({
         home,
         profile: "nested",
         skills: ["review-pr"],
+      })).rejects.toMatchObject({
+        fact: { kind: "nested-profile", file: "profiles/team/nested.yaml" },
       });
-
-      expect(result.changed).toBe(true);
-      expect(result.path).toBe(nestedFile);
-      expect(readFileSync(nestedFile, "utf8")).toContain("review-pr");
-      expect(existsSync(join(realpathSync(workspacePath(home)), "profiles", "nested.yaml"))).toBe(false);
+      expect(readFileSync(nestedFile, "utf8")).toBe("context:\n  - example-context\nskills: []\n");
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

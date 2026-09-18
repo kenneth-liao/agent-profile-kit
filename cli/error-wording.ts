@@ -17,6 +17,7 @@ import type {
   WorkspaceManifestRejectionReason,
 } from "../schemas/schema-rejections.js";
 import { RETIRED_MODEL_INVOCATION_METADATA_FIELD } from "../schemas/skill.js";
+import { PROFILE_DIRECTORY, PROFILE_EXTENSION } from "../schemas/context-profile.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   ProjectTargetError,
@@ -212,6 +213,8 @@ export function formatWorkspaceIngestionError(fact: WorkspaceErrorFact): string 
           : `Available Skills: ${fact.available.join(", ")}`);
     case "leftover-skill-sidecar":
       return `Skill sidecar ${fact.file} is no longer read; list the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file from the Workspace (version control can recover it if you need the old list)`;
+    case "nested-profile":
+      return `Profile ${fact.file} is inside a nested folder; Profiles live directly in the ${PROFILE_DIRECTORY} folder — move the file to ${PROFILE_DIRECTORY}${fact.file.split("/").pop()} (that file name without '${PROFILE_EXTENSION}' becomes its ID)`;
   }
 }
 
@@ -437,6 +440,13 @@ export function formatWorkspaceIngestionErrorDiagnostic(fact: WorkspaceErrorFact
           ["List the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file; version control can recover it if you need the old list."],
         ],
       };
+    case "nested-profile":
+      return {
+        happened: [`Profile ${fact.file} is inside a nested folder.`],
+        whatToType: [
+          [`Profiles live directly in the ${PROFILE_DIRECTORY} folder; move the file to ${PROFILE_DIRECTORY}${fact.file.split("/").pop()}, whose name without '${PROFILE_EXTENSION}' becomes its ID.`],
+        ],
+      };
   }
 }
 
@@ -555,6 +565,18 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
       return `${description} must be a non-empty string${reason.maximum === undefined ? "" : ` no longer than ${reason.maximum} characters`}`;
     case "invalid-artifact-id":
       return `${description} must be a lowercase kebab-case name without wildcards`;
+    case "profile-id-field": {
+      // The fix keeps existing Project Bindings and Installation Receipts
+      // working: an authored id that differs from the file name can be kept
+      // by renaming the file, never by silently rebinding the ID (#598).
+      const fileName = path.slice(PROFILE_DIRECTORY.length, -PROFILE_EXTENSION.length);
+      const base =
+        `Profile ${path} must not contain an 'id' field; a Profile's ID is its file name without '.yaml'. Remove the 'id' field`;
+      if (reason.id === undefined || reason.id === fileName) return base;
+      return `${base}, or rename the file to ${PROFILE_DIRECTORY}${reason.id}${PROFILE_EXTENSION} to keep the Profile ID '${reason.id}' that Project Bindings and installations reference`;
+    }
+    case "profile-file-name":
+      return `Profile ${reason.path} must have a file name that is a lowercase kebab-case name without wildcards; rename the file so its name without '.yaml' is the Profile ID`;
     case "invalid-model-invocation":
       return `Skill ${reason.path} ${reason.key} must be a boolean; set it to true to disable model invocation, or remove the field to allow invocation`;
     case "leftover-model-invocation-metadata":
@@ -726,6 +748,7 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "missing-context-reference":
     case "missing-skill-reference":
     case "leftover-skill-sidecar":
+    case "nested-profile":
       return [formatWorkspaceIngestionError(fact)];
     default:
       return formatConfiguredPathError(fact);
@@ -952,6 +975,7 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "missing-context-reference":
     case "missing-skill-reference":
     case "leftover-skill-sidecar":
+    case "nested-profile":
       return formatWorkspaceIngestionErrorDiagnostic(fact);
     default:
       return formatConfiguredPathErrorDiagnostic(fact);

@@ -81,7 +81,7 @@ function writeSkillProfile(home: string, name: string): void {
   mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "profiles", `${name}.yaml`),
-    `id: ${name}\ncontext:\n  - team-rules\nskills:\n  - review-pr\n`,
+    `context:\n  - team-rules\nskills:\n  - review-pr\n`,
   );
 }
 

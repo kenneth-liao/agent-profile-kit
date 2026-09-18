@@ -49,7 +49,7 @@ async function selectSkillInsteadOfExampleContext(home: string): Promise<void> {
   await createSkill({ home, name: "anchor-skill" });
   writeFileSync(
     join(workspacePath(home), "profiles", "example.yaml"),
-    "id: example\ncontext: []\nskills: [anchor-skill]\n",
+    "context: []\nskills: [anchor-skill]\n",
   );
 }
 

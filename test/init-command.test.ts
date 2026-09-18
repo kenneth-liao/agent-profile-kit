@@ -151,7 +151,9 @@ describe("guided first-Profile init", () => {
     expect(existsSync(configPath(home))).toBe(true);
     expect(existsSync(profileFile)).toBe(true);
     const profile = readFileSync(profileFile, "utf8");
-    expect(profile).toContain('id: "my-profile"');
+    // The written Profile carries the new shape: no `id` field — the file
+    // name is its ID (spec #593 DEC-014, #598).
+    expect(profile).not.toContain("id:");
     expect(profile).toContain("- \"example-context\"");
     const human = plain(streams.humanText());
     expect(human).toContain("Created Profile my-profile");
@@ -289,7 +291,9 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(0);
     const profile = readFileSync(join(workspacePath(home), "profiles", "my-profile.yaml"), "utf8");
-    expect(profile).toContain('id: "my-profile"');
+    // The written Profile carries the new shape: no `id` field — the file
+    // name is its ID (spec #593 DEC-014, #598).
+    expect(profile).not.toContain("id:");
     expect(profile).toContain("context: []");
     expect(profile).toContain('- "release-check"');
     expect(plain(streams.humanText())).toContain(

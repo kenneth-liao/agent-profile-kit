@@ -43,7 +43,6 @@ function setupWorkspace(home: string, name = "my-workspace"): string {
   writeFileSync(
     join(workspacePath, "profiles", "default.yaml"),
     stringify({
-      id: "default",
       context: ["base"],
       skills: [],
     }),

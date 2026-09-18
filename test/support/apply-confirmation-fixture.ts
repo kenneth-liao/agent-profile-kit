@@ -49,7 +49,7 @@ export async function prepareDriftedFleet(prefix: string): Promise<DriftedFleetF
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
-    "id: coding\ncontext: [team-rules]\nskills: []\n",
+    "context: [team-rules]\nskills: []\n",
   );
   const configPath = join(application, "config.yaml");
   const binding = (project: string): string =>

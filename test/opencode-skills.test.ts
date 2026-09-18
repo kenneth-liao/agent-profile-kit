@@ -127,7 +127,7 @@ async function workspaceWithSkills(
   }
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),
-    `id: engineering\ncontext: []\nskills: [${selectedSkills.join(", ")}]\n`,
+    `context: []\nskills: [${selectedSkills.join(", ")}]\n`,
   );
   writeFileSync(
     join(application, "config.yaml"),
@@ -577,7 +577,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [deploy]\n",
+      "context: []\nskills: [deploy]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -659,7 +659,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr, deploy]\n",
+      "context: []\nskills: [review-pr, deploy]\n",
     );
 
     const updatedDesired = await buildDesiredState(home, { checkHostCapability: false });
@@ -700,7 +700,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [deploy]\n",
+      "context: []\nskills: [deploy]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -851,7 +851,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: [rules]\nskills: []\n",
+      "context: [rules]\nskills: []\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -880,7 +880,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [deploy]\n",
+      "context: []\nskills: [deploy]\n",
     );
     writeFileSync(
       join(application, "config.yaml"),
@@ -928,7 +928,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
-      "id: engineering\ncontext: []\nskills: [review-pr]\n",
+      "context: []\nskills: [review-pr]\n",
     );
 
     const bindingsYaml = projects

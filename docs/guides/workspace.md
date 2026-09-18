@@ -228,14 +228,18 @@ list each needed Context Module and Skill explicitly. A Profile's `context`
 and `skills` lists install exactly what they name — nothing is pulled in
 transitively.
 
-A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
-array, and a `skills` array. At least one of `context` or `skills` must be
+A Profile is a YAML file directly under `profiles/`; its file name without
+`.yaml` is the Profile's ID, and the file holds exactly a `context` array and a
+`skills` array. The file name must be a lowercase kebab-case name; Profiles in
+nested folders are not accepted. At least one of `context` or `skills` must be
 non-empty. A Skills-only Profile installs only selected Skill packages for Hosts that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
 check only the shared `.agents` and `.agents/skills` surfaces. Host capability
 probing is scoped to the selected categories (Skills-only does not require Context
 machinery). Profiles do not inherit, use wildcards, or carry Host settings.
+Renaming the file renames the Profile; Project Bindings select Profiles by
+that name.
 
 ```md
 ---
@@ -245,7 +249,7 @@ Keep project facts in the project repository.
 ```
 
 ```yaml
-id: coding
+# profiles/coding.yaml
 context:
   - engineering-rules
 skills:

@@ -136,15 +136,55 @@ export function parseContextModule(source: string, path: string): ContextModule 
   };
 }
 
+export const PROFILE_DIRECTORY = "profiles/";
+export const PROFILE_EXTENSION = ".yaml";
+
+/**
+ * Derive one Profile's Artifact ID from its Workspace-relative file path: the
+ * Profile identity boundary (spec #593 DEC-014, #598). A Profile's ID is its
+ * file name under `profiles/` without `.yaml`.
+ */
+function profileIdFromPath(path: string): string {
+  if (!path.startsWith(PROFILE_DIRECTORY) || !path.endsWith(PROFILE_EXTENSION)) {
+    throw new Error(`Profile path must be '${PROFILE_DIRECTORY}<name>${PROFILE_EXTENSION}': ${path}`);
+  }
+  return path.slice(PROFILE_DIRECTORY.length, -PROFILE_EXTENSION.length);
+}
+
 export function parseProfile(source: string, path: string): Profile {
+  // Identity comes from the file name before any content is read: a Profile
+  // file name that cannot form a valid Artifact ID is one violation, and a
+  // nested folder's derived name (carrying `/`) fails the same rule.
+  const id = profileIdFromPath(path);
+  if (!ARTIFACT_ID.test(id)) {
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: { case: "profile-file-name", path, name: id },
+    });
+  }
   const value = parseYaml(source, { case: "invalid-yaml", artifact: "Profile", path });
   const mapping = requireMapping(value, { case: "not-a-mapping", artifact: "Profile", path });
-  const fields = ["id", "context", "skills"] as const;
+  const fields = ["context", "skills"] as const;
   const obsoleteFields = ["agents", "hooks", "tools"].filter((field) => field in mapping);
   if (obsoleteFields.length > 0) {
     throw rejectSchema({
       schema: "workspace-artifact",
       detail: { case: "obsolete-fields", path, fields: obsoleteFields },
+    });
+  }
+  // A Profile's ID is its file name (spec #593 DEC-014, #598): an authored
+  // `id` field is never read. The violation names the fix — remove the field,
+  // and keep the ID that bindings and receipts reference by renaming the file
+  // when the authored value differs from the file name.
+  if ("id" in mapping) {
+    const authored = mapping.id;
+    throw rejectSchema({
+      schema: "workspace-artifact",
+      detail: {
+        case: "profile-id-field",
+        path,
+        ...(typeof authored === "string" ? { id: authored } : {}),
+      },
     });
   }
   requireExactFields(mapping, fields, {
@@ -161,14 +201,8 @@ export function parseProfile(source: string, path: string): Profile {
       });
     }
   }
-  if (typeof mapping.id !== "string" || !ARTIFACT_ID.test(mapping.id)) {
-    throw rejectSchema({
-      schema: "workspace-artifact",
-      detail: { case: "invalid-artifact-id", artifact: "Profile", path, section: "id" },
-    });
-  }
   return {
-    id: mapping.id,
+    id,
     context: requireStringArray(mapping.context, path, "context"),
     skills: requireStringArray(mapping.skills, path, "skills"),
     path,

@@ -59,7 +59,7 @@ async function writePiSkillWorkspace(home: string, project: string): Promise<voi
   );
   writeFileSync(
     join(workspace, "profiles", "skills-only.yaml"),
-    "id: skills-only\ncontext: []\nskills: [review-pr]\n",
+    "context: []\nskills: [review-pr]\n",
   );
   writeFileSync(
     join(application, "config.yaml"),
