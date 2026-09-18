@@ -28,9 +28,14 @@ adds exactly these parts, and nothing else, to a folder you name.
 - A missing artifact folder is treated as an empty collection.
 - Hidden files and folders — names starting with `.` — are ignored
   everywhere: validation never reports them and never looks inside them.
+  Outside a Skill package they are not Workspace source: a hidden file is
+  never a Context Module, a Skill, or a Profile, and a Profile naming one
+  reports it missing. A hidden file inside a Skill package stays ordinary
+  package content.
 - Every non-hidden entry under the artifact folders must be a real file or
-  directory: a symlink is a violation, because validation never follows
-  links.
+  directory. Outside a Skill package, a symlink is a violation, because
+  validation never follows links; inside a Skill package a symlink stays
+  ordinary package content.
 - Empty folders violate nothing: the rules below bind files.
 
 ## Context Modules
@@ -477,4 +482,21 @@ schema_version: 1
 ```yaml
 context: []
 skills: []
+```
+
+### Invalid: a non-`.yaml` file inside a `profiles/` subfolder
+
+<!-- expects violations: stray-profile-file -->
+Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+in `profiles/` — a non-`.yaml` file anywhere under `profiles/`, including
+inside a subfolder, is a violation.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/archive/notes.txt -->
+```text
+Some notes.
 ```

@@ -126,6 +126,13 @@ describe("stray-file rejection (spec #593 DEC-008, #605)", () => {
       "context: []\n",
     );
     writeFileSync(join(workspace, "profiles", ".hidden.yaml"), "context: []\nskills: []\n");
+    // A hidden file inside a visible profiles/ subfolder: ignored, never
+    // reported as a nested Profile or a stray (INT-1).
+    mkdirSync(join(workspace, "profiles", "sub"));
+    writeFileSync(join(workspace, "profiles", "sub", ".hidden.yaml"), "context: []\nskills: []\n");
+    // A hidden subfolder containing a nested Profile: ignored, never traversed.
+    mkdirSync(join(workspace, "profiles", ".hid-sub"));
+    writeFileSync(join(workspace, "profiles", ".hid-sub", "old-work.yaml"), "context: []\nskills: []\n");
 
     const collected = await collectWorkspaceViolations(workspace);
     expect(collected.outcome).toBe("valid");

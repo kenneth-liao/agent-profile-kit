@@ -73,12 +73,12 @@ async function findNestedProfileYamls(directory: string, prefix: string): Promis
   });
   const found: string[] = [];
   for (const entry of [...entries].sort(byEntryName)) {
+    if (entry.name.startsWith(".")) continue;
     const relative = `${prefix}/${entry.name}`;
     if (entry.isFile() && entry.name.endsWith(".yaml")) {
       found.push(relative);
       continue;
     }
-    if (entry.name.startsWith(".")) continue;
     if (entry.isDirectory()) {
       found.push(...(await findNestedProfileYamls(join(directory, entry.name), relative)));
     }
@@ -365,8 +365,7 @@ export async function collectWorkspaceViolations(
   // Hidden entries are ignored without traversal (DEC-008). Entries are
   // visited in sorted order so the report is deterministic.
   if (structure.readableCategories.has("profiles")) {
-    const profileEntries = (await readCategoryEntries(join(path, "profiles")))
-      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+    const profileEntries = (await readCategoryEntries(join(path, "profiles"))).sort(byEntryName);
     // Profiles whose field-level problems were recorded still register when
     // their lists stayed readable, so their references are checked in the
     // same run (spec #593 DEC-009, #604, PR #622 INT-1); the reported ID is
