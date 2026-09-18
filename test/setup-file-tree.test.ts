@@ -153,7 +153,15 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
     const home = isolatedHome();
     const destination = join(home, "repo");
     mkdirSync(destination);
+    // Disable Git's background auto-maintenance and auto-gc in the fixture
+    // repository before committing: they create and remove lock files in
+    // `.git/` asynchronously around the fixture commit, so a background
+    // process could add or remove transient entries between the before and
+    // after snapshots through Git's own lifecycle, not an apkit write
+    // (TEST-003, #599 flake; root-cause fix, not snapshot filtering).
     execFileSync("git", ["init", "-q", destination]);
+    execFileSync("git", ["-C", destination, "config", "maintenance.auto", "false"]);
+    execFileSync("git", ["-C", destination, "config", "gc.auto", "0"]);
     writeFileSync(join(destination, "README.md"), "fixture\n");
     execFileSync("git", ["-C", destination, "add", "README.md"]);
     execFileSync("git", ["-C", destination, "commit", "-qm", "fixture"]);
@@ -163,15 +171,8 @@ describe("setup adds only the missing parts (TEST-003, #599)", () => {
     expectExitCode(result, 0);
 
     const after = fileTree(destination);
-    // Git's background maintenance creates and removes lock files
-    // asynchronously around the fixture commit, so a lock present in the
-    // before-snapshot may be gone by the after-snapshot through git's own
-    // lifecycle, not an apkit write. Lock entries are excluded from the
-    // containment check; the added-parts diff below is the assertion that
-    // setup added nothing else.
-    const stableBefore = before.filter((entry) => !entry.endsWith(".lock"));
-    for (const entry of stableBefore) expect(after).toContain(entry);
-    expect(structureOf(after.filter((entry) => !stableBefore.includes(entry))).sort())
+    for (const entry of before) expect(after).toContain(entry);
+    expect(structureOf(after.filter((entry) => !before.includes(entry))).sort())
       .toEqual(REQUIRED_PARTS.slice().sort());
     expect(readFileSync(join(destination, "workspace.yaml"), "utf8")).toBe(WORKSPACE_MANIFEST);
     controlledPath(home); // materialize the fixture bin before the sibling check

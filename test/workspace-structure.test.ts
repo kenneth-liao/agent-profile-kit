@@ -13,11 +13,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { ingestDefaultWorkspace } from "../installer/ingest-workspace.js";
+import { ingestWorkspace } from "../installer/ingest-workspace.js";
 import {
   validateWorkspaceStructure,
   WORKSPACE_ARTIFACT_DIRECTORIES,
-  workspacePath,
 } from "../installer/workspace.js";
 import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
 import { installerErrorSentence } from "../cli/error-wording.js";
@@ -48,6 +47,11 @@ function isolatedHome(): string {
   return home;
 }
 
+/** One neutral user-given Workspace location, home-relative to the fixture home. */
+function workspacePath(home: string): string {
+  return join(home, "apkit-workspace");
+}
+
 function writeManifestOnlyWorkspace(home: string): string {
   const path = workspacePath(home);
   mkdirSync(path, { recursive: true });
@@ -60,7 +64,7 @@ const UNDELIVERED_ARTIFACT_DIRECTORIES = ["agents", "hooks", "tools"] as const;
 describe("delivered Workspace scaffolding", () => {
   test("init scaffolds exactly the delivered artifact directories and no others", async () => {
     const home = isolatedHome();
-    const created = await initializeWorkspace(home);
+    const created = await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
 
     expect(created.outcome).toBe("created");
     for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
@@ -80,7 +84,7 @@ describe("delivered Workspace scaffolding", () => {
     }
     const before = readdirSync(path).sort();
 
-    const result = await initializeWorkspace(home);
+    const result = await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     // undelivered directories are untouched (spec #593 DEC-003, #599).
     for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
       expect(existsSync(join(path, directory))).toBe(true);
@@ -114,7 +118,7 @@ describe("optional Workspace scaffolding after initialization", () => {
     const home = isolatedHome();
     writeManifestOnlyWorkspace(home);
 
-    const workspace = await ingestDefaultWorkspace(home);
+    const workspace = await ingestWorkspace(workspacePath(home));
 
     expect(workspace.contexts.size).toBe(0);
     expect(workspace.profiles.size).toBe(0);
@@ -135,7 +139,7 @@ describe("optional Workspace scaffolding after initialization", () => {
       "context:\n  - team-rules\nskills: []\n",
     );
 
-    const workspace = await ingestDefaultWorkspace(home);
+    const workspace = await ingestWorkspace(workspacePath(home));
 
     expect(workspace.contexts.has("team-rules")).toBe(true);
     expect(workspace.profiles.has("coding")).toBe(true);
@@ -151,7 +155,7 @@ describe("optional Workspace scaffolding after initialization", () => {
       "context: [team-rules]\nskills: []\nagents: []\nhooks: []\ntools: []\n",
     );
 
-    const failure = await ingestDefaultWorkspace(home).then(
+    const failure = await ingestWorkspace(workspacePath(home)).then(
       () => undefined,
       (error) => error as InstallerAuthoredError,
     );
@@ -170,14 +174,14 @@ describe("optional Workspace scaffolding after initialization", () => {
     // assumption A1) or an invalid path segment — both still fail at the
     // ingestion boundary, each with its own typed rule.
     writeFileSync(join(path, "context", "broken.md"), "");
-    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(/empty-content/);
+    await expect(ingestWorkspace(workspacePath(home))).rejects.toThrow(/empty-content/);
 
     const segmentHome = isolatedHome();
     const segmentPath = writeManifestOnlyWorkspace(segmentHome);
     mkdirSync(join(segmentPath, "context"), { recursive: true });
     mkdirSync(join(segmentPath, "context", "Bad_Segment"));
     writeFileSync(join(segmentPath, "context", "Bad_Segment", "rules.md"), "Body.\n");
-    await expect(ingestDefaultWorkspace(segmentHome)).rejects.toThrow(/context-module-file-name/);
+    await expect(ingestWorkspace(workspacePath(segmentHome))).rejects.toThrow(/context-module-file-name/);
   });
 
   test("a present artifact path that is not a directory is a structural error", async () => {
@@ -252,7 +256,7 @@ describe("optional Workspace scaffolding after initialization", () => {
 
   test("init creates the required parts and re-init leaves a minimal valid Workspace unchanged", async () => {
     const home = isolatedHome();
-    const created = await initializeWorkspace(home);
+    const created = await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const path = created.path;
 
     expect(created.outcome).toBe("created");
@@ -270,25 +274,24 @@ describe("optional Workspace scaffolding after initialization", () => {
     writeManifestOnlyWorkspace(home);
     const before = readdirSync(path).sort();
 
-    const reinit = await initializeWorkspace(home);
+    const reinit = await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
 
     expect(reinit.outcome).toBe("unchanged");
     expect(readdirSync(path).sort()).toEqual(before);
     expect(existsSync(join(path, "README.md"))).toBe(false);
   });
 
-  test("symlinked valid Workspaces retain initialization and validation behavior", async () => {
+  test("a symlink-aliased valid Workspace retains initialization and validation behavior", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
     mkdirSync(realWorkspace, { recursive: true });
     writeFileSync(join(realWorkspace, "workspace.yaml"), WORKSPACE_MANIFEST);
 
-    const applicationRoot = join(home, ".agents", "agent-profile-kit");
-    mkdirSync(applicationRoot, { recursive: true });
-    symlinkSync(realWorkspace, join(applicationRoot, "workspace"));
+    const alias = join(home, "workspace-alias");
+    symlinkSync(realWorkspace, alias);
 
-    await expect(validateWorkspaceStructure(workspacePath(home))).resolves.toBeUndefined();
-    const reinit = await initializeWorkspace(home);
+    await expect(validateWorkspaceStructure(alias)).resolves.toBeUndefined();
+    const reinit = await initializeWorkspace(home, { workspace: alias });
     // Config is missing, so init may create config.yaml; the first connection
     // completes the required parts in place and adds nothing else (spec #593
     // DEC-003, #599).

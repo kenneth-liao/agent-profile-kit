@@ -7,11 +7,12 @@ Use this workflow when helping a person author their Workspace and bind projects
    `context/`, `skills/`, and `profiles/` directories, which `apkit init` adds
    when missing; missing artifact directories are empty collections, and
    bootstrap files such as `README.md`, `AGENTS.md`, and `.gitignore` are
-   optional user-owned files, not format requirements. Use `apkit init` for the
-   fixed default or `apkit init <workspace>` for one explicit destination:
-   setup adds exactly the missing required parts in place and never touches
-   other entries, while a folder whose existing material is invalid is refused
-   with its violation (spec #593 DEC-003, ADR-0047). Inspect any present
+   optional user-owned files, not format requirements. There is no default
+   Workspace location: use `apkit init <workspace>` for one explicit
+   destination (`.` uses the current folder); setup adds exactly the missing
+   required parts in place and never touches other entries, while a folder
+   whose existing material is invalid is refused with its violation
+   (spec #593 DEC-003, ADR-0047, ADR-0049). Inspect any present
    artifact directories next. Treat the Workspace as the canonical source; do
    not infer reusable material from generated Host output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
@@ -43,8 +44,8 @@ Use this workflow when helping a person author their Workspace and bind projects
      path and each binding names one existing project root, one Profile, and a
      supported Host set (`antigravity`, `codex`, `claude`, `grok`, `opencode`, or `pi`); Host
      order and duplicate entries normalize at ingestion. A version-1 configuration without
-     `workspace` is legacy migration input only; run `apkit init` before any desired-state
-     or binding-recording command.
+     `workspace` is legacy migration input only; run `apkit init <path>` before any desired-state
+     or binding-recording command (ADR-0049).
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
      Host preferences. User-managed native global Skill delivery (including

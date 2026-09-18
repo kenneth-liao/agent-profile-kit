@@ -311,7 +311,7 @@ const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
 ];
 
 const QUICK_START_COMMANDS = [
-  "init",
+  "init <path>",
   "install <profile> --host <host>",
   "status",
   "update",

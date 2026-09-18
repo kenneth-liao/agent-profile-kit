@@ -2,8 +2,6 @@ import { appendFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { join } from "node:path";
 
-import { applicationDirectory } from "./application-directory.js";
-
 import {
   applyApplication,
   statusApplication,
@@ -56,6 +54,13 @@ export interface LifecycleBenchmarkOptions {
    * run against the current fleet.
    */
   readonly mutateSkill?: string;
+  /**
+   * The prepared fleet's Workspace root, where `mutateSkill`'s canonical
+   * `SKILL.md` lives. Required when `mutateSkill` is set — there is no
+   * default Workspace location (spec #593 #601, ADR-0049), so the benchmark
+   * never guesses a Workspace location.
+   */
+  readonly workspaceRoot?: string;
 }
 
 const DEFAULT_COMMANDS: readonly LifecycleBenchmarkCommand[] = [
@@ -63,9 +68,9 @@ const DEFAULT_COMMANDS: readonly LifecycleBenchmarkCommand[] = [
   "update",
 ];
 
-/** Path of the shared Skill's canonical SKILL.md within the isolated Workspace. */
-function skillMarkdownPath(home: string, skillId: string): string {
-  return join(applicationDirectory(home), "workspace", "skills", skillId, "SKILL.md");
+/** Path of the shared Skill's canonical SKILL.md within the prepared Workspace. */
+function skillMarkdownPath(workspaceRoot: string, skillId: string): string {
+  return join(workspaceRoot, "skills", skillId, "SKILL.md");
 }
 
 /**
@@ -78,12 +83,13 @@ async function sampleCommand(
   home: string,
   command: LifecycleBenchmarkCommand,
   mutateSkill: string | undefined,
+  workspaceRoot: string | undefined,
   mutation: number,
   env: NodeJS.ProcessEnv | undefined,
 ): Promise<number> {
   if (mutateSkill !== undefined && (command === "status" || command === "update")) {
     appendFileSync(
-      skillMarkdownPath(home, mutateSkill),
+      skillMarkdownPath(workspaceRoot!, mutateSkill),
       `\nBenchmark mutation ${mutation}.\n`,
     );
   }
@@ -117,6 +123,9 @@ export async function benchmarkWarmRuns(
   if (commands.length === 0) {
     throw new Error("Benchmark requires at least one command to sample");
   }
+  if (options.mutateSkill !== undefined && options.workspaceRoot === undefined) {
+    throw new Error("Benchmark mutation requires the prepared fleet's workspaceRoot: there is no default Workspace location");
+  }
   const env = options.path === undefined
     ? undefined
     : { ...process.env, PATH: options.path };
@@ -128,7 +137,14 @@ export async function benchmarkWarmRuns(
       mutation += 1;
       samples.push({
         command,
-        elapsedMs: await sampleCommand(home, command, options.mutateSkill, mutation, env),
+        elapsedMs: await sampleCommand(
+          home,
+          command,
+          options.mutateSkill,
+          options.workspaceRoot,
+          mutation,
+          env,
+        ),
       });
     }
   }

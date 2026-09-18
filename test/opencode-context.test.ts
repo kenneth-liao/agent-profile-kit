@@ -254,9 +254,9 @@ async function workspaceWithContextAndSkills(
   selectedSkills: readonly string[],
   hosts: readonly string[] = ["opencode"],
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   for (const ctx of contexts) {
     const ctxPath = join(workspace, "context", `${ctx.id}.md`);
     mkdirSync(join(workspace, "context"), { recursive: true });
@@ -579,7 +579,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     expect(readFileSync(contextPath, "utf8")).toContain("Initial context.");
 
     // Update Context Module in Workspace
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "\n# Rules\nUpdated context content.\n",
@@ -705,9 +705,9 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
 
     const tempProject = gitRepository("apk-opencode-temp-proj-");
 
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
 
     mkdirSync(join(workspace, "context"), { recursive: true });
     writeFileSync(

@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -114,7 +114,7 @@ async function waitForOutput(
 
 async function setupHome(): Promise<string> {
   const home = isolatedHome();
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   writeProfile(home, "coding");
   writeProfile(home, "ops");
   writeConfig(home, workspacePath(home));
@@ -520,7 +520,7 @@ describe("guided install refusals", () => {
 describe("guided install with no Profiles", () => {
   test("a Workspace with no Profiles refuses before any write", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     // Remove the scaffolded example Profiles: nothing to choose from.
     rmSync(join(workspacePath(home), "profiles"), { recursive: true, force: true });
     writeConfig(home, workspacePath(home));

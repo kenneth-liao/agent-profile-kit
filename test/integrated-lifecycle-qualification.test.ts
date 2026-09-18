@@ -66,7 +66,7 @@ function projectDirectory(): string {
 }
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -75,7 +75,7 @@ function configPath(home: string): string {
 
 async function setupHome(): Promise<string> {
   const home = isolatedHome();
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "context", "team-rules.md"),

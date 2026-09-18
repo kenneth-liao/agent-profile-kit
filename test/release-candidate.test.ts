@@ -216,7 +216,7 @@ function addWorktree(repository: string, name: string): string {
 }
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -552,7 +552,7 @@ describe("project-bound release candidate", () => {
     }
 
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     const projectPath = project();
@@ -665,7 +665,7 @@ describe("project-bound release candidate", () => {
         commandLabel: "installed apkit",
       });
 
-    expectExitCode(await runInstalled(["init"]), 0);
+    expectExitCode(await runInstalled(["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     const projectPath = project();
@@ -704,7 +704,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI acceptance journey covers exact-root and explicit-checkout lifecycles", async () => {
     const home = isolatedHome();
-    const init = await runCli(home, ["init"]);
+    const init = await runCli(home, ["init", "~/apkit-workspace"]);
     expectExitCode(init, 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
@@ -837,7 +837,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI installs Pi Context, records its Capability Contract, and fails closed on unsupported Pi", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(home);
     const projectPath = project("agent-profile-kit-rc-pi-");
     const combinedProject = project("agent-profile-kit-rc-pi-combined-");
@@ -893,7 +893,7 @@ describe("project-bound release candidate", () => {
     expect(readFileSync(trustPath, "utf8")).toBe(`{"${projectPath}":true,"${combinedProject}":false}\n`);
 
     const unsupportedHome = isolatedHome();
-    expectExitCode(await runCli(unsupportedHome, ["init"]), 0);
+    expectExitCode(await runCli(unsupportedHome, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(unsupportedHome);
     const unsupportedProject = project("agent-profile-kit-rc-pi-old-");
     writeBindings(unsupportedHome, [{ project: unsupportedProject, hosts: ["pi"] }]);
@@ -904,7 +904,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const missingHome = isolatedHome();
-    expectExitCode(await runCli(missingHome, ["init"]), 0);
+    expectExitCode(await runCli(missingHome, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(missingHome);
     const missingProject = project("agent-profile-kit-rc-pi-missing-");
     writeBindings(missingHome, [{ project: missingProject, hosts: ["pi"] }]);
@@ -918,7 +918,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI installs Pi Skills with the non-invocation Capability Contract", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "review-pr", { body: "# Review\n" });
     writeProfile(home, "coding", { context: ["team-rules"], skills: ["review-pr"] });
@@ -963,7 +963,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI migrates an owned Pi Skill package to the shared projection", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "review-pr", { body: "# Review\n" });
     writeProfile(home, "skills-only", { skills: ["review-pr"] });
@@ -1012,7 +1012,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI projects mixed Pi invocation policies with independent Skills-only and combined contracts", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "allowed-skill", { modelInvocation: "allowed", body: "# Allowed\n" });
     writeSkill(home, "explicit-skill", { modelInvocation: "disabled", body: "# Explicit\n" });
@@ -1079,7 +1079,7 @@ describe("project-bound release candidate", () => {
     );
 
     const unsupportedHome = isolatedHome();
-    expectExitCode(await runCli(unsupportedHome, ["init"]), 0);
+    expectExitCode(await runCli(unsupportedHome, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(unsupportedHome);
     writeSkill(unsupportedHome, "explicit-skill", { modelInvocation: "disabled" });
     writeProfile(unsupportedHome, "coding", { skills: ["explicit-skill"] });
@@ -1092,7 +1092,7 @@ describe("project-bound release candidate", () => {
     expect(existsSync(join(unsupportedProject, ".pi"))).toBe(false);
 
     const malformedHome = isolatedHome();
-    expectExitCode(await runCli(malformedHome, ["init"]), 0);
+    expectExitCode(await runCli(malformedHome, ["init", "~/apkit-workspace"]), 0);
     writeWorkspaceAuthoring(malformedHome);
     writeSkill(malformedHome, "explicit-skill", { modelInvocation: "disabled" });
     writeProfile(malformedHome, "coding", { skills: ["explicit-skill"] });
@@ -1111,7 +1111,7 @@ describe("project-bound release candidate", () => {
 
   test("unsupported artifact categories, Host versions, Hosts, and project surfaces fail before writes", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     const projectPath = project();
@@ -1166,7 +1166,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI translates absent and disabled model-invocation policy for Codex-only, Claude-only, and combined bindings", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     writeSkill(home, "plain-skill", { modelInvocation: "absent" });
@@ -1239,7 +1239,7 @@ describe("project-bound release candidate", () => {
   test("packed CLI Skills-only Profile covers validate through source update, binding removal, and uninstall without Context machinery", async () => {
     const home = isolatedHome();
     // Skills-only must not require Codex SessionStart hooks configuration.
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     writeSkill(home, "review-pr");
     writeProfile(home, "engineering", { skills: ["review-pr"] });
 
@@ -1309,7 +1309,7 @@ describe("project-bound release candidate", () => {
 
   test("packed CLI delegates global Skill identities to Codex and Claude Host Resolution", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     // No Codex hooks: Skills-only Profile must still hit global preflight without Context capability.
     writeSkill(home, "review-pr");
     writeProfile(home, "engineering", { skills: ["review-pr"] });
@@ -1356,7 +1356,7 @@ describe("project-bound release candidate", () => {
 
   test("minimal and partial Workspaces prove optional scaffolding without weakening Manifest or artifact validation", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     const workspace = workspacePath(home);
 
@@ -1371,7 +1371,7 @@ describe("project-bound release candidate", () => {
     expect(minimalValidate.stdout).toContain("Workspace and settings valid");
 
     // Re-init must not restore optional scaffolding.
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     expect(readdirSync(workspace).sort()).toEqual(["workspace.yaml"]);
 
     // Partial Workspace: only profiles + skills present; other categories absent.
@@ -1432,7 +1432,7 @@ describe("project-bound release candidate", () => {
     expect(help.stdout).toContain("Common commands:");
     expect(help.stdout).toContain("More commands:");
 
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
 
@@ -1546,7 +1546,7 @@ describe("project-bound release candidate", () => {
 
   test("packed 12-Project fleet lifecycle produces the canonical sequential reconciliation result", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     // One shared Profile with Context and a Skill so the fleet carries directory
@@ -1637,7 +1637,7 @@ describe("project-bound release candidate", () => {
 
   test("the packed integrated daily-loop journey reconciles a mixed multi-cause fleet with narrowing, receipts, cancellation, and non-interactive completion (US-007–008, TEST-003–TEST-014, TEST-021, #461)", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     writeExampleMaterial(home);
@@ -1912,12 +1912,14 @@ describe("project-bound release candidate", () => {
     const bare = await runCli(home, [], { path: journeyPath });
     expectExitCode(bare, 0);
     expect(bare.stdout).toContain("Agent Profile Kit is not set up on this machine.");
-    expect(bare.stdout).toContain("Next: Run apkit init to set it up.");
+    const barePlain = bare.stdout.replace(/\n\s+/g, " ");
+    expect(barePlain).toContain("Your Workspace is a folder you choose. The current folder matters only if you choose it.");
+    expect(barePlain).toContain("Next: Run apkit init <path> to connect an existing Workspace, or apkit init . to use the current folder.");
 
     // 2. Follow the printed command: initialization matches the machine.
-    const init = await runCli(home, ["init"], { path: journeyPath });
+    const init = await runCli(home, ["init", "~/apkit-workspace"], { path: journeyPath });
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
+    expect(init.stdout).toContain("~/apkit-workspace");
     expect(init.stdout).toContain(
       "A Profile is a named selection of Context and Skills to adapt for your",
     );
@@ -2062,16 +2064,16 @@ describe("project-bound release candidate", () => {
     // 1. Bare help: discover root command surface and first-run guidance.
     const help = await runCli(home, ["--help"], { path: pathWithHosts });
     expectExitCode(help, 0);
-    expect(help.stdout).toContain("First run:\n  apkit init\n  apkit install <profile> --host <host>\n  apkit status\n  apkit update");
+    expect(help.stdout).toContain("First run:\n  apkit init <path>\n  apkit install <profile> --host <host>\n  apkit status\n  apkit update");
     expect(help.stdout).toContain("Common commands:\n  init");
     expect(help.stdout).toContain("More commands:\n  Inventory:");
 
-    // 2. Initialize: create the default Workspace folder and settings; setup
-    // adds only the required parts (spec #593 DEC-003, #599).
-    const init = await runCli(home, ["init"], { path: pathWithHosts });
+    // 2. Initialize the user-given Workspace folder and settings; setup
+    // adds only the required parts (spec #593 DEC-003, #599, #601).
+    const init = await runCli(home, ["init", "~/apkit-workspace"], { path: pathWithHosts });
     expectExitCode(init, 0);
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace and settings at");
-    expect(init.stdout).toContain("~/.agents/agent-profile-kit/workspace");
+    expect(init.stdout).toContain("~/apkit-workspace");
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain("Next: run apkit validate");
@@ -2297,7 +2299,7 @@ describe("project-bound release candidate", () => {
     const allHome = isolatedHome();
     const allBin = installAllHostStubs(allHome);
     const allPath = `${allBin}:${allowlistBin(allHome)}`;
-    const allInit = await runCli(allHome, ["init"], { path: allPath });
+    const allInit = await runCli(allHome, ["init", "~/apkit-workspace"], { path: allPath });
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(allInit.stdout).toContain("Next: run apkit validate");
@@ -2312,7 +2314,7 @@ describe("project-bound release candidate", () => {
     );
     execFileSync("chmod", ["+x", join(codexBin, "codex")]);
     const codexPath = `${codexBin}:${allowlistBin(codexHome)}`;
-    const codexInit = await runCli(codexHome, ["init"], { path: codexPath });
+    const codexInit = await runCli(codexHome, ["init", "~/apkit-workspace"], { path: codexPath });
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
     expect(codexInit.stdout).toContain("Next: run apkit validate");
@@ -2329,7 +2331,7 @@ describe("project-bound release candidate", () => {
     );
     execFileSync("chmod", ["+x", join(claudeBin, "claude")]);
     const claudePath = `${claudeBin}:${allowlistBin(claudeHome)}`;
-    const claudeInit = await runCli(claudeHome, ["init"], { path: claudePath });
+    const claudeInit = await runCli(claudeHome, ["init", "~/apkit-workspace"], { path: claudePath });
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
     expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain("Next: run apkit validate");
@@ -2342,7 +2344,7 @@ describe("project-bound release candidate", () => {
     const emptyBin = join(noHostsHome, "empty-bin");
     mkdirSync(emptyBin, { recursive: true });
     const emptyPath = `${emptyBin}:${allowlistBin(noHostsHome)}`;
-    const noHostsInit = await runCli(noHostsHome, ["init"], { path: emptyPath });
+    const noHostsInit = await runCli(noHostsHome, ["init", "~/apkit-workspace"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
     expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
     expect(noHostsInit.stdout).toContain("Next: run apkit validate");
@@ -2368,7 +2370,7 @@ describe("project-bound release candidate", () => {
     const stubPath = `${stubBin}:${allowlistBin(home)}`;
 
     // 1. init reports the present executable without starting it.
-    const init = await runCli(home, ["init"], { path: stubPath });
+    const init = await runCli(home, ["init", "~/apkit-workspace"], { path: stubPath });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("Detected Agent Hosts: codex");
     expect(init.stdout).toContain("Next: run apkit validate");
@@ -2420,7 +2422,7 @@ describe("project-bound release candidate", () => {
 
   test("printed lifecycle commands shell-escape space-containing Project paths and execute exactly as printed (US-007, review RE-1 on #489)", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, ["init"]), 0);
+    expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
     enableCodexHooks(home);
     writeWorkspaceAuthoring(home);
     writeExampleMaterial(home);
@@ -2476,7 +2478,7 @@ describe("project-bound release candidate", () => {
     // controlled executable exists for them, and no ambient machine
     // environment may complete their probes (TEST-004, ISC-16).
     const calmHome = isolatedHome();
-    const calm = await runCli(calmHome, ["init"], {
+    const calm = await runCli(calmHome, ["init", "~/apkit-workspace"], {
       path: installControlledHosts(calmHome),
     });
     expectExitCode(calm, 0);
@@ -2499,7 +2501,7 @@ describe("project-bound release candidate", () => {
     });
     try {
       const variedHome = isolatedHome();
-      const varied = await runCli(variedHome, ["init"], {
+      const varied = await runCli(variedHome, ["init", "~/apkit-workspace"], {
         path: installControlledHosts(variedHome),
       });
       expectExitCode(varied, 0);

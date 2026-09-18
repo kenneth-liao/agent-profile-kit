@@ -101,10 +101,10 @@ async function workspaceWithSkills(
   selectedSkills: readonly string[],
   options: { readonly context?: boolean } = {},
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   enableCodexHooks(home);
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   const includeContext = options.context !== false;
   if (includeContext) {
     writeFileSync(
@@ -257,7 +257,7 @@ describe("Grok project Skill packages", () => {
     const first = await buildDesiredState(home, { checkHostCapability: false });
     await applyReconciliation(home, first.installations);
 
-    const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "moved", "review-pr"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "moved", "review-pr", "SKILL.md"),
@@ -366,7 +366,7 @@ describe("Grok project Skill packages", () => {
     );
 
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "review-pr", "SKILL.md"),
+      join(home, "apkit-workspace", "skills", "review-pr", "SKILL.md"),
       "---\nname: review-pr\ndescription: Skill review-pr.\n---\n\n# updated source\n",
     );
     const stale = await buildDesiredState(home, { checkHostCapability: false });
@@ -381,7 +381,7 @@ describe("Grok project Skill packages", () => {
     );
 
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "profiles", "coding.yaml"),
+      join(home, "apkit-workspace", "profiles", "coding.yaml"),
       "context: [team-rules]\nskills: [write-notes]\n",
     );
     const deselected = await buildDesiredState(home, { checkHostCapability: false });

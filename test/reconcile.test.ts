@@ -49,9 +49,9 @@ describe("nested Project reconciliation report", () => {
     mkdirSync(join(project, ".codex"));
     writeFileSync(join(project, ".codex", "hooks.json"), "repository-owned\n");
     execFileSync("git", ["add", ".codex/hooks.json"], { cwd: project });
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Nested report.\n",
@@ -136,9 +136,9 @@ describe("injected project filesystem failures", () => {
   test("returns the completed receipt when post-commit verification fails", async () => {
     const home = temporaryDirectory("agent-profile-kit-verification-failure-home-");
     const project = temporaryDirectory("agent-profile-kit-verification-failure-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Verification failure.\n",
@@ -178,9 +178,9 @@ describe("injected project filesystem failures", () => {
     const first = temporaryDirectory("agent-profile-kit-injected-a-");
     const second = temporaryDirectory("agent-profile-kit-injected-b-");
     const third = temporaryDirectory("agent-profile-kit-injected-c-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Original Context.\n",
@@ -283,9 +283,9 @@ describe("injected project filesystem failures", () => {
   test("reconciles a mode-only desired output change", async () => {
     const home = temporaryDirectory("agent-profile-kit-mode-home-");
     const project = temporaryDirectory("agent-profile-kit-mode-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Mode reconciliation.\n",
@@ -321,9 +321,9 @@ describe("injected project filesystem failures", () => {
   test("a wholly absent owned output is ordinary pending update work restored by update", async () => {
     const home = temporaryDirectory("agent-profile-kit-absent-home-");
     const project = temporaryDirectory("agent-profile-kit-absent-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Absent output.\n",
@@ -358,9 +358,9 @@ describe("injected project filesystem failures", () => {
   test("update records the replacement of a user-edited generated file as a named write", async () => {
     const home = temporaryDirectory("agent-profile-kit-edited-home-");
     const project = temporaryDirectory("agent-profile-kit-edited-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Edited replacement.\n",
@@ -390,9 +390,9 @@ describe("injected project filesystem failures", () => {
   test("a missing-output repair remains retryable across output and Installation State publication failures", async () => {
     const home = temporaryDirectory("agent-profile-kit-repair-failure-home-");
     const project = temporaryDirectory("agent-profile-kit-repair-failure-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Repair transaction.\n",
@@ -454,9 +454,9 @@ describe("injected project filesystem failures", () => {
     const home = temporaryDirectory("agent-profile-kit-state-restore-home-");
     const firstProject = temporaryDirectory("agent-profile-kit-state-restore-a-");
     const secondProject = temporaryDirectory("agent-profile-kit-state-restore-b-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Original Context.\n",
@@ -495,9 +495,9 @@ describe("previous-version Marker migration", () => {
   async function prepareLegacyFixture(prefix: string) {
     const home = temporaryDirectory(`${prefix}-home-`);
     const project = temporaryDirectory(`${prefix}-project-`);
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Legacy migration boundary.\n",
@@ -538,9 +538,9 @@ describe("previous-version Marker migration", () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-home-");
     const project = realpathSync(temporaryDirectory("agent-profile-kit-legacy-project-"));
     execFileSync("git", ["init", "-q", project]);
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Legacy migration boundary.\n",
@@ -617,9 +617,9 @@ describe("previous-version Marker migration", () => {
   test("unknown content at the legacy pathname is never removed by update or uninstall", async () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-foreign-home-");
     const project = temporaryDirectory("agent-profile-kit-legacy-foreign-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Legacy foreign bytes.\n",
@@ -656,9 +656,9 @@ describe("previous-version Marker migration", () => {
   test("an Adapter output at the legacy pathname is not swept as a leftover token", async () => {
     const home = temporaryDirectory("agent-profile-kit-legacy-desired-home-");
     const project = temporaryDirectory("agent-profile-kit-legacy-desired-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Legacy desired-path boundary.\n",
@@ -726,7 +726,7 @@ describe("previous-version Marker migration", () => {
     // Changed apply: the token id still matches no authoritative Receipt, so
     // the staged transaction preserves it too.
     writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "context", "team-rules.md"),
+      join(home, "apkit-workspace", "context", "team-rules.md"),
       "Changed legacy boundary.\n",
     );
     const changed = (await buildDesiredState(home, { checkHostCapability: false })).installations;
@@ -756,9 +756,9 @@ describe("uninstall failure safety and exclusion publication races", () => {
     const home = temporaryDirectory(`${prefix}-home-`);
     const project = temporaryDirectory(`${prefix}-project-`);
     execFileSync("git", ["init", "-q", project]);
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Rules.\n",
@@ -910,7 +910,7 @@ describe("uninstall failure safety and exclusion publication races", () => {
       const application = join(home, ".agents", "agent-profile-kit");
       writeFileSync(
         join(application, "config.yaml"),
-        `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
+        `schema_version: 2\nworkspace: ${join(home, "apkit-workspace")}\nbindings:\n  - project: ${project}\n    profile: coding\n    hosts: [codex]\n  - project: ${second}\n    profile: coding\n    hosts: [codex]\n`,
       );
       const desired = await buildDesiredState(home, { checkHostCapability: false });
       await applyReconciliation(home, desired.installations);
@@ -997,9 +997,9 @@ describe("recorded Host selection equivalence", () => {
   async function skillsOnlyInstallation(prefix: string): Promise<{ home: string; project: string }> {
     const home = temporaryDirectory(`${prefix}home-`);
     const project = temporaryDirectory(`${prefix}project-`);
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
@@ -1074,7 +1074,7 @@ describe("recorded Host selection equivalence", () => {
     // be revisited.
     writeFileSync(
       join(application, "config.yaml"),
-      `schema_version: 2\nworkspace: ${join(application, "workspace")}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex, antigravity]\n`,
+      `schema_version: 2\nworkspace: ${join(home, "apkit-workspace")}\nbindings:\n  - project: ${project}\n    profile: engineering\n    hosts: [codex, antigravity]\n`,
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const previous = (await readInstallationState(home)).receipts[0]!;

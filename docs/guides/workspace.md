@@ -41,15 +41,18 @@ Source ownership and managed delivery are separate:
 
 ## Initialize
 
-`apkit init` creates an empty, schema-versioned Workspace at the
-fixed default path `~/.agents/agent-profile-kit/workspace/` and a version-2
-machine-local Local Configuration at `~/.agents/agent-profile-kit/config.yaml`
-that explicitly records that path when Local Configuration is absent. Pass one
-explicit absolute or home-relative path to choose another destination:
+There is no default Workspace location: setup records a folder the user names
+(spec #593 DEC-001, ADR-0049). `apkit init <workspace>` adds exactly the
+missing required parts to that folder and a version-2 machine-local Local
+Configuration at `~/.agents/agent-profile-kit/config.yaml` that explicitly
+records the authored path when Local Configuration is absent:
 
 ```sh
 apkit init ~/projects/agent-profile-workspace
 ```
+
+`apkit init .` uses the current folder. Without a path on a machine that has
+no selected Workspace, `init` writes nothing and prints those two forms.
 
 When Local Configuration is absent, setup adds exactly the missing required
 parts — `workspace.yaml`, `context/`, `skills/`, and `profiles/` — in place to
@@ -87,14 +90,16 @@ only `schema_version: 1`. Local Configuration schema version is 2 and its
 ### Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without `workspace` is supported only as migration
-input. Run `apkit init` to upgrade it before using `validate`, `status`, `update`,
-`install`, or `uninstall`. Those commands never migrate
-the file implicitly: they fail closed with actionable `apkit init`
-guidance while leaving migration to the explicit `init` command.
+input. Run `apkit init <path>` to upgrade it before using `validate`, `status`,
+`update`, `install`, or `uninstall`. Those commands never migrate
+the file implicitly: they fail closed with actionable upgrade guidance while
+leaving migration to the explicit `init` command.
 
-For a legacy file that omitted `workspace`, migration records the conventional
-default `~/.agents/agent-profile-kit/workspace/`. For a legacy file with an
-authored path, migration preserves that path. `init` validates the selected
+A legacy file that omitted `workspace` has no selection to preserve and is
+never upgraded to a default: zero-argument `init` refuses, and
+`apkit init <path>` upgrades it to the path the user gives (spec #593
+DEC-011, ADR-0049). For a legacy file with an authored path, migration
+preserves that path. `init` validates the selected
 Workspace before atomically replacing only Local Configuration, preserving
 Project Bindings, comments, line endings, and file mode; it never moves or
 rewrites Workspace source. If validation fails, the configuration remains

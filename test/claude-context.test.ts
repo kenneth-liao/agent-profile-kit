@@ -87,10 +87,10 @@ async function writeContextWorkspace(
     readonly body?: string;
   } = {},
 ): Promise<void> {
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   enableCodexHooks(home);
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     options.body ?? "Always preserve the project boundary.\n",

@@ -19,12 +19,12 @@ import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import { ingestSelectedWorkspace } from "../installer/local-configuration.js";
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 async function initializedHome(): Promise<string> {
   const home = mkdtempSync(join(tmpdir(), "apkit-configure-profile-"));
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   // Setup no longer scaffolds example material (spec #593 DEC-003, #599);
   // fixtures that select the canonical example pair write it explicitly.
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });

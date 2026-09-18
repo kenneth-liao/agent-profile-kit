@@ -124,6 +124,8 @@ function materializeMachine(home: string): string {
  * written (DEC-005) — the delivered output proves it.
  */
 function repairWorkspace(home: string): void {
+  // The fixture's config selects the 0.204.0-era Workspace path, so the
+  // repaired source is placed exactly where that authored selection points.
   const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
   cpSync(join(FIXTURES, "workspace-source"), workspace, { recursive: true });
   rmSync(join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"));

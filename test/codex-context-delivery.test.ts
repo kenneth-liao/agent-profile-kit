@@ -151,7 +151,8 @@ describe("Codex complete Context delivery", () => {
     const home = temporaryDirectory("apkit-codex-context-cap-home-");
     const project = temporaryDirectory("apkit-codex-context-cap-project-");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
+    mkdirSync(application, { recursive: true });
     mkdirSync(join(workspace, "context"), { recursive: true });
     mkdirSync(join(workspace, "profiles"), { recursive: true });
     writeFileSync(
@@ -191,9 +192,9 @@ describe("Codex complete Context delivery", () => {
   test("reconciles a genuine v1 Context install to complete Context delivery", async () => {
     const home = temporaryDirectory("apkit-codex-context-migration-home-");
     const project = temporaryDirectory("apkit-codex-context-migration-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
       "Migration rules.\n",
@@ -268,9 +269,9 @@ describe("Codex complete Context delivery", () => {
     // output-hash drift against current version markers (the real 0.49.0 → 0.49.1 path).
     const home = temporaryDirectory("apkit-codex-resume-matcher-home-");
     const project = temporaryDirectory("apkit-codex-resume-matcher-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
       "Resume matcher rules.\n",

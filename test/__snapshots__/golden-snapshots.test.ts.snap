@@ -7,7 +7,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 Usage: apkit <command> [arguments]
 
 First run:
-  apkit init
+  apkit init <path>
   apkit install <profile> --host <host>
   apkit status
   apkit update
@@ -149,7 +149,7 @@ Complete references:
     Agent workflow reference
 
 Examples:
-  apkit init
+  apkit init <path>
   apkit new skill <skill>
   apkit guide profile
   apkit install example --host codex
@@ -164,7 +164,7 @@ Profile
 A Profile selects reusable material for a kind of work through its context and
   skills lists.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create its Context Module, then the Profile selecting it:
   apkit new context <context>
@@ -197,7 +197,7 @@ A Context Module is an independently reusable unit of always-loaded guidance.
   Profiles select it by its path under \`context/\` without \`.md\`, and apkit reads
   no frontmatter.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create one, then select it into a Profile:
   apkit new context <context>
@@ -222,7 +222,7 @@ Skill
 A Skill is a reusable workflow package. Profiles select it by its frontmatter
   \`name\`, and its description tells an Agent Host when the workflow applies.
 
-Workspace: Not configured (run apkit init)
+Workspace: Not configured (run apkit init <path>)
 
 Create one, then select it into a Profile:
   apkit new skill <skill>
@@ -293,13 +293,16 @@ Source ownership and managed delivery are separate:
 
 Initialize
 
-\`apkit init\` creates an empty, schema-versioned Workspace at the fixed default
-  path \`~/.agents/agent-profile-kit/workspace/\` and a version-2 machine-local
-  Local Configuration at \`~/.agents/agent-profile-kit/config.yaml\` that
-  explicitly records that path when Local Configuration is absent. Pass one
-  explicit absolute or home-relative path to choose another destination:
+There is no default Workspace location: setup records a folder the user names
+  (spec #593 DEC-001, ADR-0049). \`apkit init <workspace>\` adds exactly the
+  missing required parts to that folder and a version-2 machine-local Local
+  Configuration at \`~/.agents/agent-profile-kit/config.yaml\` that explicitly
+  records the authored path when Local Configuration is absent:
 
 apkit init ~/projects/agent-profile-workspace
+
+\`apkit init .\` uses the current folder. Without a path on a machine that has
+  no selected Workspace, \`init\` writes nothing and prints those two forms.
 
 When Local Configuration is absent, setup adds exactly the missing required
   parts — \`workspace.yaml\`, \`context/\`, \`skills/\`, and \`profiles/\` — in place to
@@ -335,18 +338,19 @@ The current Workspace schema version is 1. Its root \`workspace.yaml\` contains
 Legacy Local Configuration migration and version compatibility
 
 Version-1 Local Configuration without \`workspace\` is supported only as
-  migration input. Run \`apkit init\` to upgrade it before using \`validate\`,
-  \`status\`, \`update\`, \`install\`, or \`uninstall\`. Those commands never migrate
-  the file implicitly: they fail closed with actionable \`apkit init\` guidance
-  while leaving migration to the explicit \`init\` command.
+  migration input. Run \`apkit init <path>\` to upgrade it before using
+  \`validate\`, \`status\`, \`update\`, \`install\`, or \`uninstall\`. Those commands
+  never migrate the file implicitly: they fail closed with actionable upgrade
+  guidance while leaving migration to the explicit \`init\` command.
 
-For a legacy file that omitted \`workspace\`, migration records the conventional
-  default \`~/.agents/agent-profile-kit/workspace/\`. For a legacy file with an
-  authored path, migration preserves that path. \`init\` validates the selected
-  Workspace before atomically replacing only Local Configuration, preserving
-  Project Bindings, comments, line endings, and file mode; it never moves or
-  rewrites Workspace source. If validation fails, the configuration remains
-  unchanged.
+A legacy file that omitted \`workspace\` has no selection to preserve and is
+  never upgraded to a default: zero-argument \`init\` refuses, and \`apkit init
+  <path>\` upgrades it to the path the user gives (spec #593 DEC-011, ADR-0049).
+  For a legacy file with an authored path, migration preserves that path. \`init\`
+  validates the selected Workspace before atomically replacing only Local
+  Configuration, preserving Project Bindings, comments, line endings, and file
+  mode; it never moves or rewrites Workspace source. If validation fails, the
+  configuration remains unchanged.
 
 Before migrating, make and retain a copy of the version-1 Local Configuration:
 
@@ -926,11 +930,12 @@ Use this workflow when helping a person author their Workspace and bind projects
    \`context/\`, \`skills/\`, and \`profiles/\` directories, which \`apkit init\` adds
    when missing; missing artifact directories are empty collections, and
    bootstrap files such as \`README.md\`, \`AGENTS.md\`, and \`.gitignore\` are
-   optional user-owned files, not format requirements. Use \`apkit init\` for the
-   fixed default or \`apkit init <workspace>\` for one explicit destination:
-   setup adds exactly the missing required parts in place and never touches
-   other entries, while a folder whose existing material is invalid is refused
-   with its violation (spec #593 DEC-003, ADR-0047). Inspect any present
+   optional user-owned files, not format requirements. There is no default
+   Workspace location: use \`apkit init <workspace>\` for one explicit
+   destination (\`.\` uses the current folder); setup adds exactly the missing
+   required parts in place and never touches other entries, while a folder
+   whose existing material is invalid is refused with its violation
+   (spec #593 DEC-003, ADR-0047, ADR-0049). Inspect any present
    artifact directories next. Treat the Workspace as the canonical source; do
    not infer reusable material from generated Host output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
@@ -962,8 +967,8 @@ Use this workflow when helping a person author their Workspace and bind projects
      path and each binding names one existing project root, one Profile, and a
      supported Host set (\`antigravity\`, \`codex\`, \`claude\`, \`grok\`, \`opencode\`, or \`pi\`); Host
      order and duplicate entries normalize at ingestion. A version-1 configuration without
-     \`workspace\` is legacy migration input only; run \`apkit init\` before any desired-state
-     or binding-recording command.
+     \`workspace\` is legacy migration input only; run \`apkit init <path>\` before any desired-state
+     or binding-recording command (ADR-0049).
    - **Project repositories** own project facts and repository-owned instructions.
    - **Hosts** own authentication, trust, approvals, plugins, sessions, and
      Host preferences. User-managed native global Skill delivery (including
@@ -1092,8 +1097,8 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.210.0
-Workspace: ~/.agents/agent-profile-kit/workspace
+Engine version: 0.211.0
+Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 --- stderr ---
@@ -1179,7 +1184,7 @@ Create one with apkit machine install-temp <profile> <project> --host <host>.
 exports[`golden snapshots of every human view init: init 1`] = `
 "--- stdout ---
 Created the Workspace folder and initialized Agent Profile Kit Workspace and
-  settings at ~/.agents/agent-profile-kit/workspace
+  settings at ~/apkit-workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
 Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
@@ -1197,7 +1202,7 @@ exports[`golden snapshots of every human view open: open 1`] = `
 exports[`golden snapshots of every human view new skill: new-skill 1`] = `
 "--- stdout ---
 Created Skill review-pr at
-  /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/skills/review-pr/SKILL.md
+  /private/tmp/apkit-golden-xxxx/apkit-workspace/skills/review-pr/SKILL.md
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
@@ -1206,7 +1211,7 @@ Next: select it into a Profile with apkit configure profile
 exports[`golden snapshots of every human view new context: new-context 1`] = `
 "--- stdout ---
 Created Context Module review-standards at
-  /private/tmp/apkit-golden-xxxx/.agents/agent-profile-kit/workspace/context/review-standards.md
+  /private/tmp/apkit-golden-xxxx/apkit-workspace/context/review-standards.md
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
@@ -1671,7 +1676,7 @@ Agent Profile Kit composes reusable
 Usage: apkit <command> [arguments]
 
 First run:
-  apkit init
+  apkit init <path>
   apkit install <profile> --host <host>
   apkit status
   apkit update
@@ -1762,7 +1767,7 @@ Agent Profile Kit composes reusable
 \x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1;34mFirst run:\x1B[0m
-\x1B[36m  apkit init\x1B[0m
+\x1B[36m  apkit init <path>\x1B[0m
 \x1B[36m  apkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
@@ -1851,7 +1856,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 Usage: apkit <command> [arguments]
 
 First run:
-  apkit init
+  apkit init <path>
   apkit install <profile> --host <host>
   apkit status
   apkit update
@@ -1912,7 +1917,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1;34mFirst run:\x1B[0m
-\x1B[36m  apkit init\x1B[0m
+\x1B[36m  apkit init <path>\x1B[0m
 \x1B[36m  apkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
@@ -1965,8 +1970,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.210.0
-Workspace: ~/…/workspace
+Engine version: 0.211.0
+Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
 --- stderr ---
@@ -1975,8 +1980,8 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.210.0\x1B[0m
-Workspace: \x1B[35m~/…/workspace\x1B[0m
+\x1B[35mEngine version: 0.211.0\x1B[0m
+Workspace: \x1B[35m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 --- stderr ---
@@ -1985,8 +1990,8 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.210.0
-Workspace: ~/.agents/agent-profile-kit/workspace
+Engine version: 0.211.0
+Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 --- stderr ---
@@ -1995,8 +2000,8 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.210.0\x1B[0m
-Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
+\x1B[35mEngine version: 0.211.0\x1B[0m
+Workspace: \x1B[35m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
 --- stderr ---

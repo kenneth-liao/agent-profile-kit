@@ -89,11 +89,11 @@ async function fleetWorkspace(options: {
   readonly home: string;
   readonly hostSets?: readonly (readonly string[])[];
 }): Promise<readonly string[]> {
-  await initializeWorkspace(options.home);
+  await initializeWorkspace(options.home, { workspace: "~/apkit-workspace" });
   mkdirSync(join(options.home, ".codex"), { recursive: true });
   writeFileSync(join(options.home, ".codex", "config.toml"), "[features]\nhooks = true\n");
   const application = join(options.home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(options.home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Always preserve the project boundary.\n",

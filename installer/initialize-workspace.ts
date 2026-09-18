@@ -32,12 +32,9 @@ import {
 import {
   lstatEntry,
   WORKSPACE_ARTIFACT_DIRECTORIES,
-  workspacePath,
 } from "./workspace.js";
 import { ingestWorkspace } from "./ingest-workspace.js";
 import { InstallerToolError } from "./tool-errors.js";
-
-export { workspacePath } from "./workspace.js";
 
 export interface InitializationResult {
   readonly outcome: "created" | "migrated" | "unchanged";
@@ -215,7 +212,6 @@ async function prepareWorkspaceDestination(
   destination: string,
   options: {
     readonly fileSystem: LocalConfigurationFileSystem;
-    readonly ensureConfiguration: boolean;
     readonly allowMissingParents: boolean;
   },
 ): Promise<{ readonly folderCreated: boolean; readonly added: readonly string[] }> {
@@ -266,13 +262,15 @@ async function prepareWorkspaceDestination(
       if (manifestWritten) added.push(WORKSPACE_MANIFEST_FILE);
     }
     // A folder that already satisfies the structure is never re-scaffolded by
-    // a re-init; only the first connection completes a manifest-present
-    // folder's missing directories (connecting again is #607's).
-    if (!manifestPresent || options.ensureConfiguration) {
-      for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
-        const created = await ensureDirectory(join(destination, directory));
-        if (created) added.push(directory);
-      }
+    // a re-init, but every destination that reaches this transaction is a
+    // first connection at a user-given path — the already-connected cases
+    // (zero-argument on a configured machine, an explicit matching request)
+    // resolve the configured Workspace without it, and the legacy implicit
+    // default is gone (spec #593 #601). So a manifest-present folder always
+    // receives its missing required directories (PR #617 review INT-1).
+    for (const directory of WORKSPACE_ARTIFACT_DIRECTORIES) {
+      const created = await ensureDirectory(join(destination, directory));
+      if (created) added.push(directory);
     }
   };
   try {
@@ -336,7 +334,9 @@ async function previewWorkspaceDestination(
 /**
  * Preview the init target for guided initialization without changing anything.
  * Mirrors `initializeWorkspace`'s destination selection read-only; see
- * `InitTargetPreview` for the undefined contract.
+ * `InitTargetPreview`'s undefined contract. Zero-argument init on a machine
+ * with no selected Workspace refuses (spec #593 #601), so it previews no
+ * target.
  */
 export async function previewInitTarget(
   home: string,
@@ -352,10 +352,8 @@ export async function previewInitTarget(
   } catch (error) {
     if (!hasErrorCode(error, "ENOENT")) throw error;
     try {
-      const destination = await assertWorkspaceSelectionPath(
-        home,
-        requested ?? workspacePath(home),
-      );
+      if (requested === undefined) return undefined;
+      const destination = await assertWorkspaceSelectionPath(home, requested);
       return await previewWorkspaceDestination(destination);
     } catch {
       return undefined;
@@ -385,13 +383,11 @@ export async function previewInitTarget(
       );
       return await previewWorkspaceDestination(eligible.path);
     }
-    // Mirror init's own no-argument branch selection: the conventional default
-    // selection initializes through the default path, anything else through
-    // the configured Workspace.
-    const destination = selectsConventionalDefaultWorkspace(home, configured)
-      ? await assertWorkspaceSelectionPath(home, workspacePath(home))
-      : (await resolveWorkspaceRoot(home, configured, configPath)).path;
-    return await previewWorkspaceDestination(destination);
+    // Mirror init's own no-argument branch selection: the configured Workspace
+    // is revalidated (it selects nothing new; connecting-again semantics are
+    // #607's).
+    const destination = await resolveWorkspaceRoot(home, configured, configPath);
+    return await previewWorkspaceDestination(destination.path);
   } catch {
     return undefined;
   }
@@ -454,19 +450,6 @@ function assertCanonicalWorkspaceMatch(
   });
 }
 
-function selectsConventionalDefaultWorkspace(home: string, authored: string): boolean {
-  try {
-    return expandConfiguredPath(
-      authored,
-      home,
-      { source: "local-configuration", configurationPath: localConfigurationPath(home) },
-      "workspace",
-    ) === workspacePath(home);
-  } catch {
-    return false;
-  }
-}
-
 async function initializeWorkspaceAt(
   home: string,
   authored: string,
@@ -478,7 +461,6 @@ async function initializeWorkspaceAt(
   const destination = await assertWorkspaceSelectionPath(home, authored);
   const { folderCreated, added } = await prepareWorkspaceDestination(destination, {
     fileSystem,
-    ensureConfiguration,
     allowMissingParents,
   });
 
@@ -508,29 +490,19 @@ async function initializeWorkspaceAt(
   };
 }
 
-async function initializeDefaultWorkspace(
-  home: string,
-  ensureConfiguration: boolean,
-  fileSystem: LocalConfigurationFileSystem,
-): Promise<InitializationResult> {
-  return initializeWorkspaceAt(home, workspacePath(home), ensureConfiguration, true, fileSystem);
-}
-
 async function initializeWithoutConfiguration(
   home: string,
   configPath: string,
   fileSystem: LocalConfigurationFileSystem,
   lockTimeoutMs: number,
-  requested: string | undefined,
+  requested: string,
 ): Promise<InitializationResult> {
-  const authored = requested ?? workspacePath(home);
-  const destination = await assertWorkspaceSelectionPath(home, authored);
-  await requireProvisionableDestination(
-    destination,
-    // The conventional default lives inside the application directory, whose
-    // parents setup creates; an explicit named folder never gets parents.
-    requested === undefined,
-  );
+  // No default Workspace location exists (spec #593 #601, DEC-001): setup
+  // never selects a location the user did not give, so zero-argument init
+  // refuses before any side effect — including the application directories
+  // and the Local Configuration lock file (ISC-23, ISC-25.1).
+  const destination = await assertWorkspaceSelectionPath(home, requested);
+  await requireProvisionableDestination(destination, false);
   // Refuse an invalid folder before any side effect at all — including the
   // application directories and the Local Configuration lock file (DEC-011,
   // #599). The transaction re-validates inside the lock.
@@ -547,14 +519,12 @@ async function initializeWithoutConfiguration(
         await fileSystem.readFile(configPath, "utf8");
       } catch (error) {
         if (!hasErrorCode(error, "ENOENT")) throw error;
-        return requested === undefined
-          ? initializeDefaultWorkspace(home, true, fileSystem)
-          : initializeWorkspaceAt(home, requested, true, false, fileSystem);
+        return initializeWorkspaceAt(home, requested, true, false, fileSystem);
       }
       return undefined;
     },
   );
-  return initialized ?? initializeWorkspace(home, requested === undefined ? {} : { workspace: requested });
+  return initialized ?? initializeWorkspace(home, { workspace: requested });
 }
 
 function migrateLegacyConfigurationSource(source: string, workspace: string): string {
@@ -582,26 +552,24 @@ async function migrateLegacyConfiguration(
       if (parsed.schemaVersion !== LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
         return undefined;
       }
+      // A legacy file with no authored `workspace` has no selection to
+      // preserve; without a user-given path there is nothing to upgrade to
+      // (spec #593 #601, DEC-011). The re-read under the lock may differ from
+      // the outer check, so this gate lives at the ingestion of this source
+      // (the branch-local refusal below).
 
-      let selectedWorkspace = parsed.workspace ?? workspacePath(home);
-      if (requestedWorkspace !== undefined) {
-        if (parsed.workspace === undefined) {
-          const requestedExpanded = expandConfiguredPath(
-            requestedWorkspace,
-            home,
-            { source: "init" },
-            "workspace",
-          );
-          if (requestedExpanded !== workspacePath(home)) {
-            await initializeExplicitWorkspaceSelection(
-              home,
-              requestedWorkspace,
-              workspacePath(home),
-              configPath,
-            );
-          }
-          selectedWorkspace = requestedWorkspace;
-        } else {
+      let selectedWorkspace: string;
+      if (parsed.workspace === undefined) {
+        // No authored selection to conflict-check: the user-given path is the
+        // first connection, set up like any explicit destination and then
+        // recorded (keeping the legacy Project Bindings).
+        if (requestedWorkspace === undefined) {
+          throw new InstallerToolError({ kind: "init-workspace-path-required" });
+        }
+        selectedWorkspace = requestedWorkspace;
+      } else {
+        selectedWorkspace = parsed.workspace;
+        if (requestedWorkspace !== undefined) {
           await initializeExplicitWorkspaceSelection(
             home,
             requestedWorkspace,
@@ -611,13 +579,7 @@ async function migrateLegacyConfiguration(
         }
       }
       const workspaceResult = parsed.workspace === undefined
-        ? await initializeWorkspaceAt(
-          home,
-          selectedWorkspace,
-          false,
-          requestedWorkspace === undefined,
-          fileSystem,
-        )
+        ? await initializeWorkspaceAt(home, selectedWorkspace, false, false, fileSystem)
         : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
@@ -658,6 +620,12 @@ export async function initializeWorkspace(
     source = await fileSystem.readFile(configPath, "utf8");
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
+      if (requested === undefined) {
+        // Refuse before any side effect at all — the application directories,
+        // the Workspace, and the Local Configuration lock file (spec #593
+        // #601, DEC-001, ISC-23, ISC-25.1).
+        throw new InstallerToolError({ kind: "init-workspace-path-required" });
+      }
       return initializeWithoutConfiguration(
         home,
         configPath,
@@ -671,6 +639,11 @@ export async function initializeWorkspace(
 
   const parsed = parseLocalConfiguration(source, configPath);
   if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
+    if (requested === undefined && parsed.workspace === undefined) {
+      // Fail fast before the configuration lock: a legacy file without a
+      // `workspace` value is never upgraded to a default location (DEC-011).
+      throw new InstallerToolError({ kind: "init-workspace-path-required" });
+    }
     const migrated = await migrateLegacyConfiguration(
       home,
       configPath,
@@ -688,9 +661,6 @@ export async function initializeWorkspace(
       authoredWorkspace,
       configPath,
     );
-  }
-  if (selectsConventionalDefaultWorkspace(home, authoredWorkspace)) {
-    return initializeDefaultWorkspace(home, false, fileSystem);
   }
   return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);
 }

@@ -179,9 +179,9 @@ describe("update changed-file authorization", () => {
   test("directory replacement review names user-added members lost to the refresh", async () => {
     const home = temporaryDirectory("agent-profile-kit-consent-dir-home-");
     const project = temporaryDirectory("agent-profile-kit-consent-dir-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     const { mkdirSync: makeDir } = await import("node:fs");
     makeDir(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(

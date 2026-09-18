@@ -346,7 +346,7 @@ async function runCliInPtyWithColumnsFallback(home: string, columns: number, ...
 }
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -390,7 +390,7 @@ function bind(home: string, projectPath: string, profile = "coding", host = "cod
 }
 
 async function initialize(home: string): Promise<void> {
-  const result = await runCli(home, "init");
+  const result = await runCli(home, "init", "~/apkit-workspace");
   expectExitCode(result, 0);
   mkdirSync(join(home, ".codex"), { recursive: true });
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -698,7 +698,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const home = isolatedHome();
     const projectPath = project();
 
-    const init = await runCli(home, "init");
+    const init = await runCli(home, "init", "~/apkit-workspace");
     expectExitCode(init, 0);
 
     const workspace = workspacePath(home);
@@ -735,7 +735,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const exampleContext = join(workspace, "context", "example-context.md");
     removeScaffoldedExample(home);
 
-    const result = await runCli(home, "init");
+    const result = await runCli(home, "init", "~/apkit-workspace");
 
     expectExitCode(result, 0);
     expect(existsSync(exampleProfile)).toBe(false);
@@ -746,7 +746,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const home = isolatedHome();
 
     const help = await runCli(home, "init", "--help");
-    const init = await runCli(home, "init");
+    const init = await runCli(home, "init", "~/apkit-workspace");
 
     expectExitCode(help, 0);
     expectExitCode(init, 0);
@@ -765,7 +765,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(config, originalConfig);
     writeFileSync(join(workspace, "README.md"), "# authored\n");
 
-    const result = await runCli(home, "init");
+    const result = await runCli(home, "init", "~/apkit-workspace");
 
     expectExitCode(result, 0);
     expect(readFileSync(config, "utf8")).toBe(originalConfig);
@@ -896,7 +896,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       expect(existsSync(join(workspace, entry))).toBe(false);
     }
 
-    const reinit = await runCli(home, "init");
+    const reinit = await runCli(home, "init", "~/apkit-workspace");
     expectExitCode(reinit, 0);
     expect(reinit.stdout).toMatch(/already initialized|unchanged/i);
     for (const entry of ["README.md", "AGENTS.md", ".gitignore", "skills", "agents", "hooks", "tools"]) {
@@ -959,12 +959,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("symlinked minimal Workspace validates and re-init does not restore scaffolding", async () => {
     const home = isolatedHome();
     const realWorkspace = join(home, "real-workspace");
+    const alias = join(home, "workspace-alias");
     mkdirSync(realWorkspace, { recursive: true });
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
-    const applicationRoot = join(home, ".agents", "agent-profile-kit");
-    mkdirSync(applicationRoot, { recursive: true });
-    symlinkSync(realWorkspace, join(applicationRoot, "workspace"));
-    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
+    symlinkSync(realWorkspace, alias);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${alias}\nbindings: []\n`);
 
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
@@ -979,7 +979,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init records the conventional default Workspace path", async () => {
+  test("init records the user-given Workspace path in Local Configuration", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -1143,14 +1143,31 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("init with no Local Configuration still bootstraps the default Workspace", async () => {
+  test("init without a path on a fresh home refuses, writes nothing, and prints the executable forms", async () => {
     const home = isolatedHome();
+    // Compose the controlled PATH first: its stub bin is part of the fixture,
+    // not a write by the refused invocation.
+    defaultCliPath(home);
+    const before = readdirSync(home).sort().join(",");
+
     const result = await runCli(home, "init");
-    expectExitCode(result, 0);
-    expect(existsSync(workspacePath(home))).toBe(true);
-    expect(existsSync(configPath(home))).toBe(true);
-    expect(readFileSync(configPath(home), "utf8")).toMatch(/schema_version:\s*2/);
-    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${workspacePath(home)}`);
+
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("apkit init <path>");
+    expect(result.stderr).toContain("apkit init .");
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+    expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
+    expect(readdirSync(home).sort().join(",")).toBe(before);
+
+    // Running the printed form connects a valid fixture Workspace (ISC-25.2):
+    // the fixture Workspace is adopted and Local Configuration selects it.
+    const fixture = join(home, "fixture-workspace");
+    mkdirSync(join(fixture, "profiles"), { recursive: true });
+    mkdirSync(join(fixture, "context"), { recursive: true });
+    writeFileSync(join(fixture, "workspace.yaml"), "schema_version: 1\n");
+    const connected = await runCli(home, "init", fixture);
+    expectExitCode(connected, 0);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(fixture);
   });
 
   test("init with an explicit missing Workspace path scaffolds and records that selection", async () => {
@@ -1296,7 +1313,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(applicationRoot).sort();
 
-    const result = await runCli(home, "init");
+    const result = await runCli(home, "init", "~/apkit-workspace");
 
     expectExitCode(result, 1);
     expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
@@ -1317,7 +1334,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const configBefore = readFileSync(configPath(home), "utf8");
     const sourceBefore = readdirSync(applicationRoot).sort();
 
-    const result = await runCli(home, "init");
+    const result = await runCli(home, "init", "~/apkit-workspace");
 
     expectExitCode(result, 1);
     expect(result.stderr).toMatch(/reserved.*Local Configuration/i);
@@ -1544,10 +1561,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(failed[0]!.stderr).toMatch(/must be an existing directory|different Workspace|already selects/i);
   });
 
-  test("init does not switch a legacy implicit selection to a different explicit Workspace", async () => {
+  test("init upgrades a legacy configuration without a Workspace value to the explicit path the user gives", async () => {
     const home = isolatedHome();
-    await initialize(home);
     const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     writeFileSync(configPath(home), legacy);
     const custom = join(home, "other-workspace");
     mkdirSync(custom, { recursive: true });
@@ -1555,14 +1572,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const result = await runCli(home, "init", custom);
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
-    expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
-    expect(existsSync(workspacePath(home))).toBe(true);
-    expect(readdirSync(custom)).toEqual(["workspace.yaml"]);
+    expectExitCode(result, 0);
+    // The user-given path is the first connection: missing parts are added.
+    expect(readdirSync(custom).sort()).toEqual(["context", "profiles", "skills", "workspace.yaml"]);
+    const migrated = readFileSync(configPath(home), "utf8");
+    expect(migrated).toContain(`workspace: ${custom}`);
+    expect(migrated).toContain("# keep this note");
+    // No default Workspace folder was created.
+    expect(existsSync(workspacePath(home))).toBe(false);
   });
 
-  test("init migrates a legacy implicit selection through an equivalent default alias", async () => {
+  test("init migrates a legacy selection through an equivalent symlink alias", async () => {
     const home = isolatedHome();
     await initialize(home);
     const alias = join(home, "default-alias");
@@ -1607,21 +1627,37 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
-  test("init migrates a legacy implicit-default configuration without losing authored content", async () => {
+  test("init migrates a legacy configuration without a Workspace value to the path the user gives, preserving authored content", async () => {
     const home = isolatedHome();
-    await initialize(home);
-    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const projectPath = project();
+    const legacy =
+      "schema_version: 1\n# keep this note\nbindings:\n" +
+      `  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`;
     writeFileSync(configPath(home), legacy);
 
-    const result = await runCli(home, "init");
+    // Without a path there is nothing to upgrade to: no default exists.
+    const refused = await runCli(home, "init");
+    expectExitCode(refused, 1);
+    expect(readFileSync(configPath(home), "utf8")).toBe(legacy);
+    expect(existsSync(workspacePath(home))).toBe(false);
+
+    // A path the user gives upgrades the legacy file and keeps its Project
+    // Bindings and authored content (spec #593 #601, DEC-011).
+    const chosen = join(home, "chosen-workspace");
+    mkdirSync(chosen, { recursive: true });
+    writeFileSync(join(chosen, "workspace.yaml"), "schema_version: 1\n");
+    const result = await runCli(home, "init", chosen);
 
     expectExitCode(result, 0);
     expect(result.stdout).toMatch(/migrat/i);
     const migrated = readFileSync(configPath(home), "utf8");
     expect(migrated).toMatch(/schema_version:\s*2/);
-    expect(migrated).toContain(`workspace: ${workspacePath(home)}`);
+    expect(migrated).toContain(`workspace: ${chosen}`);
     expect(migrated).toContain("# keep this note");
-    expect(migrated).toContain("bindings: []");
+    expect(parse(migrated).bindings).toEqual([
+      { project: projectPath, profile: "coding", hosts: ["codex"] },
+    ]);
   });
 
   test("init migrates a legacy custom Workspace without changing its authored path or source", async () => {
@@ -7599,7 +7635,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("packed CLI Skills-only Profile validates, applies, and uninstalls without Context machinery", async () => {
     const home = isolatedHome();
     // Init still enables hooks for other suites sharing helpers; Skills-only must not require them.
-    const result = await runCli(home, "init");
+    const result = await runCli(home, "init", "~/apkit-workspace");
     expectExitCode(result, 0);
     const claudeBin = installFakeClaude(home);
     const pathValue = `${claudeBin}:${controlledPath(home)}`;
@@ -7620,7 +7656,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
 
     const emptyHome = isolatedHome();
-    expectExitCode(await runCli(emptyHome, "init"), 0);
+    expectExitCode(await runCli(emptyHome, "init", "~/apkit-workspace"), 0);
     writeFileSync(
       join(workspacePath(emptyHome), "profiles", "empty.yaml"),
       "context: []\nskills: []\n",
@@ -8526,7 +8562,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("the packed CLI runs the project-bound init contract", async () => {
+  test("the packed CLI refuses zero-argument init on a fresh home with the explicit forms", async () => {
     const home = isolatedHome();
     const result = await runProcess({
       executable: controlledToolPath("node"),
@@ -8536,8 +8572,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       commandLabel: "packed CLI init",
     });
 
-    expectExitCode(result, 0);
-    expect(existsSync(configPath(home))).toBe(true);
+    expectExitCode(result, 1);
+    expect(result.stderr).toContain("apkit init <path>");
+    expect(result.stderr).toContain("apkit init .");
+    expect(existsSync(configPath(home))).toBe(false);
+    expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
   test("packed package ships both maintained guides and the public overview", async () => {
@@ -8601,6 +8640,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
   test("guide profile supplies everything a minimal Workspace needs to install its example", async () => {
     const home = isolatedHome();
     const workspace = workspacePath(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
     mkdirSync(join(workspace, "profiles"), { recursive: true });
     mkdirSync(join(workspace, "context"));
     writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
@@ -8614,7 +8654,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
-    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Workspace: ~/apkit-workspace");
     const profile = result.stdout.match(
       /An example profiles\/example\.yaml:\n\n([\s\S]*?)\n\nAn example context\//,
     )?.[1];
@@ -8641,7 +8681,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
-    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Workspace: ~/apkit-workspace");
     expect(result.stdout).toContain("context/example-context.md");
     // The example body renders as verbatim terminal content, no fences (#510).
     expect(result.stdout).toContain(example);
@@ -8658,7 +8698,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout.split("\n").length).toBeLessThanOrEqual(FOCUSED_GUIDE_MAX_LINES);
-    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Workspace: ~/apkit-workspace");
     expect(result.stdout).toContain("skills/example-skill/SKILL.md");
     // The example body is the terminal content between the lead-in and the
     // next-action line: verbatim, no fences (#510).
@@ -8682,7 +8722,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       const result = await sharedReadOnlyCapture("guide", topic);
       expectExitCode(result, 0);
       expect(result.stderr).toBe("");
-      const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init)");
+      const wsIndex = result.stdout.indexOf("Workspace: Not configured (run apkit init <path>)");
       const scaffoldIndex = result.stdout.indexOf("  apkit new ");
       const exampleIndex = result.stdout.indexOf("An example ");
       expect(wsIndex).toBeGreaterThan(-1);
@@ -8851,7 +8891,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const userWritten = "# My team's Workspace\n\nOur own onboarding notes.\n";
     writeFileSync(readmePath, userWritten);
 
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expect(readFileSync(readmePath, "utf8")).toBe(userWritten);
   });
 
@@ -12368,7 +12408,7 @@ describe("apkit info", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Engine version:");
-    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Workspace: ~/apkit-workspace");
     expect(result.stdout).toContain("Local Configuration: ~/.agents/agent-profile-kit/config.yaml");
     expect(result.stdout).toContain("Installation State: ~/.agents/agent-profile-kit/state/manifest.json");
     expect(result.stdout).not.toContain("example");
@@ -12434,7 +12474,7 @@ describe("apkit info", () => {
     const result = await runCli(home, "info");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Workspace: ~/.agents/agent-profile-kit/workspace");
+    expect(result.stdout).toContain("Workspace: ~/apkit-workspace");
     expect(result.stdout).not.toContain("relative-secret-project");
     expect(result.stdout).not.toContain("secret-profile");
     expect(result.stdout).not.toContain("unsupported-secret-host");
@@ -14186,7 +14226,7 @@ describe("repository exclusion contribution is best-effort bookkeeping (#379)", 
 describe("packed CLI new skill", () => {
   test("new skill creates a valid Skill, prints the absolute created path, and completes creation → Profile → validate → update", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const created = await runCli(home, "new", "skill", "review-pr");
     expectExitCode(created, 0);
@@ -14210,7 +14250,7 @@ describe("packed CLI new skill", () => {
 
   test("new skill never prompts on an interactive terminal and completes without input", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const result = await runCliInPty(home, 80, "new", "skill", "prompt-check");
     expectExitCode(result, 0);
@@ -14245,7 +14285,7 @@ describe("packed CLI new skill", () => {
 
   test("new skill refuses a duplicated Artifact ID, an occupied destination, invalid names, and symlinks without writing", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
     const skillFile = join(realpathSync(workspacePath(home)), "skills", "review-pr", "SKILL.md");
@@ -14294,7 +14334,7 @@ describe("packed CLI new skill", () => {
 describe("packed CLI new context", () => {
   test("new context creates a valid Context Module, prints the absolute created path, and completes creation → Profile → validate → update", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const created = await runCli(home, "new", "context", "review-standards");
     expectExitCode(created, 0);
@@ -14320,7 +14360,7 @@ describe("packed CLI new context", () => {
 
   test("new context never prompts on an interactive terminal and completes without input", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const result = await runCliInPty(home, 80, "new", "context", "prompt-check");
     expectExitCode(result, 0);
@@ -14331,7 +14371,7 @@ describe("packed CLI new context", () => {
 
   test("new context refuses duplicates, occupied destinations, invalid names, and unknown kinds without writing", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "review-standards"), 0);
 
     const contextFile = join(realpathSync(workspacePath(home)), "context", "review-standards.md");
@@ -14370,7 +14410,7 @@ describe("packed CLI new context", () => {
 describe("packed CLI new profile", () => {
   test("new profile creates a valid bindable Profile from explicit selections, prints the absolute created path, and completes creation → validate → bind → update", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
@@ -14411,7 +14451,7 @@ describe("packed CLI new profile", () => {
 
   test("new profile never prompts on an interactive terminal and completes without input", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
 
     const result = await runCliInPty(home, 80, "new", "profile", "pty-profile", "--context", "example-context");
@@ -14440,6 +14480,7 @@ describe("packed CLI new profile", () => {
       80,
       ["y", "my-profile\r", " \r"],
       "init",
+      workspace,
     );
     expectExitCode(result, 0);
     const profileFile = join(realpathSync(workspacePath(home)), "profiles", "my-profile.yaml");
@@ -14459,7 +14500,7 @@ describe("packed CLI new profile", () => {
 
   test("new profile refuses unknown selections with available names and the nearest match", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
@@ -14503,7 +14544,7 @@ describe("packed CLI new profile", () => {
 
   test("new profile refuses zero selections with available-names guidance and creates nothing", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
@@ -14517,7 +14558,7 @@ describe("packed CLI new profile", () => {
 
   test("new profile refuses duplicate selections, invalid names, occupied destinations, and unknown flags without writing", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
     expectExitCode(await runCli(home, "new", "skill", "review-pr"), 0);
 
@@ -14588,7 +14629,7 @@ describe("packed CLI new profile", () => {
 
   test("new profile command help describes the Profile kind", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const help = await runCli(home, "help", "new");
     expectExitCode(help, 0);
@@ -14628,7 +14669,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
 
   test("a new Skill and Context Module lead to configure profile", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const skill = await runCli(home, "new", "skill", "review-pr");
     expectExitCode(skill, 0);
@@ -14647,7 +14688,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
 
   test("a new Profile leads to installing the Profile it actually created", async () => {
     const home = isolatedHome();
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
     expectExitCode(await runCli(home, "new", "context", "example-context"), 0);
 
     const profile = await runCli(
@@ -14694,7 +14735,7 @@ describe("packed CLI open workspace", () => {
   test("open opens the configured Workspace via the system opener", async () => {
     const home = isolatedHome();
     const { logPath } = installFakeOpener(home);
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const openResult = await runCli(home, "open");
     expectExitCode(openResult, 0);
@@ -14719,7 +14760,7 @@ describe("packed CLI open workspace", () => {
   test("open refuses extra positional arguments or flags with command usage", async () => {
     const home = isolatedHome();
     installFakeOpener(home);
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const extra = await runCli(home, "open", "extra-arg");
     expectExitCode(extra, 1);
@@ -14734,13 +14775,14 @@ describe("packed CLI open workspace", () => {
     const uninit = await runCli(home, "open");
     expectExitCode(uninit, 1);
     expect(uninit.stderr).toContain("Agent Profile Kit is not set up on this machine");
-    expect(uninit.stderr).toContain("Run apkit init to set it up.");
+    expect(uninit.stderr).toContain("apkit init <path>");
+    expect(uninit.stderr).toContain("apkit init .");
   });
 
   test("open reports structured recovery when opener executable fails", async () => {
     const home = isolatedHome();
     installFakeOpener(home);
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const failed = await runCliWithEnvironment(
       home,
@@ -14757,7 +14799,7 @@ describe("packed CLI open workspace", () => {
   test("artifact creation does not automatically open the Workspace as a side effect", async () => {
     const home = isolatedHome();
     const { logPath } = installFakeOpener(home);
-    expectExitCode(await runCli(home, "init"), 0);
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
 
     const created = await runCli(home, "new", "skill", "my-skill");
     expectExitCode(created, 0);

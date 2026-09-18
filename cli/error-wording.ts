@@ -46,6 +46,22 @@ import type { PresentationDocument } from "./presentation-document.js";
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
+ * The explicit init command forms (spec #593 #601): there is no default
+ * Workspace location, so every diagnostic remedy names a path the user
+ * gives. One home for the diagnostics' shared remedy; the bare screen
+ * authors its own sentence because its lead-in differs (US-001).
+ */
+function initLocationRemedies(prefix: string): readonly InlineContent[] {
+  return [
+    prefix,
+    commandPart(COMMAND_NAME, [arg("init"), arg("<path>")]),
+    " to set up a Workspace in the folder you name, or ",
+    commandPart(COMMAND_NAME, [arg("init"), arg(".")]),
+    " to use the current folder.",
+  ];
+}
+
+/**
  * The `apkit new` kind token for each creatable artifact type, with the noun
  * a residue fact's destination is referred to by. One home so every recovery
  * command names the kind that can actually retry the failed creation.
@@ -695,7 +711,7 @@ export function formatMissingProfileErrorDiagnostic(error: MissingProfileError):
 export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly InlineContent[] {
   switch (fact.kind) {
     case "missing-local-configuration":
-      return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init")])];
+      return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])];
     case "bind-conflict":
       return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`];
     case "duplicate-canonical-root":
@@ -752,6 +768,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     }
     case "init-workspace-selection-conflict":
       return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
+    case "init-workspace-path-required":
+      return ["init without a path would choose a Workspace location for you; setup uses a folder you choose and never selects one itself"];
     case "foreign-diagnostic":
       return [fact.detail];
     case "artifact-path-occupied":
@@ -809,7 +827,12 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "missing-local-configuration":
       return {
         happened: ["Agent Profile Kit is not set up on this machine"],
-        whatToType: [["Run ", commandPart(COMMAND_NAME, [arg("init")]), " to set it up."]],
+        whatToType: [initLocationRemedies("Run ")],
+      };
+    case "init-workspace-path-required":
+      return {
+        happened: ["init without a path would choose a Workspace location for you; setup uses a folder you choose and never selects one itself"],
+        whatToType: [initLocationRemedies("Run ")],
       };
     case "bind-conflict":
       return {

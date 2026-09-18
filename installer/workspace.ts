@@ -6,7 +6,6 @@ import {
   parseWorkspaceManifest,
   WORKSPACE_MANIFEST_FILE,
 } from "../schemas/workspace-manifest.js";
-import { applicationDirectory } from "./application-directory.js";
 import { InstallerToolError } from "./tool-errors.js";
 
 export const WORKSPACE_ARTIFACT_DIRECTORIES = [
@@ -34,10 +33,6 @@ export function skillEntryRelativePath(workspaceRoot: string, skillDirectory: st
 
 function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
-}
-
-export function workspacePath(home: string): string {
-  return join(applicationDirectory(home), "workspace");
 }
 
 /** Read one filesystem entry without following symlinks; absence is undefined. */

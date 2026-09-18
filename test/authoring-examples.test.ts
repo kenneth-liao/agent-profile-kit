@@ -125,7 +125,7 @@ describe("authoring example/scaffold YAML consistency", () => {
   test("created scalar-named material re-ingests with preserved meaning", async () => {
     const home = mkdtempSync(join(tmpdir(), "apkit-yaml-ingest-"));
     try {
-      await initializeWorkspace(home);
+      await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
       await createContextModule({ home, name: "123" });
       await createProfile({ home, name: "true", contexts: ["123"], skills: [] });
       const workspace = await ingestSelectedWorkspace(home);

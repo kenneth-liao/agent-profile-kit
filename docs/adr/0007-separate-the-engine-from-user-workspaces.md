@@ -1,5 +1,14 @@
 # Separate the engine from user Workspaces
 
+Amendment: since spec #593 (DEC-001, ticket #601), the fixed default Workspace
+path this decision introduced is removed, and ADR-0049 supersedes that part:
+no command creates or selects a Workspace at a location the user did not give.
+Zero-argument `init` on a machine with no selected Workspace refuses instead
+of provisioning the conventional default, and legacy version-1 Local
+Configuration without a `workspace` value is upgraded only to a path the user
+gives. This decision's refusal to select a different Workspace remains
+standing until #607 supersedes it.
+
 The open-source Agent Profile Kit repository owns only the CLI, schemas, Installer, Adapters, documentation, and minimal non-personal fixtures, while each user owns one canonical Workspace. The Workspace may be a Git repository independently of the tool; keeping product code, private content, Workspace versioning, backups, and disposable Host output separate avoids requiring users to fork and edit the tool repository.
 
 The fixed default Workspace path is `~/.agents/agent-profile-kit/workspace/`. Current Local Configuration records exactly one explicit absolute or home-relative `workspace` path, either the conventional default written by zero-argument `init` or a custom path selected by `init <workspace>`. An explicit initialization provisions a missing or empty non-symlink destination, or adopts an existing valid Workspace, and records the authored spelling; it never rewrites existing Workspace source. When Local Configuration already selects a Workspace, an explicit request must resolve to that same canonical directory, including through a symlink alias, or initialization fails closed before source or configuration publication. Path selection is machine-specific and non-secret, so Local Configuration is its canonical home. Changing the configured path never migrates source or resets installation state. Desired-state commands share one Local Configuration ingestion boundary (`ingestApplication`); `init` validates the explicit request and reuses the configured-path resolver for an existing selection; `uninstall` remains installation ownership/state-only and does not resolve a Workspace.

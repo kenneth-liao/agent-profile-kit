@@ -78,11 +78,11 @@ async function fleetWorkspace(options: {
     readonly profile: string;
   }[];
 }): Promise<readonly string[]> {
-  await initializeWorkspace(options.home);
+  await initializeWorkspace(options.home, { workspace: "~/apkit-workspace" });
   mkdirSync(join(options.home, ".codex"), { recursive: true });
   writeFileSync(join(options.home, ".codex", "config.toml"), "[features]\nhooks = true\n");
   const application = join(options.home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(options.home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Always preserve the project boundary.\n",
@@ -349,11 +349,11 @@ describe("machine-level Host capability probes within one invocation", () => {
 
   test("host-scope dedup keeps the strictest required version across mixed floors", async () => {
     const home = temporaryDirectory("apk-host-probe-mixed-floor-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",

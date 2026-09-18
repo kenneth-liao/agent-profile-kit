@@ -38,7 +38,7 @@ export const FLEET_SKILL = "review-pr";
 export const FLEET_PROFILE = "engineering";
 
 export function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 export function configPath(home: string): string {
@@ -72,6 +72,7 @@ export function writeBindings(
           .join("")}`,
     )
     .join("");
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
   writeFileSync(
     configPath(home),
     `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${body}`,
@@ -129,6 +130,7 @@ export function createFleetFixture(
   home: string,
   options: FleetFixtureOptions = {},
 ): FleetFixture {
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
   mkdirSync(workspacePath(home), { recursive: true });
   for (const category of ["agents", "context", "hooks", "profiles", "skills", "tools"]) {
     mkdirSync(join(workspacePath(home), category), { recursive: true });

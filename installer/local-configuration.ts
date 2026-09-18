@@ -18,6 +18,7 @@ import {
   type LocalConfiguration,
   type ParsedCurrentLocalConfiguration,
   type ParsedLocalConfiguration,
+  type ParsedLocalConfigurationSelection,
   type ParsedProjectBinding,
   type ProjectBinding,
 } from "../schemas/local-configuration.js";
@@ -60,7 +61,19 @@ export function requireCurrentApplicationConfiguration(
   parsed: ParsedLocalConfiguration,
   path: string,
 ): ParsedCurrentLocalConfiguration {
-  return requireCurrentLocalConfiguration(parsed, path, `${COMMAND_NAME} init`);
+  return requireCurrentLocalConfiguration(parsed, path, legacyMigrationCommand(parsed));
+}
+
+/**
+ * The legacy-upgrade guidance for one rejected Local Configuration (spec #593
+ * #601): a file that already carries an authored `workspace` migrates with
+ * bare `init`; one without has no selection to preserve, so the guidance
+ * names the explicit path form instead of a command that now refuses.
+ */
+function legacyMigrationCommand(parsed: ParsedLocalConfigurationSelection): string {
+  return parsed.workspace === undefined
+    ? `${COMMAND_NAME} init <path>`
+    : `${COMMAND_NAME} init`;
 }
 
 /**
@@ -704,7 +717,7 @@ export async function ingestSelectedWorkspace(home: string): Promise<Workspace> 
   const workspace = requireCurrentWorkspaceSelection(
     parsed,
     path,
-    `${COMMAND_NAME} init`,
+    legacyMigrationCommand(parsed),
   );
   return ingestWorkspaceFromConfiguration(home, workspace, path);
 }

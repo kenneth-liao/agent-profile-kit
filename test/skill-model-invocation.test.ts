@@ -360,11 +360,11 @@ describe("Skill model-invocation policy", () => {
   test("combined Codex/Claude binding applies the same normalized disabled policy to both Host-native trees", async () => {
     const home = temporaryDirectory("apk-mi-combined-home-");
     const project = temporaryDirectory("apk-mi-combined-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",
@@ -561,7 +561,7 @@ describe("Skill model-invocation policy", () => {
   test("end-to-end: unsupported Codex CLI blocks preview and update before project or state writes", async () => {
     const home = temporaryDirectory("apk-mi-e2e-home-");
     const project = temporaryDirectory("apk-mi-e2e-project-");
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
     // Old Codex stub that would discover Skills but ignore invocation policy.
@@ -573,7 +573,7 @@ describe("Skill model-invocation policy", () => {
     chmodSync(join(bin, "claude"), 0o755);
 
     const application = join(home, ".agents", "agent-profile-kit");
-    const workspace = join(application, "workspace");
+    const workspace = join(home, "apkit-workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
       "Always preserve the project boundary.\n",

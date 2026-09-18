@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 function workspacePath(home: string): string {
-  return join(home, ".agents", "agent-profile-kit", "workspace");
+  return join(home, "apkit-workspace");
 }
 
 function configPath(home: string): string {
@@ -42,6 +42,7 @@ function configPath(home: string): string {
 }
 
 function writeConfig(home: string, workspace: string): void {
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
   writeFileSync(
     configPath(home),
     `schema_version: 2\nworkspace: ${workspace}\nbindings: []\n`,
@@ -234,7 +235,7 @@ describe("guided first-Profile init", () => {
   test("a fresh destination without material initializes without any guidance offer", async () => {
     const home = isolatedHome();
     const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
+    const { pending, streams } = startInit(home, [workspacePath(home)], input);
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
@@ -253,7 +254,7 @@ describe("guided first-Profile init", () => {
     const home = isolatedHome();
     const input = new PassThrough(); // no TTY evidence: never interactive
     input.end();
-    const { pending, streams } = startInit(home, [], input);
+    const { pending, streams } = startInit(home, [workspacePath(home)], input);
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
@@ -264,7 +265,7 @@ describe("guided first-Profile init", () => {
 
   test("init with an existing Profile never offers the guidance", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeMaterial(home, "team-rules");
     writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "context: [team-rules]\nskills: []\n");
     const input = fakeInteractiveInput();
@@ -296,7 +297,7 @@ describe("guided first-Profile init", () => {
 
   test("offers both categories when both have material and records the combined selection", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeMaterial(home, "team-rules");
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
@@ -332,7 +333,7 @@ describe("guided first-Profile init", () => {
 
   test("refuses zero selections before any initialization change", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeMaterial(home, "team-rules");
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
@@ -369,7 +370,7 @@ describe("guided first-Profile init", () => {
     // a creation failure the error diagnostic on stderr owns recovery, and
     // stdout claims no next step for a Profile that does not exist.
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeMaterial(home, "team-rules");
     writeConfig(home, workspacePath(home));
     chmodSync(join(workspacePath(home), "profiles"), 0o555);
@@ -401,7 +402,7 @@ describe("guided first-Profile init", () => {
 
   test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
     const home = isolatedHome();
-    await initializeWorkspace(home);
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
     writeFileSync(
       join(workspacePath(home), "skills", "release-check", "SKILL.md"),
@@ -479,6 +480,140 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(0);
     expect(plain(streams.humanText())).toContain("already initialized");
+  }, 20_000);
+
+});
+
+/**
+ * Zero-argument init never selects a Workspace location the user did not give
+ * (spec #593 #601, DEC-001, DEC-011, ISC-23): the fixed default is gone, so a
+ * fresh home and a legacy configuration without `workspace` refuse. A machine
+ * that already selects a Workspace keeps validating it — it selects nothing
+ * new (connecting-again semantics remain #607's).
+ */
+describe("zero-argument init requires a user-given location", () => {
+  /** A legacy version-1 Local Configuration with no `workspace` field. */
+  function writeLegacyConfig(home: string, content: string): string {
+    const config = configPath(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(config, content);
+    return config;
+  }
+
+  async function refusedInit(home: string, arguments_: readonly string[] = []): Promise<InstallerToolError> {
+    const input = new PassThrough(); // no TTY evidence
+    input.end();
+    const { pending } = startInit(home, arguments_, input);
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(InstallerToolError);
+    return failure as InstallerToolError;
+  }
+
+  test("a fresh home refuses and writes nothing", async () => {
+    const home = isolatedHome();
+    const failure = await refusedInit(home);
+    expect(failure.fact.kind).toBe("init-workspace-path-required");
+    // Nothing written anywhere: no application directories, no Workspace, no
+    // former default folder (ISC-25.1, AC4).
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+    expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
+  }, 20_000);
+
+  test("a fresh home refuses interactively too until interactive setup lands (#603)", async () => {
+    const home = isolatedHome();
+    const input = fakeInteractiveInput();
+    const { pending } = startInit(home, [], input);
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(InstallerToolError);
+    expect((failure as InstallerToolError).fact.kind).toBe("init-workspace-path-required");
+    expect(existsSync(join(home, ".agents"))).toBe(false);
+  }, 20_000);
+
+  test("a legacy configuration without workspace is never upgraded without a path", async () => {
+    const home = isolatedHome();
+    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    const config = writeLegacyConfig(home, legacy);
+    const failure = await refusedInit(home);
+    expect(failure.fact.kind).toBe("init-workspace-path-required");
+    // The legacy file is untouched and no default Workspace folder appeared.
+    expect(readFileSync(config, "utf8")).toBe(legacy);
+    expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
+  }, 20_000);
+
+  test("a configured machine still validates its selected Workspace without a path", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "configured");
+    await initializeWorkspace(home, { workspace }); // Local Configuration selects it
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(plain(streams.humanText())).toContain("already initialized");
+  }, 20_000);
+
+  test("a legacy configuration without workspace upgrades to the path the user gives, keeps its Project Bindings, and completes the missing directories", async () => {
+    const home = isolatedHome();
+    const legacy = "schema_version: 1\n# keep this note\nbindings: []\n";
+    const config = writeLegacyConfig(home, legacy);
+    // A manifest-present folder missing its artifact directories: the legacy
+    // upgrade is a first connection at a user-given path, so setup completes
+    // them (PR #617 review INT-1).
+    const chosen = join(home, "chosen");
+    mkdirSync(chosen, { recursive: true });
+    writeFileSync(join(chosen, "workspace.yaml"), WORKSPACE_MANIFEST);
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, ["~/chosen"], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    for (const directory of ["context", "skills", "profiles"]) {
+      expect(existsSync(join(chosen, directory))).toBe(true);
+    }
+    const migrated = readFileSync(config, "utf8");
+    expect(migrated).toMatch(/schema_version:\s*2/);
+    expect(migrated).toContain("workspace: ~/chosen");
+    expect(migrated).toContain("# keep this note");
+    expect(migrated).toContain("bindings: []");
+    expect(plain(streams.humanText())).toMatch(/migrat/i);
+  }, 20_000);
+
+  test("an invalid folder at the user-given path refuses the legacy upgrade before any write", async () => {
+    const home = isolatedHome();
+    const legacy = "schema_version: 1\nbindings: []\n";
+    const config = writeLegacyConfig(home, legacy);
+    const chosen = join(home, "chosen");
+    mkdirSync(join(chosen, "skills", "broken"), { recursive: true });
+    // An invalid Skill frontmatter: the folder can never validate.
+    writeFileSync(join(chosen, "skills", "broken", "SKILL.md"), "no frontmatter\n");
+    const input = new PassThrough();
+    input.end();
+    const { pending } = startInit(home, ["~/chosen"], input);
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(readFileSync(config, "utf8")).toBe(legacy);
+    // No missing part was added and no default Workspace folder appeared.
+    expect(existsSync(join(chosen, "workspace.yaml"))).toBe(false);
+    expect(existsSync(join(chosen, "context"))).toBe(false);
+    expect(existsSync(join(home, "apkit-workspace"))).toBe(false);
   }, 20_000);
 
 });

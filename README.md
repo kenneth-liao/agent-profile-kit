@@ -16,18 +16,18 @@ Supported Hosts: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 
 ## Quick start
 
-Initialize your Workspace without a global installation:
+Initialize your Workspace in a folder you choose, without a global installation:
 
 ```sh
-npx --package agent-profile-kit apkit init
-# Or choose one explicit Workspace path:
 npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
+# Or use the current folder as your Workspace:
+npx --package agent-profile-kit apkit init .
 ```
 
 ## First run
 
 ```sh
-apkit init                              # set up your Workspace
+apkit init <path>                      # set up your Workspace in the folder you name (`.` uses the current folder)
 apkit install <profile> --host <host>   # install a Profile into the current project
 apkit status                            # review the fleet plan
 apkit update                            # refresh installations from the Workspace (fleet by default)

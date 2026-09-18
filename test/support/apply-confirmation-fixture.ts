@@ -40,9 +40,9 @@ export async function prepareDriftedFleet(prefix: string): Promise<DriftedFleetF
   const home = temporaryDirectory(`${prefix}-home-`);
   const driftedProject = realpathSync(temporaryDirectory(`${prefix}-drifted-`));
   const healthyProject = realpathSync(temporaryDirectory(`${prefix}-healthy-`));
-  await initializeWorkspace(home);
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
   const application = join(home, ".agents", "agent-profile-kit");
-  const workspace = join(application, "workspace");
+  const workspace = join(home, "apkit-workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "Confirmation fixture.\n",
