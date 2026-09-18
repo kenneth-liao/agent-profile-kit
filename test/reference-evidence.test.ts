@@ -20,7 +20,7 @@ function scaffoldWorkspace(home: string): string {
   writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: []\nskills: []\n");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\n\n# Team rules\n",
+    "\n# Team rules\n",
   );
   writeFileSync(
     join(workspace, "skills", "deploy", "SKILL.md"),
@@ -80,7 +80,7 @@ describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
     }
   });
 
-  test("a dangling Context Module dependency declaration is tolerated and has no effect (spec #593 DEC-006, #596)", async () => {
+  test("arbitrary Context frontmatter, including a stale dependency declaration, is inert and has no effect (spec #593 DEC-005, #600)", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);

@@ -39,6 +39,8 @@ moving.
    (#600), so treating it as inert avoids churn that #600 would immediately
    supersede, while DEC-013's change-list duty is carried by the violations it
    names (sidecars, invocation keys, Profile `id`).
+   (Completed by #600: all Context frontmatter is now inert
+   delivered-as-written bytes; see ADR-0048.)
 4. **This supersedes part of ADR-0001.** ADR-0001's dependency metadata
    (optional `agent-profile-kit.yaml` and typed dependency references) is
    superseded; ADR-0001's typed artifact identities and portable-artifacts-as-

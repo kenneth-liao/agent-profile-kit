@@ -371,7 +371,7 @@ function writeWorkspaceAuthoring(home: string): void {
   const workspace = workspacePath(home);
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -779,7 +779,7 @@ describe("project-bound release candidate", () => {
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated release-candidate Context.\n",
+      "Updated release-candidate Context.\n",
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);

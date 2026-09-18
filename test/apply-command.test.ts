@@ -367,7 +367,7 @@ describe("update replacement confirmation command", () => {
     expect((await seed.outcome).exitCode).toBe(0);
     writeFileSync(
       join(fleet.workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared.\n",
+      "Updated shared.\n",
     );
     writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);
     const healthyOutput = join(fleet.healthyProject, ".agent-profile-kit", "codex", "context.md");

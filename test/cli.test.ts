@@ -374,7 +374,7 @@ function writeContextProfile(home: string, profile = "coding"): void {
   const workspace = workspacePath(home);
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   writeFileSync(
     join(workspace, "profiles", `${profile}.yaml`),
@@ -1002,7 +1002,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(
       join(custom, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nCustom workspace rules.\n",
+      "Custom workspace rules.\n",
     );
     writeFileSync(
       join(custom, "profiles", "coding.yaml"),
@@ -1038,7 +1038,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(realWorkspace, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(
       join(realWorkspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeFileSync(
       join(realWorkspace, "profiles", "coding.yaml"),
@@ -1356,7 +1356,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(
       join(custom, "context", "existing-context.md"),
-      "---\nid: existing-context\ndependencies: []\n---\nExisting guidance.\n",
+      "Existing guidance.\n",
     );
     writeFileSync(
       join(custom, "profiles", "existing.yaml"),
@@ -1808,7 +1808,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(
       join(custom, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nFrom custom Workspace.\n",
+      "From custom Workspace.\n",
     );
     writeFileSync(
       join(custom, "profiles", "coding.yaml"),
@@ -2305,7 +2305,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated selected Project Context.\n",
+      "Updated selected Project Context.\n",
     );
 
     const apply = await runCli(home, "update", selected);
@@ -2613,7 +2613,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated presentation Context.\n",
+      "Updated presentation Context.\n",
     );
     const result = await runCli(home, "status");
 
@@ -3375,7 +3375,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+      "Updated canonical Context.\n",
     );
 
     const result = await runCli(home, "update");
@@ -3476,7 +3476,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+      "Updated canonical Context.\n",
     );
 
     const result = await runCli(home, "update", "--verbose");
@@ -3576,7 +3576,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated canonical Context.\n",
+      "Updated canonical Context.\n",
     );
     const changed = await runCli(home, "status", "--verbose");
     expectExitCode(changed, 0);
@@ -3689,7 +3689,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "update"), 0);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nOne current Workspace form.\n",
+      "One current Workspace form.\n",
     );
 
     const result = await runCli(home, "update");
@@ -3855,7 +3855,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // The selected write scope composes identically for apply.
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nScoped composition change.\n",
+      "Scoped composition change.\n",
     );
     const applyStale = await runCli(home, "update", stale, "--stale", "--replace-changed");
 
@@ -5088,7 +5088,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // A changed Workspace source would change the desired bytes on re-apply.
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nChanged boundary rules.\n",
+      "Changed boundary rules.\n",
     );
 
     const applied = await runCli(home, "update");
@@ -5444,7 +5444,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(contextPath, contextBefore);
 
-    writeFileSync(join(workspacePath(home), "context", "team-rules.md"), "---\nid: team-rules\ndependencies: []\n---\nchanged\n");
+    writeFileSync(join(workspacePath(home), "context", "team-rules.md"), "changed\n");
     const stale = await runCli(home, "status", "--verbose");
     expect(humanText(stale.stdout)).toContain(
       humanText(`${projectPath}: source changed`),
@@ -5638,7 +5638,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(drifted, "hand edit\n");
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared Context.\n",
+      "Updated shared Context.\n",
     );
     chmodSync(projectBeta, 0o555);
 
@@ -5915,7 +5915,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nChanged concise status Context.\n",
+      "Changed concise status Context.\n",
     );
     const drift = await runCli(home, "status");
     expectExitCode(drift, 0);
@@ -6429,7 +6429,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(removed, ".codex", "hooks.json"), "user drift\n");
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nWould update retained.\n",
+      "Would update retained.\n",
     );
     bind(home, retained);
 
@@ -6490,7 +6490,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(contextPath);
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nCurrent Workspace restore bytes.\n",
+      "Current Workspace restore bytes.\n",
     );
 
     const concise = await runCli(home, "status");
@@ -6527,10 +6527,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Mixed cause: the user edits an installed output while its Workspace
     // source changes too (hooks.json stays intact as ownership evidence).
-    writeFileSync(contextPath, "---\nid: team-rules\ndependencies: []\n---\nUser-edited drift bytes.\n");
+    writeFileSync(contextPath, "User-edited drift bytes.\n");
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nNewer Workspace source bytes.\n",
+      "Newer Workspace source bytes.\n",
     );
 
     const status = await runCli(home, "status", "--verbose");
@@ -6918,7 +6918,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const before = readFileSync(contextFile, "utf8");
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated under the filter.\n",
+      "Updated under the filter.\n",
     );
 
     const result = await runCli(home, "update", "--blocked");
@@ -6954,7 +6954,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // drifts stale, the never-installed one stays an addition.
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nShared source change.\n",
+      "Shared source change.\n",
     );
 
     const result = await runCli(home, "update", "--all", "--stale");
@@ -6995,7 +6995,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // settled while only the stale Project's source changes.
     writeFileSync(
       join(workspacePath(home), "context", "other-rules.md"),
-      "---\nid: other-rules\ndependencies: []\n---\nOther boundary.\n",
+      "Other boundary.\n",
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "other.yaml"),
@@ -7012,7 +7012,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // but only the stale Project is selected for the filtered apply.
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nExclusion scope change.\n",
+      "Exclusion scope change.\n",
     );
     // The unselected Project's published section is stale on disk; republication
     // would self-heal it. A filtered apply must not write there.
@@ -7064,7 +7064,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated healthy Project.\n",
+      "Updated healthy Project.\n",
     );
 
     const result = await runCli(home, "update", "--all");
@@ -7103,7 +7103,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(join(nested, ".codex", "hooks.json"), "user drift\n");
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nPending shared update.\n",
+      "Pending shared update.\n",
     );
 
     const result = await runCli(home, "update", "--all", "--replace-changed");
@@ -7912,7 +7912,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const workspace = workspacePath(home);
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nKeep repository instructions authoritative.\n",
+      "Keep repository instructions authoritative.\n",
     );
     const baseSkill = join(workspace, "skills", "shared-base");
     const topSkill = join(workspace, "skills", "top-skill");
@@ -8741,7 +8741,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(human.stdout).toContain("apkit guide --full");
     expect(human.stdout).toContain("apkit guide --agent");
     expect(human.stdout).toContain("Profiles select it by its");
-    expect(human.stdout).toContain("frontmatter `id`.");
+    expect(human.stdout).toContain("without `.md`, and apkit reads no frontmatter.");
     expect(human.stdout).toContain("frontmatter `name`,");
     expect(human.stdout).not.toContain("SessionStart");
     // The human guide renders as terminal content through the guide-markdown
@@ -11632,7 +11632,7 @@ describe("apkit list", () => {
     const workspace = workspacePath(home);
     writeFileSync(
       join(workspace, "context", "writing-style.md"),
-      "---\nid: writing-style\ndependencies: []\n---\nKeep prose plain.\n",
+      "Keep prose plain.\n",
     );
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(
@@ -14432,7 +14432,7 @@ describe("packed CLI new profile", () => {
     writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(
       join(workspace, "context", "example-context.md"),
-      "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n",
+      "Keep project-specific instructions in the project repository.\n",
     );
 
     const result = await runCliInPtyWithInput(
@@ -15135,7 +15135,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated standing instruction.\n",
+      "Updated standing instruction.\n",
     );
 
     const update = await runCli(home, "update", projectPath);
@@ -15192,7 +15192,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAnother standing instruction.\n",
+      "Another standing instruction.\n",
     );
 
     const update = await runCliWithEnvironment(home, { NO_COLOR: "1" }, "update", projectPath);
@@ -15207,7 +15207,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nVerbose-only instruction.\n",
+      "Verbose-only instruction.\n",
     );
 
     const update = await runCli(home, "update", projectPath, "--verbose");
@@ -15222,7 +15222,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nMachine-only instruction.\n",
+      "Machine-only instruction.\n",
     );
 
     const update = await runCli(home, "update", projectPath, "--json");
@@ -15275,7 +15275,7 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     if (options.profile !== undefined) {
       writeFileSync(
         join(workspace, "context", "handbook.md"),
-        "---\nid: \"handbook\"\ndependencies: []\n---\n\nHandbook instructions.\n",
+        "Handbook instructions.\n",
       );
       writeFileSync(
         join(workspace, "profiles", `${options.profile}.yaml`),

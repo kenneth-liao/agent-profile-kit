@@ -231,6 +231,15 @@ export type InstallerToolErrorFact =
       readonly path: string;
     }
   | {
+      /**
+       * A nested Context Module's intermediate folder exists but is not a
+       * real directory (spec #593 DEC-004, #600): never written through.
+       * The path is the intermediate folder's absolute location.
+       */
+      readonly kind: "context-module-parent-not-directory";
+      readonly path: string;
+    }
+  | {
       readonly kind: "artifact-creation-residue";
       /** The display noun of the artifact kind being created. */
       readonly artifactType: CreationArtifactType;

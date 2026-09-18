@@ -156,8 +156,15 @@ are not delivered by this release. A Profile must select at least one supported
 artifact overall (Context Module, Skill, or both); no individual category is
 mandatory. Context-only, Skills-only, and combined Profiles are valid.
 
-A Context Module is a Markdown file under `context/` with frontmatter containing
-one stable, lowercase kebab-case `id`; the Markdown body is the Context. A Skill
+A Context Module is any Markdown file under `context/`, at any depth; its ID
+is its path under `context/` without `.md`, with `/` between folders (for
+example `engineering/review-findings`). apkit reads no Context frontmatter
+and requires none: the file's bytes are delivered as written inside the
+generated Context output, whose header precedes all module content, so
+frontmatter in a Context file never becomes Host frontmatter. Moving or
+renaming the file changes its ID by design. Every folder and file name under
+`context/` must be a lowercase kebab-case name, because together they form
+the ID. A Skill
 is a standard Agent Skills package under `skills/`, rooted at `SKILL.md`; its
 standard `name` is its stable Artifact ID. The frontmatter needs a lowercase
 hyphenated `name` and a non-empty `description`. Scripts, references, and assets
@@ -245,16 +252,29 @@ binary — before rolling a CLI back, re-add an `id` line matching each
 Profile's file name, or keep every shared Workspace on 0.208+.
 
 ```md
----
-id: engineering-rules
----
+<!-- context/engineering-rules.md -->
 Keep project facts in the project repository.
+
+<!-- context/engineering/review-findings.md -->
+Review findings and the reasoning behind them.
 ```
+
+A Context Module is a plain Markdown file: no frontmatter is required or
+read. A Context file that still carries frontmatter from an earlier release
+is valid — its bytes are delivered as written — and you can delete the
+frontmatter at your leisure.
+
+Rollback caveat: Context path identity is a **CLI 0.210.0+** acceptance
+change. A Workspace whose Context Modules carry no frontmatter `id` fails
+validation on an older binary — before rolling a CLI back, re-add an `id`
+line matching each file's path-derived ID, or keep every shared Workspace on
+0.210+.
 
 ```yaml
 # profiles/coding.yaml
 context:
   - engineering-rules
+  - engineering/review-findings
 skills:
   - review-pr
 ```
@@ -444,9 +464,14 @@ Hosts.
 Antigravity receives Profile Context through deterministic always-on rules under
 `.agents/rules/`. The Adapter requires `agy` CLI 1.1.13 or newer and writes one
 rule for the Profile envelope followed by one complete rule per Context Module.
+A nested Context Module ID's `/` separators become `.` in the rule file name
+(the ID itself is preserved in the rule's boundary markers); each rule file
+stays directly inside `.agents/rules/`.
 Each generated rule contains `trigger: always_on` frontmatter and must stay at or
 below 12,000 characters. If one Context Module is too large, status reports a
-structured blocker instead of truncating it.
+structured blocker instead of truncating it. A Context Module's own frontmatter,
+when it has any, is delivered as written inside the rule's boundary markers and
+never replaces the generated `trigger: always_on` frontmatter.
 
 Antigravity discovers the rules from the current bound project; you do not need
 to create or select an Antigravity Project. Trust is Host-owned: after `update`,

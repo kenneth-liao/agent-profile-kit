@@ -121,7 +121,7 @@ async function contextInstallation(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nDirectory ownership context.\n",
+    "Directory ownership context.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),

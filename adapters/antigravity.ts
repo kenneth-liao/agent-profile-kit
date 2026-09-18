@@ -277,6 +277,18 @@ function ruleCharacterCount(source: string): number {
   return [...source].length;
 }
 
+/**
+ * The rule file-name segment for one Context Module ID: `/`-separated path
+ * IDs (spec #593 DEC-004, #600) are flattened with `.` so every rule stays a
+ * single file directly under the rules root. `.` never occurs in an Artifact
+ * ID, so the encoding is injective — distinct IDs always get distinct rule
+ * file names, and no ID spelling can traverse out of the rules root. The
+ * true ID is preserved in the rule's boundary markers and requirements.
+ */
+function ruleFileSegment(moduleId: string): string {
+  return moduleId.replace(/\//g, ".");
+}
+
 function rulePath(index: number, moduleId?: string): string {
   const numericSequence = String(index * 10);
   if (numericSequence.length > ANTIGRAVITY_RULE_SEQUENCE_WIDTH) {
@@ -298,7 +310,7 @@ function rulePath(index: number, moduleId?: string): string {
   const sequence = numericSequence.padStart(ANTIGRAVITY_RULE_SEQUENCE_WIDTH, "0");
   return posix.join(
     ANTIGRAVITY_CONTEXT_RULES_ROOT,
-    `${ANTIGRAVITY_RULE_PREFIX}-${sequence}-${moduleId ?? "envelope"}.md`,
+    `${ANTIGRAVITY_RULE_PREFIX}-${sequence}-${moduleId === undefined ? "envelope" : ruleFileSegment(moduleId)}.md`,
   );
 }
 

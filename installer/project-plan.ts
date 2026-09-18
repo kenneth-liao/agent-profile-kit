@@ -29,6 +29,7 @@ import {
   type ArtifactReference,
   type ArtifactType,
 } from "../schemas/dependencies.js";
+import { requireContextModuleId } from "../schemas/context-profile.js";
 import { type ResolvedArtifactFingerprint } from "./hashes.js";
 import {
   ingestApplication,
@@ -466,8 +467,13 @@ function normalizeOutputOrigins(
     if (!ARTIFACT_TYPES.includes(reference.type as ArtifactType)) {
       throw new Error(`${description} type must be one of: ${ARTIFACT_TYPES.join(", ")}`);
     }
+    // Context origins use the path grammar (`/`-separated segments, spec #593
+    // DEC-004, #600); Skill origins stay flat.
     return {
-      id: requireArtifactId(reference.id, `${description} id`),
+      id:
+        reference.type === "context"
+          ? requireContextModuleId(reference.id, `${description} id`)
+          : requireArtifactId(reference.id, `${description} id`),
       type: reference.type,
     };
   });

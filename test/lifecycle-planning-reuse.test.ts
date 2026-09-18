@@ -93,7 +93,7 @@ async function multiProjectWorkspace(options: {
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   writeSkill(workspace, "review-pr", "# Review a pull request.\n");
   writeFileSync(
@@ -103,7 +103,7 @@ async function multiProjectWorkspace(options: {
   if ((options.profileCount ?? 1) > 1) {
     writeFileSync(
       join(workspace, "context", "ops-rules.md"),
-      "---\nid: ops-rules\ndependencies: []\n---\nOperations preferences.\n",
+      "Operations preferences.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "operations.yaml"),
@@ -187,7 +187,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeSkill(workspace, "review-pr");
     writeFileSync(
@@ -295,7 +295,7 @@ describe("lifecycle planning reuse within one invocation", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     const skillRoot = join(workspace, "skills", "review-pr");
     mkdirSync(join(skillRoot, "scripts"), { recursive: true });

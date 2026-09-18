@@ -23,7 +23,7 @@ function scaffoldWorkspace(home: string): string {
   );
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\n\n# Team rules\n",
+    "\n# Team rules\n",
   );
   writeFileSync(
     join(workspace, "skills", "deploy", "SKILL.md"),

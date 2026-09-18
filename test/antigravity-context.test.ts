@@ -132,7 +132,7 @@ describe("Antigravity Context Adapter", () => {
     );
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\ndependencies: []\n---\nKeep repository instructions authoritative.\n",
+      "Keep repository instructions authoritative.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -364,7 +364,7 @@ describe("Antigravity Context Adapter", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\ndependencies: []\n---\nKeep repository instructions authoritative.\n",
+      "Keep repository instructions authoritative.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -394,7 +394,7 @@ describe("Antigravity Context Adapter", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "oversized.md"),
-      `---\nid: oversized\ndependencies: []\n---\n${"x".repeat(ANTIGRAVITY_RULE_CHARACTER_LIMIT)}\n`,
+      `${"x".repeat(ANTIGRAVITY_RULE_CHARACTER_LIMIT)}\n`,
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),

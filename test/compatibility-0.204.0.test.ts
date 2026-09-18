@@ -8,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -114,14 +115,22 @@ function materializeMachine(home: string): string {
 
 /**
  * Repair the copied 0.204.0 Workspace into current format: remove the
- * retired Skill sidecar and list every needed artifact in the Profile's
- * explicit `context` and `skills` lists. The Context Module frontmatter
- * `dependencies` key is tolerated and unread, so it stays as written.
+ * retired Skill sidecar, list every needed artifact in the Profile's
+ * explicit `context` and `skills` lists, remove the authored Profile `id`
+ * fields, and rename the Context file whose frontmatter `id` differed from
+ * its file name so the path-derived ID keeps the ID the Profile references
+ * (spec #593 DEC-004, #600). Context frontmatter is never removed: apkit
+ * reads none, so the 0.204.0 bytes stay in place and are delivered as
+ * written (DEC-005) — the delivered output proves it.
  */
 function repairWorkspace(home: string): void {
   const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
   cpSync(join(FIXTURES, "workspace-source"), workspace, { recursive: true });
   rmSync(join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"));
+  renameSync(
+    join(workspace, "context", "legacy-name.md"),
+    join(workspace, "context", "legacy-rules.md"),
+  );
   // Repair to the current Profile shape: a Profile's ID is its file name
   // (spec #593 DEC-014), so the authored `id` fields are removed. Both files
   // matched their authored IDs, so every Project Binding and receipt keeps
@@ -132,7 +141,7 @@ function repairWorkspace(home: string): void {
   );
   writeFileSync(
     join(workspace, "profiles", "example.yaml"),
-    'context:\n  - "example-context"\nskills: []\n',
+    'context:\n  - "legacy-rules"\nskills: []\n',
   );
 }
 
@@ -158,7 +167,7 @@ async function ingestionFact(workspace: string): Promise<InstallerToolErrorFact 
   throw new Error("expected ingestWorkspace to reject the 0.204.0 Workspace");
 }
 
-describe("0.204.0 compatibility (issues #596, #598; TEST-010, DEC-013)", () => {
+describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", () => {
   test("the untouched 0.204.0 Workspace fixture first reports the Profile id field with its path and fix", async () => {
     // Profiles ingest before Skills, so the first reported violation of the
     // raw fixture is the authored `id` field (spec #593 DEC-014, #598).
@@ -195,6 +204,41 @@ describe("0.204.0 compatibility (issues #596, #598; TEST-010, DEC-013)", () => {
     expect(normalized).toContain("delete the file");
   });
 
+  test("after the Profile and sidecar fixes, the divergent frontmatter id is the only remaining change, naming the file rename", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "workspace");
+    copyWithToken(join(FIXTURES, "workspace-source"), workspace, {});
+    for (const profile of ["coding.yaml", "example.yaml"]) {
+      const file = join(workspace, "profiles", profile);
+      writeFileSync(file, readFileSync(file, "utf8").replace(/^id:.*\n/m, ""));
+    }
+    rmSync(join(workspace, "skills", "review-pr", "agent-profile-kit.yaml"));
+    // The Profile references the authored frontmatter id, which no longer
+    // exists: the fix is the file rename that keeps that ID (path identity,
+    // spec #593 DEC-004, #600), never a silent rebinding.
+    expect(await ingestionFact(workspace)).toEqual({
+      kind: "missing-context-reference",
+      profile: "example",
+      contextId: "legacy-rules",
+      file: "profiles/example.yaml",
+      available: ["example-context", "extra-rules", "legacy-name", "team-rules"],
+    });
+
+    renameSync(join(workspace, "context", "legacy-name.md"), join(workspace, "context", "legacy-rules.md"));
+    const ingested = await ingestWorkspace(workspace);
+    // The renamed file's ID is its path; the frontmatter it carried in
+    // 0.204.0 is inert, delivered-as-written content.
+    expect([...ingested.contexts.keys()].sort()).toEqual([
+      "example-context",
+      "extra-rules",
+      "legacy-rules",
+      "team-rules",
+    ]);
+    expect(ingested.contexts.get("legacy-rules")!.content).toBe(
+      "---\nid: legacy-rules\n---\nLegacy rules body.\n",
+    );
+  });
+
   test("update completes safely on 0.204.0 Installation State and installed output", async () => {
     const home = isolatedHome();
     const project = materializeMachine(home);
@@ -226,9 +270,17 @@ describe("0.204.0 compatibility (issues #596, #598; TEST-010, DEC-013)", () => {
     expect(settled.receipts[0]!.desired_input_digest).toBe(after.receipts[0]!.desired_input_digest);
 
     // Every owned output path stays owned by the same installation, in the
-    // same locations; no output is orphaned or adopted.
+    // same locations; no output is orphaned or adopted. The refreshed Codex
+    // Context delivers the 0.204.0 Context files as written: their
+    // frontmatter bytes now travel after the generated envelope header
+    // (spec #593 DEC-005, #600) instead of being stripped.
     expect(existsSync(join(project, ".agents", "skills", "base-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "review-pr", "SKILL.md"))).toBe(true);
+    const codexContext = readFileSync(join(project, ".agent-profile-kit", "codex", "context.md"), "utf8");
+    expect(codexContext.indexOf("---\nid: team-rules")).toBeGreaterThan(
+      codexContext.indexOf("# Agent Profile Kit Context"),
+    );
+    expect(codexContext).toContain("Team rules body.");
     expect(existsSync(join(project, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(project, ".codex", "hooks.json"))).toBe(true);
     expect(readFileSync(join(project, "keep.txt"), "utf8")).toBe("unrelated project file\n");

@@ -111,7 +111,7 @@ async function fleetHome(options: {
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   const skillCount = options.skillCount ?? 6;
   const skillIds: string[] = [];
@@ -295,7 +295,7 @@ describe("lifecycle Git inspection batching", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeSkill(workspace, "review-pr");
     writeFileSync(

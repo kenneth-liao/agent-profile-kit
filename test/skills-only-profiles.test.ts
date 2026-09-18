@@ -80,7 +80,7 @@ async function skillsOnlyWorkspace(
   if (options.includeContext) {
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
   }
   const contextList = options.includeContext ? "[team-rules]" : "[]";

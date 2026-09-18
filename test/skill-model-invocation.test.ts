@@ -367,7 +367,7 @@ describe("Skill model-invocation policy", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     const skillRoot = join(workspace, "skills", "to-spec");
     mkdirSync(skillRoot, { recursive: true });
@@ -576,7 +576,7 @@ describe("Skill model-invocation policy", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     mkdirSync(join(workspace, "skills", "to-spec"), { recursive: true });
     writeFileSync(join(workspace, "skills", "to-spec", "SKILL.md"), DISABLED_BODY);

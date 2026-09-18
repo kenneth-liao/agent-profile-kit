@@ -42,3 +42,15 @@ directory only by re-running it against the recorded commit. Regeneration is
 byte-identical except for the receipts' random `installation_id` UUID, which
 the journey's install run generates fresh each time; the desired-input
 digest, output hashes, and every other record are deterministic.
+
+Two later compatibility tickets extended the Workspace source in the same
+0.204.0 shape, beyond what `produce.sh` writes, so their migration steps stay
+provable:
+
+- #598 added `profiles/example.yaml` carrying an authored `id` field whose
+  value matched its file name.
+- #600 added `context/legacy-name.md` carrying a frontmatter `id` that
+  differed from its file name, and pointed `profiles/example.yaml` at that
+  authored ID, so the 0.204.0 → current migration exercises both Context
+  repairs: the file rename that keeps the referenced ID and the
+  delivered-as-written frontmatter bytes (spec #593 DEC-004/005).

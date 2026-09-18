@@ -66,7 +66,7 @@ async function setupHome(): Promise<string> {
   mkdirSync(join(workspace, "context"), { recursive: true });
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   mkdirSync(join(workspace, "profiles"), { recursive: true });
   writeFileSync(

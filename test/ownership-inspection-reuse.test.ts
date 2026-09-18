@@ -131,7 +131,7 @@ async function contextInstallation(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nShared ownership inspection context.\n",
+    "Shared ownership inspection context.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -371,7 +371,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nStale removal proof context.\n",
+      "Stale removal proof context.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -430,7 +430,7 @@ describe("one shared ownership inspection per generated output per pass", () => 
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nStale mutation proof context.\n",
+      "Stale mutation proof context.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),

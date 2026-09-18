@@ -81,7 +81,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    authored spelling. To keep generated files in place instead, remove the
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
-6. Validate before updating. Context Modules use `id` frontmatter and
+6. Validate before updating. Context Modules are plain Markdown files whose
+   path under `context/` (without `.md`) is their ID, and
    Profiles are named by their file name and contain `context` and `skills`
    only; the Profile lists are
    the only source of what is installed (no Dependencies, no sidecar files).

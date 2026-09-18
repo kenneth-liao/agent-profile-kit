@@ -77,8 +77,8 @@ The best-effort exclusion bookkeeping derived at write time from active Installa
 _Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, receipt-recorded exclusion evidence
 
 **Artifact ID**:
-The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml`.
-_Avoid_: Display name, organizational path (except a Profile's file name, which is its ID)
+The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml`; a Context Module's Artifact ID is its path under `context/` without `.md`, with `/` between folders, every segment a lowercase kebab-case name.
+_Avoid_: Display name, frontmatter-carried identity, organizational path (except a Context Module's path, which is its ID, and a Profile's file name, which is its ID)
 
 **Credential Requirement**:
 A semantic declaration that an artifact needs authenticated access, independent of how an Agent Host or system supplies it. Credential values never belong to Agent Profile Kit source or Installation State.
@@ -97,8 +97,8 @@ Always-loaded declarative facts, preferences, and standing rules selected by a P
 _Avoid_: Skill, procedure
 
 **Context Module**:
-An independently reusable unit of Context organized around one reason to change. Profiles select Context Modules, and Adapters compose them for an Agent Host.
-_Avoid_: Profile, generated host instructions
+An independently reusable unit of Context organized around one reason to change. A Context Module is any Markdown file under `context/`, at any depth; its ID is its path under `context/` without `.md`. apkit reads no Context frontmatter and requires none: each file's bytes are delivered as written after the generated Context envelope header. Profiles select Context Modules, and Adapters compose them for an Agent Host.
+_Avoid_: Profile, generated host instructions, frontmatter-carried identity
 
 **Skill Resource**:
 A script, reference, or asset owned and used exclusively by one Skill.

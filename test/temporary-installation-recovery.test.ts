@@ -71,7 +71,7 @@ async function prepareHome(): Promise<string> {
   rmSync(join(workspace, "context", "example-context.md"), { force: true });
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
   writeFileSync(
@@ -101,7 +101,7 @@ async function prepareClaudeHome(): Promise<string> {
   rmSync(join(workspace, "context", "example-context.md"), { force: true });
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });
   writeFileSync(
