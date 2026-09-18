@@ -21,8 +21,8 @@ Source ownership and managed delivery are separate:
   source into Host configuration.
 - **Profiles** select the artifacts scoped to a kind of work for Agent Profile
   Kit–managed project-bound delivery. A Project Binding selects a project root,
-  one Profile, and Hosts; only selected (and Dependency-resolved) artifacts from
-  that Profile enter Installation Receipts and the managed lifecycle
+  one Profile, and Hosts; only the artifacts that Profile selects enter
+  Installation Receipts and the managed lifecycle
   (`status`, `update`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
   personal/global Host roots. Global Host delivery is not APK-owned state: it is
@@ -223,7 +223,7 @@ never silently omits or weakens what it plans.
 Profiles are the only place that says what gets installed together (ADR-0045):
 list each needed Context Module and Skill explicitly. A Profile's `context`
 and `skills` lists install exactly what they name — nothing is pulled in
-transitively. Inclusion reasons are not persisted in Installation State.
+transitively.
 
 A Profile is a YAML file under `profiles/` with exactly an `id`, a `context`
 array, and a `skills` array. At least one of `context` or `skills` must be

@@ -10,16 +10,12 @@ function isolatedHome(): string {
   return mkdtempSync(join(tmpdir(), "apkit-resolve-profile-"));
 }
 
-interface SkillSpec {
-  readonly id: string;
-  readonly sidecarDependencies?: string;
-}
 
 function scaffoldWorkspace(
   home: string,
   options: {
     readonly contextDependencies?: Record<string, string>;
-    readonly skills?: readonly SkillSpec[];
+    readonly skills?: readonly { readonly id: string }[];
   } = {},
 ): string {
   const workspace = join(home, "workspace");
@@ -42,21 +38,12 @@ function scaffoldWorkspace(
     join(workspace, "context", "bare.md"),
     "---\nid: bare\n---\n\n# bare\n",
   );
-  for (const skill of options.skills ?? [
-    { id: "primary" },
-    { id: "other" },
-  ]) {
+  for (const skill of options.skills ?? [{ id: "primary" }, { id: "other" }]) {
     mkdirSync(join(workspace, "skills", skill.id), { recursive: true });
     writeFileSync(
       join(workspace, "skills", skill.id, "SKILL.md"),
       `---\nname: ${skill.id}\ndescription: Does ${skill.id} work.\n---\n\n# ${skill.id}\n`,
     );
-    if (skill.sidecarDependencies !== undefined) {
-      writeFileSync(
-        join(workspace, "skills", skill.id, "agent-profile-kit.yaml"),
-        skill.sidecarDependencies,
-      );
-    }
   }
   return workspace;
 }

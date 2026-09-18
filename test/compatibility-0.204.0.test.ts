@@ -101,13 +101,13 @@ async function runCli(home: string, ...arguments_: string[]) {
  * the installed project tree at the bound project path.
  */
 function materializeMachine(home: string): string {
+  // The fixture records canonical (realpath) identities; substitute canonical
+  // spellings everywhere so receipts match the freshly planned state.
   const project = join(home, "project");
-  copyWithToken(join(FIXTURES, "project"), project, { [HOME_TOKEN]: home, [PROJECT_TOKEN]: join(home, "project") });
-  // The fixture records canonical (realpath) identities; substitute the
-  // canonical spellings so receipts match the freshly planned state.
-  const homeReal = realpathSync(home);
-  const projectReal = realpathSync(project);
-  copyWithToken(join(FIXTURES, "home"), home, { [HOME_TOKEN]: homeReal, [PROJECT_TOKEN]: projectReal });
+  mkdirSync(project);
+  const tokens = { [HOME_TOKEN]: realpathSync(home), [PROJECT_TOKEN]: realpathSync(project) };
+  copyWithToken(join(FIXTURES, "project"), project, tokens);
+  copyWithToken(join(FIXTURES, "home"), home, tokens);
   return project;
 }
 
@@ -180,11 +180,16 @@ describe("0.204.0 compatibility (issue #596, TEST-010)", () => {
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as ReceiptRecord;
     expect(after.receipts).toHaveLength(1);
-    expect(after.receipts[0]!.project).toBe(realpathSync(project));
+    expect(after.receipts[0]!.project).toBe(recorded.project);
     // The digest the 0.204.0 code computed (with dependency and
     // inclusion-reason semantics) is refreshed under the current rules.
     expect(after.receipts[0]!.desired_input_digest).not.toBe(recorded.desired_input_digest);
     expect(after.receipts[0]!.outputs.map((output) => output.path).sort()).toEqual(outputPaths);
+
+    // The refresh is idempotent: a second update recomputes the same digest.
+    expectExitCode(await runCli(home, "update", "--all"), 0);
+    const settled = JSON.parse(readFileSync(statePath(home), "utf8")) as ReceiptRecord;
+    expect(settled.receipts[0]!.desired_input_digest).toBe(after.receipts[0]!.desired_input_digest);
 
     // Every owned output path stays owned by the same installation, in the
     // same locations; no output is orphaned or adopted.

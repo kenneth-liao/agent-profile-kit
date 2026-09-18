@@ -112,9 +112,9 @@ export function parseContextModule(source: string, path: string): ContextModule 
     path,
     fields: Object.keys(mapping).filter((key) => !["id", "dependencies"].includes(key)),
   });
-  // `dependencies` remains a tolerated legacy key (spec #593 DEC-013) but its
-  // value is never read: Profile lists are the only source of what is
-  // installed (DEC-006).
+  // `dependencies` remains a tolerated legacy key whose value is never read
+  // (spec #593 DEC-006, ADR-0045): Profile lists are the only source of what
+  // is installed.
   if (typeof mapping.id !== "string" || !ARTIFACT_ID.test(mapping.id)) {
     throw rejectSchema({
       schema: "workspace-artifact",

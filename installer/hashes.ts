@@ -124,7 +124,7 @@ function fingerprintContextContent(content: string): string {
   return sha256(JSON.stringify({ content }));
 }
 
-/** Deterministic normalized fingerprint for one Skill package tree (sidecar excluded). */
+/** Deterministic normalized fingerprint for one Skill package tree. */
 function fingerprintSkillInput(input: unknown): string {
   return sha256(JSON.stringify(input));
 }

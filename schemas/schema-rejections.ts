@@ -1,7 +1,7 @@
 /**
  * Typed rejection facts for every portable schema the Installer ingests:
  * Local Configuration, the Workspace Manifest, and portable artifact sources
- * (Context Modules, Profiles, Skills, and their typed Artifact references).
+ * (Context Modules, Profiles, and Skills).
  *
  * Every case is a typed fact — path, index, field, Host, supported-Host list —
  * and the schema parsers author no user-facing sentence; presentation owns

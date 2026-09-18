@@ -297,7 +297,7 @@ describe("OpenCode Skills planning", () => {
       "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
     );
 
-    const disabledSkill: Skill = {      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: source,
     };
@@ -458,11 +458,11 @@ describe("OpenCode Skills planning", () => {
       "---\nname: deploy\ndescription: Deploy.\n---\n\n# Deploy\n",
     );
 
-    const allowedSkill: Skill = {      id: "review-pr",
+    const allowedSkill: Skill = { id: "review-pr",
       modelInvocation: "allowed",
       path: allowedSource,
     };
-    const disabledSkill: Skill = {      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: disabledSource,
     };
@@ -772,7 +772,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
       "SKILL.md": { bytes: authoredSkillContent, mode: 0o644 },
     });
 
-    const disabledSkill: Skill = {      id: "deploy",
+    const disabledSkill: Skill = { id: "deploy",
       modelInvocation: "disabled",
       path: source,
     };
