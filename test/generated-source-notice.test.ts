@@ -70,7 +70,7 @@ function writeSkillPackage(
 }
 
 function skillAt(path: string, modelInvocation: Skill["modelInvocation"]): Skill {
-  return { dependencies: [], id: "review-pr", modelInvocation, path };
+  return { id: "review-pr", modelInvocation, path };
 }
 
 function memberAt(

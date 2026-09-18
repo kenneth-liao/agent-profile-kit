@@ -90,47 +90,7 @@ export type WorkspaceArtifactRejectionReason =
       readonly path: string;
       readonly section: string;
     }
-  | { readonly case: "invalid-model-invocation"; readonly path: string; readonly key: string }
-  | {
-      readonly case: "dependencies-not-array";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-    }
-  | {
-      readonly case: "reference-not-mapping";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-      readonly index: number;
-    }
-  | {
-      readonly case: "reference-extra-fields";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-      readonly index: number;
-    }
-  | {
-      readonly case: "reference-invalid-id";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-      readonly index: number;
-    }
-  | {
-      readonly case: "reference-invalid-type";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-      readonly index: number;
-    }
-  | {
-      readonly case: "duplicate-reference";
-      readonly artifact: WorkspaceArtifactKind;
-      readonly path: string;
-      readonly section: string;
-    };
+  | { readonly case: "invalid-model-invocation"; readonly path: string; readonly key: string };
 
 /** Artifact ID validation outside portable-artifact parsing carries its caller label. */
 export type ArtifactIdRejectionReason = { readonly case: "invalid-artifact-id"; readonly label: string };

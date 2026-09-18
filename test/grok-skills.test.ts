@@ -80,7 +80,7 @@ function writeSkillPackage(
 }
 
 function skill(id: string, path: string, modelInvocation: Skill["modelInvocation"] = "allowed"): Skill {
-  return { dependencies: [], id, modelInvocation, path };
+  return { id, modelInvocation, path };
 }
 
 function enableCodexHooks(home: string): void {
@@ -95,7 +95,6 @@ async function workspaceWithSkills(
   skills: ReadonlyArray<{
     readonly id: string;
     readonly body?: string;
-    readonly dependencies?: readonly string[];
     readonly path?: string;
     readonly scriptMode?: number;
   }>,
@@ -128,12 +127,6 @@ async function workspaceWithSkills(
       writeFileSync(script, `#!/bin/sh\necho ${entry.id}\n`);
       chmodSync(script, entry.scriptMode);
     }
-    if (entry.dependencies) {
-      writeFileSync(
-        join(skillRoot, "agent-profile-kit.yaml"),
-        `dependencies:\n${entry.dependencies.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
-      );
-    }
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -146,7 +139,7 @@ async function workspaceWithSkills(
 }
 
 describe("Grok project Skill packages", () => {
-  test("plans each resolved Skill under .grok/skills/<Artifact ID> with bytes and modes preserved and sidecars omitted", async () => {
+  test("plans each listed Skill under .grok/skills/<Artifact ID> with bytes and modes preserved", async () => {
     const source = temporaryDirectory("apk-grok-skill-source-");
     writeSkillPackage(source, {
       "SKILL.md": {
@@ -156,10 +149,6 @@ describe("Grok project Skill packages", () => {
       "scripts/run.sh": {
         bytes: "#!/bin/sh\necho review\n",
         mode: 0o755,
-      },
-      "agent-profile-kit.yaml": {
-        bytes: "dependencies: []\n",
-        mode: 0o644,
       },
     });
     const binaryAsset = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x41]);
@@ -193,12 +182,9 @@ describe("Grok project Skill packages", () => {
     expect(script).toMatchObject({ mode: 0o755, path: "scripts/run.sh", type: "file" });
     expect(asset?.type).toBe("file");
     expect(Buffer.from((asset as { bytes: Uint8Array }).bytes)).toEqual(binaryAsset);
-    expect(packageOutput.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(
-      false,
-    );
   });
 
-  test("resolves direct and transitive Skills once, installs by Artifact ID, and omits unselected Skills", async () => {
+  test("installs each Profile-listed Skill once, by Artifact ID, and omits unselected Skills", async () => {
     const home = temporaryDirectory("apk-grok-skill-home-");
     const project = temporaryDirectory("apk-grok-skill-project-");
     await workspaceWithSkills(
@@ -207,25 +193,16 @@ describe("Grok project Skill packages", () => {
       ["grok"],
       [
         { id: "shared-base", path: "library/shared-base" },
-        {
-          id: "left-skill",
-          path: "group/left-skill",
-          dependencies: ["shared-base"],
-        },
-        {
-          id: "right-skill",
-          path: "group/right-skill",
-          dependencies: ["shared-base"],
-        },
+        { id: "left-skill", path: "group/left-skill" },
+        { id: "right-skill", path: "group/right-skill" },
         {
           id: "top-skill",
           path: "group/top-skill",
-          dependencies: ["left-skill", "right-skill"],
           scriptMode: 0o755,
         },
         { id: "unselected-skill", path: "other/unselected-skill" },
       ],
-      ["top-skill"],
+      ["shared-base", "left-skill", "right-skill", "top-skill"],
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -242,11 +219,6 @@ describe("Grok project Skill packages", () => {
       ".grok/skills/top-skill",
     ]);
 
-    const sharedResolved = installation.resolvedProfile.artifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
-
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
@@ -258,21 +230,11 @@ describe("Grok project Skill packages", () => {
         item.kind === "addition" && item.path === ".grok/skills/top-skill"
       ),
     ).toBe(true);
-    const sharedReasons = reportDesired(preview)[0]?.resolvedArtifacts.find(
-      (artifact) => artifact.id === "shared-base",
-    )?.inclusionReasons ?? [];
-    expect(sharedReasons.length).toBeGreaterThanOrEqual(2);
-    const reasonPaths = sharedReasons.map((reason) => reason.path.join(" -> "));
-    expect(reasonPaths.some((path) => path.includes("skill:left-skill"))).toBe(true);
-    expect(reasonPaths.some((path) => path.includes("skill:right-skill"))).toBe(true);
 
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".grok", "skills", "top-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".grok", "skills", "shared-base", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".grok", "skills", "unselected-skill"))).toBe(false);
-    expect(existsSync(join(project, ".grok", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(
-      false,
-    );
     expect(statSync(join(project, ".grok", "skills", "top-skill", "scripts", "run.sh")).mode & 0o777)
       .toBe(0o755);
     expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
@@ -493,9 +455,9 @@ describe("Grok project Skill packages", () => {
       ["codex", "claude", "grok"],
       [
         { id: "base-skill" },
-        { id: "review-pr", dependencies: ["base-skill"], scriptMode: 0o755 },
+        { id: "review-pr", scriptMode: 0o755 },
       ],
-      ["review-pr"],
+      ["base-skill", "review-pr"],
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });

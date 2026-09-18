@@ -86,7 +86,6 @@ async function writePiSkillWorkspace(
   skills: readonly {
     readonly id: string;
     readonly path: string;
-    readonly dependencies?: readonly string[];
     readonly scriptMode?: number;
   }[],
   hosts: readonly string[] = ["pi"],
@@ -109,12 +108,6 @@ async function writePiSkillWorkspace(
       mkdirSync(join(root, "scripts"), { recursive: true });
       writeFileSync(join(root, "scripts", "run.sh"), `#!/bin/sh\necho ${skill.id}\n`);
       chmodSync(join(root, "scripts", "run.sh"), skill.scriptMode);
-    }
-    if (skill.dependencies !== undefined) {
-      writeFileSync(
-        join(root, "agent-profile-kit.yaml"),
-        `dependencies:\n${skill.dependencies.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
-      );
     }
   }
   writeFileSync(
@@ -270,7 +263,7 @@ describe("Pi Adapter", () => {
     ).rejects.toThrow(/\.agents\/skills.*symlink.*directory/i);
   });
 
-  test("plans each allowed Skill under .agents/skills/<Artifact ID> with package bytes, modes, and sidecars preserved", async () => {
+  test("plans each allowed Skill under .agents/skills/<Artifact ID> with package bytes and modes preserved", async () => {
     const source = temporaryDirectory("apk-pi-skill-source-");
     mkdirSync(join(source, "scripts"), { recursive: true });
     writeFileSync(
@@ -280,10 +273,9 @@ describe("Pi Adapter", () => {
     );
     writeFileSync(join(source, "scripts", "run.sh"), "#!/bin/sh\necho review\n", { mode: 0o755 });
     chmodSync(join(source, "scripts", "run.sh"), 0o755);
-    writeFileSync(join(source, "agent-profile-kit.yaml"), "dependencies: []\n");
 
     const plan = await planPiProject("coding", [], [
-      { dependencies: [], id: "review-pr", modelInvocation: "allowed", path: source },
+      { id: "review-pr", modelInvocation: "allowed", path: source },
     ]);
 
     expect(plan.hostVersion).toBe(PI_HOST_VERSION_WITH_SKILLS);
@@ -303,7 +295,6 @@ describe("Pi Adapter", () => {
         "---\nname: review-pr\ndescription: Review a pull request.\n---\n\n# Review\n",
       ),
     );
-    expect(output.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(false);
   });
 
   test("projects disabled model invocation into the shared Skill frontmatter while preserving explicit Skill identity", () => {
@@ -352,7 +343,6 @@ describe("Pi Adapter", () => {
       "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Review\n",
     );
     const disabled = {
-      dependencies: [],
       id: "review-pr",
       modelInvocation: "disabled" as const,
       path: source,
@@ -474,18 +464,18 @@ describe("Pi Adapter", () => {
     expect(existsSync(join(combinedProject, ".claude", "rules", "agent-profile-kit.md"))).toBe(false);
   });
 
-  test("resolves direct and transitive Pi Skills once, records reasons, preserves package state, and removes only owned output", async () => {
+  test("installs exactly the Pi Profile-listed Skills, preserves package state, and removes only owned output", async () => {
     const home = temporaryDirectory("apk-pi-skill-lifecycle-home-");
     const project = temporaryDirectory("apk-pi-skill-lifecycle-project-");
     mkdirSync(join(project, ".agents", "skills", "unrelated"), { recursive: true });
     writeFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "keep\n");
     await writePiSkillWorkspace(home, project, ["top-skill"], [
       { id: "shared-base", path: "library/shared-base" },
-      { id: "left-skill", path: "group/left-skill", dependencies: ["shared-base"] },
-      { id: "right-skill", path: "group/right-skill", dependencies: ["shared-base"] },
-      { id: "top-skill", path: "top-skill", dependencies: ["left-skill", "right-skill"], scriptMode: 0o755 },
+      { id: "left-skill", path: "group/left-skill" },
+      { id: "right-skill", path: "group/right-skill" },
+      { id: "top-skill", path: "top-skill", scriptMode: 0o755 },
       { id: "unselected-skill", path: "other/unselected-skill" },
-    ]);
+    ], ["shared-base", "left-skill", "right-skill", "top-skill"]);
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
@@ -499,11 +489,6 @@ describe("Pi Adapter", () => {
       ".agents/skills/top-skill",
       ".pi/APPEND_SYSTEM.md",
     ]);
-    const shared = installation.resolvedProfile.artifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(shared?.inclusionReasons).toHaveLength(2);
-
     await applyReconciliation(home, desired.installations);
     const reapplied = await applyReconciliation(
       home,
@@ -513,7 +498,6 @@ describe("Pi Adapter", () => {
     const topScript = join(project, ".agents", "skills", "top-skill", "scripts", "run.sh");
     expect(readFileSync(topScript, "utf8")).toContain("top-skill");
     expect(statSync(topScript).mode & 0o777).toBe(0o755);
-    expect(existsSync(join(project, ".agents", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(false);
     expect(existsSync(join(project, ".agents", "skills", "unselected-skill"))).toBe(false);
     expect(readFileSync(join(project, ".agents", "skills", "unrelated", "README.md"), "utf8")).toBe("keep\n");
 
@@ -886,7 +870,7 @@ describe("Pi Adapter", () => {
       planPiProject(
         "coding",
         [{ id: "team-rules", content: "Context\n" }],
-        [{ dependencies: [], id: "review-pr", modelInvocation: "disabled", path: source }],
+        [{ id: "review-pr", modelInvocation: "disabled", path: source }],
       ),
     ).resolves.toMatchObject({
       hostVersion: PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION,

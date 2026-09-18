@@ -315,7 +315,6 @@ describe("lifecycle planning reuse within one invocation", () => {
     );
 
     const members = await skillPackageMembers({
-      dependencies: [],
       id: "review-pr",
       modelInvocation: "allowed",
       path: skillRoot,

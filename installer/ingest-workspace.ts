@@ -7,8 +7,7 @@ import {
   parseProfile,
   type Profile,
 } from "../schemas/context-profile.js";
-import { parseSkill, type Skill } from "../schemas/skill.js";
-import { resolveProfileDependencies, validateDependencyCatalog } from "./resolve-dependencies.js";
+import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
 import { validateWorkspaceStructure, workspacePath, SKILL_FILE_NAME, skillEntryRelativePath } from "./workspace.js";
 import { InstallerToolError, type CreationArtifactType } from "./tool-errors.js";
 
@@ -129,13 +128,15 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
   for (const name of await skillPaths(join(path, "skills"))) {
     const sourcePath = join(path, "skills", name);
     const relativePath = skillEntryRelativePath(path, sourcePath);
-    let sidecar: string | undefined;
-    try {
-      sidecar = await readFile(join(sourcePath, "agent-profile-kit.yaml"), "utf8");
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
+    // A retired Agent Profile Kit sidecar inside a Skill package is one
+    // violation naming its file (spec #593 DEC-006): Profile lists are the
+    // only source of what is installed, so the sidecar has no reader left.
+    const entries = await readdir(sourcePath, { withFileTypes: true });
+    if (entries.some((entry) => entry.name === SKILL_PACKAGE_SIDECAR)) {
+      throw new InstallerToolError({
+        kind: "leftover-skill-sidecar",
+        file: `skills/${name}/${SKILL_PACKAGE_SIDECAR}`,
+      });
     }
     addUnique(
       skills,
@@ -143,15 +144,12 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         await readFile(join(sourcePath, SKILL_FILE_NAME), "utf8"),
         relativePath,
         sourcePath,
-        sidecar,
-        sidecar === undefined ? undefined : `skills/${name}/agent-profile-kit.yaml`,
       ),
       "Skill",
       (existing) => skillEntryRelativePath(path, existing.path),
     );
   }
 
-  validateDependencyCatalog(contexts, skills);
   for (const profile of profiles.values()) {
     // At least one currently supported artifact category must be selected. No single
     // category (including Context) is mandatory; empty Profiles fail at ingestion.
@@ -185,7 +183,6 @@ export async function ingestWorkspace(path: string): Promise<Workspace> {
         });
       }
     }
-    resolveProfileDependencies(profile, contexts, skills);
   }
 
   return { path, contexts, profiles, skills };

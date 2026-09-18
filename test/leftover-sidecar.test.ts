@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -8,7 +8,7 @@ import { InstallerToolError } from "../installer/tool-errors.js";
 import type { WorkspaceIngestionErrorFact } from "../installer/tool-errors.js";
 
 function isolatedHome(): string {
-  return mkdtempSync(join(tmpdir(), "apkit-reference-evidence-"));
+  return mkdtempSync(join(tmpdir(), "apkit-sidecar-"));
 }
 
 function scaffoldWorkspace(home: string): string {
@@ -17,7 +17,10 @@ function scaffoldWorkspace(home: string): string {
   mkdirSync(join(workspace, "context"), { recursive: true });
   mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
   writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
-  writeFileSync(join(workspace, "profiles", "coding.yaml"), "id: coding\ncontext: []\nskills: []\n");
+  writeFileSync(
+    join(workspace, "profiles", "coding.yaml"),
+    "id: coding\ncontext: []\nskills: [deploy]\n",
+  );
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
     "---\nid: team-rules\ndependencies: []\n---\n\n# Team rules\n",
@@ -39,61 +42,70 @@ async function ingestionFact(workspace: string): Promise<WorkspaceIngestionError
   throw new Error("expected ingestWorkspace to reject the workspace");
 }
 
-describe("Workspace reference-repair evidence (US-025/026, DEC-017)", () => {
-  test("a Profile reference to a missing Context Module names file, invalid value, and available names", async () => {
+describe("leftover Skill sidecars (spec #593 DEC-006, #596)", () => {
+  test("a leftover sidecar file in a Skill package fails ingestion with its path", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
       writeFileSync(
-        join(workspace, "profiles", "broken.yaml"),
-        "id: broken\ncontext:\n  - no-such-context\nskills: []\n",
+        join(workspace, "skills", "deploy", "agent-profile-kit.yaml"),
+        "dependencies:\n  - type: context\n    id: team-rules\n",
       );
       expect(await ingestionFact(workspace)).toEqual({
-        kind: "missing-context-reference",
-        profile: "broken",
-        contextId: "no-such-context",
-        file: "profiles/broken.yaml",
-        available: ["team-rules"],
+        kind: "leftover-skill-sidecar",
+        file: "skills/deploy/agent-profile-kit.yaml",
       });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  test("a Profile reference to a missing Skill names file, invalid value, and available names", async () => {
+  test("a leftover sidecar directory entry in a Skill package also fails ingestion", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
-      writeFileSync(
-        join(workspace, "profiles", "broken.yaml"),
-        "id: broken\ncontext: []\nskills:\n  - no-such-skill\n",
-      );
+      mkdirSync(join(workspace, "skills", "deploy", "agent-profile-kit.yaml"));
       expect(await ingestionFact(workspace)).toEqual({
-        kind: "missing-skill-reference",
-        profile: "broken",
-        skillId: "no-such-skill",
-        file: "profiles/broken.yaml",
-        available: ["deploy"],
+        kind: "leftover-skill-sidecar",
+        file: "skills/deploy/agent-profile-kit.yaml",
       });
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  test("a dangling Context Module dependency declaration is tolerated and has no effect (spec #593 DEC-006, #596)", async () => {
+  test("a leftover sidecar in a nested Skill package names the nested path", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
+      mkdirSync(join(workspace, "skills", "grouped", "nested-skill"), { recursive: true });
       writeFileSync(
-        join(workspace, "context", "team-rules.md"),
-        "---\nid: team-rules\ndependencies:\n  - type: context\n    id: no-such-context\n---\n\n# Team rules\n",
+        join(workspace, "skills", "grouped", "nested-skill", "SKILL.md"),
+        "---\nname: nested-skill\ndescription: Nested skill.\n---\n\nNested.\n",
       );
       writeFileSync(
-        join(workspace, "profiles", "coding.yaml"),
-        "id: coding\ncontext: [team-rules]\nskills: [deploy]\n",
+        join(workspace, "skills", "grouped", "nested-skill", "agent-profile-kit.yaml"),
+        "dependencies: []\n",
       );
+      expect(await ingestionFact(workspace)).toEqual({
+        kind: "leftover-skill-sidecar",
+        file: "skills/grouped/nested-skill/agent-profile-kit.yaml",
+      });
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("an agent-profile-kit.yaml outside any Skill package is not a sidecar violation", async () => {
+    const home = isolatedHome();
+    try {
+      const workspace = scaffoldWorkspace(home);
+      // A directory named like the sidecar at the skills root is not inside a
+      // Skill package; stray-file handling is #605's scope, so it must not be
+      // reported as a leftover sidecar.
+      mkdirSync(join(workspace, "skills", "agent-profile-kit.yaml"));
       const ingested = await ingestWorkspace(workspace);
-      expect(ingested.contexts.get("team-rules")).toBeDefined();
+      expect([...ingested.skills.keys()]).toEqual(["deploy"]);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }

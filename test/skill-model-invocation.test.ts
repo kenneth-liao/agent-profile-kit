@@ -92,7 +92,7 @@ function skillAt(
   path: string,
   modelInvocation: Skill["modelInvocation"] = "allowed",
 ): Skill {
-  return { dependencies: [], id: "to-spec", modelInvocation, path };
+  return { id: "to-spec", modelInvocation, path };
 }
 
 const DISABLED_BODY =

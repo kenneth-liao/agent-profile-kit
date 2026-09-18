@@ -19,9 +19,9 @@ import {
 } from "./hashes.js";
 import type { Workspace } from "./ingest-workspace.js";
 import {
-  resolveProfileDependencies,
+  resolveProfile as resolveProfileSelection,
   type ResolvedProfile,
-} from "./resolve-dependencies.js";
+} from "./resolve-profile.js";
 
 /**
  * Instrumentation fired only when the invocation context performs real work
@@ -159,7 +159,7 @@ export function createLifecyclePlanningContext(
     const existing = resolvedProfiles.get(profile.id);
     if (existing) return existing;
     instrumentation.onResolveProfile?.();
-    const resolved = resolveProfileDependencies(
+    const resolved = resolveProfileSelection(
       profile,
       workspace.contexts,
       workspace.skills,

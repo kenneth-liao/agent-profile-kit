@@ -33,7 +33,9 @@ function contextModuleFrontmatter(id: string): string {
   // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
   // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
   // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
-  return `---\nid: "${id}"\ndependencies: []\n---\n`;
+  // The scaffold carries no dependency data: Profile lists are the only
+  // source of what is installed (spec #593 DEC-006).
+  return `---\nid: "${id}"\n---\n`;
 }
 
 /**

@@ -14,7 +14,6 @@ import {
   DEFAULT_ADAPTER_PLANNING_MATERIALS,
   DISABLED_MODEL_INVOCATION_REQUIREMENT,
   planSkillPackageDirectory,
-  SKILL_PACKAGE_SIDECAR,
   type AdapterPlanningMaterials,
   type SkillPackageProjection,
 } from "./skill-package.js";
@@ -288,11 +287,7 @@ export function projectSharedSkillMembers(
     ...skill,
     consumerHost,
   };
-  const packageMembers = members.filter(
-    (member) =>
-      member.path !== SKILL_PACKAGE_SIDECAR &&
-      !member.path.startsWith(`${SKILL_PACKAGE_SIDECAR}/`),
-  );
+  const packageMembers = members;
   const existingOpenAi = packageMembers.find(
     (member): member is ProposedDirectoryFileMember =>
       member.path === SHARED_SKILL_OPENAI_YAML && member.type === "file",

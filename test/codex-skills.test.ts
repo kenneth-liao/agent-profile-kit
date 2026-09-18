@@ -58,7 +58,7 @@ function writeSkillPackage(
 }
 
 function skill(id: string, path: string): Skill {
-  return { dependencies: [], id, modelInvocation: "allowed", path };
+  return { id, modelInvocation: "allowed", path };
 }
 
 function enableCodexHooks(home: string): void {
@@ -72,7 +72,6 @@ async function workspaceWithSkills(
   skills: ReadonlyArray<{
     readonly id: string;
     readonly body?: string;
-    readonly dependencies?: readonly string[];
     readonly path?: string;
     readonly scriptMode?: number;
   }>,
@@ -101,12 +100,6 @@ async function workspaceWithSkills(
       writeFileSync(script, `#!/bin/sh\necho ${entry.id}\n`);
       chmodSync(script, entry.scriptMode);
     }
-    if (entry.dependencies) {
-      writeFileSync(
-        join(skillRoot, "agent-profile-kit.yaml"),
-        `dependencies:\n${entry.dependencies.map((id) => `  - type: skill\n    id: ${id}\n`).join("")}`,
-      );
-    }
   }
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -119,7 +112,7 @@ async function workspaceWithSkills(
 }
 
 describe("Codex project Skill packages", () => {
-  test("plans each resolved Skill under .agents/skills/<Artifact ID> with bytes and modes preserved and sidecars omitted", async () => {
+  test("plans each listed Skill under .agents/skills/<Artifact ID> with bytes and modes preserved", async () => {
     const source = temporaryDirectory("apk-skill-source-");
     writeSkillPackage(source, {
       "SKILL.md": {
@@ -129,10 +122,6 @@ describe("Codex project Skill packages", () => {
       "scripts/run.sh": {
         bytes: "#!/bin/sh\necho review\n",
         mode: 0o755,
-      },
-      "agent-profile-kit.yaml": {
-        bytes: "dependencies: []\n",
-        mode: 0o644,
       },
     });
     const binaryAsset = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0x41]);
@@ -164,9 +153,6 @@ describe("Codex project Skill packages", () => {
       .toBe(true);
     expect(asset?.type).toBe("file");
     expect(Buffer.from((asset as { bytes: Uint8Array }).bytes)).toEqual(binaryAsset);
-    expect(packageOutput.members.some((member) => member.path === "agent-profile-kit.yaml")).toBe(
-      false,
-    );
     expect(plan.outputs.some((output) => output.path === ".agent-profile-kit/codex/context.md")).toBe(
       true,
     );
@@ -204,7 +190,7 @@ describe("Codex project Skill packages", () => {
     });
   });
 
-  test("resolves direct and transitive Skills once for diamond deps, installs by Artifact ID, and omits unselected Skills", async () => {
+  test("installs each Profile-listed Skill once by Artifact ID and omits unselected Skills", async () => {
     const home = temporaryDirectory("apk-skill-home-");
     const project = temporaryDirectory("apk-skill-project-");
     await workspaceWithSkills(
@@ -212,25 +198,16 @@ describe("Codex project Skill packages", () => {
       project,
       [
         { id: "shared-base", path: "library/shared-base" },
-        {
-          id: "left-skill",
-          path: "group/left-skill",
-          dependencies: ["shared-base"],
-        },
-        {
-          id: "right-skill",
-          path: "group/right-skill",
-          dependencies: ["shared-base"],
-        },
+        { id: "left-skill", path: "group/left-skill" },
+        { id: "right-skill", path: "group/right-skill" },
         {
           id: "top-skill",
           path: "group/top-skill",
-          dependencies: ["left-skill", "right-skill"],
           scriptMode: 0o755,
         },
         { id: "unselected-skill", path: "other/unselected-skill" },
       ],
-      ["top-skill"],
+      ["shared-base", "left-skill", "right-skill", "top-skill"],
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -247,11 +224,6 @@ describe("Codex project Skill packages", () => {
       ".agents/skills/top-skill",
     ]);
 
-    const sharedResolved = installation.resolvedProfile.artifacts.find(
-      (artifact) => artifact.reference.id === "shared-base",
-    );
-    expect(sharedResolved?.inclusionReasons.length).toBeGreaterThanOrEqual(2);
-
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
@@ -260,18 +232,11 @@ describe("Codex project Skill packages", () => {
     expect(reportDesired(preview)[0]?.resolvedArtifacts.some((artifact) => artifact.id === "top-skill")).toBe(
       true,
     );
-    expect(
-      reportDesired(preview)[0]?.resolvedArtifacts.find((artifact) => artifact.id === "shared-base")
-        ?.inclusionReasons.length,
-    ).toBeGreaterThanOrEqual(2);
 
     await applyReconciliation(home, desired.installations);
     expect(existsSync(join(project, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "shared-base", "SKILL.md"))).toBe(true);
     expect(existsSync(join(project, ".agents", "skills", "unselected-skill"))).toBe(false);
-    expect(existsSync(join(project, ".agents", "skills", "top-skill", "agent-profile-kit.yaml"))).toBe(
-      false,
-    );
     expect(statSync(join(project, ".agents", "skills", "top-skill", "scripts", "run.sh")).mode & 0o777)
       .toBe(0o755);
 
@@ -333,40 +298,6 @@ describe("Codex project Skill packages", () => {
       "foreign skill\n",
     );
     expect(existsSync(join(project, ".agents", "skills", "other-user-skill", "SKILL.md"))).toBe(true);
-  });
-
-  test("changing only a Skill dependency edge refreshes Manifest inclusion reasons", async () => {
-    const home = temporaryDirectory("apk-skill-dep-hash-home-");
-    const project = temporaryDirectory("apk-skill-dep-hash-project-");
-    await workspaceWithSkills(
-      home,
-      project,
-      [
-        { id: "shared-base" },
-        { id: "mid-skill", dependencies: ["shared-base"] },
-        { id: "top-skill", dependencies: ["mid-skill"] },
-      ],
-      ["top-skill"],
-    );
-    const first = await buildDesiredState(home, { checkHostCapability: false });
-    await applyReconciliation(home, first.installations);
-    const before = await readInstallationState(home);
-    const beforeDigest = before.receipts[0]?.desiredInputDigest;
-
-    // Redundant direct edge: package bytes and resolved Artifact IDs stay the same,
-    // but shared-base gains a second inclusion reason path.
-    writeFileSync(
-      join(home, ".agents", "agent-profile-kit", "workspace", "skills", "top-skill", "agent-profile-kit.yaml"),
-      "dependencies:\n  - type: skill\n    id: mid-skill\n  - type: skill\n    id: shared-base\n",
-    );
-    const second = await buildDesiredState(home, { checkHostCapability: false });
-    expect(second.installations[0]?.sourceHash).not.toBe(first.installations[0]?.sourceHash);
-    const preview = await previewReconciliation(second.installations, before);
-    expect(reportItems(preview).some((item) => item.kind === "stale source")).toBe(true);
-    await applyReconciliation(home, second.installations);
-    const after = await readInstallationState(home);
-    expect(after.receipts[0]?.desiredInputDigest).not.toBe(beforeDigest);
-    expect(after.receipts[0]?.desiredInputDigest).toBe(second.installations[0]?.sourceHash);
   });
 
   test("Context and Skills share one installation lifecycle; deselection removes only proven packages", async () => {

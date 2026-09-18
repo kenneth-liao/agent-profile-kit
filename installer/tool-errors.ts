@@ -64,7 +64,7 @@ export type WorkspaceStructureErrorFact =
   | { readonly kind: "workspace-dangling-category"; readonly workspace: string; readonly name: string }
   | { readonly kind: "workspace-category-not-directory"; readonly workspace: string; readonly name: string };
 
-/** One typed Workspace ingestion failure (manifest, artifacts, dependencies). */
+/** One typed Workspace ingestion failure (manifest, artifacts, leftovers). */
 export type WorkspaceIngestionErrorFact =
   | WorkspaceStructureErrorFact
   | {
@@ -111,15 +111,10 @@ export type WorkspaceIngestionErrorFact =
       readonly stage?: "creation";
     }
   | {
-      readonly kind: "missing-dependency-reference";
-      readonly label: string;
-      readonly id: string;
-      /** Workspace-relative file that authored the invalid dependency reference. */
+      readonly kind: "leftover-skill-sidecar";
+      /** Workspace-relative path of the retired Skill sidecar file. */
       readonly file: string;
-      /** Sorted available names of the referenced artifact type. */
-      readonly available: readonly string[];
-    }
-  | { readonly kind: "dependency-cycle"; readonly cycle: string };
+    };
 
 /** Workspace ingestion plus the manifest rejections it composes. */
 export type WorkspaceErrorFact = WorkspaceIngestionErrorFact | WorkspaceManifestRejectionReason;

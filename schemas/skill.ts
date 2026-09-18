@@ -1,10 +1,6 @@
 import { parse } from "yaml";
 
-import {
-  parseArtifactDependencies,
-  ARTIFACT_ID,
-  type ArtifactReference,
-} from "./dependencies.js";
+import { ARTIFACT_ID } from "./dependencies.js";
 import { rejectSchema, type WorkspaceArtifactRejectionReason } from "./schema-rejections.js";
 
 /** Host-neutral model-invocation policy for a Skill. */
@@ -13,15 +9,18 @@ export type ModelInvocationPolicy = "allowed" | "disabled";
 /** Namespaced standard metadata key for model-invocation policy. */
 export const MODEL_INVOCATION_METADATA_KEY = "agent-profile-kit.model-invocation";
 
+/**
+ * The retired Agent Profile Kit-only Skill sidecar name (spec #593 DEC-006).
+ * A Skill package containing it is a leftover from an earlier release and is
+ * one violation with that file's path.
+ */
+export const SKILL_PACKAGE_SIDECAR = "agent-profile-kit.yaml";
+
 export interface Skill {
-  readonly dependencies: readonly ArtifactReference[];
   readonly id: string;
   /** Normalized model-invocation policy; absence of metadata defaults to allowed. */
   readonly modelInvocation: ModelInvocationPolicy;
   readonly path: string;
-  /** Workspace-relative sidecar file that authored the dependencies, when present. */
-  readonly sidecarPath?: string;
-  readonly sidecar?: Record<string, unknown>;
 }
 
 const STANDARD_FIELDS = [
@@ -125,8 +124,6 @@ export function parseSkill(
   source: string,
   path: string,
   sourcePath: string,
-  sidecar?: string,
-  sidecarPath?: string,
 ): Skill {
   const header = frontmatter(source, path);
   const unknown = Object.keys(header).filter(
@@ -165,29 +162,9 @@ export function parseSkill(
   if ("allowed-tools" in header) requireString(header["allowed-tools"], path, "allowed-tools");
   const modelInvocation = parseModelInvocation(metadata, path);
 
-  const parsedSidecar = sidecar === undefined
-    ? undefined
-    : requireMapping(
-        parseYaml(sidecar, {
-          case: "invalid-yaml",
-          artifact: "Skill",
-          path,
-          section: "sidecar",
-        }),
-        { case: "not-a-mapping", artifact: "Skill", path, section: "sidecar" },
-      );
   return {
-    dependencies: parseArtifactDependencies(parsedSidecar?.dependencies, {
-      artifact: "Skill",
-      path,
-      section: "dependencies",
-    }),
     id,
     modelInvocation,
     path: sourcePath,
-    ...(sidecarPath !== undefined ? { sidecarPath } : {}),
-    ...(parsedSidecar !== undefined
-      ? { sidecar: parsedSidecar }
-      : {}),
   };
 }
