@@ -13,7 +13,6 @@ import { InstallerToolError } from "../installer/tool-errors.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
 import {
   errorDiagnosticParts,
-  formatInstallerToolError,
   formatInstallerToolErrorDiagnostic,
 } from "../cli/error-wording.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -114,11 +113,15 @@ describe("createContextModule", () => {
         createContextModule({ home, name: "engineering/review-findings" }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
+      // A symlink under context/ is a DEC-008 stray (#605): the invalid
+      // workspace is refused before the parent check, and the link is never
+      // followed or written through.
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("context-module-parent-not-directory");
-      if (fact.kind === "context-module-parent-not-directory") {
-        expect(flatInlineText(formatInstallerToolError(fact))).toContain("must be a directory");
-      }
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-context-file", file: "context/engineering", symlink: true } },
+      ]);
       // The link target stays untouched.
       expect(Array.from(new Bun.Glob("*").scanSync({ cwd: outside }))).toEqual([]);
     } finally {
@@ -138,7 +141,14 @@ describe("createContextModule", () => {
         createContextModule({ home, name: "engineering/review-findings" }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("context-module-parent-not-directory");
+      // A plain file under context/ is a DEC-008 stray (#605): the invalid
+      // workspace is refused with the complete list before the parent check.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-context-file", file: "context/engineering" } },
+      ]);
       expect(existsSync(join(occupied, "review-findings.md"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -259,7 +269,15 @@ describe("createContextModule", () => {
 
       const failure = await rejection(() => createContextModule({ home, name: "review-standards" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
-      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
+      // A symlink under context/ is a DEC-008 stray (#605): the invalid
+      // workspace is refused before the occupancy check, and the link is
+      // never followed or written through.
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("workspace-violations");
+      if (fact.kind !== "workspace-violations") throw new Error("expected the aggregate fact");
+      expect(fact.violations).toEqual([
+        { via: "ingestion", fact: { kind: "stray-context-file", file: "context/review-standards.md", symlink: true } },
+      ]);
 
       const outsideEntries = Array.from(new Bun.Glob("*").scanSync({ cwd: outside }));
       expect(outsideEntries).toEqual([]);

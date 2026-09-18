@@ -1,4 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -37,7 +38,8 @@ function hasErrorCode(error: unknown, code: string): boolean {
 /**
  * Find the first retired Skill sidecar entry under one Skill package root,
  * depth-first in sorted order; a package that does not contain one yields
- * undefined. Symlinked directories are not traversed: packages are read from
+ * undefined. Hidden entries are skipped without traversal (spec #593 DEC-008,
+ * #605). Symlinked directories are not traversed: packages are read from
  * regular files and directories only.
  */
 async function findSkillSidecar(directory: string, prefix: string): Promise<string | undefined> {
@@ -46,6 +48,7 @@ async function findSkillSidecar(directory: string, prefix: string): Promise<stri
   for (const entry of sorted) {
     const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
     if (entry.name === SKILL_PACKAGE_SIDECAR) return relative;
+    if (entry.name.startsWith(".")) continue;
     if (entry.isDirectory()) {
       const nested = await findSkillSidecar(join(directory, entry.name), relative);
       if (nested !== undefined) return nested;
@@ -55,26 +58,32 @@ async function findSkillSidecar(directory: string, prefix: string): Promise<stri
 }
 
 /**
- * Find the first `.yaml` file under one `profiles/` subdirectory, depth-first
- * in sorted order; a subdirectory without one yields undefined. Symlinked
- * directories are not traversed, matching the Skill-package reader's
- * regular-files-and-directories boundary.
+ * Find every `.yaml` file under one `profiles/` subdirectory, depth-first in
+ * sorted order; a subdirectory without one yields none. Every instance is a
+ * `nested-profile` violation (spec #593 DEC-014, #598; collection extended to
+ * all instances by #605), so a moved Profile is never silently ignored.
+ * Hidden entries are skipped without traversal (spec #593 DEC-008, #605).
+ * Symlinked directories are not traversed, matching the Skill-package
+ * reader's regular-files-and-directories boundary.
  */
-async function findNestedProfileYaml(directory: string, prefix: string): Promise<string | undefined> {
+async function findNestedProfileYamls(directory: string, prefix: string): Promise<readonly string[]> {
   const entries = await readdir(directory, { withFileTypes: true }).catch((error: unknown) => {
     if (hasErrorCode(error, "ENOENT")) return [];
     throw error;
   });
-  const sorted = [...entries].sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of sorted) {
+  const found: string[] = [];
+  for (const entry of [...entries].sort(byEntryName)) {
     const relative = `${prefix}/${entry.name}`;
-    if (entry.isFile() && entry.name.endsWith(".yaml")) return relative;
+    if (entry.isFile() && entry.name.endsWith(".yaml")) {
+      found.push(relative);
+      continue;
+    }
+    if (entry.name.startsWith(".")) continue;
     if (entry.isDirectory()) {
-      const nested = await findNestedProfileYaml(join(directory, entry.name), relative);
-      if (nested !== undefined) return nested;
+      found.push(...(await findNestedProfileYamls(join(directory, entry.name), relative)));
     }
   }
-  return undefined;
+  return found;
 }
 
 /** Read directory entries; a missing category directory is an empty collection. */
@@ -89,36 +98,138 @@ async function readCategoryEntries(directory: string) {
   }
 }
 
-async function skillPaths(directory: string, prefix = ""): Promise<readonly string[]> {
-  const entries = await readCategoryEntries(directory);
-  const paths = await Promise.all(
-    entries.map(async (entry) => {
-      const relativePath = join(prefix, entry.name);
-      if (!entry.isDirectory()) return [];
-      const source = join(directory, entry.name);
-      const nested = await skillPaths(source, relativePath);
-      const children = await readdir(source, { withFileTypes: true });
-      return children.some((child) => child.isFile() && child.name === SKILL_FILE_NAME)
-        ? [relativePath, ...nested]
-        : nested;
-    }),
-  );
-  return paths.flat().sort();
+/** The one entry-name comparator for the deterministic collected report. */
+function byEntryName(left: Dirent, right: Dirent): number {
+  return left.name.localeCompare(right.name);
 }
 
-async function sourceFiles(
+/**
+ * One non-hidden stray entry found by {@link collectStrayEntries}: a regular
+ * file or symlink that its folder's rule rejects (spec #593 DEC-008, #605).
+ */
+interface StrayEntry {
+  readonly relative: string;
+  readonly symlink: boolean;
+}
+
+/**
+ * Walk one directory depth-first in sorted order, collecting every non-hidden
+ * entry that `isStray` rejects (spec #593 DEC-008, #605). Hidden entries are
+ * skipped without traversal; real directories always recurse and are never
+ * themselves strays; symlinks are judged at the entry itself and never
+ * followed. Empty folders therefore violate nothing: DEC-008's rules bind
+ * files.
+ */
+async function collectStrayEntries(
   directory: string,
-  extension: string,
-  prefix = "",
-): Promise<readonly string[]> {
+  prefix: string,
+  isStray: (entry: Dirent) => boolean,
+): Promise<readonly StrayEntry[]> {
+  const entries = (await readCategoryEntries(directory)).sort(byEntryName);
+  const strays: StrayEntry[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const relative = prefix.length === 0 ? entry.name : `${prefix}${entry.name}`;
+    if (entry.isDirectory()) {
+      strays.push(
+        ...(await collectStrayEntries(join(directory, entry.name), `${relative}/`, isStray)),
+      );
+      continue;
+    }
+    if (isStray(entry)) strays.push({ relative, symlink: entry.isSymbolicLink() });
+  }
+  return strays.sort((left, right) => left.relative.localeCompare(right.relative));
+}
+
+/** The classification of one `skills/` subtree (spec #593 DEC-008, #605). */
+interface SkillTerritoryWalk {
+  /** Skill-package directories, workspace-relative to the category, sorted. */
+  readonly packages: readonly string[];
+  /** Non-hidden entries in non-package territory, sorted. */
+  readonly strays: readonly StrayEntry[];
+}
+
+/**
+ * Walk one `skills/` subtree in sorted order, classifying territory (spec #593
+ * DEC-008, #605). A real directory directly containing a regular `SKILL.md` is
+ * a Skill package: its path is collected exactly as before, its subtree stays
+ * package territory (nested-package detection keeps its current semantics),
+ * and a real directory without one is a grouping folder that recurses with the
+ * same classification. Hidden entries are skipped without traversal. In
+ * non-package territory every non-hidden regular file or symlink is a stray;
+ * package territory has no per-file rule, so Skill Resources stay valid.
+ */
+async function walkSkillsTerritory(
+  directory: string,
+  prefix: string,
+  insidePackage: boolean,
+): Promise<SkillTerritoryWalk> {
+  const entries = (await readCategoryEntries(directory)).sort(byEntryName);
+  const packages: string[] = [];
+  const strays: StrayEntry[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const relative = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
+    if (entry.isDirectory()) {
+      const children = await readdir(join(directory, entry.name), { withFileTypes: true });
+      const isPackage = children.some((child) => child.isFile() && child.name === SKILL_FILE_NAME);
+      if (isPackage) packages.push(relative);
+      const nested = await walkSkillsTerritory(
+        join(directory, entry.name),
+        relative,
+        insidePackage || isPackage,
+      );
+      packages.push(...nested.packages);
+      strays.push(...nested.strays);
+      continue;
+    }
+    if (!insidePackage) strays.push({ relative, symlink: entry.isSymbolicLink() });
+  }
+  return { packages: packages.sort((left, right) => left.localeCompare(right)), strays: strays.sort((left, right) => left.relative.localeCompare(right.relative)) };
+}
+
+/**
+ * The stray-file fact for one collected entry (spec #593 DEC-008, #605):
+ * `symlink` is set only when true, so file strays carry no flag noise.
+ */
+function strayViolation(
+  kind: "stray-context-file" | "stray-skill-file" | "stray-profile-file",
+  file: string,
+  symlink: boolean,
+): WorkspaceViolation {
+  return {
+    via: "ingestion",
+    fact: { kind, file, ...(symlink ? { symlink: true } : {}) },
+  };
+}
+
+/**
+ * The one acceptance predicate for a Context Module entry: a regular file
+ * whose name ends in `.md` (spec #593 DEC-008, #600). One home shared by the
+ * collector that ingests and the stray check that rejects, so the rule cannot
+ * drift between what is read and what is reported.
+ */
+function isRegularMarkdownEntry(entry: Dirent): boolean {
+  return entry.isFile() && entry.name.endsWith(".md");
+}
+
+/**
+ * Collect the Context Module files under one directory, depth-first in sorted
+ * order, skipping hidden entries without traversal (spec #593 DEC-008, #605).
+ * Acceptance is {@link isRegularMarkdownEntry}; strays are reported separately
+ * by the stray walk.
+ */
+async function sourceFiles(directory: string, prefix = ""): Promise<readonly string[]> {
   const entries = await readCategoryEntries(directory);
   const files = await Promise.all(
     entries.map(async (entry) => {
+      // Hidden files and folders are ignored everywhere (spec #593 DEC-008, #605).
+      if (entry.name.startsWith(".")) return [];
       const relativePath = join(prefix, entry.name);
       if (entry.isDirectory()) {
-        return sourceFiles(join(directory, entry.name), extension, relativePath);
+        return sourceFiles(join(directory, entry.name), relativePath);
       }
-      return entry.isFile() && entry.name.endsWith(extension) ? [relativePath] : [];
+      return isRegularMarkdownEntry(entry) ? [relativePath] : [];
     }),
   );
   return files.flat().sort();
@@ -218,7 +329,7 @@ export async function collectWorkspaceViolations(
   const skills = new Map<string, Skill>();
 
   if (structure.readableCategories.has("context")) {
-    for (const name of await sourceFiles(join(path, "context"), ".md")) {
+    for (const name of await sourceFiles(join(path, "context"))) {
       const relativePath = `context/${name}`;
       try {
         addUnique(
@@ -231,14 +342,28 @@ export async function collectWorkspaceViolations(
         violations.push(collectedViolation(error));
       }
     }
+    // Stray entries (spec #593 DEC-008, #605): under `context/` every
+    // non-hidden entry must be a regular `.md` file, so anything else —
+    // including a symlink, which is never followed — is one violation naming
+    // its path. `.md` collection above already ignores everything else.
+    for (const stray of await collectStrayEntries(
+      join(path, "context"),
+      "",
+      (entry) => !isRegularMarkdownEntry(entry),
+    )) {
+      violations.push(strayViolation("stray-context-file", `context/${stray.relative}`, stray.symlink));
+    }
   }
 
   // Profiles live directly in `profiles/` (spec #593 DEC-014, #598): each
   // Profile's ID is its top-level file name without `.yaml`, so nested
   // folders hold no Profiles. Every `.yaml` under a subdirectory is one
   // violation naming its path — a moved Profile is never silently ignored.
-  // Other stray entries under `profiles/` are DEC-008's violations (#605).
-  // Entries are visited in sorted order so the report is deterministic.
+  // Other stray entries under `profiles/` are DEC-008's violations (#605):
+  // every non-hidden file must be a `.yaml` Profile directly under
+  // `profiles/`, including under subfolders, and a symlink is never followed.
+  // Hidden entries are ignored without traversal (DEC-008). Entries are
+  // visited in sorted order so the report is deterministic.
   if (structure.readableCategories.has("profiles")) {
     const profileEntries = (await readCategoryEntries(join(path, "profiles")))
       .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
@@ -248,6 +373,7 @@ export async function collectWorkspaceViolations(
     // the file name, never an authored `id` field.
     const lenientProfiles = new Set<string>();
     for (const entry of profileEntries) {
+      if (entry.name.startsWith(".")) continue;
       if (entry.isFile() && entry.name.endsWith(".yaml")) {
         const relativePath = `profiles/${entry.name}`;
         try {
@@ -271,17 +397,41 @@ export async function collectWorkspaceViolations(
         continue;
       }
       if (entry.isDirectory()) {
-        const nested = await findNestedProfileYaml(join(path, "profiles", entry.name), entry.name);
-        if (nested !== undefined) {
+        for (const nested of await findNestedProfileYamls(join(path, "profiles", entry.name), entry.name)) {
           violations.push({ via: "ingestion", fact: { kind: "nested-profile", file: `profiles/${nested}` } });
         }
+        // Under `profiles/` every non-hidden file must be a `.yaml` Profile
+        // (spec #593 DEC-008, #605): a non-`.yaml` file or symlink inside a
+        // subfolder is a stray; nested `.yaml` files were handled above, and
+        // an empty subfolder violates nothing.
+        for (const stray of await collectStrayEntries(
+          join(path, "profiles", entry.name),
+          `${entry.name}/`,
+          (candidate) => !(candidate.isFile() && candidate.name.endsWith(".yaml")),
+        )) {
+          violations.push(strayViolation("stray-profile-file", `profiles/${stray.relative}`, stray.symlink));
+        }
+        continue;
       }
+      // A non-hidden regular file that is not `.yaml` — including `.yml`,
+      // which DEC-008 does not accept — or a symlink (never followed).
+      violations.push(
+        strayViolation("stray-profile-file", `profiles/${entry.name}`, entry.isSymbolicLink()),
+      );
     }
     lenientProfilePaths = lenientProfiles;
   }
 
   if (structure.readableCategories.has("skills")) {
-    for (const name of await skillPaths(join(path, "skills"))) {
+    const walk = await walkSkillsTerritory(join(path, "skills"), "", false);
+    // Under `skills/` every non-hidden entry must belong to a Skill package
+    // (spec #593 DEC-008, #605): a regular file or symlink in non-package
+    // territory is one violation naming its path; package territory has no
+    // per-file rule.
+    for (const stray of walk.strays) {
+      violations.push(strayViolation("stray-skill-file", `skills/${stray.relative}`, stray.symlink));
+    }
+    for (const name of walk.packages) {
       const sourcePath = join(path, "skills", name);
       const relativePath = skillEntryRelativePath(path, sourcePath);
       // A retired Agent Profile Kit sidecar anywhere inside a Skill package is
