@@ -208,8 +208,6 @@ export interface FirstConnectionSetupPlan {
   readonly destinationPath: string;
   /** True when setup must create the named folder itself (it does not exist). */
   readonly folderMissing: boolean;
-  /** True when `workspace.yaml` is already present at the destination. */
-  readonly manifestPresent: boolean;
   /** The required parts (from `WORKSPACE_SETUP_PARTS`) still missing. */
   readonly missingParts: readonly string[];
   /** Existing Profile IDs at the destination. */
@@ -253,7 +251,9 @@ async function missingWorkspaceParts(destination: string): Promise<readonly stri
  * would write. Every pre-write refusal (`init-missing-parent-directory`,
  * `init-path-not-directory`, the symlink refusals, an invalid folder)
  * surfaces here, so interactive setup can confirm the plan before any
- * write and a declined or cancelled confirmation records nothing.
+ * write and a declined or cancelled confirmation records nothing. The
+ * interactive caller may pass an already-normalized spelling —
+ * normalization here is idempotent.
  */
 export async function planFirstConnectionSetup(
   home: string,
@@ -268,7 +268,6 @@ export async function planFirstConnectionSetup(
       authoredPath: authored,
       destinationPath: destination,
       folderMissing: true,
-      manifestPresent: false,
       missingParts: [...WORKSPACE_SETUP_PARTS],
       profiles: [],
       contexts: [],
@@ -280,28 +279,28 @@ export async function planFirstConnectionSetup(
     authoredPath: authored,
     destinationPath: destination,
     folderMissing: false,
-    manifestPresent,
     missingParts: await missingWorkspaceParts(destination),
-    ...(await plannedMaterial(destination)),
+    ...(await plannedMaterial(destination, manifestPresent)),
   };
 }
 
 /**
  * The material one plan would select from, read through the canonical
- * Workspace ingestion boundary. Only reached after `validateWouldBeWorkspace`
- * proved the would-be state valid, so ingestion here cannot fail differently.
+ * Workspace ingestion boundary. The manifest-present fact comes from the
+ * same `validateWouldBeWorkspace` call that validated the would-be state —
+ * one home — and decides whether ingestion supplies the canonical manifest
+ * setup would write. Only reached after that validation proved the would-be
+ * state valid, so ingestion here cannot fail differently.
  */
-async function plannedMaterial(destination: string): Promise<{
+async function plannedMaterial(
+  destination: string,
+  manifestPresent: boolean,
+): Promise<{
   readonly profiles: readonly string[];
   readonly contexts: readonly string[];
   readonly skills: readonly string[];
 }> {
-  const workspace = await ingestWorkspace(
-    destination,
-    (await lstatEntry(join(destination, WORKSPACE_MANIFEST_FILE))) === undefined
-      ? WORKSPACE_MANIFEST
-      : undefined,
-  );
+  const workspace = await ingestWorkspace(destination, manifestPresent ? undefined : WORKSPACE_MANIFEST);
   return {
     profiles: [...workspace.profiles.keys()].sort(),
     contexts: [...workspace.contexts.keys()].sort(),
@@ -457,8 +456,14 @@ export async function previewInitTarget(
 ): Promise<InitTargetPreview | undefined> {
   // First connections plan through `planFirstConnectionSetup` (spec #593
   // #603): zero-argument init on a machine with no selected Workspace
-  // refuses there, and an explicit path confirms from the plan.
-  if ((await classifyInitSetup(home)).kind !== "already-connected") {
+  // refuses there, and an explicit path confirms from the plan. The
+  // classification shares init's error behavior, but guidance stays
+  // advisory: an ambiguous target lets init explain the problem itself.
+  try {
+    if ((await classifyInitSetup(home)).kind !== "already-connected") {
+      return undefined;
+    }
+  } catch {
     return undefined;
   }
   const requested = options.workspace === undefined

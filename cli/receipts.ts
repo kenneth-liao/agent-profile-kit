@@ -212,12 +212,33 @@ function initSetupPathPart(destinationPath: string, authoredPath?: string): Path
 
 /**
  * The setup parts in presentation order, as the USER-JOURNEY Initialize stage
- * names them (one home beside that stage's wording).
+ * names them (one home beside that stage's wording). Every canonical part
+ * must have a display label here: a part planned for writing but missing
+ * from this map fails fast, so the confirmation can never understate the
+ * write.
  */
-const SETUP_PART_DISPLAY_ORDER = ["context", "skills", "profiles"];
+const SETUP_PART_LABELS: Record<string, string> = {
+  "workspace.yaml": "workspace.yaml",
+  context: "context/",
+  skills: "skills/",
+  profiles: "profiles/",
+};
 
-function setupPartLabel(part: string): string {
-  return part === "workspace.yaml" ? part : `${part}/`;
+/**
+ * The ordered display spelling of the parts setup will add. An unknown part
+ * is an authoring error at this boundary, never a silently dropped list item.
+ */
+function orderedSetupParts(missingParts: readonly string[]): readonly string[] {
+  const ordered = [
+    ...missingParts.filter((part) => part === "workspace.yaml"),
+    ...["context", "skills", "profiles"].filter((part) => missingParts.includes(part)),
+  ];
+  if (ordered.length !== missingParts.length ||
+    ordered.some((part) => SETUP_PART_LABELS[part] === undefined)
+  ) {
+    throw new Error(`unpresentable setup part: ${missingParts.join(", ")}`);
+  }
+  return ordered.map((part) => SETUP_PART_LABELS[part]!);
 }
 
 /**
@@ -247,14 +268,11 @@ export function initConfirmationDocument(input: InitConfirmationInput): Presenta
       parts: ["Nothing needs to be added — ", workspace, " already satisfies the Workspace contract."],
     });
   } else {
-    const ordered = [
-      ...input.missingParts.filter((part) => part === "workspace.yaml"),
-      ...SETUP_PART_DISPLAY_ORDER.filter((part) => input.missingParts.includes(part)),
-    ];
+    const ordered = orderedSetupParts(input.missingParts);
     const partParts: InlineContent[] = [];
-    ordered.forEach((part, index) => {
+    ordered.forEach((label, index) => {
       if (index > 0) partParts.push(index === ordered.length - 1 ? " and " : ", ");
-      partParts.push(identifierPart(setupPartLabel(part)));
+      partParts.push(identifierPart(label));
     });
     nodes.push({ kind: "sentence", parts: ["Setup will add ", ...partParts, "."] });
   }

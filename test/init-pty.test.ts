@@ -98,7 +98,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     expect(squash(transcript)).toContain(squash(`Current folder: ${spelling}`));
     expect(squash(transcript)).toContain(squash(`stored in and loaded from ${spelling}.`));
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${cwd}`);
-  }, 120_000);
+  });
 
   test("the confirmation renders the full long home-relative path at 60 columns", async () => {
     const { home, cwd, transcript } = await acceptCurrentFolder(60);
@@ -110,7 +110,34 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     expect(squash(transcript)).toContain(squash(`Current folder: ${spelling}`));
     expect(squash(transcript)).toContain(squash(`stored in and loaded from ${spelling}.`));
     expect(transcript).not.toMatch(new RegExp(`${spelling.slice(0, 20)}…`));
-  }, 120_000);
+  });
+
+  test("a long absolute path outside any home appears in full at 60 columns", async () => {
+    const home = isolatedHome();
+    // Outside the fixture home, so the display spelling is the long
+    // absolute path itself (ISC-24.2 names both shapes).
+    const outside = mkdtempSync(join(tmpdir(), "agent-profile-kit-init-pty-absolute-"));
+    temporaryDirectories.push(outside);
+    const cwd = join(outside, "another-very-long-workspace-folder-name-for-the-narrow-column-check");
+    mkdirSync(cwd, { recursive: true });
+    const session = await startPtySession(["init", home, cwd], 60);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Current folder:");
+      expect(squash(session.transcript())).toContain(squash(`Current folder: ${cwd}`));
+      const chooseOffset = session.transcriptLength();
+      session.write("y");
+      await session.waitForTranscript("stored in and loaded from", { after: chooseOffset });
+      expect(squash(session.transcript())).toContain(squash(`stored in and loaded from ${cwd}.`));
+      const confirmOffset = session.transcriptLength();
+      session.write("y");
+      await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
+    } finally {
+      await session.close();
+    }
+    expect(existsSync(join(cwd, "workspace.yaml"))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${cwd}`);
+  });
 
   test("declining the confirmation at 60 columns writes nothing and exits neutrally", async () => {
     const home = isolatedHome();
@@ -136,7 +163,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
     expect(existsSync(join(cwd, "workspace.yaml"))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
     expect(readFileSync(join(cwd, "notes.txt"), "utf8")).toBe("user material\n");
-  }, 120_000);
+  });
 
   test("Ctrl-C at the confirmation cancels with nothing written", async () => {
     const home = isolatedHome();
@@ -158,7 +185,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
 
     expect(existsSync(join(cwd, "workspace.yaml"))).toBe(false);
     expect(existsSync(configPath(home))).toBe(false);
-  }, 120_000);
+  });
 
   test("init <path> under a PTY confirms the given path without the location question", async () => {
     const home = isolatedHome();
@@ -182,5 +209,5 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
 
     expect(existsSync(join(workspace, "workspace.yaml"))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain("workspace: ");
-  }, 120_000);
+  });
 });

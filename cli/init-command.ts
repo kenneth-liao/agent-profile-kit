@@ -163,11 +163,18 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   const stdoutContext = terminalPresentationContext(request.stdout);
   const stderrContext = terminalPresentationContext(request.stderr);
 
+  const renderOptions = { cwd: request.cwd ?? process.cwd(), home: request.home };
+
   let parsed: ParsedInitArguments;
   try {
     parsed = parseInitArguments(request.arguments);
   } catch (error) {
-    writeHumanDocument(request.stderr, initArgumentErrorDiagnostic(error), stderrContext);
+    writeHumanDocument(
+      request.stderr,
+      initArgumentErrorDiagnostic(error),
+      stderrContext,
+      renderOptions,
+    );
     return { exitCode: 1 };
   }
 
@@ -175,7 +182,6 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   // One render environment for the whole invocation: the working directory
   // the user is in and the machine's Local Configuration home, so path
   // spellings render against the invocation, not the renderer's defaults.
-  const renderOptions = { cwd: request.cwd ?? process.cwd(), home: request.home };
   // The one classification read routes the interactive flow and the commit
   // alike (spec #593 #603): first connections ask and confirm; already-
   // connected destinations keep the delivered behavior.
@@ -218,7 +224,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     );
     const currentFolder = await prompts.yesNo(LOCATION_QUESTION);
     if (currentFolder === "cancelled") {
-      writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+      writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
       return { exitCode: 1 };
     }
     if (currentFolder === "accepted") {
@@ -226,7 +232,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     } else {
       const folderAnswer = await prompts.text(FOLDER_QUESTION);
       if (folderAnswer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
         return { exitCode: 1 };
       }
       const typed = folderAnswer.value.trim();
@@ -235,6 +241,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
           request.stderr,
           initArgumentErrorDiagnostic(new Error("Enter a Workspace folder path, or cancel with Ctrl-C")),
           stderrContext,
+          renderOptions,
         );
         return { exitCode: 1 };
       }
@@ -276,6 +283,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         request.stdout,
         initDeclinedDocument(authored === undefined ? {} : { workspace: authored }),
         stdoutContext,
+        renderOptions,
       );
       return { exitCode: 0 };
     }
@@ -317,7 +325,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   );
   const offer = await prompts.yesNo(OFFER_QUESTION);
   if (offer === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   if (offer === "declined") {
@@ -333,7 +341,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
 
   const nameAnswer = await prompts.text(NAME_QUESTION);
   if (nameAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   // Pre-commit validation keeps every refusal before any change: an invalid
@@ -342,7 +350,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   try {
     name = requireArtifactId(nameAnswer.value, "new profile name");
   } catch (error) {
-    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   if ((await lstatEntry(join(preview.destinationPath, "profiles", `${name}.yaml`))) !== undefined) {
@@ -374,7 +382,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (contextAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   const skillAnswer = preview.skills.length > 0
@@ -385,7 +393,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (skillAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext);
+    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   const contexts = contextAnswer.values;
@@ -430,7 +438,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       skills,
     });
   } catch (error) {
-    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
+    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   const receipt: NewArtifactReceiptInput = {
@@ -442,6 +450,6 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     availableContexts: created.availableContexts,
     availableSkills: created.availableSkills,
   };
-  writeHumanDocument(request.stdout, guidedInitCompletionDocument(receipt), stdoutContext);
+  writeHumanDocument(request.stdout, guidedInitCompletionDocument(receipt), stdoutContext, renderOptions);
   return { exitCode: 0 };
 }
