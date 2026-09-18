@@ -35,7 +35,7 @@ import {
   withReceipts,
 } from "./ownership-state.js";
 import type { ProjectBindingSelection } from "./local-configuration.js";
-import { InstallerToolError, type ConfiguredPathOrigin, type WorkspaceViolation } from "./tool-errors.js";
+import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
 import { collectWorkspaceViolations } from "./ingest-workspace.js";
 
@@ -141,18 +141,10 @@ export async function validateApplication(
     checkHostCapability: false,
     gitInspection: createLifecycleGitInspectionContext(instrumentation?.git),
     ...planningInstrumentation(instrumentation),
+    // `validate` still fails while any Profile is broken (spec #593 US-007, #606).
+    rejectReferenceViolations: true,
     scheduler: createProjectReadScheduler(),
   });
-  // `validate` still fails while any Profile is broken (spec #593 US-007,
-  // #606): the same aggregate #604 fact the strict boundary throws, so the
-  // complete violation report and exit behavior are identical to today.
-  if (desired.brokenProfiles.length > 0) {
-    throw new InstallerToolError({
-      kind: "workspace-violations",
-      violations: desired.referenceViolations,
-      workspace: desired.workspace.path,
-    });
-  }
   return {
     bindings: desired.bindingCount,
     hosts: [...new Set(
@@ -224,7 +216,12 @@ export async function statusApplication(
       scheduler,
       ...(options.selection === undefined ? {} : { selection: options.selection }),
     });
-    return unreadableInstallationStateReport(home, desired.installations, error);
+    return unreadableInstallationStateReport(
+      home,
+      desired.installations,
+      error,
+      desired.referenceViolations,
+    );
   }
   // Let each Adapter resolve its topology from the prior Manifest and keep
   // desired-state planning probe-free: status performs no Agent Host process

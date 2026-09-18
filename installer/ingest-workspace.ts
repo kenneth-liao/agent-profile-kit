@@ -10,6 +10,7 @@ import {
 } from "../schemas/context-profile.js";
 import { parseSkill, SKILL_PACKAGE_SIDECAR, type Skill } from "../schemas/skill.js";
 import { SchemaRejectionError } from "../schemas/schema-rejections.js";
+import type { BrokenProfileReferenceFact } from "./blockers.js";
 import {
   collectWorkspaceStructure,
   validateWorkspaceStructure,
@@ -305,14 +306,7 @@ function workspaceViolationsError(path: string, violations: readonly WorkspaceVi
 }
 
 /** One Profile's missing references, grouped for lifecycle Blocker evidence (#606). */
-export interface BrokenProfileReference {
-  readonly profile: string;
-  /** Workspace-relative Profile file that authored the invalid references. */
-  readonly file: string;
-  /** Sorted Context Module Artifact IDs the Profile names but the Workspace lacks. */
-  readonly missingContexts: readonly string[];
-  /** Sorted Skill Artifact IDs the Profile names but the Workspace lacks. */
-  readonly missingSkills: readonly string[];
+export interface BrokenProfileReference extends BrokenProfileReferenceFact {
   /**
    * The verbatim #604 facts of this Profile's invalid references. One home at
    * the tolerant-ingestion boundary — lifecycle planning and the report

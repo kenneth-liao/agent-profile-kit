@@ -503,13 +503,14 @@ export async function unreadableInstallationStateReport(
   home: string,
   desired: readonly DesiredInstallation[],
   error: unknown,
+  brokenProfileViolations: readonly WorkspaceViolation[],
 ): Promise<BlockedReconciliationReport> {
   const message = error instanceof Error ? error.message : String(error);
   const desiredReport = await previewReconciliation(desired, {
     receipts: [],
     removedTemporaryInstallationIds: [],
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
-  });
+  }, { brokenProfileViolations });
   // Installer-classified state-read failures cross as typed facts; foreign
   // diagnostics (fs and parse errors) stay plain detail facts. The same fact
   // rides on every Project state so no Installer-authored sentence leaks.
@@ -880,7 +881,7 @@ function nestedReconciliationReport(
   flat: ReconciliationAccumulator,
   desiredInstallations: readonly DesiredInstallation[],
   exclusionProjects: ReadonlyMap<string, ReadonlySet<string>>,
-  plannedReferenceViolations: readonly WorkspaceViolation[] = [],
+  brokenProfileViolations: readonly WorkspaceViolation[],
 ): ReconciliationReport {
   const canonicalByProject = new Map<string, string>();
   for (const installation of flat.desired) {
@@ -992,21 +993,10 @@ function nestedReconciliationReport(
       .filter((installation) => installation.kind === "blocked")
       .map((installation) => installation.binding.canonicalProject),
   );
-  const violationsById = new Map<string, WorkspaceViolation>();
-  for (const violation of plannedReferenceViolations) {
-    violationsById.set(JSON.stringify(violation), violation);
-  }
-  for (const installation of desiredInstallations) {
-    if (installation.kind !== "blocked") continue;
-    for (const violation of installation.brokenProfile.referenceViolations) {
-      violationsById.set(JSON.stringify(violation), violation);
-    }
-  }
-  const brokenProfileViolations = [...violationsById.values()].sort((left, right) =>
-    workspaceViolationToken(left).localeCompare(workspaceViolationToken(right)) ||
-    workspaceViolationPath(left).localeCompare(workspaceViolationPath(right)));
   return {
-    brokenProfileViolations,
+    brokenProfileViolations: [...brokenProfileViolations].sort((left, right) =>
+      workspaceViolationToken(left).localeCompare(workspaceViolationToken(right)) ||
+      workspaceViolationPath(left).localeCompare(workspaceViolationPath(right))),
     globalBlockers: [...globalBlockers],
     projects: [...projectKeys].sort().map((key) => {
       const desired = desiredByCanonical.get(key);
@@ -1064,9 +1054,8 @@ export interface PreviewReconciliationOptions {
   readonly scheduler?: ProjectReadScheduler;
   /**
    * The verbatim #604 reference facts from desired-state planning (#606): the
-   * report-every-broken-Profile channel, covering Profiles bound to no
-   * Project. Blocked installations contribute their own facts; the union is
-   * deduplicated.
+   * one report-every-broken-Profile channel, covering Profiles bound to no
+   * Project. Omitted only by callers that plan no broken Profile.
    */
   readonly brokenProfileViolations?: readonly WorkspaceViolation[];
 }
@@ -2073,7 +2062,12 @@ async function applyReconciliationLocked(
     before = await readInstallationState(home);
   } catch (error) {
     throw new ApplyBlockedError(
-      await unreadableInstallationStateReport(home, desired, error),
+      await unreadableInstallationStateReport(
+        home,
+        desired,
+        error,
+        options.brokenProfileViolations ?? [],
+      ),
     );
   }
   // Fresh inspection pass: pre-write filesystem evidence only. One context

@@ -100,9 +100,8 @@ export type TemporaryRemovalFailureFact =
 /**
  * Typed evidence for one broken Profile (spec #593 US-007, DEC-009 project
  * scope, #606): the Profile names Context Modules or Skills the Workspace
- * lacks. Facts only — presentation owns every sentence; nearest-match
- * suggestions stay in `validate`'s #604 report, so no available-ID lists are
- * carried.
+ * lacks. Facts only — presentation owns every sentence; the verbatim #604
+ * violations stay on the report channel, never on the Blocker.
  */
 export interface BrokenProfileReferenceFact {
   /** Workspace-relative Profile file that authored the invalid references. */
@@ -111,11 +110,6 @@ export interface BrokenProfileReferenceFact {
   readonly missingContexts: readonly string[];
   /** Sorted Skill Artifact IDs the Profile names but the Workspace lacks. */
   readonly missingSkills: readonly string[];
-  /**
-   * The verbatim #604 facts of this Profile's invalid references, carried from
-   * the tolerant-ingestion boundary — one home, never re-filtered (#606).
-   */
-  readonly referenceViolations: readonly unknown[];
   /** The broken Profile's Artifact ID. */
   readonly profile: string;
 }
@@ -355,9 +349,10 @@ export function brokenProfileBlocker(options: {
   readonly brokenProfile: BrokenProfileReferenceFact;
   readonly project: string;
 }): ProjectScopedBlockerInput {
+  const { file, missingContexts, missingSkills, profile } = options.brokenProfile;
   return {
     affectedItems: [],
-    brokenProfile: options.brokenProfile,
+    brokenProfile: { file, missingContexts, missingSkills, profile },
     kind: BROKEN_PROFILE,
     project: options.project,
     scope: "project" as const,
@@ -641,11 +636,6 @@ function validateBrokenProfileFact(
   if (fact.missingContexts.length === 0 && fact.missingSkills.length === 0) {
     throw new TypeError(
       `Structured blocker broken-profile fact requires at least one missing reference${blockerContext(input)}`,
-    );
-  }
-  if (!Array.isArray(fact.referenceViolations) || fact.referenceViolations.length === 0) {
-    throw new TypeError(
-      `Structured blocker broken-profile fact requires its verbatim reference violations${blockerContext(input)}`,
     );
   }
 }

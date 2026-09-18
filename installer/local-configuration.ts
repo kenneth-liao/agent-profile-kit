@@ -487,6 +487,7 @@ async function ingestWorkspaceFromConfiguration(
   const resolved = await resolveWorkspaceRoot(home, authored, path);
   return ingestWorkspace(resolved.path);
 }
+
 /**
  * Normalize the Project Binding portion of Local Configuration once. Full
  * application ingestion validates every path and Profile; inventory retains
@@ -617,8 +618,8 @@ async function ingestParsedApplicationModel(
   path: string,
   options: { readonly allowMissingProjects?: boolean; readonly toleratingReferenceViolations?: true } = {},
 ): Promise<IngestedApplicationSource & {
-  readonly brokenProfiles?: readonly BrokenProfileReference[];
-  readonly referenceViolations?: readonly WorkspaceViolation[];
+  readonly brokenProfiles: readonly BrokenProfileReference[];
+  readonly referenceViolations: readonly WorkspaceViolation[];
 }> {
   if (options.toleratingReferenceViolations === true) {
     const resolved = await resolveWorkspaceRoot(home, parsed.workspace, path);
@@ -645,6 +646,8 @@ async function ingestParsedApplicationModel(
   });
   return {
     bindings,
+    brokenProfiles: [],
+    referenceViolations: [],
     schemaVersion: parsed.schemaVersion,
     workspace: parsed.workspace,
     workspaceModel,
@@ -820,7 +823,7 @@ export async function ingestApplicationToleratingReferenceViolations(
     toleratingReferenceViolations: true,
   });
   return {
-    brokenProfiles: model.brokenProfiles ?? [],
+    brokenProfiles: model.brokenProfiles,
     configuration: {
       bindings: model.bindings.map((binding) => ({
         canonicalProject: binding.canonicalProject!,
@@ -832,7 +835,7 @@ export async function ingestApplicationToleratingReferenceViolations(
       schemaVersion: model.schemaVersion,
       workspace: model.workspace,
     },
-    referenceViolations: model.referenceViolations ?? [],
+    referenceViolations: model.referenceViolations,
     workspace: model.workspaceModel,
   };
 }

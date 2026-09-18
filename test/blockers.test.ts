@@ -41,6 +41,7 @@ import { buildDesiredState } from "../installer/project-plan.js";
 import { desiredOutputConflicts, previewReconciliation } from "../installer/reconcile.js";
 import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import { TemporaryInstallationBlockedError } from "../installer/temporary-installation.js";
+import type { BrokenProfileReference } from "../installer/ingest-workspace.js";
 import {
   reportBlockers,
 } from "./support/reconciliation-report.js";
@@ -595,6 +596,17 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
       missingContexts: ["gone-context"],
       missingSkills: ["gone-skill"],
       profile: "broken",
+    },
+    kind: "broken-profile",
+    project: "/project-a",
+    scope: "project",
+  } as const;
+
+  test("normalizes complete broken-Profile evidence into a project-scoped blocker", () => {
+    // The grouped ingestion fact carries its verbatim #604 violations; the
+    // Blocker keeps only the evidence its wording reads.
+    const grouped: BrokenProfileReference = {
+      ...BROKEN_PROFILE_INPUT.brokenProfile,
       referenceViolations: [{
         fact: {
           available: [],
@@ -605,15 +617,9 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
         },
         via: "ingestion",
       }],
-    },
-    kind: "broken-profile",
-    project: "/project-a",
-    scope: "project",
-  } as const;
-
-  test("normalizes complete broken-Profile evidence into a project-scoped blocker", () => {
+    };
     const blocker = normalizeBlocker(brokenProfileBlocker({
-      brokenProfile: BROKEN_PROFILE_INPUT.brokenProfile,
+      brokenProfile: grouped,
       project: "/project-a",
     }));
     if (blocker.kind !== "broken-profile") throw new Error(`expected broken-profile, got ${blocker.kind}`);
@@ -623,10 +629,7 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe("/project-a");
     expect(blocker.affectedItems).toEqual([]);
-    expect(blocker.brokenProfile).toEqual({
-      ...BROKEN_PROFILE_INPUT.brokenProfile,
-      referenceViolations: BROKEN_PROFILE_INPUT.brokenProfile.referenceViolations,
-    });
+    expect(blocker.brokenProfile).toEqual(BROKEN_PROFILE_INPUT.brokenProfile);
     expect(Object.isFrozen(blocker.brokenProfile)).toBe(true);
     expect("problem" in blocker).toBe(false);
     expect("message" in blocker).toBe(false);

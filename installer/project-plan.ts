@@ -32,6 +32,7 @@ import {
 import { requireContextModuleId } from "../schemas/context-profile.js";
 import { type ResolvedArtifactFingerprint } from "./hashes.js";
 import {
+  ingestApplication,
   ingestApplicationToleratingReferenceViolations,
   stateDirectory,
   type ProjectBindingSelection,
@@ -685,17 +686,22 @@ export interface BuildDesiredStateOptions {
   readonly scheduler?: ProjectReadScheduler;
   /** Prior Installation Manifests available to Adapters for topology recovery. */
   readonly previousInstallations?: readonly OwnershipReceipt[];
+  /**
+   * Reject Profile reference violations at ingestion, before any Project is
+   * planned (`validate`, #606). Lifecycle commands omit it and block only the
+   * Projects bound to a broken Profile.
+   */
+  readonly rejectReferenceViolations?: true;
 }
 
 export async function buildDesiredState(
   home: string,
   options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
-  const { brokenProfiles, configuration, workspace } =
-    await ingestApplicationToleratingReferenceViolations(
-      home,
-      options.selection ?? { kind: "all" },
-    );
+  const selection = options.selection ?? { kind: "all" };
+  const { brokenProfiles, configuration, workspace } = options.rejectReferenceViolations === true
+    ? { ...await ingestApplication(home, selection), brokenProfiles: [] }
+    : await ingestApplicationToleratingReferenceViolations(home, selection);
   const referenceViolations = brokenProfiles.flatMap((broken) => broken.referenceViolations);
   const installations = await planDesiredInstallations(home, [...configuration.bindings], workspace, {
     ...(options.checkHostCapability === undefined ? {} : { checkHostCapability: options.checkHostCapability }),
@@ -719,12 +725,9 @@ export async function buildDesiredState(
   };
 }
 
-
 export interface PlanDesiredInstallationsOptions {
   readonly brokenProfiles?: readonly BrokenProfileReference[];
   readonly checkHostCapability?: boolean;
-  /** The verbatim #604 reference facts, passed through to blocked installations (#606). */
-  readonly referenceViolations?: readonly WorkspaceViolation[];
   readonly env?: NodeJS.ProcessEnv;
   readonly gitInspection?: LifecycleGitInspection;
   readonly planningInstrumentation?: LifecyclePlanningInstrumentation;

@@ -412,7 +412,12 @@ export async function executeInstall(
     before = await readInstallationState(home);
   } catch (error) {
     throw toInstallError(
-      new ApplyBlockedError(await unreadableInstallationStateReport(home, [prospective], error)),
+      new ApplyBlockedError(await unreadableInstallationStateReport(
+        home,
+        [prospective],
+        error,
+        brokenProfileViolations,
+      )),
     );
   }
   const consent = await (async () => {

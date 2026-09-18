@@ -8,6 +8,7 @@ import { formatLifecycleJson } from "../cli/presentation.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { validateApplication } from "../installer/commands.js";
+import { createLifecycleInstrumentation } from "../installer/qualification-instrumentation.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import { existsSync } from "node:fs";
 import {
@@ -133,7 +134,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       receipts: [],
       removedTemporaryInstallationIds: [],
       schemaVersion: 9,
-    });
+    }, { brokenProfileViolations: desired.referenceViolations });
 
     const blockedRecord = report.projects.find((project) => project.canonicalProject === blockedProject);
     expect(blockedRecord).toMatchObject({ state: { kind: "blocked" } });
@@ -172,7 +173,9 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     // One full apply: the healthy Project installs; the blocked Project is
     // skipped and gets nothing written.
     const before = await buildDesiredState(home, { checkHostCapability: false });
-    const firstReport = await applyReconciliation(home, before.installations);
+    const firstReport = await applyReconciliation(home, before.installations, {
+      brokenProfileViolations: before.referenceViolations,
+    });
     expect(reportItems(firstReport.receipt).find((item) => item.project === healthyProject)?.kind).toBe("addition");
     // No blocked work is planned: the Apply Receipt carries nothing for it.
     expect(reportItems(firstReport.receipt).some((item) => item.project === blockedProject)).toBe(false);
@@ -218,7 +221,9 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     // existing whole-invocation rule when no selected Project has pending work.
     let blockedReport;
     try {
-      await applyReconciliation(home, desired.installations);
+      await applyReconciliation(home, desired.installations, {
+        brokenProfileViolations: desired.referenceViolations,
+      });
       throw new Error("expected ApplyBlockedError");
     } catch (error) {
       if (!(error instanceof ApplyBlockedError)) throw error;
@@ -245,9 +250,10 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
 
   test("validate (application mode) still fails while any Profile is broken", async () => {
     const { home } = await brokenFleetFixture("apkit-606-validate-");
+    const instrumentation = createLifecycleInstrumentation();
     let thrown: unknown;
     try {
-      await validateApplication(home);
+      await validateApplication(home, { instrumentation });
     } catch (error) {
       thrown = error;
     }
@@ -258,6 +264,8 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       "missing-context-reference",
       "missing-skill-reference",
     ]);
+    // Fail fast: the Workspace report comes from ingestion, before any Project is planned.
+    expect(instrumentation.counts.resolveProfile).toBe(0);
   });
 
   test("a Workspace whose only problem is an unbound broken Profile still reports it and blocks nobody", async () => {
