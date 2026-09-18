@@ -294,7 +294,7 @@ describe("OpenCode Skills planning", () => {
     const source = temporaryDirectory("apk-opencode-dis-src-");
     writeFileSync(
       join(source, "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy production.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
 
     const disabledSkill: Skill = { id: "deploy",
@@ -573,7 +573,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy production.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -655,7 +655,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy production.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -696,7 +696,7 @@ describe("OpenCode lifecycle: status and apply", () => {
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy production.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -767,7 +767,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
   test("produces identical candidate SKILL.md documents across Claude and OpenCode discovery roots for disabled-invocation Skills", async () => {
     const source = temporaryDirectory("apk-opencode-claude-disabled-src-");
     const authoredSkillContent =
-      "---\n# Frontmatter comment\nname: deploy\ndescription: Deploy production safely.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n";
+      "---\n# Frontmatter comment\nname: deploy\ndescription: Deploy production safely.\ndisable-model-invocation: true\n---\n\n# Deploy\n";
     writeSkillPackage(source, {
       "SKILL.md": { bytes: authoredSkillContent, mode: 0o644 },
     });
@@ -876,7 +876,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     mkdirSync(join(workspace, "skills", "deploy"), { recursive: true });
     writeFileSync(
       join(workspace, "skills", "deploy", "SKILL.md"),
-      "---\nname: deploy\ndescription: Deploy production.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Deploy\n",
+      "---\nname: deploy\ndescription: Deploy production.\ndisable-model-invocation: true\n---\n\n# Deploy\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),

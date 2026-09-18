@@ -391,8 +391,8 @@ function writeSkill(
   const description = options.description ?? `Skill ${skillId}.`;
   const body = options.body ?? `# ${skillId}\n`;
   let frontmatter = `---\nname: ${skillId}\ndescription: ${description}\n`;
-  if (options.modelInvocation === "disabled" || options.modelInvocation === "allowed") {
-    frontmatter += `metadata:\n  agent-profile-kit.model-invocation: ${options.modelInvocation}\n`;
+  if (options.modelInvocation === "disabled") {
+    frontmatter += `disable-model-invocation: true\n`;
   }
   frontmatter += "---\n\n";
   writeFileSync(join(skillRoot, "SKILL.md"), frontmatter + body);
@@ -1213,12 +1213,13 @@ describe("project-bound release candidate", () => {
       readFileSync(join(combined, ".claude", "skills", "to-spec", "SKILL.md"), "utf8"),
     ).toContain("disable-model-invocation: true");
 
-    // Canonical Workspace source is never rewritten.
+    // Canonical Workspace source is never rewritten: the authored standard
+    // field and unrelated metadata stay byte-identical.
     expect(readFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), "utf8")).toContain(
-      "agent-profile-kit.model-invocation: disabled",
+      "disable-model-invocation: true",
     );
     expect(readFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), "utf8")).not.toContain(
-      "disable-model-invocation",
+      "agent-profile-kit.model-invocation",
     );
   });
 

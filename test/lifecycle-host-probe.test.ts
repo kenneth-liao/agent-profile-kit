@@ -56,7 +56,7 @@ function writeSkill(
   mkdirSync(skillRoot, { recursive: true });
   const invocation =
     modelInvocation === "disabled"
-      ? "metadata:\n  agent-profile-kit.model-invocation: disabled\n"
+      ? "disable-model-invocation: true\n"
       : "";
   writeFileSync(
     join(skillRoot, "SKILL.md"),

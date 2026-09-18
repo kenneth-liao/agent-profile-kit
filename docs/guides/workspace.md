@@ -171,22 +171,25 @@ there; there are no Dependencies and no `agent-profile-kit.yaml` sidecar.
 
 By default, Hosts may invoke a Skill implicitly when the model matches its
 description. To require explicit user invocation while keeping the Skill
-available on request, set optional standard namespaced metadata:
+available on request, set the standard top-level `disable-model-invocation`
+field in `SKILL.md`:
 
 ```yaml
-metadata:
-  agent-profile-kit.model-invocation: disabled
+disable-model-invocation: true
 ```
 
-Accepted values are the strings `allowed` and `disabled`. Absence normalizes to
-`allowed`. Invalid types or values fail at Workspace ingestion.
+The field is a boolean: `true` disables model invocation, and absence (or
+`false`) allows it. Non-boolean values fail at Workspace ingestion with the
+fix.
 
-This is the only portable spelling. Host-native top-level
-`disable-model-invocation` and Codex-only `agents/openai.yaml` policy are not
-canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
-the namespaced metadata key above rather than relying on Host-specific
-frontmatter. The Installer never rewrites Workspace `SKILL.md` during
-validate, status, or update.
+This standard field is the only policy authority (ADR-0018). The retired
+Agent Profile Kit metadata key `agent-profile-kit.model-invocation` is no
+longer read: a Skill carrying it fails validation, and the fix names
+`disable-model-invocation` as the replacement. Other top-level frontmatter
+fields beyond those Agent Profile Kit reads — including Host-specific fields —
+are accepted and ignored, so standard Agent Skill packages validate and
+install unchanged, and those fields reach each Host as written. The Installer
+never rewrites Workspace `SKILL.md` during validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -264,8 +267,7 @@ description: Review a pull request. Use when asked to review code changes.
 ---
 name: to-spec
 description: Turn the current conversation into a spec.
-metadata:
-  agent-profile-kit.model-invocation: disabled
+disable-model-invocation: true
 ---
 
 # To spec

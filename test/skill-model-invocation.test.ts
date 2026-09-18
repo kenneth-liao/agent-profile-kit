@@ -96,7 +96,7 @@ function skillAt(
 }
 
 const DISABLED_BODY =
-  "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n  author: maintainer\n---\n\n# To spec\n";
+  "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\nmetadata:\n  author: maintainer\n---\n\n# To spec\n";
 
 describe("Codex hooks configuration parsing", () => {
   test("supports dotted TOML settings and gives canonical hooks precedence", () => {
@@ -126,36 +126,54 @@ describe("Skill model-invocation policy", () => {
     expect(skill.id).toBe("to-spec");
   });
 
-  test("accepts allowed and disabled string values under namespaced metadata", () => {
-    const allowed = parseSkill(
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
+  test("reads the disabled policy from the standard top-level field", () => {
+    const skill = parseSkill(
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\n---\n\n# To spec\n",
       SKILL_PATH,
       SOURCE_PATH,
     );
-    const disabled = parseSkill(
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n",
+    expect(skill.modelInvocation).toBe("disabled");
+  });
+
+  test("reads false as allowed and non-boolean values as violations", () => {
+    const allowed = parseSkill(
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: false\n---\n\n# To spec\n",
       SKILL_PATH,
       SOURCE_PATH,
     );
     expect(allowed.modelInvocation).toBe("allowed");
-    expect(disabled.modelInvocation).toBe("disabled");
+    expect(
+      parseRejectionSentence(
+        "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: maybe\n---\n\n# To spec\n",
+      ),
+    ).toBe(
+      `Skill ${SKILL_PATH} disable-model-invocation must be a boolean; set it to true to disable model invocation, or remove the field to allow invocation`,
+    );
   });
 
-  test("rejects invalid model-invocation types and values at ingestion", () => {
+  test("rejects the retired namespaced metadata key and non-boolean standard values", () => {
+    const leftoverKey = `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation is no longer read; move the policy to the standard top-level field 'disable-model-invocation' (true disables model invocation), then remove the metadata key`;
+    expect(
+      parseRejectionSentence(
+        "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
+      ),
+    ).toBe(leftoverKey);
     expect(
       parseRejectionSentence(
         "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: maybe\n---\n\n# To spec\n",
       ),
-    ).toBe(
-      `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation must be the string 'allowed' or 'disabled'`,
-    );
+    ).toBe(leftoverKey);
     expect(
       parseRejectionSentence(
-        "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: true\n---\n\n# To spec\n",
+        "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n",
       ),
-    ).toBe(
-      `Skill ${SKILL_PATH} metadata.agent-profile-kit.model-invocation must be the string 'allowed' or 'disabled'`,
-    );
+    ).toBe(leftoverKey);
+    // The retired key is reported even when the standard field is also present.
+    expect(
+      parseRejectionSentence(
+        "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n",
+      ),
+    ).toBe(leftoverKey);
   });
 
   test("preserves unrelated standard metadata while reading model-invocation", () => {
@@ -166,14 +184,14 @@ describe("Skill model-invocation policy", () => {
     expect(projected).toContain("author: maintainer");
   });
 
-  test("still rejects unknown top-level frontmatter including Claude-native disable-model-invocation", () => {
-    expect(
-      parseRejectionSentence(
-        "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\n---\n\n# To spec\n",
-      ),
-    ).toBe(
-      `Skill ${SKILL_PATH} frontmatter does not allow fields: disable-model-invocation`,
+  test("accepts and ignores Host-specific top-level frontmatter fields", () => {
+    const skill = parseSkill(
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\nhost-specific: value\nmetadata:\n  author: maintainer\n---\n\n# To spec\n",
+      SKILL_PATH,
+      SOURCE_PATH,
     );
+    expect(skill.modelInvocation).toBe("disabled");
+    expect(skill.id).toBe("to-spec");
   });
 
   test("shared invocation emitter notices every document and projects disable-model-invocation only when disabled", () => {
@@ -186,11 +204,11 @@ describe("Skill model-invocation policy", () => {
     expect(allowedProjection).not.toContain("disable-model-invocation");
 
     const authoredSource =
-      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n\nPreserve body bytes.\n";
+      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# To spec\n\nPreserve body bytes.\n";
 
     const projected = emitSharedSkillMarkdown("to-spec", authoredSource, "disabled");
     expect(projected).toBe(
-      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
+      "---\n# Primary header comment\nname: to-spec\n# Authored description comment\ndescription: 'Single quoted description'\nlicense: \"MIT\"\nmetadata:\n  # Author metadata comment\n  author: 'maintainer'\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n" +
         `${generatedMarkdownNotice()}\n\n# To spec\n\nPreserve body bytes.\n`,
     );
   });
@@ -297,7 +315,7 @@ describe("Skill model-invocation policy", () => {
   test("allowed policy does not add Host restriction fields", async () => {
     const source = temporaryDirectory("apk-mi-allowed-");
     const body =
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n";
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  author: maintainer\n---\n\n# To spec\n";
     writeSkillPackage(source, { "SKILL.md": { bytes: body } });
     const claude = await planClaudeProject("coding", [{ id: "team-rules", content: "rules\n" }], [
       skillAt(source, "allowed"),
@@ -318,7 +336,7 @@ describe("Skill model-invocation policy", () => {
     if (!claudeMd || claudeMd.type !== "file") throw new Error("expected SKILL.md");
     const claudeDocument = Buffer.from(claudeMd.bytes).toString("utf8");
     expect(claudeDocument).toBe(
-      `---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n${generatedMarkdownNotice()}\n\n# To spec\n`,
+      `---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  author: maintainer\n---\n${generatedMarkdownNotice()}\n\n# To spec\n`,
     );
     expect(claudeDocument).not.toContain("disable-model-invocation");
     expect(codexPkg.members.some((member) => member.path === "agents/openai.yaml")).toBe(false);
@@ -380,7 +398,7 @@ describe("Skill model-invocation policy", () => {
     const codexSkill = readFileSync(join(project, ".agents", "skills", "to-spec", "SKILL.md"), "utf8");
     expect(claudeSkill).toBe(codexSkill);
     expect(claudeSkill).toContain("disable-model-invocation: true");
-    expect(claudeSkill).toContain("agent-profile-kit.model-invocation: disabled");
+    expect(claudeSkill).not.toContain("agent-profile-kit.model-invocation");
     expect(claudeSkill).toContain("# Agent Profile Kit: keep Skill invocation explicit.");
     const codexOpenAi = parse(
       readFileSync(join(project, ".agents", "skills", "to-spec", "agents", "openai.yaml"), "utf8"),
@@ -394,7 +412,7 @@ describe("Skill model-invocation policy", () => {
   test("Claude and Codex plans produce identical Skill document bytes for disabled model invocation", async () => {
     const source = temporaryDirectory("apk-mi-identical-");
     const authoredSource =
-      "---\n# Header comment\nname: to-spec\ndescription: \"Turn conversation into a spec.\"\nmetadata:\n  author: 'maintainer'\n  agent-profile-kit.model-invocation: disabled\n---\n\n# To spec\n";
+      "---\n# Header comment\nname: to-spec\ndescription: \"Turn conversation into a spec.\"\nmetadata:\n  author: 'maintainer'\n# Agent Profile Kit: keep Skill invocation explicit.\ndisable-model-invocation: true\n---\n\n# To spec\n";
     writeSkillPackage(source, { "SKILL.md": { bytes: authoredSource } });
 
     const claude = await planClaudeProject("coding", [{ id: "team-rules", content: "rules\n" }], [

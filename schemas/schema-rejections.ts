@@ -90,7 +90,8 @@ export type WorkspaceArtifactRejectionReason =
       readonly path: string;
       readonly section: string;
     }
-  | { readonly case: "invalid-model-invocation"; readonly path: string; readonly key: string };
+  | { readonly case: "invalid-model-invocation"; readonly path: string; readonly key: string }
+  | { readonly case: "leftover-model-invocation-metadata"; readonly path: string };
 
 /** Artifact ID validation outside portable-artifact parsing carries its caller label. */
 export type ArtifactIdRejectionReason = { readonly case: "invalid-artifact-id"; readonly label: string };

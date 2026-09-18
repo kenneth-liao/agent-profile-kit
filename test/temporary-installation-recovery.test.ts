@@ -129,7 +129,7 @@ describe("Temporary Profile Installation recovery", () => {
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
-      "---\nname: review-pr\ndescription: Review the change carefully.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\nReview the change carefully.\n",
+      "---\nname: review-pr\ndescription: Review the change carefully.\ndisable-model-invocation: true\n---\n\nReview the change carefully.\n",
     );
     mkdirSync(join(workspace, "skills", "review-pr", "agents"), { recursive: true });
     writeFileSync(

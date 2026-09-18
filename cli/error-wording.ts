@@ -16,6 +16,7 @@ import type {
   WorkspaceArtifactRejectionReason,
   WorkspaceManifestRejectionReason,
 } from "../schemas/schema-rejections.js";
+import { RETIRED_MODEL_INVOCATION_METADATA_FIELD } from "../schemas/skill.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
   ProjectTargetError,
@@ -555,7 +556,9 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
     case "invalid-artifact-id":
       return `${description} must be a lowercase kebab-case name without wildcards`;
     case "invalid-model-invocation":
-      return `Skill ${reason.path} metadata.${reason.key} must be the string 'allowed' or 'disabled'`;
+      return `Skill ${reason.path} ${reason.key} must be a boolean; set it to true to disable model invocation, or remove the field to allow invocation`;
+    case "leftover-model-invocation-metadata":
+      return `Skill ${reason.path} ${RETIRED_MODEL_INVOCATION_METADATA_FIELD} is no longer read; move the policy to the standard top-level field 'disable-model-invocation' (true disables model invocation), then remove the metadata key`;
   }
 }
 

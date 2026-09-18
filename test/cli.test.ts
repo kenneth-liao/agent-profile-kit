@@ -3153,7 +3153,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(workspacePath(home), "skills", "quiet-skill"), { recursive: true });
     writeFileSync(
       join(workspacePath(home), "skills", "quiet-skill", "SKILL.md"),
-      "---\nname: quiet-skill\ndescription: Skill requiring disabled model invocation.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Quiet\n",
+      "---\nname: quiet-skill\ndescription: Skill requiring disabled model invocation.\ndisable-model-invocation: true\n---\n\n# Quiet\n",
     );
     writeFileSync(
       join(workspacePath(home), "profiles", "hands-off.yaml"),
@@ -7493,7 +7493,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     mkdirSync(join(workspacePath(home), "skills", "to-spec"));
     const sourceBody =
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n  author: maintainer\n---\n\n# To spec\n";
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\ndisable-model-invocation: true\nmetadata:\n  author: maintainer\n---\n\n# To spec\n";
     writeFileSync(join(workspacePath(home), "skills", "to-spec", "SKILL.md"), sourceBody);
     writeFileSync(
       join(workspacePath(home), "profiles", "coding.yaml"),
@@ -7509,7 +7509,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     mkdirSync(join(workspacePath(malformedHome), "skills", "bad-skill"));
     writeFileSync(
       join(workspacePath(malformedHome), "skills", "bad-skill", "SKILL.md"),
-      "---\nname: bad-skill\ndescription: Bad policy.\nmetadata:\n  agent-profile-kit.model-invocation: maybe\n---\n\n# Bad\n",
+      "---\nname: bad-skill\ndescription: Bad policy.\ndisable-model-invocation: maybe\n---\n\n# Bad\n",
     );
     writeFileSync(
       join(workspacePath(malformedHome), "profiles", "coding.yaml"),
@@ -7521,7 +7521,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const malformed = await runCli(malformedHome, "validate");
     expectExitCode(malformed, 1);
-    expect(malformed.stderr.replace(/\s+/g, " ")).toContain("allowed' or 'disabled");
+    expect(malformed.stderr.replace(/\s+/g, " ")).toContain("must be a boolean");
+    expect(malformed.stderr.replace(/\s+/g, " ")).toContain("set it to true to disable model invocation");
 
     const conflictHome = isolatedHome();
     await initialize(conflictHome);
@@ -7556,9 +7557,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const conflict = await runCli(conflictHome, "status");
     expectExitCode(conflict, 1);
-    expect(`${conflict.stdout}${conflict.stderr}`).toContain("conflicting model-invocation authorities");
-    expect(`${conflict.stdout}${conflict.stderr}`).toContain("metadata.agent-profile-kit.model-invocation");
-    expect(`${conflict.stdout}${conflict.stderr}`).toContain("agents/openai.yaml policy.allow_implicit_invocation");
+    const conflictOutput = `${conflict.stdout}${conflict.stderr}`.replace(/\s+/g, " ");
+    expect(conflictOutput).toContain("conflicting model-invocation authorities");
+    expect(conflictOutput).toContain("disable-model-invocation");
+    expect(conflictOutput).toContain("agents/openai.yaml policy.allow_implicit_invocation");
 
     // Apply fails closed too: the healthy installation keeps its recorded
     // outputs and its receipt, so no empty reconciliation is published.
@@ -7597,7 +7599,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Allowed skill: no Host restriction fields.
     writeFileSync(
       join(workspacePath(home), "skills", "to-spec", "SKILL.md"),
-      "---\nname: to-spec\ndescription: Turn conversation into a spec.\nmetadata:\n  agent-profile-kit.model-invocation: allowed\n---\n\n# To spec\n",
+      "---\nname: to-spec\ndescription: Turn conversation into a spec.\n---\n\n# To spec\n",
     );
     const allowedApply = await runCliWithPath(home, pathValue, "update");
     expectExitCode(allowedApply, 0);
@@ -7945,7 +7947,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     writeFileSync(
       join(disabledSkill, "SKILL.md"),
-      "---\nname: disabled-skill\ndescription: Explicit-only Skill.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\n# Explicit only\n",
+      "---\nname: disabled-skill\ndescription: Explicit-only Skill.\ndisable-model-invocation: true\n---\n\n# Explicit only\n",
     );
     writeFileSync(
       join(unselectedSkill, "SKILL.md"),
@@ -13539,7 +13541,7 @@ describe("apkit temporary Profile installation (Claude Code parity)", () => {
     const temporaryProject = realpathSync(gitRepository("agent-profile-kit-shared-codex-temp-"));
     writeFileSync(
       skillPath,
-      "---\nname: review-pr\ndescription: Review a pull request.\nmetadata:\n  agent-profile-kit.model-invocation: disabled\n---\n\nReview the change carefully.\n",
+      "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\nReview the change carefully.\n",
     );
     writeFileSync(
       configPath(home),

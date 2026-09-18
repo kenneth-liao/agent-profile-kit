@@ -425,20 +425,23 @@ Skill model-invocation policy
 
 By default, Hosts may invoke a Skill implicitly when the model matches its
   description. To require explicit user invocation while keeping the Skill
-  available on request, set optional standard namespaced metadata:
+  available on request, set the standard top-level \`disable-model-invocation\`
+  field in \`SKILL.md\`:
 
-metadata:
-  agent-profile-kit.model-invocation: disabled
+disable-model-invocation: true
 
-Accepted values are the strings \`allowed\` and \`disabled\`. Absence normalizes
-  to \`allowed\`. Invalid types or values fail at Workspace ingestion.
+The field is a boolean: \`true\` disables model invocation, and absence (or
+  \`false\`) allows it. Non-boolean values fail at Workspace ingestion with the
+  fix.
 
-This is the only portable spelling. Host-native top-level
-  \`disable-model-invocation\` and Codex-only \`agents/openai.yaml\` policy are not
-  canonical source fields for Agent Profile Kit: migrate Host-shaped Skills to
-  the namespaced metadata key above rather than relying on Host-specific
-  frontmatter. The Installer never rewrites Workspace \`SKILL.md\` during
-  validate, status, or update.
+This standard field is the only policy authority (ADR-0018). The retired Agent
+  Profile Kit metadata key \`agent-profile-kit.model-invocation\` is no longer
+  read: a Skill carrying it fails validation, and the fix names
+  \`disable-model-invocation\` as the replacement. Other top-level frontmatter
+  fields beyond those Agent Profile Kit reads — including Host-specific fields —
+  are accepted and ignored, so standard Agent Skill packages validate and
+  install unchanged, and those fields reach each Host as written. The Installer
+  never rewrites Workspace \`SKILL.md\` during validate, status, or update.
 
 Adapters translate the trusted policy only in generated Host output:
 
@@ -519,8 +522,7 @@ description: Review a pull request. Use when asked to review code changes.
 ---
 name: to-spec
 description: Turn the current conversation into a spec.
-metadata:
-  agent-profile-kit.model-invocation: disabled
+disable-model-invocation: true
 ---
 
 # To spec
@@ -917,10 +919,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    Claude Code, Grok, OpenCode, and Pi. Put standing facts in
    Context Modules and reusable procedures in Skills. A Profile needs at least
    one supported artifact (Context, Skills, or both); Context is not mandatory—a
-   Skills-only Profile is valid. For Skills that must not fire implicitly, use
-   \`metadata.agent-profile-kit.model-invocation: disabled\` (default is
-   \`allowed\`); do not leave Host-native \`disable-model-invocation\` in
-   Workspace source (Adapters project that field for Claude, Grok, and Pi). Profiles
+   Skills-only Profile is valid. For Skills that must not fire implicitly, set
+   the standard top-level \`disable-model-invocation: true\` field in \`SKILL.md\`
+   (absent means allowed); the retired \`metadata.agent-profile-kit.model-invocation\`
+   key fails validation and other top-level fields are accepted and ignored.
+   Profiles
    contain exactly \`id\`, \`context\`, and \`skills\`. Do not create a new artifact merely because
    a directory exists, and do not invent Agents, Hooks, or Tools
    for this release.
@@ -1063,7 +1066,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.206.0
+Engine version: 0.207.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1936,7 +1939,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.206.0
+Engine version: 0.207.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1946,7 +1949,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.206.0\x1B[0m
+\x1B[35mEngine version: 0.207.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1956,7 +1959,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.206.0
+Engine version: 0.207.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1966,7 +1969,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.206.0\x1B[0m
+\x1B[35mEngine version: 0.207.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
