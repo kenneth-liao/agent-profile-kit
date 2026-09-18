@@ -200,8 +200,6 @@ export interface BlockedInstallation {
   readonly binding: ProjectBinding;
   readonly brokenProfile: BrokenProfileReference;
   readonly kind: "blocked";
-  /** The verbatim #604 reference facts of this broken Profile, for the report channel (#606). */
-  readonly referenceViolations: readonly WorkspaceViolation[];
 }
 
 /**
@@ -693,16 +691,16 @@ export async function buildDesiredState(
   home: string,
   options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
-  const { brokenProfiles, configuration, referenceViolations, workspace } =
+  const { brokenProfiles, configuration, workspace } =
     await ingestApplicationToleratingReferenceViolations(
       home,
       options.selection ?? { kind: "all" },
     );
+  const referenceViolations = brokenProfiles.flatMap((broken) => broken.referenceViolations);
   const installations = await planDesiredInstallations(home, [...configuration.bindings], workspace, {
     ...(options.checkHostCapability === undefined ? {} : { checkHostCapability: options.checkHostCapability }),
     brokenProfiles,
     ...(options.env === undefined ? {} : { env: options.env }),
-    referenceViolations,
     ...(options.gitInspection === undefined ? {} : { gitInspection: options.gitInspection }),
     ...(options.planningInstrumentation === undefined
       ? {}
@@ -768,14 +766,6 @@ export async function planDesiredInstallations(
   const brokenByProfile = new Map(
     (options.brokenProfiles ?? []).map((broken) => [broken.profile, broken]),
   );
-  const violationsByProfile = new Map<string, readonly WorkspaceViolation[]>();
-  for (const violation of options.referenceViolations ?? []) {
-    if (!isProfileReferenceViolation(violation) || violation.via !== "ingestion") continue;
-    const fact = violation.fact;
-    if (fact.kind !== "missing-context-reference" && fact.kind !== "missing-skill-reference") continue;
-    const existing = violationsByProfile.get(fact.profile) ?? [];
-    violationsByProfile.set(fact.profile, [...existing, violation]);
-  }
   const installations = await scheduler.run(sortedBindings.map((binding) => async () => {
     // A Project bound to a broken Profile is blocked, never planned (spec #593
     // US-007, #606): the blocked variant carries no outputs, so a broken
@@ -786,7 +776,6 @@ export async function planDesiredInstallations(
         binding,
         brokenProfile,
         kind: "blocked" as const,
-        referenceViolations: violationsByProfile.get(binding.profile) ?? [],
       } satisfies BlockedInstallation;
     }
     const profile = requireProfile(

@@ -346,7 +346,7 @@ describe("uninstall confirmation matrix", () => {
       outcome: string;
       error: string;
     };
-    expect(badPayload.schemaVersion).toBe(15);
+    expect(badPayload.schemaVersion).toBe(16);
     expect(badPayload.command).toBe("uninstall");
     expect(badPayload.outcome).toBe("error");
     expect(badPayload.error).toContain("--bogus");
@@ -369,7 +369,7 @@ describe("uninstall confirmation matrix", () => {
       outcome: string;
       error: string;
     };
-    expect(missingPayload.schemaVersion).toBe(15);
+    expect(missingPayload.schemaVersion).toBe(16);
     expect(missingPayload.command).toBe("uninstall");
     expect(missingPayload.outcome).toBe("error");
     expect(missingPayload.error).toContain("explicit scope");
@@ -396,7 +396,7 @@ describe("uninstall confirmation matrix", () => {
       outcome: string;
       error: string;
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.command).toBe("uninstall");
     expect(payload.outcome).toBe("error");
     expect(payload.error).toContain("explicit scope");
@@ -416,7 +416,7 @@ describe("uninstall confirmation matrix", () => {
       skipped: unknown[];
       unattempted: unknown[];
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.command).toBe("uninstall");
     expect(payload.outcome).toBe("clean");
     expect(payload.completed.map((entry) => entry.project)).toEqual([first]);

@@ -5171,6 +5171,7 @@ function verboseLifecycleSections(
       nodes.push(...verboseBlockerNodes(blocker, groups, shorten, options.scope));
     }
   }
+  nodes.push(...brokenProfileNodes(report));
   nodes.push(...verboseDetailNodes(
     report,
     groups,
@@ -5525,7 +5526,7 @@ interface MachineSetupStep {
   readonly provenance: HostSetupProvenance;
 }
 
-const LIFECYCLE_MACHINE_SCHEMA_VERSION = 15 as const;
+const LIFECYCLE_MACHINE_SCHEMA_VERSION = 16 as const;
 
 /**
  * One version line per JSON command family: every `install-temp`/`remove-temp`
@@ -5539,12 +5540,11 @@ const TEMPORARY_INSTALLATION_MACHINE_SCHEMA_VERSION = 9 as const;
 /** One verbatim #604 violation fact beside its single-home presentation wording (#606). */
 function machineViolationFact(violation: WorkspaceViolation): unknown {
   return {
-    via: violation.via,
     ...(violation.via === "ingestion"
-      ? { fact: violation.fact, message: workspaceViolationMessage(violation) }
-      : violation.via === "manifest"
-        ? { detail: violation.detail, message: workspaceViolationMessage(violation) }
-        : { detail: violation.detail, message: workspaceViolationMessage(violation) }),
+      ? { fact: violation.fact }
+      : { detail: violation.detail }),
+    message: workspaceViolationMessage(violation),
+    via: violation.via,
   };
 }
 

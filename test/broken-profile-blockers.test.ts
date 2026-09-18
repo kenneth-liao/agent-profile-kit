@@ -9,12 +9,14 @@ import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
 import { validateApplication } from "../installer/commands.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
+import { existsSync } from "node:fs";
 import {
   ApplyBlockedError,
   applyReconciliation,
   previewReconciliation,
 } from "../installer/reconcile.js";
-import { readInstallationState } from "../installer/installation-state.js";
+import { executeInstall, InstallExecutionError } from "../installer/install-application.js";
+import { readInstallationState, writeInstallationState } from "../installer/installation-state.js";
 import {
   reportBlockers,
   reportItems,
@@ -86,16 +88,14 @@ async function brokenFleetFixture(prefix: string): Promise<BrokenFleetFixture> {
   return { blockedProject, healthyProject, home };
 }
 
-function blockedItemState(report: { readonly projects: readonly { readonly canonicalProject: string; readonly state: unknown }[] }, project: string): unknown {
-  return report.projects.find((candidate) => candidate.canonicalProject === project)?.state;
-}
-
 describe("broken-Profile project-scoped Blockers (#606)", () => {
   test("desired-state planning blocks only bound Projects and carries the verbatim reference facts", async () => {
     const { blockedProject, healthyProject, home } = await brokenFleetFixture("apkit-606-plan-");
     const desired = await buildDesiredState(home, { checkHostCapability: false });
 
-    expect(desired.brokenProfiles).toEqual([{
+    expect(desired.brokenProfiles.map(({ profile, file, missingContexts, missingSkills }) => ({
+      profile, file, missingContexts, missingSkills,
+    }))).toEqual([{
       profile: "broken",
       file: "profiles/broken.yaml",
       missingContexts: ["gone-context"],
@@ -174,6 +174,8 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     const before = await buildDesiredState(home, { checkHostCapability: false });
     const firstReport = await applyReconciliation(home, before.installations);
     expect(reportItems(firstReport.receipt).find((item) => item.project === healthyProject)?.kind).toBe("addition");
+    // No blocked work is planned: the Apply Receipt carries nothing for it.
+    expect(reportItems(firstReport.receipt).some((item) => item.project === blockedProject)).toBe(false);
     // The Apply Receipt records only executed work; the blocked Project's
     // blocked state and Blocker live on the resulting-state report.
     expect(reportItems(firstReport.resultingState).find((item) => item.project === blockedProject)?.kind).toBe("blocked");
@@ -204,12 +206,10 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
       project: blockedProject,
     };
     const state = await readInstallationState(home);
-    await import("../installer/installation-state.js").then((module) =>
-      module.writeInstallationState(home, {
-        ...state,
-        receipts: [...state.receipts, seededReceipt],
-      }),
-    );
+    await writeInstallationState(home, {
+      ...state,
+      receipts: [...state.receipts, seededReceipt],
+    });
     const seededBytes = readFileSync(seededOutput, "utf8");
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
@@ -227,7 +227,7 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     const blockedRecord = blockedReport.projects.find(
       (project) => project.canonicalProject === blockedProject,
     );
-    expect(blockedItemState(blockedReport, blockedProject)).toMatchObject({ kind: "blocked" });
+    expect(blockedRecord!.state).toMatchObject({ kind: "blocked" });
     expect(blockedRecord!.blockers.map((blocker) => blocker.kind)).toEqual(["broken-profile"]);
     // The update report still names every broken Profile (#606).
     expect(blockedReport.brokenProfileViolations.map(workspaceViolationToken).sort()).toEqual([
@@ -282,5 +282,45 @@ describe("broken-Profile project-scoped Blockers (#606)", () => {
     expect(report.projects).toEqual([]);
     expect(reportBlockers(report)).toEqual([]);
     expect(report.brokenProfileViolations).toHaveLength(1);
+  });
+
+  test("install of a broken Profile is blocked before any write; nothing is published", async () => {
+    const { blockedProject, home } = await brokenFleetFixture("apkit-606-install-");
+    let thrown: unknown;
+    try {
+      await executeInstall(home, { profile: "broken", hosts: ["codex"], project: blockedProject });
+      throw new Error("expected install to fail");
+    } catch (error) {
+      if (!(error instanceof InstallExecutionError)) throw error;
+      expect(error.failure.cause).toBeInstanceOf(ApplyBlockedError);
+      const blockedReport = (error.failure.cause as ApplyBlockedError).report;
+      const record = blockedReport.projects.find(
+        (project) => project.canonicalProject === blockedProject,
+      );
+      expect(record!.blockers.map((blocker) => blocker.kind)).toEqual(["broken-profile"]);
+      // The report channel names every broken Profile, including unbound ones.
+      expect(blockedReport.brokenProfileViolations.map(workspaceViolationToken).sort()).toEqual([
+        "missing-context-reference",
+        "missing-skill-reference",
+      ]);
+    }
+    // Nothing was published: no binding, no generated output, no receipt.
+    const configuration = readFileSync(join(home, ".agents", "agent-profile-kit", "config.yaml"), "utf8");
+    expect(configuration).toContain(`project: ${blockedProject}`);
+    expect(configuration).toContain("profile: broken");
+    expect(existsSync(join(blockedProject, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(blockedProject, ".codex"))).toBe(false);
+    expect((await readInstallationState(home)).receipts).toHaveLength(0);
+  });
+
+  test("install of a valid Profile succeeds while another Profile is broken", async () => {
+    const { healthyProject, home } = await brokenFleetFixture("apkit-606-install-ok-");
+    const result = await executeInstall(home, { profile: "healthy", hosts: ["codex"], project: healthyProject });
+    const healthyRecord = result.applied.receipt.projects.find(
+      (project) => project.canonicalProject === healthyProject,
+    );
+    expect(healthyRecord!.blockers).toEqual([]);
+    expect(reportItems(result.applied.receipt).find((item) => item.project === healthyProject)?.kind).toBe("addition");
+    expect(existsSync(join(healthyProject, ".agents", "skills", "shared-skill", "SKILL.md"))).toBe(true);
   });
 });

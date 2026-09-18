@@ -595,6 +595,16 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
       missingContexts: ["gone-context"],
       missingSkills: ["gone-skill"],
       profile: "broken",
+      referenceViolations: [{
+        fact: {
+          available: [],
+          contextId: "gone-context",
+          file: "profiles/broken.yaml",
+          kind: "missing-context-reference",
+          profile: "broken",
+        },
+        via: "ingestion",
+      }],
     },
     kind: "broken-profile",
     project: "/project-a",
@@ -613,7 +623,10 @@ describe("broken-profile project Blockers (spec #593 US-007, #606)", () => {
     expect(blocker.scope).toBe("project");
     expect(blocker.project).toBe("/project-a");
     expect(blocker.affectedItems).toEqual([]);
-    expect(blocker.brokenProfile).toEqual(BROKEN_PROFILE_INPUT.brokenProfile);
+    expect(blocker.brokenProfile).toEqual({
+      ...BROKEN_PROFILE_INPUT.brokenProfile,
+      referenceViolations: BROKEN_PROFILE_INPUT.brokenProfile.referenceViolations,
+    });
     expect(Object.isFrozen(blocker.brokenProfile)).toBe(true);
     expect("problem" in blocker).toBe(false);
     expect("message" in blocker).toBe(false);

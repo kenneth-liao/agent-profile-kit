@@ -998,7 +998,7 @@ function nestedReconciliationReport(
   }
   for (const installation of desiredInstallations) {
     if (installation.kind !== "blocked") continue;
-    for (const violation of installation.referenceViolations) {
+    for (const violation of installation.brokenProfile.referenceViolations) {
       violationsById.set(JSON.stringify(violation), violation);
     }
   }

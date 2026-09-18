@@ -246,7 +246,7 @@ describe("fleet-wide synchronization qualification", () => {
       readonly projects: readonly { readonly state: { readonly kind: string } }[];
       readonly schemaVersion: number;
     };
-    expect(payload.schemaVersion).toBe(15);
+    expect(payload.schemaVersion).toBe(16);
     expect(payload.projects).toHaveLength(12);
 
     // Apply reconciles the fleet and reports the receipt without a repeated
@@ -835,7 +835,7 @@ describe("integrated fleet recovery qualification", () => {
         warnings: { kind: string; message: string; copyableValues: string[] }[];
       }[];
     };
-    expect(jsonPayload.schemaVersion).toBe(15);
+    expect(jsonPayload.schemaVersion).toBe(16);
     expect(jsonPayload.outcome).toBe("blocked");
     expect(jsonPayload.projects).toHaveLength(5);
 

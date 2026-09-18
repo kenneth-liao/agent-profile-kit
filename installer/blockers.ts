@@ -111,6 +111,11 @@ export interface BrokenProfileReferenceFact {
   readonly missingContexts: readonly string[];
   /** Sorted Skill Artifact IDs the Profile names but the Workspace lacks. */
   readonly missingSkills: readonly string[];
+  /**
+   * The verbatim #604 facts of this Profile's invalid references, carried from
+   * the tolerant-ingestion boundary — one home, never re-filtered (#606).
+   */
+  readonly referenceViolations: readonly unknown[];
   /** The broken Profile's Artifact ID. */
   readonly profile: string;
 }
@@ -636,6 +641,11 @@ function validateBrokenProfileFact(
   if (fact.missingContexts.length === 0 && fact.missingSkills.length === 0) {
     throw new TypeError(
       `Structured blocker broken-profile fact requires at least one missing reference${blockerContext(input)}`,
+    );
+  }
+  if (!Array.isArray(fact.referenceViolations) || fact.referenceViolations.length === 0) {
+    throw new TypeError(
+      `Structured blocker broken-profile fact requires its verbatim reference violations${blockerContext(input)}`,
     );
   }
 }

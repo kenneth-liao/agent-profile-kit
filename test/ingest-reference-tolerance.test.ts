@@ -63,7 +63,9 @@ describe("Profile reference tolerance at the lifecycle ingestion boundary (#606)
 
     const result = await ingestWorkspaceToleratingReferenceViolations(workspace);
 
-    expect(result.brokenProfiles).toEqual([
+    expect(result.brokenProfiles.map(({ profile, file, missingContexts, missingSkills }) => ({
+      profile, file, missingContexts, missingSkills,
+    }))).toEqual([
       {
         profile: "also-broken",
         file: "profiles/also-broken.yaml",
@@ -77,6 +79,11 @@ describe("Profile reference tolerance at the lifecycle ingestion boundary (#606)
         missingSkills: ["gone-skill"],
       },
     ]);
+    // Each grouped fact carries its own verbatim #604 facts (#606).
+    for (const broken of result.brokenProfiles) {
+      expect(broken.referenceViolations.length).toBeGreaterThan(0);
+      expect([...broken.referenceViolations].every(isProfileReferenceViolation)).toBe(true);
+    }
     expect(result.referenceViolations.map(workspaceViolationToken).sort()).toEqual([
       "missing-context-reference",
       "missing-context-reference",

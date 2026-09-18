@@ -38,7 +38,7 @@ import {
   type BindProjectResult,
 } from "./bind-project.js";
 import {
-  ingestApplication,
+  ingestApplicationToleratingReferenceViolations,
   ingestSelectedWorkspaceToleratingReferenceViolations,
   localConfigurationPath,
   normalizeProject,
@@ -80,7 +80,7 @@ import {
 } from "../schemas/local-configuration.js";
 import type { ProjectBinding } from "../schemas/local-configuration.js";
 import { requireProfile } from "./profile-selection.js";
-import { InstallerToolError, type ConfiguredPathOrigin } from "./tool-errors.js";
+import { InstallerToolError, type ConfiguredPathOrigin, type WorkspaceViolation } from "./tool-errors.js";
 import { readInstallationState, writeInstallationState } from "./installation-state.js";
 
 export interface InstallSelection {
@@ -193,7 +193,9 @@ async function readPreviousSelection(
   canonicalProject: string,
 ): Promise<PreviousInstallSelection | undefined> {
   try {
-    const application = await ingestApplication(home);
+    // Tolerant snapshot (#606): the previous selection is binding state, not
+    // Workspace artifact health, so a broken Profile cannot hide it.
+    const application = await ingestApplicationToleratingReferenceViolations(home);
     const existing = application.configuration.bindings.find(
       (binding) => binding.canonicalProject === canonicalProject,
     );
@@ -308,7 +310,10 @@ async function planProspectiveInstallation(
     InstallApplicationOptions,
     "env" | "instrumentation" | "createGitInspection"
   >,
-): Promise<DesiredInstallation> {
+): Promise<{
+  readonly brokenProfileViolations: readonly WorkspaceViolation[];
+  readonly installation: DesiredInstallation;
+}> {
   // Tolerant planning (spec #593 US-007, #606): a selected broken Profile
   // plans as a blocked installation — no outputs, nothing written — while
   // every non-reference violation keeps the strict rejection.
@@ -330,7 +335,6 @@ async function planProspectiveInstallation(
       : { planningInstrumentation: options.instrumentation.planning }),
     brokenProfiles: ingestion.brokenProfiles,
     gitInspection,
-    referenceViolations: ingestion.referenceViolations,
     scheduler,
   });
   const installation = installations.find(
@@ -339,7 +343,10 @@ async function planProspectiveInstallation(
   if (installation === undefined) {
     throw new Error(`install planning produced no installation for ${preview.canonicalProject}`);
   }
-  return installation;
+  return {
+    brokenProfileViolations: ingestion.referenceViolations,
+    installation,
+  };
 }
 
 /**
@@ -393,7 +400,8 @@ export async function executeInstall(
   // Phase A (no locks, no writes): plan the prospective installation and run
   // the shared consent gate against it. Refusal, decline, or cancellation
   // throws before any configuration or output write.
-  const prospective = await planProspectiveInstallation(home, preview, options);
+  const { brokenProfileViolations, installation: prospective } =
+    await planProspectiveInstallation(home, preview, options);
   const instrumentation = options.instrumentation;
   const createGitInspection = options.createGitInspection ??
     (() => createLifecycleGitInspectionContext(instrumentation?.git));
@@ -413,6 +421,7 @@ export async function executeInstall(
       // construction, mirroring the update path.
       const phaseAOwnership = createOwnershipInspection();
       const preflight = await previewReconciliation([prospective], before, {
+        brokenProfileViolations,
         gitInspection: createGitInspection(),
         ownershipInspection: phaseAOwnership,
         scheduler: createProjectReadScheduler(),
@@ -490,6 +499,7 @@ export async function executeInstall(
                 storedProject: preview.authoredProject,
                 replace: true,
               },
+              { toleratingReferenceViolations: true },
             );
             published = {
               profile: binding.profile,
@@ -531,6 +541,7 @@ export async function executeInstall(
             let applied: ApplyReconciliationResult;
             try {
               applied = await applyReconciliationWithLifecycleLock(home, desired.installations, {
+                brokenProfileViolations: desired.referenceViolations,
                 scheduler: commitScheduler,
                 scope: { kind: "project" },
                 confirmChangedOutputReplacement: commitConfirmer,
@@ -611,6 +622,7 @@ export async function executeInstall(
                       fileSystem,
                       "install",
                       preview.canonicalProject,
+                      { toleratingReferenceViolations: true },
                     );
                   } else {
                     await publishBindingUnderLock(configurationPath, fileSystem, "install", {
@@ -620,7 +632,7 @@ export async function executeInstall(
                       canonicalProject: preview.canonicalProject,
                       storedProject: preview.previous.authoredProject,
                       replace: true,
-                    });
+                    }, { toleratingReferenceViolations: true });
                   }
                   restored = true;
                 } catch (failure) {

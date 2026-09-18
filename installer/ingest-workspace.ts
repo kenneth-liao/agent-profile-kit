@@ -313,6 +313,12 @@ export interface BrokenProfileReference {
   readonly missingContexts: readonly string[];
   /** Sorted Skill Artifact IDs the Profile names but the Workspace lacks. */
   readonly missingSkills: readonly string[];
+  /**
+   * The verbatim #604 facts of this Profile's invalid references. One home at
+   * the tolerant-ingestion boundary — lifecycle planning and the report
+   * channel reuse these bytes and never re-filter them by kind (#606).
+   */
+  readonly referenceViolations: readonly WorkspaceViolation[];
 }
 
 /**
@@ -368,6 +374,7 @@ export async function ingestWorkspaceToleratingReferenceViolations(
     file: string;
     missingContexts: Set<string>;
     missingSkills: Set<string>;
+    referenceViolations: WorkspaceViolation[];
   }>();
   for (const violation of referenceViolations) {
     if (violation.via !== "ingestion") continue;
@@ -375,7 +382,7 @@ export async function ingestWorkspaceToleratingReferenceViolations(
     if (fact.kind !== "missing-context-reference" && fact.kind !== "missing-skill-reference") continue;
     let entry = broken.get(fact.profile);
     if (entry === undefined) {
-      entry = { file: fact.file, missingContexts: new Set(), missingSkills: new Set() };
+      entry = { file: fact.file, missingContexts: new Set(), missingSkills: new Set(), referenceViolations: [] };
       broken.set(fact.profile, entry);
     }
     if (fact.kind === "missing-context-reference") {
@@ -383,12 +390,14 @@ export async function ingestWorkspaceToleratingReferenceViolations(
     } else {
       entry.missingSkills.add(fact.skillId);
     }
+    entry.referenceViolations.push(violation);
   }
   const brokenProfiles = [...broken.entries()].map(([profile, entry]) => ({
     profile,
     file: entry.file,
     missingContexts: [...entry.missingContexts].sort(),
     missingSkills: [...entry.missingSkills].sort(),
+    referenceViolations: entry.referenceViolations,
   }));
   brokenProfiles.sort((left, right) => left.profile.localeCompare(right.profile));
   return {
