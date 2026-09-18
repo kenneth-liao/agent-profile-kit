@@ -45,7 +45,7 @@ export async function prepareDriftedFleet(prefix: string): Promise<DriftedFleetF
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nConfirmation fixture.\n",
+    "Confirmation fixture.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),

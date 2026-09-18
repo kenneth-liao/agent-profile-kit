@@ -74,7 +74,7 @@ export type WorkspaceArtifactRejectionReason =
   | { readonly case: "missing-field"; readonly path: string; readonly field: string }
   | { readonly case: "not-array-of-names"; readonly path: string; readonly field: string }
   | { readonly case: "duplicate-name"; readonly path: string; readonly field: string }
-  | { readonly case: "frontmatter-not-open"; readonly artifact: "Context Module" | "Skill"; readonly path: string }
+  | { readonly case: "frontmatter-not-open"; readonly artifact: "Skill"; readonly path: string }
   | { readonly case: "frontmatter-unclosed"; readonly artifact: WorkspaceArtifactKind; readonly path: string }
   | { readonly case: "empty-content"; readonly path: string }
   | {
@@ -108,10 +108,26 @@ export type WorkspaceArtifactRejectionReason =
       readonly case: "profile-file-name";
       readonly path: string;
       readonly name: string;
+    }
+  | {
+      /**
+       * A Context Module path whose segments cannot form a valid Context ID
+       * (spec #593 DEC-004, #600): every folder and the file name (without
+       * `.md`) must be a valid Artifact ID. The derived name is carried so the
+       * fix can suggest the rename.
+       */
+      readonly case: "context-module-file-name";
+      readonly path: string;
+      readonly name: string;
     };
 
 /** Artifact ID validation outside portable-artifact parsing carries its caller label. */
-export type ArtifactIdRejectionReason = { readonly case: "invalid-artifact-id"; readonly label: string };
+export type ArtifactIdRejectionReason = {
+  readonly case: "invalid-artifact-id";
+  readonly label: string;
+  /** Set when the label names a Context Module ID, whose grammar is `/`-separated segments (spec #593 DEC-004, #600). */
+  readonly grammar?: "context";
+};
 
 export type SchemaRejectionReason =
   | { readonly schema: "local-configuration"; readonly detail: LocalConfigurationRejectionReason }

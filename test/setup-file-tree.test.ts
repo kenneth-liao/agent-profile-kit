@@ -104,7 +104,7 @@ function expectOnlyNamedSiblingAdded(parent: string, named: string): void {
 function writeValidMaterial(workspace: string): void {
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   mkdirSync(join(workspace, "profiles"), { recursive: true });
   writeFileSync(join(workspace, "profiles", "coding.yaml"), "context: [team-rules]\nskills: []\n");

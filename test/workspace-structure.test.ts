@@ -128,7 +128,7 @@ describe("optional Workspace scaffolding after initialization", () => {
     mkdirSync(join(path, "profiles"));
     writeFileSync(
       join(path, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeFileSync(
       join(path, "profiles", "coding.yaml"),
@@ -165,9 +165,19 @@ describe("optional Workspace scaffolding after initialization", () => {
     const home = isolatedHome();
     const path = writeManifestOnlyWorkspace(home);
     mkdirSync(join(path, "context"));
-    writeFileSync(join(path, "context", "broken.md"), "no frontmatter\n");
+    // Under path identity (spec #593 DEC-004, #600) frontmatter is inert, so
+    // malformed Context is a zero-byte file (must contain Context, plan
+    // assumption A1) or an invalid path segment — both still fail at the
+    // ingestion boundary, each with its own typed rule.
+    writeFileSync(join(path, "context", "broken.md"), "");
+    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(/empty-content/);
 
-    await expect(ingestDefaultWorkspace(home)).rejects.toThrow(/Context Module|frontmatter|id/i);
+    const segmentHome = isolatedHome();
+    const segmentPath = writeManifestOnlyWorkspace(segmentHome);
+    mkdirSync(join(segmentPath, "context"), { recursive: true });
+    mkdirSync(join(segmentPath, "context", "Bad_Segment"));
+    writeFileSync(join(segmentPath, "context", "Bad_Segment", "rules.md"), "Body.\n");
+    await expect(ingestDefaultWorkspace(segmentHome)).rejects.toThrow(/context-module-file-name/);
   });
 
   test("a present artifact path that is not a directory is a structural error", async () => {

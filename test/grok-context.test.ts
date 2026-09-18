@@ -99,7 +99,7 @@ async function writeContextWorkspace(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    `---\nid: team-rules\ndependencies: []\n---\n${options.body ?? "Always preserve the project boundary.\n"}`,
+    options.body ?? "Always preserve the project boundary.\n",
   );
   for (const skillId of options.skills ?? []) {
     const skillRoot = join(workspace, "skills", skillId);

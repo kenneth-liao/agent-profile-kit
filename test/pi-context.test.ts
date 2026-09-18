@@ -61,7 +61,7 @@ async function writeContextWorkspace(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nPreserve the project boundary.\n",
+    "Preserve the project boundary.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "coding.yaml"),
@@ -95,7 +95,7 @@ async function writePiSkillWorkspace(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nPreserve the project boundary.\n",
+    "Preserve the project boundary.\n",
   );
   for (const skill of skills) {
     const root = join(workspace, "skills", skill.path);

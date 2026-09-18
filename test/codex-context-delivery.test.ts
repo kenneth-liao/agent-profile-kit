@@ -156,7 +156,7 @@ describe("Codex complete Context delivery", () => {
     mkdirSync(join(workspace, "profiles"), { recursive: true });
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\ndependencies: []\n---\nContext rules.\n",
+      "Context rules.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -196,7 +196,7 @@ describe("Codex complete Context delivery", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\ndependencies: []\n---\nMigration rules.\n",
+      "Migration rules.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),
@@ -273,7 +273,7 @@ describe("Codex complete Context delivery", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\ndependencies: []\n---\nResume matcher rules.\n",
+      "Resume matcher rules.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),

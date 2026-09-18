@@ -3,14 +3,15 @@ const skill = "example-skill";
 
 /**
  * The single YAML formatting authority for newly created Workspace files
- * (#514, US-019). Every emitted byte for a new Profile, Context Module
- * frontmatter, or Skill frontmatter flows through one of the writers below;
- * the `apkit new` scaffolds, the init example set, and the configure-profile
- * preflight all compose from them, so a second, divergent emitter cannot
- * exist. Scalar values are double-quoted because artifact IDs match
- * /^[a-z0-9]+(-[a-z0-9]+)*$/, making `true` and `123` legal IDs; quoting
- * keeps scalar-looking names strings rather than YAML booleans and numbers
- * (CRAFT-2).
+ * (#514, US-019). Every emitted byte for a new Profile or Skill frontmatter
+ * flows through one of the writers below; the `apkit new` scaffolds, and the
+ * configure-profile preflight all compose from them, so a second, divergent
+ * emitter cannot exist. Context Module scaffolds carry no YAML at all: a
+ * Context Module's ID is its path and its bytes are delivered as written
+ * (spec #593 DEC-004/005, #600). Scalar values are double-quoted because
+ * artifact IDs match /^[a-z0-9]+(-[a-z0-9]+)*$/, making `true` and `123`
+ * legal IDs; quoting keeps scalar-looking names strings rather than YAML
+ * booleans and numbers (CRAFT-2).
  */
 
 /** Canonical YAML for one whole-file Profile. */
@@ -29,26 +30,14 @@ export function newProfileScaffold(
   return `${field("context", contexts)}${field("skills", skills)}`;
 }
 
-/** Canonical frontmatter YAML for one Context Module (the part before the body). */
-function contextModuleFrontmatter(id: string): string {
-  // requireArtifactId runs before scaffolding, so id is [a-z0-9-] only and the
-  // double-quoted YAML scalar is safe; quoting keeps scalar-looking names
-  // (true, 123) strings rather than YAML booleans and numbers (CRAFT-2).
-  // The scaffold carries no dependency data: Profile lists are the only
-  // source of what is installed (spec #593 DEC-006).
-  return `---\nid: "${id}"\n---\n`;
-}
-
 /**
- * The canonical scaffold for one newly created Context Module, shaped like
+ * The canonical scaffold for one newly created Context Module: plain Markdown
+ * with no frontmatter, because apkit reads no Context frontmatter and the
+ * module's ID is its path (spec #593 DEC-004/005, #600). Shaped like
  * AUTHORING_EXAMPLES.context so created and example material share one form.
  */
 export function newContextModuleScaffold(id: string): string {
-  return (
-    contextModuleFrontmatter(id) +
-    `\n# ${id}\n\n` +
-    "Describe what this Context Module covers and when a Profile should include it.\n"
-  );
+  return `\n# ${id}\n\n` + "Describe what this Context Module covers and when a Profile should include it.\n";
 }
 
 /** Canonical frontmatter YAML for one Skill (the part before the body). */
@@ -89,7 +78,6 @@ export const AUTHORING_EXAMPLES = {
     id: "example-context",
     path: "context/example-context.md",
     contents:
-      contextModuleFrontmatter("example-context") +
       "Keep project-specific instructions in the project repository.\n",
   },
   skill: {

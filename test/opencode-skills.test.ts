@@ -847,7 +847,7 @@ describe("OpenCode and Claude duplicate Skill discovery", () => {
     mkdirSync(join(workspace, "context"), { recursive: true });
     writeFileSync(
       join(workspace, "context", "rules.md"),
-      "---\nid: rules\n---\n\nAlways follow conventions.\n",
+      "\nAlways follow conventions.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "engineering.yaml"),

@@ -186,7 +186,7 @@ describe("update changed-file authorization", () => {
     makeDir(join(workspace, "skills", "review-pr"), { recursive: true });
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nDirectory consent.\n",
+      "Directory consent.\n",
     );
     writeFileSync(
       join(workspace, "skills", "review-pr", "SKILL.md"),
@@ -233,7 +233,7 @@ describe("update changed-file authorization", () => {
     // the gate reviews just the first scope.
     writeFileSync(
       join(fleet.workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated shared.\n",
+      "Updated shared.\n",
     );
     const desired = (await buildDesiredState(fleet.home, { checkHostCapability: false })).installations;
     writeFileSync(fleet.driftedOutputPath, fleet.driftedBytes);

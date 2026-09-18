@@ -18,9 +18,12 @@ import type {
 } from "../schemas/schema-rejections.js";
 import { RETIRED_MODEL_INVOCATION_METADATA_FIELD } from "../schemas/skill.js";
 import {
+  CONTEXT_DIRECTORY,
+  CONTEXT_MODULE_EXTENSION,
   PROFILE_DIRECTORY,
   PROFILE_EXTENSION,
   profileIdFromPath,
+  suggestedContextModulePath,
 } from "../schemas/context-profile.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import {
@@ -35,7 +38,7 @@ import {
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
 import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
-import { nearestName } from "./nearest-match.js";
+import { nearestName, suggestMovedContextModuleId } from "./nearest-match.js";
 import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
 import type { PresentationDocument } from "./presentation-document.js";
 
@@ -237,13 +240,20 @@ function formatAvailableChoices(label: string, items: readonly string[]): string
 
 /**
  * The single canonical did-you-mean suggestion sentence shared across
- * diagnostics (DEC-017, US-015): nearest name within edit distance 2.
+ * diagnostics (DEC-017, US-015): nearest name within edit distance 2. Context
+ * Module references add the moved-file rule (spec #593 US-006, #600): a
+ * folder move changes the path-derived ID beyond any small edit distance, so
+ * the Context-aware selection applies there.
  */
 function nameSuggestionSentence(
   invalid: string,
   candidates: readonly string[],
+  label?: string,
 ): string | undefined {
-  const suggestion = nearestName(invalid, candidates);
+  const suggestion =
+    label === "Context Module"
+      ? suggestMovedContextModuleId(invalid, candidates)
+      : nearestName(invalid, candidates);
   return suggestion !== undefined ? `Did you mean '${suggestion}'?` : undefined;
 }
 
@@ -305,7 +315,7 @@ function creationMissingReferenceDiagnostic(evidence: {
       ? `No ${evidence.label}s exist in the Workspace.`
       : formatAvailableChoices(evidence.label, evidence.available)],
   ];
-  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available);
+  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available, evidence.label);
   if (suggestion !== undefined) {
     why.push([suggestion]);
   }
@@ -348,7 +358,7 @@ function missingReferenceDiagnostic(evidence: {
       ? `No ${evidence.label}s exist in the Workspace.`
       : formatAvailableChoices(evidence.label, evidence.available)],
   ];
-  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available);
+  const suggestion = nameSuggestionSentence(evidence.invalid, evidence.available, evidence.label);
   if (suggestion !== undefined) {
     why.push([suggestion]);
   }
@@ -523,7 +533,9 @@ export function formatSchemaRejection(reason: SchemaRejectionReason): readonly I
     case "workspace-artifact":
       return [formatWorkspaceArtifactError(reason.detail)];
     case "artifact-id":
-      return [`${reason.detail.label} must be a lowercase kebab-case name without wildcards`];
+      return reason.detail.grammar === "context"
+        ? [`${reason.detail.label} must be a Context Module ID: lowercase kebab-case segments joined by '/'`]
+        : [`${reason.detail.label} must be a lowercase kebab-case name without wildcards`];
   }
 }
 
@@ -568,7 +580,11 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
     case "invalid-field":
       return `${description} must be a non-empty string${reason.maximum === undefined ? "" : ` no longer than ${reason.maximum} characters`}`;
     case "invalid-artifact-id":
-      return `${description} must be a lowercase kebab-case name without wildcards`;
+      // Context references use the path grammar (spec #593 DEC-004, #600);
+      // every other artifact reference stays flat.
+      return reason.section === "context"
+        ? `${description} must be a Context Module ID: lowercase kebab-case segments joined by '/'`
+        : `${description} must be a lowercase kebab-case name without wildcards`;
     case "profile-id-field": {
       // The fix keeps existing Project Bindings and Installation Receipts
       // working: an authored id that differs from the file name can be kept
@@ -589,6 +605,17 @@ export function formatWorkspaceArtifactError(reason: WorkspaceArtifactRejectionR
     }
     case "profile-file-name":
       return `Profile ${reason.path} must have a file name that is a lowercase kebab-case name without wildcards; rename the file so its name without '.yaml' is the Profile ID`;
+    case "context-module-file-name": {
+      // The ID is the path (spec #593 DEC-004, #600): the fix renames the
+      // segments so the derived ID is valid. One home derives the suggestion
+      // so it cannot drift from the grammar.
+      const suggested = suggestedContextModulePath(reason.name);
+      const base =
+        `Context Module ${reason.path} must have a path whose folders and file name are lowercase kebab-case names without wildcards (they form the Context Module ID)`;
+      return suggested === undefined
+        ? `${base}; rename the file and its folders so every segment is a valid ID`
+        : `${base}; rename the file to ${suggested}`;
+    }
     case "invalid-model-invocation":
       return `Skill ${reason.path} ${reason.key} must be a boolean; set it to true to disable model invocation, or remove the field to allow invocation`;
     case "leftover-model-invocation-metadata":
@@ -729,6 +756,8 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [fact.detail];
     case "artifact-path-occupied":
       return [`${fact.artifactType} '${fact.id}' already has material at ${fact.path}; choose a different name or remove the existing material first`];
+    case "context-module-parent-not-directory":
+      return [`Context Module folder ${fact.path} must be a directory; remove it or replace it with a folder, then run `, commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<context>")])];
     case "artifact-creation-residue": {
       const retry = commandPart(COMMAND_NAME, [
         arg("new"),
@@ -940,6 +969,15 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         whatToType: [[
           `Choose a different ${fact.artifactType} name or remove the existing material first, then run `,
           commandPart(COMMAND_NAME, [arg("new"), arg(CREATION_ARTIFACT_PRESENTATION[fact.artifactType].kindToken), arg("<different-name>")]),
+          ".",
+        ]],
+      };
+    case "context-module-parent-not-directory":
+      return {
+        happened: [`Context Module folder ${fact.path} must be a directory`],
+        whatToType: [[
+          "Remove it or replace it with a folder, then run ",
+          commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<context>")]),
           ".",
         ]],
       };

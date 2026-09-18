@@ -85,7 +85,7 @@ async function fleetWorkspace(options: {
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   writeSkill(workspace, "review-pr", "allowed");
   writeSkill(workspace, "ops-run", "disabled");
@@ -356,7 +356,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeSkill(workspace, "ops-run", "disabled");
     writeFileSync(

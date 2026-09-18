@@ -36,11 +36,20 @@ describe("authoring example/scaffold YAML consistency", () => {
     );
   });
 
-  test("the example Context Module frontmatter is the Context writer's output", () => {
+  test("the example Context Module bytes are plain Markdown from the Context writer", () => {
+    // A Context Module carries no frontmatter: its ID is its path and its
+    // bytes are delivered as written (spec #593 DEC-004/005, #600). The
+    // example shares the writer's frontmatter-free shape with a teaching body.
+    const contents: string = AUTHORING_EXAMPLES.context.contents;
+    expect(contents).not.toContain("---");
     const scaffold = newContextModuleScaffold(AUTHORING_EXAMPLES.context.id);
-    const frontmatter = scaffold.slice(0, scaffold.indexOf("---\n", 4) + 4);
-    expect(AUTHORING_EXAMPLES.context.contents).toBe(
-      frontmatter + "Keep project-specific instructions in the project repository.\n",
+    expect(contents).toBe(
+      scaffold
+        .replace(/^\n/, "")
+        .replace(
+          `# ${AUTHORING_EXAMPLES.context.id}\n\nDescribe what this Context Module covers and when a Profile should include it.\n`,
+          "Keep project-specific instructions in the project repository.\n",
+        ),
     );
   });
 

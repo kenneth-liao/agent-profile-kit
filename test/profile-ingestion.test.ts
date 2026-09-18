@@ -34,7 +34,7 @@ function writeMinimalSkill(workspace: string, id: string): void {
 function writeMinimalContext(workspace: string, id: string): void {
   writeFileSync(
     join(workspace, "context", `${id}.md`),
-    `---\nid: ${id}\n---\n\n${id} body.\n`,
+    `${id} body.\n`,
   );
 }
 

@@ -59,7 +59,7 @@ export const TOPIC_GUIDES = {
     title: "Context Module",
     introduction:
       "A Context Module is an independently reusable unit of always-loaded guidance. " +
-      "Profiles select it by its frontmatter `id`.",
+      "Profiles select it by its path under `context/` without `.md`, and apkit reads no frontmatter.",
     scaffoldLead: "Create one, then select it into a Profile:",
     scaffoldCommands: [
       ["new", "context", "<context>"],

@@ -72,19 +72,108 @@ describe("createContextModule", () => {
       expect(workspace.contexts.get("review-standards")!.path).toBe("context/review-standards.md");
 
       const source = readFileSync(contextFile, "utf8");
-      expect(source).toContain("id: \"review-standards\"");
-      // The scaffold carries no dependency data: Profile lists are the only
-      // source of what is installed (spec #593 DEC-006, #596).
-      expect(source).not.toContain("dependencies:");
+      // The scaffold is plain Markdown: a Context Module's ID is its path and
+      // its bytes are delivered as written (spec #593 DEC-004/005, #600).
+      expect(source).toBe(
+        `\n# review-standards\n\nDescribe what this Context Module covers and when a Profile should include it.\n`,
+      );
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
   });
 
-  test("rejects an invalid Artifact ID without creating anything", async () => {
+  test("creates a nested Context Module through intermediate folders it builds", async () => {
     const home = await initializedHome();
     try {
-      for (const name of ["Review_PR", "review pr", "../escape", "a/b", "-leading", "trailing-"]) {
+      const result = await createContextModule({ home, name: "engineering/review-findings" });
+
+      const contextFile = join(
+        realpathSync(workspacePath(home)),
+        "context",
+        "engineering",
+        "review-findings.md",
+      );
+      expect(result.id).toBe("engineering/review-findings");
+      expect(result.path).toBe(contextFile);
+      expect(existsSync(contextFile)).toBe(true);
+      const workspace = await ingestSelectedWorkspace(home);
+      expect(workspace.contexts.has("engineering/review-findings")).toBe(true);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses a symlinked intermediate folder and never writes through it", async () => {
+    const home = await initializedHome();
+    const outside = mkdtempSync(join(tmpdir(), "apkit-create-context-outside-"));
+    try {
+      mkdirSync(join(workspacePath(home), "context"), { recursive: true });
+      symlinkSync(outside, join(workspacePath(home), "context", "engineering"));
+
+      const failure = await rejection(() =>
+        createContextModule({ home, name: "engineering/review-findings" }),
+      );
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      const fact = (failure as InstallerToolError).fact;
+      expect(fact.kind).toBe("context-module-parent-not-directory");
+      if (fact.kind === "context-module-parent-not-directory") {
+        expect(flatInlineText(formatInstallerToolError(fact))).toContain("must be a directory");
+      }
+      // The link target stays untouched.
+      expect(Array.from(new Bun.Glob("*").scanSync({ cwd: outside }))).toEqual([]);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  test("refuses an intermediate folder occupied by a file and creates nothing", async () => {
+    const home = await initializedHome();
+    try {
+      mkdirSync(join(workspacePath(home), "context"), { recursive: true });
+      const occupied = join(workspacePath(home), "context", "engineering");
+      writeFileSync(occupied, "not a folder\n");
+
+      const failure = await rejection(() =>
+        createContextModule({ home, name: "engineering/review-findings" }),
+      );
+      expect(failure).toBeInstanceOf(InstallerToolError);
+      expect((failure as InstallerToolError).fact.kind).toBe("context-module-parent-not-directory");
+      expect(existsSync(join(occupied, "review-findings.md"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed leaf creation removes the intermediate folders this invocation created", async () => {
+    const home = await initializedHome();
+    try {
+      // The exclusive open always fails as occupied: nothing proven created.
+      const failure = await rejection(() =>
+        createContextModule({
+          home,
+          name: "engineering/review-findings",
+          openModuleFile: async () => {
+            const error = new Error("occupied") as Error & { code: string };
+            error.code = "EEXIST";
+            throw error;
+          },
+        }),
+      );
+      expect((failure as InstallerToolError).fact.kind).toBe("artifact-path-occupied");
+      // The intermediate folder this invocation created is removed with it.
+      expect(existsSync(join(workspacePath(home), "context", "engineering"))).toBe(false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects an invalid Context Module ID without creating anything", async () => {
+    const home = await initializedHome();
+    try {
+      // `a/b` is valid under the path grammar (DEC-004); the invalid forms are
+      // invalid segments, empty segments, and escape spellings.
+      for (const name of ["Review_PR", "review pr", "../escape", "a//b", "/leading", "trailing/", "-leading", "trailing-"]) {
         const failure = await rejection(() => createContextModule({ home, name }));
         expect(failure).toBeInstanceOf(SchemaRejectionError);
         expect((failure as SchemaRejectionError).reason.schema).toBe("artifact-id");
@@ -96,31 +185,25 @@ describe("createContextModule", () => {
     }
   });
 
-  test("refuses a duplicate Context Module Artifact ID already present in the Workspace", async () => {
+  test("a second file's frontmatter claiming an existing ID is inert material", async () => {
+    // The duplicate-Artifact-ID premise is structurally impossible for
+    // Context: a module's ID is its path (spec #593 DEC-004, #600), so a
+    // second file's frontmatter `id` is delivered as written and has no
+    // effect — mirroring #598's replacement of the Profile duplicate test.
     const home = await initializedHome();
     try {
       await createContextModule({ home, name: "review-standards" });
-      // A second Context Module file whose frontmatter claims the same Artifact ID.
       const otherFile = join(workspacePath(home), "context", "elsewhere.md");
       writeFileSync(
         otherFile,
         "---\nid: review-standards\ndependencies: []\n---\n\nAnother file claiming the same ID.\n",
       );
 
-      const failure = await rejection(() => createContextModule({ home, name: "review-standards" }));
-      expect(failure).toBeInstanceOf(InstallerToolError);
-      const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("duplicate-artifact-name");
-      // Every duplicate fact carries the existing artifact's real path (US-015, #508).
-      // Ingestion is the duplicate authority, so the fact names the first
-      // ingested file claiming the ID.
-      expect(fact).toEqual({
-        kind: "duplicate-artifact-name",
-        artifactType: "Context Module",
-        id: "review-standards",
-        path: "context/elsewhere.md",
-      });
-      // The foreign second file is preserved.
+      const workspace = await ingestSelectedWorkspace(home);
+      expect([...workspace.contexts.keys()].sort()).toEqual(["elsewhere", "review-standards"]);
+      expect(workspace.contexts.get("elsewhere")!.content).toContain(
+        "Another file claiming the same ID.",
+      );
       expect(existsSync(otherFile)).toBe(true);
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -130,36 +213,22 @@ describe("createContextModule", () => {
   test("refuses an occupied destination and leaves existing material untouched", async () => {
     const home = await initializedHome();
     try {
-      // An existing Context Module file with hand-authored content: refused,
-      // never overwritten.
+      // An existing Context Module file with hand-authored content: under path
+      // identity it *is* the module with the requested ID, so creation refuses
+      // with the same duplicate fact ingestion uses (never overwrites).
       const contextFile = join(workspacePath(home), "context", "review-standards.md");
       writeFileSync(contextFile, "---\nid: mine\ndependencies: []\n---\n\nHand-authored.\n");
 
       const failure = await rejection(() => createContextModule({ home, name: "review-standards" }));
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
-      expect(fact.kind).toBe("artifact-path-occupied");
-      if (fact.kind === "artifact-path-occupied") {
+      expect(fact.kind).toBe("duplicate-artifact-name");
+      if (fact.kind === "duplicate-artifact-name") {
         expect(fact.artifactType).toBe("Context Module");
-        expect(fact.path).toBe(realpathSync(contextFile));
+        expect(fact.path).toBe("context/review-standards.md");
       }
-      // Presentation owns the sentence and the structured diagnostic (DEC-014);
-      // the diagnostic must carry a runnable recovery command after the
-      // explanation (INT-1, US-022).
-      const sentence = flatInlineText(formatInstallerToolError(fact));
-      expect(sentence).toContain("review-standards");
-      expect(sentence).toContain(realpathSync(contextFile));
-      const diagnostic = formatInstallerToolErrorDiagnostic(fact);
-      expect(flatInlineText(diagnostic.happened)).toContain(realpathSync(contextFile));
-      expect(diagnostic.whatToType).toBeDefined();
-      const recovery = flatInlineText(diagnostic.whatToType!.flat());
-      expect(recovery).toContain("apkit new context <different-name>");
-      expect(
-        diagnostic.whatToType!.flat().some(
-          (part) => typeof part !== "string" && part.kind === "command",
-        ),
-      ).toBe(true);
-
+      // The existing file is preserved unchanged, including its frontmatter
+      // bytes, which are delivered as written under the new identity rule.
       expect(readFileSync(contextFile, "utf8")).toContain("Hand-authored.\n");
     } finally {
       rmSync(home, { recursive: true, force: true });

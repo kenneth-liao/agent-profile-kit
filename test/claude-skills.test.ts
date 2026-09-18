@@ -89,7 +89,7 @@ async function workspaceWithSkills(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "team-rules.md"),
-    "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+    "Always preserve the project boundary.\n",
   );
   for (const entry of skills) {
     const relative = entry.path ?? entry.id;

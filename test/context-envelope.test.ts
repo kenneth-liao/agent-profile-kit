@@ -13,8 +13,11 @@ const NOTICE = generatedMarkdownNotice();
 const PRECEDENCE =
   "Repository-owned project instructions, including AGENTS.md, take precedence when they conflict with this material.";
 
-function moduleSource(id: string, body: string): string {
-  return `---\nid: ${id}\ndependencies: []\n---\n${body}`;
+// Under path identity (spec #593 DEC-004/005, #600) a Context Module's
+// content is the file's complete bytes: frontmatter is neither read nor
+// stripped, so module fixtures here are plain byte strings.
+function moduleSource(_id: string, body: string): string {
+  return body;
 }
 
 describe("composeContextEnvelopeHeader", () => {
@@ -44,15 +47,34 @@ describe("composeContextEnvelope", () => {
     );
   });
 
-  test("contains no YAML frontmatter or generated module boundary markers beyond the notice", () => {
+  test("delivers module bytes as written after the generated header", () => {
+    // User frontmatter is content (spec #593 DEC-005, #600): it travels
+    // byte-for-byte, after the generated header, and never becomes the Host
+    // file's frontmatter.
+    const first = parseContextModule(
+      "---\nid: communication\n---\n# Communication and Behavior\nBe concise.\n",
+      "context/communication.md",
+    );
+    const second = parseContextModule(
+      moduleSource("engineering", "# Engineering Principles\nShip small.\n"),
+      "context/engineering.md",
+    );
+    const composed = composeContextEnvelope("engineering", [first, second]);
+    expect(composed).toBe(
+      `# Agent Profile Kit Context — Profile: engineering\n${NOTICE}\n${PRECEDENCE}\n\n` +
+        "---\nid: communication\n---\n# Communication and Behavior\nBe concise.\n" +
+        "# Engineering Principles\nShip small.\n",
+    );
+    expect(composed.indexOf("---")).toBeGreaterThan(composed.indexOf("# Agent Profile Kit Context"));
+  });
+
+  test("adds no per-module boundary markers beyond the notice", () => {
     const first = parseContextModule(
       moduleSource("team-rules", "Stand-up at ten.\n"),
       "context/team-rules.md",
     );
     const composed = composeContextEnvelope("coding", [first]);
     expect(composed).not.toMatch(/^---/m);
-    expect(composed).not.toContain("id:");
-    expect(composed).not.toContain("dependencies:");
     expect(composed).not.toMatch(/<!-- (End )?Context Module:/);
     expect(composed.match(/<!--/g)).toEqual(["<!--"]);
     expect(composed.split(NOTICE).length - 1).toBe(1);

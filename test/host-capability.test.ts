@@ -51,7 +51,7 @@ async function writeContextBinding(
   const workspace = join(application, "workspace");
   writeFileSync(
     join(workspace, "context", "rules.md"),
-    "---\nid: rules\ndependencies: []\n---\nContext rules.\n",
+    "Context rules.\n",
   );
   writeFileSync(
     join(workspace, "profiles", "engineering.yaml"),

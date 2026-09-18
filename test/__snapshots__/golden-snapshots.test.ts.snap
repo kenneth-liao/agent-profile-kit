@@ -135,7 +135,8 @@ Topics:
       its context and skills lists.
   apkit guide context
     Context Module: A Context Module is an independently reusable unit of
-      always-loaded guidance. Profiles select it by its frontmatter \`id\`.
+      always-loaded guidance. Profiles select it by its path under \`context/\`
+      without \`.md\`, and apkit reads no frontmatter.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
       frontmatter \`name\`, and its description tells an Agent Host when the
@@ -178,9 +179,6 @@ skills: []
 
 An example context/example-context.md:
 
----
-id: "example-context"
----
 Keep project-specific instructions in the project repository.
 
 
@@ -196,7 +194,8 @@ exports[`golden snapshots of every human view focused guide context: focused-gui
 Context Module
 
 A Context Module is an independently reusable unit of always-loaded guidance.
-  Profiles select it by its frontmatter \`id\`.
+  Profiles select it by its path under \`context/\` without \`.md\`, and apkit reads
+  no frontmatter.
 
 Workspace: Not configured (run apkit init)
 
@@ -206,9 +205,6 @@ Create one, then select it into a Profile:
 
 An example context/example-context.md:
 
----
-id: "example-context"
----
 Keep project-specific instructions in the project repository.
 
 
@@ -406,15 +402,21 @@ This release supports Profile Context and Context Modules for Antigravity,
   (Context Module, Skill, or both); no individual category is mandatory.
   Context-only, Skills-only, and combined Profiles are valid.
 
-A Context Module is a Markdown file under \`context/\` with frontmatter
-  containing one stable, lowercase kebab-case \`id\`; the Markdown body is the
-  Context. A Skill is a standard Agent Skills package under \`skills/\`, rooted at
-  \`SKILL.md\`; its standard \`name\` is its stable Artifact ID. The frontmatter
-  needs a lowercase hyphenated \`name\` and a non-empty \`description\`. Scripts,
-  references, and assets remain ordinary standard Skill content. A Profile's
-  \`context\` and \`skills\` lists are the only source of what is installed: list
-  every needed artifact there; there are no Dependencies and no
-  \`agent-profile-kit.yaml\` sidecar.
+A Context Module is any Markdown file under \`context/\`, at any depth; its ID
+  is its path under \`context/\` without \`.md\`, with \`/\` between folders (for
+  example \`engineering/review-findings\`). apkit reads no Context frontmatter and
+  requires none: the file's bytes are delivered as written inside the generated
+  Context output, whose header precedes all module content, so frontmatter in a
+  Context file never becomes Host frontmatter. Moving or renaming the file
+  changes its ID by design. Every folder and file name under \`context/\` must be
+  a lowercase kebab-case name, because together they form the ID. A Skill is a
+  standard Agent Skills package under \`skills/\`, rooted at \`SKILL.md\`; its
+  standard \`name\` is its stable Artifact ID. The frontmatter needs a lowercase
+  hyphenated \`name\` and a non-empty \`description\`. Scripts, references, and
+  assets remain ordinary standard Skill content. A Profile's \`context\` and
+  \`skills\` lists are the only source of what is installed: list every needed
+  artifact there; there are no Dependencies and no \`agent-profile-kit.yaml\`
+  sidecar.
 
 Skill model-invocation policy
 
@@ -502,14 +504,26 @@ Rollback caveat: this Profile shape is a CLI 0.208.0+ acceptance change. A
   binary — before rolling a CLI back, re-add an \`id\` line matching each
   Profile's file name, or keep every shared Workspace on 0.208+.
 
----
-id: engineering-rules
----
+<!-- context/engineering-rules.md -->
 Keep project facts in the project repository.
+
+<!-- context/engineering/review-findings.md -->
+Review findings and the reasoning behind them.
+
+A Context Module is a plain Markdown file: no frontmatter is required or read.
+  A Context file that still carries frontmatter from an earlier release is valid
+  — its bytes are delivered as written — and you can delete the frontmatter at
+  your leisure.
+
+Rollback caveat: Context path identity is a CLI 0.210.0+ acceptance change. A
+  Workspace whose Context Modules carry no frontmatter \`id\` fails validation on
+  an older binary — before rolling a CLI back, re-add an \`id\` line matching each
+  file's path-derived ID, or keep every shared Workspace on 0.210+.
 
 # profiles/coding.yaml
 context:
   - engineering-rules
+  - engineering/review-findings
 skills:
   - review-pr
 
@@ -696,9 +710,14 @@ Antigravity
 Antigravity receives Profile Context through deterministic always-on rules
   under \`.agents/rules/\`. The Adapter requires \`agy\` CLI 1.1.13 or newer and
   writes one rule for the Profile envelope followed by one complete rule per
-  Context Module. Each generated rule contains \`trigger: always_on\` frontmatter
-  and must stay at or below 12,000 characters. If one Context Module is too
-  large, status reports a structured blocker instead of truncating it.
+  Context Module. A nested Context Module ID's \`/\` separators become \`.\` in the
+  rule file name (the ID itself is preserved in the rule's boundary markers);
+  each rule file stays directly inside \`.agents/rules/\`. Each generated rule
+  contains \`trigger: always_on\` frontmatter and must stay at or below 12,000
+  characters. If one Context Module is too large, status reports a structured
+  blocker instead of truncating it. A Context Module's own frontmatter, when it
+  has any, is delivered as written inside the rule's boundary markers and never
+  replaces the generated \`trigger: always_on\` frontmatter.
 
 Antigravity discovers the rules from the current bound project; you do not
   need to create or select an Antigravity Project. Trust is Host-owned: after
@@ -981,7 +1000,8 @@ Use this workflow when helping a person author their Workspace and bind projects
    authored spelling. To keep generated files in place instead, remove the
    Project's entry from Local Configuration by hand and let the next update
    reconcile the leftovers.
-6. Validate before updating. Context Modules use \`id\` frontmatter and
+6. Validate before updating. Context Modules are plain Markdown files whose
+   path under \`context/\` (without \`.md\`) is their ID, and
    Profiles are named by their file name and contain \`context\` and \`skills\`
    only; the Profile lists are
    the only source of what is installed (no Dependencies, no sidecar files).
@@ -1072,7 +1092,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.209.0
+Engine version: 0.210.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1945,7 +1965,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.209.0
+Engine version: 0.210.0
 Workspace: ~/…/workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1955,7 +1975,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.209.0\x1B[0m
+\x1B[35mEngine version: 0.210.0\x1B[0m
 Workspace: \x1B[35m~/…/workspace\x1B[0m
 Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
 Installation State: \x1B[35m~/…/manifest.json\x1B[0m
@@ -1965,7 +1985,7 @@ Installation State: \x1B[35m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.209.0
+Engine version: 0.210.0
 Workspace: ~/.agents/agent-profile-kit/workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1975,7 +1995,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.209.0\x1B[0m
+\x1B[35mEngine version: 0.210.0\x1B[0m
 Workspace: \x1B[35m~/.agents/agent-profile-kit/workspace\x1B[0m
 Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

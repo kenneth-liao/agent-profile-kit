@@ -27,7 +27,7 @@ async function initializedHome(): Promise<string> {
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "context", "example-context.md"),
-    "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n",
+    "Keep project-specific instructions in the project repository.\n",
   );
   mkdirSync(join(workspacePath(home), "profiles"), { recursive: true });
   writeFileSync(join(workspacePath(home), "profiles", "example.yaml"), 'context:\n  - "example-context"\nskills: []\n');
@@ -196,7 +196,7 @@ describe("createProfile", () => {
         mkdirSync(join(workspacePath(emptyHome), "context"), { recursive: true });
         writeFileSync(
           join(workspacePath(emptyHome), "context", "example-context.md"),
-          "---\nid: \"example-context\"\n---\nContent.\n",
+          "Content.\n",
         );
         const noneFailure = await rejection(() =>
           createProfile({ home: emptyHome, name: "engineered", contexts: ["example-context"], skills: ["review-pr"] }),

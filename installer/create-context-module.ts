@@ -1,15 +1,17 @@
-import { open, rm } from "node:fs/promises";
+import { mkdir, open, rm, rmdir } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
-import { parseContextModule } from "../schemas/context-profile.js";
-import { requireArtifactId } from "../schemas/dependencies.js";
+import {
+  CONTEXT_MODULE_EXTENSION,
+  contextModuleIdFromPath,
+  parseContextModule,
+  requireContextModuleId,
+} from "../schemas/context-profile.js";
 import { newContextModuleScaffold } from "./authoring-examples.js";
 import { ingestSelectedWorkspace } from "./local-configuration.js";
 import { lstatEntry, requireRealCategory } from "./workspace.js";
 import { InstallerToolError } from "./tool-errors.js";
-
-const CONTEXT_MODULE_EXTENSION = ".md";
 
 export interface CreateContextModuleOptions {
   readonly home: string;
@@ -68,11 +70,18 @@ async function reportInvocationResidue(
 
 /**
  * Create one valid Context Module scaffold in the configured Workspace
- * (DEC-026). The name must satisfy the Artifact ID schema, which pins the
- * destination to one `<name>.md` file inside the Workspace's validated
- * `context` category — no authored spelling can escape it. Ingestion is the
- * single duplicate-Artifact-ID authority. The scaffold is preflighted through
- * the canonical Context Module schema before any write. The exclusive open is
+ * (DEC-026). The name is a Context Module ID: `/`-separated valid Artifact ID
+ * segments (spec #593 DEC-004, #600), which pins the destination to one
+ * `context/<name>.md` file — no authored spelling can escape it. Missing
+ * intermediate folders inside the validated `context` category are created
+ * exclusively; an existing intermediate must be a real directory, never a
+ * symlink, so no write travels through a link. Ingestion is the single
+ * duplicate-Artifact-ID authority: when the destination file already exists
+ * it *is* the module with that ID, so the occupied-destination fact is the
+ * same `duplicate-artifact-name` fact ingestion uses; any other occupied
+ * entry (directory, symlink) is refused with `artifact-path-occupied`. The
+ * scaffold is plain Markdown (no frontmatter) preflighted through the
+ * canonical Context Module schema before any write. The exclusive open is
  * the sole creation-evidence boundary: only a successful `wx` open authorizes
  * removing the file on later failure, and open failure never deletes a file.
  * Occupied destinations, including symlinks, are never written through.
@@ -80,7 +89,7 @@ async function reportInvocationResidue(
 export async function createContextModule(
   options: CreateContextModuleOptions,
 ): Promise<CreateContextModuleResult> {
-  const id = requireArtifactId(options.name, "new context name");
+  const id = requireContextModuleId(options.name, "new context name");
   const workspace = await ingestSelectedWorkspace(options.home);
   if (workspace.contexts.has(id)) {
     throw new InstallerToolError({
@@ -96,17 +105,30 @@ export async function createContextModule(
   // Preflight the exact bytes through the canonical Context Module schema
   // before any filesystem mutation, so schema-invalid material can never be
   // reported as success (CRAFT-2).
-  const fileName = `${id}${CONTEXT_MODULE_EXTENSION}`;
-  const relativePath = `context/${fileName}`;
-  const moduleFile = join(workspace.path, "context", fileName);
+  const relativePath = `context/${id}${CONTEXT_MODULE_EXTENSION}`;
+  const moduleFile = join(workspace.path, "context", ...id.split("/")) + CONTEXT_MODULE_EXTENSION;
   const scaffold = newContextModuleScaffold(id);
   parseContextModule(scaffold, relativePath);
 
   await requireRealCategory(workspace.path, "context");
 
+  // Intermediate folders for a nested ID: every missing segment is created
+  // exclusively (tracked for best-effort removal on failure); an existing
+  // segment must be a real directory — a symlink is never written through.
+  const createdDirectories: string[] = [];
+  try {
+    await requireModuleDirectories(workspace.path, id.split("/").slice(0, -1), createdDirectories);
+  } catch (error) {
+    // Nothing at the leaf was written; remove whatever intermediate folders
+    // this invocation managed to create before reporting the failure.
+    await removeCreatedDirectories(createdDirectories);
+    throw error;
+  }
+
   // Occupancy check before creation: any existing entry — file, directory, or
   // symlink — refuses creation, so a symlink is never written through.
   if ((await lstatEntry(moduleFile)) !== undefined) {
+    await removeCreatedDirectories(createdDirectories);
     throw new InstallerToolError({
       kind: "artifact-path-occupied",
       artifactType: "Context Module",
@@ -130,6 +152,7 @@ export async function createContextModule(
   } catch (error) {
     if (hasErrorCode(error, "EEXIST")) {
       // A foreign file occupies the destination; it is not ours and is kept.
+      await removeCreatedDirectories(createdDirectories);
       throw new InstallerToolError({
         kind: "artifact-path-occupied",
         artifactType: "Context Module",
@@ -140,6 +163,7 @@ export async function createContextModule(
     // Nothing was proven created; the category — if this invocation created
     // it — is a valid Workspace category either way. The original error is
     // reported; a surviving foreign file is refused as occupied on retry.
+    await removeCreatedDirectories(createdDirectories);
     throw error;
   }
 
@@ -170,6 +194,53 @@ async function throwWithResidue(moduleFile: string, id: string, original: unknow
   const residue = await reportInvocationResidue(moduleFile, id);
   if (residue !== undefined) throw residue;
   throw original;
+}
+
+/**
+ * Create the missing intermediate folders for one nested Context Module ID
+ * inside the validated `context` category. Every existing segment is checked
+ * with lstat and must be a real directory — a symlink (even to a directory
+ * inside the Workspace) is never written through. Folders this invocation
+ * creates are appended to `created`, in creation order, so the caller can
+ * clean up on any failure — including a throw from a later segment.
+ */
+async function requireModuleDirectories(
+  workspacePath: string,
+  segments: readonly string[],
+  created: string[],
+): Promise<void> {
+  let current = join(workspacePath, "context");
+  for (const segment of segments) {
+    current = join(current, segment);
+    const entry = await lstatEntry(current);
+    if (entry === undefined) {
+      try {
+        // Exclusive creation: an entry that appears in between is re-checked
+        // and must be a real directory, never a symlink.
+        await mkdir(current);
+        created.push(current);
+        continue;
+      } catch (error) {
+        if (!hasErrorCode(error, "EEXIST")) throw error;
+        const raced = await lstatEntry(current);
+        if (raced === undefined || !raced.isDirectory()) throw error;
+        continue;
+      }
+    }
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new InstallerToolError({
+        kind: "context-module-parent-not-directory",
+        path: current,
+      });
+    }
+  }
+}
+
+/** Best-effort removal of the intermediate folders this invocation created; empty-folder cleanup never masks the original failure. */
+async function removeCreatedDirectories(created: readonly string[]): Promise<void> {
+  for (const directory of [...created].reverse()) {
+    await rmdir(directory).catch(() => {});
+  }
 }
 
 async function closeQuietly(handle: FileHandle): Promise<void> {

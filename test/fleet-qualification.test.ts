@@ -644,7 +644,7 @@ describe("integrated fleet recovery qualification", () => {
     // Context & Skills
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAlways preserve the project boundary.\n",
+      "Always preserve the project boundary.\n",
     );
     writeSkill(home, "review-pr", "# review-pr\n\nReview PR with care.\n");
     writeSkill(home, "deploy-helper", "# deploy-helper\n\nDeploy helper.\n");

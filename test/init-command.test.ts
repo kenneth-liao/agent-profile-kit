@@ -53,7 +53,7 @@ function writeMaterial(home: string, id: string): void {
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });
   writeFileSync(
     join(workspacePath(home), "context", `${id}.md`),
-    `---\nid: ${id}\ndependencies: []\n---\nContent for ${id}.\n`,
+    `Content for ${id}.\n`,
   );
 }
 
@@ -442,7 +442,7 @@ describe("guided first-Profile init", () => {
     writeFileSync(join(b, "workspace.yaml"), WORKSPACE_MANIFEST);
     writeFileSync(
       join(b, "context", "other.md"),
-      "---\nid: other\ndependencies: []\n---\nContent for other.\n",
+      "Content for other.\n",
     );
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [b], input);
@@ -468,7 +468,7 @@ describe("guided first-Profile init", () => {
     await initializeWorkspace(home, { workspace }); // Local Configuration selects it
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nContent for team-rules.\n",
+      "Content for team-rules.\n",
     );
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspace], input);

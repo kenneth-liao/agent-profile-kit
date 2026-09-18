@@ -1,4 +1,4 @@
 id: "example"
 context:
-  - "example-context"
+  - "legacy-rules"
 skills: []

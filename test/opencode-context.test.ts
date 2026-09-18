@@ -261,10 +261,9 @@ async function workspaceWithContextAndSkills(
     const ctxPath = join(workspace, "context", `${ctx.id}.md`);
     mkdirSync(join(workspace, "context"), { recursive: true });
     const content = ctx.content ?? `# ${ctx.id}\nContext content for ${ctx.id}.\n`;
-    const fullContent = content.startsWith("---\n")
-      ? content
-      : `---\nid: ${ctx.id}\n---\n\n${content}`;
-    writeFileSync(ctxPath, fullContent);
+    // Frontmatter is neither read nor required (spec #593 DEC-005, #600):
+    // the file's bytes are written exactly as authored.
+    writeFileSync(ctxPath, content);
   }
   for (const entry of skills) {
     const skillRoot = join(workspace, "skills", entry.id);
@@ -293,7 +292,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     await workspaceWithContextAndSkills(
       home,
       project,
-      [{ id: "team-rules", content: "---\nid: team-rules\n---\n\n# Rules\nFollow project conventions.\n" }],
+      [{ id: "team-rules", content: "\n# Rules\nFollow project conventions.\n" }],
       [{ id: "review-pr" }],
       ["team-rules"],
       ["review-pr"],
@@ -583,7 +582,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\n---\n\n# Rules\nUpdated context content.\n",
+      "\n# Rules\nUpdated context content.\n",
     );
 
     const updatedDesired = await buildDesiredState(home, { checkHostCapability: false });
@@ -713,7 +712,7 @@ describe("OpenCode Context lifecycle: reconciliation, receipt, and conflicts", (
     mkdirSync(join(workspace, "context"), { recursive: true });
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\n---\n\n# Rules\nFollow team rules.\n",
+      "\n# Rules\nFollow team rules.\n",
     );
 
     mkdirSync(join(workspace, "skills", "review-pr"), { recursive: true });

@@ -54,7 +54,7 @@ describe("nested Project reconciliation report", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nNested report.\n",
+      "Nested report.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -141,7 +141,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nVerification failure.\n",
+      "Verification failure.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -183,7 +183,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nOriginal Context.\n",
+      "Original Context.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -228,7 +228,7 @@ describe("injected project filesystem failures", () => {
     const thirdContext = readFileSync(thirdContextPath, "utf8");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
+      "Updated Context.\n",
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const firstCanonical = desired.installations.find(
@@ -288,7 +288,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nMode reconciliation.\n",
+      "Mode reconciliation.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -326,7 +326,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nAbsent output.\n",
+      "Absent output.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -363,7 +363,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nEdited replacement.\n",
+      "Edited replacement.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -395,7 +395,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nRepair transaction.\n",
+      "Repair transaction.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -459,7 +459,7 @@ describe("injected project filesystem failures", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nOriginal Context.\n",
+      "Original Context.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -475,7 +475,7 @@ describe("injected project filesystem failures", () => {
     await applyReconciliation(home, initial.installations);
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nUpdated Context.\n",
+      "Updated Context.\n",
     );
     const desired = (await buildDesiredState(home, { checkHostCapability: false })).installations;
 
@@ -500,7 +500,7 @@ describe("previous-version Marker migration", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nLegacy migration boundary.\n",
+      "Legacy migration boundary.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -543,7 +543,7 @@ describe("previous-version Marker migration", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nLegacy migration boundary.\n",
+      "Legacy migration boundary.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -622,7 +622,7 @@ describe("previous-version Marker migration", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nLegacy foreign bytes.\n",
+      "Legacy foreign bytes.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -661,7 +661,7 @@ describe("previous-version Marker migration", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nLegacy desired-path boundary.\n",
+      "Legacy desired-path boundary.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),
@@ -727,7 +727,7 @@ describe("previous-version Marker migration", () => {
     // the staged transaction preserves it too.
     writeFileSync(
       join(home, ".agents", "agent-profile-kit", "workspace", "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nChanged legacy boundary.\n",
+      "Changed legacy boundary.\n",
     );
     const changed = (await buildDesiredState(home, { checkHostCapability: false })).installations;
     await applyReconciliation(home, changed);
@@ -761,7 +761,7 @@ describe("uninstall failure safety and exclusion publication races", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nRules.\n",
+      "Rules.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),

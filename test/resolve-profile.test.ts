@@ -14,7 +14,6 @@ function isolatedHome(): string {
 function scaffoldWorkspace(
   home: string,
   options: {
-    readonly contextDependencies?: Record<string, string>;
     readonly skills?: readonly { readonly id: string }[];
   } = {},
 ): string {
@@ -28,15 +27,12 @@ function scaffoldWorkspace(
     join(workspace, "profiles", "coding.yaml"),
     "context: [team-rules]\nskills: [primary]\n",
   );
-  for (const [name, dependencies] of Object.entries(options.contextDependencies ?? {})) {
-    writeFileSync(
-      join(workspace, "context", `${name}.md`),
-      `---\nid: ${name}\ndependencies:\n${dependencies}---\n\n# ${name}\n`,
-    );
+  for (const name of ["team-rules"]) {
+    writeFileSync(join(workspace, "context", `${name}.md`), `# ${name}\n`);
   }
   writeFileSync(
     join(workspace, "context", "bare.md"),
-    "---\nid: bare\n---\n\n# bare\n",
+    "\n# bare\n",
   );
   for (const skill of options.skills ?? [{ id: "primary" }, { id: "other" }]) {
     mkdirSync(join(workspace, "skills", skill.id), { recursive: true });
@@ -75,14 +71,10 @@ describe("Profile-only artifact resolution (spec #593 DEC-006, #596)", () => {
     ]);
   });
 
-  test("dangling Context Module dependency declarations stay valid and have no effect", async () => {
+  test("a Profile resolves through full ingestion after Context frontmatter removal (#600)", async () => {
     const home = isolatedHome();
     try {
-      const workspace = scaffoldWorkspace(home, {
-        contextDependencies: {
-          "team-rules": "  - type: context\n    id: no-such-module\n",
-        },
-      });
+      const workspace = scaffoldWorkspace(home);
       const ingested = await ingestWorkspace(workspace);
       expect([...ingested.contexts.keys()]).toEqual(["bare", "team-rules"]);
       const profile = ingested.profiles.get("coding");

@@ -594,7 +594,7 @@ describe("tracked-output ownership conflicts", () => {
     const workspace = join(application, "workspace");
     writeFileSync(
       join(workspace, "context", "team-rules.md"),
-      "---\nid: team-rules\ndependencies: []\n---\nOwnership conflict.\n",
+      "Ownership conflict.\n",
     );
     writeFileSync(
       join(workspace, "profiles", "coding.yaml"),

@@ -84,7 +84,7 @@ async function prepareHome(project: string): Promise<string> {
   // this fixture binds the canonical example pair, so it writes it.
   const workspace = join(home, ".agents", "agent-profile-kit", "workspace");
   writeFileSync(join(workspace, "context", "example-context.md"),
-    "---\nid: \"example-context\"\n---\nKeep project-specific instructions in the project repository.\n");
+    "Keep project-specific instructions in the project repository.\n");
   writeFileSync(join(workspace, "profiles", "example.yaml"), 'context:\n  - "example-context"\nskills: []\n');
   const application = join(home, ".agents", "agent-profile-kit");
   writeFileSync(

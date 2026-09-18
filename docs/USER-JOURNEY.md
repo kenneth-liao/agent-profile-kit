@@ -282,7 +282,8 @@ Topics:
       its context and skills lists.
   apkit guide context
     Context Module: A Context Module is an independently reusable unit of
-      always-loaded guidance. Profiles select it by its frontmatter `id`.
+      always-loaded guidance. Profiles select it by its path under `context/`
+      without `.md`, and apkit reads no frontmatter.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
       frontmatter `name`, and its description tells an Agent Host when the
@@ -365,8 +366,9 @@ unknown selections are refused with the available names and a nearest-name
 suggestion, and zero selections are refused with the same guidance. The
 focused guide topics lead with the authoring commands and explain the
 resulting files afterward; a Profile selects material through its context and
-skills lists, a Context Module's identity is frontmatter `id`, and a Skill's
-`name` is its Artifact ID, all without requiring the full guide.
+skills lists, a Context Module's identity is its path under `context/`
+without `.md`, and a Skill's `name` is its Artifact ID, all without requiring
+the full guide.
 `apkit configure profile` changes an existing Profile's Context and Skill
 membership through the same validated write path in both modes: explicit
 `--context`/`--skill` flags replace the supplied category, and a bare

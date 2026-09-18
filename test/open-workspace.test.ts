@@ -38,7 +38,7 @@ function setupWorkspace(home: string, name = "my-workspace"): string {
   );
   writeFileSync(
     join(workspacePath, "context", "base.md"),
-    "---\nid: base\n---\nBase context\n",
+    "Base context\n",
   );
   writeFileSync(
     join(workspacePath, "profiles", "default.yaml"),
