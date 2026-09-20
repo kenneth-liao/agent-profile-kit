@@ -437,7 +437,7 @@ describe("guided first-Profile init", () => {
     expect(plain(streams.humanText())).not.toContain("apkit new profile");
   }, 20_000);
 
-  test("a conflicting explicit Workspace selection never enters guidance", async () => {
+  test("declining to connect a different Workspace never enters guidance", async () => {
     const home = isolatedHome();
     const a = join(home, "workspace-a");
     const b = join(home, "workspace-b");
@@ -454,19 +454,16 @@ describe("guided first-Profile init", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [b], input);
 
-    let failure: unknown;
-    try {
-      await pending;
-    } catch (error) {
-      failure = error;
-    }
+    await waitForOutput(streams.humanText, "Current Workspace:");
+    expect(plain(streams.humanText())).toContain("Requested Workspace:");
+    input.write("n");
+    const { exitCode } = await pending;
 
-    // Guidance never asked: the known-invalid selection keeps the delivered
-    // initialization error (parity with non-interactive behavior).
-    expect(failure).toBeInstanceOf(InstallerToolError);
-    expect((failure as InstallerToolError).fact.kind).toBe("init-workspace-selection-conflict");
+    expect(exitCode).toBe(0);
     expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${a}`);
     expect(existsSync(join(a, "profiles", "my-profile.yaml"))).toBe(false);
+    expect(existsSync(join(b, "profiles", "my-profile.yaml"))).toBe(false);
   }, 20_000);
 
   test("an explicit Workspace equivalent to the configured selection is eligible for guidance", async () => {
@@ -964,3 +961,220 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(fileTreeSnapshot(cwd).size).toBe(0);
   }, 20_000);
 });
+
+describe("connect a different Workspace (#607)", () => {
+  function writeWorkspaceMaterial(ws: string, profile = "example"): void {
+    mkdirSync(join(ws, "context"), { recursive: true });
+    mkdirSync(join(ws, "skills", "test-skill"), { recursive: true });
+    mkdirSync(join(ws, "profiles"), { recursive: true });
+    writeFileSync(join(ws, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(ws, "context", "team-rules.md"), "Team rules.\n");
+    writeFileSync(
+      join(ws, "profiles", `${profile}.yaml`),
+      `context:\n  - team-rules\nskills:\n  - test-skill\n`,
+    );
+    writeFileSync(
+      join(ws, "skills", "test-skill", "SKILL.md"),
+      '---\nname: "test-skill"\ndescription: Test skill.\n---\n\n# test-skill\n',
+    );
+  }
+
+  test("connecting a different Workspace works without a TTY and keeps every Project Binding", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeWorkspaceMaterial(wsB, "coding");
+    writeConfig(home, wsA);
+    // Add Project Bindings in Local Configuration
+    const cfg = configPath(home);
+    writeFileSync(
+      cfg,
+      `schema_version: 2\nworkspace: ${wsA}\nbindings:\n  - project: ~/projects/alpha\n    profile: coding\n    hosts:\n      - codex\n  - project: ~/projects/beta\n    profile: coding\n    hosts:\n      - claude\n`,
+    );
+
+    const beforeA = fileTreeSnapshot(wsA);
+    const beforeB = fileTreeSnapshot(wsB);
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [wsB], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    // Config now selects wsB
+    const savedConfig = readFileSync(cfg, "utf8");
+    expect(savedConfig).toContain(`workspace: ${wsB}`);
+    expect(savedConfig).toContain("project: ~/projects/alpha");
+    expect(savedConfig).toContain("project: ~/projects/beta");
+    // Workspaces are unchanged
+    expect(fileTreeSnapshot(wsA)).toEqual(beforeA);
+    expect(fileTreeSnapshot(wsB)).toEqual(beforeB);
+    expect(plain(streams.humanText())).toContain("Connected Agent Profile Kit Workspace");
+  }, 20_000);
+
+  test("interactively, current and requested Workspace are shown before confirmation, and declining changes nothing", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeWorkspaceMaterial(wsB, "coding");
+    writeConfig(home, wsA);
+    const cfg = configPath(home);
+    const initialConfig = readFileSync(cfg, "utf8");
+
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [wsB], input);
+
+    // Shows current and requested Workspace before confirming
+    await waitForOutput(streams.humanText, "Current Workspace:");
+    const human = plain(streams.humanText());
+    expect(human).toContain("~/ws-a");
+    expect(human).toContain("Requested Workspace:");
+    expect(human).toContain("~/ws-b");
+    expect(human).toContain("Set up this folder as your Workspace?");
+
+    // Declining changes nothing
+    input.write("n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(readFileSync(cfg, "utf8")).toBe(initialConfig);
+    expect(streams.errorText()).toBe("");
+    expect(plain(streams.humanText())).toContain("Setup declined; nothing was initialized or created");
+  }, 20_000);
+
+  test("an invalid requested Workspace is refused with the complete validation report, and Local Configuration is unchanged", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeConfig(home, wsA);
+    const cfg = configPath(home);
+    const initialConfig = readFileSync(cfg, "utf8");
+
+    // wsB has multiple violations: broken skill frontmatter AND stray file in context
+    mkdirSync(join(wsB, "skills", "broken"), { recursive: true });
+    writeFileSync(join(wsB, "skills", "broken", "SKILL.md"), "no frontmatter\n");
+    mkdirSync(join(wsB, "context"), { recursive: true });
+    writeFileSync(join(wsB, "context", "stray.txt"), "not markdown\n");
+    writeFileSync(join(wsB, "workspace.yaml"), WORKSPACE_MANIFEST);
+
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [wsB], input);
+    let failure: unknown;
+    try {
+      await pending;
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    // Config untouched
+    expect(readFileSync(cfg, "utf8")).toBe(initialConfig);
+    // Error is workspace-violations with both violations
+    const toolError = failure as InstallerToolError;
+    expect(toolError.fact.kind).toBe("workspace-violations");
+    if (toolError.fact.kind === "workspace-violations") {
+      expect(toolError.fact.violations.length).toBeGreaterThanOrEqual(2);
+    }
+  }, 20_000);
+
+  test("connecting the same Workspace and then a different one leaves every Project Binding unchanged", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeWorkspaceMaterial(wsB, "coding");
+    const cfg = configPath(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const bindingsYaml = "bindings:\n  - project: ~/projects/one\n    profile: coding\n    hosts:\n      - codex\n  - project: ~/projects/two\n    profile: coding\n    hosts:\n      - claude\n      - opencode\n";
+    writeFileSync(cfg, `schema_version: 2\nworkspace: ${wsA}\n${bindingsYaml}`);
+
+    // Connect same workspace
+    const input1 = new PassThrough();
+    input1.end();
+    const init1 = startInit(home, [wsA], input1);
+    expect((await init1.pending).exitCode).toBe(0);
+    const afterSame = readFileSync(cfg, "utf8");
+    expect(afterSame).toContain("project: ~/projects/one");
+    expect(afterSame).toContain("project: ~/projects/two");
+    expect(afterSame).toContain("workspace: " + wsA);
+
+    // Connect different workspace
+    const input2 = new PassThrough();
+    input2.end();
+    const init2 = startInit(home, [wsB], input2);
+    expect((await init2.pending).exitCode).toBe(0);
+    const afterDiff = readFileSync(cfg, "utf8");
+    expect(afterDiff).toContain("project: ~/projects/one");
+    expect(afterDiff).toContain("project: ~/projects/two");
+    expect(afterDiff).toContain("workspace: " + wsB);
+  }, 20_000);
+
+  test("after connecting, every Project Binding whose Profile the Workspace lacks is reported with the next action", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    // wsB has profile "ops", but lacks "coding" and "missing-prof"
+    writeWorkspaceMaterial(wsB, "ops");
+    const cfg = configPath(home);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(
+      cfg,
+      `schema_version: 2\nworkspace: ${wsA}\nbindings:\n  - project: ~/projects/alpha\n    profile: coding\n    hosts:\n      - codex\n  - project: ~/projects/beta\n    profile: missing-prof\n    hosts:\n      - claude\n`,
+    );
+
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [wsB], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    const human = plain(streams.humanText());
+    expect(human).toContain("Project Bindings whose Profile this Workspace lacks");
+    expect(human).toContain("~/projects/alpha");
+    expect(human).toContain("Profile 'coding' does not exist in this Workspace");
+    expect(human).toContain("apkit new profile coding");
+    expect(human).toContain("apkit install");
+    expect(human).toContain("~/projects/beta");
+    expect(human).toContain("Profile 'missing-prof' does not exist in this Workspace");
+    expect(human).toContain("apkit new profile missing-prof");
+  }, 20_000);
+
+  test("a requested folder with missing parts follows the same add-missing-parts flow as setup", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeConfig(home, wsA);
+
+    // wsB has only workspace.yaml and context/
+    mkdirSync(join(wsB, "context"), { recursive: true });
+    writeFileSync(join(wsB, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(wsB, "context", "team-rules.md"), "Team rules.\n");
+
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [wsB], input);
+
+    await waitForOutput(streams.humanText, "Setup will add");
+    const human = plain(streams.humanText());
+    expect(human).toContain("skills/");
+    expect(human).toContain("profiles/");
+    expect(human).toContain("Current Workspace:");
+    expect(human).toContain("~/ws-a");
+    expect(human).toContain("Requested Workspace:");
+    expect(human).toContain("~/ws-b");
+
+    input.write("y");
+    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    input.write("n");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    expect(existsSync(join(wsB, "skills"))).toBe(true);
+    expect(existsSync(join(wsB, "profiles"))).toBe(true);
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${wsB}`);
+  }, 20_000);
+});
+

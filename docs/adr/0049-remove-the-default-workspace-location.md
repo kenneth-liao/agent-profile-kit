@@ -63,10 +63,12 @@ completion for a manifest-present folder.
    directory matters only if chosen, and names `apkit init <path>` and
    `apkit init .` (US-001, ISC-22).
 
-This supersedes ADR-0007's fixed-default sentence only. ADR-0007's refusal to
-select a different Workspace remains standing until #607 supersedes it; until
-then an explicit request against an existing selection must resolve to the
-same canonical directory.
+This supersedes ADR-0007's fixed-default sentence only. Ticket #607 (spec #593
+DEC-002) supersedes ADR-0007's refusal to select a different Workspace: an
+explicit `apkit init <workspace>` connects a different Workspace after
+confirmation (or unconditionally with `--yes`), provisions any missing
+required parts, updates Local Configuration while preserving all Project
+Bindings, and reports missing Profile bindings.
 
 ## Consequences
 
