@@ -58,6 +58,7 @@ import {
   reportItems,
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -298,10 +299,10 @@ describe("Claude-only Profile Installation lifecycle", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["claude"]);
-    expect(installation.hostVersions.claude).toBe(CLAUDE_HOST_VERSION);
-    expect(installation.adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
-    expect(installation.outputs.map((output) => output.path)).toEqual([CLAUDE_CONTEXT_RULE_PATH]);
-    expect(installation.outputs.some((output) => output.path.includes("codex"))).toBe(false);
+    expect(plannedInstallation(installation!).hostVersions.claude).toBe(CLAUDE_HOST_VERSION);
+    expect(plannedInstallation(installation!).adapterVersion).toBe(CLAUDE_ADAPTER_VERSION);
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path)).toEqual([CLAUDE_CONTEXT_RULE_PATH]);
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path.includes("codex"))).toBe(false);
 
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
@@ -367,7 +368,7 @@ describe("Claude-only Profile Installation lifecycle", () => {
     try {
       const desired = await buildDesiredState(home);
       expect(
-        desired.installations[0]?.capabilityWarnings.some((entry) =>
+        plannedInstallation(desired.installations[0]!)?.capabilityWarnings.some((entry) =>
           flatInlineText(entry.warning.parts).includes("is a file, not a directory"),
         ),
       ).toBe(true);
@@ -421,17 +422,17 @@ describe("Combined Codex and Claude Profile Installation", () => {
     const installation = desired.installations[0]!;
     // Hosts normalized at ingestion regardless of authored order [codex, claude].
     expect(installation.binding.hosts).toEqual(["claude", "codex"]);
-    expect(installation.hostVersions).toEqual({
+    expect(plannedInstallation(installation!).hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,
     });
-    expect(installation.adapterVersion).toBe(
+    expect(plannedInstallation(installation!).adapterVersion).toBe(
       adapterVersionFor(["claude", "codex"]),
     );
-    expect(installation.adapterVersion).toBe(
+    expect(plannedInstallation(installation!).adapterVersion).toBe(
       [CLAUDE_ADAPTER_VERSION, CODEX_ADAPTER_VERSION].sort().join("+"),
     );
-    const paths = installation.outputs.map((output) => output.path).sort();
+    const paths = plannedInstallation(installation!).outputs.map((output) => output.path).sort();
     expect(paths).toEqual([
       ".agent-profile-kit/codex/context.md",
       ".claude/rules/agent-profile-kit.md",
@@ -493,7 +494,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
     await writeContextWorkspace(home, project, ["claude"], { skills: ["review-pr"] });
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const paths = desired.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
+    const paths = plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path).sort() ?? [];
     expect(paths).toContain(CLAUDE_CONTEXT_RULE_PATH);
     expect(paths).toContain(".claude/skills/review-pr");
     expect(paths.some((path) => path.startsWith(".agents/skills/"))).toBe(false);
@@ -505,7 +506,7 @@ describe("Combined Codex and Claude Profile Installation", () => {
     await writeContextWorkspace(home, project, ["codex", "claude"], { skills: ["review-pr"] });
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    const paths = desired.installations[0]?.outputs.map((output) => output.path) ?? [];
+    const paths = plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path) ?? [];
     expect(paths).toContain(CLAUDE_CONTEXT_RULE_PATH);
     expect(paths).toContain(".claude/skills/review-pr");
     expect(paths).toContain(".agents/skills/review-pr");

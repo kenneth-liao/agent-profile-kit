@@ -1,4 +1,5 @@
 import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
+import { plannedInstallation } from "./support/planned-installation.js";
 import { OWNERSHIP_STATE_SCHEMA_VERSION } from "../schemas/ownership-state.js";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -80,7 +81,7 @@ describe("nested Project reconciliation report", () => {
       schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
     });
 
-    expect(Object.keys(report).sort()).toEqual(["globalBlockers", "projects"]);
+    expect(Object.keys(report).sort()).toEqual(["brokenProfileViolations", "globalBlockers", "projects"]);
     expect(report.projects).toHaveLength(1);
     expect(report.projects[0]).toMatchObject({
       canonicalProject: desired.installations[0]!.binding.canonicalProject,
@@ -113,7 +114,7 @@ describe("nested Project reconciliation report", () => {
     });
     const json = JSON.parse(formatLifecycleJson("status", report));
     expect(json).toMatchObject({
-      schemaVersion: 15,
+      schemaVersion: 16,
       command: "status",
       outcome: "blocked",
       globalBlockers: [],
@@ -302,7 +303,7 @@ describe("injected project filesystem failures", () => {
     await applyReconciliation(home, desired.installations);
     const changed = desired.installations.map((installation) => ({
       ...installation,
-      outputs: installation.outputs.map((output) =>
+      outputs: plannedInstallation(installation!).outputs.map((output) =>
         output.path.endsWith("context.md") ? { ...output, mode: 0o600 } : output
       ),
     }));
@@ -555,7 +556,7 @@ describe("previous-version Marker migration", () => {
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
-    const bytes = new Map(desired.installations[0]!.outputs.map((output) => [
+    const bytes = new Map(plannedInstallation(desired.installations[0]!).outputs.map((output) => [
       output.path,
       (output as { bytes: string }).bytes,
     ]));
@@ -581,11 +582,11 @@ describe("previous-version Marker migration", () => {
         lifetime: "ordinary",
         project,
         profile_id: "coding",
-        desired_input_digest: installation.sourceHash,
+        desired_input_digest: plannedInstallation(installation!).sourceHash,
         hosts: {
           codex: {
             adapter_version: hostCatalogEntryFor("codex").adapterVersion,
-            capability_contract: installation.hostVersions.codex!,
+            capability_contract: plannedInstallation(installation!).hostVersions.codex!,
           },
         },
         outputs: [...bytes.entries()].map(([path, content]) => ({
@@ -674,7 +675,7 @@ describe("previous-version Marker migration", () => {
     const desiredState = await buildDesiredState(home, { checkHostCapability: false });
     const desired = desiredState.installations.map((installation) => ({
       ...installation,
-      outputs: installation.outputs.map((output) =>
+      outputs: plannedInstallation(installation!).outputs.map((output) =>
         output.path === ".agent-profile-kit/codex/context.md"
           ? { ...output, path: ".agent-profile-kit/installation.json" }
           : output,
@@ -1042,7 +1043,7 @@ describe("recorded Host selection equivalence", () => {
     // The premise this test protects: outputs do not change; only the
     // recorded Host selection does. If this ever fails, the scenario is no
     // longer the named gap and the test's boundary must be revisited.
-    expect(desired.installations[0]!.outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
+    expect(plannedInstallation(desired.installations[0]!).outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
     const report = await applyReconciliation(home, desired.installations);
 
     // The pre-update receipt records the Host-selection work...
@@ -1059,7 +1060,7 @@ describe("recorded Host selection equivalence", () => {
     expect(Object.keys(refreshed.hosts).sort()).toEqual(["codex"]);
     expect(refreshed.hosts.codex).toEqual({
       adapterVersion: hostCatalogEntryFor("codex").adapterVersion,
-      capabilityContract: desired.installations[0]!.hostVersions.codex!,
+      capabilityContract: plannedInstallation(desired.installations[0]!).hostVersions.codex!,
     });
   });
 
@@ -1078,7 +1079,7 @@ describe("recorded Host selection equivalence", () => {
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const previous = (await readInstallationState(home)).receipts[0]!;
-    expect(desired.installations[0]!.outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
+    expect(plannedInstallation(desired.installations[0]!).outputs.map(ownedOutputFromDesired)).toEqual([...previous.outputs]);
 
     const report = await applyReconciliation(home, desired.installations);
 
@@ -1092,7 +1093,7 @@ describe("recorded Host selection equivalence", () => {
     expect(Object.keys(refreshed.hosts).sort()).toEqual(["antigravity", "codex"]);
     expect(refreshed.hosts.antigravity).toEqual({
       adapterVersion: hostCatalogEntryFor("antigravity").adapterVersion,
-      capabilityContract: desired.installations[0]!.hostVersions.antigravity!,
+      capabilityContract: plannedInstallation(desired.installations[0]!).hostVersions.antigravity!,
     });
   });
 });

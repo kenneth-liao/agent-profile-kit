@@ -258,6 +258,59 @@ describe("explicit install records the selection and installs output in one acti
   });
 });
 
+describe("install beside a broken Profile (#606)", () => {
+  async function homeWithBrokenProfile(): Promise<string> {
+    const home = isolatedHome();
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+    writeProfile(home, "healthy");
+    writeFileSync(
+      join(workspacePath(home), "profiles", "broken.yaml"),
+      "context: [gone]\nskills: []\n",
+    );
+    writeConfig(home, workspacePath(home));
+    return home;
+  }
+
+  test("a successful install of a healthy Profile lists every broken Profile", async () => {
+    const home = await homeWithBrokenProfile();
+    const projectPath = projectDirectory();
+
+    const { exitCode, streams } = await runInstall(
+      home,
+      ["healthy", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(plain(streams.humanText())).toContain("Broken Profiles");
+    expect(plain(streams.humanText())).toContain("broken");
+    expect(readFileSync(configPath(home), "utf8")).toContain("profile: healthy");
+  });
+
+  test("the Profile picker offers a broken Profile alongside healthy ones", async () => {
+    const home = await homeWithBrokenProfile();
+    const projectPath = projectDirectory();
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInstall(
+      home,
+      ["--host", "codex"],
+      input,
+      { cwd: projectPath },
+    );
+
+    await waitForOutput(streams.humanText, "Which Profile?");
+    const offered = plain(streams.humanText());
+    expect(offered).toContain("broken");
+    expect(offered).toContain("healthy");
+    input.end();
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(plain(streams.errorText())).toContain("cancelled");
+    expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
+  });
+});
+
 describe("install Host-loading handoff (spec #491 US-017, #515)", () => {
   test("a first installation offers the optional loading check after the receipt", async () => {
     const home = await setupHome();

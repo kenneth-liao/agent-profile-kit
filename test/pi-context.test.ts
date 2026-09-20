@@ -35,6 +35,7 @@ import {
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
 import { projectedSkillDocument } from "./support/generated-notice.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -422,14 +423,14 @@ describe("Pi Adapter", () => {
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations).toHaveLength(2);
-    const piDesired = desired.installations.find((installation) => installation.binding.project === piProject);
+    const piDesired = plannedInstallation(desired.installations.find((installation) => installation.binding.project === piProject)!);
     expect(piDesired).toBeDefined();
-    expect(piDesired!.adapterVersion).toContain(PI_ADAPTER_VERSION);
-    expect(piDesired!.hostVersions.pi).toBe(PI_HOST_VERSION);
-    expect(piDesired!.outputs.map((output) => output.path)).toEqual([
+    expect(piDesired.adapterVersion).toContain(PI_ADAPTER_VERSION);
+    expect(piDesired.hostVersions.pi).toBe(PI_HOST_VERSION);
+    expect(piDesired.outputs.map((output) => output.path)).toEqual([
       PI_CONTEXT_PATH,
     ]);
-    expect(piDesired!.setupSteps).toEqual([{
+    expect(piDesired.setupSteps).toEqual([{
       host: "pi",
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
@@ -457,7 +458,7 @@ describe("Pi Adapter", () => {
     );
     expect(reportItems(status).some((item) => item.project === piProject && item.kind === "drifted output")).toBe(true);
 
-    writeFileSync(join(piProject, ".pi", "APPEND_SYSTEM.md"), String(piDesired?.outputs[0]?.type === "file" ? piDesired.outputs[0].bytes : ""));
+    writeFileSync(join(piProject, ".pi", "APPEND_SYSTEM.md"), String(piDesired.outputs[0]?.type === "file" ? piDesired.outputs[0].bytes : ""));
     await executeUninstall(home, { all: true });
     expect(existsSync(join(piProject, ".pi", "APPEND_SYSTEM.md"))).toBe(false);
     expect(readFileSync(join(piProject, ".pi", "settings.json"), "utf8")).toBe("keep native settings\n");
@@ -482,9 +483,9 @@ describe("Pi Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected Pi installation");
-    expect(installation.capabilityWarnings).toEqual([]);
-    expect(installation.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
-    expect(installation.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(installation!).capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!).hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path)).toEqual([
       ".agents/skills/left-skill",
       ".agents/skills/right-skill",
       ".agents/skills/shared-base",
@@ -514,8 +515,8 @@ describe("Pi Adapter", () => {
       join(workspace, "skills", "relocated", "top-skill"),
     );
     const relocated = await buildDesiredState(home, { checkHostCapability: false });
-    expect(relocated.installations[0]?.outputs.map((output) => output.path)).toEqual(
-      installation.outputs.map((output) => output.path),
+    expect(plannedInstallation(relocated.installations[0]!)?.outputs.map((output) => output.path)).toEqual(
+      plannedInstallation(installation!).outputs.map((output) => output.path),
     );
     await applyReconciliation(home, relocated.installations);
 
@@ -555,8 +556,8 @@ describe("Pi Adapter", () => {
     );
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     expect(desired.installations[0]?.binding.hosts).toEqual(["claude", "pi"]);
-    expect(desired.installations[0]?.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
-    expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions.pi).toBe("native-project-append-system-shared-skills-v1");
+    expect(plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path)).toEqual([
       ".agents/skills/review-pr",
       ".claude/rules/agent-profile-kit.md",
       ".claude/skills/review-pr",
@@ -587,10 +588,10 @@ describe("Pi Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     if (!installation) throw new Error("expected shared installation");
-    const shared = installation.outputs.find((output) => output.path === ".agents/skills/review-pr");
+    const shared = plannedInstallation(installation!).outputs.find((output) => output.path === ".agents/skills/review-pr");
     expect(shared?.consumingHosts).toEqual(["codex", "pi"]);
-    expect(installation.outputs.filter((output) => output.path === ".agents/skills/review-pr")).toHaveLength(1);
-    expect(installation.setupSteps.some((step) => step.kind === "shared-path")).toBe(false);
+    expect(plannedInstallation(installation!).outputs.filter((output) => output.path === ".agents/skills/review-pr")).toHaveLength(1);
+    expect(plannedInstallation(installation!).setupSteps.some((step) => step.kind === "shared-path")).toBe(false);
 
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
@@ -614,7 +615,7 @@ describe("Pi Adapter", () => {
       "---\nname: review-pr\ndescription: Review a pull request.\ndisable-model-invocation: true\n---\n\n# Review\n",
     );
     const disabled = await buildDesiredState(home, { checkHostCapability: false });
-    const disabledOutput = disabled.installations[0]?.outputs.find(
+    const disabledOutput = plannedInstallation(disabled.installations[0]!)?.outputs.find(
       (output) => output.path === ".agents/skills/review-pr" && output.type === "directory",
     );
     if (!disabledOutput || disabledOutput.type !== "directory") throw new Error("expected disabled shared Skill");
@@ -639,9 +640,9 @@ describe("Pi Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-    expect(desired.installations[0]?.hostVersions.pi).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
-    expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions.pi).toBe(PI_HOST_VERSION_WITH_CONTEXT_AND_SKILLS_INVOCATION);
+    expect(plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path)).toEqual([
       ".agents/skills/review-pr",
       PI_CONTEXT_PATH,
     ]);
@@ -713,13 +714,13 @@ describe("Pi Adapter", () => {
     const piInstallation = desired.installations.find(
       (installation) => installation.binding.project === project,
     );
-    expect(piInstallation?.capabilityWarnings).toEqual([]);
-    expect(piInstallation?.outputs.map((output) => output.path)).toEqual([".agents/skills/review-pr", ".pi/APPEND_SYSTEM.md"]);
+    expect(plannedInstallation(piInstallation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(piInstallation!)?.outputs.map((output) => output.path)).toEqual([".agents/skills/review-pr", ".pi/APPEND_SYSTEM.md"]);
     const unrelatedInstallation = desired.installations.find(
       (installation) => installation.binding.project === unrelatedProject,
     );
-    expect(unrelatedInstallation?.capabilityWarnings).toEqual([]);
-    expect(unrelatedInstallation?.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(unrelatedInstallation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(unrelatedInstallation!)?.outputs.map((output) => output.path)).toEqual([
       ".claude/rules/agent-profile-kit.md",
     ]);
     expect(existsSync(join(project, ".pi"))).toBe(false);
@@ -744,8 +745,8 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.capabilityWarnings).toEqual([]);
-    expect(installation?.warnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.warnings).toEqual([]);
   });
 
   test("status delegates later Pi extension settings to Host Resolution", async () => {
@@ -762,8 +763,8 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.capabilityWarnings).toEqual([]);
-    expect(installation?.warnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.warnings).toEqual([]);
     expect(existsSync(join(project, ".agents", "skills", "review-pr"))).toBe(false);
     expect(readFileSync(settingsPath, "utf8")).toBe('{"extensions":["./dynamic.ts"]}\n');
   });
@@ -782,12 +783,12 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.capabilityWarnings).toEqual([]);
-    expect(installation?.warnings.some((warning) =>
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.warnings.some((warning) =>
       /project settings.*JSON/i.test(flatInlineText(warning.parts))
     )).toBe(true);
     const canonicalSettingsPath = join(realpathSync(project), ".pi", "settings.json");
-    expect(installation?.warnings[0]?.copyableValues).toContain(canonicalSettingsPath);
+    expect(plannedInstallation(installation!)?.warnings[0]?.copyableValues).toContain(canonicalSettingsPath);
     const report = await previewReconciliation(desired.installations, {
       receipts: [],
       removedTemporaryInstallationIds: [],
@@ -811,8 +812,8 @@ describe("Pi Adapter", () => {
     const installation = desired.installations.find(
       (candidate) => candidate.binding.project === project,
     );
-    expect(installation?.capabilityWarnings).toEqual([]);
-    expect(installation?.warnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.warnings).toEqual([]);
   });
 
   test("requires Pi 0.82.1+ and proves project surfaces for disabled model-invocation Skills", async () => {

@@ -24,6 +24,8 @@ import {
 } from "../schemas/ownership-state.js";
 import { hostCatalogEntryFor } from "../adapters/host-catalog.js";
 import { InstallerToolError } from "./tool-errors.js";
+import type { WorkspaceViolation } from "./tool-errors.js";
+import { workspaceViolationPath, workspaceViolationToken } from "./tool-errors.js";
 import { CONTEXT_ENVELOPE_PREFIX } from "../adapters/context-envelope.js";
 import {
   readVerifiedLegacyInstallationMarker,
@@ -32,11 +34,14 @@ import {
 } from "./legacy-installation-marker.js";
 import {
   hashBytes,
+  isPlannedInstallation,
   outputPath,
   stateManifestPath,
+  type BlockedInstallation,
   type DesiredInstallation,
   type DesiredProjectDirectoryOutput,
   type DesiredProjectOutput,
+  type PlannedInstallation,
 } from "./project-plan.js";
 import {
   inspectInstallationOwnership,
@@ -92,6 +97,7 @@ import {
   type RepositoryExclusionWarning,
 } from "./git-exclusions.js";
 import {
+  brokenProfileBlocker,
   installationOwnershipBlocker,
   installationStateUnreadableBlocker,
   normalizeBlocker,
@@ -205,12 +211,20 @@ export interface ReconciliationProjectRecord {
   readonly outputs: readonly ReconciliationProjectOutput[];
   readonly blockers: readonly ReconciliationBlocker[];
   readonly warnings: readonly ReconciliationWarning[];
-  readonly setupSteps: DesiredInstallation["setupSteps"];
+  readonly setupSteps: PlannedInstallation["setupSteps"];
   readonly repositoryExclusions: readonly RepositoryExclusionChange[];
 }
 
 /** Canonical reconciliation model: global evidence plus one complete record per Project. */
 export interface ReconciliationReport {
+  /**
+   * The verbatim #604 reference facts of every broken Profile, whether or not
+   * any Project is bound to it (spec #593 US-007, #606). Presentation reuses
+   * the #604 violation wording (nearest-match suggestions included) — no
+   * second wording. Projects bound to these Profiles additionally carry their
+   * own project-scoped `broken-profile` Blockers.
+   */
+  readonly brokenProfileViolations: readonly WorkspaceViolation[];
   readonly globalBlockers: readonly ReconciliationBlocker[];
   readonly projects: readonly ReconciliationProjectRecord[];
 }
@@ -261,7 +275,7 @@ interface ReconciliationAccumulator {
     readonly profile: string;
     readonly project: string;
     readonly resolvedArtifacts: readonly DesiredResolvedArtifactPreview[];
-    readonly setupSteps: DesiredInstallation["setupSteps"];
+    readonly setupSteps: PlannedInstallation["setupSteps"];
   }[];
   readonly items: readonly ReconciliationItem[];
   readonly outputs: readonly OutputReconciliationItem[];
@@ -280,6 +294,7 @@ export function reconciliationReportWithProjects(
   projects: readonly ReconciliationProjectRecord[],
 ): ReconciliationReport {
   return {
+    brokenProfileViolations: report.brokenProfileViolations,
     globalBlockers: report.globalBlockers,
     projects,
   };
@@ -488,13 +503,14 @@ export async function unreadableInstallationStateReport(
   home: string,
   desired: readonly DesiredInstallation[],
   error: unknown,
+  brokenProfileViolations: readonly WorkspaceViolation[],
 ): Promise<BlockedReconciliationReport> {
   const message = error instanceof Error ? error.message : String(error);
   const desiredReport = await previewReconciliation(desired, {
     receipts: [],
     removedTemporaryInstallationIds: [],
     schemaVersion: OWNERSHIP_STATE_SCHEMA_VERSION,
-  });
+  }, { brokenProfileViolations });
   // Installer-classified state-read failures cross as typed facts; foreign
   // diagnostics (fs and parse errors) stay plain detail facts. The same fact
   // rides on every Project state so no Installer-authored sentence leaks.
@@ -506,6 +522,7 @@ export async function unreadableInstallationStateReport(
     ? installationStateUnreadableBlocker({ stateFailure: cause.stateFailure, statePath })
     : installationStateUnreadableBlocker({ detail: cause.detail, statePath });
   return {
+    brokenProfileViolations: desiredReport.brokenProfileViolations,
     globalBlockers: [normalizeBlocker(blocker)],
     // Ownership cannot be read, so planned Project states and output changes
     // are not trustworthy diagnostics. Keep desired identity plus the boundary failure.
@@ -527,7 +544,7 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 function hostReceiptsEqual(
   receipt: OwnershipReceipt,
-  desired: DesiredInstallation,
+  desired: PlannedInstallation,
 ): boolean {
   const desiredHosts = desired.binding.hosts;
   const recordedHosts = Object.keys(receipt.hosts);
@@ -584,7 +601,7 @@ export function ownedOutputFromDesired(output: DesiredProjectOutput): OwnershipO
 }
 
 export function manifestFor(
-  desired: DesiredInstallation,
+  desired: PlannedInstallation,
   installationId: string,
 ): OwnershipReceipt {
   return {
@@ -644,7 +661,7 @@ async function ownedOutputMatches(
 }
 
 export async function desiredOutputConflicts(
-  desired: DesiredInstallation,
+  desired: PlannedInstallation,
   previous: OwnershipReceipt | undefined,
   inspection: LifecycleOwnershipInspection,
   gitInspection: LifecycleGitInspection = createLifecycleGitInspectionContext(),
@@ -864,6 +881,7 @@ function nestedReconciliationReport(
   flat: ReconciliationAccumulator,
   desiredInstallations: readonly DesiredInstallation[],
   exclusionProjects: ReadonlyMap<string, ReadonlySet<string>>,
+  brokenProfileViolations: readonly WorkspaceViolation[],
 ): ReconciliationReport {
   const canonicalByProject = new Map<string, string>();
   for (const installation of flat.desired) {
@@ -911,6 +929,7 @@ function nestedReconciliationReport(
   }
   const warningsByCanonical = new Map<string, ReconciliationWarning[]>();
   for (const installation of desiredInstallations) {
+    if (installation.kind !== "planned") continue;
     const key = installation.binding.canonicalProject;
     const warnings: ReconciliationWarning[] = installation.warnings.map((warning) => ({
       ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
@@ -967,7 +986,17 @@ function nestedReconciliationReport(
     ...outputsByCanonical.keys(),
     ...exclusionsByCanonical.keys(),
   ]);
+  // Blocked Projects carry no desired record: a blocked Project has no
+  // trustworthy desired projection (#606).
+  const blockedCanonical = new Set(
+    desiredInstallations
+      .filter((installation) => installation.kind === "blocked")
+      .map((installation) => installation.binding.canonicalProject),
+  );
   return {
+    brokenProfileViolations: [...brokenProfileViolations].sort((left, right) =>
+      workspaceViolationToken(left).localeCompare(workspaceViolationToken(right)) ||
+      workspaceViolationPath(left).localeCompare(workspaceViolationPath(right))),
     globalBlockers: [...globalBlockers],
     projects: [...projectKeys].sort().map((key) => {
       const desired = desiredByCanonical.get(key);
@@ -975,7 +1004,7 @@ function nestedReconciliationReport(
       return {
         canonicalProject: key,
         project: desired?.project ?? state.project,
-        ...(desired === undefined ? {} : {
+        ...(desired === undefined || blockedCanonical.has(key) ? {} : {
           desired: {
             ...(desired.capabilityContracts === undefined
               ? {}
@@ -1023,6 +1052,15 @@ export interface PreviewReconciliationOptions {
    * short-lived scheduler is created for this pass only.
    */
   readonly scheduler?: ProjectReadScheduler;
+  /**
+   * The verbatim #604 reference facts from desired-state planning (#606): the
+   * one report-every-broken-Profile channel, covering Profiles bound to no
+   * Project. Optional only for adapter and test seams that plan no broken
+   * Profile; every production entry point (`installer/commands.ts`,
+   * `installer/install-application.ts`) passes it, because an omitted list
+   * silently drops unbound broken Profiles from the report.
+   */
+  readonly brokenProfileViolations?: readonly WorkspaceViolation[];
 }
 
 export async function previewReconciliation(
@@ -1049,6 +1087,20 @@ export async function previewReconciliation(
   );
   const blockers: ReconciliationBlocker[] = [];
   const desiredReport = desired.map((installation) => {
+    // A blocked Project has no trustworthy desired projection: its record
+    // keeps only the identity and the broken-Profile fact (#606).
+    if (installation.kind === "blocked") {
+      return {
+        canonicalProject: installation.binding.canonicalProject,
+        context: "",
+        hosts: installation.binding.hosts,
+        outputs: [],
+        profile: installation.brokenProfile.profile,
+        project: installation.binding.project,
+        resolvedArtifacts: [],
+        setupSteps: [],
+      };
+    }
     return {
       canonicalProject: installation.binding.canonicalProject,
       capabilityContracts: installation.hostVersions,
@@ -1065,11 +1117,11 @@ export async function previewReconciliation(
     };
   });
   const outputConsumers = desired
-    .flatMap((installation) => installation.outputs.map((output) => ({
+    .flatMap((installation) => (installation.kind === "blocked" ? [] : installation.outputs.map((output) => ({
       consumingHosts: [...output.consumingHosts],
       path: output.path,
       project: installation.binding.project,
-    })))
+    }))))
     .sort((left, right) =>
       left.project.localeCompare(right.project) || left.path.localeCompare(right.path)
     );
@@ -1078,6 +1130,23 @@ export async function previewReconciliation(
   // fold in canonical input order afterwards so scheduling order is never
   // observable in human or machine output (DEC-016).
   const desiredResults = await scheduler.run(desired.map((installation) => async () => {
+    // A blocked Project produces no output reconciliation and no projected
+    // receipt: its recorded output stays untouched and its receipt stays
+    // verbatim (spec #593 US-007, #606). One broken-profile Blocker rides on
+    // the Project record.
+    if (installation.kind === "blocked") {
+      return {
+        blockers: [normalizeBlocker(brokenProfileBlocker({
+          brokenProfile: installation.brokenProfile,
+          project: installation.binding.canonicalProject,
+        }), installation.binding.canonicalProject)],
+        items: [{
+          kind: "blocked" as const,
+          project: installation.binding.project,
+        }],
+        outputItems: [] as OutputReconciliationItem[],
+      };
+    }
     const previous = previousFor(installation, byProject);
     const id = previous?.installationId ?? newInstallationId();
     // Receipt-proven Project input change: the digest covers the desired
@@ -1235,16 +1304,22 @@ export async function previewReconciliation(
   // never stored.
   let projectedReceipts = state.receipts;
   for (const result of desiredResults) {
-    projectedReceipts = [
-      ...projectedReceipts.filter((receipt) => receipt.installationId !== result.id),
-      result.receipt,
-    ];
+    // A blocked Project's receipt is not projected: its recorded receipt stays
+    // verbatim (spec #593 US-007, #606).
+    if ("receipt" in result && result.receipt !== undefined) {
+      projectedReceipts = [
+        ...projectedReceipts.filter((receipt) => receipt.installationId !== result.id),
+        result.receipt,
+      ];
+    }
     items.push(...result.items);
     outputItems.push(...result.outputItems);
     blockers.push(...result.blockers);
   }
   const sourceInputChangedProjects = desiredResults.flatMap((result, index) =>
-    result.sourceInputChanged === true ? [desired[index]!.binding.project] : [],
+    "sourceInputChanged" in result && result.sourceInputChanged === true
+      ? [desired[index]!.binding.project]
+      : [],
   );
   // Exclusion inspection runs over the projected state after per-Project
   // planning: published entries derive from the receipts that will exist after
@@ -1353,7 +1428,9 @@ export async function previewReconciliation(
     sourceInputChangedProjects,
     diagnosticValues: [...new Set(
       desired.flatMap((installation) =>
-        installation.warnings.flatMap((warning) => warning.copyableValues)
+        installation.kind === "planned"
+          ? installation.warnings.flatMap((warning) => warning.copyableValues)
+          : [],
       ),
     )].sort(),
   };
@@ -1363,6 +1440,7 @@ export async function previewReconciliation(
     ),
   );
   desiredResults.forEach((result, index) => {
+    if (!("receipt" in result) || result.receipt === undefined) return;
     projectByInstallationId.set(result.id, desired[index]!.binding.project);
   });
   const exclusionProjects = new Map<string, Set<string>>();
@@ -1379,11 +1457,11 @@ export async function previewReconciliation(
     if (included.length === 0) continue;
     exclusionProjects.set(target, new Set(included));
   }
-  return nestedReconciliationReport(flat, desired, exclusionProjects);
+  return nestedReconciliationReport(flat, desired, exclusionProjects, options.brokenProfileViolations ?? []);
 }
 
 export async function stageProjectOutputs(
-  desired: DesiredInstallation,
+  desired: PlannedInstallation,
   manifest: OwnershipReceipt,
   previous: OwnershipReceipt | undefined,
   fileSystem: ReconciliationFileSystem = nodeFileSystem,
@@ -1628,10 +1706,14 @@ export async function resolveChangedOutputConsent(
     }
     return undefined;
   };
-  const plannedOutputFor = (canonicalProject: string, path: string) =>
-    desired
-      .find((installation) => installation.binding.canonicalProject === canonicalProject)
-      ?.outputs.find((output) => output.path === path);
+  const plannedOutputFor = (canonicalProject: string, path: string) => {
+    const installation = desired
+      .find((candidate) => candidate.binding.canonicalProject === canonicalProject);
+    return installation !== undefined
+      && isPlannedInstallation(installation)
+      ? installation.outputs.find((output) => output.path === path)
+      : undefined;
+  };
   const reviewedScope = new Map<string, ChangedOutputComparison>();
   const comparisons: ChangedOutputComparison[] = [];
   const pendingConsentScope: ChangedOutputConsentProject[] = [];
@@ -1806,6 +1888,16 @@ export async function resolveChangedOutputConsent(
 /** Options shared by the locking and lock-aware reconciliation entrypoints. */
 export interface ApplyReconciliationOptions {
       /**
+       * The verbatim #604 reference facts from desired-state planning (#606),
+       * carried onto every report this apply produces so unbound broken
+       * Profiles are reported too. Optional only for adapter and test seams
+       * that plan no broken Profile; every production entry point
+       * (`installer/commands.ts`, `installer/install-application.ts`) passes
+       * it, because an omitted list silently drops unbound broken Profiles
+       * from the report.
+       */
+      readonly brokenProfileViolations?: readonly WorkspaceViolation[];
+      /**
        * Factory for one Git inspection context. Apply creates a fresh context for
        * preflight and another for post-commit verification so pre-write snapshots
        * cannot prove post-write state. Tests may inject a counting factory.
@@ -1880,6 +1972,7 @@ async function applyReconciliationLocked(
   home: string,
   desired: readonly DesiredInstallation[],
   options: {
+    readonly brokenProfileViolations?: readonly WorkspaceViolation[];
     readonly createGitInspection?: () => LifecycleGitInspection;
     /**
      * Factory for one ownership inspection context. Apply creates a fresh
@@ -1933,11 +2026,15 @@ async function applyReconciliationLocked(
   // are matched by authored path so a missing unrelated root in a scoped run
   // stays irrelevant while any desired binding drift fails the run.
   const configurationSource = await readLocalConfigurationSource(home);
+  // Tolerant re-ingestion (#606): Profile reference violations do not hide a
+  // concurrent configuration change — the stability check compares bindings,
+  // not Workspace artifact health, and the strict rejection would turn a
+  // broken Profile into a spurious lifecycle failure.
   const freshModel = await ingestApplicationModelFromSource(
     home,
     configurationSource.source,
     configurationSource.path,
-    { allowMissingProjects: true },
+    { allowMissingProjects: true, toleratingReferenceViolations: true },
   );
   const bindingTuple = (binding: {
     readonly canonicalProject?: string;
@@ -1972,7 +2069,12 @@ async function applyReconciliationLocked(
     before = await readInstallationState(home);
   } catch (error) {
     throw new ApplyBlockedError(
-      await unreadableInstallationStateReport(home, desired, error),
+      await unreadableInstallationStateReport(
+        home,
+        desired,
+        error,
+        options.brokenProfileViolations ?? [],
+      ),
     );
   }
   // Fresh inspection pass: pre-write filesystem evidence only. One context
@@ -1980,6 +2082,9 @@ async function applyReconciliationLocked(
   // each owned output is read or walked at most once before any write.
   const preflightOwnershipInspection = createOwnershipInspection();
   const preflight = await previewReconciliation(desired, before, {
+    ...(options.brokenProfileViolations === undefined
+      ? {}
+      : { brokenProfileViolations: options.brokenProfileViolations }),
     gitInspection: createGitInspection(),
     ownershipInspection: preflightOwnershipInspection,
     scheduler,
@@ -2087,8 +2192,8 @@ async function applyReconciliationLocked(
   const proveProjectWrites = async (options: {
     readonly canonicalProject: string;
     readonly project: string;
-    /** Desired installation for ordinary writes; undefined for stale removals. */
-    readonly desired: DesiredInstallation | undefined;
+    /** Planned installation for ordinary writes; undefined for stale removals. */
+    readonly desired: PlannedInstallation | undefined;
     /** Previous receipt: the ordinary previous, or the stale receipt itself. */
     readonly previous: OwnershipReceipt | undefined;
     readonly pendingProjects: readonly ProjectIdentity[];
@@ -2216,6 +2321,9 @@ async function applyReconciliationLocked(
   const verifyResultingState = async (state: OwnershipState): Promise<ReconciliationReport> => {
     const verify = options.verifyReconciliation ?? (
       (nextDesired, nextState) => previewReconciliation(nextDesired, nextState, {
+        ...(options.brokenProfileViolations === undefined
+          ? {}
+          : { brokenProfileViolations: options.brokenProfileViolations }),
         gitInspection: createGitInspection(),
         ownershipInspection: createOwnershipInspection(),
         scheduler,
@@ -2247,6 +2355,9 @@ async function applyReconciliationLocked(
     // A filtered selection writes only its selected membership (DEC-006).
     if (options.filter !== undefined && !selectedProjects.has(item.binding.canonicalProject)) continue;
     if (blockedProjects.has(item.binding.canonicalProject)) continue;
+    // Poka-yoke: a blocked installation cannot be written even if its Blocker
+    // were somehow missed above — the type system forces this guard (#606).
+    if (item.kind === "blocked") continue;
     const previous = previousFor(item, byProject);
     if (currentProjects.has(item.binding.project)) {
       // Migration: a leftover ownership-token file from an earlier version

@@ -97,6 +97,25 @@ export type TemporaryRemovalFailureFact =
   | { readonly case: "symlink-output"; readonly output: string }
   | { readonly case: "unsafe-parent"; readonly output: string; readonly parent: string };
 
+/**
+ * Typed evidence for one broken Profile (spec #593 US-007, DEC-009 project
+ * scope, #606): the Profile names Context Modules or Skills the Workspace
+ * lacks. Facts only — presentation owns every sentence; the verbatim #604
+ * violations stay on the report channel, never on the Blocker.
+ */
+export interface BrokenProfileReferenceFact {
+  /** Workspace-relative Profile file that authored the invalid references. */
+  readonly file: string;
+  /** Sorted Context Module Artifact IDs the Profile names but the Workspace lacks. */
+  readonly missingContexts: readonly string[];
+  /** Sorted Skill Artifact IDs the Profile names but the Workspace lacks. */
+  readonly missingSkills: readonly string[];
+  /** The broken Profile's Artifact ID. */
+  readonly profile: string;
+  /** Absolute Workspace path that owns `file`. */
+  readonly workspace: string;
+}
+
 /** Common evidence every blocker carries. */
 interface StructuredBlockerEvidence {
   readonly affectedItems: readonly BlockerAffectedItem[];
@@ -157,7 +176,13 @@ export type StructuredBlockerInput =
       readonly kind: typeof TEMPORARY_INSTALLATION_REMOVAL;
       readonly scope: "project";
     })
-    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never };
+    & { readonly action?: never; readonly detail?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never }
+  | (StructuredBlockerEvidence & {
+      readonly brokenProfile: BrokenProfileReferenceFact;
+      readonly kind: typeof BROKEN_PROFILE;
+      readonly scope: "project";
+    })
+  & { readonly action?: never; readonly detail?: never; readonly failure?: never; readonly occupied?: never; readonly project: string; readonly remedyKey?: never; readonly stateFailure?: never };
 
 /** The project-scoped variant of a structured blocker input. */
 export type ProjectScopedBlockerInput = Extract<
@@ -200,6 +225,9 @@ export const TEMPORARY_INSTALLATION_CONFLICT = "temporary-installation-conflict"
 /** Typed blocker class for a Temporary Profile Installation that cannot be removed safely. */
 export const TEMPORARY_INSTALLATION_REMOVAL = "temporary-installation-removal" as const;
 
+/** Typed blocker class for a Profile that names missing Context Modules or Skills. */
+export const BROKEN_PROFILE = "broken-profile" as const;
+
 /**
  * The exhaustive typed blocker-class vocabulary. Every emitter must construct
  * its class from these constants; adding a blocker class requires extending
@@ -212,6 +240,7 @@ export const BLOCKER_KINDS = [
   INSTALLATION_OWNERSHIP,
   TEMPORARY_INSTALLATION_CONFLICT,
   TEMPORARY_INSTALLATION_REMOVAL,
+  BROKEN_PROFILE,
 ] as const;
 
 /** Exhaustive typed blocker class. */
@@ -312,6 +341,21 @@ export function temporaryInstallationRemovalBlocker(options: {
     ],
     failure: options.failure,
     kind: TEMPORARY_INSTALLATION_REMOVAL,
+    project: options.project,
+    scope: "project" as const,
+  };
+}
+
+/** Build one complete structured blocker for a Project bound to a broken Profile (#606). */
+export function brokenProfileBlocker(options: {
+  readonly brokenProfile: BrokenProfileReferenceFact;
+  readonly project: string;
+}): ProjectScopedBlockerInput {
+  const { file, missingContexts, missingSkills, profile, workspace } = options.brokenProfile;
+  return {
+    affectedItems: [],
+    brokenProfile: { file, missingContexts, missingSkills, profile, workspace },
+    kind: BROKEN_PROFILE,
     project: options.project,
     scope: "project" as const,
   };
@@ -569,6 +613,36 @@ function validateTemporaryRemovalFailure(
   }
 }
 
+function validateBrokenProfileFact(
+  value: unknown,
+  input: unknown,
+): asserts value is BrokenProfileReferenceFact {
+  if (value === null || typeof value !== "object") {
+    throw new TypeError(
+      `Structured blocker broken-profile fact must be an object${blockerContext(input)}`,
+    );
+  }
+  const fact = value as Record<string, unknown>;
+  requireTextProperty(fact, "profile", "broken-profile fact", input);
+  requireTextProperty(fact, "file", "broken-profile fact", input);
+  requireTextProperty(fact, "workspace", "broken-profile fact", input);
+  if (
+    !Array.isArray(fact.missingContexts) ||
+    !Array.isArray(fact.missingSkills) ||
+    !fact.missingContexts.every((id) => typeof id === "string" && id.length > 0) ||
+    !fact.missingSkills.every((id) => typeof id === "string" && id.length > 0)
+  ) {
+    throw new TypeError(
+      `Structured blocker broken-profile fact requires non-empty reference ID arrays${blockerContext(input)}`,
+    );
+  }
+  if (fact.missingContexts.length === 0 && fact.missingSkills.length === 0) {
+    throw new TypeError(
+      `Structured blocker broken-profile fact requires at least one missing reference${blockerContext(input)}`,
+    );
+  }
+}
+
 function validateTypedFacts(input: StructuredBlockerInput): void {
   switch (input.kind) {
     case INSTALLATION_STATE_UNREADABLE:
@@ -616,6 +690,9 @@ function validateTypedFacts(input: StructuredBlockerInput): void {
     case OUTPUT_OWNERSHIP_CONFLICT:
     case TEMPORARY_INSTALLATION_CONFLICT:
       return;
+    case BROKEN_PROFILE:
+      validateBrokenProfileFact(input.brokenProfile, input);
+      return;
   }
 }
 
@@ -637,7 +714,8 @@ const FORBIDDEN_BLOCKER_FIELDS: Readonly<Record<BlockerKind, readonly string[]>>
     "remedyKey",
     "stateFailure",
   ],
-  [TEMPORARY_INSTALLATION_REMOVAL]: ["action", "detail", "occupied", "remedyKey", "stateFailure"],
+  [TEMPORARY_INSTALLATION_REMOVAL]: ["action", "brokenProfile", "detail", "occupied", "remedyKey", "stateFailure"],
+  [BROKEN_PROFILE]: ["action", "detail", "failure", "occupied", "remedyKey", "stateFailure"],
 };
 
 function validateStructuredInput(input: StructuredBlockerInput): void {
@@ -757,6 +835,15 @@ function canonicalStructuredBlocker(input: StructuredBlockerInput): StructuredRe
       return Object.freeze({
         affectedItems,
         kind: input.kind,
+        project: input.project,
+        scope: "project" as const,
+        [STRUCTURED_BLOCKER]: true as const,
+      });
+    case BROKEN_PROFILE:
+      return Object.freeze({
+        affectedItems,
+        brokenProfile: Object.freeze({ ...input.brokenProfile }),
+        kind: BROKEN_PROFILE,
         project: input.project,
         scope: "project" as const,
         [STRUCTURED_BLOCKER]: true as const,

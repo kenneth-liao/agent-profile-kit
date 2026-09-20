@@ -27,6 +27,7 @@ import {
   applyReplacementDeclinedDocument,
   applyReviewStaleDocument,
   installBlockedDocument,
+  installBrokenProfileNodes,
   installConfirmationDocument,
   installConfirmationRequiredDocument,
   installDeclinedDocument,
@@ -289,7 +290,7 @@ async function collectMissingInstallChoices(
   if (profile === undefined) {
     let profiles;
     try {
-      profiles = await listProfiles(request.home);
+      profiles = await listProfiles(request.home, { toleratingReferenceViolations: true });
     } catch (error) {
       writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
       return undefined;
@@ -556,6 +557,7 @@ async function runInstallCommandWithRecording(
         // visible on the install path that replaces the old bind+update
         // sequence; they never block and never change the outcome.
         ...installWarningNodes(result.applied.resultingState),
+        ...installBrokenProfileNodes(result.applied.resultingState),
         // US-017 (#515, ADR-0043): a first installation or Host addition
         // offers the optional loading check after the receipt. The one
         // relevance derivation lives inside the check's function, so the

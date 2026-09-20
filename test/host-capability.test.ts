@@ -28,6 +28,7 @@ import { flatInlineText } from "../adapters/project-plan.js";
 import { previewReconciliation } from "../installer/reconcile.js";
 import { lifecycleStatusDocument } from "../cli/presentation.js";
 import type { PresentationNode } from "../cli/presentation-document.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -85,7 +86,7 @@ describe("Host capability probing", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
     const installation = desired.installations[0];
-    expect(installation?.capabilityWarnings).toEqual([
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([
       {
         host: "codex",
         scope: "host",
@@ -97,7 +98,7 @@ describe("Host capability probing", () => {
       },
     ]);
     // Planning never gates on probing: the Host's material is still planned.
-    expect(installation?.outputs.length).toBeGreaterThan(0);
+    expect(plannedInstallation(installation!)?.outputs.length).toBeGreaterThan(0);
   });
 
   test("registered Antigravity planning keeps project-surface evidence as advisory warning values", async () => {
@@ -115,7 +116,7 @@ describe("Host capability probing", () => {
     });
 
     const realAgentsPath = join(realpathSync(project), ".agents");
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([
       {
         host: "antigravity",
         scope: "project",
@@ -387,9 +388,9 @@ describe("Host capability probing", () => {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
     const installation = desired.installations[0];
-    expect(installation?.capabilityWarnings).toEqual([]);
-    expect(installation?.warnings).toHaveLength(1);
-    expect(flatInlineText(installation?.warnings[0]?.parts ?? [])).toContain(
+    expect(plannedInstallation(installation!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(installation!)?.warnings).toHaveLength(1);
+    expect(flatInlineText(plannedInstallation(installation!)?.warnings[0]?.parts ?? [])).toContain(
       "SessionStart hooks are not enabled",
     );
   });

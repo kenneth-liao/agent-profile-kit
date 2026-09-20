@@ -64,6 +64,7 @@ import {
   reportItems,
 } from "./support/reconciliation-report.js";
 import { blockerWording } from "../cli/blocker-wording.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -398,11 +399,11 @@ describe("Grok-only Profile Installation lifecycle", () => {
     expect(desired.installations).toHaveLength(1);
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["grok"]);
-    expect(installation.hostVersions.grok).toBe(GROK_HOST_VERSION);
-    expect(installation.adapterVersion).toBe(GROK_ADAPTER_VERSION);
-    expect(installation.outputs.map((output) => output.path)).toEqual([GROK_CONTEXT_RULE_PATH]);
-    expect(installation.outputs.some((output) => output.path.includes("claude"))).toBe(false);
-    expect(installation.outputs.some((output) => output.path.includes("codex"))).toBe(false);
+    expect(plannedInstallation(installation!).hostVersions.grok).toBe(GROK_HOST_VERSION);
+    expect(plannedInstallation(installation!).adapterVersion).toBe(GROK_ADAPTER_VERSION);
+    expect(plannedInstallation(installation!).outputs.map((output) => output.path)).toEqual([GROK_CONTEXT_RULE_PATH]);
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path.includes("claude"))).toBe(false);
+    expect(plannedInstallation(installation!).outputs.some((output) => output.path.includes("codex"))).toBe(false);
 
     const preview = await previewReconciliation(desired.installations, {
       receipts: [],
@@ -469,7 +470,7 @@ describe("Grok-only Profile Installation lifecycle", () => {
     try {
       const desired = await buildDesiredState(home);
       expect(
-        desired.installations[0]?.capabilityWarnings.some((entry) =>
+        plannedInstallation(desired.installations[0]!)?.capabilityWarnings.some((entry) =>
           flatInlineText(entry.warning.parts).includes("is a file, not a directory"),
         ),
       ).toBe(true);
@@ -500,15 +501,15 @@ describe("Grok-only Profile Installation lifecycle", () => {
     await writeContextWorkspace(home, project, ["grok"], { skills: ["review-pr"] });
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-    const skillPaths = desired.installations[0]?.outputs
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+    const skillPaths = plannedInstallation(desired.installations[0]!)?.outputs
       .filter((output) => output.type === "directory")
       .map((output) => output.path)
       .sort();
     expect(skillPaths).toEqual([".grok/skills/review-pr"]);
-    expect(desired.installations[0]?.outputs.some((output) => output.path === GROK_CONTEXT_RULE_PATH))
+    expect(plannedInstallation(desired.installations[0]!)?.outputs.some((output) => output.path === GROK_CONTEXT_RULE_PATH))
       .toBe(true);
-    expect(desired.installations[0]?.hostVersions.grok).toBe(
+    expect(plannedInstallation(desired.installations[0]!)?.hostVersions.grok).toBe(
       "native-project-unscoped-rules-skills-v1",
     );
 
@@ -551,15 +552,15 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["claude", "grok"]);
-    expect(installation.hostVersions).toEqual({
+    expect(plannedInstallation(installation!).hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       grok: GROK_HOST_VERSION,
     });
-    const paths = installation.outputs.map((output) => output.path).sort();
+    const paths = plannedInstallation(installation!).outputs.map((output) => output.path).sort();
     expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH]);
-    expect(installation.outputs[0]?.consumingHosts).toEqual(["claude", "grok"]);
+    expect(plannedInstallation(installation!).outputs[0]?.consumingHosts).toEqual(["claude", "grok"]);
     expect(paths).not.toContain(GROK_CONTEXT_RULE_PATH);
-    expect(installation.setupSteps).toContainEqual({
+    expect(plannedInstallation(installation!).setupSteps).toContainEqual({
       host: "grok",
       kind: "shared-path",
       message:
@@ -602,18 +603,18 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     process.env.PATH = `${bin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-      const paths = desired.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
+      expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+      const paths = plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path).sort() ?? [];
       expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH].sort());
-      const grokOutput = desired.installations[0]?.outputs.find(
+      const grokOutput = plannedInstallation(desired.installations[0]!)?.outputs.find(
         (output) => output.path === GROK_CONTEXT_RULE_PATH,
       );
-      const claudeOutput = desired.installations[0]?.outputs.find(
+      const claudeOutput = plannedInstallation(desired.installations[0]!)?.outputs.find(
         (output) => output.path === CLAUDE_CONTEXT_RULE_PATH,
       );
       expect(grokOutput?.consumingHosts).toEqual(["grok"]);
       expect(claudeOutput?.consumingHosts).toEqual(["claude"]);
-      expect(desired.installations[0]?.setupSteps).not.toContainEqual(
+      expect(plannedInstallation(desired.installations[0]!)?.setupSteps).not.toContainEqual(
         expect.objectContaining({ host: "grok", kind: "shared-path" }),
       );
     } finally {
@@ -633,7 +634,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     process.env.PATH = `${goodBin}:${previousPath}`;
     try {
       const desired = await buildDesiredState(home);
-      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
       await applyReconciliation(home, desired.installations);
       expect(existsSync(join(project, CLAUDE_CONTEXT_RULE_PATH))).toBe(true);
       expect(existsSync(join(project, GROK_CONTEXT_RULE_PATH))).toBe(true);
@@ -655,7 +656,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
         checkHostCapability: false,
         previousInstallations: (await readInstallationState(home)).receipts,
       });
-      const paths = after.installations[0]?.outputs.map((output) => output.path).sort() ?? [];
+      const paths = plannedInstallation(after.installations[0]!)?.outputs.map((output) => output.path).sort() ?? [];
       expect(paths).toEqual([CLAUDE_CONTEXT_RULE_PATH, GROK_CONTEXT_RULE_PATH].sort());
     } finally {
       process.env.PATH = previousPath;
@@ -672,8 +673,8 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     try {
       // No Grok/Claude on PATH; validate must remain probe-free.
       const desired = await buildDesiredState(home, { checkHostCapability: false });
-      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-      expect(desired.installations[0]?.outputs.map((output) => output.path)).toEqual([
+      expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path)).toEqual([
         CLAUDE_CONTEXT_RULE_PATH,
       ]);
     } finally {
@@ -736,19 +737,19 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
           },
         ],
       });
-      expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-      expect(desired.installations[0]?.setupSteps).toEqual([]);
+      expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+      expect(plannedInstallation(desired.installations[0]!)?.setupSteps).toEqual([]);
       // Skills-only Claude+Grok plans Skill packages without Context rule topology.
       expect(
-        desired.installations[0]?.outputs.some((output) =>
+        plannedInstallation(desired.installations[0]!)?.outputs.some((output) =>
           output.path.includes("rules/agent-profile-kit.md"),
         ),
       ).toBe(false);
       expect(
-        desired.installations[0]?.outputs.some((output) => output.path === ".grok/skills/review-pr"),
+        plannedInstallation(desired.installations[0]!)?.outputs.some((output) => output.path === ".grok/skills/review-pr"),
       ).toBe(true);
       expect(
-        desired.installations[0]?.outputs.some((output) => output.path === ".claude/skills/review-pr"),
+        plannedInstallation(desired.installations[0]!)?.outputs.some((output) => output.path === ".claude/skills/review-pr"),
       ).toBe(true);
     } finally {
       process.env.PATH = previousPath;
@@ -765,17 +766,17 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0]!;
     expect(installation.binding.hosts).toEqual(["claude", "codex", "grok"]);
-    expect(installation.hostVersions).toEqual({
+    expect(plannedInstallation(installation!).hostVersions).toEqual({
       claude: CLAUDE_HOST_VERSION,
       codex: CODEX_HOST_VERSION,
       grok: GROK_HOST_VERSION,
     });
-    expect(installation.adapterVersion).toBe(adapterVersionFor(["claude", "codex", "grok"]));
-    expect(installation.adapterVersion).toBe(
+    expect(plannedInstallation(installation!).adapterVersion).toBe(adapterVersionFor(["claude", "codex", "grok"]));
+    expect(plannedInstallation(installation!).adapterVersion).toBe(
       ["claude-project-v1", CODEX_ADAPTER_VERSION, GROK_ADAPTER_VERSION].sort().join("+"),
     );
 
-    const paths = installation.outputs.map((output) => output.path).sort();
+    const paths = plannedInstallation(installation!).outputs.map((output) => output.path).sort();
     expect(paths).toEqual(
       [
         ".agent-profile-kit/codex/context.md",
@@ -784,7 +785,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       ].sort(),
     );
     expect(paths).not.toContain(GROK_CONTEXT_RULE_PATH);
-    const claudeRule = installation.outputs.find((output) => output.path === CLAUDE_CONTEXT_RULE_PATH);
+    const claudeRule = plannedInstallation(installation!).outputs.find((output) => output.path === CLAUDE_CONTEXT_RULE_PATH);
     expect(claudeRule?.consumingHosts).toEqual(["claude", "grok"]);
 
     const report = await applyReconciliation(home, desired.installations);

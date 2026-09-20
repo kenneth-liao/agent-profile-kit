@@ -650,7 +650,7 @@ describe("uninstall --host partial removal", () => {
         outcome: string;
         completed: { project: string; removedHosts?: string[] }[];
       };
-      expect(payload.schemaVersion).toBe(15);
+      expect(payload.schemaVersion).toBe(16);
       expect(payload.command).toBe("uninstall");
       expect(payload.outcome).toBe("clean");
       expect(payload.completed[0]!.removedHosts).toEqual(["codex"]);

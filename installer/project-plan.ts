@@ -33,9 +33,11 @@ import { requireContextModuleId } from "../schemas/context-profile.js";
 import { type ResolvedArtifactFingerprint } from "./hashes.js";
 import {
   ingestApplication,
+  ingestApplicationToleratingReferenceViolations,
   stateDirectory,
   type ProjectBindingSelection,
 } from "./local-configuration.js";
+import type { BrokenProfileReference, Workspace } from "./ingest-workspace.js";
 import {
   createLifecyclePlanningContext,
   type LifecyclePlanningContext,
@@ -54,7 +56,6 @@ import { type ResolvedProfile } from "./resolve-profile.js";
 import { ENGINE_VERSION } from "./version.js";
 import { type GitWorktree, type GitProject } from "./git.js";
 import type { Profile } from "../schemas/context-profile.js";
-import type { Workspace } from "./ingest-workspace.js";
 import type { AdapterCapabilityFailure } from "../adapters/capability.js";
 import { compareCoreSemanticVersions } from "../adapters/services/semantic-version.js";
 
@@ -159,7 +160,8 @@ export function capabilityWarning(
   };
 }
 
-export interface DesiredInstallation {
+/** The fully resolved planned variant of a desired installation. */
+export interface PlannedInstallation {
   readonly adapterVersion: string;
   /** Normalized canonical source fingerprints for every resolved artifact. */
   readonly artifactFingerprints: readonly ResolvedArtifactFingerprint[];
@@ -172,6 +174,7 @@ export interface DesiredInstallation {
   readonly engineVersion: string;
   readonly gitProject: GitWorktree | undefined;
   readonly hostVersions: Readonly<Record<string, string>>;
+  readonly kind: "planned";
   readonly outputs: readonly DesiredProjectOutput[];
   readonly profile: Profile;
   readonly resolvedProfile: ResolvedProfile;
@@ -179,6 +182,33 @@ export interface DesiredInstallation {
   readonly setupSteps: readonly HostSetupStep[];
   /** Adapter-authored warnings retain copyable values beside their message. */
   readonly warnings: readonly AdapterDiagnosticWarning[];
+}
+
+/**
+ * A desired Project bound to a broken Profile (spec #593 US-007, DEC-009
+ * project scope, #606): it is unrepresentable as a planned installation — it
+ * carries no outputs, resolved Profile, source hash, or Adapter evidence, so
+ * a blocked Project can never be planned or written by accident. Reconciliation
+ * attaches one `broken-profile` project Blocker and keeps the recorded output
+ * untouched.
+ */
+export interface BlockedInstallation {
+  readonly binding: ProjectBinding;
+  readonly brokenProfile: BrokenProfileReference;
+  readonly kind: "blocked";
+}
+
+/**
+ * The desired installation for one Project Binding: planned and fully
+ * resolved, or blocked by a broken Profile with no plannable output.
+ */
+export type DesiredInstallation = PlannedInstallation | BlockedInstallation;
+
+/** Type guard for the planned variant; reconciliation writes only planned installations. */
+export function isPlannedInstallation(
+  installation: DesiredInstallation,
+): installation is PlannedInstallation {
+  return installation.kind === "planned";
 }
 
 /** Normalize Adapter-authored diagnostics once while preserving their typed values. */
@@ -196,6 +226,12 @@ export function appendDiagnosticWarnings(
 }
 
 export interface DesiredState {
+  /**
+   * Grouped missing references of every broken Profile, from tolerant
+   * ingestion (#606): the one home for the verbatim #604 reference facts —
+   * readers flatten them through `brokenProfileViolations`.
+   */
+  readonly brokenProfiles: readonly BrokenProfileReference[];
   readonly bindingCount: number;
   readonly installations: readonly DesiredInstallation[];
   readonly workspace: Workspace;
@@ -647,18 +683,25 @@ export interface BuildDesiredStateOptions {
   readonly scheduler?: ProjectReadScheduler;
   /** Prior Installation Manifests available to Adapters for topology recovery. */
   readonly previousInstallations?: readonly OwnershipReceipt[];
+  /**
+   * Reject Profile reference violations at ingestion, before any Project is
+   * planned (`validate`, #606). Lifecycle commands omit it and block only the
+   * Projects bound to a broken Profile.
+   */
+  readonly rejectReferenceViolations?: true;
 }
 
 export async function buildDesiredState(
   home: string,
   options: BuildDesiredStateOptions = {},
 ): Promise<DesiredState> {
-  const { configuration, workspace } = await ingestApplication(
-    home,
-    options.selection ?? { kind: "all" },
-  );
+  const selection = options.selection ?? { kind: "all" };
+  const { brokenProfiles, configuration, workspace } = options.rejectReferenceViolations === true
+    ? { ...await ingestApplication(home, selection), brokenProfiles: [] }
+    : await ingestApplicationToleratingReferenceViolations(home, selection);
   const installations = await planDesiredInstallations(home, [...configuration.bindings], workspace, {
     ...(options.checkHostCapability === undefined ? {} : { checkHostCapability: options.checkHostCapability }),
+    brokenProfiles,
     ...(options.env === undefined ? {} : { env: options.env }),
     ...(options.gitInspection === undefined ? {} : { gitInspection: options.gitInspection }),
     ...(options.planningInstrumentation === undefined
@@ -671,12 +714,14 @@ export async function buildDesiredState(
   });
   return {
     bindingCount: configuration.bindings.length,
+    brokenProfiles,
     installations,
     workspace,
   };
 }
 
 export interface PlanDesiredInstallationsOptions {
+  readonly brokenProfiles?: readonly BrokenProfileReference[];
   readonly checkHostCapability?: boolean;
   readonly env?: NodeJS.ProcessEnv;
   readonly gitInspection?: LifecycleGitInspection;
@@ -716,7 +761,21 @@ export async function planDesiredInstallations(
   const sortedBindings = [...bindings].sort((left, right) =>
     left.canonicalProject.localeCompare(right.canonicalProject)
   );
+  const brokenByProfile = new Map(
+    (options.brokenProfiles ?? []).map((broken) => [broken.profile, broken]),
+  );
   const installations = await scheduler.run(sortedBindings.map((binding) => async () => {
+    // A Project bound to a broken Profile is blocked, never planned (spec #593
+    // US-007, #606): the blocked variant carries no outputs, so a broken
+    // Profile cannot reach Adapter planning, hashing, or any write.
+    const brokenProfile = brokenByProfile.get(binding.profile);
+    if (brokenProfile !== undefined) {
+      return {
+        binding,
+        brokenProfile,
+        kind: "blocked" as const,
+      } satisfies BlockedInstallation;
+    }
     const profile = requireProfile(
       workspace.profiles,
       binding.profile,
@@ -771,6 +830,7 @@ export async function planDesiredInstallations(
       engineVersion: ENGINE_VERSION,
       gitProject,
       hostVersions,
+      kind: "planned" as const,
       outputs,
       profile,
       resolvedProfile,
@@ -793,6 +853,7 @@ export async function planDesiredInstallations(
   // keep their distinct warnings per affected Project.
   const strictestHostWarnings = new Map<SupportedHost, HostCapabilityWarning>();
   for (const installation of sortedInstallations) {
+    if (installation.kind === "blocked") continue;
     for (const entry of installation.capabilityWarnings) {
       if (entry.scope === "project") continue;
       const kept = strictestHostWarnings.get(entry.host);
@@ -808,6 +869,7 @@ export async function planDesiredInstallations(
   }
   const warnedProjectScope = new Set<string>();
   const dedupedInstallations = sortedInstallations.map((installation) => {
+    if (installation.kind === "blocked") return installation;
     const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
       if (entry.scope === "project") {
         const key = `${entry.host}\0${installation.binding.canonicalProject}\0${flatInlineText(entry.warning.parts)}`;

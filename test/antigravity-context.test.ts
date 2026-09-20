@@ -24,6 +24,7 @@ import {
   planAntigravityProject,
   probeAntigravityMachineCapability,
 } from "../adapters/antigravity.js";
+import { plannedInstallation } from "./support/planned-installation.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -144,8 +145,8 @@ describe("Antigravity Context Adapter", () => {
     );
 
     const desired = await buildDesiredState(home, { checkHostCapability: false });
-    expect(desired.installations[0]?.capabilityWarnings).toEqual([]);
-    expect(desired.installations[0]?.outputs.map((output) => output.path)).toContain(
+    expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
+    expect(plannedInstallation(desired.installations[0]!)?.outputs.map((output) => output.path)).toContain(
       ".agents/skills/review-pr",
     );
   });
@@ -378,9 +379,9 @@ describe("Antigravity Context Adapter", () => {
     const desired = await buildDesiredState(home, { checkHostCapability: false });
     const installation = desired.installations[0];
     expect(installation?.binding.hosts).toEqual(["antigravity"]);
-    expect(installation?.adapterVersion).toBe(ANTIGRAVITY_ADAPTER_VERSION);
-    expect(installation?.hostVersions.antigravity).toBe(ANTIGRAVITY_HOST_VERSION);
-    expect(installation?.outputs.map((output) => output.path)).toEqual([
+    expect(plannedInstallation(installation!)?.adapterVersion).toBe(ANTIGRAVITY_ADAPTER_VERSION);
+    expect(plannedInstallation(installation!)?.hostVersions.antigravity).toBe(ANTIGRAVITY_HOST_VERSION);
+    expect(plannedInstallation(installation!)?.outputs.map((output) => output.path)).toEqual([
       `${ANTIGRAVITY_CONTEXT_RULES_ROOT}/agent-profile-kit-000-envelope.md`,
       `${ANTIGRAVITY_CONTEXT_RULES_ROOT}/agent-profile-kit-010-rules.md`,
     ]);
