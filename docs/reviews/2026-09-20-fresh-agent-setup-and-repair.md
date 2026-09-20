@@ -1,11 +1,11 @@
 # Fresh agent qualification: setup and repair — 2026-09-20
 
-This observational review records fresh agent sessions executing setup from
-scattered material (ISC-21) and repairing an invalid Workspace from validation
-output alone (ISC-45), fulfilling the agent qualification requirements under
-spec [#593](https://github.com/kenneth-liao/agent-profile-kit/issues/593) and
-ticket [#609](https://github.com/kenneth-liao/agent-profile-kit/issues/609)
-(TEST-012).
+This observational review records fresh agent sessions that attempted setup from
+scattered material (the ISC-21 probe) and repair of an invalid Workspace (the
+ISC-45 probe) for spec [#593](https://github.com/kenneth-liao/agent-profile-kit/issues/593)
+and ticket [#609](https://github.com/kenneth-liao/agent-profile-kit/issues/609)
+(TEST-012). It records what happened; the spec audit decides whether the claims
+are met, and the reader should start with the Limitations.
 
 Observations only. See
 [ADR-0029](../adr/0029-keep-dated-observational-reviews-in-docs-reviews.md):
@@ -44,11 +44,20 @@ The following limitations apply across the qualification sessions:
    session transcript demonstrates the agent never opened or read any of those
    files (their names occur only in that one directory listing).
 6. **Use of built-in guide and contract during repair.**
-   In Run 2 Attempt 2, the agent ran `apkit guide --full` before its first
-   `apkit validate` run and `apkit guide --contract` after it. The run therefore
-   observed offline repair using the installed CLI toolchain (validation diagnostic
-   output plus the built-in guide and contract), rather than validation output
-   being sufficient alone in isolation from the built-in documentation.
+   The canonical ISC-45 probe in `ISA.md` reads: *"run a fresh agent session on
+   an invalid Workspace without the guides; human help, or a Workspace that is
+   still invalid, fails"*. The session was given no guides and had no network
+   access. However, the packed CLI bundles `apkit guide`, and in Run 2 Attempt 2
+   the agent ran `apkit guide --full` before its first `apkit validate` run and
+   `apkit guide --contract` after it. The run therefore observed offline repair
+   using the installed CLI toolchain (validation diagnostic output plus the
+   built-in guide and contract reference), rather than validation output being
+   sufficient alone in isolation from the built-in documentation. The probe's two
+   fail conditions (human help, or a Workspace that is still invalid) did not
+   occur. Whether bundled guide access meets *"without the guides"* is for the
+   principal to decide; `ISA.md` lists the agent probes' specifics under *Not yet
+   specified*. Attempt 2 was pre-registered as final, so no further session was
+   run.
 
 ---
 
