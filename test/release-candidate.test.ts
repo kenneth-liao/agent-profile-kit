@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
 import { execFileSync, spawnSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -2512,6 +2513,250 @@ describe("project-bound release candidate", () => {
     } finally {
       hostile.restore();
     }
+  }, 30_000);
+
+  test("the packed release-candidate journey qualifies the three setup starting points end-to-end (TEST-001, TEST-003, TEST-013, OOS-001, #608)", async () => {
+    const home = isolatedHome();
+    const fixtureRoot = resolve(repositoryRoot, "test", "support", "fixtures", "scattered-sample");
+    const fixtureMaterial = join(fixtureRoot, "material");
+
+    // -----------------------------------------------------------------------
+    // Fixture verification: sample material follows TEST-013
+    // -----------------------------------------------------------------------
+    // Instruction files in project folders
+    expect(existsSync(join(fixtureMaterial, "AGENTS.md"))).toBe(true);
+    expect(existsSync(join(fixtureMaterial, "CLAUDE.md"))).toBe(true);
+    expect(existsSync(join(fixtureMaterial, "docs", "AGENTS.md"))).toBe(true);
+    // Standard Skills in more than one Host folder, including Host-specific frontmatter
+    // and Skill Resources (references and scripts)
+    expect(existsSync(join(fixtureMaterial, ".claude", "skills", "code-review", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(fixtureMaterial, ".agents", "skills", "build-helper", "SKILL.md"))).toBe(true);
+    expect(
+      existsSync(join(fixtureMaterial, ".agents", "skills", "build-helper", "references", "reference.md")),
+    ).toBe(true);
+    expect(
+      existsSync(join(fixtureMaterial, ".agents", "skills", "build-helper", "scripts", "build.sh")),
+    ).toBe(true);
+    // Provenance README stays beside material/ (not inside it)
+    expect(existsSync(join(fixtureRoot, "README.md"))).toBe(true);
+    expect(existsSync(join(fixtureMaterial, "README.md"))).toBe(false);
+
+    // -----------------------------------------------------------------------
+    // Starting Point 1: No material
+    // -----------------------------------------------------------------------
+    const emptyWorkspace = join(home, "workspace-empty");
+    const initEmpty = await runCli(home, ["init", emptyWorkspace]);
+    expectExitCode(initEmpty, 0);
+
+    // Assert on files on disk: setup adds only missing parts, no extra docs or profiles (ADR-0047, DEC-003)
+    expect(existsSync(join(emptyWorkspace, "workspace.yaml"))).toBe(true);
+    expect(readFileSync(join(emptyWorkspace, "workspace.yaml"), "utf8")).toBe("schema_version: 1\n");
+    expect(existsSync(join(emptyWorkspace, "context"))).toBe(true);
+    expect(existsSync(join(emptyWorkspace, "skills"))).toBe(true);
+    expect(existsSync(join(emptyWorkspace, "profiles"))).toBe(true);
+    expect(readdirSync(emptyWorkspace).sort()).toEqual([
+      "context",
+      "profiles",
+      "skills",
+      "workspace.yaml",
+    ]);
+    expect(readdirSync(join(emptyWorkspace, "context"))).toEqual([]);
+    expect(readdirSync(join(emptyWorkspace, "skills"))).toEqual([]);
+    expect(readdirSync(join(emptyWorkspace, "profiles"))).toEqual([]);
+
+    // Assert Local Configuration
+    expect(existsSync(configPath(home))).toBe(true);
+    const configAfterEmpty = parse(readFileSync(configPath(home), "utf8"));
+    expect(configAfterEmpty.schema_version).toBe(2);
+    expect(configAfterEmpty.workspace).toBe(emptyWorkspace);
+    expect(configAfterEmpty.bindings).toEqual([]);
+
+    // Validate empty workspace
+    const validateEmpty = await runCli(home, ["validate"]);
+    expectExitCode(validateEmpty, 0);
+    expect(validateEmpty.stdout).toContain(
+      "Workspace and settings valid (0 Profiles, 0 configured Projects)",
+    );
+    expect(validateEmpty.stdout).toContain("Profiles found: none");
+
+    // -----------------------------------------------------------------------
+    // Starting Point 2: Scattered material
+    // -----------------------------------------------------------------------
+    // OOS-001: apkit never finds, imports, copies or converts scattered material;
+    // the test stands in for the user by moving the sample material into the folder.
+    const scatteredWorkspace = join(home, "workspace-scattered");
+    mkdirSync(join(scatteredWorkspace, "context", "docs"), { recursive: true });
+    mkdirSync(join(scatteredWorkspace, "skills"), { recursive: true });
+
+    // Move instruction files into context/
+    cpSync(join(fixtureMaterial, "AGENTS.md"), join(scatteredWorkspace, "context", "AGENTS.md"));
+    cpSync(join(fixtureMaterial, "CLAUDE.md"), join(scatteredWorkspace, "context", "CLAUDE.md"));
+    cpSync(join(fixtureMaterial, "docs", "AGENTS.md"), join(scatteredWorkspace, "context", "docs", "AGENTS.md"));
+
+    // Move skills from host folders into skills/
+    cpSync(
+      join(fixtureMaterial, ".claude", "skills", "code-review"),
+      join(scatteredWorkspace, "skills", "code-review"),
+      { recursive: true },
+    );
+    cpSync(
+      join(fixtureMaterial, ".agents", "skills", "build-helper"),
+      join(scatteredWorkspace, "skills", "build-helper"),
+      { recursive: true },
+    );
+
+    // Validate unconnected folder: reports every violation in one run (#604)
+    const validateScattered = await runCli(home, ["validate", scatteredWorkspace]);
+    expectExitCode(validateScattered, 1);
+    const validateOutput = validateScattered.stderr + validateScattered.stdout;
+    expect(validateOutput).toContain("missing required file 'workspace.yaml'");
+    expect(validateOutput).toContain("context/AGENTS.md");
+    expect(validateOutput).toContain("rename the file to context/agents.md");
+    expect(validateOutput).toContain("context/CLAUDE.md");
+    expect(validateOutput).toContain("rename the file to context/claude.md");
+    expect(validateOutput).toContain("context/docs/AGENTS.md");
+    expect(validateOutput).toContain("rename the file to context/docs/agents.md");
+
+    // Attempting init before fixing must refuse and perform zero writes (DEC-011, #599)
+    const initInvalid = await runCli(home, ["init", scatteredWorkspace]);
+    expectExitCode(initInvalid, 1);
+    const initOutput = initInvalid.stderr + initInvalid.stdout;
+    expect(initOutput).toContain("context/AGENTS.md");
+    expect(initOutput).toContain("context/CLAUDE.md");
+    expect(initOutput).toContain("context/docs/AGENTS.md");
+    // Assert zero writes to scatteredWorkspace
+    expect(existsSync(join(scatteredWorkspace, "workspace.yaml"))).toBe(false);
+    expect(existsSync(join(scatteredWorkspace, "profiles"))).toBe(false);
+    // Local configuration still points to emptyWorkspace
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(emptyWorkspace);
+
+    // Fix violations driven by validation output
+    renameSync(
+      join(scatteredWorkspace, "context", "AGENTS.md"),
+      join(scatteredWorkspace, "context", "agents.md"),
+    );
+    renameSync(
+      join(scatteredWorkspace, "context", "CLAUDE.md"),
+      join(scatteredWorkspace, "context", "claude.md"),
+    );
+    renameSync(
+      join(scatteredWorkspace, "context", "docs", "AGENTS.md"),
+      join(scatteredWorkspace, "context", "docs", "agents.md"),
+    );
+
+    // Now init and connect without a TTY (#607): adds missing parts (#599)
+    const initFixed = await runCli(home, ["init", scatteredWorkspace]);
+    expectExitCode(initFixed, 0);
+    expect(existsSync(join(scatteredWorkspace, "workspace.yaml"))).toBe(true);
+    expect(existsSync(join(scatteredWorkspace, "profiles"))).toBe(true);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(scatteredWorkspace);
+
+    // Validate connected Workspace: now valid
+    const validateConnected = await runCli(home, ["validate"]);
+    expectExitCode(validateConnected, 0);
+
+    // Author a Profile selecting all Context Modules and Skills
+    const newProfile = await runCli(home, [
+      "new",
+      "profile",
+      "consolidated",
+      "--context",
+      "agents",
+      "--context",
+      "claude",
+      "--context",
+      "docs/agents",
+      "--skill",
+      "code-review",
+      "--skill",
+      "build-helper",
+    ]);
+    expectExitCode(newProfile, 0);
+    expect(existsSync(join(scatteredWorkspace, "profiles", "consolidated.yaml"))).toBe(true);
+
+    // Install into a project: assert every sample Context file and Skill (including resources) is installed
+    const boundProject = gitRepository("agent-profile-kit-rc-scattered-proj-");
+    const installScattered = await runCli(home, [
+      "install",
+      "consolidated",
+      boundProject,
+      "--host",
+      "claude",
+      "--auto-confirm",
+    ]);
+    expectExitCode(installScattered, 0);
+
+    // Assert installed Context in project
+    const installedRulesPath = join(boundProject, ".claude", "rules", "agent-profile-kit.md");
+    expect(existsSync(installedRulesPath)).toBe(true);
+    const installedRules = readFileSync(installedRulesPath, "utf8");
+    expect(installedRules).toContain("Project Guidelines");
+    expect(installedRules).toContain("Claude Instructions");
+    expect(installedRules).toContain("Architecture Guidelines");
+
+    // Assert installed Skills in project
+    const installedCodeReview = join(boundProject, ".claude", "skills", "code-review", "SKILL.md");
+    expect(existsSync(installedCodeReview)).toBe(true);
+    expect(readFileSync(installedCodeReview, "utf8")).toContain("user-invocable: true");
+
+    const installedBuildHelper = join(boundProject, ".claude", "skills", "build-helper", "SKILL.md");
+    expect(existsSync(installedBuildHelper)).toBe(true);
+    const installedRef = join(boundProject, ".claude", "skills", "build-helper", "references", "reference.md");
+    expect(existsSync(installedRef)).toBe(true);
+    expect(readFileSync(installedRef, "utf8")).toContain("Build Reference");
+    const installedScript = join(boundProject, ".claude", "skills", "build-helper", "scripts", "build.sh");
+    expect(existsSync(installedScript)).toBe(true);
+    expect(readFileSync(installedScript, "utf8")).toContain("build-helper: validating build artifacts");
+
+    // -----------------------------------------------------------------------
+    // Starting Point 3: Existing valid Workspace
+    // -----------------------------------------------------------------------
+    // Starting Point 3 in a fresh isolated home (an uninitialized machine with existing Workspace)
+    const existingHome = isolatedHome();
+    const existingWorkspace = join(existingHome, "workspace-existing");
+    mkdirSync(join(existingWorkspace, "context"), { recursive: true });
+    mkdirSync(join(existingWorkspace, "skills", "standard-skill"), { recursive: true });
+    mkdirSync(join(existingWorkspace, "profiles"), { recursive: true });
+    writeFileSync(join(existingWorkspace, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(existingWorkspace, "context", "standards.md"), "Existing standards.\n");
+    writeFileSync(
+      join(existingWorkspace, "skills", "standard-skill", "SKILL.md"),
+      "---\nname: standard-skill\ndescription: An existing skill.\n---\n\n# Standard Skill\n",
+    );
+    writeFileSync(
+      join(existingWorkspace, "profiles", "standard.yaml"),
+      "context:\n  - standards\nskills:\n  - standard-skill\n",
+    );
+
+    // Capture file tree snapshot before connecting (TEST-003 constraint)
+    const beforeSnapshot = fileTree(existingWorkspace);
+
+    // One command without a TTY connects it (#607)
+    const connectExisting = await runCli(existingHome, ["init", existingWorkspace]);
+    expectExitCode(connectExisting, 0);
+
+    // Assert Local Configuration selects the existing Workspace
+    expect(parse(readFileSync(configPath(existingHome), "utf8")).workspace).toBe(existingWorkspace);
+
+    // Assert zero files changed, added, or deleted in the existing Workspace (TEST-003 constraint)
+    const afterSnapshot = fileTree(existingWorkspace);
+    expect(afterSnapshot).toEqual(beforeSnapshot);
+
+    // Validate reflects the connected existing workspace
+    const validateExisting = await runCli(existingHome, ["validate"]);
+    expectExitCode(validateExisting, 0);
+    expect(validateExisting.stdout).toContain("Profiles found: standard");
+
+    // Switching an existing configured machine to a different Workspace preserves Project Bindings
+    // and reports missing Profile bindings (#607)
+    const switchWorkspace = await runCli(home, ["init", existingWorkspace]);
+    expectExitCode(switchWorkspace, 0);
+    expect(switchWorkspace.stdout).toContain("Project Bindings whose Profile this Workspace lacks");
+    expect(switchWorkspace.stdout).toContain("Profile 'consolidated' does not exist in this Workspace");
+    const switchedConfig = parse(readFileSync(configPath(home), "utf8"));
+    expect(switchedConfig.workspace).toBe(existingWorkspace);
+    expect(switchedConfig.bindings.length).toBe(1);
+    expect(switchedConfig.bindings[0].project).toBe(boundProject);
   }, 30_000);
 });
 
