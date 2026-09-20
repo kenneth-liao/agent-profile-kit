@@ -549,6 +549,30 @@ async function initializeConfiguredWorkspace(
 }
 
 /**
+ * Test whether two Workspace paths refer to the same canonical folder on disk.
+ * Non-existent candidate folders fall back to their resolved lexical path so
+ * uncreated targets are compared safely without throwing ENOENT.
+ */
+export async function isSameWorkspace(candidatePath: string, configuredPath: string): Promise<boolean> {
+  const candidateCanonical = await realpath(candidatePath).catch(() => candidatePath);
+  const configuredCanonical = await realpath(configuredPath).catch(() => configuredPath);
+  return candidateCanonical === configuredCanonical;
+}
+
+function detectMissingProfileBindings(
+  bindings: readonly { readonly project: string; readonly profile: string }[],
+  availableProfiles: readonly string[],
+): MissingProfileBindingReport[] {
+  const missing: MissingProfileBindingReport[] = [];
+  for (const binding of bindings) {
+    if (!availableProfiles.includes(binding.profile)) {
+      missing.push({ project: binding.project, profile: binding.profile });
+    }
+  }
+  return missing;
+}
+
+/**
  * Connect apkit to a Workspace when Local Configuration is already connected
  * (spec #593 #607, US-008, ISC-30–33, ISC-48). Validates the requested
  * Workspace first, adds only missing parts, updates the configured Workspace
@@ -573,13 +597,12 @@ async function connectWorkspace(
       const currentSource = await fileSystem.readFile(configPath, "utf8");
       const currentParsed = parseLocalConfiguration(currentSource, configPath);
       const configuredWorkspace = await resolveWorkspaceRoot(home, currentParsed.workspace!, configPath);
-      const planCanonical = await realpath(plan.destinationPath).catch(() => plan.destinationPath);
-      const isSame = configuredWorkspace.path === planCanonical;
+      const isSame = await isSameWorkspace(plan.destinationPath, configuredWorkspace.path);
 
       if (isSame) {
         return {
           outcome: "unchanged",
-          path: planCanonical,
+          path: configuredWorkspace.path,
           authoredPath: currentParsed.workspace!,
           folderCreated: false,
           warnings: [],
@@ -587,13 +610,8 @@ async function connectWorkspace(
       }
 
       const { folderCreated } = await commitSetupPlan(plan, fileSystem);
-
-      const missingProfileBindings: MissingProfileBindingReport[] = [];
-      for (const binding of currentParsed.bindings) {
-        if (!plan.profiles.includes(binding.profile)) {
-          missingProfileBindings.push({ project: binding.project, profile: binding.profile });
-        }
-      }
+      const destinationCanonical = await realpath(plan.destinationPath);
+      const missingProfileBindings = detectMissingProfileBindings(currentParsed.bindings, plan.profiles);
 
       const document = parseDocument(currentSource);
       document.set("workspace", plan.authoredPath);
@@ -611,7 +629,7 @@ async function connectWorkspace(
 
       return {
         outcome: "connected",
-        path: planCanonical,
+        path: destinationCanonical,
         authoredPath: plan.authoredPath,
         folderCreated,
         warnings: [],
@@ -691,6 +709,7 @@ async function migrateLegacyConfiguration(
 
       let selectedWorkspace: string;
       let isSame = false;
+      let plan: FirstConnectionSetupPlan | undefined;
       if (parsed.workspace === undefined) {
         // No authored selection to conflict-check: the user-given path is the
         // first connection, set up like any explicit destination and then
@@ -699,24 +718,28 @@ async function migrateLegacyConfiguration(
           throw new InstallerToolError({ kind: "init-workspace-path-required" });
         }
         selectedWorkspace = requestedWorkspace;
+        plan = await planFirstConnectionSetup(home, selectedWorkspace);
       } else {
         const configuredWorkspace = await resolveWorkspaceRoot(home, parsed.workspace, configPath);
         if (requestedWorkspace !== undefined) {
-          const plan = await planFirstConnectionSetup(home, requestedWorkspace);
-          const planCanonical = await realpath(plan.destinationPath).catch(() => plan.destinationPath);
-          isSame = configuredWorkspace.path === planCanonical;
+          plan = await planFirstConnectionSetup(home, requestedWorkspace);
+          isSame = await isSameWorkspace(plan.destinationPath, configuredWorkspace.path);
         }
         selectedWorkspace = (requestedWorkspace !== undefined && !isSame)
           ? requestedWorkspace
           : parsed.workspace;
       }
-      const workspaceResult = (parsed.workspace === undefined || (requestedWorkspace !== undefined && !isSame))
+      const isConnecting = parsed.workspace === undefined || (requestedWorkspace !== undefined && !isSame);
+      const workspaceResult = isConnecting
         ? await connectFromPlan(
           home,
-          await planFirstConnectionSetup(home, selectedWorkspace),
+          plan!,
           { fileSystem, ensureConfiguration: false },
         )
-        : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
+        : await initializeConfiguredWorkspace(home, parsed.workspace!, configPath);
+      const missingProfileBindings = isConnecting
+        ? detectMissingProfileBindings(parsed.bindings, plan!.profiles)
+        : [];
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
       await publishConfigurationReplacement(
@@ -735,6 +758,7 @@ async function migrateLegacyConfiguration(
         authoredPath: workspaceResult.authoredPath,
         folderCreated: workspaceResult.folderCreated,
         warnings: workspaceResult.warnings,
+        ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },
   );

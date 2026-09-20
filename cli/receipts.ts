@@ -324,6 +324,38 @@ export function initLocationDocument(input: {
   ];
 }
 
+function appendMissingProfileBindings(
+  nodes: PresentationNode[],
+  missingProfileBindings: readonly MissingProfileBindingReport[],
+): void {
+  nodes.push({
+    kind: "sentence",
+    parts: ["Project Bindings whose Profile this Workspace lacks:"],
+    category: "attention",
+  });
+  for (const missing of missingProfileBindings) {
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        `- `,
+        pathPart(missing.project, "fleet"),
+        `: Profile '${missing.profile}' does not exist in this Workspace.`,
+      ],
+    });
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        `  Next: create it with `,
+        commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
+        `, or install an available Profile with `,
+        commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
+        `.`,
+      ],
+      category: "command",
+    });
+  }
+}
+
 /** The receipt document for one `init` invocation. */
 export function initReceiptDocument(input: InitReceiptInput): PresentationDocument {
   const workspace = pathPart(
@@ -332,7 +364,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     displayPath(input.path, input.authoredPath, "fleet"),
   );
   if (input.outcome === "unchanged") {
-    const nodes: PresentationNode[] = [{
+    return [{
       kind: "sentence",
       parts: [
         `Workspace and ${localConfiguration} already initialized at `,
@@ -340,35 +372,6 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
         "; unchanged.",
       ],
     }];
-    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
-      nodes.push({
-        kind: "sentence",
-        parts: ["Project Bindings whose Profile this Workspace lacks:"],
-        category: "attention",
-      });
-      for (const missing of input.missingProfileBindings) {
-        nodes.push({
-          kind: "sentence",
-          parts: [
-            `- `,
-            pathPart(missing.project, "fleet"),
-            `: Profile '${missing.profile}' does not exist in this Workspace.`,
-          ],
-        });
-        nodes.push({
-          kind: "sentence",
-          parts: [
-            `  Next: create it with `,
-            commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
-            `, or install an available Profile with `,
-            commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
-            `.`,
-          ],
-          category: "command",
-        });
-      }
-    }
-    return nodes;
   }
   if (input.outcome === "connected") {
     const nodes: PresentationNode[] = [
@@ -381,32 +384,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       },
     ];
     if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
-      nodes.push({
-        kind: "sentence",
-        parts: ["Project Bindings whose Profile this Workspace lacks:"],
-        category: "attention",
-      });
-      for (const missing of input.missingProfileBindings) {
-        nodes.push({
-          kind: "sentence",
-          parts: [
-            `- `,
-            pathPart(missing.project, "fleet"),
-            `: Profile '${missing.profile}' does not exist in this Workspace.`,
-          ],
-        });
-        nodes.push({
-          kind: "sentence",
-          parts: [
-            `  Next: create it with `,
-            commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
-            `, or install an available Profile with `,
-            commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
-            `.`,
-          ],
-          category: "command",
-        });
-      }
+      appendMissingProfileBindings(nodes, input.missingProfileBindings);
     }
     nodes.push({
       kind: "sentence",
@@ -419,7 +397,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     return nodes;
   }
   if (input.outcome === "migrated") {
-    return [
+    const nodes: PresentationNode[] = [
       {
         kind: "sentence",
         parts: [
@@ -428,16 +406,20 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
         ],
         category: "success",
       },
-      {
-        kind: "sentence",
-        parts: [
-          "Next: run ",
-          commandPart(COMMAND_NAME, [arg("validate")]),
-          ", then status and update as needed",
-        ],
-        category: "command",
-      },
     ];
+    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
+      appendMissingProfileBindings(nodes, input.missingProfileBindings);
+    }
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+        ", then status and update as needed",
+      ],
+      category: "command",
+    });
+    return nodes;
   }
   // The one next action is the delivered validate pointer: setup adds no
   // example material (spec #593 DEC-003, #599), so there is no scaffolded

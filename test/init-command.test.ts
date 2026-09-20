@@ -49,6 +49,13 @@ function writeConfig(home: string, workspace: string): void {
   );
 }
 
+function writeLegacyConfig(home: string, content: string): string {
+  const config = configPath(home);
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+  writeFileSync(config, content);
+  return config;
+}
+
 /** Add existing Workspace material for guided selections beyond the scaffold. */
 function writeMaterial(home: string, id: string): void {
   mkdirSync(join(workspacePath(home), "context"), { recursive: true });
@@ -495,14 +502,6 @@ describe("guided first-Profile init", () => {
  * new (connecting-again semantics remain #607's).
  */
 describe("zero-argument init requires a user-given location", () => {
-  /** A legacy version-1 Local Configuration with no `workspace` field. */
-  function writeLegacyConfig(home: string, content: string): string {
-    const config = configPath(home);
-    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-    writeFileSync(config, content);
-    return config;
-  }
-
   async function refusedInit(home: string, arguments_: readonly string[] = []): Promise<InstallerToolError> {
     const input = new PassThrough(); // no TTY evidence
     input.end();
@@ -1175,6 +1174,62 @@ describe("connect a different Workspace (#607)", () => {
     expect(existsSync(join(wsB, "skills"))).toBe(true);
     expect(existsSync(join(wsB, "profiles"))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${wsB}`);
+  }, 20_000);
+
+  test("legacy migration connecting to a different Workspace reports Project Bindings whose Profile is missing", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    // wsB has "ops", but lacks "coding"
+    writeWorkspaceMaterial(wsB, "ops");
+    const config = writeLegacyConfig(
+      home,
+      `schema_version: 1\nworkspace: ${wsA}\nbindings:\n  - project: ~/projects/legacy-proj\n    profile: coding\n    hosts:\n      - codex\n`,
+    );
+
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [wsB], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    const human = plain(streams.humanText());
+    expect(human).toMatch(/migrat/i);
+    expect(human).toContain("Project Bindings whose Profile this Workspace lacks");
+    expect(human).toContain("~/projects/legacy-proj");
+    expect(human).toContain("Profile 'coding' does not exist in this Workspace");
+    expect(human).toContain("apkit new profile coding");
+    expect(human).toContain("apkit install");
+    const migrated = readFileSync(config, "utf8");
+    expect(migrated).toMatch(/schema_version:\s*2/);
+    expect(migrated).toContain(`workspace: ${wsB}`);
+  }, 20_000);
+
+  test("an interactive user can cancel connecting a different Workspace with Ctrl-C", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    writeWorkspaceMaterial(wsA, "coding");
+    writeWorkspaceMaterial(wsB, "coding");
+    writeConfig(home, wsA);
+    const cfg = configPath(home);
+    const initialConfig = readFileSync(cfg, "utf8");
+
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInit(home, [wsB], input);
+
+    await waitForOutput(streams.humanText, "Current Workspace:");
+    const human = plain(streams.humanText());
+    expect(human).toContain("~/ws-a");
+    expect(human).toContain("Requested Workspace:");
+    expect(human).toContain("~/ws-b");
+
+    input.write("\u0003");
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(1);
+    expect(readFileSync(cfg, "utf8")).toBe(initialConfig);
   }, 20_000);
 });
 

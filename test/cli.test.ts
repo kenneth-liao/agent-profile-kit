@@ -1550,6 +1550,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Launch both runs before awaiting so the lifecycle lock is exercised
     // concurrently; awaiting inside the array would serialize the coverage.
+    // Under #607, concurrent connects serialize under configuration lock;
+    // both provision their targets and the second runner updates configuration
+    // (last-writer-wins) with no corruption.
     const firstInit = runCli(home, "init", first);
     const secondInit = runCli(home, "init", second);
     const results = await Promise.all([firstInit, secondInit]);

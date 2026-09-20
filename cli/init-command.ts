@@ -16,7 +16,6 @@
  * mirroring the progress seam (DEC-035), so the flow is exercisable without a
  * pseudo-terminal.
  */
-import { realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
@@ -51,6 +50,7 @@ import {
 import {
   classifyInitSetup,
   initializeWorkspace,
+  isSameWorkspace,
   normalizeAuthoredWorkspace,
   planFirstConnectionSetup,
   previewInitTarget,
@@ -270,8 +270,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       const configPath = localConfigurationPath(request.home);
       const configuredWorkspace = await resolveWorkspaceRoot(request.home, currentAuthoredPath, configPath);
       currentDestinationPath = configuredWorkspace.path;
-      const planCanonical = await realpath(plan!.destinationPath).catch(() => plan!.destinationPath);
-      if (planCanonical === currentDestinationPath) {
+      if (await isSameWorkspace(plan!.destinationPath, currentDestinationPath)) {
         shouldConfirm = false;
       }
     }
