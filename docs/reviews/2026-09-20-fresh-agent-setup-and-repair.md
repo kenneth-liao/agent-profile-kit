@@ -33,6 +33,22 @@ The following limitations apply across the qualification sessions:
    in Local Configuration. This revealed a UX finding (Finding 609-F1) but did
    not test repair in a fresh home. Attempt 2 addressed this defect in a
    completely isolated home directory.
+5. **Top-level transcript and tree files visible in Attempt 2 directory listing.**
+   In Attempt 2, the directories `run1/`, `home/`, and `pack-stage/` and the file
+   `attempt-log.txt` were moved out of the sandbox root before execution. However,
+   the top-level transcript and tree files (`run1-transcript.txt`,
+   `run2-transcript.txt`, `run2-before-tree.txt`, and
+   `run2-attempt2-before-tree.txt`) were not moved because the orchestrator's
+   move list omitted them. In its initial exploration, the agent ran `ls -la` on
+   the sandbox root and saw their names in that single directory listing. The
+   session transcript demonstrates the agent never opened or read any of those
+   files (their names occur only in that one directory listing).
+6. **Use of built-in guide and contract during repair.**
+   In Run 2 Attempt 2, the agent ran `apkit guide --full` before its first
+   `apkit validate` run and `apkit guide --contract` after it. The run therefore
+   observed offline repair using the installed CLI toolchain (validation diagnostic
+   output plus the built-in guide and contract), rather than validation output
+   being sufficient alone in isolation from the built-in documentation.
 
 ---
 
@@ -396,9 +412,9 @@ Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
 Supporting transcript: [`evidence/2026-09-20-fresh-agent-repair-attempt-2.txt`](evidence/2026-09-20-fresh-agent-repair-attempt-2.txt).
 
 #### Pre-registration and environment isolation
-As pre-registered in `attempt-log.txt`, Attempt 1 revealed a plan defect: it shared a `HOME` directory with Run 1, so Local Configuration already held a connected Workspace. Ticket #609 specifies a fresh agent session in an isolated home. Attempt 2 tested ISC-45 under strictly controlled conditions:
+As pre-registered in `attempt-log.txt`, Attempt 1 revealed a plan defect: it shared a `HOME` directory with Run 1, so Local Configuration already held a connected Workspace. Ticket #609 specifies a fresh agent session in an isolated home. Attempt 2 tested repair under strictly controlled conditions:
 - **Clean HOME**: `/private/tmp/apkit-sandbox-609/home-run2` with permissions mode 700, holding only temporary Codex credentials (`auth.json`, mode 600, deleted immediately after the session).
-- **Prior artifacts isolated**: All prior run directories (`run1/`, `home/`, `pack-stage/`) were moved outside the sandbox tree so no prior notes or completed workspaces were visible.
+- **Prior artifact isolation and visible files**: The directories `run1/`, `home/`, and `pack-stage/` and the file `attempt-log.txt` were moved out of the sandbox root before execution. However, top-level transcript and tree files (`run1-transcript.txt`, `run2-transcript.txt`, `run2-before-tree.txt`, and `run2-attempt2-before-tree.txt`) were not moved because the orchestrator's move list omitted them. The agent saw their names in one `ls -la` listing on `<SANDBOX>`, but the transcript shows it never opened or read them (their names occur only in that listing).
 - **Identical parameters**: Identical prompt, harness (`codex-cli 0.155.1`), model (`gpt-6-astra`), reasoning effort (`none`), sandbox seatbelt flags, and network disabled.
 - **Finality**: Pre-registered as final with no further attempts.
 
@@ -505,7 +521,7 @@ Every piece of valid material was preserved:
 - `profiles/default.yaml`: preserved context selections (`agents`, `claude`, `docs/architecture`) and skill selections (`build-helper`, `code-review`).
 
 #### Result
-**PASS.** With network access completely disabled and relying solely on `apkit validate` diagnostic output and bundled guide contracts, the fresh agent cleanly diagnosed all 8 seeded violations, repaired them without loss of valid material, and left both positional and bare validation passing.
+**PASS.** With network access disabled and using only the installed CLI (validation diagnostic output plus the built-in guide and the contract, which failed validation output points to under US-006), the fresh agent cleanly diagnosed all 8 seeded violations, repaired them without loss of valid material, and left both positional and bare validation passing.
 
 ---
 
@@ -529,10 +545,10 @@ Every piece of valid material was preserved:
 - **Observed Behavior**: In Run 1, a fresh agent with no pre-existing knowledge or prompts was able to locate the Workspace contract via the README link and `apkit guide --full`, correctly construct the folder layout (`context/`, `skills/`, `profiles/`), map scattered files into valid IDs, and produce a clean Profile on its first attempt.
 - **Impact**: Validates that ISC-21 and US-004 documentation enables autonomous agent migration from raw scattered materials to an Agent Profile Kit Workspace.
 
-### Finding 609-F3: Autonomous repair from validation diagnostics alone (ISC-45)
+### Finding 609-F3: Offline repair using installed CLI diagnostics, built-in guide, and contract
 
-- **Observed Behavior**: In Run 2 Attempt 2, a fresh agent in an isolated environment with network access disabled completely repaired an invalid Workspace from `apkit validate <path>` error messages and the bundled contract documentation (`apkit guide --contract`). All 8 seeded violations across 7 categories were resolved in a single iteration without destroying valid content.
-- **Impact**: Validates that ISC-45 is satisfied: `apkit validate` diagnostics are self-contained, actionable, and sufficient for autonomous agent repair without external web access or human intervention.
+- **Observed Behavior**: In Run 2 Attempt 2, a fresh agent in an isolated environment with network access disabled repaired an invalid Workspace using only the installed CLI: the diagnostic output emitted by `apkit validate <path>` together with the built-in documentation (`apkit guide --contract`, which failed validation output directs operators and agents to under US-006; the agent also ran `apkit guide --full`). All 8 seeded violations across 7 categories were resolved in a single iteration without destroying valid content.
+- **Observation / Context**: The installed CLI's bundled documentation and validation error messages were together sufficient for autonomous agent repair without external network access or human intervention. The question of whether this satisfies ISC-45 or whether validation output must be sufficient without consulting the guide belongs to the spec audit.
 
 ---
 
