@@ -69,7 +69,7 @@ than duplicating it.
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
-| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed; without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049) |
+| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed; without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049); connecting a different Workspace preserves every Project Binding, provisions any missing required parts, and reports missing Profile bindings (spec #593 DEC-002, ticket #607) |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent\|--contract]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction, and the complete Workspace contract one command away |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
@@ -275,11 +275,22 @@ parts — `workspace.yaml`, `context/`,
 Context Module, README, AGENTS.md, or other file (spec #593 DEC-003, ADR-0047).
 A folder whose existing material is invalid is refused with its violation and
 nothing is added. Re-running is safe: it does not overwrite any valid existing
-Workspace or restore removed optional entries. The Workspace location is
-stated in actionable home-relative form (US-036), the receipt explains what a
-Profile is in one sentence at the moment one is first needed (US-033), and
-detection is advisory: it names the supported Agent Hosts found on the
-machine (US-037) and never blocks.
+Workspace or restore removed optional entries.
+
+On a machine that already selects a Workspace, `apkit init <workspace>` connects
+to that Workspace after interactive confirmation (or unconditional `--yes`). The
+confirmation displays the current and requested Workspace paths. Connecting
+validates the target first, adds any missing required parts following the same
+setup plan, updates Local Configuration's `workspace` field while preserving
+every existing Project Binding, never changes existing Workspace files, and
+reports any bound Profiles that do not exist in the newly connected Workspace
+along with actionable authoring and installation commands (spec #593 DEC-002,
+ticket #607).
+
+The Workspace location is stated in actionable home-relative form (US-036), the
+receipt explains what a Profile is in one sentence at the moment one is first
+needed (US-033), and detection is advisory: it names the supported Agent Hosts
+found on the machine (US-037) and never blocks.
 
 ### 3. Learn the format
 

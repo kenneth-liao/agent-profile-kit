@@ -896,8 +896,6 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
         : `setup ${fact.added[0] === fact.path ? "created the folder and added" : "added"} ${parts.join(", ")}`;
       return [`Cannot initialize ${fact.path}: ${fact.cause}; ${wrote} and stopped — existing files are unchanged, and re-running init adds only the still-missing parts`];
     }
-    case "init-workspace-selection-conflict":
-      return [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`];
     case "init-workspace-path-required":
       return ["init without a path would choose a Workspace location for you; setup uses a folder you choose and never selects one itself"];
     case "foreign-diagnostic":
@@ -1124,8 +1122,6 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         ]],
       };
     }
-    case "init-workspace-selection-conflict":
-      return { happened: [`Cannot initialize Workspace '${fact.requested}': Local Configuration ${fact.configurationPath} already selects a different Workspace at ${fact.configuredPath}; refusing to change the canonical selection`] };
     case "foreign-diagnostic":
       return { happened: [fact.detail] };
     case "artifact-path-occupied":

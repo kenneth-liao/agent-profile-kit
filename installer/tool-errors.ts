@@ -316,12 +316,6 @@ export type InstallerToolErrorFact =
       readonly added: readonly string[];
       readonly cause: string;
     }
-  | {
-      readonly kind: "init-workspace-selection-conflict";
-      readonly requested: string;
-      readonly configurationPath: string;
-      readonly configuredPath: string;
-    }
   | { readonly kind: "foreign-diagnostic"; readonly detail: string }
   | {
       readonly kind: "artifact-path-occupied";

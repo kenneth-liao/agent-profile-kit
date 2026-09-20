@@ -50,12 +50,14 @@ import {
 import {
   classifyInitSetup,
   initializeWorkspace,
+  isSameWorkspace,
   normalizeAuthoredWorkspace,
   planFirstConnectionSetup,
   previewInitTarget,
   type FirstConnectionSetupPlan,
   type InitTargetPreview,
 } from "../installer/initialize-workspace.js";
+import { localConfigurationPath, resolveWorkspaceRoot } from "../installer/local-configuration.js";
 import { createProfile } from "../installer/create-profile.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
 import { lstatEntry } from "../installer/workspace.js";
@@ -185,8 +187,10 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   // The one classification read routes the interactive flow and the commit
   // alike (spec #593 #603): first connections ask and confirm; already-
   // connected destinations keep the delivered behavior.
-  const firstConnection = interactive &&
-    (await classifyInitSetup(request.home)).kind === "first-connection";
+  let authored = parsed.workspace;
+  const classification = await classifyInitSetup(request.home);
+  const firstConnection = interactive && classification.kind === "first-connection";
+  const connectingAgain = interactive && classification.kind === "already-connected" && authored !== undefined;
 
   // Interactive first connections ask where the Workspace goes (US-001,
   // ISC-24.1) and confirm the chosen folder before any write. Non-interactive
@@ -211,7 +215,6 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     }),
   };
 
-  let authored = parsed.workspace;
   if (firstConnection && authored === undefined) {
     // The location question: the current folder, shown as its full path, or
     // another path (ISC-24.2). Cancelling writes nothing.
@@ -256,38 +259,56 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   // writes nothing (ISC-24.1).
   let plan: FirstConnectionSetupPlan | undefined;
   let preview: InitTargetPreview | undefined;
-  if (firstConnection) {
+  if (firstConnection || connectingAgain) {
     plan = await planFirstConnectionSetup(request.home, authored!);
-    writeHumanDocument(
-      request.stdout,
-      initConfirmationDocument({
-        destinationPath: plan.destinationPath,
-        authoredPath: plan.authoredPath,
-        folderMissing: plan.folderMissing,
-        missingParts: plan.missingParts,
-      }),
-      stdoutContext,
-      renderOptions,
-    );
-    const confirmed = await prompts.yesNo(CONFIRM_QUESTION);
-    if (confirmed === "cancelled") {
-      writeHumanDocument(
-        request.stderr,
-        initCancelledDocument(authored === undefined ? {} : { workspace: authored }),
-        stderrContext,
-        renderOptions,
-      );
-      return { exitCode: 1 };
+    let shouldConfirm = true;
+    let currentDestinationPath: string | undefined;
+    let currentAuthoredPath: string | undefined;
+
+    if (connectingAgain) {
+      currentAuthoredPath = classification.configuredWorkspace;
+      const configPath = localConfigurationPath(request.home);
+      const configuredWorkspace = await resolveWorkspaceRoot(request.home, currentAuthoredPath, configPath);
+      currentDestinationPath = configuredWorkspace.path;
+      if (await isSameWorkspace(plan!.destinationPath, currentDestinationPath)) {
+        shouldConfirm = false;
+      }
     }
-    if (confirmed === "declined") {
+
+    if (shouldConfirm) {
       writeHumanDocument(
         request.stdout,
-        initDeclinedDocument(authored === undefined ? {} : { workspace: authored }),
+        initConfirmationDocument({
+          destinationPath: plan.destinationPath,
+          authoredPath: plan.authoredPath,
+          folderMissing: plan.folderMissing,
+          missingParts: plan.missingParts,
+          ...(currentDestinationPath !== undefined ? { currentDestinationPath, currentAuthoredPath } : {}),
+        }),
         stdoutContext,
         renderOptions,
       );
-      return { exitCode: 0 };
+      const confirmed = await prompts.yesNo(CONFIRM_QUESTION);
+      if (confirmed === "cancelled") {
+        writeHumanDocument(
+          request.stderr,
+          initCancelledDocument(authored === undefined ? {} : { workspace: authored }),
+          stderrContext,
+          renderOptions,
+        );
+        return { exitCode: 1 };
+      }
+      if (confirmed === "declined") {
+        writeHumanDocument(
+          request.stdout,
+          initDeclinedDocument(authored === undefined ? {} : { workspace: authored }),
+          stdoutContext,
+          renderOptions,
+        );
+        return { exitCode: 0 };
+      }
     }
+
     preview = {
       destinationPath: plan.destinationPath,
       profiles: plan.profiles,

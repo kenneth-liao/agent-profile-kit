@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { plain, startPtySession, squash } from "./support/pty-session.js";
+import { WORKSPACE_MANIFEST } from "../schemas/workspace-manifest.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -220,5 +221,89 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
 
     expect(existsSync(join(workspace, "workspace.yaml"))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain("workspace: ");
+  });
+
+  test("connecting a different Workspace shows current and requested Workspace at 100 columns and connects on confirm (#607)", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "first-workspace");
+    const wsB = join(home, "second-workspace");
+    const writeWorkspace = (ws: string) => {
+      mkdirSync(join(ws, "context"), { recursive: true });
+      mkdirSync(join(ws, "skills", "test-skill"), { recursive: true });
+      mkdirSync(join(ws, "profiles"), { recursive: true });
+      writeFileSync(join(ws, "workspace.yaml"), WORKSPACE_MANIFEST);
+      writeFileSync(join(ws, "context", "team-rules.md"), "Team rules.\n");
+      writeFileSync(
+        join(ws, "profiles", "coding.yaml"),
+        "context:\n  - team-rules\nskills:\n  - test-skill\n",
+      );
+      writeFileSync(
+        join(ws, "skills", "test-skill", "SKILL.md"),
+        '---\nname: "test-skill"\ndescription: Test skill.\n---\n\n# test-skill\n',
+      );
+    };
+    writeWorkspace(wsA);
+    writeWorkspace(wsB);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${wsA}\nbindings: []\n`);
+
+    const session = await startPtySession(["init", home, home, wsB], 100);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Current Workspace:");
+      expect(plain(session.transcript())).toContain("Current Workspace: ~/first-workspace");
+      expect(plain(session.transcript())).toContain("Requested Workspace: ~/second-workspace");
+      await session.waitForTranscript("Set up this folder as your Workspace?");
+      const confirmOffset = session.transcriptLength();
+      session.write("y");
+      await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
+    } finally {
+      await session.close();
+    }
+
+    expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${wsB}`);
+  });
+
+  test("declining to connect a different Workspace at 60 columns changes nothing and preserves current selection (#607)", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "current-long-named-workspace-folder");
+    const wsB = join(home, "requested-long-named-workspace-folder");
+    const writeWorkspace = (ws: string) => {
+      mkdirSync(join(ws, "context"), { recursive: true });
+      mkdirSync(join(ws, "skills", "test-skill"), { recursive: true });
+      mkdirSync(join(ws, "profiles"), { recursive: true });
+      writeFileSync(join(ws, "workspace.yaml"), WORKSPACE_MANIFEST);
+      writeFileSync(join(ws, "context", "team-rules.md"), "Team rules.\n");
+      writeFileSync(
+        join(ws, "profiles", "coding.yaml"),
+        "context:\n  - team-rules\nskills:\n  - test-skill\n",
+      );
+      writeFileSync(
+        join(ws, "skills", "test-skill", "SKILL.md"),
+        '---\nname: "test-skill"\ndescription: Test skill.\n---\n\n# test-skill\n',
+      );
+    };
+    writeWorkspace(wsA);
+    writeWorkspace(wsB);
+    mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+    const initialConfig = `schema_version: 2\nworkspace: ${wsA}\nbindings: []\n`;
+    writeFileSync(configPath(home), initialConfig);
+
+    const session = await startPtySession(["init", home, home, wsB], 60, { expectedExitCode: 0 });
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Current Workspace:");
+      expect(squash(session.transcript())).toContain(squash("Current Workspace: ~/current-long-named-workspace-folder"));
+      expect(squash(session.transcript())).toContain(squash("Requested Workspace: ~/requested-long-named-workspace-folder"));
+      await session.waitForTranscript("Set up this folder as your Workspace?");
+      const confirmOffset = session.transcriptLength();
+      session.write("n");
+      const { text } = await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
+      expect(plain(text)).toContain("Setup declined; nothing was initialized or created");
+    } finally {
+      await session.close();
+    }
+
+    expect(readFileSync(configPath(home), "utf8")).toBe(initialConfig);
   });
 });

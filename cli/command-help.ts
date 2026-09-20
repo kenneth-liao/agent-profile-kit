@@ -56,7 +56,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "init",
     group: "common",
     syntax: "init [workspace]",
-    summary: "Initialize or adopt the canonical Workspace and settings",
+    summary: "Initialize, adopt, or connect the canonical Workspace and settings",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and settings; never overwrites a valid Workspace.",
     next: ["Run ", invocation("install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"), "."],

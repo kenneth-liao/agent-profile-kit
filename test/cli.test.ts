@@ -1444,23 +1444,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(realWorkspace, "NOTES.md"), "utf8")).toBe("user-owned source\n");
   });
 
-  test("init rejects an explicit Workspace that conflicts with the configured canonical selection", async () => {
+  test("init connects an explicit Workspace that differs from the configured canonical selection", async () => {
     const home = isolatedHome();
     await initialize(home);
     const custom = join(home, "other-workspace");
     mkdirSync(custom, { recursive: true });
     writeFileSync(join(custom, "workspace.yaml"), "schema_version: 1\n");
     writeFileSync(join(custom, "NOTES.md"), "user-owned source\n");
-    const configBefore = readFileSync(configPath(home), "utf8");
-    const sourceBefore = readdirSync(custom).sort();
+    const previousWorkspaceSource = readdirSync(workspacePath(home)).sort();
 
     const result = await runCli(home, "init", custom);
 
-    expectExitCode(result, 1);
-    expect(result.stderr).toMatch(/conflict|already selects|different Workspace/i);
-    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
-    expect(readdirSync(custom).sort()).toEqual(sourceBefore);
-    expect(existsSync(workspacePath(home))).toBe(true);
+    expectExitCode(result, 0);
+    expect(result.stdout).toMatch(/Connected Agent Profile Kit Workspace at\s+~\/other-workspace/i);
+    expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
+    expect(readdirSync(custom).sort()).toEqual(["NOTES.md", "context", "profiles", "skills", "workspace.yaml"].sort());
+    expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("user-owned source\n");
+    expect(readdirSync(workspacePath(home)).sort()).toEqual(previousWorkspaceSource);
   });
 
   test("init treats an explicit alias of the configured Workspace as idempotent", async () => {
@@ -1550,19 +1550,18 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     // Launch both runs before awaiting so the lifecycle lock is exercised
     // concurrently; awaiting inside the array would serialize the coverage.
+    // Under #607, concurrent connects serialize under configuration lock;
+    // both provision their targets and the second runner updates configuration
+    // (last-writer-wins) with no corruption.
     const firstInit = runCli(home, "init", first);
     const secondInit = runCli(home, "init", second);
     const results = await Promise.all([firstInit, secondInit]);
     const succeeded = results.filter((result) => result.kind === "exit" && result.exitCode === 0);
-    const failed = results.filter((result) => result.kind === "exit" && result.exitCode === 1);
-
-    expect(succeeded).toHaveLength(1);
-    expect(failed).toHaveLength(1);
+    expect(succeeded).toHaveLength(2);
     const selected = parse(readFileSync(configPath(home), "utf8")).workspace;
     expect([first, second]).toContain(selected);
-    expect(existsSync(selected)).toBe(true);
-    expect([first, second].filter((path) => path !== selected).every((path) => !existsSync(path))).toBe(true);
-    expect(failed[0]!.stderr).toMatch(/must be an existing directory|different Workspace|already selects/i);
+    expect(existsSync(first)).toBe(true);
+    expect(existsSync(second)).toBe(true);
   });
 
   test("init upgrades a legacy configuration without a Workspace value to the explicit path the user gives", async () => {

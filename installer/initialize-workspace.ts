@@ -40,14 +40,20 @@ import {
   workspaceViolationToken,
 } from "./tool-errors.js";
 
+export interface MissingProfileBindingReport {
+  readonly project: string;
+  readonly profile: string;
+}
+
 export interface InitializationResult {
-  readonly outcome: "created" | "migrated" | "unchanged";
+  readonly outcome: "created" | "migrated" | "unchanged" | "connected";
   readonly path: string;
   /** The effective authored Workspace spelling this outcome rendered. */
   readonly authoredPath: string;
   /** True when setup created the named folder itself (it did not exist). */
   readonly folderCreated: boolean;
   readonly warnings: readonly string[];
+  readonly missingProfileBindings?: readonly MissingProfileBindingReport[];
 }
 
 export interface InitializeWorkspaceOptions {
@@ -507,21 +513,14 @@ export async function previewInitTarget(
   const configured = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
   try {
     if (requested !== undefined) {
-      // Share init's read-only explicit-selection eligibility check: the same
-      // resolution and canonical-match comparison initialization performs, so
-      // a selection init will refuse never enters guidance; init then explains
-      // the conflict itself.
-      const eligible = await initializeExplicitWorkspaceSelection(
-        home,
-        requested,
-        configured,
-        configPath,
-      );
-      return await previewWorkspaceDestination(eligible.path);
+      const plan = await planFirstConnectionSetup(home, requested);
+      return {
+        destinationPath: plan.destinationPath,
+        profiles: plan.profiles,
+        contexts: plan.contexts,
+        skills: plan.skills,
+      };
     }
-    // Mirror init's own no-argument branch selection: the configured Workspace
-    // is revalidated (it selects nothing new; connecting-again semantics are
-    // #607's).
     const destination = await resolveWorkspaceRoot(home, configured, configPath);
     return await previewWorkspaceDestination(destination.path);
   } catch {
@@ -539,6 +538,7 @@ async function initializeConfiguredWorkspace(
   configPath: string,
 ): Promise<InitializationResult> {
   const resolved = await resolveWorkspaceRoot(home, authored, configPath);
+  await ingestWorkspace(resolved.path);
   return {
     outcome: "unchanged",
     path: resolved.path,
@@ -548,42 +548,95 @@ async function initializeConfiguredWorkspace(
   };
 }
 
-async function initializeExplicitWorkspaceSelection(
-  home: string,
-  requested: string,
-  configured: string,
-  configPath: string,
-): Promise<InitializationResult> {
-  const configuredWorkspace = await resolveWorkspaceRoot(home, configured, configPath);
-  const requestedWorkspace = await resolveWorkspaceRoot(home, requested, configPath);
-  assertCanonicalWorkspaceMatch(
-    requested,
-    requestedWorkspace.path,
-    configuredWorkspace.path,
-    configPath,
-  );
-  return {
-    outcome: "unchanged",
-    path: requestedWorkspace.path,
-    authoredPath: requested,
-    folderCreated: false,
-    warnings: [],
-  };
+/**
+ * Test whether two Workspace paths refer to the same canonical folder on disk.
+ * Non-existent candidate folders fall back to their resolved lexical path so
+ * uncreated targets are compared safely without throwing ENOENT.
+ */
+export async function isSameWorkspace(candidatePath: string, configuredPath: string): Promise<boolean> {
+  const candidateCanonical = await realpath(candidatePath).catch(() => candidatePath);
+  const configuredCanonical = await realpath(configuredPath).catch(() => configuredPath);
+  return candidateCanonical === configuredCanonical;
 }
 
-function assertCanonicalWorkspaceMatch(
+function detectMissingProfileBindings(
+  bindings: readonly { readonly project: string; readonly profile: string }[],
+  availableProfiles: readonly string[],
+): MissingProfileBindingReport[] {
+  const missing: MissingProfileBindingReport[] = [];
+  for (const binding of bindings) {
+    if (!availableProfiles.includes(binding.profile)) {
+      missing.push({ project: binding.project, profile: binding.profile });
+    }
+  }
+  return missing;
+}
+
+/**
+ * Connect apkit to a Workspace when Local Configuration is already connected
+ * (spec #593 #607, US-008, ISC-30–33, ISC-48). Validates the requested
+ * Workspace first, adds only missing parts, updates the configured Workspace
+ * under lock while preserving all Project Bindings, and reports any binding
+ * whose Profile this Workspace lacks.
+ */
+async function connectWorkspace(
+  home: string,
   requested: string,
-  requestedPath: string,
-  configuredPath: string,
   configPath: string,
-): void {
-  if (configuredPath === requestedPath) return;
-  throw new InstallerToolError({
-    kind: "init-workspace-selection-conflict",
-    requested,
-    configurationPath: configPath,
-    configuredPath,
-  });
+  fileSystem: LocalConfigurationFileSystem,
+  lockTimeoutMs: number,
+): Promise<InitializationResult> {
+  const plan = await planFirstConnectionSetup(home, requested);
+
+  return withConfigurationLock(
+    configPath,
+    fileSystem,
+    lockTimeoutMs,
+    "init",
+    async () => {
+      const currentSource = await fileSystem.readFile(configPath, "utf8");
+      const currentParsed = parseLocalConfiguration(currentSource, configPath);
+      const configuredWorkspace = await resolveWorkspaceRoot(home, currentParsed.workspace!, configPath);
+      const isSame = await isSameWorkspace(plan.destinationPath, configuredWorkspace.path);
+
+      if (isSame) {
+        return {
+          outcome: "unchanged",
+          path: configuredWorkspace.path,
+          authoredPath: currentParsed.workspace!,
+          folderCreated: false,
+          warnings: [],
+        };
+      }
+
+      const { folderCreated } = await commitSetupPlan(plan, fileSystem);
+      const destinationCanonical = await realpath(plan.destinationPath);
+      const missingProfileBindings = detectMissingProfileBindings(currentParsed.bindings, plan.profiles);
+
+      const document = parseDocument(currentSource);
+      document.set("workspace", plan.authoredPath);
+      const nextSource = preserveSourceNewlines(currentSource, document.toString());
+      const sourceStats = await fileSystem.stat(configPath);
+      await publishConfigurationReplacement(
+        configPath,
+        currentSource,
+        nextSource,
+        sourceStats.mode & 0o777,
+        fileSystem,
+        `Local Configuration ${configPath}`,
+        "init connect",
+      );
+
+      return {
+        outcome: "connected",
+        path: destinationCanonical,
+        authoredPath: plan.authoredPath,
+        folderCreated,
+        warnings: [],
+        ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
+      };
+    },
+  );
 }
 
 async function connectFromPlan(
@@ -655,6 +708,8 @@ async function migrateLegacyConfiguration(
       // (the branch-local refusal below).
 
       let selectedWorkspace: string;
+      let isSame = false;
+      let plan: FirstConnectionSetupPlan | undefined;
       if (parsed.workspace === undefined) {
         // No authored selection to conflict-check: the user-given path is the
         // first connection, set up like any explicit destination and then
@@ -663,24 +718,28 @@ async function migrateLegacyConfiguration(
           throw new InstallerToolError({ kind: "init-workspace-path-required" });
         }
         selectedWorkspace = requestedWorkspace;
+        plan = await planFirstConnectionSetup(home, selectedWorkspace);
       } else {
-        selectedWorkspace = parsed.workspace;
+        const configuredWorkspace = await resolveWorkspaceRoot(home, parsed.workspace, configPath);
         if (requestedWorkspace !== undefined) {
-          await initializeExplicitWorkspaceSelection(
-            home,
-            requestedWorkspace,
-            parsed.workspace,
-            configPath,
-          );
+          plan = await planFirstConnectionSetup(home, requestedWorkspace);
+          isSame = await isSameWorkspace(plan.destinationPath, configuredWorkspace.path);
         }
+        selectedWorkspace = (requestedWorkspace !== undefined && !isSame)
+          ? requestedWorkspace
+          : parsed.workspace;
       }
-      const workspaceResult = parsed.workspace === undefined
+      const isConnecting = parsed.workspace === undefined || (requestedWorkspace !== undefined && !isSame);
+      const workspaceResult = isConnecting
         ? await connectFromPlan(
           home,
-          await planFirstConnectionSetup(home, selectedWorkspace),
+          plan!,
           { fileSystem, ensureConfiguration: false },
         )
-        : await initializeConfiguredWorkspace(home, parsed.workspace, configPath);
+        : await initializeConfiguredWorkspace(home, parsed.workspace!, configPath);
+      const missingProfileBindings = isConnecting
+        ? detectMissingProfileBindings(parsed.bindings, plan!.profiles)
+        : [];
       const nextSource = migrateLegacyConfigurationSource(source, selectedWorkspace);
       const sourceStats = await fileSystem.stat(configPath);
       await publishConfigurationReplacement(
@@ -699,6 +758,7 @@ async function migrateLegacyConfiguration(
         authoredPath: workspaceResult.authoredPath,
         folderCreated: workspaceResult.folderCreated,
         warnings: workspaceResult.warnings,
+        ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },
   );
@@ -719,7 +779,10 @@ export type InitSetupClassification =
     /** What the configuration source looked like when classified. */
     readonly configuration: "absent" | "legacy-unselected";
   }
-  | { readonly kind: "already-connected" };
+  | {
+    readonly kind: "already-connected";
+    readonly configuredWorkspace: string;
+  };
 
 export async function classifyInitSetup(
   home: string,
@@ -737,9 +800,12 @@ export async function classifyInitSetup(
   if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
     return parsed.workspace === undefined
       ? { kind: "first-connection", configuration: "legacy-unselected" }
-      : { kind: "already-connected" };
+      : { kind: "already-connected", configuredWorkspace: parsed.workspace };
   }
-  return { kind: "already-connected" };
+  return {
+    kind: "already-connected",
+    configuredWorkspace: requireCurrentApplicationConfiguration(parsed, configPath).workspace,
+  };
 }
 
 export async function initializeWorkspace(
@@ -778,11 +844,12 @@ export async function initializeWorkspace(
     }
     const authoredWorkspace = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
     if (requested !== undefined) {
-      return initializeExplicitWorkspaceSelection(
+      return connectWorkspace(
         home,
         requested,
-        authoredWorkspace,
         configPath,
+        fileSystem,
+        lockTimeoutMs,
       );
     }
     return initializeConfiguredWorkspace(home, authoredWorkspace, configPath);

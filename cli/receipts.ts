@@ -174,8 +174,13 @@ const localConfiguration = DEFAULT_VIEW_LEXICON.localConfiguration;
 const projectBindingSingular = DEFAULT_VIEW_LEXICON.projectBinding.singular;
 const projectBindingCapitalized = capitalize(projectBindingSingular);
 
+export interface MissingProfileBindingReport {
+  readonly project: string;
+  readonly profile: string;
+}
+
 export interface InitReceiptInput {
-  readonly outcome: "created" | "migrated" | "unchanged";
+  readonly outcome: "created" | "migrated" | "unchanged" | "connected";
   readonly path: string;
   readonly authoredPath: string;
   /**
@@ -191,6 +196,7 @@ export interface InitReceiptInput {
    * receipt carries no parallel next action of its own (spec #491, US-016).
    */
   readonly guidedProfileFollows?: boolean;
+  readonly missingProfileBindings?: readonly MissingProfileBindingReport[];
 }
 
 export interface InitConfirmationInput {
@@ -202,6 +208,10 @@ export interface InitConfirmationInput {
   readonly folderMissing: boolean;
   /** The required parts setup would add, in canonical order. */
   readonly missingParts: readonly string[];
+  /** When connecting again, the currently configured Workspace absolute path. */
+  readonly currentDestinationPath?: string | undefined;
+  /** When connecting again, the currently configured Workspace authored path. */
+  readonly currentAuthoredPath?: string | undefined;
 }
 
 /** The displayed spelling of one setup folder: never elided — the
@@ -250,12 +260,24 @@ function orderedSetupParts(missingParts: readonly string[]): readonly string[] {
  */
 export function initConfirmationDocument(input: InitConfirmationInput): PresentationDocument {
   const workspace = initSetupPathPart(input.destinationPath, input.authoredPath);
-  const nodes: PresentationNode[] = [
-    {
-      kind: "sentence",
-      parts: ["Context and Skill files will be stored in and loaded from ", workspace, "."],
-    },
-  ];
+  const nodes: PresentationNode[] = [];
+  if (input.currentDestinationPath !== undefined) {
+    const currentWorkspace = initSetupPathPart(input.currentDestinationPath, input.currentAuthoredPath);
+    nodes.push(
+      {
+        kind: "sentence",
+        parts: ["Current Workspace: ", currentWorkspace],
+      },
+      {
+        kind: "sentence",
+        parts: ["Requested Workspace: ", workspace],
+      },
+    );
+  }
+  nodes.push({
+    kind: "sentence",
+    parts: ["Context and Skill files will be stored in and loaded from ", workspace, "."],
+  });
   if (input.folderMissing) {
     nodes.push({
       kind: "sentence",
@@ -302,6 +324,38 @@ export function initLocationDocument(input: {
   ];
 }
 
+function appendMissingProfileBindings(
+  nodes: PresentationNode[],
+  missingProfileBindings: readonly MissingProfileBindingReport[],
+): void {
+  nodes.push({
+    kind: "sentence",
+    parts: ["Project Bindings whose Profile this Workspace lacks:"],
+    category: "attention",
+  });
+  for (const missing of missingProfileBindings) {
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        `- `,
+        pathPart(missing.project, "fleet"),
+        `: Profile '${missing.profile}' does not exist in this Workspace.`,
+      ],
+    });
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        `  Next: create it with `,
+        commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
+        `, or install an available Profile with `,
+        commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
+        `.`,
+      ],
+      category: "command",
+    });
+  }
+}
+
 /** The receipt document for one `init` invocation. */
 export function initReceiptDocument(input: InitReceiptInput): PresentationDocument {
   const workspace = pathPart(
@@ -319,8 +373,31 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       ],
     }];
   }
+  if (input.outcome === "connected") {
+    const nodes: PresentationNode[] = [
+      {
+        kind: "sentence",
+        parts: input.folderCreated === true
+          ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
+          : [`Connected Agent Profile Kit Workspace at `, workspace],
+        category: "success",
+      },
+    ];
+    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
+      appendMissingProfileBindings(nodes, input.missingProfileBindings);
+    }
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+      ],
+      category: "command",
+    });
+    return nodes;
+  }
   if (input.outcome === "migrated") {
-    return [
+    const nodes: PresentationNode[] = [
       {
         kind: "sentence",
         parts: [
@@ -329,16 +406,20 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
         ],
         category: "success",
       },
-      {
-        kind: "sentence",
-        parts: [
-          "Next: run ",
-          commandPart(COMMAND_NAME, [arg("validate")]),
-          ", then status and update as needed",
-        ],
-        category: "command",
-      },
     ];
+    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
+      appendMissingProfileBindings(nodes, input.missingProfileBindings);
+    }
+    nodes.push({
+      kind: "sentence",
+      parts: [
+        "Next: run ",
+        commandPart(COMMAND_NAME, [arg("validate")]),
+        ", then status and update as needed",
+      ],
+      category: "command",
+    });
+    return nodes;
   }
   // The one next action is the delivered validate pointer: setup adds no
   // example material (spec #593 DEC-003, #599), so there is no scaffolded
