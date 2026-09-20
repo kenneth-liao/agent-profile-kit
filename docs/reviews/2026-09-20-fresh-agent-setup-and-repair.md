@@ -50,14 +50,29 @@ The following limitations apply across the qualification sessions:
    access. However, the packed CLI bundles `apkit guide`, and in Run 2 Attempt 2
    the agent ran `apkit guide --full` before its first `apkit validate` run and
    `apkit guide --contract` after it. The run therefore observed offline repair
-   using the installed CLI toolchain (validation diagnostic output plus the
-   built-in guide and contract reference), rather than validation output being
-   sufficient alone in isolation from the built-in documentation. The probe's two
+   using the installed CLI toolchain (the built-in guide and contract
+   reference, alongside validation commands), rather than validation output
+   being sufficient alone in isolation from the built-in documentation. The probe's two
    fail conditions (human help, or a Workspace that is still invalid) did not
    occur. Whether bundled guide access meets *"without the guides"* is for the
    principal to decide; `ISA.md` lists the agent probes' specifics under *Not yet
    specified*. Attempt 2 was pre-registered as final, so no further session was
    run.
+7. **Validation diagnostics versus contract in repair.**
+   On release candidate 0.217.0, a failing `apkit validate <path>` writes its
+   entire diagnostic report to `stderr` and emits zero lines to `stdout`. In the
+   Attempt 2 transcript, the only pre-repair validation invocation occurred inside
+   the compound shell command `apkit validate <path>; apkit guide --contract; find . -type f -maxdepth 5 -print -exec cat {} \;`.
+   The harness recorded `stdout` only, beginning immediately with the contract
+   text; it is therefore unknown whether the model received the `stderr` text.
+   After that command, the agent applied all fixes in one batch without a
+   validate-fix-validate loop, and no agent message quoted a diagnostic. Before
+   fixing, the agent had received the complete contract (including its catalog of
+   invalid examples tagged with violation identifiers such as
+   `leftover-skill-sidecar`, `profile-id-field`, `missing-context-reference`, and
+   `context-module-file-name`) along with the full contents of all files in the
+   Workspace. The run demonstrates an offline repair using the installed CLI
+   toolchain, but does not show that validation output informed the repair.
 
 ---
 
@@ -360,7 +375,24 @@ The invalid Workspace in `<SANDBOX>/run2/workspace` was prepared with 8 violatio
 7. Legacy sidecar metadata: `skills/build-helper/agent-profile-kit.yaml` (retired sidecar).
 8. Missing Context Module reference: `profiles/default.yaml` referencing `missing-context`.
 
-When validated directly with `apkit validate <path>`, `apkit` emits actionable diagnostics describing every violation and its resolution.
+When validated directly with `apkit validate <path>`, `apkit` emits 8 diagnostics describing every violation and its resolution. As noted in Limitation 7, release candidate 0.217.0 writes these diagnostics to `stderr` with 0 lines to `stdout`.
+
+#### Supplementary reproduction: Validation diagnostics
+When validated on a rebuilt copy of the seeded invalid Workspace outside the agent session (`HOME=<temp-dir> apkit validate <path>`), release candidate 0.217.0 writes the following 8 diagnostics to `stderr` (exit code 1):
+
+```text
+apkit: Workspace is invalid at <SANDBOX>/workspace; 8 violations found:
+- Workspace is incomplete at <SANDBOX>/workspace: missing required file 'workspace.yaml'
+- Context Module context/invalid file name.md must have a path whose folders and file name are lowercase kebab-case names without wildcards (they form the Context Module ID); rename the file to context/invalid-file-name.md
+- Context entry context/notes.txt is not Markdown. Only '.md' files under the context/ folder are Context Modules; rename it with a '.md' extension or move it out of 'context/'.
+- Profile profiles/default.yaml must not contain an 'id' field; a Profile's ID is its file name without '.yaml'. Remove the 'id' field
+- Skill entry skills/stray-script.sh does not belong to a Skill package. Every non-hidden file under the 'skills' folder must be inside a Skill package (a folder with a 'SKILL.md' file); move it into a Skill package as a Skill Resource, give it its own package, or move it out of 'skills'.
+- Skill skills/broken-skill/SKILL.md description must be a non-empty string no longer than 1024 characters
+- Skill sidecar skills/build-helper/agent-profile-kit.yaml is no longer read. List the needed Context Modules and Skills in a Profile's 'context' and 'skills' lists, then delete the file; version control can recover it if you need the old list.
+- Profile 'default' in profiles/default.yaml selects missing Context Module 'missing-context'. Available Context Modules: agents, claude, docs/architecture. Restore the Context Module, or remove or update Profile 'default'. Correct profiles/default.yaml, then run apkit validate.
+The Workspace contract states every rule Workspace validation enforces; run apkit guide --contract to read it.
+```
+*(Reproduced after the session for documentation; not captured in the agent session transcript due to stderr omission by the harness).*
 
 ---
 
@@ -442,9 +474,10 @@ Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
 1. **Sandbox proof**:
    `SANDBOX_PROOF: HOME=<SANDBOX>/home-run2, CWD=<SANDBOX>/run2/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0`
 2. **Autonomous diagnosis**:
-   - The agent ran `apkit --help`, `apkit validate --help`, `apkit guide --full`, and `apkit guide --contract`.
-   - It executed positional validation: `apkit validate <SANDBOX>/run2/workspace`, receiving the 8 diagnostics emitted by `apkit`.
-   - It inspected the workspace source files with `find` and `cat`.
+   - The agent ran `apkit --help`, `apkit validate --help`, and `apkit guide --full`.
+   - It executed a compound shell command: `apkit validate <SANDBOX>/run2/workspace; apkit guide --contract; find . -type f -maxdepth 5 -print -exec cat {} \;`.
+   - Because `apkit validate` writes its failure diagnostics entirely to `stderr` (0 lines to `stdout`) and the harness recorded `stdout` only, the transcript begins directly with the contract text; it is unknown whether the model received the `stderr` text.
+   - Through this command, the agent received the complete contract documentation from `apkit guide --contract` (including contract examples tagged with violation identifiers such as `leftover-skill-sidecar`, `profile-id-field`, `missing-context-reference`, and `context-module-file-name`) along with the full contents of all files in the Workspace.
 3. **Execution of repairs**:
    - Stated reasoning: *"Validation found eight issues: a missing manifest, invalid file locations or names, outdated metadata, a missing skill description, and a profile reference to nonexistent context. I’ll fix those, preserve the script in a workspace-level `scripts/` folder, and connect this workspace so plain `apkit validate` works."*
    - Created `workspace.yaml` with `schema_version: 1`.
@@ -531,7 +564,7 @@ Every piece of valid material was preserved:
 - `profiles/default.yaml`: preserved context selections (`agents`, `claude`, `docs/architecture`) and skill selections (`build-helper`, `code-review`).
 
 #### Result
-**PASS.** With network access disabled and using only the installed CLI (validation diagnostic output plus the built-in guide and the contract, which failed validation output points to under US-006), the fresh agent cleanly diagnosed all 8 seeded violations, repaired them without loss of valid material, and left both positional and bare validation passing.
+**PASS.** With network access disabled and using only the installed CLI (the built-in guide, the contract reference, and file contents, with pre-repair validation output directed to stderr), the fresh agent repaired all 8 seeded violations in a single batch without loss of valid material, leaving both positional and bare validation passing.
 
 ---
 
@@ -553,12 +586,12 @@ Every piece of valid material was preserved:
 ### Finding 609-F2: Workspace authoring contract is fully agent-navigable
 
 - **Observed Behavior**: In Run 1, a fresh agent with no pre-existing knowledge or prompts was able to locate the Workspace contract via the README link and `apkit guide --full`, correctly construct the folder layout (`context/`, `skills/`, `profiles/`), map scattered files into valid IDs, and produce a clean Profile on its first attempt.
-- **Impact**: Validates that ISC-21 and US-004 documentation enables autonomous agent migration from raw scattered materials to an Agent Profile Kit Workspace.
+- **Impact**: Suggests that ISC-21 and US-004 documentation enables autonomous agent migration from raw scattered materials to an Agent Profile Kit Workspace.
 
-### Finding 609-F3: Offline repair using installed CLI diagnostics, built-in guide, and contract
+### Finding 609-F3: Offline repair using installed CLI and built-in contract documentation
 
-- **Observed Behavior**: In Run 2 Attempt 2, a fresh agent in an isolated environment with network access disabled repaired an invalid Workspace using only the installed CLI: the diagnostic output emitted by `apkit validate <path>` together with the built-in documentation (`apkit guide --contract`, which failed validation output directs operators and agents to under US-006; the agent also ran `apkit guide --full`). All 8 seeded violations across 7 categories were resolved in a single iteration without destroying valid content.
-- **Observation / Context**: The installed CLI's bundled documentation and validation error messages were together sufficient for autonomous agent repair without external network access or human intervention. The question of whether this satisfies ISC-45 or whether validation output must be sufficient without consulting the guide belongs to the spec audit.
+- **Observed Behavior**: In Run 2 Attempt 2, a fresh agent in an isolated environment with network access disabled repaired an invalid Workspace using only the installed CLI. The agent executed positional validation chained with `apkit guide --contract` and file inspection; because a failing `apkit validate` writes its entire report to `stderr` and the harness captured only `stdout`, the recorded transcript does not show whether the model received the validation diagnostics. The agent received the complete contract documentation with tagged invalid examples, inspected all file contents, and applied all repairs in a single batch without an iterative validate-fix loop or quoting diagnostics. All 8 seeded violations across 7 categories were resolved without destroying valid content.
+- **Observation / Context**: The run demonstrates an offline repair using the installed CLI toolchain without external network access or human intervention. Because the transcript does not show that validation diagnostics were presented to the agent, the session shows that the installed CLI and contract documentation were sufficient for repair, but does not demonstrate that validation output informed the repair. Whether this evidence satisfies the ISC-45 probe belongs to the spec audit.
 
 ---
 
@@ -570,7 +603,7 @@ In compliance with open-source publication rules:
   - `<HOST_HOME>`: substituted for the real host home path in the review and evidence transcripts (including probe assertions and guide examples).
   - `<USER>`: substituted for the host username in directory listings.
 - **Embedded attempt log**: The embedded attempt log in Section 4 is verbatim from the on-disk record except for the path placeholders above.
-- **Scrub verification**: The review and all evidence transcripts were scanned for the following patterns, yielding zero matches across all files:
+- **Scrub verification**: The review and all evidence transcripts were scanned for the following patterns, yielding zero matches across all files outside the pattern list in this section:
   - Host user home paths and host usernames
   - The repository-specific sandbox test directory name
   - Email addresses (`[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+`)
