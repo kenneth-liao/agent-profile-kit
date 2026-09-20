@@ -1,0 +1,1557 @@
+OpenAI Codex v0.155.1
+--------
+workdir: <SANDBOX>/run2/work
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR, <SANDBOX>]
+reasoning effort: none
+reasoning summaries: none
+session id: 01a0c0b1-90c2-7213-ae58-a769c4480871
+--------
+user
+Before running any other command, run:
+echo "SANDBOX_PROOF: HOME=$HOME, CWD=$(pwd), APKIT=$(which apkit), APKIT_VERSION=$(apkit --version)"
+
+Workspace: <SANDBOX>/run2/workspace
+
+Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
+codex
+I’ll run the requested sandbox check first, then fix the workspace issues reported by `apkit validate`.
+exec
+/bin/zsh -lc 'echo "SANDBOX_PROOF: HOME=$HOME, CWD=$(pwd), APKIT=$(which apkit), APKIT_VERSION=$(apkit --version)"' in <SANDBOX>/run2/work
+ succeeded in 0ms:
+SANDBOX_PROOF: HOME=<SANDBOX>/home-run2, CWD=<SANDBOX>/run2/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0
+
+exec
+/bin/zsh -lc 'ls -la; apkit --help; ls -la <SANDBOX>/home-run2; ls -la <SANDBOX>' in <SANDBOX>/run2/workspace
+ succeeded in 0ms:
+total 0
+drwxr-xr-x@ 5 <USER>  wheel  160 Sep 20 14:20 .
+drwxr-xr-x@ 4 <USER>  wheel  128 Sep 20 14:20 ..
+drwxr-xr-x@ 7 <USER>  wheel  224 Sep 20 14:20 context
+drwxr-xr-x@ 3 <USER>  wheel   96 Sep 20 14:20 profiles
+drwxr-xr-x@ 6 <USER>  wheel  192 Sep 20 14:20 skills
+Agent Profile Kit composes reusable agent material into host-native projects.
+
+Usage: apkit <command> [arguments]
+
+First run:
+  apkit init <path>
+  apkit install <profile> --host <host>
+  apkit status
+  apkit update
+
+  Scaffold material with apkit new; focus a topic with apkit guide profile,
+    apkit guide context, or apkit guide skill; see apkit install --help for
+    supported Host values.
+
+Common commands:
+  init
+    Initialize, adopt, or connect the canonical Workspace and settings
+  guide
+    Show a topic index, the Workspace contract, full Workspace guidance, or
+      one focused authoring example
+  new
+    Create a Skill, Context Module, or Profile scaffold in the configured
+      Workspace
+  open
+    Open the configured Workspace in your system file manager
+  install
+    Install a Profile with Agent Hosts into a Project and remember the
+      selection
+  validate
+    Check a Workspace folder or the connected Workspace and settings
+  configure
+    Change a reusable Profile's Context and Skill membership without editing
+      files
+  status
+    Show the complete read-only update plan for the complete fleet, the
+      containing Project, or one explicit Project
+  update
+    Sync the complete fleet, the containing Project, or one explicit Project
+  details
+    Show retained lifecycle operation history: the latest run, a compact list,
+      or one run by identity
+
+More commands:
+  Inventory:
+  list
+    List read-only inventory for Projects, Profiles, or Hosts
+  Teardown:
+  uninstall
+    Remove selected Project installations and forget their recorded selection;
+      a lone --profile reaches that Profile's installations fleet-wide; --host
+      removes only those Hosts within the scope
+  Machine details:
+  info
+    Show the engine version and selected application locations
+
+For the complete Workspace authoring reference (Context Modules, Skills, and
+  Profiles), run apkit guide --full.
+total 0
+drwx------@  3 <USER>  wheel   96 Sep 20 14:20 .
+drwxr-xr-x@ 13 <USER>  wheel  416 Sep 20 14:20 ..
+drwxr-xr-x@ 27 <USER>  wheel  864 Sep 20 14:20 .codex
+total 72
+drwxr-xr-x@  13 <USER>  wheel    416 Sep 20 14:20 .
+drwxrwxrwt  988 root         wheel  31616 Sep 20 14:21 ..
+drwxr-xr-x@   4 <USER>  wheel    128 Sep 20 14:14 bin
+drwx------@   3 <USER>  wheel     96 Sep 20 14:20 home-run2
+drwxr-xr-x@   3 <USER>  wheel     96 Sep 20 14:14 pkg
+-rw-r--r--@   1 <USER>  wheel    913 Sep 20 14:14 probe-transcript.txt
+-rw-r--r--@   1 <USER>  wheel  11334 Sep 20 14:15 run1-transcript.txt
+drwxr-xr-x@   4 <USER>  wheel    128 Sep 20 14:20 run2
+-rw-r--r--@   1 <USER>  wheel    965 Sep 20 14:16 run2-after-tree.txt
+-rw-r--r--@   1 <USER>  wheel    965 Sep 20 14:20 run2-attempt2-before-tree.txt
+-rw-r--r--@   1 <USER>  wheel   1096 Sep 20 14:21 run2-attempt2-transcript.txt
+-rw-r--r--@   1 <USER>  wheel    965 Sep 20 14:16 run2-before-tree.txt
+-rw-r--r--@   1 <USER>  wheel   1954 Sep 20 14:16 run2-transcript.txt
+
+exec
+/bin/zsh -lc 'apkit validate --help; apkit guide --full; rg --files --hidden .; for p in /AGENTS.md /private/AGENTS.md /private/tmp/AGENTS.md <SANDBOX>/AGENTS.md <SANDBOX>/run2/AGENTS.md; do if [ -f "$p" ]; then cat "$p"; fi; done' in <SANDBOX>/run2/workspace
+ succeeded in 34ms:
+Agent Profile Kit Workspace guide
+
+Agent Profile Kit keeps your reusable, cross-project agent material in one
+  Workspace. The Workspace is the single canonical source. Profiles select a
+  flat set of portable artifacts for a kind of work. The Installer installs each
+  bound Profile into explicitly bound projects as disposable, Host-native
+  output. Supported Hosts then load that material through ordinary project
+  discovery.
+
+Keep project facts in the relevant project repository. Keep Host preferences,
+  authentication, credentials, and machine-specific values outside the
+  Workspace. Edit Workspace files and Local Configuration directly.
+
+Universal Workspace material
+
+Source ownership and managed delivery are separate:
+
+- The Workspace may canonically own both Profile-selected artifacts and
+  unselected universal artifacts (material useful across every directory or kind
+  of work, not only one Profile’s selection). Leaving an artifact unselected by
+  every Profile does not make it invalid and does not move its canonical source
+  into Host configuration.
+- Profiles select the artifacts scoped to a kind of work for Agent Profile
+  Kit–managed project-bound delivery. A Project Binding selects a project root,
+  one Profile, and Hosts; only the artifacts that Profile selects enter
+  Installation Receipts and the managed lifecycle (`status`, `update`, and
+  `uninstall`).
+- Agent Profile Kit v1 does not install, project, synchronize, or remove
+  material in personal/global Host roots. Global Host delivery is not APK-owned
+  state: it is outside Project Bindings and Installation Receipts, and `update`
+  / `uninstall` never adopt, record as managed output, or mutate those paths.
+  `status` does not treat global roots as managed output.
+- You may still manage native global delivery yourself—for example by symlinking
+  a Host Skill root entry to canonical Workspace source—but that delivery is
+  user-managed Host configuration, not Agent Profile Kit–owned state. Agent
+  Profile Kit never adopts, tracks, or uninstalls those global paths.
+- A Skill may be both universally delivered through Host configuration and
+  selected into a bound Profile. The Host owns discovery, precedence,
+  deduplication, collision diagnostics, and resolution between those sources.
+  Agent Profile Kit blocks only an exact planned destination it cannot safely
+  own, not same-identity material elsewhere.
+
+Initialize
+
+There is no default Workspace location: setup records a folder the user names
+  (spec #593 DEC-001, ADR-0049). `apkit init <workspace>` adds exactly the
+  missing required parts to that folder and a version-2 machine-local Local
+  Configuration at `~/.agents/agent-profile-kit/config.yaml` that explicitly
+  records the authored path when Local Configuration is absent:
+
+apkit init ~/projects/agent-profile-workspace
+
+`apkit init .` uses the current folder. With a terminal, `init` asks whether
+  to use the current folder — shown as its full path — or another path, and
+  confirms the chosen folder before any write: it states that Context and Skill
+  files will be stored in and loaded from it and lists the parts setup will add
+  (or that nothing needs to be added); declining or cancelling writes nothing
+  (spec #593 #603). Without a path on a machine that has no selected Workspace
+  and without a terminal, `init` writes nothing and prints those two forms;
+  supplying the path counts as the confirmation.
+
+When Local Configuration is absent, setup adds exactly the missing required
+  parts — `workspace.yaml`, `context/`, `skills/`, and `profiles/` — in place to
+  the named folder and records the selection (spec #593 DEC-003, ADR-0047). A
+  path that does not exist is created only when its parent directory exists; a
+  parent that is missing too is refused, and nothing is written outside the
+  named path. A valid existing Workspace, including a symlink alias, is adopted,
+  adding only its still-missing required parts; existing entries are never
+  changed, moved, or deleted. A folder whose existing material is invalid is
+  refused with its violation and nothing is added. Rerunning is safe: it never
+  overwrites the Workspace or current configuration.
+
+To keep the Workspace as an independent Git repository elsewhere, set the
+  required `workspace` field in Local Configuration to one existing absolute or
+  home-relative path that already contains a valid `workspace.yaml`:
+
+schema_version: 2
+workspace: ~/projects/agent-profile-workspace
+bindings: []
+
+Symlinks are supported; relative paths and wildcards are not. When Local
+  Configuration already selects a Workspace, an explicit `init <workspace>` path
+  must resolve to that same canonical directory, including through an alias;
+  otherwise initialization fails closed without changing either source or
+  configuration. Zero-argument `init` validates the selected custom path and
+  does not create, move, copy, adopt, or repair it. Initialization never
+  migrates Workspace source automatically.
+
+The current Workspace schema version is 1. Its root `workspace.yaml` contains
+  only `schema_version: 1`. Local Configuration schema version is 2 and its
+  `workspace` field is required.
+
+Legacy Local Configuration migration and version compatibility
+
+Version-1 Local Configuration without `workspace` is supported only as
+  migration input. Run `apkit init <path>` to upgrade it before using
+  `validate`, `status`, `update`, `install`, or `uninstall`. Those commands
+  never migrate the file implicitly: they fail closed with actionable upgrade
+  guidance while leaving migration to the explicit `init` command.
+
+A legacy file that omitted `workspace` has no selection to preserve and is
+  never upgraded to a default: zero-argument `init` refuses, and `apkit init
+  <path>` upgrades it to the path the user gives (spec #593 DEC-011, ADR-0049).
+  For a legacy file with an authored path, migration preserves that path. `init`
+  validates the selected Workspace before atomically replacing only Local
+  Configuration, preserving Project Bindings, comments, line endings, and file
+  mode; it never moves or rewrites Workspace source. If validation fails, the
+  configuration remains unchanged.
+
+Before migrating, make and retain a copy of the version-1 Local Configuration:
+
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml" "$config_dir/config.yaml.before-schema-v2"
+
+Keep this backup until the current CLI has been validated in normal use. To
+  roll back to an older binary that understands only version-1 configuration,
+  stop using the current CLI, restore the copy, and run that older binary:
+
+<!-- historical-command-excerpts:start -->
+
+config_dir="$HOME/.agents/agent-profile-kit"
+cp -p "$config_dir/config.yaml.before-schema-v2" "$config_dir/config.yaml"
+agent-profile-kit validate
+
+<!-- historical-command-excerpts:end -->
+
+The restored file preserves the pre-migration Workspace selection and Project
+  Bindings. This reverses only the Local Configuration schema transition; it
+  does not undo later Workspace content changes.
+
+Required structure vs optional files
+
+The Workspace contract (run `apkit guide --contract`) states the required
+  structure and every rule validation enforces. In short: a valid Workspace
+  needs a supported `workspace.yaml` — the Workspace marker — plus the
+  `context/`, `skills/`, and `profiles/` artifact directories, which setup adds
+  when missing; missing categories are treated as empty collections, and present
+  ones are validated and ingested normally. `README.md`, `AGENTS.md`, and
+  `.gitignore` are optional user-owned files that the engine never requires.
+
+When creating a new Workspace, `init` adds only the required parts and no
+  example material (spec #593 DEC-003, ADR-0047). For a complete worked example
+  — a bindable `profiles/example.yaml` and its `context/example-context.md` —
+  run `apkit guide profile`, which prints both files' example bytes, or see
+  `apkit guide context` and `apkit guide skill` for single artifacts. The
+  contract's minimal valid Workspace shows all four required parts together.
+
+Author the Workspace
+
+The Workspace contract (run `apkit guide --contract`) states the complete
+  authoring format: Context Module identity and delivery, the Skill package
+  rules, the Profile shape, and model-invocation policy. This guide covers how
+  that material reaches each Host.
+
+This release supports Profile Context and Context Modules for Antigravity,
+  Codex, Claude Code, Grok, OpenCode, and Pi, and portable Skills for
+  Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi. Antigravity Context
+  uses `.agents/rules/`; Antigravity, Codex, OpenCode, and Pi Skills install
+  through the qualified shared `.agents/skills/<Artifact ID>/` projection after
+  project-surface capability checks; Pi and OpenCode resolve other Skills,
+  extensions, and packages through native Host behavior. Disabled
+  model-invocation Skills are projected with the shared
+  `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
+  activation (or OpenCode `/<Artifact ID>` command activation) remains
+  available. Agents, Hooks, and Tools are not delivered by this release.
+
+Skill model-invocation policy
+
+By default, Hosts may invoke a Skill implicitly when the model matches its
+  description. To require explicit user invocation while keeping the Skill
+  available on request, set the standard top-level `disable-model-invocation`
+  field in `SKILL.md`:
+
+disable-model-invocation: true
+
+The field is a boolean: `true` disables model invocation, and absence (or
+  `false`) allows it; non-boolean values fail at Workspace ingestion with the
+  fix.
+
+The standard field is the only policy authority (ADR-0018); the Workspace
+  contract states the full rule set, including the retired
+  `agent-profile-kit.model-invocation` metadata key and the accepted-and-ignored
+  other top-level fields. The Installer never rewrites Workspace `SKILL.md`
+  during validate, status, or update.
+
+Adapters translate the trusted policy only in generated Host output:
+
+Canonical policy: `allowed` (default)
+Claude / Grok generated output: No Host restriction field
+Antigravity / Codex / OpenCode / Pi shared output: No Host restriction field
+
+Canonical policy: `disabled`
+Claude / Grok generated output
+  `disable-model-invocation: true` in generated `SKILL.md`
+Antigravity / Codex / OpenCode / Pi shared output
+  `disable-model-invocation: true` in generated `SKILL.md` plus
+    `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml`
+    and `"permission": { "skill": { "<id>": "deny" } }` in generated
+    `.opencode/opencode.jsonc`
+
+Existing source `agents/openai.yaml` content is preserved. An equivalent
+  invocation policy coalesces; malformed, wrong-type, or conflicting policy
+  produces one structured project Blocker naming the Workspace and shared
+  Host-policy authorities with a Workspace repair remedy before any project
+  write. Generated policy fields carry short deterministic comments. When any
+  selected Skill disables model invocation, update-time capability probing
+  checks each selected Host's enforcement floor: Claude Code CLI `2.0.64+` (same
+  floor as unscoped rules and native Skill discovery, which honors
+  `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project rules
+  and native Skill discovery, which honors `disable-model-invocation`), Codex
+  CLI `0.99.0+` (first stable release with `agents/openai.yaml`
+  `policy.allow_implicit_invocation`; see openai/codex#11244 / rust-v0.99.0),
+  OpenCode CLI `1.18.23+` (filters denied Skills from model inventory while
+  leaving native command activation available), and Pi CLI `0.82.1+` (honors
+  `disable-model-invocation: true` in `SKILL.md`). OpenCode records
+  `native-project-instructions-skills-invocation-v1` for explicit-only Skill
+  enforcement or `native-project-instructions-skills-v1` for baseline allowed
+  Skills. Pi records `native-project-shared-skills-invocation-v1` for
+  Skills-only or `native-project-append-system-shared-skills-invocation-v1` for
+  combined Profiles. Antigravity records
+  `native-project-shared-skills-invocation-v1` or
+  `native-project-always-on-rules-shared-skills-invocation-v1` for the same two
+  shapes. Probing is advisory: an older, missing, or unreadable CLI produces a
+  warning, and the planned policy fields are written regardless — the Adapter
+  never silently omits or weakens what it plans.
+
+Profiles are the only place that says what gets installed together (ADR-0045):
+  list each needed Context Module and Skill explicitly. A Profile's `context`
+  and `skills` lists install exactly what they name — nothing is pulled in
+  transitively. The Workspace contract states the Profile shape; a Skills-only
+  Profile installs only selected Skill packages for Hosts that support them and
+  Installer lifecycle metadata—no Context snapshot, Codex SessionStart hooks, or
+  Claude Context rule. Antigravity Skills-only bindings check only the shared
+  `.agents` and `.agents/skills` surfaces. Host capability probing is scoped to
+  the selected categories (Skills-only does not require Context machinery).
+  Renaming a Profile file renames its ID; Project Bindings select Profiles by
+  that name.
+
+Rollback caveat: this Profile shape is a CLI 0.208.0+ acceptance change. A
+  Workspace whose Profiles carry no `id` line fails validation on an older
+  binary — before rolling a CLI back, re-add an `id` line matching each
+  Profile's file name, or keep every shared Workspace on 0.208+.
+
+<!-- context/engineering-rules.md -->
+Keep project facts in the project repository.
+
+<!-- context/engineering/review-findings.md -->
+Review findings and the reasoning behind them.
+
+A Context Module is a plain Markdown file: no frontmatter is required or read
+  (the Workspace contract states the full rule). A Context file that still
+  carries frontmatter from an earlier release is valid — its bytes are delivered
+  as written — and you can delete the frontmatter at your leisure.
+
+Rollback caveat: Context path identity is a CLI 0.210.0+ acceptance change. A
+  Workspace whose Context Modules carry no frontmatter `id` fails validation on
+  an older binary — before rolling a CLI back, re-add an `id` line matching each
+  file's path-derived ID, or keep every shared Workspace on 0.210+.
+
+# profiles/coding.yaml
+context:
+  - engineering-rules
+  - engineering/review-findings
+skills:
+  - review-pr
+
+<!-- skills/review-pr/SKILL.md -->
+---
+name: review-pr
+description: Review a pull request. Use when asked to review code changes.
+---
+
+# Review a pull request
+
+<!-- skills/to-spec/SKILL.md — explicit-only invocation -->
+---
+name: to-spec
+description: Turn the current conversation into a spec.
+disable-model-invocation: true
+---
+
+# To spec
+
+Bind projects in Local Configuration
+
+Project Bindings live only in machine-local
+  `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
+  existing absolute or home-relative project root, one Profile, and a non-empty
+  set of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `opencode`,
+  `pi`). Host order and duplicate entries normalize at ingestion. There are no
+  wildcards, recursive scans, hidden default projects, Host auto-detection,
+  per-session Profile selection, or Profile version pins. A project root may
+  appear in only one binding.
+
+Hand-edit `config.yaml`, or record one binding and install it in one action
+  with `apkit install` (confirms interactively; `--auto-confirm` answers it):
+
+apkit install coding --host codex --auto-confirm
+apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi --auto-confirm
+
+Omit the project argument to use the current working directory. At least one
+  `--host` flag is required. An identical installation is left unchanged; a
+  different Profile or Host set for the same project replaces the installation
+  in the same action. Do not hand-edit `config.yaml` while `install` is running:
+  cooperating lifecycle commands serialize, but a text editor does not
+  participate in that lock. Installing a Profile also verifies its generated
+  output; run `validate` for Workspace checks and `status` to review
+  installation state.
+
+Remove one installation and forget its recorded selection with an explicit
+  scope:
+
+apkit uninstall --here --auto-confirm
+apkit uninstall --project ~/projects/tools/agent-profile-kit --auto-confirm
+
+Scope is explicit (`--here`, `--project <path>`, or `--all`, mutually
+  exclusive); add `--profile <name>` to intersect, `--remove-changed` to
+  authorize deletion of independently changed generated files, and
+  `--auto-confirm` to answer the confirmation non-interactively. Existing paths
+  use the same canonical-root rules as bindings, including symlink aliases. When
+  a project no longer exists, `uninstall --project` still forgets its selection
+  only when the argument exactly matches its authored `project` spelling; it
+  never guesses an alias. A fully removed Project is forgotten only after its
+  output removal succeeds, so a later `update` does not reinstall it.
+  Cooperating lifecycle commands serialize; do not hand-edit the file
+  concurrently.
+
+schema_version: 1
+bindings:
+  - project: ~/projects/tools/agent-profile-kit
+    profile: coding
+    hosts:
+      - codex
+      - claude
+  - project: <HOST_HOME>/work/customer-portal
+    profile: coding
+    hosts:
+      - claude
+
+Validate, status, and update
+
+For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0
+  or newer so the generated SessionStart handler can deliver the complete
+  Context envelope without Codex's default head-and-tail spill. Host capability
+  probing is advisory: during `update`, an older, missing, or unreadable Codex
+  CLI produces a warning while the planned project and Installation State writes
+  proceed regardless. `status` performs no Agent Host process execution and no
+  capability probing; a Project-scoped `status` or `update` plans only its
+  selected binding. `update --all` writes every selected Project including any
+  with Host capability warnings; global Blockers still stop every fleet write.
+  Skills-only Codex bindings do not require this floor. Review and trust the
+  generated project SessionStart hook in Codex for each bound project. Lifecycle
+  hooks are enabled by default. Agent Profile Kit checks the effective global
+  and project configuration during update and warns when hooks are explicitly
+  disabled, when relevant configuration is malformed or unreadable, or when
+  `hooks` or the deprecated `codex_hooks` alias is not a boolean. These warnings
+  do not block installation, but generated Context may not load until the
+  setting is corrected. Project configuration takes precedence over global
+  configuration. If `CODEX_HOME` is set, Codex reads its global configuration
+  from `CODEX_HOME/config.toml`; otherwise it uses `~/.codex/config.toml`.
+  Skills-only Codex bindings do not require hooks.
+
+Run `apkit validate` to check the Workspace and every Project Binding. Review
+  the concise read-only reconciliation outcome with `apkit status`. It leads
+  with whether reconciliation can proceed, groups changes and blockers by
+  Profile Installation, and summarizes changed file paths with `+`, `~`, `-`, or
+  `!` markers without listing unchanged output. Long lists are capped with an
+  overflow pointer to `--verbose`. Non-current Profile Installation states such
+  as `stale source`, `blocked`, or `removal` get a short explanation when
+  present (once per distinct state across installations). Pending Git exclusion
+  work appears as one concise clause; exact targets and path changes are
+  reserved for `--verbose`. When action is useful, concise results end with one
+  next-action line derived from the same attention surface as the report body:
+  actionable `status` points directly to the matching update command; a ready
+  fleet `status --all` recommends `update --all`; a blocked result tells you to
+  resolve the reported blocker and retry the same command you just ran; current
+  status and completed or no-op `update` results omit a next step. `status` and
+  `update` target the complete fleet by default. Narrow the scope with `--here`
+  for the bound Project containing the current working directory, one explicit
+  existing absolute or home-relative bound Project root, or `--project <path>`;
+  `--all` states the fleet scope explicitly. Scoped planning, Git and ownership
+  inspection, reconciliation, reports, and writes exclude unrelated Projects; a
+  shared Git exclusion file changes only through the selected installation's
+  contribution-aware union. Host capability probing is advisory and happens only
+  during `update`: a missing or outdated Host CLI produces a warning and the
+  planned output is written regardless; capability problems never block
+  application and do not mark generated files as drifted.
+
+`apkit update` refreshes the installed Context and Skills in your Projects
+  from the Workspace; it does not upgrade the `apkit` executable itself.
+
+For focused per-output and state diagnostics, append `--verbose` to `status`
+  or `update`. Warnings, blockers, drift reasons, and removal intent remain
+  visible in the concise view. Git-tracked-path blockers explain that
+  repository-owned content is not replaced because generated Profile
+  Installation output must be exclusively Installer-owned.
+
+Git is optional. For a Git binding, `update` installs only into the exact
+  bound project directory. The Installer uses Git for tracked-path protection
+  and local exclusions but does not inspect or report worktree topology. Bind
+  any additional root explicitly only when Hosts must be launched directly from
+  that root; it then follows the same lifecycle as any other binding.
+
+For every bound project root, the ordinary removal order is:
+
+apkit uninstall --project /path/to/project --auto-confirm
+# Now delete the project directory.
+
+If the project directory was deleted first, run `uninstall --project` with its
+  exact authored path. That explicit action confirms the deletion was
+  intentional; it forgets the machine-local selection without attempting project
+  filesystem deletion and cleans any separately surviving local Git exclusions
+  whose ownership was recorded. Restoring the project later requires a new
+  `install`.
+
+Generated output is owned whole: complete files and artifact directories whose
+  Installation Receipt proves Agent Profile Kit ownership, with the receipt's
+  recorded hashes providing the continuity evidence that extant material is what
+  Agent Profile Kit last published. Generated instructions open with a short
+  notice stating that apkit generated them, that lasting edits belong in the
+  Workspace, and that `install`, `update`, and `uninstall` replace or remove an
+  independently changed generated file only with your explicit consent. The
+  claimed OpenCode configuration file carries the same generated-source notice
+  with project-file guidance instead of the Workspace pointer. Supporting Skill
+  resources keep their bytes. See ADR-0041. Unrelated project files,
+  repository-owned instructions, global Host configuration, authentication,
+  trust, approvals, plugins, and sessions remain untouched. Agent Profile Kit
+  does not merge selected fields into Host or repository configuration, install
+  a watcher or Git hook, or modify shared `.gitignore` files.
+
+For a currently bound installation, `update` recreates a recorded output that
+  is completely missing when normal path-conflict checks pass. Modified output
+  is ordinary refresh work while at least one recorded root still matches its
+  recorded hash; when no recorded root matches, ownership continuity cannot be
+  proven and `status` blocks until you restore or remove the generated files.
+  Unexpected directory members are never overwritten.
+
+Use Hosts natively
+
+After `update`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi
+  from the bound project the way you normally would. Agent Profile Kit does not
+  manage their authentication, trust, approvals, plugins, or sessions, and does
+  not launch Hosts.
+
+Antigravity
+
+Antigravity receives Profile Context through deterministic always-on rules
+  under `.agents/rules/`. The Adapter requires `agy` CLI 1.1.13 or newer and
+  writes one rule for the Profile envelope followed by one complete rule per
+  Context Module. A nested Context Module ID's `/` separators become `.` in the
+  rule file name (the ID itself is preserved in the rule's boundary markers);
+  each rule file stays directly inside `.agents/rules/`. Each generated rule
+  contains `trigger: always_on` frontmatter and must stay at or below 12,000
+  characters. If one Context Module is too large, status reports a structured
+  blocker instead of truncating it. A Context Module's own frontmatter, when it
+  has any, is delivered as written inside the rule's boundary markers and never
+  replaces the generated `trigger: always_on` frontmatter.
+
+Antigravity discovers the rules from the current bound project; you do not
+  need to create or select an Antigravity Project. Trust is Host-owned: after
+  `update`, trust the bound project in Antigravity if it asks. Agent Profile Kit
+  does not read or change trust, settings, authentication, plugins, Project
+  records, `AGENTS.md`, or `GEMINI.md`. A standing trust reminder appears for
+  every non-empty Antigravity plan, but unproven trust never blocks safe writes.
+
+Antigravity also discovers selected Skills through the qualified shared
+  `.agents/skills/<Artifact ID>/` projection used by Codex and Pi. The complete
+  package preserves standard members — with the generated-source notice opening
+  each `SKILL.md` body after frontmatter (ADR-0041) — and, for disabled Skills,
+  both the generated `disable-model-invocation: true` field and Codex
+  `agents/openai.yaml` policy. Antigravity's native discovery, trust, settings,
+  and effective inventory remain Host-owned.
+
+Codex
+
+Codex receives the complete Profile Context through a native project
+  SessionStart hook and discovers selected Skills under
+  `.agents/skills/<Artifact ID>/`. When Context is installed, Codex asks you to
+  review the generated hook: review its contents and approve it when they match
+  the expected SessionStart behavior, because declining it prevents Profile
+  Context from loading. Before launching Codex, trust each bound project in
+  Codex — project trust is Host-owned and is not configured by Agent Profile
+  Kit. Ordinary launches from a Git project's bound directory or its descendants
+  receive that material. For a non-Git project, launch Codex from the exact
+  bound root; launching from a descendant prevents Profile Context from loading.
+  Skills-only Codex Profiles generate no hook and require no hook approval.
+
+Claude Code
+
+Claude Code receives Profile Context as an unscoped owned project rule under
+  `.claude/rules/` and discovers selected Skills under `.claude/skills/<Artifact
+  ID>/`. Ordinary Claude launches in the bound project load that material.
+  Claude project rules do not depend on Git.
+
+Pi
+
+Pi receives Profile Context through the owned project file
+  `.pi/APPEND_SYSTEM.md`. The Pi Adapter requires CLI 0.82.1 or newer and proves
+  that `.pi` and the append-system destination are compatible before Context
+  writes; Skill-bearing Profiles instead prove the shared `.agents` and
+  `.agents/skills` surfaces. Profiles with portable Skills receive one shared
+  package per resolved Artifact ID under `.agents/skills/<Artifact ID>/`;
+  standard package bytes and modes are preserved apart from the generated-source
+  notice that opens each projected `SKILL.md` body (ADR-0041). Codex and Pi
+  co-own one normalized package when both are selected; the package carries
+  every required Host policy field without adding consumer metadata to Skill
+  source. Pi owns Skill resolution across personal, project, ancestor, package,
+  extension, and configured sources. Disabled model-invocation Skills receive
+  top-level `disable-model-invocation: true` in generated `SKILL.md` while the
+  canonical Workspace source remains unchanged and explicit `/skill:<Artifact
+  ID>` activation remains available. Malformed or unreadable relevant settings
+  warn without blocking. Pi's native project trust, authentication, settings,
+  prompt files, and per-session overrides remain Host-owned.
+
+OpenCode
+
+OpenCode receives Profile Context through the owned composed Context document
+  at `.agent-profile-kit/opencode/context.md` and references it through the
+  additive `instructions` list inside the claimed configuration file at
+  `.opencode/opencode.jsonc`. OpenCode combines this configuration with
+  user-authored slots via native additive merging, and the Project-relative
+  reference continues to load Context when OpenCode is launched from any
+  subdirectory. The OpenCode Adapter requires CLI 1.18.23 or newer. When
+  configuration is planned (Context or disabled Skills), the Adapter emits one
+  transition launch-constraint Host Setup Step tied to
+  `.opencode/opencode.jsonc` reminding you to restart running OpenCode sessions.
+
+OpenCode discovers selected Skills through the qualified shared
+  `.agents/skills/<Artifact ID>/` projection used by Antigravity, Codex, and Pi.
+  When trusted model-invocation policy is `disabled`, the OpenCode Adapter
+  configures an Artifact-ID-keyed global Skill permission rule with action
+  `deny` inside `.opencode/opencode.jsonc`. OpenCode filters denied Skills from
+  the model-facing inventory while native Command activation (`/<Artifact ID>`)
+  remains available. When Claude and OpenCode are co-selected in a Project
+  Binding with Skills, OpenCode natively discovers Skills under both
+  `.claude/skills` and `.agents/skills` and reports duplicate Skill names; the
+  OpenCode Adapter emits one non-blocking diagnostic warning naming both roots.
+  OpenCode's native discovery, configuration slots, and session commands remain
+  Host-owned.
+
+Precedence and conflicts
+
+Repository-owned project instructions take precedence over Profile Context on
+  conflict. Agent Profile Kit does not detect or resolve contradictions in
+  prose; conflicting guidance remains visible to you and the Host. Global Host
+  configuration and repository-owned files stay live and unchanged.
+
+Installation State compatibility and recovery
+
+Installation State is durable machine-local ownership evidence at
+  `~/.agents/agent-profile-kit/state/manifest.json`. It is not Workspace source,
+  but lifecycle safety depends on it for movement, repair, uninstall, Temporary
+  Profile Installation recovery, and repository-local exclusion cleanup. Do not
+  edit it by hand or reconstruct it from generated project output.
+
+Agent Profile Kit reads strict JSON at Ownership State schema versions 6
+  through 9 and writes schema version 9. The writer validates the exact
+  serialized bytes through the production reader before atomic rename. Active
+  ordinary and temporary installations use one minimal receipt shape; removed
+  temporary identities retain only the compact ID needed for idempotent retry.
+  Directory receipts retain one aggregate root hash, not complete member trees.
+
+The pre-1.0 YAML migration window is closed. If `state/manifest.yaml` remains,
+  install the shipped Agent Profile Kit 0.95.0 release, run a successful
+  state-writing lifecycle command to publish `manifest.json`, and then retry
+  with the current release. Current commands reject the YAML file without
+  parsing, changing, or removing it.
+
+Back up current `manifest.json` with ordinary machine backup tooling. If the
+  current state is missing or malformed, restore a known-good backup and retry.
+  Agent Profile Kit never adopts surviving generated output or reconstructs
+  ownership from it.
+
+Without a backup, stop the CLI and manually remove only project output whose
+  ownership you independently verify, including any
+  `.agent-profile-kit/installation.json` file left by an older version. In each
+  affected `.git/info/exclude`, remove only the marked block between `# BEGIN
+  Agent Profile Kit generated paths` and `# END Agent Profile Kit generated
+  paths`; preserve every unrelated byte. Then recreate the desired Project
+  Bindings and run `apkit update` to establish fresh ownership receipts. This
+  manual path is intentionally fail-closed.
+
+Host Resolution and project-bound Profiles
+
+This section is the Host-path detail for the [Universal Workspace
+  material](#universal-workspace-material) boundary.
+
+Agent Profile Kit installs selected Skills only into the bound project
+  (`.agents/skills/<Artifact ID>/` for Antigravity, Codex, OpenCode, and Pi,
+  `.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
+  Grok). Antigravity Profile Context uses `.agents/rules/` alongside its shared
+  Skill packages. It never installs into, adopts, disables, or removes
+  personal/global Host Skill folders. Unselected Workspace Skills are not
+  installed into projects either; they may remain valid Workspace source without
+  any APK-managed delivery.
+
+Those global folders remain Host-owned:
+
+- Codex: `~/.agents/skills/` and `~/.codex/skills/`
+- Claude Code: `~/.claude/skills/`
+- Grok: `~/.grok/skills/` (plus enabled compatibility roots and configured
+  `[skills].paths`; see `grok inspect`)
+- OpenCode: personal/global configured directories
+- Pi: `~/.pi/skills/` (plus configured sources)
+
+Selected Skills may share an identity with material from these roots,
+  packages, plugins, extensions, compatibility sources, or other Host-native
+  locations. The Host owns discovery, precedence, deduplication, collision
+  diagnostics, and resolution across those sources. Agent Profile Kit neither
+  scans an effective inventory nor asks you to remove same-identity material.
+
+Where a disable is detectable without reconstructing Host Resolution, the
+  Adapter warns: Codex checks SessionStart hooks and Grok checks
+  `[skills].disabled` and `[skills].ignore`. Malformed or unreadable
+  configuration that an Adapter reads for planned output also warns; Pi's
+  settings rule is described in its Adapter section above. Capability failures,
+  unrepresentable portable semantics, and exact Output Ownership Conflicts at
+  the planned project destination remain blockers.
+
+Status and uninstall
+
+Use `apkit status` for the bound Project containing the current directory,
+  pass one explicit Project root, or use `apkit status --all` to inspect every
+  binding. It reports current, not installed, stale source, drifted output
+  (including wholly absent owned output), malformed ownership, and blocked
+  installations, while keeping Host configuration warnings visible.
+
+Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall
+  --all` (with `--auto-confirm` non-interactively, plus `--profile <name>`,
+  `--host <host>`, and `--remove-changed` as needed) to remove selected
+  installations and forget their recorded selection. `--host <host>`
+  (repeatable) removes only those Hosts within the scope while the remaining
+  Hosts keep working. It removes only Installation Receipt-proven output and
+  preserves the Workspace and unselected Projects. It writes no teardown
+  provenance. Because a fully removed Project is forgotten, the next `status` no
+  longer selects it, rather than reporting it as unsafe unexplained missing
+  output.
+
+To stop managing a Project but keep its Git-owned files in place, remove its
+  entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next
+  `update` reconciles the leftovers. Neither path modifies personal/global Host
+  configuration or repository-owned files.
+
+Review personal content before publishing this Workspace. Agent Profile Kit
+  does not classify private material, and credential values do not belong in a
+  Workspace regardless of whether you publish it.
+
+For the complete human guide, run `apkit guide --full`. For help authoring
+  with an agent, run `apkit guide --agent`. For a short copyable example, run
+  `apkit guide profile`, `apkit guide context`, or `apkit guide skill`.
+./profiles/default.yaml
+./skills/stray-script.sh
+./skills/build-helper/SKILL.md
+./skills/build-helper/scripts/build.sh
+./skills/build-helper/agent-profile-kit.yaml
+./skills/build-helper/references/reference.md
+./skills/code-review/SKILL.md
+./skills/broken-skill/SKILL.md
+./context/claude.md
+./context/agents.md
+./context/docs/architecture.md
+./context/invalid file name.md
+./context/notes.txt
+
+exec
+/bin/zsh -lc "apkit validate <SANDBOX>/run2/workspace; apkit guide --contract; find . -type f -maxdepth 5 -print -exec cat {} \\;" in <SANDBOX>/run2/workspace
+ succeeded in 73ms:
+# The Agent Profile Kit Workspace contract
+
+The Workspace is the single canonical source Agent Profile Kit installs from:
+plain files you own in one folder. This document is the complete contract for
+that folder — every rule below is enforced by Workspace validation, and every
+rule Workspace validation enforces is stated here. Read it before building a
+Workspace so you or your agent can author valid material first, without
+installing apkit.
+
+View this contract any time with `apkit guide --contract`. For authoring
+workflows and Host delivery behavior, see the complete Workspace guide
+(`apkit guide --full`).
+
+## Workspace structure
+
+A Workspace is a folder containing a `workspace.yaml` Manifest and the three
+artifact folders `context/`, `skills/`, and `profiles/`. `apkit init <path>`
+adds exactly these parts, and nothing else, to a folder you name.
+
+- A Workspace root must contain a `workspace.yaml` file, and
+  `workspace.yaml` must be a file, not a folder.
+- `workspace.yaml` must be valid YAML, and it must declare
+  `schema_version: 1`. The current Workspace schema version is 1; other
+  versions are not supported. `schema_version` must be a positive integer,
+  and `workspace.yaml` contains only `schema_version` — no other fields.
+- `context/`, `skills/`, and `profiles/` must be directories, not files.
+  Each must be a real directory: a dangling symlink is invalid.
+- A missing artifact folder is treated as an empty collection.
+- Hidden files and folders — names starting with `.` — are ignored
+  everywhere: validation never reports them and never looks inside them.
+  Outside a Skill package they are not Workspace source: a hidden file is
+  never a Context Module, a Skill, or a Profile, and a Profile naming one
+  reports it missing. A hidden file inside a Skill package stays ordinary
+  package content.
+- Every non-hidden entry under the artifact folders must be a real file or
+  directory. Outside a Skill package, a symlink is a violation, because
+  validation never follows links; inside a Skill package a symlink stays
+  ordinary package content.
+- Empty folders violate nothing: the rules below bind files.
+
+## Context Modules
+
+- Every `.md` file under `context/`, at any depth, is a Context Module.
+- Under `context/`, every non-hidden file must be Markdown (`.md`) — anything
+  else is a violation. Give the file a `.md` extension or move it out of
+  `context/`.
+- A Context Module's ID is its path under `context/` without `.md`, with `/`
+  between folders (for example `engineering/review-findings`). Moving or
+  renaming the file changes its ID by design.
+- Every folder and file name under `context/` must be a lowercase kebab-case
+  name, because together they form the Context Module ID.
+- A Context Module file must not be empty.
+- apkit reads no Context frontmatter and requires none: each file's bytes are
+  delivered as written, after the generated Context header, so frontmatter
+  keys such as `id` or `dependencies` have no effect.
+
+## Skills
+
+A Skill is a standard Agent Skills package: a folder under `skills/` (folders
+may group packages) rooted at a `SKILL.md` file. Supporting scripts,
+references, and assets stay ordinary package files.
+
+- Under `skills/`, every non-hidden file must belong to a Skill package (a
+  folder with a `SKILL.md`); folders may group Skill packages. A file outside
+  a Skill package is a violation — move it into a package as a Skill
+  Resource, give it its own package, or move it out of `skills/`.
+
+- A Skill's `SKILL.md` must open with YAML frontmatter, and it must close its
+  YAML frontmatter. Profile files are YAML mappings, and `SKILL.md`
+  frontmatter is a YAML mapping. Profile files and `SKILL.md` frontmatter
+  must be valid YAML.
+- The frontmatter requires a `name` and a `description`. Required Skill
+  fields must be non-empty strings within the Agent Skills length limits:
+  `name` at most 64 characters, `description` at most 1024. The `name` is the
+  Skill's ID, and it is stable: Artifact IDs are lowercase kebab-case names:
+  lowercase letters and digits joined by single hyphens.
+- Optional top-level fields keep their standard types when present:
+  `license` and `allowed-tools` must be strings, `compatibility` must be a
+  string of at most 500 characters, and `metadata`, when present, must be a
+  YAML mapping.
+- Two Skill packages must not declare the same `name`.
+- By default, a Host may invoke a Skill when the model matches its
+  description. To require explicit invocation instead, set the standard
+  top-level field `disable-model-invocation: true` in `SKILL.md`.
+  `disable-model-invocation` must be a boolean: `true` disables model
+  invocation; absent or `false` allows it.
+- The retired `metadata.agent-profile-kit.model-invocation` key is a
+  violation; the standard top-level `disable-model-invocation` field is its
+  replacement.
+- Other top-level frontmatter fields beyond those apkit reads are accepted
+  and ignored — Host-specific fields reach each Host as written, so standard
+  Skill packages validate and install unchanged.
+- A Skill package must not contain an `agent-profile-kit.yaml` sidecar. The
+  sidecar is retired: delete it and list what it declared in a Profile's
+  `context` and `skills` lists.
+
+## Profiles
+
+A Profile is the one apkit-specific file and the only place that says what
+gets installed together.
+
+- A Profile is a `.yaml` file directly under `profiles/`. Profile files live
+  directly in `profiles/`; a `.yaml` file inside a `profiles/` subfolder is a
+  violation (move the file up; its file name becomes its ID).
+- Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+  in `profiles/` — a non-`.yaml` file anywhere under `profiles/`, including
+  inside a subfolder, is a violation; a `.yml` extension is not accepted.
+  Rename the file with a `.yaml` extension or move it out of `profiles/`.
+- A Profile's file name, without `.yaml`, must be a lowercase kebab-case
+  name; that name is the Profile's ID. A Profile carries no `id` field: its
+  ID is its file name without `.yaml` — remove the field, and rename the file
+  to change the ID.
+- A Profile file contains exactly its `context` and `skills` lists — no other
+  fields — and it contains both lists: `context` and `skills`. `context` and
+  `skills` are lists of names. The `agents`, `hooks`, and `tools` fields are
+  not supported in a Profile.
+- A Profile list must not select a name more than once. Every name in a
+  Profile's `context` list must be an existing Context Module ID. Every name
+  in a Profile's `skills` list must be an existing Skill `name`.
+- A Profile must select at least one artifact: its `context` list, its
+  `skills` list, or both must be non-empty. Context-only, Skills-only, and
+  combined Profiles are all valid.
+
+## Local Configuration
+
+The file `~/.agents/agent-profile-kit/config.yaml` is where this machine
+records the selected Workspace path and its Project Bindings (each binding
+names one project root, one Profile, and the Hosts to install for). Local
+Configuration is machine-local, untracked, and never part of the Workspace.
+
+## Examples
+
+### Valid: a minimal valid Workspace
+
+These four files form a complete, valid Workspace.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/example-context.md -->
+```markdown
+Keep project-specific instructions in the project repository.
+```
+
+<!-- skills/example-skill/SKILL.md -->
+```markdown
+---
+name: "example-skill"
+description: Summarize a change. Use when asked for a concise change summary.
+---
+
+# Summarize a change
+
+Describe what changed, how it was verified, and any follow-up work.
+```
+
+<!-- profiles/example.yaml -->
+```yaml
+context:
+  - "example-context"
+skills:
+  - "example-skill"
+```
+
+### Pattern: a Skill that needs specific Context
+
+A Skill that only works with particular Context should say so and stop when
+the Context is missing. In the Skill's `SKILL.md` body:
+
+```markdown
+# Review a pull request
+
+Requires the Context Module `engineering/review-findings`. If this project's
+installed Context does not include it, stop and tell the user to add it to
+their Profile instead of proceeding without it.
+```
+
+### Invalid: a Workspace without the required Manifest
+
+<!-- expects violations: workspace-missing-manifest -->
+A folder whose root has no `workspace.yaml` is not a Workspace; apkit reports
+the missing Manifest.
+
+<!-- context/notes.md -->
+```markdown
+Some notes.
+```
+
+### Invalid: an unsupported Manifest schema version
+
+<!-- expects violations: workspace-manifest/unsupported-schema-version -->
+Only schema version 1 is supported.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 2
+```
+
+### Invalid: a Profile carrying an `id` field
+
+<!-- expects violations: workspace-artifact/profile-id-field -->
+A Profile's ID is its file name without `.yaml`; remove the `id` field.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/example-context.md -->
+```markdown
+Keep project-specific instructions in the project repository.
+```
+
+<!-- profiles/legacy.yaml -->
+```yaml
+id: "legacy"
+context:
+  - "example-context"
+skills: []
+```
+
+### Invalid: a Profile naming a Context Module that does not exist
+
+<!-- expects violations: missing-context-reference -->
+The Profile's `context` list names `missing-notes`, and no Context Module has
+that ID.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/draft.yaml -->
+```yaml
+context:
+  - "missing-notes"
+skills: []
+```
+
+### Invalid: a Profile naming a Skill that does not exist
+
+<!-- expects violations: missing-skill-reference -->
+The Profile's `skills` list names `missing-skill`, and no Skill package
+declares that `name`.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/draft.yaml -->
+```yaml
+context: []
+skills:
+  - "missing-skill"
+```
+
+### Invalid: a Profile inside a nested folder
+
+<!-- expects violations: nested-profile -->
+Profiles live directly in `profiles/`; move `profiles/team/coding.yaml` up so
+its file name becomes its ID.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/example-skill/SKILL.md -->
+```markdown
+---
+name: "example-skill"
+description: Summarize a change. Use when asked for a concise change summary.
+---
+```
+
+<!-- profiles/team/coding.yaml -->
+```yaml
+context: []
+skills:
+  - "example-skill"
+```
+
+### Invalid: a Profile that selects nothing
+
+<!-- expects violations: profile-without-artifacts -->
+A Profile with both lists empty selects no material.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/empty.yaml -->
+```yaml
+context: []
+skills: []
+```
+
+### Invalid: two Skills with the same name
+
+<!-- expects violations: duplicate-artifact-name -->
+Two Skill packages declare the same `name`; Skill names are unique.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/alpha/SKILL.md -->
+```markdown
+---
+name: "summarize-change"
+description: Summarize a change. Use when asked for a concise change summary.
+---
+```
+
+<!-- skills/beta/SKILL.md -->
+```markdown
+---
+name: "summarize-change"
+description: Another summary workflow.
+---
+```
+
+### Invalid: a leftover Skill sidecar
+
+<!-- expects violations: leftover-skill-sidecar -->
+`agent-profile-kit.yaml` is retired and no longer read; delete it and list its
+content in a Profile's `context` and `skills` lists.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/example-skill/SKILL.md -->
+```markdown
+---
+name: "example-skill"
+description: Summarize a change. Use when asked for a concise change summary.
+---
+```
+
+<!-- skills/example-skill/agent-profile-kit.yaml -->
+```yaml
+dependencies: []
+```
+
+### Invalid: the retired model-invocation metadata key
+
+<!-- expects violations: workspace-artifact/leftover-model-invocation-metadata -->
+The `metadata.agent-profile-kit.model-invocation` key is no longer read; move
+the policy to the standard top-level `disable-model-invocation` field.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/pinned/SKILL.md -->
+```markdown
+---
+name: "pinned-skill"
+description: Review a change on request only.
+metadata:
+  agent-profile-kit.model-invocation: true
+---
+```
+
+### Invalid: a non-boolean disable-model-invocation
+
+<!-- expects violations: workspace-artifact/invalid-model-invocation -->
+`disable-model-invocation` must be a boolean, not a quoted string.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/pinned/SKILL.md -->
+```markdown
+---
+name: "pinned-skill"
+description: Summarize a change on request only.
+disable-model-invocation: "true"
+---
+```
+
+### Invalid: a Skill without a description
+
+<!-- expects violations: workspace-artifact/invalid-field -->
+The frontmatter requires a non-empty `description`.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/brief/SKILL.md -->
+```markdown
+---
+name: "brief-skill"
+---
+```
+
+### Invalid: a Context file name that cannot form a valid Context Module ID
+
+<!-- expects violations: workspace-artifact/context-module-file-name -->
+`My Notes.md` contains a space and an uppercase letter; the file name must be
+a lowercase kebab-case name.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/My Notes.md -->
+```markdown
+Some notes.
+```
+
+### Invalid: an empty Context Module
+
+<!-- expects violations: workspace-artifact/empty-content -->
+A Context Module file must not be empty.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/empty.md -->
+```markdown
+```
+
+### Invalid: a non-Markdown file under `context/`
+
+<!-- expects violations: stray-context-file -->
+Under `context/`, every non-hidden file must be Markdown (`.md`).
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- context/notes.txt -->
+```text
+Some notes.
+```
+
+### Invalid: a file under `skills/` outside a Skill package
+
+<!-- expects violations: stray-skill-file -->
+Under `skills/`, every non-hidden file must belong to a Skill package (a
+folder with a `SKILL.md`).
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- skills/README.md -->
+```markdown
+Notes about the Skills in this Workspace.
+```
+
+### Invalid: a Profile file with a `.yml` extension
+
+<!-- expects violations: stray-profile-file -->
+Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+in `profiles/` — a `.yml` extension is not accepted.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/team.yml -->
+```yaml
+context: []
+skills: []
+```
+
+### Invalid: a non-`.yaml` file inside a `profiles/` subfolder
+
+<!-- expects violations: stray-profile-file -->
+Under `profiles/`, every non-hidden file must be a `.yaml` Profile directly
+in `profiles/` — a non-`.yaml` file anywhere under `profiles/`, including
+inside a subfolder, is a violation.
+
+<!-- workspace.yaml -->
+```yaml
+schema_version: 1
+```
+
+<!-- profiles/archive/notes.txt -->
+```text
+Some notes.
+```
+./context/notes.txt
+Notes about project
+./context/invalid file name.md
+# Invalid File
+./context/docs/architecture.md
+# Architecture Guidelines
+
+Guidelines for system architecture:
+- Maintain single sources of truth across modules.
+- Encapsulate internal details behind clear public contracts.
+./context/agents.md
+# Project Guidelines
+
+Standard engineering guidelines for this project:
+- Write modular, testable code with clear boundaries.
+- Keep changes minimal and focused on the stated goal.
+./context/claude.md
+# Claude Instructions
+
+Instructions for Claude Code in this repository:
+- Follow established project formatting and conventions.
+- Verify changes with test commands before proposing them.
+./skills/broken-skill/SKILL.md
+---
+name: broken-skill
+---
+# Broken Skill
+./skills/code-review/SKILL.md
+---
+name: code-review
+description: Review code changes for quality, readability, and style conventions.
+user-invocable: true
+---
+
+# Code Review
+
+Review code modifications against repository standards:
+1. Verify correctness and test coverage.
+2. Check for adherence to architectural conventions.
+3. Assess error handling and boundary conditions.
+./skills/build-helper/references/reference.md
+# Build Reference
+
+Reference guidance for build steps and prerequisites:
+- Clean artifact outputs before initiating release builds.
+- Ensure toolchain dependencies match engine requirements.
+./skills/build-helper/agent-profile-kit.yaml
+model-invocation: true
+./skills/build-helper/scripts/build.sh
+#!/bin/sh
+set -eu
+echo "build-helper: validating build artifacts"
+exit 0
+./skills/build-helper/SKILL.md
+---
+name: build-helper
+description: Helper utilities and procedures for project builds.
+---
+
+# Build Helper
+
+Utilities for project build tasks.
+
+## Resources
+- Consult `references/reference.md` for build configuration options.
+- Run `scripts/build.sh` to execute the local validation build.
+./skills/stray-script.sh
+#!/bin/sh
+echo stray
+./profiles/default.yaml
+id: default
+context:
+  - agents
+  - claude
+  - docs/architecture
+  - missing-context
+skills:
+  - build-helper
+  - code-review
+
+codex
+Validation found eight issues: a missing manifest, invalid file locations or names, outdated metadata, a missing skill description, and a profile reference to nonexistent context. I’ll fix those, preserve the script in a workspace-level `scripts/` folder, and connect this workspace so plain `apkit validate` works.
+apply patch
+patch: completed
+<SANDBOX>/run2/workspace/profiles/default.yaml
+<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
+<SANDBOX>/run2/workspace/workspace.yaml
+diff --git a/<SANDBOX>/run2/workspace/profiles/default.yaml b/<SANDBOX>/run2/workspace/profiles/default.yaml
+index e790434092f93a4b9eada6f929204ee7d5d30d01..a46211c12d4d3287b82c6139675af51b61ef04c3
+--- a/<SANDBOX>/run2/workspace/profiles/default.yaml
++++ b/<SANDBOX>/run2/workspace/profiles/default.yaml
+@@ -1,9 +1,7 @@
+-id: default
+ context:
+   - agents
+   - claude
+   - docs/architecture
+-  - missing-context
+ skills:
+   - build-helper
+   - code-review
+diff --git a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+index 9908605884792db0c2203e66e9111bcddb5d0997..7a9c15004c43b134156d159b776cbd464bdd040c
+--- a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
++++ b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+@@ -1,4 +1,5 @@
+ ---
+ name: broken-skill
++description: Placeholder skill with no workflow defined yet.
+ ---
+ # Broken Skill
+diff --git a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml b/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
+deleted file mode 100644
+index 804e464eaae3b6d17f9ead9c44489de80787c563..0000000000000000000000000000000000000000
+--- a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
++++ /dev/null
+@@ -1 +0,0 @@
+-model-invocation: true
+diff --git a/<SANDBOX>/run2/workspace/workspace.yaml b/<SANDBOX>/run2/workspace/workspace.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..258d23b7fd542d28a0423417f231c32d2970a61e
+--- /dev/null
++++ b/<SANDBOX>/run2/workspace/workspace.yaml
+@@ -0,0 +1 @@
++schema_version: 1
+
+exec
+/bin/zsh -lc "mv 'context/invalid file name.md' context/invalid-file-name.md
+mv context/notes.txt context/notes.md
+mkdir -p scripts
+mv skills/stray-script.sh scripts/stray-script.sh
+apkit validate <SANDBOX>/run2/workspace" in <SANDBOX>/run2/workspace
+ succeeded in 0ms:
+Workspace valid (1 Profile, 5 Context Modules, 3 Skills)
+Workspace: <SANDBOX>/run2/workspace
+Profiles found: default
+Context Modules found: agents, claude, docs/architecture, invalid-file-name,   notes
+Skills found: broken-skill, build-helper, code-review
+
+diff --git a/<SANDBOX>/run2/workspace/profiles/default.yaml b/<SANDBOX>/run2/workspace/profiles/default.yaml
+index e790434092f93a4b9eada6f929204ee7d5d30d01..a46211c12d4d3287b82c6139675af51b61ef04c3
+--- a/<SANDBOX>/run2/workspace/profiles/default.yaml
++++ b/<SANDBOX>/run2/workspace/profiles/default.yaml
+@@ -1,9 +1,7 @@
+-id: default
+ context:
+   - agents
+   - claude
+   - docs/architecture
+-  - missing-context
+ skills:
+   - build-helper
+   - code-review
+diff --git a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+index 9908605884792db0c2203e66e9111bcddb5d0997..7a9c15004c43b134156d159b776cbd464bdd040c
+--- a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
++++ b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+@@ -1,4 +1,5 @@
+ ---
+ name: broken-skill
++description: Placeholder skill with no workflow defined yet.
+ ---
+ # Broken Skill
+diff --git a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml b/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
+deleted file mode 100644
+index 804e464eaae3b6d17f9ead9c44489de80787c563..0000000000000000000000000000000000000000
+--- a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
++++ /dev/null
+@@ -1 +0,0 @@
+-model-invocation: true
+diff --git a/<SANDBOX>/run2/workspace/workspace.yaml b/<SANDBOX>/run2/workspace/workspace.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..258d23b7fd542d28a0423417f231c32d2970a61e
+--- /dev/null
++++ b/<SANDBOX>/run2/workspace/workspace.yaml
+@@ -0,0 +1 @@
++schema_version: 1
+
+exec
+/bin/zsh -lc 'apkit init <SANDBOX>/run2/workspace
+apkit validate' in <SANDBOX>/run2/workspace
+ succeeded in 48ms:
+Workspace and settings valid (1 Profile, 0 configured Projects)
+Profiles found: default
+Hosts bound: none
+Next: apkit install <profile> --host <host>
+
+diff --git a/<SANDBOX>/run2/workspace/profiles/default.yaml b/<SANDBOX>/run2/workspace/profiles/default.yaml
+index e790434092f93a4b9eada6f929204ee7d5d30d01..a46211c12d4d3287b82c6139675af51b61ef04c3
+--- a/<SANDBOX>/run2/workspace/profiles/default.yaml
++++ b/<SANDBOX>/run2/workspace/profiles/default.yaml
+@@ -1,9 +1,7 @@
+-id: default
+ context:
+   - agents
+   - claude
+   - docs/architecture
+-  - missing-context
+ skills:
+   - build-helper
+   - code-review
+diff --git a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+index 9908605884792db0c2203e66e9111bcddb5d0997..7a9c15004c43b134156d159b776cbd464bdd040c
+--- a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
++++ b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+@@ -1,4 +1,5 @@
+ ---
+ name: broken-skill
++description: Placeholder skill with no workflow defined yet.
+ ---
+ # Broken Skill
+diff --git a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml b/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
+deleted file mode 100644
+index 804e464eaae3b6d17f9ead9c44489de80787c563..0000000000000000000000000000000000000000
+--- a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
++++ /dev/null
+@@ -1 +0,0 @@
+-model-invocation: true
+diff --git a/<SANDBOX>/run2/workspace/workspace.yaml b/<SANDBOX>/run2/workspace/workspace.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..258d23b7fd542d28a0423417f231c32d2970a61e
+--- /dev/null
++++ b/<SANDBOX>/run2/workspace/workspace.yaml
+@@ -0,0 +1 @@
++schema_version: 1
+
+codex
+`apkit validate` now passes for `<SANDBOX>/run2/workspace`.
+
+Fixed all eight validation issues and initialized the workspace connection. Final result: **Workspace and settings valid (1 Profile, 0 configured Projects)**.
+diff --git a/<SANDBOX>/run2/workspace/profiles/default.yaml b/<SANDBOX>/run2/workspace/profiles/default.yaml
+index e790434092f93a4b9eada6f929204ee7d5d30d01..a46211c12d4d3287b82c6139675af51b61ef04c3
+--- a/<SANDBOX>/run2/workspace/profiles/default.yaml
++++ b/<SANDBOX>/run2/workspace/profiles/default.yaml
+@@ -1,9 +1,7 @@
+-id: default
+ context:
+   - agents
+   - claude
+   - docs/architecture
+-  - missing-context
+ skills:
+   - build-helper
+   - code-review
+diff --git a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+index 9908605884792db0c2203e66e9111bcddb5d0997..7a9c15004c43b134156d159b776cbd464bdd040c
+--- a/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
++++ b/<SANDBOX>/run2/workspace/skills/broken-skill/SKILL.md
+@@ -1,4 +1,5 @@
+ ---
+ name: broken-skill
++description: Placeholder skill with no workflow defined yet.
+ ---
+ # Broken Skill
+diff --git a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml b/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
+deleted file mode 100644
+index 804e464eaae3b6d17f9ead9c44489de80787c563..0000000000000000000000000000000000000000
+--- a/<SANDBOX>/run2/workspace/skills/build-helper/agent-profile-kit.yaml
++++ /dev/null
+@@ -1 +0,0 @@
+-model-invocation: true
+diff --git a/<SANDBOX>/run2/workspace/workspace.yaml b/<SANDBOX>/run2/workspace/workspace.yaml
+new file mode 100644
+index 0000000000000000000000000000000000000000..258d23b7fd542d28a0423417f231c32d2970a61e
+--- /dev/null
++++ b/<SANDBOX>/run2/workspace/workspace.yaml
+@@ -0,0 +1 @@
++schema_version: 1
+
+tokens used
+20,420
+`apkit validate` now passes for `<SANDBOX>/run2/workspace`.
+
+Fixed all eight validation issues and initialized the workspace connection. Final result: **Workspace and settings valid (1 Profile, 0 configured Projects)**.
