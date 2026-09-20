@@ -445,7 +445,7 @@ bindings:
     hosts:
       - codex
       - claude
-  - project: /Users/you/work/customer-portal
+  - project: <HOST_HOME>/work/customer-portal
     profile: coding
     hosts:
       - claude

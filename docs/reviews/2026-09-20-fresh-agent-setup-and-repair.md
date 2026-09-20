@@ -84,10 +84,11 @@ using the repository's canonical release-candidate pack sequence
 3. The resulting archive `agent-profile-kit-0.217.0.tgz` was extracted into the sandbox, and an `apkit` wrapper script invoking Node v22.23.2 was placed first on `PATH`.
 
 ### Sandbox layout and confinement
-All work was conducted strictly inside `/private/tmp/apkit-sandbox-609` (outside
-this repository and outside `~/projects`), with:
-- Run 1 and Run 2 Attempt 1: `HOME=/private/tmp/apkit-sandbox-609/home`
-- Run 2 Attempt 2: `HOME=/private/tmp/apkit-sandbox-609/home-run2`
+All work was conducted strictly inside `<SANDBOX>` (defined as a temporary
+directory under `/private/tmp`, outside the repository tree and outside
+`~/projects`), with:
+- Run 1 and Run 2 Attempt 1: `HOME=<SANDBOX>/home`
+- Run 2 Attempt 2: `HOME=<SANDBOX>/home-run2`
 - Session `PATH` containing only the sandbox `bin` and system directories (host user bin directories were excluded).
 - Credentials: `auth.json` copied to `$HOME/.codex/auth.json` with permissions mode 600; no `config.toml`, user rules, custom skills, plugins, memories, or MCP servers were provided. Credentials were deleted immediately following the final session.
 
@@ -134,7 +135,7 @@ Pass criteria (all required without human intervention after prompt):
 ## 4. Verbatim attempt log
 
 Retained verbatim from the external append-only log maintained outside the
-repository at `/private/tmp/apkit-sandbox-609/attempt-log.txt`:
+repository at `<SANDBOX>/attempt-log.txt`:
 
 ```text
 # Agent Profile Kit — Issue #609 Fresh Agent Sessions Attempt Log
@@ -174,16 +175,16 @@ Timestamp: 2026-09-20T14:14:40-07:00
 Purpose: Verify OS-enforced seatbelt confinement (writes outside sandbox fail, writes inside sandbox HOME succeed) with network access enabled.
 Prompt: "Try to create <HOST_HOME>/.apkit-609-probe and $HOME/inside-probe and report both results."
 Result: PASS
-- Write to /Users/kennethliao/.apkit-609-probe failed with "Operation not permitted" (seatbelt sandbox confinement enforced).
+- Write to <HOST_HOME>/.apkit-609-probe failed with "Operation not permitted" (seatbelt sandbox confinement enforced).
 - Write to $HOME/inside-probe succeeded.
-- Verified on host: /Users/kennethliao/.apkit-609-probe was never created.
+- Verified on host: <HOST_HOME>/.apkit-609-probe was never created.
 
 ### Run 1: Setup from README and Scattered Material (Attempt 1)
 Timestamp: 2026-09-20T14:15:10-07:00
 Harness: codex-cli 0.155.1
 Model: gpt-6-astra (provider: openai)
 Network Access: Enabled (for fetching README)
-Working Directory: /private/tmp/apkit-sandbox-609/run1/work
+Working Directory: <SANDBOX>/run1/work
 Prompt:
 """
 Before running any other command, run:
@@ -191,12 +192,12 @@ echo "SANDBOX_PROOF: HOME=$HOME, CWD=$(pwd), APKIT=$(which apkit), APKIT_VERSION
 
 The apkit release candidate is already installed on PATH as apkit, do not install or upgrade it.
 README: https://github.com/kenneth-liao/agent-profile-kit/blob/main/README.md
-Material: /private/tmp/apkit-sandbox-609/run1/material
+Material: <SANDBOX>/run1/material
 
-Set up and connect a valid Agent Profile Kit workspace containing all of the material at /private/tmp/apkit-sandbox-609/run1/material so that `apkit validate` passes.
+Set up and connect a valid Agent Profile Kit workspace containing all of the material at <SANDBOX>/run1/material so that `apkit validate` passes.
 """
 Outcome: PASS
-- Sandbox Proof: HOME=/private/tmp/apkit-sandbox-609/home, CWD=/private/tmp/apkit-sandbox-609/run1/work, APKIT=/private/tmp/apkit-sandbox-609/bin/apkit, APKIT_VERSION=0.217.0
+- Sandbox Proof: HOME=<SANDBOX>/home, CWD=<SANDBOX>/run1/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0
 - Reasoning effort: none
 - Tokens used: 22,264
 - Information sources used:
@@ -204,9 +205,9 @@ Outcome: PASS
   * Web search for https://github.com/kenneth-liao/agent-profile-kit/blob/main/README.md
   * apkit guide --full, apkit init --help, apkit validate --help
   * curl https://raw.githubusercontent.com/kenneth-liao/agent-profile-kit/main/README.md
-- Paths outside <SANDBOX> touched: none (all filesystem reads and writes confined to /private/tmp/apkit-sandbox-609)
+- Paths outside <SANDBOX> touched: none (all filesystem reads and writes confined to <SANDBOX>)
 - Pass criteria evaluation:
-  1. Sandbox Local Configuration ($HOME/.agents/agent-profile-kit/config.yaml) selects /private/tmp/apkit-sandbox-609/run1/work: PASS
+  1. Sandbox Local Configuration ($HOME/.agents/agent-profile-kit/config.yaml) selects <SANDBOX>/run1/work: PASS
   2. apkit validate exits 0: PASS ("Workspace and settings valid (1 Profile, 0 configured Projects)")
   3. Every material file present with content intact: PASS (all 7 files verified byte-for-byte clean)
 - Human intervention: none
@@ -216,19 +217,19 @@ Timestamp: 2026-09-20T14:16:30-07:00
 Harness: codex-cli 0.155.1
 Model: gpt-6-astra (provider: openai)
 Network Access: Disabled (validation output alone)
-Working Directory: /private/tmp/apkit-sandbox-609/run2/work
-Target Workspace: /private/tmp/apkit-sandbox-609/run2/workspace
+Working Directory: <SANDBOX>/run2/work
+Target Workspace: <SANDBOX>/run2/workspace
 Prompt:
 """
 Before running any other command, run:
 echo "SANDBOX_PROOF: HOME=$HOME, CWD=$(pwd), APKIT=$(which apkit), APKIT_VERSION=$(apkit --version)"
 
-Workspace: /private/tmp/apkit-sandbox-609/run2/workspace
+Workspace: <SANDBOX>/run2/workspace
 
-Make `apkit validate` pass for the workspace at /private/tmp/apkit-sandbox-609/run2/workspace.
+Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
 """
 Outcome: FAIL
-- Sandbox Proof: HOME=/private/tmp/apkit-sandbox-609/home, CWD=/private/tmp/apkit-sandbox-609/run2/work, APKIT=/private/tmp/apkit-sandbox-609/bin/apkit, APKIT_VERSION=0.217.0
+- Sandbox Proof: HOME=<SANDBOX>/home, CWD=<SANDBOX>/run2/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0
 - Reasoning effort: none
 - Tokens used: 5,468
 - Information sources used:
@@ -237,12 +238,12 @@ Outcome: FAIL
 - Paths outside <SANDBOX> touched: none (all operations strictly confined)
 - Pass criteria evaluation:
   1. `apkit validate` exits 0 for the workspace: FAIL.
-     The agent changed directory to /private/tmp/apkit-sandbox-609/run2/workspace and ran bare `apkit validate`.
-     Bare `apkit validate` checks the connected Workspace in Local Configuration (/private/tmp/apkit-sandbox-609/run1/work),
+     The agent changed directory to <SANDBOX>/run2/workspace and ran bare `apkit validate`.
+     Bare `apkit validate` checks the connected Workspace in Local Configuration (<SANDBOX>/run1/work),
      not `pwd`. Because Run 1 had successfully connected a valid workspace, bare `apkit validate` reported "Workspace and
      settings valid (1 Profile, 0 configured Projects)". The agent mistook this output as validating the current directory,
      concluded no changes were needed, and stopped.
-     Actual validation of /private/tmp/apkit-sandbox-609/run2/workspace exits 1 with 8 violations unresolved.
+     Actual validation of <SANDBOX>/run2/workspace exits 1 with 8 violations unresolved.
   2. Valid material survived: YES (no files were modified or deleted).
 - Root Cause: Product design / UX pitfall: bare `apkit validate` ignores `pwd` and validates the connected Workspace
   without indicating which directory was checked in the summary line ("Workspace and settings valid..."), giving false confidence
@@ -251,33 +252,33 @@ Outcome: FAIL
 ### Pre-registration: Run 2 Attempt 2
 Timestamp: 2026-09-20T14:21:00-07:00
 Reason for second attempt:
-Run 2 Attempt 1 executed with the same HOME as Run 1 (/private/tmp/apkit-sandbox-609/home), where Local Configuration already had Run 1's valid Workspace selected. Because #609 requires a fresh agent session in an isolated home, Attempt 1 did not meet the ticket's precondition, and ISC-45 has not yet been qualified in an isolated fresh home.
+Run 2 Attempt 1 executed with the same HOME as Run 1 (<SANDBOX>/home), where Local Configuration already had Run 1's valid Workspace selected. Because #609 requires a fresh agent session in an isolated home, Attempt 1 did not meet the ticket's precondition, and ISC-45 has not yet been qualified in an isolated fresh home.
 
 Hypothesis:
 In a completely fresh home with no pre-existing Local Configuration, bare `apkit validate` will not find a connected workspace, forcing the agent to validate the target folder directly (via `apkit validate <path>` or `apkit validate .`) and repair the 8 seeded violations from validation output alone.
 
 Controlled parameters:
 - Prompt: Byte-identical to Attempt 1.
-- Working directory: /private/tmp/apkit-sandbox-609/run2/work (byte-identical).
-- Target Workspace: /private/tmp/apkit-sandbox-609/run2/workspace (rebuilt identically from recipe).
+- Working directory: <SANDBOX>/run2/work (byte-identical).
+- Target Workspace: <SANDBOX>/run2/workspace (rebuilt identically from recipe).
 - Harness: codex-cli 0.155.1.
 - Model: gpt-6-astra (provider: openai).
 - Reasoning effort: none.
 - Network Access: Disabled (validation output alone).
-- Flags: `-s workspace-write -c approval_policy="never" --add-dir /private/tmp/apkit-sandbox-609 --skip-git-repo-check --ephemeral`.
-- Isolation: New HOME /private/tmp/apkit-sandbox-609/home-run2 holding only .codex/auth.json (mode 600, deleted immediately after run). Previous workspace material (run1/), old home (home/), pack-stage/, and attempt-log.txt moved to /private/tmp/apkit-sandbox-609-hold/ outside the sandbox writable root so no completed workspace or notes are discoverable.
+- Flags: `-s workspace-write -c approval_policy="never" --add-dir <SANDBOX> --skip-git-repo-check --ephemeral`.
+- Isolation: New HOME <SANDBOX>/home-run2 holding only .codex/auth.json (mode 600, deleted immediately after run). Previous workspace material (run1/), old home (home/), pack-stage/, and attempt-log.txt moved to <SANDBOX>-hold/ outside the sandbox writable root so no completed workspace or notes are discoverable.
 - Finality: The result of Attempt 2 is final either way, with no further attempts.
 
 
 ### Run 2 Attempt 2 Outcome: PASS
 - Session ID: 01a0c0b1-90c2-7213-ae58-a769c4480871
 - Duration: ~43s (started 14:21:08-07:00, completed 14:21:51-07:00)
-- Sandbox Proof: HOME=/private/tmp/apkit-sandbox-609/home-run2, CWD=/private/tmp/apkit-sandbox-609/run2/work, APKIT=/private/tmp/apkit-sandbox-609/bin/apkit, APKIT_VERSION=0.217.0
+- Sandbox Proof: HOME=<SANDBOX>/home-run2, CWD=<SANDBOX>/run2/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0
 - Reasoning effort: none
 - Tokens used: 20,420
 - Network access: OFF (seatbelt blocked by default)
 - Information sources used:
-  * Local CLI: `apkit --help`, `apkit validate --help`, `apkit guide --full`, `apkit guide --contract`, `apkit validate /private/tmp/apkit-sandbox-609/run2/workspace`
+  * Local CLI: `apkit --help`, `apkit validate --help`, `apkit guide --full`, `apkit guide --contract`, `apkit validate <SANDBOX>/run2/workspace`
   * Local workspace inspection (`find`, `cat`, `rg`)
   * No external network access
 - Changes made by agent:
@@ -288,9 +289,9 @@ Controlled parameters:
   5. `context/invalid file name.md`: renamed to `context/invalid-file-name.md` (valid kebab-case ID)
   6. `context/notes.txt`: renamed to `context/notes.md` (valid markdown extension)
   7. `skills/stray-script.sh`: moved to `scripts/stray-script.sh` (valid non-skill directory, preserving script)
-  8. `apkit init /private/tmp/apkit-sandbox-609/run2/workspace`: connected the workspace so bare `apkit validate` also succeeds
+  8. `apkit init <SANDBOX>/run2/workspace`: connected the workspace so bare `apkit validate` also succeeds
 - Pass criteria evaluation:
-  1. `apkit validate /private/tmp/apkit-sandbox-609/run2/workspace` exits 0: PASS.
+  1. `apkit validate <SANDBOX>/run2/workspace` exits 0: PASS.
   2. Bare `apkit validate` exits 0: PASS (`Workspace and settings valid (1 Profile, 0 configured Projects)`).
   3. Valid material survived: YES (all original content in `context/agents.md`, `context/claude.md`, `context/docs/architecture.md`, `skills/build-helper/`, `skills/code-review/`, and `profiles/default.yaml` preserved; renamed invalid context files and moved stray script preserved their contents).
 ```
@@ -388,7 +389,7 @@ Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
    `SANDBOX_PROOF: HOME=<SANDBOX>/home, CWD=<SANDBOX>/run2/work, APKIT=<SANDBOX>/bin/apkit, APKIT_VERSION=0.217.0`
 2. **Execution**: The agent changed directory into `<SANDBOX>/run2/workspace` and ran bare `apkit validate`:
    ```sh
-   pwd; rg --files -g AGENTS.md ... /private/tmp/apkit-sandbox-609; apkit validate
+   pwd; rg --files -g AGENTS.md ... <SANDBOX>; apkit validate
    ```
 3. **The failure**:
    - Bare `apkit validate` (without an explicit path argument) does **not** validate the current working directory (`.`). Instead, it validates the connected Workspace recorded in Local Configuration (`<SANDBOX>/home/.agents/agent-profile-kit/config.yaml`).
@@ -422,7 +423,7 @@ Supporting transcript: [`evidence/2026-09-20-fresh-agent-repair-attempt-2.txt`](
 
 #### Pre-registration and environment isolation
 As pre-registered in `attempt-log.txt`, Attempt 1 revealed a plan defect: it shared a `HOME` directory with Run 1, so Local Configuration already held a connected Workspace. Ticket #609 specifies a fresh agent session in an isolated home. Attempt 2 tested repair under strictly controlled conditions:
-- **Clean HOME**: `/private/tmp/apkit-sandbox-609/home-run2` with permissions mode 700, holding only temporary Codex credentials (`auth.json`, mode 600, deleted immediately after the session).
+- **Clean HOME**: `<SANDBOX>/home-run2` with permissions mode 700, holding only temporary Codex credentials (`auth.json`, mode 600, deleted immediately after the session).
 - **Prior artifact isolation and visible files**: The directories `run1/`, `home/`, and `pack-stage/` and the file `attempt-log.txt` were moved out of the sandbox root before execution. However, top-level transcript and tree files (`run1-transcript.txt`, `run2-transcript.txt`, `run2-before-tree.txt`, and `run2-attempt2-before-tree.txt`) were not moved because the orchestrator's move list omitted them. The agent saw their names in one `ls -la` listing on `<SANDBOX>`, but the transcript shows it never opened or read them (their names occur only in that listing).
 - **Identical parameters**: Identical prompt, harness (`codex-cli 0.155.1`), model (`gpt-6-astra`), reasoning effort (`none`), sandbox seatbelt flags, and network disabled.
 - **Finality**: Pre-registered as final with no further attempts.
@@ -432,9 +433,9 @@ Verbatim prompt:
 Before running any other command, run:
 echo "SANDBOX_PROOF: HOME=$HOME, CWD=$(pwd), APKIT=$(which apkit), APKIT_VERSION=$(apkit --version)"
 
-Workspace: /private/tmp/apkit-sandbox-609/run2/workspace
+Workspace: <SANDBOX>/run2/workspace
 
-Make `apkit validate` pass for the workspace at /private/tmp/apkit-sandbox-609/run2/workspace.
+Make `apkit validate` pass for the workspace at <SANDBOX>/run2/workspace.
 ```
 
 #### Transcript summary
@@ -564,5 +565,18 @@ Every piece of valid material was preserved:
 ## 8. Sanitization statement
 
 In compliance with open-source publication rules:
-- All paths referencing the sandbox root `/private/tmp/apkit-sandbox-609` have been replaced with `<SANDBOX>`.
-- Raw evidence files under `docs/reviews/evidence/` were scanned for sensitive patterns (tokens, keys, account IDs, email addresses, host user paths). All matched patterns were verified absent.
+- **Path and identity placeholders**:
+  - `<SANDBOX>`: substituted for the real sandbox root directory under `/private/tmp` across `docs/reviews/2026-09-20-fresh-agent-setup-and-repair.md` and all evidence transcripts under `docs/reviews/evidence/`.
+  - `<HOST_HOME>`: substituted for the real host home path in the review and evidence transcripts (including probe assertions and guide examples).
+  - `<USER>`: substituted for the host username in directory listings.
+- **Embedded attempt log**: The embedded attempt log in Section 4 is verbatim from the on-disk record except for the path placeholders above.
+- **Scrub verification**: The review and all evidence transcripts were scanned for the following patterns, yielding zero matches across all files:
+  - Host user home paths and host usernames
+  - The repository-specific sandbox test directory name
+  - Email addresses (`[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+`)
+  - JWT tokens (`eyJ...`)
+  - API keys (`sk-...`)
+  - Authorization headers (`Bearer ...`)
+  - Authentication tokens and token fields (`refresh_token`, `access_token`)
+  - Account identifiers (`account_id`)
+  - External service domains (`chatgpt.com`)
