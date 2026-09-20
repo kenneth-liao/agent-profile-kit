@@ -1,0 +1,26 @@
+# Connecting a different Workspace (#607): folder needing some parts added (100 columns)
+# Machine already connected to workspace-a via release-candidate Local Configuration (schema 2).
+# Setup displays the Current and Requested Workspace; the requested folder already holds valid
+# context/ and skills/, and the confirmation lists exactly the missing parts (workspace.yaml and
+# profiles/).
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/partial-target
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/partial-target
+Context and Skill files will be stored in and loaded from ~/workspaces/partial-target.
+Setup will add workspace.yaml and profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/partial-target
+Context and Skill files will be stored in and loaded from ~/workspaces/partial-target.
+Setup will add workspace.yaml and profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run apkit init ~/workspaces/partial-target to
+  set up that folder later.
+
+[exit 0]

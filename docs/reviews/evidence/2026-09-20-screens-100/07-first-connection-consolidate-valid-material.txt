@@ -1,0 +1,20 @@
+# Consolidate valid material (100 columns)
+# The folder already contains valid context/ and skills/, but no workspace.yaml and no profiles/.
+# The confirmation lists exactly the missing parts and leaves existing files untouched.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/consolidate-valid
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Context and Skill files will be stored in and loaded from ~/workspaces/consolidate-valid.
+Setup will add workspace.yaml and profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Context and Skill files will be stored in and loaded from ~/workspaces/consolidate-valid.
+Setup will add workspace.yaml and profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run apkit init ~/workspaces/consolidate-valid
+  to set up that folder later.
+
+[exit 0]
