@@ -3,6 +3,7 @@
 # The user accepts the current folder as the Workspace location.
 # Part 1 is the run held at the setup confirmation, before it was answered.
 # Part 2 is the same run after the user declined the confirmation.
+# After declining, the remedy line spells the resolved absolute path because the current folder was accepted; typed paths are echoed as authored.
 
 $ apkit init
 # --- Part 1: the run held at the setup confirmation, before anything was answered ---

@@ -41,15 +41,15 @@ and nothing here claims a human result.
 
 ## 2. Capture method (exactly as done)
 
-Sixteen real-PTY captures, eight scenarios at each of 100 and 60 terminal
+Eighteen real-PTY captures, nine scenarios at each of 100 and 60 terminal
 columns, are committed under:
 
-- `docs/reviews/evidence/2026-09-20-screens-100/01-…-08.txt`
-- `docs/reviews/evidence/2026-09-20-screens-60/01-…-08.txt`
+- `docs/reviews/evidence/2026-09-20-screens-100/01-…-09.txt`
+- `docs/reviews/evidence/2026-09-20-screens-60/01-…-09.txt`
 
 Each file records one scenario. Annotation lines start with `#` and are kept
 separate from the verbatim program output. The command line is shown as
-`$ apkit …`. Files for scenarios 01–07 have two parts, clearly separated by
+`$ apkit …`. Files for scenarios 01–07 and 09 have two parts, clearly separated by
 `# --- Part … ---` lines:
 
 - **Part 1** is the transcript up to the moment the setup confirmation prompt
@@ -107,6 +107,7 @@ Scenarios:
 | `06-connect-different-new` | Machine already connected to `workspace-a`; connecting to a folder that does not exist yet (#607). |
 | `07-first-connection-consolidate-valid-material` | Folder already contains valid `context/` and `skills/`; confirmation lists exactly the missing parts. |
 | `08-refusal-invalid-scattered-material` | Raw sample material with uppercase names in `context/`; init refuses before any confirmation or write. Pre-confirmation refusal, not a confirmation screen. |
+| `09-connect-different-partial-target` | Machine already connected to `workspace-a`; connecting to a folder that already holds valid `context/` and `skills/`; the confirmation lists exactly the missing parts (`workspace.yaml` and `profiles/`). The connect-different analog of screen 07. |
 
 ## 3. Limitations
 
@@ -141,6 +142,16 @@ Scenarios:
 6. **Not captured.** Nothing about a newcomer's actual behavior, timing, or
    comprehension — the captures show machine output only. No human session has
    run; ISC-19, ISC-20, and ISC-24.3 have no evidence beyond this preparation.
+7. **The captures are point-in-time evidence for the product wording of head
+   `e18f359` and are guarded by no automated check.** The checks cited in this
+   PR (typecheck and the release-boundary/package-archive tests) exercise the
+   renderer, never the committed `.txt` bytes, so a hand-edited capture file
+   would pass them. The committed captures were audited by hand during review:
+   every verbatim line was traced to the `cli/` sources, no verbatim line is
+   wider than its terminal width, and the 60- and 100-column files wrap
+   visibly differently as real output would. That audit covers only the files
+   as committed; any later edit to a capture file is not covered by it, and
+   the review is not maintained (ADR-0029).
 
 ## 4. Facilitator checklist
 
