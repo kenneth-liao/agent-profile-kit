@@ -1,0 +1,24 @@
+# Connecting a different Workspace (#607): valid target (100 columns)
+# Machine already connected to workspace-a via release-candidate Local Configuration (schema 2).
+# Setup displays the Current and Requested Workspace; workspace-b satisfies the contract.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/workspace-b
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/workspace-b
+Context and Skill files will be stored in and loaded from ~/workspaces/workspace-b.
+Nothing needs to be added — ~/workspaces/workspace-b already satisfies the Workspace contract.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/workspace-b
+Context and Skill files will be stored in and loaded from ~/workspaces/workspace-b.
+Nothing needs to be added — ~/workspaces/workspace-b already satisfies the Workspace contract.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run apkit init ~/workspaces/workspace-b to set
+  up that folder later.
+
+[exit 0]

@@ -1,0 +1,30 @@
+# First connection: custom typed path (100 columns)
+# Machine is unconfigured; the user declines the current folder and types a custom
+# path to a folder that does not exist yet, shown in its answered form.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Your Workspace is a folder you choose.
+Current folder: ~/projects/workdir
+✔ Use the current folder as your Workspace? … no
+✔ Which folder should be your Workspace? … ~/my-workspace
+Context and Skill files will be stored in and loaded from ~/my-workspace.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Your Workspace is a folder you choose.
+Current folder: ~/projects/workdir
+✔ Use the current folder as your Workspace? … no
+✔ Which folder should be your Workspace? … ~/my-workspace
+Context and Skill files will be stored in and loaded from ~/my-workspace.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run apkit init ~/my-workspace to set up that
+  folder later.
+
+[exit 0]

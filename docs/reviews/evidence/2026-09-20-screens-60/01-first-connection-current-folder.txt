@@ -1,0 +1,31 @@
+# First connection: current folder (60 columns)
+# Machine is unconfigured; current folder is non-empty with existing project files and .git.
+# The user accepts the current folder as the Workspace location.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Your Workspace is a folder you choose.
+Current folder: ~/projects/demo-project
+✔ Use the current folder as your Workspace? … yes
+Context and Skill files will be stored in and loaded from
+  ~/projects/demo-project.
+Setup will add workspace.yaml, context/, skills/ and
+  profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Your Workspace is a folder you choose.
+Current folder: ~/projects/demo-project
+✔ Use the current folder as your Workspace? … yes
+Context and Skill files will be stored in and loaded from
+  ~/projects/demo-project.
+Setup will add workspace.yaml, context/, skills/ and
+  profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run
+  apkit init <SANDBOX_HOME>/projects/demo-project
+  to set up that folder later.
+
+[exit 0]

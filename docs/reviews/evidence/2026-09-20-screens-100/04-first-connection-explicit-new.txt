@@ -1,0 +1,22 @@
+# First connection: explicit path to new folder (100 columns)
+# Machine is unconfigured; the user supplies a path to a folder that does not exist yet,
+# inside a parent folder that does exist, so the location question is skipped.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/new-folder
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Context and Skill files will be stored in and loaded from ~/workspaces/new-folder.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Context and Skill files will be stored in and loaded from ~/workspaces/new-folder.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run apkit init ~/workspaces/new-folder to set
+  up that folder later.
+
+[exit 0]

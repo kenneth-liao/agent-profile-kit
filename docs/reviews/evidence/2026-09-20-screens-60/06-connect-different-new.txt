@@ -1,0 +1,31 @@
+# Connecting a different Workspace (#607): new folder target (60 columns)
+# Machine already connected to workspace-a via release-candidate Local Configuration (schema 2).
+# Setup displays the Current and Requested Workspace; the requested folder does not exist yet.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/new-workspace-c
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/new-workspace-c
+Context and Skill files will be stored in and loaded from
+  ~/workspaces/new-workspace-c.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and
+  profiles/.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Current Workspace: ~/workspaces/workspace-a
+Requested Workspace: ~/workspaces/new-workspace-c
+Context and Skill files will be stored in and loaded from
+  ~/workspaces/new-workspace-c.
+The folder does not exist yet; setup will create it.
+Setup will add workspace.yaml, context/, skills/ and
+  profiles/.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run
+  apkit init ~/workspaces/new-workspace-c to set up that
+  folder later.
+
+[exit 0]

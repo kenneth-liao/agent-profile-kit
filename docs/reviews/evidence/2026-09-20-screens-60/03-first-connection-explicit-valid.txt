@@ -1,0 +1,25 @@
+# First connection: explicit path to existing valid Workspace (60 columns)
+# Machine is unconfigured; the user supplies a path to a folder that already satisfies
+# the Workspace contract, so the location question is skipped.
+# Part 1 is the run held at the setup confirmation, before it was answered.
+# Part 2 is the same run after the user declined the confirmation.
+
+$ apkit init ~/workspaces/existing-valid
+# --- Part 1: the run held at the setup confirmation, before anything was answered ---
+Context and Skill files will be stored in and loaded from
+  ~/workspaces/existing-valid.
+Nothing needs to be added — ~/workspaces/existing-valid
+  already satisfies the Workspace contract.
+? Set up this folder as your Workspace? › (y/N)
+
+# --- Part 2: the same run, after the user declined the confirmation ---
+Context and Skill files will be stored in and loaded from
+  ~/workspaces/existing-valid.
+Nothing needs to be added — ~/workspaces/existing-valid
+  already satisfies the Workspace contract.
+✔ Set up this folder as your Workspace? … no
+Setup declined; nothing was initialized or created. Run
+  apkit init ~/workspaces/existing-valid to set up that
+  folder later.
+
+[exit 0]

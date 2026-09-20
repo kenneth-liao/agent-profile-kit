@@ -1,0 +1,26 @@
+# Refusal: raw sample material with invalid naming (60 columns)
+# [NOTE: Pre-confirmation refusal, not a confirmation screen]
+# Raw sample material placed in context/ has uppercase names (AGENTS.md, CLAUDE.md, docs/AGENTS.md).
+# Init refuses before any confirmation or write, reporting every validation diagnostic.
+
+$ apkit init ~/workspaces/scattered-material-invalid
+apkit: Workspace is invalid at
+  <SANDBOX_HOME>/workspaces/scattered-material-invalid;
+  3 violations found:
+- Context Module context/AGENTS.md must have a path whose
+  folders and file name are lowercase kebab-case names
+  without wildcards (they form the Context Module ID);
+  rename the file to context/agents.md
+- Context Module context/CLAUDE.md must have a path whose
+  folders and file name are lowercase kebab-case names
+  without wildcards (they form the Context Module ID);
+  rename the file to context/claude.md
+- Context Module context/docs/AGENTS.md must have a path
+  whose folders and file name are lowercase kebab-case names
+  without wildcards (they form the Context Module ID);
+  rename the file to context/docs/agents.md
+The Workspace contract states every rule Workspace
+  validation enforces; run apkit guide --contract to read
+  it.
+
+[exit 1]
