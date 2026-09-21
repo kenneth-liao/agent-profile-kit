@@ -83,7 +83,9 @@ export interface PtySession {
    * or any non-natural-exit outcome throws with the retained diagnostics —
    * a failed teardown can never pass qualification (#542 review,
    * INT-BOUNDARY-1). Exit 0 is required unless the caller explicitly declares
-   * another expected child exit at session creation.
+   * another expected child exit at session creation. When a transcript wait
+   * already failed in this session, a contract violation is thrown as that
+   * wait failure with the teardown outcome appended and as `cause` (#632).
    */
   close(): Promise<InteractiveProcessResult>;
   /**
@@ -237,6 +239,11 @@ export async function startPtySession(
   // the natural-exit contract against an aborted session.
   let enforcedTeardown: InteractiveProcessResult | undefined;
 
+  // The first failed wait is the primary diagnostic of the session. close()
+  // usually runs in the caller's `finally`, where a thrown teardown error
+  // would replace it and lose the awaited fragment (#632).
+  let waitFailure: Error | undefined;
+
   return {
     write(data: string): void {
       if (ownedStdin === undefined) {
@@ -275,16 +282,29 @@ export async function startPtySession(
           : squash(fresh).includes(wanted);
         if (matched) return { text: readTranscript() };
         if (Date.now() > deadline) {
-          throw new Error(
+          const failure = new Error(
             `timed out waiting for PTY fragment: ${fragment}\n--- transcript ---\n${plain(readTranscript()).slice(-2000)}`,
           );
+          waitFailure ??= failure;
+          throw failure;
         }
         await sleep(100);
       }
     },
     close: async () => {
       if (enforcedTeardown !== undefined) return enforcedTeardown;
-      const result = enforceNaturalTeardown(await settle());
+      const settled = await settle();
+      let result: InteractiveProcessResult;
+      try {
+        result = enforceNaturalTeardown(settled);
+      } catch (teardownError) {
+        if (waitFailure === undefined) throw teardownError;
+        // Wait failure first, teardown outcome carried with it.
+        throw new Error(
+          `${waitFailure.message}\n--- teardown ---\n${(teardownError as Error).message}`,
+          { cause: teardownError },
+        );
+      }
       if (enforcedTeardown === undefined) enforcedTeardown = result;
       return result;
     },
