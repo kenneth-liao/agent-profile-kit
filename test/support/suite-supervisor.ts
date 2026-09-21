@@ -815,6 +815,14 @@ function validate(options: SuiteSupervisorOptions): BudgetPolicy {
   return policy;
 }
 
+/**
+ * The variables by which Bun detects a coding-agent harness. Any of them set
+ * to "1" makes `bun test` omit the names of passing tests, so the content of a
+ * retained log would depend on where the suite was started (#634). Verified
+ * against bun 1.4.0; re-verify when the pinned Bun version changes.
+ */
+const BUN_QUIET_OUTPUT_ENV = ["CLAUDECODE", "AGENT", "REPL_ID"] as const;
+
 function suiteProcessEnvironment(
   environment: NodeJS.ProcessEnv,
   bunArguments: readonly string[] | undefined,
@@ -831,6 +839,11 @@ function suiteProcessEnvironment(
   delete childEnvironment[PER_RUN_DEADLINE_ENV];
   delete childEnvironment[AGGREGATE_DEADLINE_ENV];
   delete childEnvironment[MAX_RUNS_ENV];
+  // Agent detection is ambient, never inherited: a retained log keeps the
+  // names of passing tests under every harness.
+  for (const name of BUN_QUIET_OUTPUT_ENV) {
+    delete childEnvironment[name];
+  }
   // Only canonically supervised children carry the supervised-invocation
   // marker: an injected test-seam command manages its own execution and must
   // not claim supervision (nor inherit an ambient marker from a nesting
