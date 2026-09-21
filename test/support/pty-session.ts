@@ -104,6 +104,13 @@ export interface PtySession {
 // kills the test only after this deadline passes.
 const TRANSCRIPT_DEADLINE_MS = Math.floor(PER_TEST_TIMEOUT_MS * 0.8);
 
+// The allocated PTY is the terminal under test, so its TERM is supplied
+// explicitly here, never inherited (the terminal-configuration policy in
+// controlled-environment.ts): an ambient TERM=dumb turns prompt styling off
+// and starves the raw ANSI waits (#626). The rest of the ambient environment
+// passes through deliberately — this seam has no fixture HOME or PATH.
+const PTY_TERM = "xterm-256color";
+
 export interface PtySessionOptions {
   /** Natural child outcome required by close (for example 1 for Ctrl-C). */
   readonly expectedExitCode?: number;
@@ -154,6 +161,7 @@ export async function startPtySession(
         driverPath,
         ...driverArguments,
       ],
+      environment: { ...process.env, TERM: PTY_TERM },
       stdin: {
         kind: "stream",
         onStarted: (owned) => {
