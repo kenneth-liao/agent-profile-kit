@@ -182,6 +182,37 @@ describe("owned-child lifecycle contract (#542 review)", () => {
     expect(contractError!.message).toContain("PTY-CONTROLLER-WATCHDOG");
     await expectPidGone(driverPid, "PTY driver child");
   });
+
+  test("a failed wait stays the primary error when close() also rejects the teardown (#632)", async () => {
+    const { releaseFile, pidFile } = fixturePaths();
+    const session = await startPtySession(["gated-select", releaseFile, pidFile], 80, {
+      watchdogMs: 2000,
+    });
+    temporaryDirectories.push(session.runDirectory);
+    const driverPid = Number(await waitForFile(pidFile));
+    await session.waitForTranscript("PTY-CONTROLLER-WATCHDOG");
+    // The shape every real-PTY test has: the wait throws in `try`, then
+    // close() throws the teardown contract error in `finally`.
+    let reported: Error | undefined;
+    try {
+      try {
+        await session.waitForTranscript("fragment-that-never-arrives", { deadlineMs: 200 });
+      } finally {
+        await session.close();
+      }
+    } catch (error) {
+      reported = error as Error;
+    }
+    expect(reported).toBeDefined();
+    expect(reported!.message).toContain("timed out waiting for PTY fragment: fragment-that-never-arrives");
+    // The teardown outcome is carried, not dropped.
+    expect(reported!.message).toContain("exitCode=124");
+    expect(reported!.message).toContain("expected no watchdog firing");
+    expect(reported!.message.indexOf("timed out waiting for PTY fragment"))
+      .toBeLessThan(reported!.message.indexOf("teardown contract violated"));
+    expect((reported!.cause as Error).message).toContain("teardown contract violated");
+    await expectPidGone(driverPid, "PTY driver child");
+  });
 });
 
 describe("named delayed-output condition — causal discrimination (#542, TEST-004)", () => {
