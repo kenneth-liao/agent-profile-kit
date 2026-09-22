@@ -39,15 +39,19 @@ export type {
   TextPart,
 };
 import {
+  stateHeadlinePrefix,
+  STATE_ROLES,
   styleSemanticText,
   TABLE_MINIMUM_WIDTH,
   type SemanticCategory,
+  type StateRole,
   type TerminalPresentationContext,
 } from "./terminal-presentation.js";
 
-export type { SemanticCategory };
+export type { SemanticCategory, StateRole };
+export { stateHeadlinePrefix };
 
-export type NoticeSeverity = "attention" | "error" | "info" | "success";
+export type NoticeSeverity = "error" | "neutral" | "success" | "warning";
 
 export type PresentationRenderOptions = {
   readonly cwd?: string;
@@ -162,12 +166,81 @@ export type PresentationNode =
 export type PresentationDocument = readonly PresentationNode[];
 
 
-const NOTICE_CATEGORY: Readonly<Record<NoticeSeverity, SemanticCategory>> = {
-  attention: "attention",
+const NOTICE_ROLE: Readonly<Record<NoticeSeverity, StateRole>> = {
   error: "error",
-  info: "muted",
+  neutral: "neutral",
   success: "success",
+  warning: "warning",
 };
+
+/**
+ * One standalone state headline outside a notice: opens with the DEC-001
+ * glyph for its role and carries that role's state color. Do not nest it
+ * inside a notice — the notice already opens its headline with the glyph.
+ */
+export function stateHeadline(
+  parts: readonly InlineContent[],
+  role: StateRole,
+): SentenceNode {
+  return {
+    kind: "sentence",
+    parts: [stateHeadlinePrefix(role), ...parts],
+    category: role,
+  };
+}
+
+function prependStateGlyph(node: PresentationNode, role: StateRole): PresentationNode {
+  const prefix = stateHeadlinePrefix(role);
+  switch (node.kind) {
+    case "prose":
+    case "sentence":
+    case "list-item":
+      return { ...node, parts: [prefix, ...node.parts] };
+    case "heading":
+      return { ...node, text: `${prefix}${node.text}` };
+    case "identifier":
+      return { ...node, value: `${prefix}${node.value}` };
+    default:
+      return {
+        kind: "sentence",
+        parts: [prefix, flatNodeText(node)],
+        category: role,
+      };
+  }
+}
+
+function flatNodeText(node: PresentationNode): string {
+  switch (node.kind) {
+    case "prose":
+    case "sentence":
+    case "list-item":
+      return flatInlineText(node.parts);
+    case "heading":
+      return node.text;
+    case "identifier":
+      return node.value;
+    case "path":
+      return node.identity ?? node.authoredPath ?? node.canonicalPath;
+    case "command":
+      return [node.program, ...node.args.map((arg) =>
+        arg.kind === "text" ? arg.value : arg.authoredPath ?? arg.canonicalPath
+      )].join(" ");
+    case "key-value":
+      return `${node.key}: ${flatNodeText(node.value)}`;
+    case "notice":
+      return node.nodes.map(flatNodeText).join("\n");
+    case "row":
+      return node.cells.map((cell) => `${cell.column}: ${flatNodeText(cell.content)}`).join("  ");
+    case "column-group":
+      return node.columns.map((column) => column.map(flatNodeText).join("\n")).join("\n");
+    case "verbatim":
+      return node.text;
+    default: {
+      const exhaustive: never = node;
+      throw new Error(`Unknown presentation node ${(exhaustive as PresentationNode).kind}`);
+    }
+  }
+}
 
 type RenderEnvironment = {
   readonly context: TerminalPresentationContext;
@@ -223,11 +296,19 @@ function renderNode(
   const { context } = environment;
   switch (node.kind) {
     case "prose":
-      return wrapInlineNode(node.parts, environment, "lifecycle")
-        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
+      return wrapInlineNode(
+        node.parts,
+        environment,
+        "lifecycle",
+        node.category ?? inheritedCategory,
+      );
     case "sentence":
-      return wrapInlineNode(node.parts, environment, "sentence")
-        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
+      return wrapInlineNode(
+        node.parts,
+        environment,
+        "sentence",
+        node.category ?? inheritedCategory,
+      );
     case "heading":
       return styleLines(node.text, node.category ?? "heading", context.color);
     case "identifier":
@@ -273,15 +354,32 @@ function renderNode(
       );
     }
     case "list-item": {
+      const category = node.category ?? inheritedCategory;
+      // A state list item opens with its DEC-001 glyph instead of a dash.
+      const bullet = category !== undefined && STATE_ROLES.includes(category as StateRole)
+        ? stateHeadlinePrefix(category as StateRole)
+        : "- ";
       return wrapInlineNode(
-        ["- ", ...node.parts],
+        [bullet, ...node.parts],
         environment,
         "lifecycle",
-      )
-        .map((line) => styleSemanticText(line, node.category ?? inheritedCategory, context.color));
+        category,
+      );
     }
-    case "notice":
-      return renderNodes(node.nodes, environment, NOTICE_CATEGORY[node.severity]);
+    case "notice": {
+      const role = NOTICE_ROLE[node.severity];
+      const [headline, ...body] = node.nodes;
+      const lines: string[] = [];
+      if (headline !== undefined) {
+        lines.push(...renderNode(prependStateGlyph(headline, role), environment, role));
+      }
+      // Notice body is default-colored actionable or supporting content;
+      // only the headline carries state color (DEC-001).
+      if (body.length > 0) {
+        lines.push(...renderNodes(body, environment));
+      }
+      return lines;
+    }
     case "row":
       return renderRowGroup([node], environment, inheritedCategory);
     case "column-group":
@@ -476,14 +574,17 @@ function unstyled(environment: RenderEnvironment): RenderEnvironment {
 /**
  * Wrap one inline-content node through the renderer's own two wrapping
  * policies: lifecycle promotes authored command invocations onto dedicated
- * lines; sentence keeps them inline and whole.
+ * lines; sentence keeps them inline and whole. Actionable guidance stays in
+ * the default color while embedded command invocations take the accent
+ * (DEC-001); an authored line category still paints the whole line.
  */
 function wrapInlineNode(
   parts: readonly InlineContent[],
   environment: RenderEnvironment,
   policy: "lifecycle" | "sentence",
+  category: SemanticCategory | undefined,
 ): readonly string[] {
-  return wrapInlineParts(normalizeParts(parts), environment, policy);
+  return wrapInlineParts(normalizeParts(parts), environment, policy, category);
 }
 
 function normalizeParts(content: readonly InlineContent[]): readonly InlinePart[] {
@@ -528,27 +629,87 @@ type InlineRun = {
   readonly glue: boolean;
 };
 
+function inlinePartCategory(
+  part: InlinePart,
+  category: SemanticCategory | undefined,
+): SemanticCategory | undefined {
+  if (category !== undefined) return category;
+  return part.kind === "command" ? "command" : undefined;
+}
+
+function inlineRunCategory(
+  run: InlineRun,
+  category: SemanticCategory | undefined,
+): SemanticCategory | undefined {
+  if (category !== undefined) return category;
+  return run.command ? "command" : undefined;
+}
+
+function styleInlineParts(
+  parts: readonly InlinePart[],
+  rendered: readonly string[],
+  category: SemanticCategory | undefined,
+  color: boolean,
+): string {
+  const line = rendered.join("");
+  if (category !== undefined) return styleSemanticText(line, category, color);
+  return parts.map((part, index) =>
+    styleSemanticText(rendered[index] ?? "", inlinePartCategory(part, category), color)
+  ).join("");
+}
+
+function styleInlineRuns(
+  runs: readonly InlineRun[],
+  category: SemanticCategory | undefined,
+  color: boolean,
+): string {
+  if (category !== undefined) {
+    return styleSemanticText(
+      runs.map((run, index) =>
+        `${index === 0 || run.glue ? "" : " "}${run.text}`
+      ).join(""),
+      category,
+      color,
+    );
+  }
+  let output = "";
+  runs.forEach((run, index) => {
+    const separator = index === 0 ? "" : run.glue ? "" : " ";
+    output += separator;
+    output += styleSemanticText(run.text, inlineRunCategory(run, category), color);
+  });
+  return output;
+}
+
 function wrapInlineParts(
   parts: readonly InlinePart[],
   environment: RenderEnvironment,
   policy: "lifecycle" | "sentence",
+  category: SemanticCategory | undefined,
 ): readonly string[] {
   const { context } = environment;
   const rendered = parts.map((part) => renderInlinePart(part, environment));
   const line = rendered.join("");
-  if (line.trim().length === 0) return [line];
+  if (line.trim().length === 0) return [styleSemanticText(line, category, context.color)];
 
   const indentation = line.match(/^\s*/)?.[0] ?? "";
   const content = line.slice(indentation.length);
-  const bullet = policy === "lifecycle" && content.startsWith("- ") ? "- " : "";
+  const bullet = policy === "lifecycle" &&
+    (content.startsWith("- ") || STATE_ROLES.some((role) => content.startsWith(stateHeadlinePrefix(role))))
+    ? content.slice(0, content.indexOf(" ") + 1)
+    : "";
   const measure = Math.max(1, context.width - indentation.length - 2);
-  if (content.slice(bullet.length).length <= measure) return [line];
+  if (content.slice(bullet.length).length <= measure) {
+    return [styleInlineParts(parts, rendered, category, context.color)];
+  }
 
   const runs = inlineRuns(parts, rendered, line, indentation.length + bullet.length);
   const wrapped = wrapRuns(runs, measure, policy);
-  return wrapped.map((part, index) =>
-    `${index === 0 ? indentation + bullet : `${indentation}  `}${part}`
-  );
+  return wrapped.map((runLine, index) => {
+    const prefix = `${index === 0 ? indentation + bullet : `${indentation}  `}`;
+    return styleSemanticText(prefix, category, context.color) +
+      styleInlineRuns(runLine, category, context.color);
+  });
 }
 
 /**
@@ -646,26 +807,33 @@ function wrapRuns(
   runs: readonly InlineRun[],
   measure: number,
   policy: "lifecycle" | "sentence",
-): readonly string[] {
-  const lines: string[] = [];
-  let current = "";
+): InlineRun[][] {
+  const lines: InlineRun[][] = [];
+  let current: InlineRun[] = [];
+  const currentLength = (): number => {
+    let length = 0;
+    current.forEach((run, index) => {
+      length += run.text.length + (index === 0 || run.glue ? 0 : 1);
+    });
+    return length;
+  };
   const flush = (): void => {
     if (current.length > 0) {
       lines.push(current);
-      current = "";
+      current = [];
     }
   };
   for (const run of runs) {
     if (policy === "lifecycle" && run.command) {
       flush();
-      lines.push(run.text);
+      lines.push([run]);
       continue;
     }
     let remainder = run.text;
     while (remainder.length > 0) {
-      const separator = current.length === 0 ? "" : run.glue ? "" : " ";
-      if (current.length + separator.length + remainder.length <= measure) {
-        current += separator + remainder;
+      const separator = current.length === 0 || run.glue ? 0 : 1;
+      if (currentLength() + separator + remainder.length <= measure) {
+        current.push({ text: remainder, command: run.command, glue: run.glue });
         break;
       }
       if (current.length > 0) {
@@ -675,12 +843,12 @@ function wrapRuns(
       if (run.glue) {
         // A path segment wider than the measure cannot fit whole; split it at
         // the measure so the identity stays complete without overflowing.
-        lines.push(remainder.slice(0, measure));
+        lines.push([{ text: remainder.slice(0, measure), command: run.command, glue: run.glue }]);
         remainder = remainder.slice(measure);
         continue;
       }
       // Other over-measure runs keep their established whole-line behaviour.
-      lines.push(remainder);
+      lines.push([{ text: remainder, command: run.command, glue: run.glue }]);
       break;
     }
   }

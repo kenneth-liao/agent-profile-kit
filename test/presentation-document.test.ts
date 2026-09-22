@@ -68,8 +68,9 @@ test("styles a notice by its severity rather than as a heading", () => {
     width: 80,
     rows: undefined,
   });
-  expect(colored).toContain("\u001b[1;34mProjects (1)\u001b[0m");
-  expect(colored).toContain("\u001b[31m2 Blockers\u001b[0m");
+  expect(colored).toContain("\u001b[1mProjects (1)\u001b[0m");
+  expect(colored).toContain("\u001b[31m✖ 2 Blockers\u001b[0m");
+  expect(colored).not.toContain("\u001b[1;34mProjects (1)");
   expect(colored).not.toContain("\u001b[1;34m2 Blockers");
 
   const plain = renderPresentationDocument(document, {
@@ -78,8 +79,104 @@ test("styles a notice by its severity rather than as a heading", () => {
     width: 80,
     rows: undefined,
   });
-  expect(plain).toBe("Projects (1)\n2 Blockers");
+  expect(plain).toBe("Projects (1)\n✖ 2 Blockers");
   expect(plain).not.toMatch(/\u001b/);
+});
+
+test("opens every state notice with its glyph and colors only the headline", () => {
+  const document = [
+    {
+      kind: "notice" as const,
+      severity: "warning" as const,
+      nodes: [
+        { kind: "prose" as const, parts: ["Host attention required"] },
+        { kind: "prose" as const, parts: ["Trust the bound project in Codex."] },
+        { kind: "sentence" as const, parts: ["Run ", { kind: "command" as const, program: "apkit", args: [{ kind: "text" as const, value: "status" }] }, " to verify."] },
+      ],
+    },
+  ];
+
+  const colored = renderPresentationDocument(document, {
+    color: true,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  const lines = colored.split("\n");
+  expect(lines[0]).toBe("\u001b[33m⚠ Host attention required\u001b[0m");
+  expect(lines[1]).toBe("Trust the bound project in Codex.");
+  expect(lines[2]).toContain("Run ");
+  expect(lines[2]).toContain("\u001b[36mapkit status\u001b[0m");
+  expect(lines[2]).not.toContain("\u001b[33m");
+  expect(lines[2]).not.toContain("\u001b[2m");
+  for (const role of [
+    ["success", "✔", "\u001b[32m"],
+    ["error", "✖", "\u001b[31m"],
+    ["neutral", "●", ""],
+  ] as const) {
+    const rendered = renderPresentationDocument([{
+      kind: "notice",
+      severity: role[0],
+      nodes: [{ kind: "prose", parts: ["State"] }],
+    }], { color: true, interactive: true, width: 80, rows: undefined });
+    if (role[2] === "") {
+      expect(rendered).toBe(`${role[1]} State`);
+    } else {
+      expect(rendered).toBe(`${role[2]}${role[1]} State\u001b[0m`);
+    }
+  }
+});
+
+test("renders actionable guidance in the default color with commands in the accent", () => {
+  const document = diagnosticDocument({
+    happened: ["Profile 'codng' was not found"],
+    why: [["Available Profiles: coding, writing"]],
+    whatToType: [["Run ", { kind: "command" as const, program: "apkit", args: [{ kind: "text" as const, value: "list" }, { kind: "text" as const, value: "profiles" }] }, " to inspect them."]],
+  });
+
+  const colored = renderPresentationDocument(document, {
+    color: true,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  const lines = colored.split("\n");
+  expect(lines[0]).toBe("\u001b[31m✖ apkit: Profile 'codng' was not found\u001b[0m");
+  expect(lines[1]).toBe("Available Profiles: coding, writing");
+  expect(lines[1]).not.toMatch(/\u001b\[2m/);
+  expect(lines[1]).not.toMatch(/\u001b\[31m/);
+  expect(lines[2]).toContain("\u001b[36mapkit list profiles\u001b[0m");
+  expect(lines[2]).not.toMatch(/\u001b\[2m/);
+  expect(colored).not.toContain("Did you mean");
+});
+
+test("keeps nearest-match suggestions outside error and muted coloring", () => {
+  const document = diagnosticDocument({
+    happened: ["Profile 'codng' was not found"],
+    why: [["Did you mean 'coding'?"], ["Available Profiles: coding, writing"]],
+    whatToType: [["Choose an available Profile, then run ", { kind: "command" as const, program: "apkit", args: [{ kind: "text" as const, value: "install" }] }, "."]],
+  });
+
+  const colored = renderPresentationDocument(document, {
+    color: true,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  const plain = renderPresentationDocument(document, {
+    color: false,
+    interactive: true,
+    width: 80,
+    rows: undefined,
+  });
+  for (const guidance of ["Did you mean 'coding'?", "Available Profiles: coding, writing"]) {
+    expect(plain).toContain(guidance);
+    expect(colored).toContain(guidance);
+    const line = colored.split("\n").find((candidate) => candidate.includes(guidance))!;
+    expect(line).not.toContain("\u001b[31m");
+    expect(line).not.toContain("\u001b[2m");
+    expect(line).not.toContain("\u001b[33m");
+  }
 });
 
 test("wraps prose and carries its style across every wrapped line", () => {
@@ -367,7 +464,7 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
   const lines = text.split("\n");
   // Structural shape, not unstructured string: happened in notice, then
   // whatToType lines, and usage last as one whole command line.
-  expect(lines[0]).toBe("apkit: something failed");
+  expect(lines[0]).toBe("✖ apkit: something failed");
   expect(lines[1]).toBe("Run apkit first-recovery to recover.");
   expect(lines[2]).toBe("Run apkit second-recovery as an alternative.");
   expect(lines[3]).toBe("Usage: apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]");
@@ -388,7 +485,7 @@ test("renders diagnostic cause lines after what happened and before what to type
   );
   const lines = text.split("\n").filter((line) => line.length > 0);
   // Order is the structural shape: happened, then why, then what to type.
-  expect(lines[0]!.startsWith("apkit: ")).toBe(true);
+  expect(lines[0]!.startsWith("✖ apkit: ")).toBe(true);
   expect(lines.slice(1, 3).every((line) => line.startsWith("caused by: "))).toBe(true);
   expect(lines[3]!.startsWith("Run apkit")).toBe(true);
   expect(lines).toHaveLength(4);

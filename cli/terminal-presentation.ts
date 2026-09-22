@@ -34,24 +34,56 @@ export interface TerminalPresentationContext {
   readonly rows: number | undefined;
 }
 
+/**
+ * DEC-001 semantic roles authored at formatter sites. State colors are
+ * reserved for state glyphs and headlines; names and headings are bold
+ * default; `command` is the single accent; `muted` is secondary text only.
+ */
 export type SemanticCategory =
-  | "attention"
   | "command"
   | "error"
   | "heading"
   | "muted"
+  | "neutral"
   | "path"
-  | "success";
+  | "success"
+  | "warning";
+
+/** Roles that open with a state glyph and may carry a state color. */
+export type StateRole = "success" | "warning" | "error" | "neutral";
+
+export const STATE_ROLES = ["success", "warning", "error", "neutral"] as const;
+
+/** DEC-001 glyphs shared by every human surface. */
+export const GLYPHS = {
+  success: "✔",
+  warning: "⚠",
+  error: "✖",
+  neutral: "●",
+  actionSeparator: "›",
+  focus: "❯",
+  multiSelectOff: "◻",
+  multiSelectOn: "◼",
+} as const;
+
+export function stateGlyph(role: StateRole): string {
+  return GLYPHS[role];
+}
+
+export function stateHeadlinePrefix(role: StateRole): string {
+  return `${GLYPHS[role]} `;
+}
 
 const ANSI_RESET = "\u001b[0m";
-const ANSI_COLORS: Readonly<Record<SemanticCategory, string>> = {
-  attention: "\u001b[33m",
+const ANSI_COLORS: Readonly<Record<SemanticCategory, string | undefined>> = {
   command: "\u001b[36m",
   error: "\u001b[31m",
-  heading: "\u001b[1;34m",
+  heading: "\u001b[1m",
   muted: "\u001b[2m",
-  path: "\u001b[35m",
+  neutral: undefined,
+  path: "\u001b[1m",
   success: "\u001b[32m",
+  warning: "\u001b[33m",
 };
 
 /** Apply a node's authored semantic category after layout. */
@@ -61,7 +93,9 @@ export function styleSemanticText(
   color: boolean,
 ): string {
   if (!color || category === undefined || text.length === 0) return text;
-  return `${ANSI_COLORS[category]}${text}${ANSI_RESET}`;
+  const ansi = ANSI_COLORS[category];
+  if (ansi === undefined) return text;
+  return `${ansi}${text}${ANSI_RESET}`;
 }
 
 const FULL_WORDMARK = [

@@ -264,7 +264,7 @@ function malformedPagerDiagnostic(value: string): PresentationDocument {
     happened: [`the configured PAGER '${value}' is not a command with arguments`],
     why: [["quotes and backslashes must balance; shell operators are not interpreted"]],
     whatToType: PAGER_RECOVERY,
-    severity: "attention",
+    severity: "warning",
   });
 }
 
@@ -292,7 +292,7 @@ function pagerFailureDiagnostic(
       ],
     ],
     whatToType: PAGER_RECOVERY,
-    severity: "attention",
+    severity: "warning",
   });
 }
 
@@ -305,6 +305,6 @@ function pagerCleanupAdvisory(
     ],
     why: [["its process could not be confirmed terminated"]],
     whatToType: [["Check for a still-running pager process before retrying."]],
-    severity: "attention",
+    severity: "warning",
   });
 }

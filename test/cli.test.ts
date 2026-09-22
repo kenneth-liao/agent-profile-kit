@@ -2476,7 +2476,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // the internal Local Configuration path (US-015, review S10).
     expect(humanText(failed.stderr)).toBe(
       humanText(
-        `apkit: Project target '${missing}' must be an existing directory\n` +
+        `✖ apkit: Project target '${missing}' must be an existing directory\n` +
           "Create it or pass an existing Project directory.",
       ),
     );
@@ -2578,7 +2578,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("Ready to update\n- not installed yet (1):");
+    expect(status.stdout).toStartWith("✔ Ready to update\n- not installed yet (1):");
     expect(status.stdout).not.toContain("Launch Codex from the exact bound project root:");
     expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Standing Host setup:");
@@ -2601,7 +2601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("Ready to update\n- not installed yet (1):")).toBe(true);
+    expect(result.stdout.startsWith("✔ Ready to update\n- not installed yet (1):")).toBe(true);
     expect(result.stdout).not.toContain("Projects: 1");
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
@@ -2622,7 +2622,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(result.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
     expect(result.stdout.match(/All Projects are up to date/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain("No Projects need attention.");
@@ -2639,7 +2639,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toBe(
       humanText(
-        "No Projects are configured.\n" +
+        "✔ No Projects are configured.\n" +
         "Next: Run apkit list projects to inspect configured Projects, or apkit install <profile> --host <host> to install one.\n",
       ),
     );
@@ -2665,7 +2665,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toStartWith("Ready to update\n- source changed (1):");
+    expect(result.stdout).toStartWith("✔ Ready to update\n- source changed (1):");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
     expect(result.stdout).not.toContain(`Project: ${realpathSync(worktree)}`);
     expect(result.stdout).not.toContain("Selected setup:");
@@ -2890,7 +2890,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("Ready to update\n- source changed (12): ");
+    expect(status.stdout).toStartWith("✔ Ready to update\n- source changed (12): ");
     expect(status.stdout).not.toContain("Skill review-pr");
     expect(status.stdout).not.toContain("Workspace changes:");
     expect(status.stdout.match(/Project: /g)).toBeNull();
@@ -2951,7 +2951,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const blocker = ".codex/hooks.json already contains a file Agent Profile Kit did not install.";
 
     expectExitCode(result, 2);
-    expect(result.stdout.startsWith("Update blocked\n")).toBe(true);
+    expect(result.stdout.startsWith("✖ Update blocked\n")).toBe(true);
     // The extended vocabulary guard covers blocked human output (TEST-012, DEC-021).
     expect(humanText(result.stdout)).not.toMatch(INTERNAL_TERM_PATTERN);
     expect(humanText(result.stdout).split(blocker)).toHaveLength(2);
@@ -2990,7 +2990,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 1);
     const lines = failed.stderr.split("\n");
     // What happened: Directory is not configured as a Project (DEC-016: does not name unmatched Project target)
-    expect(lines[0]).toMatch(/^apkit: Directory/);
+    expect(lines[0]).toMatch(/^✖ apkit: Directory/);
     expect(failed.stderr).toContain("is not configured as a Project");
     // What to type: recovery commands
     expect(failed.stderr).toContain("Run apkit install to configure this directory as a Project.");
@@ -3328,7 +3328,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     const plan = await runCli(home, "status");
     expectExitCode(plan, 0);
-    expect(plan.stdout).toStartWith("Ready to update\n- not installed yet (1):");
+    expect(plan.stdout).toStartWith("✔ Ready to update\n- not installed yet (1):");
     expect(plan.stdout).not.toContain("Host setup:");
     expect(plan.stdout).not.toContain("Standing Host setup:");
     expect(plan.stdout).not.toContain(
@@ -3345,7 +3345,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "update");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("Update complete\n")).toBe(true);
+    expect(result.stdout.startsWith("✔ Update complete\n")).toBe(true);
     expect(result.stdout).not.toContain("State: current");
     expect(result.stdout).not.toContain("State: addition");
     expect(result.stdout).toContain("Updated 1 Project (2 generated files).");
@@ -3402,7 +3402,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("All Projects are up to date (1 Project)\n");
+    expect(status.stdout).toStartWith("✔ All Projects are up to date (1 Project)\n");
     expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Trust the bound project in Codex.");
@@ -4057,7 +4057,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const blockedApply = await runCli(home, "update", "--all", "--blocked");
     expectExitCode(blockedApply, 2);
     expect(blockedApply.stderr).toBe("");
-    expect(blockedApply.stdout).toStartWith("Update blocked");
+    expect(blockedApply.stdout).toStartWith("✖ Update blocked");
     expect(blockedApply.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
 
@@ -4096,7 +4096,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     // An empty selection is a valid empty result, not an unconfigured fleet:
     // the unconfigured copy and its bind guidance must never appear (INT-1).
-    expect(result.stdout).not.toContain("No Projects are configured");
+    expect(result.stdout).not.toContain("✔ No Projects are configured");
     expect(result.stdout).not.toContain("apkit list projects");
     expect(result.stdout).not.toContain("apkit bind");
     expect(result.stdout).toContain("No Blocked Projects.");
@@ -4105,7 +4105,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const verbose = await runCli(home, "status", "--blocked", "--verbose");
 
     expectExitCode(verbose, 0);
-    expect(verbose.stdout).not.toContain("No Projects are configured");
+    expect(verbose.stdout).not.toContain("✔ No Projects are configured");
     expect(verbose.stdout).not.toContain("Profile Installations are configured");
     expect(verbose.stdout).toContain("No Blocked Projects.");
   });
@@ -4122,7 +4122,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status", "--stale");
 
     expectExitCode(result, 0);
-    expect(result.stdout).not.toContain("No Projects are configured");
+    expect(result.stdout).not.toContain("✔ No Projects are configured");
     expect(result.stdout).not.toContain("apkit list projects");
     expect(result.stdout).not.toContain("apkit bind");
     expect(result.stdout).toContain("No stale Projects.");
@@ -5585,7 +5585,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(repaired.stdout)).toContain(`~ .codex/hooks.json (${basename(projectPath)})`);
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
-    expect(current.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(current.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
     expect(current.stdout).not.toContain("Next:");
   });
 
@@ -5824,7 +5824,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(status.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5860,7 +5860,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(status.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5920,7 +5920,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 2);
-    expect(result.stdout.startsWith("Cannot update\n")).toBe(true);
+    expect(result.stdout.startsWith("✖ Cannot update\n")).toBe(true);
     expect(result.stdout).toContain("- needs attention (1):");
     expect(humanText(result.stdout)).toContain(projectPath.split("/").at(-1)!);
     expect(result.stdout).not.toContain("Scope: Project");
@@ -6944,7 +6944,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toStartWith("Update blocked");
+    expect(result.stdout).toStartWith("✖ Update blocked");
     expect(result.stdout).toContain("Blocker:");
     // The unselected never-installed Project is not installed either.
     expect(existsSync(join(blocked, ".codex", "hooks.json")) &&
@@ -10182,7 +10182,7 @@ describe("responsive lifecycle reports", () => {
     // Guide prose carries no category, so wrapped prose stays uncoloured.
     expect(colored.stdout).not.toContain("\u001b[2m");
     // The guide title and next action keep their authored heading category.
-    expect(colored.stdout.split("\n").some((line) => line.includes("\u001b[1;34m"))).toBe(true);
+    expect(colored.stdout.split("\n").some((line) => line.includes("\u001b[1m"))).toBe(true);
   });
 });
 
@@ -10832,7 +10832,7 @@ describe("apkit root help", () => {
     expect(interactive.stdout).toContain("Agent Profile Kit");
     expect(interactive.stdout).toContain(" /__\\ reusable agent material");
     for (const heading of ["First run:", "Common commands:", "More commands:"]) {
-      expect(interactive.stdout).toContain(`\u001b[1;34m${heading}\u001b[0m`);
+      expect(interactive.stdout).toContain(`\u001b[1m${heading}\u001b[0m`);
     }
     expect(interactive.stdout).toMatch(/\u001b\[/);
     expect(piped.stdout).not.toContain(" /__\\ reusable agent material");
@@ -11291,7 +11291,7 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
-      "No temporary Profiles are active.\n" +
+      "✔ No temporary Profiles are active.\n" +
         "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
     );
     expect(result.stdout).not.toContain("Next:");
@@ -12088,7 +12088,7 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
-      "No Projects are configured.\n" +
+      "✔ No Projects are configured.\n" +
         "Use apkit install <profile> --host <host> to install a Project.\n",
     );
     expect(result.stdout).not.toContain("Next:");

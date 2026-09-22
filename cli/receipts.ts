@@ -12,6 +12,7 @@ import {
   commandPart,
   identifierPart,
   pathPart,
+  stateHeadline,
   type InlineContent,
   type PathPart,
   type CommandArg,
@@ -87,16 +88,12 @@ export function createdProfileInstallNextActionDocument(profile: string): Presen
  * initialization completion, so the two flows cannot disagree on the facts.
  */
 export function newArtifactCreatedNodes(input: NewArtifactReceiptInput): PresentationNode[] {
-  const created: PresentationNode = {
-    kind: "sentence",
-    parts: [
-      `Created ${input.artifactType} `,
-      identifierPart(input.id),
-      " at ",
-      identifierPart(input.path),
-    ],
-    category: "success",
-  };
+  const created: PresentationNode = stateHeadline([
+    `Created ${input.artifactType} `,
+    identifierPart(input.id),
+    " at ",
+    identifierPart(input.path),
+  ], "success");
   const selectedContexts = input.selectedContexts ?? [];
   const selectedSkills = input.selectedSkills ?? [];
   const nodes: PresentationNode[] = [created];
@@ -328,11 +325,9 @@ function appendMissingProfileBindings(
   nodes: PresentationNode[],
   missingProfileBindings: readonly MissingProfileBindingReport[],
 ): void {
-  nodes.push({
-    kind: "sentence",
-    parts: ["Project Bindings whose Profile this Workspace lacks:"],
-    category: "attention",
-  });
+  nodes.push(stateHeadline([
+    "Project Bindings whose Profile this Workspace lacks:",
+  ], "warning"));
   for (const missing of missingProfileBindings) {
     nodes.push({
       kind: "sentence",
@@ -375,13 +370,9 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   }
   if (input.outcome === "connected") {
     const nodes: PresentationNode[] = [
-      {
-        kind: "sentence",
-        parts: input.folderCreated === true
-          ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
-          : [`Connected Agent Profile Kit Workspace at `, workspace],
-        category: "success",
-      },
+      stateHeadline(input.folderCreated === true
+        ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
+        : [`Connected Agent Profile Kit Workspace at `, workspace], "success"),
     ];
     if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
       appendMissingProfileBindings(nodes, input.missingProfileBindings);
@@ -398,14 +389,10 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   }
   if (input.outcome === "migrated") {
     const nodes: PresentationNode[] = [
-      {
-        kind: "sentence",
-        parts: [
-          `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
-          workspace,
-        ],
-        category: "success",
-      },
+      stateHeadline([
+        `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
+        workspace,
+      ], "success"),
     ];
     if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
       appendMissingProfileBindings(nodes, input.missingProfileBindings);
@@ -440,13 +427,9 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
   const detectedHosts = input.detectedHosts ?? [];
 
   return [
-    {
-      kind: "sentence",
-      parts: input.folderCreated === true
-        ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace and ", localConfiguration, " at ", workspace]
-        : [`Initialized Agent Profile Kit Workspace and ${localConfiguration} at `, workspace],
-      category: "success",
-    },
+    stateHeadline(input.folderCreated === true
+      ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace and ", localConfiguration, " at ", workspace]
+      : [`Initialized Agent Profile Kit Workspace and ${localConfiguration} at `, workspace], "success"),
     {
       kind: "sentence",
       parts: [PROFILE_EXPLANATION_SENTENCE],
@@ -506,14 +489,10 @@ export function installReceiptDocument(
       parts: ["Installation unchanged for ", project],
     });
   } else {
-    nodes.push({
-      kind: "sentence",
-      parts: [
-        `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
-        project,
-      ],
-      category: "success",
-    });
+    nodes.push(stateHeadline([
+      `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
+      project,
+    ], "success"));
   }
   if (input.outcome === "replaced") {
     const { profile: previousProfile, hosts: previousHosts } = input.previous;
@@ -574,13 +553,9 @@ export function configureReceiptDocument(
     const after = next.length === 0 ? "(none)" : next.join(", ");
     return before === after ? after : `${before} → ${after}`;
   };
-  const nodes: PresentationNode[] = [{
-    kind: "sentence",
-    parts: [input.changed
-      ? `Updated reusable Profile '${input.profile}'.`
-      : `Reusable Profile '${input.profile}' already has exactly this membership.`],
-    category: "success",
-  }];
+  const nodes: PresentationNode[] = [stateHeadline([input.changed
+    ? `Updated reusable Profile '${input.profile}'.`
+    : `Reusable Profile '${input.profile}' already has exactly this membership.`], "success")];
   nodes.push(
     {
       kind: "key-value",

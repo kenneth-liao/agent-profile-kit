@@ -107,7 +107,7 @@ Next: Run apkit update for pending work after resolving any blockers.
 exports[`golden snapshots of every human view unknown command: unknown-command 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit: unknown command 'nosuch'
+✖ apkit: unknown command 'nosuch'
 
 Run apkit --help for available commands.
 "
@@ -116,7 +116,7 @@ Run apkit --help for available commands.
 exports[`golden snapshots of every human view unknown machine command: unknown-machine-command 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit: unknown machine command 'nosuch'
+✖ apkit: unknown machine command 'nosuch'
 
 Run apkit machine --help for available machine commands.
 "
@@ -1051,7 +1051,7 @@ visibility.
 
 exports[`golden snapshots of every human view details empty: details-empty 1`] = `
 "--- stdout ---
-No lifecycle operations are recorded yet.
+● No lifecycle operations are recorded yet.
 Install, update, and uninstall record automatically; run one, then run
   apkit details.
 History: ~/.agents/agent-profile-kit/operation-history.json
@@ -1070,7 +1070,7 @@ Run apkit details <operation-id> for one operation's complete evidence.
 
 exports[`golden snapshots of every human view details latest: details-latest 1`] = `
 "--- stdout ---
-Install op-000001
+✔ Install op-000001
 Time: 2026-01-01T00:00:00Z → 2026-01-01T00:00:00Z
 Scope: one Project
 Profile: example
@@ -1087,7 +1087,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.217.1
+Engine version: 0.218.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1165,7 +1165,7 @@ Inventory topics:
 
 exports[`golden snapshots of every human view machine list temporary: machine-list-temporary 1`] = `
 "--- stdout ---
-No temporary Profiles are active.
+✔ No temporary Profiles are active.
 Create one with apkit machine install-temp <profile> <project> --host <host>.
 --- stderr ---
 "
@@ -1173,7 +1173,7 @@ Create one with apkit machine install-temp <profile> <project> --host <host>.
 
 exports[`golden snapshots of every human view init: init 1`] = `
 "--- stdout ---
-Created the Workspace folder and initialized Agent Profile Kit Workspace and
+✔ Created the Workspace folder and initialized Agent Profile Kit Workspace and
   settings at ~/apkit-workspace
 A Profile is a named selection of Context and Skills to adapt for your
   projects.
@@ -1191,7 +1191,7 @@ exports[`golden snapshots of every human view open: open 1`] = `
 
 exports[`golden snapshots of every human view new skill: new-skill 1`] = `
 "--- stdout ---
-Created Skill review-pr at
+✔ Created Skill review-pr at
   /private/tmp/apkit-golden-xxxx/apkit-workspace/skills/review-pr/SKILL.md
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
@@ -1200,7 +1200,7 @@ Next: select it into a Profile with apkit configure profile
 
 exports[`golden snapshots of every human view new context: new-context 1`] = `
 "--- stdout ---
-Created Context Module review-standards at
+✔ Created Context Module review-standards at
   /private/tmp/apkit-golden-xxxx/apkit-workspace/context/review-standards.md
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
@@ -1209,7 +1209,7 @@ Next: select it into a Profile with apkit configure profile
 
 exports[`golden snapshots of every human view install success: install-success 1`] = `
 "--- stdout ---
-Installed example for demo
+✔ Installed example for demo
   Profile: example
   Hosts: codex
 Next: apkit status
@@ -1224,7 +1224,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view validate: validate 1`] = `
 "--- stdout ---
-Workspace and settings valid (1 Profile, 1 configured Project)
+✔ Workspace and settings valid (1 Profile, 1 configured Project)
 Workspace: ~/apkit-workspace
 Profiles found: example
 Hosts bound: codex
@@ -1244,7 +1244,7 @@ Configure:
   Skills: (none) → review-pr
 Saves only to the reusable Profile definition; installations update
   separately.
-Updated reusable Profile 'example'.
+✔ Updated reusable Profile 'example'.
   Context: example-context
   Skills: (none) → review-pr
 Equivalent: apkit configure profile example --context example-context --skill review-pr --auto-confirm
@@ -1255,14 +1255,14 @@ Next: apkit update
 
 exports[`golden snapshots of every human view status current: status-current 1`] = `
 "--- stdout ---
-demo is up to date
+✔ demo is up to date
 --- stderr ---
 "
 `;
 
 exports[`golden snapshots of every human view status pending: status-pending 1`] = `
 "--- stdout ---
-Ready to update
+✔ Ready to update
 - not installed yet (1): demo
 Next: apkit update '~/projects/demo'
 
@@ -1273,10 +1273,10 @@ Details: apkit status '~/projects/demo' --verbose
 
 exports[`golden snapshots of every human view status blocked: status-blocked 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   blocked
-    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
+    ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
       write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1289,7 +1289,7 @@ Cannot update
       Affected paths (1):
         - .codex/hooks.json
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1301,10 +1301,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts grouped-twelve: status-tracked-counts-grouped-twelve 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so
+    ✖ Blocker: .agents/skills/s001 and 13 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1319,7 +1319,7 @@ Cannot update
         - .claude/skills/single
         - .grok/skills/single
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1331,10 +1331,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts eleven-no-cap: status-tracked-counts-eleven-no-cap 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so
+    ✖ Blocker: .agents/skills/s001 and 10 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1347,7 +1347,7 @@ Cannot update
       Affected paths (11):
         - .agents/skills/ (11 paths)
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1359,10 +1359,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts root-immediate-parent-equivalent: status-tracked-counts-root-immediate-parent-equivalent 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
+    ✖ Blocker: .agents/skills/s001 and 5 more files are tracked by Git, so Agent
       Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1377,7 +1377,7 @@ Cannot update
         - .claude/skills/ (2 paths)
         - .grok/skills/ (2 paths)
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1389,10 +1389,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts overlapping-parent-equivalent: status-tracked-counts-overlapping-parent-equivalent 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
+    ✖ Blocker: .agents/skills/s001 and 2 more files are tracked by Git, so Agent
       Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1406,7 +1406,7 @@ Cannot update
         - .agents/skills/ (2 paths)
         - .claude/skills/single
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1418,10 +1418,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts deterministic-order: status-tracked-counts-deterministic-order 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so
+    ✖ Blocker: .agents/skills/alpha and 2 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1436,7 +1436,7 @@ Cannot update
         - .claude/skills/beta
         - .grok/skills/zeta
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1448,10 +1448,10 @@ Next:
 
 exports[`golden snapshots of every human view status tracked counts large-60-60-30: status-tracked-counts-large-60-60-30 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   tracked-counts
-    Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so
+    ✖ Blocker: .agents/skills/s001 and 149 more files are tracked by Git, so
       Agent Profile Kit cannot write to them.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1466,7 +1466,7 @@ Cannot update
         - .claude/skills/ (60 paths)
         - .grok/skills/ (30 paths)
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1478,7 +1478,7 @@ Next:
 
 exports[`golden snapshots of every human view status verbose: status-verbose 1`] = `
 "--- stdout ---
-demo is up to date
+✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
 Host setup:
@@ -1496,10 +1496,10 @@ Standing Host setup:
 
 exports[`golden snapshots of every human view status blocked filter: status-blocked-filter 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   blocked
-    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
+    ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
       write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated
         files; Git-tracked paths cannot be replaced.
@@ -1512,7 +1512,7 @@ Cannot update
       Affected paths (1):
         - .codex/hooks.json
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1524,7 +1524,7 @@ Next:
 
 exports[`golden snapshots of every human view update receipt: update-receipt 1`] = `
 "--- stdout ---
-Update complete
+✔ Update complete
 
 Updated 1 Project (2 generated files).
 
@@ -1552,7 +1552,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view update no-op: update-noop 1`] = `
 "--- stdout ---
-Update complete
+✔ Update complete
 All Projects were already current.
 
 Details: apkit details
@@ -1562,12 +1562,12 @@ Details: apkit details
 
 exports[`golden snapshots of every human view update blocked: update-blocked 1`] = `
 "--- stdout ---
-Update blocked
+✖ Update blocked
 
 Project: blocked
   Profile: example
   Hosts: codex
-  Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
+  ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
     write to it.
     Requirement: Agent Profile Kit must exclusively manage its generated
       files; Git-tracked paths cannot be replaced.
@@ -1582,7 +1582,7 @@ Project: blocked
 
 Git exclusions: 2 entries to add.
 
-Projects: 1 · Pending: blocked · Blockers: 1
+✖ Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -1596,7 +1596,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view uninstall: uninstall 1`] = `
 "--- stdout ---
-Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
+✔ Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
   recorded selection.
 
 Details: apkit details
@@ -1606,7 +1606,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view install-temp: install-temp 1`] = `
 "--- stdout ---
-Installed temporary Profile
+✔ Installed temporary Profile
   Profile: example
   Host: codex
   Project: temporary
@@ -1623,7 +1623,7 @@ Next: apkit machine remove-temp 00000000-0000-4000-8000-000000000000
 
 exports[`golden snapshots of every human view remove-temp: remove-temp 1`] = `
 "--- stdout ---
-Removed temporary Profile
+✔ Removed temporary Profile
   Temporary installation: 00000000-0000-4000-8000-000000000000
   Project: temporary-remove
 --- stderr ---
@@ -1633,7 +1633,7 @@ Removed temporary Profile
 exports[`golden snapshots of every human view blocked temp: blocked-temp 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write
+✖ apkit: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write
   to it.
 Remedy: Choose one. To let Agent Profile Kit manage these files, run
   git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked' rm -r --cached -- '.codex/hooks.json'
@@ -1647,7 +1647,7 @@ Remedy: Choose one. To let Agent Profile Kit manage these files, run
 exports[`golden snapshots of every human view unbound-directory error: unbound-directory-error 1`] = `
 "--- stdout ---
 --- stderr ---
-apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
+✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
@@ -1755,23 +1755,23 @@ Agent Profile Kit composes reusable
   agent material into host-native
   projects.
 
-\x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
+\x1B[1mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
-\x1B[1;34mFirst run:\x1B[0m
+\x1B[1mFirst run:\x1B[0m
 \x1B[36m  apkit init <path>\x1B[0m
-\x1B[36m  apkit install <profile> --host <host>\x1B[0m
+\x1B[36m  \x1B[0m\x1B[36mapkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with apkit new;
+  Scaffold material with \x1B[36mapkit new;\x1B[0m
     focus a topic with
-    apkit guide profile,
-    apkit guide context, or
-    apkit guide skill; see
-    apkit install --help for supported
+    \x1B[36mapkit guide profile,\x1B[0m
+    \x1B[36mapkit guide context,\x1B[0m or
+    \x1B[36mapkit guide skill;\x1B[0m see
+    \x1B[36mapkit install --help\x1B[0m for supported
     Host values.
 
-\x1B[1;34mCommon commands:\x1B[0m
+\x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
     Initialize, adopt, or connect the
       canonical Workspace and settings
@@ -1811,12 +1811,12 @@ Agent Profile Kit composes reusable
       history: the latest run, a compact
       list, or one run by identity
 
-\x1B[1;34mMore commands:\x1B[0m
-\x1B[1;34m  Inventory:\x1B[0m
+\x1B[1mMore commands:\x1B[0m
+\x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for
       Projects, Profiles, or Hosts
-\x1B[1;34m  Teardown:\x1B[0m
+\x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project
       installations and forget their
@@ -1825,14 +1825,14 @@ Agent Profile Kit composes reusable
       installations fleet-wide; --host
       removes only those Hosts within
       the scope
-\x1B[1;34m  Machine details:\x1B[0m
+\x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and
       selected application locations
 
 \x1B[2mFor the complete Workspace authoring\x1B[0m
-\x1B[2m  reference (Context Modules, Skills,\x1B[0m
-\x1B[2m  and Profiles), run apkit guide --full.\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mreference (Context Modules, Skills,\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mand Profiles), run apkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;
@@ -1906,18 +1906,18 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
 
 Agent Profile Kit composes reusable agent material into host-native projects.
 
-\x1B[1;34mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
+\x1B[1mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
-\x1B[1;34mFirst run:\x1B[0m
+\x1B[1mFirst run:\x1B[0m
 \x1B[36m  apkit init <path>\x1B[0m
 \x1B[36m  apkit install <profile> --host <host>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
-    or apkit guide skill; see apkit install --help for supported Host values.
+  Scaffold material with \x1B[36mapkit new;\x1B[0m focus a topic with \x1B[36mapkit guide profile,\x1B[0m \x1B[36mapkit guide context,\x1B[0m
+    or \x1B[36mapkit guide skill;\x1B[0m see \x1B[36mapkit install --help\x1B[0m for supported Host values.
 
-\x1B[1;34mCommon commands:\x1B[0m
+\x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
     Initialize, adopt, or connect the canonical Workspace and settings
 \x1B[36m  guide\x1B[0m
@@ -1942,28 +1942,28 @@ Agent Profile Kit composes reusable agent material into host-native projects.
     Show retained lifecycle operation history: the latest run, a compact list, or one run by
       identity
 
-\x1B[1;34mMore commands:\x1B[0m
-\x1B[1;34m  Inventory:\x1B[0m
+\x1B[1mMore commands:\x1B[0m
+\x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for Projects, Profiles, or Hosts
-\x1B[1;34m  Teardown:\x1B[0m
+\x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project installations and forget their recorded selection; a lone --profile
       reaches that Profile's installations fleet-wide; --host removes only those Hosts within the
       scope
-\x1B[1;34m  Machine details:\x1B[0m
+\x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and selected application locations
 
 \x1B[2mFor the complete Workspace authoring reference (Context Modules, Skills, and Profiles), run\x1B[0m
-\x1B[2m  apkit guide --full.\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mapkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.217.1
+Engine version: 0.218.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1973,17 +1973,17 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.217.1\x1B[0m
-Workspace: \x1B[35m~/apkit-workspace\x1B[0m
-Local Configuration: \x1B[35m~/…/config.yaml\x1B[0m
-Installation State: \x1B[35m~/…/manifest.json\x1B[0m
+\x1B[1mEngine version: 0.218.0\x1B[0m
+Workspace: \x1B[1m~/apkit-workspace\x1B[0m
+Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
+Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.217.1
+Engine version: 0.218.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1993,10 +1993,10 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[35mEngine version: 0.217.1\x1B[0m
-Workspace: \x1B[35m~/apkit-workspace\x1B[0m
-Local Configuration: \x1B[35m~/.agents/agent-profile-kit/config.yaml\x1B[0m
-Installation State: \x1B[35m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
+\x1B[1mEngine version: 0.218.0\x1B[0m
+Workspace: \x1B[1m~/apkit-workspace\x1B[0m
+Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
+Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
 --- stderr ---
 "
 `;
@@ -2026,7 +2026,7 @@ Use
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1;34mProjects:\x1B[0m
+\x1B[1mProjects:\x1B[0m
 
 Project: demo
 Profile: example
@@ -2040,7 +2040,7 @@ State: configured
 
 2 Projects configured.
 Use
-  apkit status
+  \x1B[36mapkit status\x1B[0m
   to inspect Project lifecycle
   diagnostics.
 --- stderr ---
@@ -2062,23 +2062,23 @@ Use apkit status to inspect Project lifecycle diagnostics.
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1;34mProjects:\x1B[0m
+\x1B[1mProjects:\x1B[0m
 
 demo   example  codex  configured
 other  example  codex  configured
 
 2 Projects configured.
-Use apkit status to inspect Project lifecycle diagnostics.
+Use \x1B[36mapkit status\x1B[0m to inspect Project lifecycle diagnostics.
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   blocked
-    Blocker: .codex/hooks.json is
+    ✖ Blocker: .codex/hooks.json is
       tracked by Git, so Agent Profile
       Kit cannot write to it.
       Requirement: Agent Profile Kit
@@ -2099,7 +2099,7 @@ Cannot update
       Affected paths (1):
         - .codex/hooks.json
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run
@@ -2111,12 +2111,12 @@ Next:
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31mCannot update\x1B[0m
+\x1B[31m✖ Cannot update\x1B[0m
 - needs attention (1):
   blocked
-\x1B[31m    Blocker: .codex/hooks.json is\x1B[0m
-\x1B[31m      tracked by Git, so Agent Profile\x1B[0m
-\x1B[31m      Kit cannot write to it.\x1B[0m
+\x1B[31m    ✖ \x1B[0m\x1B[31mBlocker: .codex/hooks.json is\x1B[0m
+\x1B[31m      \x1B[0m\x1B[31mtracked by Git, so Agent Profile\x1B[0m
+\x1B[31m      \x1B[0m\x1B[31mKit cannot write to it.\x1B[0m
       Requirement: Agent Profile Kit
         must exclusively manage its
         generated files; Git-tracked
@@ -2124,22 +2124,22 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
       Remedy: Choose one. To let Agent
         Profile Kit manage these files,
         run
-        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
+        \x1B[36mgit --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'\x1B[0m
         — it stages their removal from
         the Git index while the files
         stay on disk; commit afterwards
         to keep the change — then run
-        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        \x1B[36mapkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.\x1B[0m
         To keep Git ownership instead,
         leave the files in place.
       Affected paths (1):
         - .codex/hooks.json
 
-\x1B[31mProjects: 1 · Blockers: 1\x1B[0m
+\x1B[31m✖ Projects: 1 · Blockers: 1\x1B[0m
 
-\x1B[1;34mNext:\x1B[0m
+\x1B[1mNext:\x1B[0m
 - Resolve the reported blocker, then run
-  apkit status '~/projects/blocked'
+  \x1B[36mapkit status '~/projects/blocked'\x1B[0m
   again.
 --- stderr ---
 "
@@ -2147,10 +2147,10 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Cannot update
+✖ Cannot update
 - needs attention (1):
   blocked
-    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.
+    ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.
       Requirement: Agent Profile Kit must exclusively manage its generated files; Git-tracked
         paths cannot be replaced.
       Remedy: Choose one. To let Agent Profile Kit manage these files, run
@@ -2162,7 +2162,7 @@ Cannot update
       Affected paths (1):
         - .codex/hooks.json
 
-Projects: 1 · Blockers: 1
+✖ Projects: 1 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run apkit status '~/projects/blocked' again.
@@ -2172,32 +2172,32 @@ Next:
 
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31mCannot update\x1B[0m
+\x1B[31m✖ Cannot update\x1B[0m
 - needs attention (1):
   blocked
-\x1B[31m    Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.\x1B[0m
+\x1B[31m    ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write to it.\x1B[0m
       Requirement: Agent Profile Kit must exclusively manage its generated files; Git-tracked
         paths cannot be replaced.
       Remedy: Choose one. To let Agent Profile Kit manage these files, run
-        git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
+        \x1B[36mgit --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'\x1B[0m
         — it stages their removal from the Git index while the files stay on disk; commit afterwards
         to keep the change — then run
-        apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
+        \x1B[36mapkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.\x1B[0m
         To keep Git ownership instead, leave the files in place.
       Affected paths (1):
         - .codex/hooks.json
 
-\x1B[31mProjects: 1 · Blockers: 1\x1B[0m
+\x1B[31m✖ Projects: 1 · Blockers: 1\x1B[0m
 
-\x1B[1;34mNext:\x1B[0m
-- Resolve the reported blocker, then run apkit status '~/projects/blocked' again.
+\x1B[1mNext:\x1B[0m
+- Resolve the reported blocker, then run \x1B[36mapkit status '~/projects/blocked'\x1B[0m again.
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-demo is up to date
+✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
 Host setup:
@@ -2222,16 +2222,16 @@ Standing Host setup:
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[32mdemo is up to date\x1B[0m
-\x1B[1;34mProjects:\x1B[0m
+\x1B[32m✔ demo is up to date\x1B[0m
+\x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
-\x1B[1;34mHost setup:\x1B[0m
+\x1B[1mHost setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
-\x1B[1;34mStanding Host setup:\x1B[0m
+\x1B[1mStanding Host setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does
     not load until the project is
@@ -2247,7 +2247,7 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-demo is up to date
+✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
 Host setup:
@@ -2264,13 +2264,13 @@ Standing Host setup:
 
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[32mdemo is up to date\x1B[0m
-\x1B[1;34mProjects:\x1B[0m
+\x1B[32m✔ demo is up to date\x1B[0m
+\x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
-\x1B[1;34mHost setup:\x1B[0m
+\x1B[1mHost setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
-\x1B[1;34mStanding Host setup:\x1B[0m
+\x1B[1mStanding Host setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
 - Launch Codex from the exact bound project root: ~/projects/demo
@@ -2281,7 +2281,7 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-apkit: Directory
+✖ apkit: Directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
 Run apkit install to configure this
@@ -2295,12 +2295,12 @@ Usage: apkit status [project | --here | --all | --project <path>] [--stale | --b
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit: Directory\x1B[0m
-\x1B[31m  '/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
-\x1B[31m  is not configured as a Project\x1B[0m
-Run apkit install to configure this
+\x1B[31m✖ apkit: Directory\x1B[0m
+\x1B[31m  \x1B[0m\x1B[31m'/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
+\x1B[31m  \x1B[0m\x1B[31mis not configured as a Project\x1B[0m
+Run \x1B[36mapkit install\x1B[0m to configure this
   directory as a Project.
-Run apkit list projects to see
+Run \x1B[36mapkit list projects\x1B[0m to see
   configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
@@ -2309,7 +2309,8 @@ Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--sta
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
+✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a
+  Project
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
@@ -2319,9 +2320,10 @@ Usage: apkit status [project | --here | --all | --project <path>] [--stale | --b
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31mapkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
-Run apkit install to configure this directory as a Project.
-Run apkit list projects to see configured Projects.
+\x1B[31m✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a\x1B[0m
+\x1B[31m  \x1B[0m\x1B[31mProject\x1B[0m
+Run \x1B[36mapkit install\x1B[0m to configure this directory as a Project.
+Run \x1B[36mapkit list projects\x1B[0m to see configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "

@@ -1860,7 +1860,7 @@ describe("project-bound release candidate", () => {
     // (US-004, US-007, TEST-004).
     const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(settledStatus, 0);
-    expect(settledStatus.stdout).toBe("All Projects are up to date (7 Projects)\n");
+    expect(settledStatus.stdout).toBe("✔ All Projects are up to date (7 Projects)\n");
     expect(settledStatus.stdout).not.toContain("Next:");
 
     // 7. Whole-invocation cancellation: a cancelled changed-output
@@ -2039,7 +2039,7 @@ describe("project-bound release candidate", () => {
     // current, and the bare invocation summarizes the settled fleet.
     const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
     expectExitCode(finalStatus, 0);
-    expect(finalStatus.stdout).toBe("All Projects are up to date (3 Projects)\n");
+    expect(finalStatus.stdout).toBe("✔ All Projects are up to date (3 Projects)\n");
     const bareConfigured = await runCli(home, [], { path: journeyPath });
     expectExitCode(bareConfigured, 0);
     expect(bareConfigured.stdout).toContain("3 Projects up to date.");

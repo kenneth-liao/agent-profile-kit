@@ -139,7 +139,7 @@ async function initializeAndReport(
       request.stderr,
       diagnosticDocument({
         happened: [`warning: ${warning}`],
-        severity: "attention",
+        severity: "warning",
       }),
       stderrContext,
       renderOptions,
