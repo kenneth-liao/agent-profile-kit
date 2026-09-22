@@ -277,9 +277,9 @@ describe("uninstall confirmation matrix", () => {
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
     expect(plain(started.streams.errorText())).toContain("nothing was written");
-    // A declined uninstall is a retained cancellation (DEC-008), so its
-    // detail route follows the diagnostic on stderr (ADR-0040).
-    expect(plain(started.streams.errorText())).toContain("Details: apkit details");
+    // A plain decline prints one neutral statement and omits the details
+    // hint (US-003, US-010); retention is unchanged.
+    expect(plain(started.streams.errorText())).not.toContain("Details:");
     expect(plain(started.streams.humanText())).not.toContain("Details:");
     snapshotUntouched(home, first, firstOutput);
   });

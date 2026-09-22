@@ -164,7 +164,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       const confirmOffset = session.transcriptLength();
       session.write("n");
       const { text } = await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
-      expect(plain(text)).toContain("Setup declined; nothing was initialized or created");
+      expect(plain(text)).toContain("Setup was declined; nothing was initialized or created.");
     } finally {
       await session.close();
     }
@@ -189,7 +189,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       const cancelOffset = session.transcriptLength();
       session.write("\x03");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
-      expect(plain(text)).toContain("init was cancelled; nothing was initialized or created");
+      expect(plain(text)).toContain("Setup was cancelled; nothing was initialized or created.");
     } finally {
       await session.close();
     }
@@ -299,7 +299,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       const confirmOffset = session.transcriptLength();
       session.write("n");
       const { text } = await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
-      expect(plain(text)).toContain("Setup declined; nothing was initialized or created");
+      expect(plain(text)).toContain("Setup was declined; nothing was initialized or created.");
     } finally {
       await session.close();
     }

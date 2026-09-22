@@ -421,9 +421,9 @@ describe("install general confirmation", () => {
 
     expect(exitCode).toBe(1);
     expect(plain(streams.errorText())).toContain("you answered no");
-    // A declined install is a retained cancellation (DEC-008), so its
-    // detail route follows the diagnostic on stderr (ADR-0040).
-    expect(plain(streams.errorText())).toContain("Details: apkit details");
+    // A plain decline prints one neutral statement and omits the details
+    // hint (US-003, US-010); retention is unchanged.
+    expect(plain(streams.errorText())).not.toContain("Details:");
     expect(plain(streams.humanText())).not.toContain("Details:");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -847,7 +847,7 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
     expect(text.split("Details: apkit details")).toHaveLength(2);
   });
 
-  test("an unchanged install still prints the route for its retained no-op entry", async () => {
+  test("a clean unchanged install omits the details hint and still records the no-op", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
 
@@ -865,7 +865,8 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
     expect(unchanged.exitCode).toBe(0);
     const text = plain(unchanged.streams.humanText());
     expect(text).toContain("Installation unchanged for");
-    expect(text).toContain("Details: apkit details");
+    // US-010, DEC-010: a clean no-op omits the hint; retention is unchanged.
+    expect(text).not.toContain("Details:");
   });
 
   test("a pre-write refusal prints no detail route", async () => {

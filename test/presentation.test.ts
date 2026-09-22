@@ -52,6 +52,11 @@ import {
   hostInventoryDocument,
   infoDocument,
   installBlockedDocument,
+  installDeclinedDocument,
+  configureDeclinedDocument,
+  configurePickerCancelledDocument,
+  initCancelledDocument,
+  initDeclinedDocument,
   inventoryIndexDocument,
   lifecycleStatusDocument as rawLifecycleStatusDocument,
   type LifecycleHumanOptions,
@@ -71,6 +76,7 @@ import {
   uninstallMissingScopeDocument,
   uninstallNoMatchDocument,
   uninstallExecutionFailureDocument,
+  uninstallPickerNoopDocument,
   validationResultDocument,
   workspaceValidationDocument,
   type TemporaryInstallationReceiptView,
@@ -634,8 +640,8 @@ describe("lifecycle status document", () => {
     expect(document.map(shape)).toEqual([
       "notice:success",
       "list-item",
-      "key-value(Next):command",
       "blank",
+      "key-value(Next):command",
       "key-value(Details):command",
     ]);
     const commands = flattenPresentationNodes(document).filter((node) => node.kind === "command");
@@ -1476,16 +1482,13 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(report));
     const nodes = flattenPresentationNodes(concise);
-    // No-op apply: success notice, the already-current statement, no setup
-    // headings, no first-use items, no activation copy.
-    expect(noticesIn(concise)).toHaveLength(1);
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    // Clean no-op apply: one neutral statement, no setup headings, no
+    // first-use items, no activation copy (US-003, US-010).
+    expect(noticesIn(concise)).toHaveLength(0);
     expect(headingsIn(concise)).not.toContain("First use:");
     expect(headingsIn(concise)).not.toContain("Host setup:");
     expect(listItemsIn(concise)).toEqual([]);
-    // The trailing prose is the already-current statement; its wording is
-    // golden-covered (no structured fact exists for it).
-    expect(concise.map(shape)).toEqual(["notice:success", "prose"]);
+    expect(concise.map(shape)).toEqual(["sentence"]);
   });
 
   test("concise update deduplicates first-use guidance across projects without a path matrix", () => {
@@ -6258,8 +6261,9 @@ describe("standalone view presentation documents (#389)", () => {
 
   test("uninstall declined and confirmation-required diagnostics name the explicit equivalent", () => {
     const args = [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }];
+    // A plain decline carries no remedy command (US-010).
     const declined = uninstallDeclinedDocument("declined", args);
-    expect(inlineCommandTexts(declined)).toEqual(["apkit uninstall --all"]);
+    expect(inlineCommandTexts(declined)).toEqual([]);
     const required = uninstallConfirmationRequiredDocument(args);
     expect(inlineCommandTexts(required)).toEqual(["apkit uninstall --all"]);
     const missing = uninstallMissingScopeDocument(args);
@@ -8117,9 +8121,10 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     expect(renderBoundary(statusVerbose)).toContain("Sample diagnostic warning (/project-a)");
     expect(headingsIn(statusVerbose)).not.toContain("Warnings:");
 
-    // 3. Apply document (concise)
+    // 3. Apply document (concise) — a clean no-op is one neutral statement
+    // with warnings still inline beside it (US-010).
     const applyConcise = applyReportDocument(applyResult(statusReport));
-    expect(applyConcise[0]?.kind).toBe("notice");
+    expect(applyConcise[0]?.kind).toBe("sentence");
     expect(applyConcise[1]).toMatchObject({ kind: "list-item", category: "warning" });
     expect(renderBoundary(applyConcise)).toContain("Sample diagnostic warning");
     expect(headingsIn(applyConcise)).not.toContain("Warnings:");
@@ -9038,23 +9043,18 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex", "pi"],
     });
+    // The `Next:` action list is the one footer, appended by the install
+    // command after body guidance (US-010).
     expect(shapes(document)).toEqual([
       "sentence(success)",
       "key-value:Profile(path)",
       "key-value:Hosts",
-      "key-value:Next(command)",
     ]);
     expect(document[1]).toEqual({
       kind: "key-value",
       key: "  Profile",
       value: { kind: "identifier", value: "coding" },
       category: "path",
-    });
-    expect(document.at(-1)).toEqual({
-      kind: "key-value",
-      key: "Next",
-      value: { kind: "command", program: "apkit", args: [{ kind: "text", value: "status" }] },
-      category: "command",
     });
   });
 
@@ -9071,7 +9071,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(document)).toEqual([
       "sentence(success)",
       "key-value:Hosts",
-      "key-value:Next(command)",
     ]);
     expect(document[1]).toEqual({
       kind: "key-value",
@@ -9088,12 +9087,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex"],
     });
-    expect(shapes(unchangedInstall)).toEqual([
-      "sentence",
-      "key-value:Profile(path)",
-      "key-value:Hosts",
-      "key-value:Next(command)",
-    ]);
+    // One neutral statement (US-003, US-010); no next action.
+    expect(shapes(unchangedInstall)).toEqual(["sentence(neutral)"]);
   });
 
   test("install receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
@@ -9130,6 +9125,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(unchanged[0]).toEqual({
       kind: "sentence",
       parts: [
+        "● ",
         "Installation unchanged for ",
         {
           kind: "path",
@@ -9138,7 +9134,9 @@ describe("authoring and teardown receipt documents (#390)", () => {
           authoredPath: "~/projects/demo",
           identity: "demo",
         },
+        ".",
       ],
+      category: "neutral",
     });
 
     const replaced = installReceiptDocument({
@@ -11186,6 +11184,110 @@ const textArg = (value: string): { readonly kind: "text"; readonly value: string
   value,
 });
 
+describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
+  test("plain decline and picker cancel print one neutral statement with no remedy or details hint", () => {
+    for (const document of [
+      installDeclinedDocument("declined", ["install", "example", "--auto-confirm"].map(textArg)),
+      installDeclinedDocument("cancelled", ["install", "example"].map(textArg)),
+      installDeclinedDocument("default", ["install", "example"].map(textArg)),
+      uninstallDeclinedDocument("declined", ["uninstall", "--all"].map(textArg)),
+      uninstallDeclinedDocument("cancelled", ["uninstall", "--all"].map(textArg)),
+      configureDeclinedDocument("declined", ["configure", "profile", "example"].map(textArg)),
+      configureDeclinedDocument("cancelled", ["configure", "profile", "example"].map(textArg)),
+      configurePickerCancelledDocument(),
+      initCancelledDocument(),
+      initDeclinedDocument(),
+      uninstallPickerNoopDocument("cancelled"),
+      uninstallPickerNoopDocument("empty-projects"),
+      uninstallPickerNoopDocument("empty-hosts"),
+    ]) {
+      const rendered = renderBoundary(document);
+      expect(rendered).not.toContain("apkit:");
+      expect(rendered).not.toContain("Details:");
+      expect(rendered).not.toContain("Next:");
+      expect(rendered).not.toContain("To proceed without asking");
+      expect(rendered).not.toContain("To choose again");
+      expect(rendered.startsWith("● ")).toBe(true);
+      // One neutral statement: a single rendered line of outcome copy.
+      expect(rendered.trim().split("\n")).toHaveLength(1);
+    }
+  });
+
+  test("plain decline and picker cancel state preservation exactly once", () => {
+    for (const document of [
+      installDeclinedDocument("cancelled", ["install"].map(textArg)),
+      uninstallDeclinedDocument("declined", ["uninstall"].map(textArg)),
+      configureDeclinedDocument("default", ["configure"].map(textArg)),
+      initCancelledDocument(),
+      uninstallPickerNoopDocument("cancelled"),
+    ]) {
+      const rendered = renderBoundary(document);
+      const preservationClaims = [
+        /\bnothing was written\b/,
+        /\bnothing was initialized or created\b/,
+        /\bNo Project or setting was changed\b/,
+        /\bkept the current state\b/,
+        /\bbefore any write\b/,
+      ].filter((claim) => claim.test(rendered));
+      expect(preservationClaims.length).toBe(1);
+    }
+  });
+
+  test("a declined changed-file gate keeps one Next footer for the explicit flag command", () => {
+    const document = applyReplacementDeclinedDocument(
+      "declined",
+      ["update", "--all", "--replace-changed"].map(textArg),
+      { replace: true, remove: false },
+    );
+    const rendered = renderBoundary(document);
+    expect(rendered).not.toContain("apkit:");
+    expect(rendered).not.toContain("Details:");
+    expect(rendered).toContain("● ");
+    // The runnable flag command is the one footer, on its own line (DEC-009, #651).
+    expect(rendered).toContain("Next: apkit update --all --replace-changed");
+    expect(rendered).not.toContain("To replace changed generated files without asking");
+
+    const cancelled = applyReplacementDeclinedDocument(
+      "cancelled",
+      ["update", "--all", "--replace-changed"].map(textArg),
+      { replace: true, remove: false },
+    );
+    const cancelledText = renderBoundary(cancelled);
+    expect(cancelledText).not.toContain("apkit:");
+    expect(cancelledText).toContain("Next: apkit update --all --replace-changed");
+    expect(cancelledText).not.toContain("Details:");
+  });
+
+  test("status pending closes with one footer block carrying Next and Details", () => {
+    const report = emptyReport({
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+    });
+    const concise = lifecycleStatusDocument(report, {
+      selection: { command: "status", kind: "project", match: "exact", target: "/project-a" },
+    });
+    const rendered = renderBoundary(concise);
+    const lines = rendered.split("\n");
+    const nextIndex = lines.findIndex((line) => line.startsWith("Next:"));
+    const detailsIndex = lines.findIndex((line) => line.startsWith("Details:"));
+    expect(nextIndex).toBeGreaterThanOrEqual(0);
+    expect(detailsIndex).toBe(nextIndex + 1);
+    expect(rendered.match(/Next:/g)).toHaveLength(1);
+    expect(rendered.match(/Details:/g)).toHaveLength(1);
+  });
+
+  test("healthy status invents no next action", () => {
+    const report = emptyReport({
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const rendered = renderBoundary(lifecycleStatusDocument(report, {
+      selection: { command: "status", kind: "project", match: "exact", target: "/project-a" },
+    }));
+    expect(rendered).not.toContain("Next:");
+    expect(rendered).not.toContain("Details:");
+  });
+});
+
 describe("update declined diagnostic (US-006, DEC-005)", () => {
   const args = ["update", "--all", "--replace-changed", "--remove-changed"] as const;
 
@@ -11194,7 +11296,8 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
       applyReplacementDeclinedDocument("declined", [...args].map(textArg), { replace: true, remove: false }),
     );
     expect(replaceOnly).toContain("you answered no");
-    expect(replaceOnly).toContain("To replace changed generated files without asking");
+    expect(replaceOnly).toContain("Next: apkit update --all --replace-changed --remove-changed");
+    expect(replaceOnly).not.toContain("To delete changed generated files");
 
     const removeOnly = renderBoundary(
       applyReplacementDeclinedDocument("declined", ["update", "--all", "--remove-changed"].map(textArg), {
@@ -11202,14 +11305,14 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
         remove: true,
       }),
     );
-    expect(removeOnly).toContain("To delete changed generated files without asking");
-    expect(removeOnly).not.toContain("To replace changed generated files");
+    expect(removeOnly).toContain("Next: apkit update --all --remove-changed");
+    expect(removeOnly).not.toContain("--replace-changed");
 
     const both = renderBoundary(
       applyReplacementDeclinedDocument("default", [...args].map(textArg), { replace: true, remove: true }),
     );
     expect(both).toContain("default answer no");
-    expect(both).toContain("To replace or delete changed generated files without asking");
+    expect(both).toContain("Next: apkit update --all --replace-changed --remove-changed");
   });
 
   test("declining stays neutral, never an error notice", () => {
@@ -11217,7 +11320,9 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
       replace: true,
       remove: false,
     });
-    expect(document[0]).toMatchObject({ kind: "notice", severity: "neutral" });
+    // One standalone neutral statement; no error notice and no `apkit:` label.
+    expect(document.every((node) => node.kind !== "notice")).toBe(true);
+    expect(renderBoundary(document)).not.toContain("apkit:");
   });
 });
 

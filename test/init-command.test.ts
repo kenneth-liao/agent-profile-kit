@@ -218,7 +218,7 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(1);
     expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(plain(streams.errorText())).toContain("init was cancelled; nothing was initialized or created");
+    expect(plain(streams.errorText())).toContain("Setup was cancelled; nothing was initialized or created.");
   }, 20_000);
 
   test("cancelling after answering the name initializes nothing", async () => {
@@ -237,7 +237,7 @@ describe("guided first-Profile init", () => {
 
     expect(exitCode).toBe(1);
     expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(plain(streams.errorText())).toContain("init was cancelled; nothing was initialized or created");
+    expect(plain(streams.errorText())).toContain("Setup was cancelled; nothing was initialized or created.");
   }, 20_000);
 
   test("a fresh destination without material initializes without any guidance offer", async () => {
@@ -707,10 +707,10 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(existsSync(configPath(home))).toBe(false);
     expect(fileTreeSnapshot(cwd).size).toBe(0);
     expect(plain(first.streams.errorText())).toContain(
-      "init was cancelled; nothing was initialized or created",
+      "Setup was cancelled; nothing was initialized or created.",
     );
-    // The remedy names an executable path form, not the bare refusal form.
-    expect(plain(first.streams.errorText())).toContain("apkit init <path>");
+    // A plain cancel prints only the neutral statement (US-003, US-010).
+    expect(plain(first.streams.errorText())).not.toContain("apkit init");
   }, 20_000);
 
   test("cancelling at the folder prompt writes nothing", async () => {
@@ -729,7 +729,7 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(existsSync(configPath(home))).toBe(false);
     expect(fileTreeSnapshot(cwd).size).toBe(0);
     expect(plain(streams.errorText())).toContain(
-      "init was cancelled; nothing was initialized or created",
+      "Setup was cancelled; nothing was initialized or created.",
     );
   }, 20_000);
 
@@ -1039,7 +1039,7 @@ describe("connect a different Workspace (#607)", () => {
     expect(exitCode).toBe(0);
     expect(readFileSync(cfg, "utf8")).toBe(initialConfig);
     expect(streams.errorText()).toBe("");
-    expect(plain(streams.humanText())).toContain("Setup declined; nothing was initialized or created");
+    expect(plain(streams.humanText())).toContain("Setup was declined; nothing was initialized or created.");
   }, 20_000);
 
   test("an invalid requested Workspace is refused with the complete validation report, and Local Configuration is unchanged", async () => {

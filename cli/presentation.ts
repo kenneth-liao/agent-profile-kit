@@ -10,7 +10,7 @@ import {
   humanBlockerWording,
   substituteInline,
 } from "./blocker-wording.js";
-import { formatInstallerToolError, initLocationRemedies } from "./error-wording.js";
+import { formatInstallerToolError } from "./error-wording.js";
 import { diagnosticDocument } from "./diagnostics.js";
 import {
   workspaceViolationToken,
@@ -41,7 +41,9 @@ export {
 import {
   commandPart,
   flatInlineText,
+  footerNodes,
   identifierPart,
+  neutralStatementDocument,
   pathPart,
   stateHeadlinePrefix,
   textPart,
@@ -1724,26 +1726,20 @@ export function uninstallConfirmationDocument(preview: {
   ];
 }
 
-/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
- * what happened and the command that answers it explicitly. Rendered with
- * neutral styling: declining is a safe choice, not an error. */
+/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
+ * US-010): one neutral statement only. A plain decline or cancel needs no
+ * remedy and no details hint. */
 export function uninstallDeclinedDocument(
   reason: ApplyDeclinedAnswer,
-  commandArguments: readonly CommandArg[],
+  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
-  return diagnosticDocument({
-    happened: [reason === "cancelled"
-      ? "uninstall was cancelled before any write"
+  return neutralStatementDocument([
+    reason === "cancelled"
+      ? "Uninstall was cancelled; nothing was written."
       : reason === "default"
-        ? "uninstall kept the current state; nothing was written (default answer no)"
-        : "uninstall kept the current state; nothing was written (you answered no)"],
-    why: [["No Project or setting was changed."]],
-    whatToType: [[
-      "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments),
-    ]],
-    severity: "neutral",
-  });
+        ? "Uninstall was declined; nothing was written (default answer no)."
+        : "Uninstall was declined; nothing was written (you answered no).",
+  ]);
 }
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
@@ -1929,26 +1925,21 @@ export function uninstallScopeChangedDocument(
   });
 }
 
-/** How an interactive uninstall pick ended with no removal: the picker was
- * cancelled, or it was submitted with no Projects (or no Hosts) selected.
- * Empty never widens to all Projects (DEC-003): it ends here with zero
- * writes and a way back to the picker, never a fleet-wide equivalent. */
+/**
+ * How an interactive uninstall pick ended with no removal (DEC-003, US-003,
+ * US-010): one neutral statement only. Empty never widens to all Projects, and
+ * a picker cancel or empty selection needs no remedy.
+ */
 export function uninstallPickerNoopDocument(
   kind: "cancelled" | "empty-projects" | "empty-hosts",
 ): PresentationDocument {
-  return diagnosticDocument({
-    happened: [kind === "cancelled"
-      ? "uninstall was cancelled before any write"
+  return neutralStatementDocument([
+    kind === "cancelled"
+      ? "Uninstall was cancelled; nothing was written."
       : kind === "empty-projects"
-        ? "uninstall kept the current state; nothing was written (no Projects selected)"
-        : "uninstall kept the current state; nothing was written (no Hosts selected)"],
-    why: [["No Project or setting was changed."]],
-    whatToType: [[
-      "To choose again, run ",
-      commandPart(COMMAND_NAME, [arg("uninstall")]),
-    ]],
-    severity: "neutral",
-  });
+        ? "Uninstall was declined (no Projects selected); nothing was written."
+        : "Uninstall was declined (no Hosts selected); nothing was written.",
+  ]);
 }
 
 /** The picked-Project notice (ticket #499, US-005): the selected count
@@ -3801,16 +3792,23 @@ function conciseApplyDocument(
   const blocked = reportBlockers(report).length > 0;
   const noOpApply = isNoOpApply("update", report, receipt);
 
-  const nodes: PresentationNode[] = [
-    applyOutcomeNotice(report, noOpApply || receipt !== undefined),
-    ...warningNodes(receipt ? [report, receipt] : report, groups, scope),
-  ];
+  const nodes: PresentationNode[] = [];
+  const warnings = warningNodes(receipt ? [report, receipt] : report, groups, scope);
   if (noOpApply) {
-    nodes.push({
-      kind: "prose",
-      parts: [`All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`],
-    });
+    // One neutral statement (US-003, US-010): a clean no-op invents no next
+    // action and omits the details hint; history retention is unchanged.
+    // Warnings still carry recovery evidence beside the statement.
+    return [
+      ...neutralStatementDocument([
+        `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
+      ]),
+      ...warnings,
+    ];
   }
+  nodes.push(
+    applyOutcomeNotice(report, receipt !== undefined),
+    ...warnings,
+  );
 
   if (!blocked && !noOpApply && receipt !== undefined) {
     const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities);
@@ -4255,47 +4253,25 @@ export function uninstallReplacementCommandDocument(
   return promptedEquivalentCommandDocument("uninstall", commandArguments);
 }
 
-/** The cancelled guided-init diagnostic (DEC-033): what happened, and that
- * initialization changed nothing. The remedy names an executable path form:
- * without a given path the bare form would refuse, so the remedy names the
- * explicit forms instead (spec #593 #601, #603, ADR-0049). */
+/** The cancelled guided-init statement (DEC-033, US-003): one neutral
+ * statement that nothing was initialized or created. A picker cancel or plain
+ * decline needs no remedy (US-010). */
 export function initCancelledDocument(
-  options: { readonly workspace?: string } = {},
+  _options: { readonly workspace?: string } = {},
 ): PresentationDocument {
-  return diagnosticDocument({
-    happened: ["init was cancelled; nothing was initialized or created"],
-    whatToType: [options.workspace === undefined
-      ? initLocationRemedies("To initialize without the first-Profile guidance, run ")
-      : [
-        "To initialize without the first-Profile guidance, run ",
-        commandPart(COMMAND_NAME, [
-          { kind: "text", value: "init" },
-          { kind: "text", value: options.workspace },
-        ]),
-      ]],
-  });
+  return neutralStatementDocument([
+    "Setup was cancelled; nothing was initialized or created.",
+  ]);
 }
 
-/** The declined setup confirmation (spec #593 #603, ISC-27.3): a safe,
- * neutral outcome, not an error — nothing was initialized or created, and
- * the explicit path form is always available. */
+/** The declined setup confirmation (spec #593 #603, ISC-27.3, US-003): one
+ * neutral statement, never an error. */
 export function initDeclinedDocument(
-  options: { readonly workspace?: string } = {},
+  _options: { readonly workspace?: string } = {},
 ): PresentationDocument {
-  const remedy = options.workspace === undefined
-    ? initLocationRemedies("Run ")
-    : [
-      "Run ",
-      commandPart(COMMAND_NAME, [
-        { kind: "text", value: "init" },
-        { kind: "text", value: options.workspace },
-      ]),
-      " to set up that folder later.",
-    ];
-  return [{
-    kind: "sentence",
-    parts: ["Setup declined; nothing was initialized or created. ", ...remedy],
-  }];
+  return neutralStatementDocument([
+    "Setup was declined; nothing was initialized or created.",
+  ]);
 }
 
 /** How the declined answer was given: an explicit no, or the default no. */
@@ -4307,34 +4283,34 @@ export interface ChangedFileAnsweringScope {
   readonly replace: boolean;
 }
 
-/** The declined-or-cancelled replacement diagnostic (DEC-019, DEC-033): what
- * happened, why, and the command that answers the prompt explicitly.
- * Rendered with neutral styling: declining is a safe choice, not an error.
- * The remedy names only the operations at stake (DEC-005). */
+/**
+ * The declined-or-cancelled changed-file gate (DEC-019, DEC-033, US-003,
+ * US-010): one neutral statement, then the one Next footer carrying the
+ * explicit flag command that would permit the discard. The operation stopped
+ * short of an update the user may still want, so this is the one decline shape
+ * that keeps a runnable next action. No details hint.
+ */
 export function applyReplacementDeclinedDocument(
   reason: ApplyDeclinedAnswer,
   commandArguments: readonly CommandArg[],
-  scope: ChangedFileAnsweringScope,
+  _scope: ChangedFileAnsweringScope,
   command: LifecycleCommand = "update",
 ): PresentationDocument {
-  const remedy = scope.replace && scope.remove
-    ? "To replace or delete changed generated files without asking, run "
-    : scope.remove
-      ? "To delete changed generated files without asking, run "
-      : "To replace changed generated files without asking, run ";
-  return diagnosticDocument({
-    happened: [reason === "cancelled"
-      ? `${command} was cancelled before any write`
+  const statement =
+    reason === "cancelled"
+      ? `${command} was cancelled; nothing was written.`
       : reason === "default"
-        ? `${command} kept the changed generated files; nothing was written (default answer no)`
-        : `${command} kept the changed generated files; nothing was written (you answered no)`],
-    why: [["No Project or setting was changed; your edits to the named generated files are preserved."]],
-    whatToType: [[
-      remedy,
-      commandPart(COMMAND_NAME, commandArguments),
-    ]],
-    severity: "neutral",
-  });
+        ? `${command} kept the changed generated files; nothing was written (default answer no).`
+        : `${command} kept the changed generated files; nothing was written (you answered no).`;
+  return [
+    ...neutralStatementDocument([statement]),
+    ...footerNodes({
+      next: {
+        kind: "command",
+        value: { kind: "command", program: COMMAND_NAME, args: commandArguments },
+      },
+    }),
+  ];
 }
 
 /** The missing-consent refusal diagnostic (DEC-005): what happened, which
@@ -4464,26 +4440,20 @@ export function installConfirmationDocument(preview: {
  * default no, or cancellation. Shared with the changed-output gate. */
 export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
 
-/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
- * what happened and the command that answers it explicitly. Rendered with
- * neutral styling: declining is a safe choice, not an error. */
+/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
+ * US-010): one neutral statement only. A plain decline or cancel needs no
+ * remedy and no details hint. */
 export function installDeclinedDocument(
   reason: InstallDeclinedAnswer,
-  commandArguments: readonly CommandArg[],
+  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
-  return diagnosticDocument({
-    happened: [reason === "cancelled"
-      ? "install was cancelled before any write"
+  return neutralStatementDocument([
+    reason === "cancelled"
+      ? "Install was cancelled; nothing was written."
       : reason === "default"
-        ? "install kept the current state; nothing was written (default answer no)"
-        : "install kept the current state; nothing was written (you answered no)"],
-    why: [["No Project or setting was changed."]],
-    whatToType: [[
-      "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments),
-    ]],
-    severity: "neutral",
-  });
+        ? "Install was declined; nothing was written (default answer no)."
+        : "Install was declined; nothing was written (you answered no).",
+  ]);
 }
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
@@ -4578,37 +4548,28 @@ export function configureChangingDocument(input: {
  * default no, or cancellation. */
 export type ConfigureDeclinedAnswer = "cancelled" | "default" | "declined";
 
-/** The declined-or-cancelled general-confirmation diagnostic (DEC-004):
- * what happened and the executable command that answers it. Rendered with
- * neutral styling: declining is a safe choice, not an error. */
+/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
+ * US-010): one neutral statement only. A plain decline or cancel needs no
+ * remedy and no details hint. */
 export function configureDeclinedDocument(
   reason: ConfigureDeclinedAnswer,
-  commandArguments: readonly CommandArg[],
+  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
-  return diagnosticDocument({
-    happened: [reason === "cancelled"
-      ? "configure was cancelled before any write"
+  return neutralStatementDocument([
+    reason === "cancelled"
+      ? "Configure was cancelled; nothing was written."
       : reason === "default"
-        ? "configure kept the Profile unchanged; nothing was written (default answer no)"
-        : "configure kept the Profile unchanged; nothing was written (you answered no)"],
-    why: [["The Profile definition was not changed."]],
-    whatToType: [[
-      "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments),
-    ]],
-    severity: "neutral",
-  });
+        ? "Configure was declined; nothing was written (default answer no)."
+        : "Configure was declined; nothing was written (you answered no).",
+  ]);
 }
 
-/** A picker cancelled before the membership resolved (DEC-004): nothing
- * was chosen, so no equivalent command can be printed — only the refusal
- * itself, with neutral styling. */
+/** A picker cancelled before the membership resolved (DEC-004, US-003,
+ * US-010): one neutral statement only. */
 export function configurePickerCancelledDocument(): PresentationDocument {
-  return diagnosticDocument({
-    happened: ["configure was cancelled before any write"],
-    why: [["The Profile definition was not changed."]],
-    severity: "neutral",
-  });
+  return neutralStatementDocument([
+    "Configure was cancelled; nothing was written.",
+  ]);
 }
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
@@ -5070,23 +5031,17 @@ function readyStatusGuidanceNodes(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
 ): PresentationNode[] {
-  return [
-    {
-      kind: "key-value",
-      key: "Next",
+  // One footer block: the action list and its secondary details route
+  // (US-010). Healthy settled status never reaches this helper.
+  return footerNodes({
+    next: {
+      kind: "command",
       value: statusLifecycleCommand("update", report, options),
-      category: "command",
     },
-    spacerNode(),
-    {
-      kind: "key-value",
-      key: "Details",
-      value: statusLifecycleCommand("status", report, options, [
-        { kind: "text", value: "--verbose" },
-      ]),
-      category: "command",
-    },
-  ];
+    details: statusLifecycleCommand("status", report, options, [
+      { kind: "text", value: "--verbose" },
+    ]),
+  });
 }
 
 /** The status outcome notice: severity derives from report facts, never copy. */
