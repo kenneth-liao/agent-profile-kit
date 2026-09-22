@@ -431,10 +431,10 @@ describe("guidance writing (#448, US-050)", () => {
       happened: ["guidance could not be opened in the configured pager 'less -FRX'"],
       why: [["the pager exited with code 7 before displaying the guidance"]],
       whatToType: [["Set PAGER to an available pager, or redirect the output to a file."]],
-      severity: "attention",
+      severity: "warning",
     });
     expect(document.length).toBeGreaterThan(0);
-    expect(JSON.stringify(document)).toContain("attention");
+    expect(JSON.stringify(document)).toContain("warning");
   });
 });
 describe("pager child environment (#448, CRAFT-1)", () => {

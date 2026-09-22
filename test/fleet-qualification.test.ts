@@ -217,7 +217,7 @@ describe("fleet-wide synchronization qualification", () => {
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
     // Primary-cause fleet partition renders complete actionable fleet.
-    expect(preview.stdout).toStartWith("Ready to update\n- source changed (12): ");
+    expect(preview.stdout).toStartWith("✔ Ready to update\n- source changed (12): ");
     // The scanning view names every Project by its shortest-unambiguous
     // identity; verbose and JSON below retain the full evidence.
     for (const project of projects) expect(preview.stdout).toContain(basename(project));
@@ -274,7 +274,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toBe("All Projects are up to date (12 Projects)\n");
+    expect(status.stdout).toBe("✔ All Projects are up to date (12 Projects)\n");
     // Clean concise status stays quiet: no standing reminder or Project matrix.
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Host setup:");
@@ -914,7 +914,7 @@ describe("integrated fleet recovery qualification", () => {
 
     const settled = await runCli(home, pathWithHosts, "status");
     expectExitCode(settled, 0);
-    expect(settled.stdout).toBe("All Projects are up to date (30 Projects)\n");
+    expect(settled.stdout).toBe("✔ All Projects are up to date (30 Projects)\n");
   }, 240_000);
 
   test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and update --all at exit 0", async () => {

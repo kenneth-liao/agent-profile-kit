@@ -29,6 +29,7 @@ import {
   writeHumanDocument,
   type CommandArg,
   type InlineContent,
+  type NoticeSeverity,
   type PresentationDocument,
   type PresentationNode,
   type SemanticCategory,
@@ -100,21 +101,21 @@ function hasStoredId(entry: OperationHistoryEvidence): entry is OperationHistory
   return "id" in entry;
 }
 
-const OUTCOME_SEVERITY: Readonly<Record<OperationHistoryOutcome, "attention" | "error" | "info" | "success">> = {
-  blocked: "attention",
-  cancelled: "info",
+const OUTCOME_SEVERITY: Readonly<Record<OperationHistoryOutcome, NoticeSeverity>> = {
+  blocked: "warning",
+  cancelled: "neutral",
   failed: "error",
-  "no-op": "info",
-  partial: "attention",
+  "no-op": "neutral",
+  partial: "warning",
   succeeded: "success",
 };
 
 const OUTCOME_CATEGORY: Readonly<Record<OperationHistoryOutcome, SemanticCategory>> = {
-  blocked: "attention",
-  cancelled: "attention",
+  blocked: "warning",
+  cancelled: "neutral",
   failed: "error",
   "no-op": "muted",
-  partial: "attention",
+  partial: "warning",
   succeeded: "success",
 };
 
@@ -212,7 +213,7 @@ function committedNodes(projects: readonly OperationHistoryProject[]): readonly 
       nodes.push({
         kind: "sentence",
         parts: ["    - ", identifierPart(path)],
-        category: "attention",
+        category: "warning",
       });
     }
   }
@@ -252,7 +253,7 @@ function reviewNodes(
         " in ",
         pathPart(review.project, "fleet"),
       ],
-      category: "attention",
+      category: "warning",
     })),
   ];
 }
@@ -322,7 +323,7 @@ export function operationHistoryEntryDocument(
     ...outcomeGroupNodes(
       "Skipped:",
       entry.projects.filter((project) => project.result === "skipped"),
-      "attention",
+      "warning",
     ),
     ...outcomeGroupNodes(
       "Remaining:",
@@ -386,7 +387,7 @@ export function operationHistoryEmptyDocument(historyPath: string): Presentation
   return [
     {
       kind: "notice",
-      severity: "info",
+      severity: "neutral",
       nodes: [{ kind: "prose", parts: ["No lifecycle operations are recorded yet."] }],
     },
     {
@@ -445,7 +446,7 @@ export function operationHistorySaveFailureDocument(
   historyPath: string,
 ): PresentationDocument {
   return diagnosticDocument({
-    severity: "attention",
+    severity: "warning",
     happened: ["operation history could not be saved: ", detail],
     why: [
       [
@@ -469,7 +470,7 @@ export function operationHistorySaveFailureDocument(
  */
 export function operationHistoryUnrecordedDocument(): PresentationDocument {
   return diagnosticDocument({
-    severity: "attention",
+    severity: "warning",
     happened: ["internal: this run recorded no operation-history decision"],
     why: [[
       "Every lifecycle terminal branch records its outcome or an explicit refusal; this run itself is unaffected.",

@@ -43,6 +43,7 @@ import {
   flatInlineText,
   identifierPart,
   pathPart,
+  stateHeadlinePrefix,
   textPart,
   type CommandArg,
   type CommandNode,
@@ -781,7 +782,7 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
         ...prefix,
         {
           kind: "notice",
-          severity: "attention",
+          severity: "warning",
           nodes: [{ kind: "prose", parts: happened }],
         },
         {
@@ -806,7 +807,7 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
       ...prefix,
       {
         kind: "notice",
-        severity: "attention",
+        severity: "warning",
         nodes: [{ kind: "prose", parts: happened }],
       },
       {
@@ -891,7 +892,7 @@ function projectInventoryStateNode(problem: InstallerToolErrorFact | null): Pres
   if (problem === null) {
     return { kind: "identifier", value: "configured" };
   }
-  return { kind: "identifier", value: "problem", category: "attention" };
+  return { kind: "identifier", value: "problem", category: "warning" };
 }
 
 function projectInventorySummary(projects: readonly ProjectInventoryRecord[]): string {
@@ -980,7 +981,7 @@ export function projectInventoryDocument(
         ": ",
         ...formatInstallerToolError(project.problem),
       ],
-      category: "attention",
+      category: "warning",
     });
   }
   nodes.push(
@@ -1499,7 +1500,7 @@ export function validationResultDocument(result: ValidationResult): Presentation
     ...result.warnings.map((warning) => ({
       kind: "list-item" as const,
       parts: [warning],
-      category: "attention" as const,
+      category: "warning" as const,
     })),
     checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
     {
@@ -1741,7 +1742,7 @@ export function uninstallDeclinedDocument(
       "To proceed without asking, run ",
       commandPart(COMMAND_NAME, commandArguments),
     ]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -1844,7 +1845,7 @@ export function uninstallReceiptDocument(
     nodes.push({
       kind: "list-item" as const,
       parts: [warning],
-      category: "attention" as const,
+      category: "warning" as const,
     });
   }
   if (skippedCount > 0) {
@@ -1871,7 +1872,7 @@ export function uninstallReceiptDocument(
             }),
           ),
         },
-        { kind: "prose", parts: [`  - ${renderItemReason(skipped.reason)}`], category: "error" },
+        { kind: "prose", parts: [`  - ${renderItemReason(skipped.reason)}`] },
       );
     }
   }
@@ -1946,7 +1947,7 @@ export function uninstallPickerNoopDocument(
       "To choose again, run ",
       commandPart(COMMAND_NAME, [arg("uninstall")]),
     ]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -3858,7 +3859,7 @@ function conciseApplyDocument(
             kind: "key-value",
             key: "  State",
             value: { kind: "prose", parts: [itemText(item)] },
-            category: "attention",
+            category: "warning",
           });
         }
       }
@@ -4332,7 +4333,7 @@ export function applyReplacementDeclinedDocument(
       remedy,
       commandPart(COMMAND_NAME, commandArguments),
     ]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -4481,7 +4482,7 @@ export function installDeclinedDocument(
       "To proceed without asking, run ",
       commandPart(COMMAND_NAME, commandArguments),
     ]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -4595,7 +4596,7 @@ export function configureDeclinedDocument(
       "To proceed without asking, run ",
       commandPart(COMMAND_NAME, commandArguments),
     ]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -4606,7 +4607,7 @@ export function configurePickerCancelledDocument(): PresentationDocument {
   return diagnosticDocument({
     happened: ["configure was cancelled before any write"],
     why: [["The Profile definition was not changed."]],
-    severity: "info",
+    severity: "neutral",
   });
 }
 
@@ -4917,7 +4918,12 @@ function conciseBlockerNodes(
     return [
       {
         kind: "prose",
-        parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope, "identity"),
+        parts: shortenInlineProjectReferences(
+          [`${indent}${stateHeadlinePrefix("error")}Blocker: `, ...wording.problem],
+          groups,
+          scope,
+          "identity",
+        ),
         category: "error",
       },
       { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
@@ -4935,7 +4941,12 @@ function conciseBlockerNodes(
   return [
     {
       kind: "prose",
-      parts: shortenInlineProjectReferences([`${indent}Blocker: `, ...wording.problem], groups, scope, "identity"),
+      parts: shortenInlineProjectReferences(
+        [`${indent}${stateHeadlinePrefix("error")}Blocker: `, ...wording.problem],
+        groups,
+        scope,
+        "identity",
+      ),
       category: "error",
     },
     { kind: "prose", parts: [`${indent}  Requirement: `, ...wording.requirement] },
@@ -5088,7 +5099,7 @@ function statusOutcomeNotice(
   if (reportBlockers(report).length > 0) severity = "error";
   else if (
     reportHasHostAttention(report) && fullyCurrentProjectCount(report) !== undefined
-  ) severity = "attention";
+  ) severity = "warning";
   return {
     kind: "notice",
     severity,
@@ -5138,7 +5149,7 @@ function warningNodes(
       ...formatWarningGroupParts(group, groups, scope, "identity"),
       ` (${plural(group.projects.length, "Project")})`,
     ],
-    category: "attention" as const,
+    category: "warning" as const,
   }));
 }
 
@@ -5159,7 +5170,7 @@ function verboseWarningNodes(
         ...formatWarningGroupParts(group, groups, scope, "stable"),
         ` (${projectList})`,
       ],
-      category: "attention" as const,
+      category: "warning" as const,
     };
   });
 }
@@ -5942,7 +5953,7 @@ export function temporaryInstallationDocument(
       ...receipt.warnings.map((warning, index) => ({
         kind: "list-item" as const,
         parts: receipt.warningParts?.[index] ?? [warning],
-        category: "attention" as const,
+        category: "warning" as const,
       })),
       {
         kind: "key-value",
@@ -6023,7 +6034,7 @@ export function temporaryInstallationDocument(
     ...receipt.warnings.map((warning, index) => ({
       kind: "list-item" as const,
       parts: receipt.warningParts?.[index] ?? [warning],
-      category: "attention" as const,
+      category: "warning" as const,
     })),
     {
       kind: "key-value",
@@ -6081,7 +6092,11 @@ export function temporaryBlockedMessagesDocument(
       ? [`${COMMAND_NAME}: `, ...wording.problem]
       : wording.problem;
     return [
-      { kind: "prose", parts: replaceReferencesInParts(problem), category: "error" },
+      {
+        kind: "prose",
+        parts: replaceReferencesInParts([stateHeadlinePrefix("error"), ...problem]),
+        category: "error",
+      },
       {
         kind: "prose",
         parts: replaceReferencesInParts(["Remedy: ", ...wording.remedy]),

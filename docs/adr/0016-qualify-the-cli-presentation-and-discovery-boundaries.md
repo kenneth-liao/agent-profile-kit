@@ -96,6 +96,10 @@ The former string presentation pipeline — the regex categoriser, English prefi
 
 Semantic category is authored at formatter sites rather than inferred from rendered text (DEC-003). Structurally supplied values (paths, commands, identifiers) are authored as atomic inline parts/nodes (`cli/inline-content.ts`) rather than re-identified via substring scanning (DEC-009). The renderer wraps inline content with responsive measure clamping and keeps atomic nodes intact. Machine surfaces (`--json`) serialize directly from typed structured records without touching presentation documents or rendered prose.
 
+### Amendment: DEC-001 shared semantic visual roles and glyphs (spec #640, US-003, issue #641)
+
+This amendment records the shared semantic visual system adopted across every human surface inside the existing terminal-presentation boundary. The authored category vocabulary becomes the DEC-001 roles: `command` (single accent for commands and prompt interaction), `muted` (secondary text only), `heading` and `path` (bold default names and headings — decorative magenta paths and blue headings are removed), and the state roles `success`, `warning` (renamed from `attention`), `error`, and `neutral`. Success, warning, and error colors are reserved for state glyphs and headlines. Remedies, required actions, and suggestions render in the default color with embedded commands in the accent; explanatory `why` text may be muted. Notice headlines open with the DEC-001 glyph for their role (`✔`, `⚠`, `✖`, `●`) and carry the state color; notice bodies stay in the default color. The glyph table also exports interaction roles (`›`, `❯`, `◻`, `◼`) for the shared prompt boundary without applying picker chrome here. `NO_COLOR` and redirected output emit no ANSI styling while every state remains distinguishable by glyph or wording. JSON, exit codes, and stdout/stderr ownership are unchanged.
+
 ### Amendment: advisory executable detection in Host inventory (issue #512, spec #491, US-018)
 
 This amendment records the targeted exception to the read-only discovery

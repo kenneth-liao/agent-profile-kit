@@ -27,7 +27,7 @@ export interface DiagnosticDocumentParts {
   readonly whatToType?: readonly (readonly InlineContent[])[];
   /** The command usage line, rendered as one atomic command node. */
   readonly usage?: string;
-  /** Severity of the diagnostic notice; errors default, warnings pass "attention". */
+  /** Severity of the diagnostic notice; errors default, warnings pass "warning". */
   readonly severity?: NoticeSeverity;
 }
 
