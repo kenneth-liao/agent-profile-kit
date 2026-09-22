@@ -477,12 +477,15 @@ specified bind never prompts.
 ```
 $ apkit validate
 Workspace and settings valid (2 Profiles, 6 configured Projects)
+Workspace: ~/apkit-workspace
 Profiles found: example, release
 Hosts bound: claude, codex, grok
 Next: apkit status
 ```
 
-Successful validation derives its next action from the configured Project
+Successful validation names the connected Workspace it checked, so a pass
+read from inside another folder cannot be mistaken for a pass of that folder
+(#629); it derives its next action from the configured Project
 count: zero points to `apkit install`, while one or more points to `apkit
 status`. Validation remains read-only. Invalid Workspaces report every violation in
 one run (#604, DEC-009), each naming its path and the change that fixes it,

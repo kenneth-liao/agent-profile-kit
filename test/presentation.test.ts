@@ -72,6 +72,7 @@ import {
   uninstallNoMatchDocument,
   uninstallExecutionFailureDocument,
   validationResultDocument,
+  workspaceValidationDocument,
   type TemporaryInstallationReceiptView,
   displayPath,
   displayProjectPath,
@@ -5953,11 +5954,13 @@ describe("standalone view presentation documents (#389)", () => {
       warnings: [
         "This is an unusually long validation warning that must wrap cleanly at a narrow terminal measure.",
       ],
+      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
     });
 
     expect(document.map(shape)).toEqual([
       "notice:success",
       "list-item",
+      "key-value(Workspace)",
       "key-value(Profiles found)",
       "key-value(Hosts bound)",
       "key-value(Next)",
@@ -5974,12 +5977,38 @@ describe("standalone view presentation documents (#389)", () => {
     });
   });
 
+  test("bare validation names the connected Workspace through the same row as the path form (#629)", () => {
+    const workspace = { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" };
+    const bare = validationResultDocument({
+      bindings: 0,
+      hosts: [],
+      profiles: [],
+      warnings: [],
+      workspace,
+    });
+    const pathForm = workspaceValidationDocument(
+      { outcome: "valid", path: workspace.canonical, contexts: [], profiles: [], skills: [] },
+      workspace.authored,
+    );
+
+    const bareRow = keyValuesIn(bare, "Workspace")[0]!;
+    expect(bareRow.value).toEqual({
+      kind: "path",
+      canonicalPath: workspace.canonical,
+      authoredPath: workspace.authored,
+      scope: "fleet",
+    });
+    // One row builder: the bare and path forms state what they checked identically.
+    expect(bareRow).toEqual(keyValuesIn(pathForm, "Workspace")[0]!);
+  });
+
   test("validation without bindings points at the install command as a typed command node", () => {
     const document = validationResultDocument({
       bindings: 0,
       hosts: [],
       profiles: [],
       warnings: [],
+      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
     });
 
     expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
@@ -5995,6 +6024,7 @@ describe("standalone view presentation documents (#389)", () => {
         hosts: [],
         profiles: [],
         warnings: [],
+      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
       }),
       context(40),
     );
@@ -7375,7 +7405,13 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("routine validation uses newcomer presentation lexicon and omits internal terms", () => {
     const validationDocument = (bindings: number, hosts: string[], profiles: string[]) =>
-      validationResultDocument({ bindings, hosts, profiles, warnings: [] });
+      validationResultDocument({
+        bindings,
+        hosts,
+        profiles,
+        warnings: [],
+        workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
+      });
 
     const zeroProjects = validationDocument(0, [], ["engineering"]);
     // Severity is the validity fact; the count clause is its carried value,
@@ -8137,6 +8173,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       hosts: ["codex"],
       profiles: ["engineering"],
       warnings: ["Sample validation warning"],
+      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
     });
     expect(validationDoc[0]?.kind).toBe("notice");
     expect(validationDoc[1]).toMatchObject({ kind: "list-item", category: "attention" });

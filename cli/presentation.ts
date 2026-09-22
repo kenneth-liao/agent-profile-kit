@@ -1460,6 +1460,23 @@ function validationCountClause(result: ValidationResult): string {
   )})`;
 }
 
+/**
+ * The one row that names the checked Workspace (#629): both `validate` forms
+ * state what they checked through the same key and path presentation.
+ */
+function checkedWorkspaceRow(canonical: string, authored: string): PresentationNode {
+  return {
+    kind: "key-value",
+    key: "Workspace",
+    value: {
+      kind: "path",
+      canonicalPath: canonical,
+      authoredPath: authored,
+      scope: "fleet",
+    },
+  };
+}
+
 /** The validation result view as a presentation document. */
 export function validationResultDocument(result: ValidationResult): PresentationDocument {
   const profileCount = result.profiles.length;
@@ -1477,11 +1494,14 @@ export function validationResultDocument(result: ValidationResult): Presentation
         ],
       }],
     },
+    // Warnings stay directly beside the outcome notice (DEC-011); the checked
+    // Workspace follows them as the first fact row.
     ...result.warnings.map((warning) => ({
       kind: "list-item" as const,
       parts: [warning],
       category: "attention" as const,
     })),
+    checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
     {
       kind: "key-value",
       key: "Profiles found",
@@ -1536,16 +1556,7 @@ export function workspaceValidationDocument(
         parts: ["Workspace valid ", identifierPart(`(${countClause})`)],
       }],
     },
-    {
-      kind: "key-value",
-      key: "Workspace",
-      value: {
-        kind: "path",
-        canonicalPath: result.path,
-        authoredPath: authored,
-        scope: "fleet",
-      },
-    },
+    checkedWorkspaceRow(result.path, authored),
     {
       kind: "key-value",
       key: "Profiles found",

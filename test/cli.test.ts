@@ -885,6 +885,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(minimalValidate.stdout).toContain("0 Profiles, 0 configured Projects");
     expect(minimalValidate.stdout).toContain("Profiles found: none");
     expect(minimalValidate.stdout).toContain("Hosts bound: none");
+    // The bare form names the connected Workspace it checked, even from another folder (#629).
+    expect(minimalValidate.stdout).toContain("Workspace: ~/apkit-workspace");
+    const elsewhere = mkdtempSync(join(tmpdir(), "apkit-elsewhere-"));
+    temporaryDirectories.push(elsewhere);
+    const fromElsewhere = await runCliAt(home, elsewhere, "validate");
+    expectExitCode(fromElsewhere, 0);
+    expect(fromElsewhere.stdout).toContain("Workspace: ~/apkit-workspace");
+    expect(fromElsewhere.stdout).not.toContain(elsewhere);
 
     mkdirSync(join(workspace, "context"));
     mkdirSync(join(workspace, "profiles"));
