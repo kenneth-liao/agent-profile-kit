@@ -235,6 +235,8 @@ export interface DesiredState {
   readonly bindingCount: number;
   readonly installations: readonly DesiredInstallation[];
   readonly workspace: Workspace;
+  /** The Workspace path as Local Configuration authored it; `workspace.path` is its canonical root. */
+  readonly authoredWorkspace: string;
 }
 
 export function hashBytes(source: string | Uint8Array): string {
@@ -717,6 +719,7 @@ export async function buildDesiredState(
     brokenProfiles,
     installations,
     workspace,
+    authoredWorkspace: configuration.workspace,
   };
 }
 

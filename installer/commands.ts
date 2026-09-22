@@ -38,12 +38,15 @@ import type { ProjectBindingSelection } from "./local-configuration.js";
 import type { ConfiguredPathOrigin, WorkspaceViolation } from "./tool-errors.js";
 import { expandWorkspaceArgument, requireExistingDirectory } from "./local-configuration.js";
 import { brokenProfileViolations, collectWorkspaceViolations } from "./ingest-workspace.js";
+import type { InfoWorkspaceLocation } from "./info.js";
 
 export interface ValidationResult {
   readonly bindings: number;
   readonly hosts: readonly string[];
   readonly profiles: readonly string[];
   readonly warnings: readonly string[];
+  /** The connected Workspace the run checked, as Local Configuration authored it (#629). */
+  readonly workspace: InfoWorkspaceLocation;
 }
 
 /**
@@ -158,6 +161,7 @@ export async function validateApplication(
           : [],
       ),
     )].sort(),
+    workspace: { authored: desired.authoredWorkspace, canonical: desired.workspace.path },
   };
 }
 
