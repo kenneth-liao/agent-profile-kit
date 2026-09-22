@@ -57,6 +57,7 @@ import {
   configurePickerCancelledDocument,
   initCancelledDocument,
   initDeclinedDocument,
+  uninstallInteractiveDeclinedDocument,
   inventoryIndexDocument,
   lifecycleStatusDocument as rawLifecycleStatusDocument,
   type LifecycleHumanOptions,
@@ -6262,7 +6263,7 @@ describe("standalone view presentation documents (#389)", () => {
   test("uninstall declined and confirmation-required diagnostics name the explicit equivalent", () => {
     const args = [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }];
     // A plain decline carries no remedy command (US-010).
-    const declined = uninstallDeclinedDocument("declined", args);
+    const declined = uninstallDeclinedDocument("declined");
     expect(inlineCommandTexts(declined)).toEqual([]);
     const required = uninstallConfirmationRequiredDocument(args);
     expect(inlineCommandTexts(required)).toEqual(["apkit uninstall --all"]);
@@ -11187,13 +11188,13 @@ const textArg = (value: string): { readonly kind: "text"; readonly value: string
 describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
   test("plain decline and picker cancel print one neutral statement with no remedy or details hint", () => {
     for (const document of [
-      installDeclinedDocument("declined", ["install", "example", "--auto-confirm"].map(textArg)),
-      installDeclinedDocument("cancelled", ["install", "example"].map(textArg)),
-      installDeclinedDocument("default", ["install", "example"].map(textArg)),
-      uninstallDeclinedDocument("declined", ["uninstall", "--all"].map(textArg)),
-      uninstallDeclinedDocument("cancelled", ["uninstall", "--all"].map(textArg)),
-      configureDeclinedDocument("declined", ["configure", "profile", "example"].map(textArg)),
-      configureDeclinedDocument("cancelled", ["configure", "profile", "example"].map(textArg)),
+      installDeclinedDocument("declined"),
+      installDeclinedDocument("cancelled"),
+      installDeclinedDocument("default"),
+      uninstallDeclinedDocument("declined"),
+      uninstallDeclinedDocument("cancelled"),
+      configureDeclinedDocument("declined"),
+      configureDeclinedDocument("cancelled"),
       configurePickerCancelledDocument(),
       initCancelledDocument(),
       initDeclinedDocument(),
@@ -11215,9 +11216,9 @@ describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
 
   test("plain decline and picker cancel state preservation exactly once", () => {
     for (const document of [
-      installDeclinedDocument("cancelled", ["install"].map(textArg)),
-      uninstallDeclinedDocument("declined", ["uninstall"].map(textArg)),
-      configureDeclinedDocument("default", ["configure"].map(textArg)),
+      installDeclinedDocument("cancelled"),
+      uninstallDeclinedDocument("declined"),
+      configureDeclinedDocument("default"),
       initCancelledDocument(),
       uninstallPickerNoopDocument("cancelled"),
     ]) {
@@ -11249,7 +11250,7 @@ describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
 
     const cancelled = applyReplacementDeclinedDocument(
       "cancelled",
-      ["update", "--all", "--replace-changed"].map(textArg),
+      ["update", "--all"].map(textArg),
       { replace: true, remove: false },
     );
     const cancelledText = renderBoundary(cancelled);
@@ -11289,18 +11290,25 @@ describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
 });
 
 describe("update declined diagnostic (US-006, DEC-005)", () => {
-  const args = ["update", "--all", "--replace-changed", "--remove-changed"] as const;
+  const base = ["update", "--all"] as const;
 
-  test("the remedy names only the operations at stake", () => {
+  test("the remedy names only the operations the gate authorized", () => {
+    // Poka-yoke: even a caller that passes both flags cannot print a flag the
+    // gate did not authorize (INT-3 / PROD-1).
     const replaceOnly = renderBoundary(
-      applyReplacementDeclinedDocument("declined", [...args].map(textArg), { replace: true, remove: false }),
+      applyReplacementDeclinedDocument(
+        "declined",
+        [...base, "--replace-changed", "--remove-changed"].map(textArg),
+        { replace: true, remove: false },
+      ),
     );
     expect(replaceOnly).toContain("you answered no");
-    expect(replaceOnly).toContain("Next: apkit update --all --replace-changed --remove-changed");
+    expect(replaceOnly).toContain("Next: apkit update --all --replace-changed");
+    expect(replaceOnly).not.toContain("--remove-changed");
     expect(replaceOnly).not.toContain("To delete changed generated files");
 
     const removeOnly = renderBoundary(
-      applyReplacementDeclinedDocument("declined", ["update", "--all", "--remove-changed"].map(textArg), {
+      applyReplacementDeclinedDocument("declined", [...base, "--remove-changed"].map(textArg), {
         replace: false,
         remove: true,
       }),
@@ -11309,20 +11317,57 @@ describe("update declined diagnostic (US-006, DEC-005)", () => {
     expect(removeOnly).not.toContain("--replace-changed");
 
     const both = renderBoundary(
-      applyReplacementDeclinedDocument("default", [...args].map(textArg), { replace: true, remove: true }),
+      applyReplacementDeclinedDocument("default", [...base].map(textArg), { replace: true, remove: true }),
     );
     expect(both).toContain("default answer no");
     expect(both).toContain("Next: apkit update --all --replace-changed --remove-changed");
   });
 
   test("declining stays neutral, never an error notice", () => {
-    const document = applyReplacementDeclinedDocument("cancelled", ["update", "--all"].map(textArg), {
+    const document = applyReplacementDeclinedDocument("cancelled", [...base].map(textArg), {
       replace: true,
       remove: false,
     });
     // One standalone neutral statement; no error notice and no `apkit:` label.
     expect(document.every((node) => node.kind !== "notice")).toBe(true);
     expect(renderBoundary(document)).not.toContain("apkit:");
+    expect(renderBoundary(document)).toContain("Next: apkit update --all --replace-changed");
+  });
+});
+
+describe("interactive uninstall declines (INT-1)", () => {
+  test("print one neutral statement and carry per-Project retries in the one Next footer", () => {
+    const commands = [
+      ["uninstall", "--project", "/a", "--auto-confirm"],
+      ["uninstall", "--project", "/b", "--auto-confirm"],
+    ].map((parts) => parts.map(textArg));
+    for (const reason of ["cancelled", "declined", "default"] as const) {
+      const document = uninstallInteractiveDeclinedDocument({ reason, commands });
+      const rendered = renderBoundary(document);
+      expect(rendered).not.toContain("apkit:");
+      expect(rendered).not.toContain("Details:");
+      expect(rendered).not.toContain("To proceed without asking");
+      expect(rendered).not.toContain("No Project or setting was changed");
+      expect(rendered.startsWith("● ")).toBe(true);
+      expect(rendered).toContain("Next:");
+      expect(rendered).toContain("apkit uninstall --project /a --auto-confirm");
+      expect(rendered).toContain("apkit uninstall --project /b --auto-confirm");
+    }
+  });
+
+  test("a late decline keeps completed work in the one statement and retries only the rest", () => {
+    const document = uninstallInteractiveDeclinedDocument({
+      reason: "declined",
+      completedProjects: ["/done"],
+      commands: [["uninstall", "--project", "/rest", "--auto-confirm"].map(textArg)],
+    });
+    const rendered = renderBoundary(document);
+    expect(rendered).toContain("/done");
+    expect(rendered).toContain("remaining Projects were not attempted");
+    expect(rendered).toContain("Next:");
+    expect(rendered).toContain("apkit uninstall --project /rest --auto-confirm");
+    expect(rendered).not.toContain("Details:");
+    expect(rendered).not.toContain("apkit:");
   });
 });
 

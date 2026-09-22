@@ -314,7 +314,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd)),
+        installDeclinedDocument("cancelled"),
         stderrContext,
       );
       return undefined;
@@ -344,13 +344,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument(
-          "cancelled",
-          fullySpecifiedInstallArguments(
-            { ...parsed, ...(profile === undefined ? {} : { profile }) },
-            cwd,
-          ),
-        ),
+        installDeclinedDocument("cancelled"),
         stderrContext,
       );
       return undefined;
@@ -498,7 +492,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("cancelled", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
+        installDeclinedDocument("cancelled"),
         stderrContext,
         recording,
       );
@@ -509,10 +503,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("declined", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument(
-          normalized === "" ? "default" : "declined",
-          fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
-        ),
+        installDeclinedDocument(normalized === "" ? "default" : "declined"),
         stderrContext,
         recording,
       );

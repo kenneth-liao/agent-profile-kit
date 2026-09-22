@@ -651,12 +651,46 @@ test("neutralStatementDocument is one statement without an apkit: prefix", () =>
 });
 
 test("omits the details hint only for clean no-ops and cancellations", () => {
-  expect(omitsOperationDetailsHint("no-op")).toBe(true);
-  expect(omitsOperationDetailsHint("cancelled")).toBe(true);
-  expect(omitsOperationDetailsHint("succeeded")).toBe(false);
-  expect(omitsOperationDetailsHint("failed")).toBe(false);
-  expect(omitsOperationDetailsHint("partial")).toBe(false);
-  expect(omitsOperationDetailsHint("blocked")).toBe(false);
+  expect(omitsOperationDetailsHint("no-op", false)).toBe(true);
+  expect(omitsOperationDetailsHint("cancelled", false)).toBe(true);
+  // Warning-carrying endings keep the route (US-010: warnings keep actionable
+  // guidance and recovery evidence).
+  expect(omitsOperationDetailsHint("no-op", true)).toBe(false);
+  expect(omitsOperationDetailsHint("cancelled", true)).toBe(false);
+  expect(omitsOperationDetailsHint("succeeded", false)).toBe(false);
+  expect(omitsOperationDetailsHint("failed", false)).toBe(false);
+  expect(omitsOperationDetailsHint("partial", false)).toBe(false);
+  expect(omitsOperationDetailsHint("blocked", false)).toBe(false);
+});
+
+test("keeps the details route on a no-op report that carries warnings", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [
+    ...neutralStatementDocument(["All Projects were already current."]),
+    {
+      kind: "list-item" as const,
+      parts: ["Grok inspect --json output is not valid JSON."],
+      category: "warning" as const,
+    },
+  ];
+
+  const retained = beginLifecycleOperationRecording();
+  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  writeLifecycleReport(stream, document, context, retained);
+  expect(stream.text()).toContain("All Projects were already current.");
+  expect(stream.text()).toContain("Details: apkit details");
 });
 
 test("writes the retained-operation route onto the report's own stream only for a retained run", () => {

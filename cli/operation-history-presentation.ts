@@ -60,12 +60,29 @@ export function operationDetailsCommand(): CommandNode {
 
 /**
  * Clean no-ops and neutral cancellations omit the completed-operation details
- * hint (US-010, DEC-010). History retention is unchanged: the run is still
- * retrievable through `apkit details` and `apkit details --list`. Failures,
- * warnings, remaining work, and history-write failures keep the route.
+ * hint (US-010, DEC-010) only when they carry no warnings: warnings keep
+ * actionable guidance and recovery evidence, so they keep the route. History
+ * retention is unchanged: the run is still retrievable through `apkit details`
+ * and `apkit details --list`. Failures, remaining work, and history-write
+ * failures always keep the route.
  */
-export function omitsOperationDetailsHint(outcome: OperationHistoryOutcome): boolean {
-  return outcome === "no-op" || outcome === "cancelled";
+export function omitsOperationDetailsHint(
+  outcome: OperationHistoryOutcome,
+  hasWarnings: boolean,
+): boolean {
+  return (outcome === "no-op" || outcome === "cancelled") && !hasWarnings;
+}
+
+/** Whether this report body carries warning evidence beside its outcome. */
+export function documentHasWarnings(document: PresentationDocument): boolean {
+  return document.some(nodeHasWarningCategory);
+}
+
+function nodeHasWarningCategory(node: PresentationNode): boolean {
+  if ("category" in node && node.category === "warning") return true;
+  if (node.kind === "notice") return node.nodes.some(nodeHasWarningCategory);
+  if (node.kind === "column-group") return node.columns.some(documentHasWarnings);
+  return false;
 }
 
 function documentHasFooterAction(document: PresentationDocument): boolean {
@@ -113,7 +130,7 @@ export function writeLifecycleReport(
   const showDetails =
     route &&
     collected !== undefined &&
-    !omitsOperationDetailsHint(collected.outcome);
+    !omitsOperationDetailsHint(collected.outcome, documentHasWarnings(document));
   if (!showDetails) {
     writeHumanDocument(stream, document, context);
     return;

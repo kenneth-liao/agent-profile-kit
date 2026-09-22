@@ -1731,7 +1731,6 @@ export function uninstallConfirmationDocument(preview: {
  * remedy and no details hint. */
 export function uninstallDeclinedDocument(
   reason: ApplyDeclinedAnswer,
-  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return neutralStatementDocument([
     reason === "cancelled"
@@ -4256,9 +4255,7 @@ export function uninstallReplacementCommandDocument(
 /** The cancelled guided-init statement (DEC-033, US-003): one neutral
  * statement that nothing was initialized or created. A picker cancel or plain
  * decline needs no remedy (US-010). */
-export function initCancelledDocument(
-  _options: { readonly workspace?: string } = {},
-): PresentationDocument {
+export function initCancelledDocument(): PresentationDocument {
   return neutralStatementDocument([
     "Setup was cancelled; nothing was initialized or created.",
   ]);
@@ -4266,9 +4263,7 @@ export function initCancelledDocument(
 
 /** The declined setup confirmation (spec #593 #603, ISC-27.3, US-003): one
  * neutral statement, never an error. */
-export function initDeclinedDocument(
-  _options: { readonly workspace?: string } = {},
-): PresentationDocument {
+export function initDeclinedDocument(): PresentationDocument {
   return neutralStatementDocument([
     "Setup was declined; nothing was initialized or created.",
   ]);
@@ -4284,16 +4279,49 @@ export interface ChangedFileAnsweringScope {
 }
 
 /**
+ * The answering flags one changed-file gate authorized (DEC-005). Derived
+ * from the gate scope in one place so a printed remedy's flags and its scope
+ * cannot disagree (INT-3, PROD-1).
+ */
+export function changedFileAnsweringFlags(
+  scope: ChangedFileAnsweringScope,
+): readonly CommandArg[] {
+  const flags: CommandArg[] = [];
+  if (scope.replace) flags.push({ kind: "text", value: "--replace-changed" });
+  if (scope.remove) flags.push({ kind: "text", value: "--remove-changed" });
+  return flags;
+}
+
+/**
+ * The remedy command for one changed-file gate: the carried scope arguments
+ * with exactly the answering flags this gate authorized. Any answering flag
+ * already on the carried arguments is stripped first, so caller convention
+ * cannot print a flag the gate did not authorize.
+ */
+function remedyCommandArguments(
+  commandArguments: readonly CommandArg[],
+  scope: ChangedFileAnsweringScope,
+): readonly CommandArg[] {
+  const base = commandArguments.filter(
+    (part) =>
+      part.kind !== "text" ||
+      (part.value !== "--replace-changed" && part.value !== "--remove-changed"),
+  );
+  return [...base, ...changedFileAnsweringFlags(scope)];
+}
+
+/**
  * The declined-or-cancelled changed-file gate (DEC-019, DEC-033, US-003,
  * US-010): one neutral statement, then the one Next footer carrying the
  * explicit flag command that would permit the discard. The operation stopped
  * short of an update the user may still want, so this is the one decline shape
- * that keeps a runnable next action. No details hint.
+ * that keeps a runnable next action. The flags are derived from `scope`
+ * (DEC-005), never trusted from the caller's arguments. No details hint.
  */
 export function applyReplacementDeclinedDocument(
   reason: ApplyDeclinedAnswer,
   commandArguments: readonly CommandArg[],
-  _scope: ChangedFileAnsweringScope,
+  scope: ChangedFileAnsweringScope,
   command: LifecycleCommand = "update",
 ): PresentationDocument {
   const statement =
@@ -4307,7 +4335,53 @@ export function applyReplacementDeclinedDocument(
     ...footerNodes({
       next: {
         kind: "command",
-        value: { kind: "command", program: COMMAND_NAME, args: commandArguments },
+        value: {
+          kind: "command",
+          program: COMMAND_NAME,
+          args: remedyCommandArguments(commandArguments, scope),
+        },
+      },
+    }),
+  ];
+}
+
+/**
+ * An interactive uninstall decline or cancel (DEC-004, US-003, US-010,
+ * INT-1): one neutral statement, then the one Next footer carrying the
+ * per-Project retry commands as its action list. A plain decline needs no
+ * prose remedy and no details hint; when earlier Projects already committed,
+ * the statement keeps that evidence beside the untouched remainder.
+ */
+export function uninstallInteractiveDeclinedDocument(input: {
+  readonly reason: ApplyDeclinedAnswer;
+  readonly commands: readonly (readonly CommandArg[])[];
+  readonly completedProjects?: readonly string[];
+}): PresentationDocument {
+  const completed = input.completedProjects ?? [];
+  const answer =
+    input.reason === "cancelled"
+      ? ""
+      : input.reason === "default"
+        ? " (default answer no)"
+        : " (you answered no)";
+  const statement =
+    completed.length === 0
+      ? input.reason === "cancelled"
+        ? "Uninstall was cancelled; nothing was written."
+        : `Uninstall was declined; nothing was written${answer}.`
+      : input.reason === "cancelled"
+        ? `Uninstall was cancelled; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted.`
+        : `Uninstall was declined; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted${answer}.`;
+  return [
+    ...neutralStatementDocument([statement]),
+    ...footerNodes({
+      next: {
+        kind: "actions",
+        items: input.commands.map(
+          (commandArguments): readonly InlineContent[] => [
+            commandPart(COMMAND_NAME, commandArguments),
+          ],
+        ),
       },
     }),
   ];
@@ -4445,7 +4519,6 @@ export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
  * remedy and no details hint. */
 export function installDeclinedDocument(
   reason: InstallDeclinedAnswer,
-  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return neutralStatementDocument([
     reason === "cancelled"
@@ -4553,7 +4626,6 @@ export type ConfigureDeclinedAnswer = "cancelled" | "default" | "declined";
  * remedy and no details hint. */
 export function configureDeclinedDocument(
   reason: ConfigureDeclinedAnswer,
-  _commandArguments: readonly CommandArg[],
 ): PresentationDocument {
   return neutralStatementDocument([
     reason === "cancelled"
