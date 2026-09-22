@@ -16,10 +16,12 @@
 import type { Readable, Writable } from "node:stream";
 
 import {
+  footerNodes,
   writeHumanDocument,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
+import { COMMAND_NAME } from "../installer/version.js";
 import { errorDiagnosticDocument } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
@@ -312,7 +314,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd)),
+        installDeclinedDocument("cancelled"),
         stderrContext,
       );
       return undefined;
@@ -342,13 +344,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument(
-          "cancelled",
-          fullySpecifiedInstallArguments(
-            { ...parsed, ...(profile === undefined ? {} : { profile }) },
-            cwd,
-          ),
-        ),
+        installDeclinedDocument("cancelled"),
         stderrContext,
       );
       return undefined;
@@ -496,7 +492,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("cancelled", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument("cancelled", fullySpecifiedInstallArguments(parsed, cwd, undefined, preview)),
+        installDeclinedDocument("cancelled"),
         stderrContext,
         recording,
       );
@@ -507,10 +503,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("declined", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument(
-          normalized === "" ? "default" : "declined",
-          fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
-        ),
+        installDeclinedDocument(normalized === "" ? "default" : "declined"),
         stderrContext,
         recording,
       );
@@ -551,8 +544,9 @@ async function runInstallCommandWithRecording(
     if (parsed.json) {
       request.stdout.write(formatInstallJson(result.applied));
     } else {
+      const receiptInput = installReceiptInput(result);
       const reportDocument: PresentationNode[] = [
-        ...installReceiptDocument(installReceiptInput(result)),
+        ...installReceiptDocument(receiptInput),
         // Advisory report warnings (absent Host CLIs and the like) stay
         // visible on the install path that replaces the old bind+update
         // sequence; they never block and never change the outcome.
@@ -587,6 +581,22 @@ async function runInstallCommandWithRecording(
         reportDocument.push(...installReplacementCommandDocument(
           fullySpecifiedInstallArguments(parsed, cwd, undefined, preview),
         ));
+      }
+      // The one footer (US-010) closes the report: the install next action,
+      // with the completed-operation details route attached as its secondary
+      // line by writeLifecycleReport. A clean unchanged install invents no
+      // next action.
+      if (receiptInput.outcome !== "unchanged") {
+        reportDocument.push(...footerNodes({
+          next: {
+            kind: "command",
+            value: {
+              kind: "command",
+              program: COMMAND_NAME,
+              args: [{ kind: "text", value: "status" }],
+            },
+          },
+        }));
       }
       writeLifecycleReport(request.stdout, reportDocument, stdoutContext, recording);
     }

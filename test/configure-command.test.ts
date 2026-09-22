@@ -512,8 +512,9 @@ describe("interactive configure profile", () => {
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
     expect(diagnostic).toContain("nothing was written (you answered no)");
-    expect(diagnostic).toContain("apkit configure profile coding");
-    expect(diagnostic).toContain("--auto-confirm");
+    // A plain decline needs no remedy and no details hint (US-010).
+    expect(diagnostic).not.toContain("apkit configure");
+    expect(diagnostic).not.toContain("Details:");
   });
 
   test("a hidden preselected member survives filtering and an unchanged request skips confirmation", async () => {
@@ -635,7 +636,7 @@ describe("interactive configure profile", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
-    expect(plain(streams.errorText())).toContain("cancelled before any write");
+    expect(plain(streams.errorText())).toContain("Configure was cancelled; nothing was written.");
   });
 });
 

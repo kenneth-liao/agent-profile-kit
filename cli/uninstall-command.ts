@@ -236,6 +236,7 @@ import {
   uninstallDeclinedDocument,
   uninstallExecutionFailureDocument,
   uninstallInteractiveCommandsDocument,
+  uninstallInteractiveDeclinedDocument,
   uninstallInteractiveEquivalentDocument,
   uninstallInteractivePickedDocument,
   uninstallMissingScopeDocument,
@@ -884,11 +885,6 @@ async function runInteractiveUninstall(
       const reason = answer.kind === "cancelled"
         ? "cancelled" as const
         : normalized === "" ? "default" as const : "declined" as const;
-      const happened = reason === "cancelled"
-        ? ["uninstall was cancelled before any write"]
-        : reason === "default"
-          ? ["uninstall kept the current state; nothing was written (default answer no)"]
-          : ["uninstall kept the current state; nothing was written (you answered no)"];
       recording.collect(uninstallCancelledRecording(
         reason === "cancelled" ? "cancelled" : "declined",
         scope,
@@ -896,16 +892,13 @@ async function runInteractiveUninstall(
       ));
       writeLifecycleReport(
         request.stderr,
-        uninstallInteractiveCommandsDocument({
-          happened,
-          why: [["No Project or setting was changed."]],
-          intro: "To proceed without asking, run (one command per Project):",
+        uninstallInteractiveDeclinedDocument({
+          reason,
           commands: interactiveRemainingCommands(targets, {
             includeAutoConfirm: true,
             removeChanged: parsed.removeChanged,
             replaceChanged: parsed.replaceChanged,
           }),
-          severity: "neutral",
         }),
         stderrContext,
         recording,
@@ -1118,22 +1111,16 @@ async function runInteractiveUninstall(
         ));
         writeLifecycleReport(
           request.stderr,
-          uninstallInteractiveCommandsDocument({
-            happened: [declined === "cancelled"
-              ? "uninstall was cancelled before any write"
-              : declined === "default"
-                ? "uninstall kept the current state; nothing was written (default answer no)"
-                : "uninstall kept the current state; nothing was written (you answered no)"],
-            why: [[completed.length === 0
-              ? "No Project or setting was changed."
-              : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}. Remaining Projects were not attempted.`]],
-            intro: "To proceed without asking, run (one command per Project):",
+          uninstallInteractiveDeclinedDocument({
+            reason: declined,
+            ...(completed.length === 0
+              ? {}
+              : { completedProjects: completed.map((entry) => entry.project) }),
             commands: remainingCommands({
               includeAutoConfirm: true,
               removeChanged: parsed.removeChanged,
               replaceChanged: parsed.replaceChanged,
             }),
-            severity: "neutral",
           }),
           stderrContext,
           recording,
@@ -1406,7 +1393,7 @@ async function runUninstallCommandWithRecording(
       ));
       writeLifecycleReport(
         request.stderr,
-        uninstallDeclinedDocument("cancelled", fullySpecifiedUninstallArguments(parsed, preview)),
+        uninstallDeclinedDocument("cancelled"),
         stderrContext,
         recording,
       );
@@ -1421,10 +1408,7 @@ async function runUninstallCommandWithRecording(
       ));
       writeLifecycleReport(
         request.stderr,
-        uninstallDeclinedDocument(
-          normalized === "" ? "default" : "declined",
-          fullySpecifiedUninstallArguments(parsed, preview),
-        ),
+        uninstallDeclinedDocument(normalized === "" ? "default" : "declined"),
         stderrContext,
         recording,
       );

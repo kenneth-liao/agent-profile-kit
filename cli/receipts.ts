@@ -11,6 +11,7 @@ import { displayPath, displayProjectPath } from "./display-path.js";
 import {
   commandPart,
   identifierPart,
+  neutralStatementDocument,
   pathPart,
   stateHeadline,
   type InlineContent,
@@ -484,16 +485,18 @@ export function installReceiptDocument(
   };
   const nodes: PresentationNode[] = [];
   if (input.outcome === "unchanged") {
-    nodes.push({
-      kind: "sentence",
-      parts: ["Installation unchanged for ", project],
-    });
-  } else {
-    nodes.push(stateHeadline([
-      `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
+    // One neutral statement (US-003, US-010): a clean no-op invents no next
+    // action and omits the details hint.
+    return neutralStatementDocument([
+      "Installation unchanged for ",
       project,
-    ], "success"));
+      ".",
+    ]);
   }
+  nodes.push(stateHeadline([
+    `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
+    project,
+  ], "success"));
   if (input.outcome === "replaced") {
     const { profile: previousProfile, hosts: previousHosts } = input.previous;
     if (previousProfile !== input.profile) {
@@ -526,7 +529,9 @@ export function installReceiptDocument(
       },
     );
   }
-  nodes.push(nextCommandNode("status"));
+  // The install `Next:` action list is the one footer (US-010) and is
+  // appended by the command after body guidance (loading checks and the
+  // equivalent command), so no output prints two footers.
   return nodes;
 }
 

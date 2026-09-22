@@ -1087,7 +1087,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.218.0
+Engine version: 0.219.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1212,11 +1212,11 @@ exports[`golden snapshots of every human view install success: install-success 1
 ✔ Installed example for demo
   Profile: example
   Hosts: codex
-Next: apkit status
 To check that codex loaded Profile example, start a new codex session in demo
   and ask codex what Profile material it loaded; the installed material should
   appear in its answer.
 
+Next: apkit status
 Details: apkit details
 --- stderr ---
 "
@@ -1264,8 +1264,8 @@ exports[`golden snapshots of every human view status pending: status-pending 1`]
 "--- stdout ---
 ✔ Ready to update
 - not installed yet (1): demo
-Next: apkit update '~/projects/demo'
 
+Next: apkit update '~/projects/demo'
 Details: apkit status '~/projects/demo' --verbose
 --- stderr ---
 "
@@ -1552,10 +1552,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view update no-op: update-noop 1`] = `
 "--- stdout ---
-✔ Update complete
-All Projects were already current.
-
-Details: apkit details
+● All Projects were already current.
 --- stderr ---
 "
 `;
@@ -1588,7 +1585,6 @@ Next:
 - Resolve the reported blocker, then run
   apkit update '~/projects/blocked'
   again.
-
 Details: apkit details
 --- stderr ---
 "
@@ -1963,7 +1959,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.218.0
+Engine version: 0.219.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1973,7 +1969,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.218.0\x1B[0m
+\x1B[1mEngine version: 0.219.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -1983,7 +1979,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.218.0
+Engine version: 0.219.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1993,7 +1989,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.218.0\x1B[0m
+\x1B[1mEngine version: 0.219.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

@@ -170,8 +170,8 @@ presents the outcome notice, partitions actionable Projects by primary cause
 `source changed`) with complete wrapped Project identities, summarizes non-actionable
 Projects as a settled count line in mixed fleets (or a single scope-accurate `up to date` outcome
 naming only what was checked when every Project in the scope is settled, US-014, DEC-009), nests Blocker diagnostics under each needs-attention member,
-and preserves one next action (`Next:` update) with an optional `Details:`
-verbose route. It renders each semantic fact once and omits routine generated paths,
+and preserves one footer block (`Next:` update with an optional secondary
+`Details:` verbose route). It renders each semantic fact once and omits routine generated paths,
 Project matrices, Git exclusion bookkeeping, setup provenance, and separate consequences.
 Blockers, warnings, ownership attention, drift, destructive-removal attention, and Git exclusion
 warnings retain the identity required for their remedies. Adapter diagnostic normalization keeps
@@ -193,9 +193,11 @@ Projects as already current when that receipt records work. The default receipt
 is outcome-first (ADR-0040): it states the affected Project and changed-file
 counts once, keeps only the actionable exception identities — failures,
 skipped or preserved files, remaining work, cleanup problems, and approved
-changed-file replacements or deletions — and closes with the
+changed-file replacements or deletions — and closes with one footer block
+whose secondary line is the
 `Details: apkit details` route to the run's retained evidence when the
-recording boundary retained an entry. It carries no per-file, per-Project, or
+recording boundary retained an entry and the outcome is not a clean no-op or
+neutral cancellation/decline (US-010). It carries no per-file, per-Project, or
 per-operation inventory, and re-running `update` is never offered as retrieval
 of an earlier run. It renders first-use
 Host setup as one action-grouped note with plain reasons when generated outputs

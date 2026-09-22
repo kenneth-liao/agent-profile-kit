@@ -128,7 +128,7 @@ function startInstall(
   home: string,
   arguments_: readonly string[],
   input: Readable,
-  options: { readonly cwd?: string } = {},
+  options: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {},
 ): StartedInstall {
   const streams = capturedStreams();
   const pending = runInstallCommand({
@@ -138,6 +138,7 @@ function startInstall(
     stderr: streams.stderr as Writable & { isTTY?: boolean },
     input,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
   }).then((outcome) => ({ exitCode: outcome.exitCode, streams }));
   return { pending, streams };
 }
@@ -154,7 +155,7 @@ async function runInstall(
   home: string,
   arguments_: readonly string[],
   input: PassThrough,
-  options: { readonly cwd?: string } = {},
+  options: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {},
 ): Promise<{ exitCode: 0 | 1 | 2; streams: CapturedStreams }> {
   const streams = capturedStreams();
   const outcome = await runInstallCommand({
@@ -164,8 +165,33 @@ async function runInstall(
     stderr: streams.stderr as Writable & { isTTY?: boolean },
     input,
     ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    ...(options.env === undefined ? {} : { env: options.env }),
   });
   return { exitCode: outcome.exitCode, streams };
+}
+
+/**
+ * A hermetic Host-detection PATH: a controlled Codex stub plus the tools the
+ * stub itself needs, and no other Host CLI. Neighbouring install-search tests
+ * use the same seam (`env: { PATH: … }`) so a clean receipt cannot pick up an
+ * ambient missing-Host warning (INT-2).
+ */
+function hermeticCodexPath(): string {
+  const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-hosts-"));
+  temporaryDirectories.push(bin);
+  writeFileSync(
+    join(bin, "codex"),
+    "#!/bin/sh\necho \"codex-cli 0.145.0\"\n",
+    { mode: 0o755 },
+  );
+  return bin;
+}
+
+/** A PATH with no Host CLI at all: capability probing must warn. */
+function hostFreePath(): string {
+  const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-no-hosts-"));
+  temporaryDirectories.push(bin);
+  return bin;
 }
 
 describe("install argument refusals happen before any write", () => {
@@ -421,9 +447,9 @@ describe("install general confirmation", () => {
 
     expect(exitCode).toBe(1);
     expect(plain(streams.errorText())).toContain("you answered no");
-    // A declined install is a retained cancellation (DEC-008), so its
-    // detail route follows the diagnostic on stderr (ADR-0040).
-    expect(plain(streams.errorText())).toContain("Details: apkit details");
+    // A plain decline prints one neutral statement and omits the details
+    // hint (US-003, US-010); retention is unchanged.
+    expect(plain(streams.errorText())).not.toContain("Details:");
     expect(plain(streams.humanText())).not.toContain("Details:");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
@@ -834,11 +860,13 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
   test("a successful install prints the retained-operation route once", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
+    const env = { PATH: hermeticCodexPath() };
 
     const { exitCode, streams } = await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     expect(exitCode).toBe(0);
@@ -847,24 +875,58 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
     expect(text.split("Details: apkit details")).toHaveLength(2);
   });
 
-  test("an unchanged install still prints the route for its retained no-op entry", async () => {
+  test("a clean unchanged install omits the details hint and still records the no-op", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
+    // Hermetic Host detection: the Codex stub is present, so the clean no-op
+    // carries no missing-Host warning and may omit the details hint (INT-2).
+    const env = { PATH: hermeticCodexPath() };
 
     expect((await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     )).exitCode).toBe(0);
     const unchanged = await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     expect(unchanged.exitCode).toBe(0);
     const text = plain(unchanged.streams.humanText());
     expect(text).toContain("Installation unchanged for");
+    expect(text).not.toContain("not valid JSON");
+    expect(text).not.toContain("upgrade");
+    // US-010, DEC-010: a clean no-op omits the hint; retention is unchanged.
+    expect(text).not.toContain("Details:");
+  });
+
+  test("an unchanged install with a missing Host keeps the details hint", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const env = { PATH: hostFreePath() };
+
+    expect((await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+      { env },
+    )).exitCode).toBe(0);
+    const unchanged = await runInstall(
+      home,
+      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      nonInteractiveInput(),
+      { env },
+    );
+
+    expect(unchanged.exitCode).toBe(0);
+    const text = plain(unchanged.streams.humanText());
+    expect(text).toContain("Installation unchanged for");
+    // A missing-Host warning is real recovery evidence (US-011), so the
+    // no-op keeps the route (US-010).
     expect(text).toContain("Details: apkit details");
   });
 

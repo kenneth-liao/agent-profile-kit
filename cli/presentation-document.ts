@@ -189,6 +189,69 @@ export function stateHeadline(
   };
 }
 
+/**
+ * One neutral outcome statement (US-003, US-010): a clean no-op or a plain
+ * decline/cancel ending. It carries no error-like `apkit:` prefix, states
+ * preservation once, and never nests a state headline inside a notice.
+ */
+export function neutralStatementDocument(
+  parts: readonly InlineContent[],
+): PresentationDocument {
+  return [stateHeadline(parts, "neutral")];
+}
+
+/** The one footer action list (US-010): a single command, or explicit items. */
+export type FooterNext =
+  | { readonly kind: "command"; readonly value: CommandNode }
+  | {
+      readonly kind: "actions";
+      readonly items: readonly (readonly InlineContent[])[];
+    };
+
+/**
+ * The one shared footer block (US-010, DEC-002): at most one action list,
+ * with an optional secondary details route in the same block. Next actions
+ * never split between body guidance and this footer; failure remedies stay in
+ * the failure body as recovery evidence.
+ */
+export function footerNodes(input: {
+  readonly next?: FooterNext;
+  readonly details?: CommandNode;
+}): PresentationNode[] {
+  const nextNodes: PresentationNode[] =
+    input.next === undefined
+      ? []
+      : input.next.kind === "command"
+        ? [{
+            kind: "key-value" as const,
+            key: "Next",
+            value: input.next.value,
+            category: "command" as const,
+          }]
+        : [
+            { kind: "heading" as const, text: "Next:" },
+            ...input.next.items.map((parts): PresentationNode => ({
+              kind: "list-item" as const,
+              parts,
+            })),
+          ];
+  const detailsNodes: PresentationNode[] =
+    input.details === undefined
+      ? []
+      : [{
+          kind: "key-value" as const,
+          key: "Details",
+          value: input.details,
+          category: "command" as const,
+        }];
+  if (nextNodes.length === 0 && detailsNodes.length === 0) return [];
+  return [
+    { kind: "verbatim", text: "" },
+    ...nextNodes,
+    ...detailsNodes,
+  ];
+}
+
 function prependStateGlyph(node: PresentationNode, role: StateRole): PresentationNode {
   const prefix = stateHeadlinePrefix(role);
   switch (node.kind) {

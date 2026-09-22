@@ -292,7 +292,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       if (confirmed === "cancelled") {
         writeHumanDocument(
           request.stderr,
-          initCancelledDocument(authored === undefined ? {} : { workspace: authored }),
+          initCancelledDocument(),
           stderrContext,
           renderOptions,
         );
@@ -301,7 +301,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       if (confirmed === "declined") {
         writeHumanDocument(
           request.stdout,
-          initDeclinedDocument(authored === undefined ? {} : { workspace: authored }),
+          initDeclinedDocument(),
           stdoutContext,
           renderOptions,
         );
@@ -347,7 +347,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
   );
   const offer = await prompts.yesNo(OFFER_QUESTION);
   if (offer === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
+    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   if (offer === "declined") {
@@ -363,7 +363,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
 
   const nameAnswer = await prompts.text(NAME_QUESTION);
   if (nameAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
+    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   // Pre-commit validation keeps every refusal before any change: an invalid
@@ -404,7 +404,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (contextAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
+    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   const skillAnswer = preview.skills.length > 0
@@ -415,7 +415,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     )
     : { kind: "selected" as const, values: [] as readonly string[] };
   if (skillAnswer.kind === "cancelled") {
-    writeHumanDocument(request.stderr, initCancelledDocument(authored === undefined ? {} : { workspace: authored }), stderrContext, renderOptions);
+    writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
     return { exitCode: 1 };
   }
   const contexts = contextAnswer.values;

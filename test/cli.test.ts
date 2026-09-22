@@ -1090,7 +1090,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const applyViaReal = await runCli(home, "update");
     expectExitCode(applyViaReal, 0);
-    expect(applyViaReal.stdout).toContain("Update complete");
+    expect(applyViaReal.stdout).toContain("All Projects were already current.");
     expect(applyViaReal.stdout).not.toContain("Pending: none");
     // Installation identity/state must not rewrite solely because the authored alias changed.
     expect(readFileSync(statePath(home), "utf8")).toBe(stateAfterApply);
@@ -3601,7 +3601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "update");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Update complete");
+    expect(result.stdout).toContain("All Projects were already current.");
     expect(result.stdout).not.toContain("Pending: none");
     expect(result.stdout).toContain("All Projects were already current.");
     expect(result.stdout).not.toContain("Updated: none");
@@ -15241,14 +15241,22 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expect(payload.entries[0]!.projects[0]!.written).toContain(".agent-profile-kit/codex/context.md");
   });
 
-  test("a no-op update still offers its retained entry", async () => {
+  test("a clean no-op update prints one neutral statement and omits the details hint", async () => {
     const { home, projectPath } = await installedGitProject();
 
     const update = await runCli(home, "update", projectPath);
 
     expectExitCode(update, 0);
     expect(humanText(update.stdout)).toContain("All Projects were already current.");
-    expect(humanText(update.stdout)).toContain("Details: apkit details");
+    // US-010, DEC-010: a clean no-op omits the hint; retention is unchanged.
+    expect(humanText(update.stdout)).not.toContain("Details:");
+    const details = await runCli(home, "details", "--json");
+    expectExitCode(details, 0);
+    const payload = JSON.parse(details.stdout) as {
+      entries: readonly { readonly command: string; readonly outcome: string }[];
+    };
+    expect(payload.entries[0]!.command).toBe("update");
+    expect(payload.entries[0]!.outcome).toBe("no-op");
   });
 
   test("a successful uninstall reports its Project count once and omits exclusion bookkeeping", async () => {

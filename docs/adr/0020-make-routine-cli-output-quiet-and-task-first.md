@@ -70,8 +70,10 @@ Exclusion bookkeeping is carried by ADR-0040 for the lifecycle receipts: the
 default `update` receipt states its affected Project and changed-file counts
 once and names any approved changed-file replacement or deletion, `install` and
 `uninstall` keep their established compact statements, and every default
-receipt whose run retained an operation-history entry closes with
-`Details: apkit details` on the report's own stream. The complete per-path
+receipt whose run retained an operation-history entry closes with one footer
+block carrying `Details: apkit details` as its secondary line (US-010) —
+except a clean no-op or a neutral cancellation/decline, which omit the hint
+while retention is unchanged (DEC-010). The complete per-path
 receipt stays tier 2, and re-running a lifecycle command is never offered as
 retrieval of an earlier run. Tiers 2 and 3 are unchanged.
 

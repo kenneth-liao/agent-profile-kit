@@ -419,11 +419,11 @@ $ apkit install example <project> --host codex --auto-confirm
 Installed example for <project>
   Profile: example
   Hosts: codex
-Next: apkit status
 To check that codex loaded Profile example, start a new codex session in
   <project> and ask codex what Profile material it loaded; the installed
   material should appear in its answer.
 
+Next: apkit status
 Details: apkit details
 ```
 
@@ -432,11 +432,11 @@ $ apkit install ops <project> --host codex --host claude --auto-confirm
 Replaced installation ops for <project>
   Profile: example → ops
   Hosts: codex → claude, codex
-Next: apkit status
 To check that claude and codex loaded Profile ops, start a new session of
   each configured Host in <project> and ask each Host what Profile material it
   loaded; the installed material should appear in the answers.
 
+Next: apkit status
 Details: apkit details
 ```
 
@@ -566,7 +566,6 @@ $ apkit status
 Ready to update
 - not installed yet (2): <project>, <project>
 Next: apkit update
-
 Details: apkit status --verbose
 ```
 
@@ -659,8 +658,10 @@ distinct from the resulting-state report (ADR-0040, US-011, DEC-007): the
 default view states the affected Project and changed-file counts once, keeps
 only the actionable exception identities — failures, skipped or preserved
 files, remaining work, cleanup problems, and any approved changed-file
-replacement or deletion — and closes with the `apkit details` route to the run's
-retained evidence. Per-file, per-Project, and per-operation inventories belong
+replacement or deletion — and closes with one footer block carrying the
+`apkit details` route to the run's retained evidence as its secondary line
+(US-010). A clean no-op prints one neutral statement and omits that hint;
+retention is unchanged. Per-file, per-Project, and per-operation inventories belong
 to `--verbose` and to `apkit details`: it never suggests re-running update to
 retrieve an earlier run.
 
@@ -747,11 +748,8 @@ Changed generated files:
 Replacing overwrites these files with current Workspace content.
 Type d to view the current on-disk versus planned diff before deciding (d again for more pages).
 ? Replace or delete these generated files as listed? (y/N)
-apkit: update was cancelled before any write
-No Project or setting was changed; your edits to the named generated files are
-  preserved.
-To replace changed generated files without asking, run
-  apkit update <project> --replace-changed
+● update was cancelled; nothing was written.
+Next: apkit update <project> --replace-changed
 ```
 
 Verbose update retains the complete per-Project, per-path inventory, and
@@ -888,13 +886,16 @@ partial blocker result exits `2` and retains the committed receipt evidence
 before remaining blockers, so writes are never hidden.
 
 **Retained operation evidence.** Routine receipts stay task-focused and close
-with `Details: apkit details` whenever the run retained an entry, so the
+with one footer block whose optional secondary line is `Details: apkit details`
+whenever the run retained an entry and the outcome is not a clean no-op or a
+neutral cancellation/decline (US-010), so the
 complete record of an earlier run is retrieved without repeating its writes:
 `apkit details` shows the latest retained operation, `apkit details --list` the
 compact newest-first history of the latest 200 runs, and `apkit details
 <operation-id>` one run — each naming its command, time, requested scope,
 outcome, committed generated paths, and failed, skipped, or remaining work.
-`--json` publishes the same structured evidence, and an operation that
+Clean no-ops and plain declines/cancels omit the printed hint while retention
+itself is unchanged. `--json` publishes the same structured evidence, and an operation that
 stopped after committing part of its scope keeps that committed evidence. The document lives at
 `~/.agents/agent-profile-kit/operation-history.json`, holds no file contents,
 grants no ownership, and is never desired state; reading it changes nothing on
@@ -918,7 +919,8 @@ The removal receipt is outcome-first (ADR-0040): a successful removal states
 its removed Project count once, a partial Host removal names the removed Host
 and the affected Project count, routine Git-exclusion bookkeeping stays out of
 the default view, skipped Projects and relevant cleanup warnings keep their
-actionable identities, and the run closes with `Details: apkit details`:
+actionable identities, and the run closes with one footer block whose secondary
+line is `Details: apkit details`:
 
 ```
 $ apkit uninstall <project> --auto-confirm
@@ -994,7 +996,10 @@ are argued from these rather than from scratch.
    demoted or suppressed.
 4. **Never warn about a state the user just requested.**
 5. **A next step must change something**, and must not stall work that is
-   ready.
+   ready. Every human operation ending uses one footer in one style: at most
+   one action list, with an optional secondary details route in the same
+   block. Clean no-ops and plain declines/cancels print one neutral statement
+   and invent neither a next action nor a details hint (US-010).
 6. **Distinct concepts get distinct words.** Presentation must not overload one
    term for two of them.
 7. **Summarize routine impact; disclose actionable identity.** Exact generated

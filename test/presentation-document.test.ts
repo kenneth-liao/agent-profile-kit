@@ -4,6 +4,7 @@ import { Writable } from "node:stream";
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
 import {
+  omitsOperationDetailsHint,
   operationDetailsDocument,
   writeLifecycleReport,
 } from "../cli/operation-history-presentation.js";
@@ -12,8 +13,10 @@ import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
   type CommandArg,
   commandPart,
+  footerNodes,
   identifierPart,
   type InlineContent,
+  neutralStatementDocument,
   pathPart,
   renderPresentationDocument,
 } from "../cli/presentation-document.js";
@@ -596,6 +599,100 @@ test("renders the completed-operation detail route as one copyable command", () 
   expect(stripped.trim()).toBe("Details: apkit details");
 });
 
+test("footerNodes carries one action list with an optional secondary details route", () => {
+  const command = (value: string) =>
+    ({ kind: "command" as const, program: "apkit", args: [arg(value)] });
+
+  const both = renderPresentationDocument(
+    [
+      { kind: "prose", parts: ["Body."] },
+      ...footerNodes({ next: { kind: "command", value: command("status") }, details: command("details") }),
+    ],
+    redirected,
+  );
+  // One footer block: blank line after the body, then Next and Details with
+  // no second blank line between them (US-010).
+  expect(both).toBe("Body.\n\nNext: apkit status\nDetails: apkit details");
+
+  const actions = renderPresentationDocument(
+    [
+      { kind: "prose", parts: ["Body."] },
+      ...footerNodes({
+        next: { kind: "actions", items: [["Run ", command("update"), " again."]] },
+        details: command("details"),
+      }),
+    ],
+    redirected,
+  );
+  expect(actions).toBe(
+    "Body.\n\nNext:\n- Run apkit update again.\nDetails: apkit details",
+  );
+
+  const detailsOnly = renderPresentationDocument(
+    [
+      { kind: "prose", parts: ["Body."] },
+      ...footerNodes({ details: command("details") }),
+    ],
+    redirected,
+  );
+  expect(detailsOnly).toBe("Body.\n\nDetails: apkit details");
+
+  expect(footerNodes({})).toEqual([]);
+});
+
+test("neutralStatementDocument is one statement without an apkit: prefix", () => {
+  const document = neutralStatementDocument([
+    "Install was declined; nothing was written.",
+  ]);
+  const plain = renderPresentationDocument(document, redirected);
+  expect(plain).toBe("● Install was declined; nothing was written.");
+  expect(plain).not.toContain("apkit:");
+  expect(document).toHaveLength(1);
+});
+
+test("omits the details hint only for clean no-ops and cancellations", () => {
+  expect(omitsOperationDetailsHint("no-op", false)).toBe(true);
+  expect(omitsOperationDetailsHint("cancelled", false)).toBe(true);
+  // Warning-carrying endings keep the route (US-010: warnings keep actionable
+  // guidance and recovery evidence).
+  expect(omitsOperationDetailsHint("no-op", true)).toBe(false);
+  expect(omitsOperationDetailsHint("cancelled", true)).toBe(false);
+  expect(omitsOperationDetailsHint("succeeded", false)).toBe(false);
+  expect(omitsOperationDetailsHint("failed", false)).toBe(false);
+  expect(omitsOperationDetailsHint("partial", false)).toBe(false);
+  expect(omitsOperationDetailsHint("blocked", false)).toBe(false);
+});
+
+test("keeps the details route on a no-op report that carries warnings", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [
+    ...neutralStatementDocument(["All Projects were already current."]),
+    {
+      kind: "list-item" as const,
+      parts: ["Grok inspect --json output is not valid JSON."],
+      category: "warning" as const,
+    },
+  ];
+
+  const retained = beginLifecycleOperationRecording();
+  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  writeLifecycleReport(stream, document, context, retained);
+  expect(stream.text()).toContain("All Projects were already current.");
+  expect(stream.text()).toContain("Details: apkit details");
+});
+
 test("writes the retained-operation route onto the report's own stream only for a retained run", () => {
   class Sink extends Writable {
     readonly chunks: Buffer[] = [];
@@ -612,16 +709,42 @@ test("writes the retained-operation route onto the report's own stream only for 
   const context = terminalPresentationContext(stream);
   const document = [{ kind: "prose" as const, parts: ["Report."] }];
 
-  const retained = beginLifecycleOperationRecording();
-  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  // A clean no-op omits the details hint even when the run was retained
+  // (US-010, DEC-010): retrieval stays available through `apkit details`.
+  const noOp = beginLifecycleOperationRecording();
+  noOp.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
   stream.chunks.length = 0;
-  writeLifecycleReport(stream, document, context, retained);
+  writeLifecycleReport(stream, document, context, noOp);
   expect(stream.text()).toContain("Report.");
-  expect(stream.text()).toContain("Details: apkit details");
+  expect(stream.text()).not.toContain("Details:");
+
+  // A neutral cancellation omits the hint for the same reason.
+  const cancelled = beginLifecycleOperationRecording();
+  cancelled.collect({
+    outcome: "cancelled",
+    scope: { selection: "all" },
+    projects: [],
+    cancelledReason: "declined",
+  });
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, cancelled);
+  expect(stream.text()).not.toContain("Details:");
+
+  // Successful and failed retained runs keep the route.
+  for (const outcome of ["succeeded", "failed", "partial", "blocked"] as const) {
+    const retained = beginLifecycleOperationRecording();
+    retained.collect({ outcome, scope: { selection: "all" }, projects: [] });
+    stream.chunks.length = 0;
+    writeLifecycleReport(stream, document, context, retained);
+    expect(stream.text()).toContain("Report.");
+    expect(stream.text()).toContain("Details: apkit details");
+  }
 
   // `--verbose` prints the complete current-run receipt and omits the route.
+  const verboseSource = beginLifecycleOperationRecording();
+  verboseSource.collect({ outcome: "succeeded", scope: { selection: "all" }, projects: [] });
   stream.chunks.length = 0;
-  writeLifecycleReport(stream, document, context, retained, false);
+  writeLifecycleReport(stream, document, context, verboseSource, false);
   expect(stream.text()).toContain("Report.");
   expect(stream.text()).not.toContain("Details:");
 
@@ -639,6 +762,39 @@ test("writes the retained-operation route onto the report's own stream only for 
   expect(() => writeLifecycleReport(stream, document, context, undecided)).toThrow(
     /before the run's operation-history decision/,
   );
+});
+
+test("attaches the details route to an existing Next footer as one block", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [
+    { kind: "prose" as const, parts: ["Report."] },
+    ...footerNodes({
+      next: {
+        kind: "command",
+        value: { kind: "command", program: "apkit", args: [arg("status")] },
+      },
+    }),
+  ];
+
+  const retained = beginLifecycleOperationRecording();
+  retained.collect({ outcome: "succeeded", scope: { selection: "all" }, projects: [] });
+  writeLifecycleReport(stream, document, context, retained);
+  const text = stream.text();
+  expect(text).toBe("Report.\n\nNext: apkit status\nDetails: apkit details\n");
+  expect(text.match(/Details:/g)).toHaveLength(1);
+  expect(text.match(/Next:/g)).toHaveLength(1);
 });
 
 test("holds the compact receipt impact and its route intact at a narrow width", () => {

@@ -44,8 +44,14 @@ route for every lifecycle receipt.
 - **One completed-operation detail route.** A default receipt whose run
   retained an operation-history entry (ADR-0039) closes with
   `Details: apkit details`: the read-only command that retrieves that run's
-  stored evidence. It is present for every outcome the recording boundary
-  retains — including no-ops and interactive cancellations or declines — and
+  stored evidence. It is the secondary line of the report's one footer block
+  (US-010): when the footer already carries a `Next` action list the details
+  route follows it with no second blank line, so no output prints two
+  footers. It is present for every outcome the recording boundary retains
+  except a clean no-op or a neutral cancellation/decline, which omit the
+  details hint while retention itself is unchanged (DEC-010) — those runs stay
+  retrievable through `apkit details` and `apkit details --list`. Failures,
+  warnings, remaining work, and history-write failures keep the route. It is
   absent for pre-write refusals that retain nothing. It is written to the same
   stream as the report it closes, so a declined or failed run keeps the pointer
   beside its own diagnostic, and the terminal branch hands the run's recording
@@ -73,6 +79,13 @@ route for every lifecycle receipt.
   Their unaffected facts — the receipt as the pre-update work record, the fresh
   post-commit snapshot as the resulting-state authority, and every machine
   contract — stay in force.
+- **Spec #491 US-012's mandatory details hint** for every recorded no-op and
+  interactive cancellation or decline is narrowed by spec #640 US-010
+  (DEC-010, ticket #642): those endings omit the hint while history retention
+  (ADR-0039) and explicit read-only retrieval through `apkit details` /
+  `apkit details --list` are unchanged. The hint remains for failures,
+  warnings, remaining work, history-write failures, and successful changed
+  work that already carries a footer.
 - **ADR-0020** already requires concise output to omit routine generated paths
   and Repository Exclusion bookkeeping, and reserves `--verbose` and JSON for
   complete evidence. This record fixes the receipt's concrete default shape and

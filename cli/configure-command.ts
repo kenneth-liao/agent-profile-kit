@@ -466,7 +466,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        configureDeclinedDocument("cancelled", equivalent),
+        configureDeclinedDocument("cancelled"),
         stderrContext,
       );
       return { exitCode: 1 };
@@ -475,7 +475,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     if (normalized !== "y" && normalized !== "yes") {
       writeHumanDocument(
         request.stderr,
-        configureDeclinedDocument(normalized === "" ? "default" : "declined", equivalent),
+        configureDeclinedDocument(normalized === "" ? "default" : "declined"),
         stderrContext,
       );
       return { exitCode: 1 };

@@ -553,7 +553,7 @@ describe("completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
     expect(humanText(invocation.stderr.text())).not.toContain("Details:");
   });
 
-  test("an interactive decline prints the retained cancellation route", async () => {
+  test("an interactive decline prints the explicit-flag next action and omits the details hint", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-route-decline");
     const invocation = invoke(
       fleet,
@@ -563,10 +563,14 @@ describe("completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
     );
     const { exitCode } = await invocation.outcome;
     expect(exitCode).toBe(1);
-    expect(humanText(invocation.stderr.text())).toContain("you answered no");
-    // A declined interactive run is a retained cancellation (DEC-008), so the
-    // detail route follows the report on its own stream (ADR-0040).
-    expect(humanText(invocation.stderr.text())).toContain("Details: apkit details");
+    const text = humanText(invocation.stderr.text());
+    expect(text).toContain("you answered no");
+    // The operation stopped short of an update the user may still want, so
+    // the one Next footer carries the explicit flag command (US-010).
+    expect(text).toContain("Next: apkit update");
+    expect(text).toContain("--replace-changed");
+    // Neutral cancellations omit the details hint (DEC-010).
+    expect(text).not.toContain("Details:");
     expect(humanText(invocation.stdout.text())).not.toContain("Details:");
   });
 });

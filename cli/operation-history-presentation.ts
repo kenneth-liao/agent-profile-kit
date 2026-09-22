@@ -24,10 +24,12 @@ import {
 } from "./terminal-presentation.js";
 import {
   commandPart,
+  footerNodes,
   identifierPart,
   pathPart,
   writeHumanDocument,
   type CommandArg,
+  type CommandNode,
   type InlineContent,
   type NoticeSeverity,
   type PresentationDocument,
@@ -44,30 +46,67 @@ export const DETAILS_MACHINE_SCHEMA_VERSION = 1;
  * discoverable `Details: apkit details` line that retrieves the run's retained
  * evidence. It names the read-only history command, never a re-run of the
  * lifecycle command, and the write helper below emits it exactly when this run
- * retained an entry.
+ * retained an entry and the outcome is not a clean no-op or neutral
+ * cancellation (US-010, DEC-010).
  */
 export function operationDetailsDocument(): PresentationDocument {
-  return [
-    { kind: "verbatim", text: "" },
-    {
-      kind: "key-value",
-      key: "Details",
-      value: { kind: "command", program: COMMAND_NAME, args: [arg("details")] },
-      category: "command",
-    },
-  ];
+  return footerNodes({ details: operationDetailsCommand() });
+}
+
+/** The typed completed-operation details command. */
+export function operationDetailsCommand(): CommandNode {
+  return { kind: "command", program: COMMAND_NAME, args: [arg("details")] };
+}
+
+/**
+ * Clean no-ops and neutral cancellations omit the completed-operation details
+ * hint (US-010, DEC-010) only when they carry no warnings: warnings keep
+ * actionable guidance and recovery evidence, so they keep the route. History
+ * retention is unchanged: the run is still retrievable through `apkit details`
+ * and `apkit details --list`. Failures, remaining work, and history-write
+ * failures always keep the route.
+ */
+export function omitsOperationDetailsHint(
+  outcome: OperationHistoryOutcome,
+  hasWarnings: boolean,
+): boolean {
+  return (outcome === "no-op" || outcome === "cancelled") && !hasWarnings;
+}
+
+/** Whether this report body carries warning evidence beside its outcome. */
+export function documentHasWarnings(document: PresentationDocument): boolean {
+  return document.some(nodeHasWarningCategory);
+}
+
+function nodeHasWarningCategory(node: PresentationNode): boolean {
+  if ("category" in node && node.category === "warning") return true;
+  if (node.kind === "notice") return node.nodes.some(nodeHasWarningCategory);
+  if (node.kind === "column-group") return node.columns.some(documentHasWarnings);
+  return false;
+}
+
+function documentHasFooterAction(document: PresentationDocument): boolean {
+  return document.some(
+    (node) =>
+      (node.kind === "key-value" && node.key === "Next") ||
+      (node.kind === "heading" && node.text === "Next:"),
+  );
 }
 
 /**
  * Write one run's terminal human report and, exactly when the run retained an
- * operation-history entry, its completed-operation detail route (US-011,
- * DEC-007; ADR-0040). The route follows the stream that carries the report, so
- * a declined or failed run keeps its evidence pointer beside its own
- * diagnostic while a pre-write refusal that records nothing never advertises
- * `apkit details`. An unsaved entry still prints the route because that run
- * displayed its complete evidence (DEC-008). Machine JSON callers keep stdout
- * parseable and never call this. `route` is `false` only for `--verbose`,
- * which already prints the complete current-run receipt.
+ * operation-history entry whose outcome still wants the hint, its
+ * completed-operation detail route (US-011, DEC-007; ADR-0040; US-010). The
+ * route is the secondary line of the report's one footer block: when the
+ * report already carries a `Next` action list the details line follows it with
+ * no second blank line, so no output prints two footers. The route follows the
+ * stream that carries the report, so a declined or failed run keeps its
+ * evidence pointer beside its own diagnostic while a pre-write refusal that
+ * records nothing never advertises `apkit details`. An unsaved entry still
+ * prints the route because that run displayed its complete evidence (DEC-008).
+ * Machine JSON callers keep stdout parseable and never call this. `route` is
+ * `false` only for `--verbose`, which already prints the complete current-run
+ * receipt.
  *
  * The branch's recording decision is read here, after the branch decided and
  * before the finish boundary publishes it. A report written before its branch
@@ -88,10 +127,27 @@ export function writeLifecycleReport(
       "lifecycle terminal report written before the run's operation-history decision",
     );
   }
-  writeHumanDocument(stream, document, context);
-  if (route && collected !== undefined) {
-    writeHumanDocument(stream, operationDetailsDocument(), context);
+  const showDetails =
+    route &&
+    collected !== undefined &&
+    !omitsOperationDetailsHint(collected.outcome, documentHasWarnings(document));
+  if (!showDetails) {
+    writeHumanDocument(stream, document, context);
+    return;
   }
+  const details: PresentationNode = {
+    kind: "key-value",
+    key: "Details",
+    value: operationDetailsCommand(),
+    category: "command",
+  };
+  writeHumanDocument(
+    stream,
+    documentHasFooterAction(document)
+      ? [...document, details]
+      : [...document, ...footerNodes({ details: operationDetailsCommand() })],
+    context,
+  );
 }
 
 /** One entry's persisted identity is present only once the store saved it. */
