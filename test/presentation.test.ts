@@ -9810,6 +9810,40 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     expect(rendered.split("Remedy: install Codex").length - 1).toBe(1);
   });
 
+  test("a warning that survived installer host-scope dedup names every affected Project once (#668)", () => {
+    // The installer keeps one host-attention warning per Host on the first
+    // Project in canonical order; the carrying record's Project is one of the
+    // affectedProjects, so the seed must be the only home for the set (no
+    // second union path that could double count).
+    const warning = {
+      ...hostAttentionWarning(codexMissing),
+      affectedProjects: ["/fleet/alpha/my-app", "/fleet/beta/my-app", "/fleet/hello"],
+    };
+    const report = machineReport([
+      machineProject("/fleet/alpha/my-app", { warnings: [warning] }),
+      machineProject("/fleet/beta/my-app"),
+      machineProject("/fleet/hello"),
+    ]);
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: ["/fleet/alpha/my-app", "/fleet/beta/my-app", "/fleet/hello"].map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: ["/fleet/alpha/my-app", "/fleet/beta/my-app", "/fleet/hello"].map((project) => ({ kind: "addition" as const, project })),
+        outputs: ["/fleet/alpha/my-app", "/fleet/beta/my-app", "/fleet/hello"].map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/my-app, beta/my-app, hello)");
+    expect(rendered.split("(alpha/my-app, beta/my-app, hello)").length - 1).toBe(1);
+  });
+
   test("two Hosts keep separate warning lines with their own remedy and requirement", () => {
     const report = machineReport([
       machineProject("/work/alpha", {

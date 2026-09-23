@@ -310,6 +310,40 @@ describe("machine-level Host capability probes within one invocation", () => {
     expect(flatInlineText(claudeWarnings[0]?.warning.parts ?? [])).toContain("requires 2.0.64+");
   });
 
+  test("host-scope dedup keeps one content warning per Host and lists every affected Project (#668)", async () => {
+    const home = temporaryDirectory("apk-host-probe-affected-");
+    await fleetWorkspace({
+      home,
+      bindings: [
+        { hosts: ["codex"], profile: "context-only" },
+        { hosts: ["codex"], profile: "context-only" },
+        { hosts: ["codex"], profile: "context-only" },
+      ],
+    });
+    // An empty bin: the Host is missing for every Project in the invocation.
+    const bin = installProbeHosts(home, {});
+
+    const desired = await buildDesiredState(home, {
+      env: { ...process.env, PATH: bin },
+    });
+
+    expect(desired.installations).toHaveLength(3);
+    const codexWarnings = desired.installations.flatMap((installation) =>
+      plannedInstallation(installation!).capabilityWarnings.filter((entry) => entry.host === "codex"),
+    );
+    // Dedup still keeps one host-scope content warning for the Host.
+    expect(codexWarnings).toHaveLength(1);
+    expect(flatInlineText(codexWarnings[0]?.warning.parts ?? [])).toContain(
+      "Codex CLI was not found on PATH",
+    );
+    // And it carries the canonical identities of every Project that produced
+    // the Host's failure, not only the Project that keeps the entry.
+    const canonicalProjects = desired.installations.map((installation) =>
+      plannedInstallation(installation!).binding.canonicalProject,
+    );
+    expect(new Set(codexWarnings[0]?.affectedProjects ?? [])).toEqual(new Set(canonicalProjects));
+  });
+
   test("Project-specific destination checks still run for every affected Project", async () => {
     const home = temporaryDirectory("apk-host-probe-surface-");
     const projects = await fleetWorkspace({

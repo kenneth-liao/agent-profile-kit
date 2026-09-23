@@ -3199,6 +3199,64 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readCodexHostAttentionWarnings(noopApply.stdout)).toEqual([]);
   });
 
+  test("update names every affected Project in each missing-Host warning on a colliding-basename fleet (#668)", async () => {
+    // The #653 recapture showed one Project per Host: installer host-scope
+    // dedup kept one warning per Host on a single Project, and presentation
+    // could only name the Project that carried it. Four Projects with two
+    // sharing the `my-app` basename force the view identity (alpha/my-app),
+    // which must match the inventory alias, never the bare basename.
+    const home = isolatedHome();
+    await initialize(home);
+    const fleetRoot = mkdtempSync(join(tmpdir(), "apkit-fleet-names-"));
+    temporaryDirectories.push(fleetRoot);
+    const alphaMyApp = join(fleetRoot, "alpha", "my-app");
+    const betaMyApp = join(fleetRoot, "beta", "my-app");
+    const hello = join(fleetRoot, "hello");
+    const acmePipeline = join(fleetRoot, "acme-internal-analytics-pipeline-v2");
+    for (const directory of [alphaMyApp, betaMyApp, hello, acmePipeline]) {
+      mkdirSync(directory, { recursive: true });
+    }
+    writeContextProfile(home);
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n${[
+        [alphaMyApp, "[claude, codex]"],
+        [betaMyApp, "[claude, codex]"],
+        [hello, "[claude, codex]"],
+        [acmePipeline, "[codex]"],
+      ].map(([projectPath, hosts]) => `  - project: ${projectPath}\n    profile: coding\n    hosts: ${hosts}\n`).join("")}`,
+    );
+    const emptyBin = mkdtempSync(join(tmpdir(), "apkit-empty-bin-"));
+    temporaryDirectories.push(emptyBin);
+
+    const apply = await runCliWithPath(home, emptyBin, "update", "--all");
+    expectExitCode(apply, 0);
+    // Wrapped lines re-join for assertion; the emitted bytes keep every
+    // identity intact (copyable wrap seam, US-009).
+    const flattened = apply.stdout.replace(/\s+/g, "");
+    // Every Project each missing Host affects, named exactly once through the
+    // view identity — colliding basenames keep their disambiguating segment.
+    expect(flattened).toContain(
+      "⚠CodexCLIwasnotfoundonPATH(acme-internal-analytics-pipeline-v2,alpha/my-app,beta/my-app,hello)",
+    );
+    expect(flattened).toContain(
+      "⚠ClaudeCodeCLIwasnotfoundonPATH(alpha/my-app,beta/my-app,hello)",
+    );
+    expect(apply.stdout).not.toContain("(alpha)");
+    expect(apply.stdout.split("⚠ Codex CLI was not found on PATH").length - 1).toBe(1);
+    expect(apply.stdout.split("⚠ Claude Code CLI was not found on PATH").length - 1).toBe(1);
+    // One Adapter remedy per Host, still default-colored in the same group.
+    expect(apply.stdout.split("Remedy: install Codex").length - 1).toBe(1);
+    expect(apply.stdout.split("Remedy: install Claude Code").length - 1).toBe(1);
+
+    // Machine JSON is unchanged: one host-attention message per Host.
+    const jsonApply = await runCliWithPath(home, emptyBin, "update", "--all", "--json");
+    expectExitCode(jsonApply, 0);
+    const messages = readHostAttentionWarnings(jsonApply.stdout);
+    expect(messages.filter((message) => message.includes("Codex"))).toHaveLength(1);
+    expect(messages.filter((message) => message.includes("Claude Code"))).toHaveLength(1);
+  });
+
   test("an outdated Host with distinct requirement sets emits one warning per Host per invocation", async () => {
     const home = isolatedHome();
     await initialize(home);

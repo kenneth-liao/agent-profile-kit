@@ -181,6 +181,14 @@ export interface ReconciliationWarning {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
+  /**
+   * Presentation-only affected-Project identities for a host-attention warning
+   * that survived installer host-scope dedup (US-011, #668): every canonical
+   * Project the Host affects in the operation. Machine JSON keeps `parts` as
+   * the one message per Host and never publishes this field; human
+   * presentation seeds its affected-Project clause from it exclusively.
+   */
+  readonly affectedProjects?: readonly string[];
   readonly parts: readonly InlineContent[];
   /**
    * Typed presentation facts for capability warnings (US-011). JSON keeps
@@ -947,6 +955,9 @@ function nestedReconciliationReport(
     }));
     for (const entry of installation.capabilityWarnings) {
       warnings.push({
+        ...(entry.affectedProjects === undefined
+          ? {}
+          : { affectedProjects: [...entry.affectedProjects] }),
         copyableValues: [...entry.warning.copyableValues],
         kind: "host-attention",
         parts: entry.warning.parts,

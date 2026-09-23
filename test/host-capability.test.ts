@@ -99,6 +99,8 @@ describe("Host capability probing", () => {
         problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
         remedy: "upgrade Codex before checking status or updating the Profile",
         requirement: "The selected Profile requires Codex project delivery",
+        // Host-scope dedup stamps the planning Project identities (#668).
+        affectedProjects: [realpathSync(project)],
         warning: {
           copyableValues: ["codex"],
           parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or updating the Profile"],
