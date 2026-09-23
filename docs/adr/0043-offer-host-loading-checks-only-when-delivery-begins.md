@@ -28,7 +28,8 @@ refreshed material the Host already consumes.
    output for a desired Host that had no prior output in that Project — the same
    first-delivery condition that covers a first installation and a Host addition, including a
    retired receipt's re-delivery of a previously removed selection. A content change that
-   merely adds a file for an already-delivering Host is not a first delivery.
+   merely adds a file for an already-delivering Host is not a first delivery. The check names
+   only the Hosts whose delivery began in that invocation, not every configured Host.
 2. **One derivation home.** The relevance condition is derived inside the one function that
    authors the check (`cli/presentation.ts`), reusing the receipt-derived first-delivery
    predicate that gates a standing Host Setup Step's relevance (`isFirstRelevantHostOutput`),
@@ -37,22 +38,36 @@ refreshed material the Host already consumes.
    an already-delivered shared path has not begun a delivery of its own, so shared paths are
    not prior-delivery evidence. No surface may decide the check's visibility independently,
    and no second relevance policy is authored; the standing-step policy itself is unchanged.
-3. **Routine updates keep the short reminder.** An ordinary repeated content update renders no
-   check; the invocation-wide readiness statement ("Profile … will load the next time you
-   launch a configured Host from a bound Project root.") remains its closing guidance.
+3. **Routine updates keep the short instruction.** An ordinary repeated content update renders no
+   check; the invocation-wide next-use instruction ("Start a new Host session from the Project
+   root to use the updated material.") remains its closing guidance and never claims a Host
+   will load (spec #640 US-012).
 4. **Required setup keeps its own policy.** Transition-triggered and standing Host Setup Steps
-   keep their existing relevance rules on the views that render them; this decision changes
+   keep their existing relevance rules on the views that render them; install receipts present
+   them as concise `First use:` body guidance (spec #640 US-012). This decision changes
    only the optional check.
 5. **Machine surfaces are unchanged.** The check stays human-only; JSON payloads, schema
    versions, and exit codes are untouched, and no new typed fact is introduced for the
    condition — the Apply Receipt and resulting state already carry sufficient evidence.
+6. **The check is one short optional sentence.** It names a stable Project action location
+   (US-006) and asks what Profile material the Host loaded. It never states that material
+   appeared in an answer and never claims Agent Profile Kit observed loading (OOS-001).
+   Longer loading explanation lives behind focused guidance (`apkit guide --full`).
 
 ## Consequences
 
 - First installations and Host additions — whether through `install`, an `update` that
-  installs a pending Project, or a re-delivered retired receipt — offer the check beside the
-  receipt; unchanged installs commit no delivery and render none.
+  installs a pending Project, or a re-delivered retired receipt — offer the short check beside the
+  receipt for the Hosts whose delivery began; unchanged installs commit no delivery and render
+  none.
 - Users performing routine content updates are no longer handed recurring optional homework;
-  they keep the short new-session reminder.
-- The check's sentence, its no-observation guarantee (OOS-009), and its never-render rule for
-  no-op, blocked, declined, and failed outcomes are unchanged.
+  they keep the short next-use instruction.
+- The check's one-sentence form, its no-observation guarantee (OOS-001), and its never-render
+  rule for no-op, blocked, declined, and failed outcomes are unchanged.
+
+## Amendments
+
+- **2026-09-22 (spec #640 US-012, ticket #648).** The check is one short optional sentence
+  naming only the Hosts whose delivery began, on a stable Project action path, with no
+  appearance-of-material claim. The routine-update closer is the next-use instruction above,
+  not a forward claim that a Host will load.

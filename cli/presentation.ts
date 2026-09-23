@@ -3079,17 +3079,17 @@ function appliedProfiles(
   )].sort(compareCanonicalStrings);
 }
 
+/**
+ * The invocation-wide next-use instruction (US-012): an action the user takes
+ * to use the updated material. It never claims a Host will load anything
+ * (OOS-001). The optional loading check is separate and rarer (ADR-0043).
+ */
 function readinessLines(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
 ): readonly string[] {
-  const profiles = appliedProfiles(report, receipt);
-
-  if (profiles.length === 0) return [];
-  const subject = profiles.length === 1
-    ? `Profile ${profiles[0]}`
-    : `${plural(profiles.length, "Profile")}`;
-  return [`${subject} will load the next time you launch a configured Host from a bound Project root.`];
+  if (appliedProfiles(report, receipt).length === 0) return [];
+  return ["Start a new Host session from the Project root to use the updated material."];
 }
 
 function nextActionScope(
@@ -3691,107 +3691,96 @@ function readinessNodes(
 }
 
 /**
- * The post-apply Host-loading verification instruction (US-041, DEC-025): one
- * concrete action the user can take inside the updated Project to check that
- * the Agent Host loaded the Profile — start a new session of the configured
- * Host and ask it what Profile material it loaded, looking for the installed
- * material in its answer. The sentence is presentation-authored from facts
- * Agent Profile Kit owns — the applied Profiles, the configured Hosts, and
- * the updated Projects — and never claims that Agent Profile Kit observed the
- * loading or completed Host-owned setup (OOS-009); no Host-specific checking
- * method is authored here, and Host-specific loading knowledge stays
- * Adapter-owned through the rendered Host Setup Steps.
- *
- * Relevance (spec #491 US-017, ADR-0043): the optional check is offered only
- * when the committed receipt evidence proves this invocation began a Host's
- * Profile delivery in an updated Project — its first installation, a Host
- * addition, or a retired receipt's re-delivery. An ordinary repeated content
- * update offers no check; the readiness statement alone is its short
- * new-session reminder. The one relevance derivation reuses the receipt
- * predicate that already proves a Host's first delivered output
- * (`isFirstRelevantHostOutput`), over the Project's exclusively-consumed
- * outputs: shared outputs delivered for several Hosts at once carry no
- * per-Host delivery history, so they are not prior-delivery evidence. The
- * standing-step policy itself is unchanged. It never renders on a no-op,
- * blocked, declined, or failed path, and never on machine JSON (US-060).
+ * Required Host Setup Steps for one install receipt (US-012, DEC-009):
+ * Adapter-authored steps selected by the shared relevance policy and
+ * rendered through the concise First-use rewriter. Only relevant required
+ * steps for the installed Hosts appear; shared-path explanations and complete
+ * provenance stay in focused guidance and verbose/JSON evidence. The CLI
+ * never invents Host-specific step text (ADR-0012).
+ */
+export function installHostSetupNodes(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+  hosts: readonly SupportedHost[],
+  scope: LocationDisplayScope = "fleet",
+): PresentationNode[] {
+  const selected = new Set<string>(hosts);
+  const presented = presentedSetupSteps("install", report, receipt, false, scope)
+    .filter((item) => selected.has(item.step.host));
+  return conciseFirstUseNodes(presented, receipt);
+}
+
+/**
+ * The optional Host-loading check (US-012, ADR-0043): one short sentence
+ * naming only the Hosts whose delivery began in this invocation, with a
+ * stable Project action location (US-006). It is an optional user action and
+ * never claims loading was observed or that material appeared in an answer
+ * (OOS-001). Longer loading explanation lives behind focused guidance
+ * (`apkit guide --full`). It never renders on a no-op, blocked, declined, or
+ * failed path, and never on machine JSON (US-060).
  */
 export function hostLoadingVerificationNodes(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
-  identities?: ProjectIdentityLookup,
 ): PresentationNode[] {
-  const profiles = appliedProfiles(report, receipt);
-  if (profiles.length === 0) return [];
   const changedProjects = new Set(statusAffectedProjects(receipt));
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
-  // One relevance derivation (US-017, ADR-0043): delivery begins exactly when
-  // a committed Project gains output for a Host that had no prior delivery.
-  // The receipt supplies the additions and the resulting state supplies the
-  // consuming evidence, through the same predicate that gates a standing
-  // Host Setup Step's relevance. Shared outputs — delivered for several Hosts
-  // at once — prove nothing about when one Host's delivery began, so the
-  // prior-delivery evidence keeps only outputs one Host consumes alone; a
-  // Host that newly consumes an already-delivered shared path has not begun
-  // a delivery of its own.
-  const beganDelivery = changed.some((record) => {
+  // Delivery begins exactly when a committed Project gains output for a Host
+  // that had no prior delivery (ADR-0043). Name only those Hosts: an
+  // established Host that merely received a content refresh is not offered
+  // the check again. Shared outputs prove nothing about when one Host's
+  // delivery began, so prior-delivery evidence keeps only exclusively
+  // consumed outputs.
+  const newlyDelivering: string[] = [];
+  for (const record of changed) {
     const changeProject = receipt.projects.find((candidate) =>
       candidate.canonicalProject === record.canonicalProject
     );
-    if (changeProject === undefined) return false;
-    // The narrowed prior view keeps only exclusively-consumed outputs: the
-    // predicate reads just `outputs` from its second argument.
+    if (changeProject === undefined) continue;
     const priorDeliveryEvidence = {
       outputs: record.outputs.filter((output) => output.consumingHosts.length === 1),
     };
-    return (record.desired?.hosts ?? []).some((host) =>
-      isFirstRelevantHostOutput(changeProject, priorDeliveryEvidence, host)
-    );
-  });
-  if (!beganDelivery) return [];
-  // Canonical Host order, matching the sorted Profiles line and every other
-  // canonical Host rendering.
-  const hosts = [...new Set(
-    changed.flatMap((record) => record.desired?.hosts ?? []),
-  )].sort(compareCanonicalStrings);
-  if (hosts.length === 0) return [];
-  const subject = profiles.length === 1
-    ? `Profile ${profiles[0]}`
-    : `${plural(profiles.length, "Profile")}`;
-  const hostList = hosts.length === 1 ? hosts[0]
-    : hosts.length === 2 ? `${hosts[0]} and ${hosts[1]}`
-    : `${hosts.slice(0, -1).join(", ")}, and ${hosts.at(-1)}`;
+    for (const host of record.desired?.hosts ?? []) {
+      if (
+        isFirstRelevantHostOutput(changeProject, priorDeliveryEvidence, host) &&
+        !newlyDelivering.includes(host)
+      ) {
+        newlyDelivering.push(host);
+      }
+    }
+  }
+  if (newlyDelivering.length === 0) return [];
+  // Canonical Host order, matching every other canonical Host rendering.
+  const hosts = [...newlyDelivering].sort(compareCanonicalStrings);
+  const hostNames = hosts.map((host) => capitalize(host));
+  const hostList = hostNames.length === 1
+    ? hostNames[0]
+    : hostNames.length === 2
+      ? `${hostNames[0]} and ${hostNames[1]}`
+      : `${hostNames.slice(0, -1).join(", ")}, and ${hostNames.at(-1)}`;
   const session = hosts.length === 1
-    ? `start a new ${hosts[0]} session`
-    : "start a new session of each configured Host";
-  const ask = hosts.length === 1
-    ? `ask ${hosts[0]} what Profile material it loaded`
-    : "ask each Host what Profile material it loaded";
-  const evidence = hosts.length === 1
-    ? "the installed material should appear in its answer"
-    : "the installed material should appear in the answers";
+    ? `start a new ${hostList} session`
+    : `start new ${hostList} sessions`;
   const [firstChanged] = changed;
   if (changed.length === 1 && firstChanged !== undefined) {
-    // The Project identity is one atomic path part (ADR-0016): plain text is
-    // tokenized for wrapping, which would split whitespace-containing paths
-    // and normalize repeated spaces.
+    // The Project identity is one atomic path part (ADR-0016) and an action
+    // location (US-006, #647): stable home-relative or absolute, never a
+    // scanning alias.
     return [{
       kind: "prose",
       parts: [
-        `To check that ${hostList} loaded ${subject}, ${session} in `,
-        {
-          ...pathPart(firstChanged.canonicalProject, "fleet", firstChanged.project),
-          ...(identities === undefined ? {} : { identity: identities(firstChanged) }),
-        },
-        ` and ${ask}; ${evidence}.`,
+        `Optional check: ${session} in `,
+        pathPart(firstChanged.canonicalProject, "fleet", firstChanged.project),
+        " and ask what Profile material it loaded.",
       ],
     }];
   }
   return [{
     kind: "prose",
     parts: [
-      `To check that ${hostList} loaded ${subject}, ${session} in each updated Project and ${ask}; ${evidence}.`,
+      `Optional check: ${session} in each updated Project and ask what Profile material it loaded.`,
     ],
   }];
 }
@@ -3939,7 +3928,7 @@ function conciseApplyDocument(
       // reminder; the optional loading check follows it only when the receipt
       // proves delivery began (US-017, ADR-0043), decided inside the check's
       // one function.
-      nodes.push(...hostLoadingVerificationNodes(report, receipt, grouped.identities));
+      nodes.push(...hostLoadingVerificationNodes(report, receipt));
     }
   }
   return nodes;

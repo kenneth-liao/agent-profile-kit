@@ -263,13 +263,13 @@ describe("fleet-wide synchronization qualification", () => {
     expect(apply.stdout).not.toContain("generated file addition in");
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project Binding");
-    // Invocation-wide readiness appears once, never per Host scope or per Project,
-    // followed by the single invocation-wide Host-loading check (US-041).
-    expect(humanText(apply.stdout).match(/will load the next time you launch/g)).toHaveLength(1);
+    // Invocation-wide next-use instruction appears once (US-012).
+    expect(humanText(apply.stdout).match(/Start a new Host session from the Project root/g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain(
-      humanText("Profile engineering will load the next time you launch a configured Host from a bound Project root."),
+      humanText("Start a new Host session from the Project root to use the updated material."),
     );
-    expect(humanText(apply.stdout).match(/To check that /g)).toHaveLength(1);
+    // First fleet delivery offers one short optional check (ADR-0043).
+    expect(humanText(apply.stdout).match(/Optional check: /g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain("in each updated Project");
 
     const status = await runCli(home, pathWithHosts, "status");
