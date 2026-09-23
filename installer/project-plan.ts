@@ -142,6 +142,16 @@ export interface HostCapabilityWarning {
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
+  /**
+   * Presentation-only affected-Project identities (US-011, #668): the canonical
+   * Projects whose planning produced this Host's failure. The host-scope
+   * deduplication below sets it on the surviving warning, so a warning that
+   * rides on one Project's record still names every Project the Host affects.
+   * Machine JSON never publishes it (`canonicalMachineWarning` keeps `parts`
+   * as the message); human presentation seeds its affected-Project clause
+   * from it and must not union a second source.
+   */
+  readonly affectedProjects?: readonly string[];
   /** Structurally marked problem/remedy when the Adapter supplies atoms. */
   readonly problemParts?: readonly InlineContent[];
   readonly remedyParts?: readonly InlineContent[];
@@ -876,10 +886,19 @@ export async function planDesiredInstallations(
   // the first Project in canonical order. Project-specific surface failures
   // keep their distinct warnings per affected Project.
   const strictestHostWarnings = new Map<SupportedHost, HostCapabilityWarning>();
+  // Every Project that produced a host-scope failure for the Host (US-011,
+  // #668): the surviving warning carries all of them so presentation can name
+  // the full affected scope while the JSON stays at one message per Host.
+  const hostAffectedProjects = new Map<SupportedHost, string[]>();
   for (const installation of sortedInstallations) {
     if (installation.kind === "blocked") continue;
     for (const entry of installation.capabilityWarnings) {
       if (entry.scope === "project") continue;
+      const affected = hostAffectedProjects.get(entry.host) ?? [];
+      if (!affected.includes(installation.binding.canonicalProject)) {
+        affected.push(installation.binding.canonicalProject);
+      }
+      hostAffectedProjects.set(entry.host, affected);
       const kept = strictestHostWarnings.get(entry.host);
       if (
         kept === undefined ||
@@ -894,18 +913,31 @@ export async function planDesiredInstallations(
   const warnedProjectScope = new Set<string>();
   const dedupedInstallations = sortedInstallations.map((installation) => {
     if (installation.kind === "blocked") return installation;
-    const capabilityWarnings = installation.capabilityWarnings.filter((entry) => {
-      if (entry.scope === "project") {
-        const key = `${entry.host}\0${installation.binding.canonicalProject}\0${flatInlineText(entry.warning.parts)}`;
-        if (warnedProjectScope.has(key)) return false;
-        warnedProjectScope.add(key);
-        return true;
+    const capabilityWarnings: HostCapabilityWarning[] = [];
+    let changed = false;
+    for (const entry of installation.capabilityWarnings) {
+      if (entry.scope !== "project") {
+        if (strictestHostWarnings.get(entry.host) !== entry) {
+          changed = true;
+          continue;
+        }
+        const affected = hostAffectedProjects.get(entry.host);
+        const annotated = affected === undefined
+          ? entry
+          : { ...entry, affectedProjects: [...affected] };
+        if (annotated !== entry) changed = true;
+        capabilityWarnings.push(annotated);
+        continue;
       }
-      return strictestHostWarnings.get(entry.host) === entry;
-    });
-    return capabilityWarnings.length === installation.capabilityWarnings.length
-      ? installation
-      : { ...installation, capabilityWarnings };
+      const key = `${entry.host}\0${installation.binding.canonicalProject}\0${flatInlineText(entry.warning.parts)}`;
+      if (warnedProjectScope.has(key)) {
+        changed = true;
+        continue;
+      }
+      warnedProjectScope.add(key);
+      capabilityWarnings.push(entry);
+    }
+    return changed ? { ...installation, capabilityWarnings } : installation;
   });
   return dedupedInstallations;
 }

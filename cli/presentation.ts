@@ -2700,6 +2700,49 @@ function groupWarnings(
   reports: ReconciliationReport | readonly ReconciliationReport[],
 ): readonly WarningPresentationGroup[] {
   const reportList = Array.isArray(reports) ? reports : [reports];
+  // Authored spellings for every Project the reports carry, so a warning's
+  // affectedProjects seed (canonical identities only) can name each Project
+  // through the same view locations the records carry (DEC-006).
+  const recordLocations = new Map<
+    string,
+    { canonicalProject: string; project: string }
+  >();
+  for (const report of reportList) {
+    for (const projectRecord of report.projects) {
+      if (!recordLocations.has(projectRecord.canonicalProject)) {
+        recordLocations.set(projectRecord.canonicalProject, {
+          canonicalProject: projectRecord.canonicalProject,
+          project: projectRecord.project,
+        });
+      }
+    }
+  }
+  /**
+   * The affected set's one home (US-011, #668): a deduped host-attention
+   * warning lists every Project it affects in `affectedProjects`, so the
+   * group's Projects come from the seed alone. The carrying record's own
+   * Project is already one of them; unioning a second source would double
+   * count. Warnings without a seed (diagnostics, single-source host
+   * attention) keep the per-record union path.
+   */
+  const seededProjects = (
+    warning: ReconciliationWarning,
+  ): { canonicalProject: string; project: string }[] | undefined => {
+    if (warning.kind !== "host-attention" || warning.affectedProjects === undefined) {
+      return undefined;
+    }
+    const seeded: { canonicalProject: string; project: string }[] = [];
+    for (const canonicalProject of warning.affectedProjects) {
+      const location = recordLocations.get(canonicalProject) ?? {
+        canonicalProject,
+        project: canonicalProject,
+      };
+      if (!seeded.some((entry) => entry.canonicalProject === canonicalProject)) {
+        seeded.push(location);
+      }
+    }
+    return seeded;
+  };
   const groups = new Map<string, {
     consequence?: string;
     copyableValues: readonly string[];
@@ -2722,6 +2765,7 @@ function groupWarnings(
           continue;
         }
         const key = warningGroupKey(warning);
+        const seeded = seededProjects(warning);
         const existing = groups.get(key);
         if (!existing) {
           groups.set(key, {
@@ -2732,11 +2776,15 @@ function groupWarnings(
             ...(warning.problem === undefined ? {} : { problem: warning.problem }),
             ...(warning.remedy === undefined ? {} : { remedy: warning.remedy }),
             ...(warning.requirement === undefined ? {} : { requirement: warning.requirement }),
-            projects: [{
+            projects: seeded ?? [{
               canonicalProject: projectRecord.canonicalProject,
               project: projectRecord.project,
             }],
           });
+        } else if (seeded !== undefined) {
+          // The seed is authoritative: never union the carrying record on top
+          // of it, or the set could gain duplicates.
+          existing.projects = seeded;
         } else {
           if (!existing.projects.some((p) => p.canonicalProject === projectRecord.canonicalProject)) {
             existing.projects.push({
