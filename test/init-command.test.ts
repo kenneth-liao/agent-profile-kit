@@ -209,7 +209,11 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     expect(human).not.toContain("apkit validate");
   }, 20_000);
 
-  test("one Profile routes to bare install without naming a Profile", async () => {
+  test("already-initialized is a clean no-op: one neutral statement and no handoff", async () => {
+    // US-002's handoff is owed after a setup or connection that did
+    // something. An init that finds everything already in place is a clean
+    // no-op (#642): one neutral statement, no invented next action, and no
+    // details hint — even when the Workspace has Profiles.
     const home = isolatedHome();
     await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
     writeMaterial(home, "team-rules");
@@ -225,8 +229,14 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     expect(exitCode).toBe(0);
     const human = plain(streams.humanText());
     expect(human).toContain("already initialized");
-    expect(human).not.toContain("apkit validate");
+    expect(human).toContain("unchanged");
+    // No handoff of any kind (spec #640 US-002 after a change only; #642).
+    expect(human).not.toContain("Next:");
+    expect(human).not.toContain("apkit install");
     expect(human).not.toContain("apkit new profile");
+    expect(human).not.toContain("apkit new context");
+    expect(human).not.toContain("apkit validate");
+    expect(human).not.toContain("Details:");
   }, 20_000);
 
   test("connecting a Workspace with zero Profiles and existing Context routes to Profile creation", async () => {

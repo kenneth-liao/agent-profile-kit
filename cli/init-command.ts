@@ -136,9 +136,6 @@ async function initializeAndReport(
     initReceiptDocument({
       ...result,
       ...(detectedHosts !== undefined ? { detectedHosts } : {}),
-      ...(result.outcome === "unchanged"
-        ? {}
-        : { configurationPath: localConfigurationPath(request.home) }),
     }),
     stdoutContext,
     renderOptions,

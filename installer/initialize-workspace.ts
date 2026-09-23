@@ -60,6 +60,13 @@ export interface InitializationResult {
   readonly profileCount: number;
   /** Whether the resulting Workspace has any Context Module (spec #640 US-002). */
   readonly hasContexts: boolean;
+  /**
+   * True when this run wrote Local Configuration (created, replaced, or
+   * migrated it). Set at each commit site — never derived from `outcome`.
+   */
+  readonly configurationWritten: boolean;
+  /** Absolute Local Configuration path this commit read or wrote. */
+  readonly configurationPath: string;
 }
 
 export interface InitializeWorkspaceOptions {
@@ -454,6 +461,8 @@ async function initializeConfiguredWorkspace(
     addedParts: [],
     profileCount: workspace.profiles.size,
     hasContexts: workspace.contexts.size > 0,
+    configurationWritten: false,
+    configurationPath: configPath,
   };
 }
 
@@ -518,6 +527,8 @@ async function connectWorkspace(
           addedParts: [],
           profileCount: plan.profiles.length,
           hasContexts: plan.contexts.length > 0,
+          configurationWritten: false,
+          configurationPath: configPath,
         };
       }
 
@@ -548,6 +559,8 @@ async function connectWorkspace(
         addedParts: structuralAddedParts(added),
         profileCount: plan.profiles.length,
         hasContexts: plan.contexts.length > 0,
+        configurationWritten: true,
+        configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },
@@ -563,6 +576,7 @@ async function connectFromPlan(
   },
 ): Promise<InitializationResult> {
   const applicationRoot = applicationDirectory(home);
+  const configurationPath = join(applicationRoot, LOCAL_CONFIGURATION_FILE);
   const { folderCreated, added } = await commitSetupPlan(plan, options.fileSystem);
 
   let configurationCreated = false;
@@ -591,6 +605,8 @@ async function connectFromPlan(
     addedParts: structuralAddedParts(added),
     profileCount: plan.profiles.length,
     hasContexts: plan.contexts.length > 0,
+    configurationWritten: configurationCreated,
+    configurationPath,
   };
 }
 
@@ -679,6 +695,8 @@ async function migrateLegacyConfiguration(
         addedParts: workspaceResult.addedParts,
         profileCount: isConnecting ? plan!.profiles.length : workspaceResult.profileCount,
         hasContexts: isConnecting ? plan!.contexts.length > 0 : workspaceResult.hasContexts,
+        configurationWritten: true,
+        configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },

@@ -308,7 +308,9 @@ glossary dump, a Skill definition, or a persistent seen-terms record
 (spec #640 US-001, DEC-003). Detection is advisory: it names the supported
 Agent Hosts found on the machine (US-037) and never blocks.
 
-Setup and connection route the handoff from the resulting content and never
+An init that finds everything already in place is a clean no-op: it prints one
+neutral statement and no handoff (#642). Setup and connection that actually
+write route the handoff from the resulting content and never
 create or guide a first Profile (spec #640 US-002, OOS-002). With zero Profiles
 and no Context, the next action is `apkit new context <context>` then
 `apkit new profile <name> --context <context>`; with zero Profiles and existing

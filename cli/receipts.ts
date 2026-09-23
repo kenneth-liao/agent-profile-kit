@@ -182,10 +182,13 @@ export interface InitReceiptInput {
   /** The parts setup actually added (SETUP_PART_LABELS keys), never planned-but-absent. */
   readonly addedParts?: readonly string[];
   /**
-   * Absolute Local Configuration path, named when this outcome wrote it
-   * (DEC-005). Absent means Local Configuration was not written.
+   * True when this run wrote Local Configuration (created, replaced, or
+   * migrated it). Set at each installer commit site — never derived from
+   * `outcome`.
    */
-  readonly configurationPath?: string;
+  readonly configurationWritten: boolean;
+  /** Absolute Local Configuration path this commit read or wrote. */
+  readonly configurationPath: string;
   /** Profiles present in the resulting Workspace; routes the handoff (US-002). */
   readonly profileCount: number;
   /** Whether the resulting Workspace has any Context Module (US-002). */
@@ -428,7 +431,7 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace at ", workspace]
       : ["Initialized Agent Profile Kit Workspace at ", workspace], "success"));
   }
-  if (input.configurationPath !== undefined) {
+  if (input.configurationWritten) {
     nodes.push(settingsPathNode(input.configurationPath));
   }
   const added = addedPartsNode(input.addedParts ?? []);

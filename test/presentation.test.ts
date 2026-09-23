@@ -8847,6 +8847,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
+      configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
@@ -8916,6 +8917,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["profiles"],
       profileCount: 0,
@@ -8943,6 +8945,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
         outcome: "connected",
         path: join(home, "apkit-workspace"),
         authoredPath: "~/apkit-workspace",
+        configurationWritten: true,
         configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
         addedParts: ["workspace.yaml"],
         profileCount,
@@ -8979,6 +8982,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
       addedParts: ["context", "profiles"],
       profileCount: 0,
       hasContexts: true,
+      configurationWritten: false,
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
     expect(shapes(document)).toEqual([
       "sentence(success)",
@@ -8999,6 +9004,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: [],
       profileCount: 1,
@@ -9026,6 +9032,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
       addedParts: [],
       profileCount: 1,
       hasContexts: true,
+      configurationWritten: false,
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
     expect(shapes(unwritten)).toEqual([
       "sentence(success)",
@@ -9041,6 +9049,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       authoredPath: "~/apkit-workspace",
       folderCreated: true,
       detectedHosts: [],
+      configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
@@ -9063,8 +9072,12 @@ describe("authoring and teardown receipt documents (#390)", () => {
       addedParts: [],
       profileCount: 1,
       hasContexts: true,
+      configurationWritten: true,
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
-    expect(document[3]).toMatchObject({
+    const detected = document.find((node) =>
+      node.kind === "sentence" && node.parts[0] === "Detected Agent Hosts: ");
+    expect(detected).toMatchObject({
       kind: "sentence",
       parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "antigravity, claude, codex" }],
     });
@@ -9083,6 +9096,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "migrated",
       path: "/test/workspace",
       authoredPath: "/test/workspace",
+      configurationWritten: true,
       configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
       addedParts: ["skills"],
       profileCount: 0,
@@ -9103,6 +9117,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
       authoredPath: `/test/workspace`,
       profileCount: 2,
       hasContexts: true,
+      configurationWritten: false,
+      configurationPath: `/home/test/.agents/agent-profile-kit/config.yaml`,
     });
     expect(shapes(unchanged)).toEqual(["sentence(neutral)"]);
     expect(documentText(unchanged)).not.toContain("Next:");
@@ -11336,6 +11352,7 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
       authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
+      configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
