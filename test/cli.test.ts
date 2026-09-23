@@ -714,7 +714,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const install = await runCli(home, "install", "example", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(install, 0);
-    expect(install.stdout).toContain("Installed example for");
+    expect(install.stdout).toContain("Installed for");
 
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -6303,7 +6303,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
     const rebound = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(rebound, 0);
-    expect(rebound.stdout).toContain("Installed coding for");
+    expect(rebound.stdout).toContain("Installed for");
 
     const status = await runCli(home, "status");
 
@@ -9239,8 +9239,8 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Installed coding for sample\n");
-    expect(result.stdout).not.toContain("Installed coding for .");
+    expect(result.stdout).toContain("Installed for ~/projects/sample\n");
+    expect(result.stdout).not.toContain("Installed for .");
     expect(result.stdout).not.toContain(realpathSync(projectPath));
     expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Hosts: codex");
@@ -9274,8 +9274,8 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(bindCreated, 0);
-    expect(humanText(bindCreated.stdout)).toContain("Installed coding for my-app");
-    expect(bindCreated.stdout).not.toContain("Installed coding for .");
+    expect(humanText(bindCreated.stdout)).toContain("Installed for ~/projects/my-app");
+    expect(bindCreated.stdout).not.toContain("Installed for .");
     expect(bindCreated.stdout).not.toContain(realpathSync(projectPath));
 
     // Stored project in config.yaml preserves canonical path
@@ -9293,7 +9293,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(unchangedRoot, 0);
-    expect(humanText(unchangedRoot.stdout)).toContain("Installation unchanged for my-app");
+    expect(humanText(unchangedRoot.stdout)).toContain("Installation unchanged for ~/projects/my-app");
     expect(unchangedRoot.stdout).not.toContain("Installation unchanged for .");
 
     // 3. Unchanged from inside subdirectory with explicit path:
@@ -9308,7 +9308,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(unchangedSub, 0);
-    expect(humanText(unchangedSub.stdout)).toContain("Installation unchanged for my-app");
+    expect(humanText(unchangedSub.stdout)).toContain("Installation unchanged for ~/projects/my-app");
     expect(unchangedSub.stdout).not.toContain("Installation unchanged for .");
     expect(unchangedSub.stdout).not.toContain("Installation unchanged for ..");
 
@@ -9325,8 +9325,8 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(replaced, 0);
-    expect(humanText(replaced.stdout)).toContain("Replaced installation ops for my-app");
-    expect(replaced.stdout).not.toContain("Replaced installation ops for .");
+    expect(humanText(replaced.stdout)).toContain("Replaced installation for ~/projects/my-app");
+    expect(replaced.stdout).not.toContain("Replaced installation for .");
     expect(humanText(replaced.stdout)).toContain("Profile: coding → ops");
     expect(humanText(replaced.stdout)).toContain("Hosts: codex → claude, codex");
   });
@@ -9439,7 +9439,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     );
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain("Replaced installation ops");
+    expect(humanText(result.stdout)).toContain("Replaced installation for ");
     expect(humanText(result.stdout)).toContain("Profile: coding → ops");
     const source = readFileSync(configPath(home), "utf8");
     expect(source).toContain("profile: ops");
@@ -9470,7 +9470,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     );
 
     expectExitCode(result, 0);
-    expect(humanText(result.stdout)).toContain(`Replaced installation ops for ${basename(projectPath)}`);
+    expect(humanText(result.stdout)).toContain(`Replaced installation for ${projectPath}`);
     expect(humanText(result.stdout)).toContain("Profile: coding → ops");
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
     expect(result.stdout).toContain("Next: apkit status");
@@ -9480,7 +9480,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(source).toMatch(/hosts:\n\s+- claude\n\s+- codex/);
   });
 
-  test("install changing only Hosts omits the Profile delta line", async () => {
+  test("install changing only Hosts still states the Profile once without a delta arrow", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9501,10 +9501,12 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
 
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toContain(
-      `Replaced installation coding for ${basename(projectPath)}`,
+      `Replaced installation for ${projectPath}`,
     );
     expect(humanText(result.stdout)).toContain("Hosts: codex → claude, codex");
-    expect(humanText(result.stdout)).not.toContain("Profile:");
+    // Profile stays stated once (US-006) with no arrow when it did not change.
+    expect(humanText(result.stdout)).toContain("Profile: coding");
+    expect(humanText(result.stdout)).not.toContain("Profile: coding →");
   });
 
   test("identical install remains unchanged", async () => {
@@ -10046,7 +10048,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
 
     const result = await runCli(home, "install", "coding", projectPath, "--host", "codex", "--auto-confirm");
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Installed coding for");
+    expect(result.stdout).toContain("Installed for");
     expect(existsSync(lockPath)).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
   });

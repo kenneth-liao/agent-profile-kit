@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Named the real Project location in the install target, confirmation and receipt: those action locations show the home-relative or absolute Project path (not a basename alone), the confirmation states the Profile once and the Hosts as `Install into <path>` / `Install into this Project? (y/N)` with delta arrows only when an existing installation changes, the receipt states the Profile once beside the Hosts with no file list, and the multi-Project uninstall confirmation review uses the same stable paths while inventory aliases stay shortest-unambiguous (#647)
 - Routed the setup and connection handoff from the resulting content: the receipt names the Workspace and Local Configuration when written, lists only the Workspace parts actually added, leads to Profile creation when no Profiles exist (a Context first only when the Workspace has none) or to bare `apkit install` when they do, never recommends `apkit validate` after its own successful validation, and no longer creates or guides a first Profile (#646)
 
 - Explained Workspace and kit concepts where they first matter for newcomers: bare `apkit` leads with one recommended setup route after a Workspace/Project explanation, `init` explains Workspace at the folder choice and Profile/Context on the receipt, and `install` explains Project/Profile before the first picker and Agent Host at the Host picker, without a Skill definition or a seen-terms record (#645)

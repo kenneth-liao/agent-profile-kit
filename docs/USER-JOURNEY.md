@@ -443,7 +443,7 @@ side effect.
 
 ```
 $ apkit install example <project> --host codex --auto-confirm
-Installed example for <project>
+Installed for <project>
   Profile: example
   Hosts: codex
 To check that codex loaded Profile example, start a new codex session in
@@ -456,7 +456,7 @@ Details: apkit details
 
 ```
 $ apkit install ops <project> --host codex --host claude --auto-confirm
-Replaced installation ops for <project>
+Replaced installation for <project>
   Profile: example → ops
   Hosts: codex → claude, codex
 To check that claude and codex loaded Profile ops, start a new session of
@@ -472,19 +472,31 @@ check beside the receipt (US-017, ADR-0043); re-running the same selection
 commits nothing and renders no check.
 
 An interactive `install` shows the proposed scope and asks for confirmation
-before any write; `--auto-confirm` answers that confirmation. On an
-interactive terminal a bare `install` names the current-directory Project
-target first — explaining Project and Profile before the first picker, and
-Agent Host at the Host picker, within the two-concept first-use budget
-(spec #640 US-001, DEC-003) — and collects only its missing Profile/Hosts
+before any write; `--auto-confirm` answers that confirmation. The default-No
+confirmation names the Project by its home-relative or absolute path, the
+Profile once and the Hosts, with delta arrows only when an existing
+installation changes (US-006, DEC-006; ADR-0042 as amended), and the question
+is `Install into this Project? (y/N)`:
+
+```
+Install into <project>
+  Profile: example
+  Hosts: codex
+? Install into this Project? (y/N)
+```
+
+On an interactive terminal a bare `install` names the current-directory Project
+target first by that same stable path — explaining Project and Profile before
+the first picker, and Agent Host at the Host picker, within the two-concept
+first-use budget (spec #640 US-001, DEC-003) — and collects only its missing Profile/Hosts
 through searchable pickers — a new installation lists detected Hosts first,
 preselects and marks them `detected`, marks undetected Hosts `not found` with
 one note that selecting a Host does not install it, and selects none when
 nothing is detected, while an existing installation starts from its remembered
 selection without adding newly detected Hosts (spec #640 US-005, superseding
 spec #491 US-001's no-preselect rule; ADR-0034) — and a completed guided
-install prints the executable fully specified equivalent. The default-No confirmation shows
-the final Host selection before any write. Replacing or
+install prints the executable fully specified equivalent. The confirmation
+shows the final Host selection before any write. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
 restored where possible and the retry is printed.

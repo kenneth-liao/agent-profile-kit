@@ -378,7 +378,7 @@ describe("lifecycle operation recording", () => {
 
     const input = fakeInteractiveInput();
     const install = invokeInstall(home, ["coding", projectPath, "--host", "codex"], input, true);
-    await waitForOutput(install.streams.humanText, "Install as listed?");
+    await waitForOutput(install.streams.humanText, "Install into this Project?");
     input.write("y\n");
     await waitForOutput(install.streams.humanText, "Replace or delete these generated files");
     input.write("n\n");
@@ -806,7 +806,7 @@ describe("lifecycle operation recording", () => {
 
     const output = humanText(install.streams.humanText());
     const error = humanText(install.streams.errorText());
-    expect(output).toContain("Installed coding");
+    expect(output).toContain("Installed for");
     // The run still prints its route (ADR-0040), and the save-failure guard
     // states that this run is not in the store the route reads (INT-1).
     expect(output).toContain("Details: apkit details");

@@ -1706,10 +1706,11 @@ export function formatWorkspaceValidationErrorJson(message: string): string {
 /** The interactive general-confirmation question for uninstall (DEC-004). */
 export const UNINSTALL_CONFIRMATION_QUESTION = "Uninstall as listed? (y/N)";
 
-/** The interactive general-confirmation review (DEC-004, US-003): the exact
- * selected scope — Projects with their Profile and Hosts — before any
- * write. Forgetting is stated plainly: a later update will not reinstall.
- * A Profile-only scope names its fleet-wide reach explicitly (PROD-4). */
+/** The interactive general-confirmation review (DEC-004, US-003, US-006):
+ * the exact selected scope — each Project on its stable home-relative or
+ * absolute path with its Profile and Hosts — before any write. Forgetting is
+ * stated plainly: a later update will not reinstall. A Profile-only scope
+ * names its fleet-wide reach explicitly (PROD-4). */
 export function uninstallConfirmationDocument(preview: {
   readonly projects: readonly {
     readonly canonicalProject?: string;
@@ -1719,14 +1720,6 @@ export function uninstallConfirmationDocument(preview: {
     readonly removeHosts?: readonly string[];
   }[];
 }, options: { readonly fleetProfile?: string } = {}): PresentationDocument {
-  const identities = projectIdentityLookup(
-    preview.projects.map((entry) => ({
-      canonicalProject: entry.canonicalProject ?? entry.project,
-      project: entry.project,
-    })),
-  );
-  const present = (entry: { readonly canonicalProject?: string; readonly project: string }): string =>
-    identities({ canonicalProject: entry.canonicalProject ?? entry.project, project: entry.project });
   return [
     { kind: "heading", text: "Uninstall:" },
     ...(options.fleetProfile === undefined ? [] : [{
@@ -1736,9 +1729,11 @@ export function uninstallConfirmationDocument(preview: {
     ...preview.projects.map((entry): PresentationNode => ({
       kind: "prose",
       parts: [
+        "  ",
+        pathPart(entry.canonicalProject ?? entry.project, "fleet", entry.project),
         entry.removeHosts === undefined
-          ? `  ${present(entry)} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
-          : `  ${present(entry)} (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
+          ? ` (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
+          : ` (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
       ],
     })),
     {
@@ -4461,7 +4456,7 @@ export function applyConsentRequiredDocument(
   });
 }
 
-export const INSTALL_CONFIRMATION_QUESTION = "Install as listed? (y/N)";
+export const INSTALL_CONFIRMATION_QUESTION = "Install into this Project? (y/N)";
 
 /**
  * The guided-install Profile selection note (US-001, DEC-003): the Profile
@@ -4487,28 +4482,29 @@ export function installHostSelectionNoteDocument(): PresentationDocument {
     parts: [AGENT_HOST_EXPLANATION_SENTENCE, " Selecting a Host does not install it."],
   }];
 }
-/** The guided-install target notice (US-001, DEC-002): names the Project
- * target before missing choices are collected, so a bare interactive
- * install shows which directory it will act on — and states the existing
- * selection when one is recorded, so replacing it starts informed. The
- * full proposed scope follows later in the general-confirmation review. */
+/** The guided-install target notice (US-001, DEC-002, US-006): names the
+ * Project target by its stable home-relative or absolute path before missing
+ * choices are collected, so a bare interactive install shows which directory
+ * it will act on — and states the existing selection when one is recorded, so
+ * replacing it starts informed. The full proposed scope follows later in the
+ * general-confirmation review. */
 export function installTargetDocument(target: {
   readonly canonicalProject: string;
   readonly authoredProject: string;
   readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
 }): PresentationDocument {
-  const scope = "project" as const;
   return [
     {
       kind: "prose",
       parts: [PROJECT_EXPLANATION_SENTENCE],
     },
     {
-      kind: "prose",
-      parts: [`Installing into ${singleProjectIdentity({
-        canonicalProject: target.canonicalProject,
-        project: target.authoredProject,
-      })}.`],
+      kind: "sentence",
+      parts: [
+        "Installing into ",
+        pathPart(target.canonicalProject, "fleet", target.authoredProject),
+        ".",
+      ],
     },
     ...(target.previous === undefined ? [] : [{
       kind: "prose",
@@ -4517,8 +4513,10 @@ export function installTargetDocument(target: {
   ];
 }
 
-/** The interactive general-confirmation review (DEC-004): the proposed
- * scope — Project, previous-to-new Profile and Hosts — before any write. */
+/** The interactive general-confirmation review (DEC-004, US-006): the
+ * proposed scope — the Project's stable path, previous-to-new Profile and
+ * Hosts — before any write. Delta arrows appear only when an existing
+ * installation changes. No internal selection or verification wording. */
 export function installConfirmationDocument(preview: {
   readonly canonicalProject: string;
   readonly authoredProject: string;
@@ -4526,24 +4524,25 @@ export function installConfirmationDocument(preview: {
   readonly hosts: readonly string[];
   readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
 }): PresentationDocument {
-  const scope = "project" as const;
-  const lines = [
-    `  Project: ${singleProjectIdentity({
-      canonicalProject: preview.canonicalProject,
-      project: preview.authoredProject,
-    })}`,
+  const profileLine =
     preview.previous !== undefined && preview.previous.profile !== preview.profile
       ? `  Profile: ${preview.previous.profile} → ${preview.profile}`
-      : `  Profile: ${preview.profile}`,
+      : `  Profile: ${preview.profile}`;
+  const hostsLine =
     preview.previous !== undefined &&
-      preview.previous.hosts.join(", ") !== preview.hosts.join(", ")
+    preview.previous.hosts.join(", ") !== preview.hosts.join(", ")
       ? `  Hosts: ${preview.previous.hosts.join(", ")} → ${preview.hosts.join(", ")}`
-      : `  Hosts: ${preview.hosts.join(", ")}`,
-  ];
+      : `  Hosts: ${preview.hosts.join(", ")}`;
   return [
-    { kind: "heading", text: "Install:" },
-    ...lines.map((line): PresentationNode => ({ kind: "prose", parts: [line] })),
-    { kind: "prose", parts: ["Records the selection and installs the verified Project files."] },
+    {
+      kind: "sentence",
+      parts: [
+        "Install into ",
+        pathPart(preview.canonicalProject, "fleet", preview.authoredProject),
+      ],
+    },
+    { kind: "prose", parts: [profileLine] },
+    { kind: "prose", parts: [hostsLine] },
   ];
 }
 

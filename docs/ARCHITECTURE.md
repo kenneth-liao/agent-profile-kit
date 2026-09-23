@@ -156,7 +156,11 @@ strictly-inside-the-working-directory spelling — a Project root is never named
 as `.`, `..`, or `../…`, and an invalid relative path is labeled as a relative
 path instead (ADR-0042). Authored Project identity must survive aggregation so
 presentation never substitutes a canonical path where the authored identity is
-available. Scanning views (concise `status`, default receipts and their
+available. Action locations — the install target notice, the install
+general-confirmation review, the install receipt, and the multi-Project
+uninstall general-confirmation review — render the stable home-relative or
+absolute Project path through `displayPath`/`pathPart` (US-006, DEC-006;
+ADR-0042 as amended). Scanning views (concise `status`, other default receipts and their
 failure/exception views, `list projects`, and `machine list temporary`) render
 each Project by the shortest-unambiguous identity among the Projects that view names — computed
 once per document through `projectIdentityLookup` and carried as an `identity`
