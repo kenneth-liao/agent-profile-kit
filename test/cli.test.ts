@@ -2586,7 +2586,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("✔ Ready to update\n- not installed yet (1):");
+    expect(status.stdout).toStartWith("⚠ Ready to update\n");
     expect(status.stdout).not.toContain("Launch Codex from the exact bound project root:");
     expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Standing Host setup:");
@@ -2609,7 +2609,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("✔ Ready to update\n- not installed yet (1):")).toBe(true);
+    expect(result.stdout.startsWith("⚠ Ready to update\n")).toBe(true);
     expect(result.stdout).not.toContain("Projects: 1");
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
@@ -2630,7 +2630,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(result.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (1 Project)");
+    expect(result.stdout).toContain("Workspace:");
     expect(result.stdout.match(/All Projects are up to date/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Changes:");
     expect(result.stdout).not.toContain("No Projects need attention.");
@@ -2647,7 +2648,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(result, 0);
     expect(humanText(result.stdout)).toBe(
       humanText(
-        "✔ No Projects are configured.\n" +
+        "● No Projects are configured.\n" +
+        "Workspace: ~/apkit-workspace\n" +
         "Next: Run apkit list projects to inspect configured Projects, or apkit install <profile> --host <host> to install one.\n",
       ),
     );
@@ -2673,7 +2675,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 0);
-    expect(result.stdout).toStartWith("✔ Ready to update\n- source changed (1):");
+    expect(result.stdout).toStartWith("⚠ Ready to update\n");
     expect(result.stdout).not.toContain(".agent-profile-kit/codex/context.md");
     expect(result.stdout).not.toContain(`Project: ${realpathSync(worktree)}`);
     expect(result.stdout).not.toContain("Selected setup:");
@@ -2698,7 +2700,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const missing = await runCli(home, "status");
     expectExitCode(missing, 0);
     expect(missing.stdout).toContain("Ready to update");
-    expect(missing.stdout).toContain("- not installed yet (1):");
+    expect(missing.stdout).toContain("not installed yet");
     expect(missing.stdout).not.toContain("SessionStart hooks are not enabled");
 
     const secretLikeValue = "sk-test-should-not-leak";
@@ -2898,10 +2900,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("✔ Ready to update\n- source changed (12): ");
+    expect(status.stdout).toStartWith("⚠ Ready to update\n");
     expect(status.stdout).not.toContain("Skill review-pr");
     expect(status.stdout).not.toContain("Workspace changes:");
-    expect(status.stdout.match(/Project: /g)).toBeNull();
+    expect(status.stdout).toContain("Primary Cause");
+    expect(status.stdout).toContain("source changed");
     expect(status.stdout).toContain("Next: apkit update");
     expect(status.stdout.match(/Next: apkit update/g)).toHaveLength(1);
     expect(status.stdout).toContain("Details: apkit status --verbose");
@@ -2942,8 +2945,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const nextStatus = await runCli(home, "status");
     expectExitCode(nextStatus, 0);
-    expect(nextStatus.stdout).toContain("- source changed (12):");
-    expect(nextStatus.stdout).not.toContain("Project: ");
+    expect(nextStatus.stdout).toContain("source changed");
+    expect(nextStatus.stdout).toContain("Primary Cause");
   });
 
   test("blocked update renders one update report without duplicate stderr blockers", async () => {
@@ -3336,7 +3339,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     bind(home, projectPath);
     const plan = await runCli(home, "status");
     expectExitCode(plan, 0);
-    expect(plan.stdout).toStartWith("✔ Ready to update\n- not installed yet (1):");
+    expect(plan.stdout).toStartWith("⚠ Ready to update\n");
     expect(plan.stdout).not.toContain("Host setup:");
     expect(plan.stdout).not.toContain("Standing Host setup:");
     expect(plan.stdout).not.toContain(
@@ -3410,7 +3413,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(readFileSync(join(projectPath, "AGENTS.md"), "utf8")).toBe("repository-owned\n");
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toStartWith("✔ All Projects are up to date (1 Project)\n");
+    expect(status.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (1 Project)");
+    expect(status.stdout).toContain("Workspace:");
+    expect(status.stdout).toContain("up to date");
     expect(status.stdout).not.toContain("Host setup:");
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Trust the bound project in Codex.");
@@ -3779,9 +3784,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(result.stdout).toContain("- needs attention (1):");
+    expect(result.stdout).toContain("needs attention");
     expect(humanText(result.stdout)).toContain(humanText(authoredProject));
-    expect((result.stdout.match(new RegExp(authoredProject, "g")) || []).length).toBe(1);
+    expect((result.stdout.match(new RegExp(authoredProject, "g")) || []).length).toBe(2);
     expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout).toContain("is tracked by Git, so Agent Profile Kit cannot");
     expect(result.stdout).toContain("Requirement:");
@@ -4564,7 +4569,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     await retireBindingByHand(home, repository);
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("- needs attention (1):");
+    expect(status.stdout).toContain("needs attention");
     expect(status.stdout).toContain(basename(repository));
     const verbose = await runCli(home, "status", "--verbose");
     expect(verbose.stdout).toContain(".agent-profile-kit/codex/context.md");
@@ -4623,8 +4628,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("- needs attention (1):");
-    expect(status.stdout).toContain("- settled (1)");
+    expect(status.stdout).toContain("needs attention");
+    expect(status.stdout).toContain("up to date");
     expect(status.stdout).not.toContain("intentional-deletion retirement requires");
     const verbose = await runCli(home, "status", "--verbose");
     expect(verbose.stdout).toContain("Git exclusions:");
@@ -4796,8 +4801,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCli(home, "status");
 
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("- needs attention (1):");
-    expect(status.stdout).toContain("- settled (1)");
+    expect(status.stdout).toContain("needs attention");
+    expect(status.stdout).toContain("up to date");
     expect(status.stdout).not.toContain("intentional-deletion retirement requires");
     const verbose = await runCli(home, "status", "--verbose");
     expect(verbose.stdout).toContain("Git exclusions:");
@@ -5593,7 +5598,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(repaired.stdout)).toContain(`~ .codex/hooks.json (${basename(projectPath)})`);
     expect(readFileSync(drifted, "utf8")).not.toBe("user edit\n");
     expectExitCode(current, 0);
-    expect(current.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(current.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (1 Project)");
+    expect(current.stdout).toContain("Workspace:");
     expect(current.stdout).not.toContain("Next:");
   });
 
@@ -5832,7 +5838,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(status.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (1 Project)");
+    expect(status.stdout).toContain("Workspace:");
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5868,7 +5875,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
 
     expectExitCode(status, 0);
-    expect(status.stdout.startsWith("✔ All Projects are up to date (1 Project)\n")).toBe(true);
+    expect(status.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (1 Project)");
+    expect(status.stdout).toContain("Workspace:");
     expectExitCode(apply, 0);
 
     const after = JSON.parse(readFileSync(statePath(home), "utf8")) as {
@@ -5928,8 +5936,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "status");
 
     expectExitCode(result, 2);
-    expect(result.stdout.startsWith("✖ Cannot update\n")).toBe(true);
-    expect(result.stdout).toContain("- needs attention (1):");
+    expect(result.stdout.startsWith("⚠ Cannot update\n")).toBe(true);
+    expect(result.stdout).toContain("needs attention");
     expect(humanText(result.stdout)).toContain(projectPath.split("/").at(-1)!);
     expect(result.stdout).not.toContain("Scope: Project");
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
@@ -5953,10 +5961,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 2);
     expect(result.stdout).toContain("Projects: 1");
-    expect(result.stdout).toContain("- needs attention (1):");
+    expect(result.stdout).toContain("needs attention");
     expect(result.stdout).toContain("~/home-relative-blocked-project");
     expect(result.stdout).not.toContain("Scope: Project");
-    expect((result.stdout.match(/~\/home-relative-blocked-project/g) || []).length).toBe(1);
+    expect((result.stdout.match(/~\/home-relative-blocked-project/g) || []).length).toBe(2);
     expect(result.stdout.match(/Blocker:/g)).toHaveLength(1);
   });
 
@@ -5975,14 +5983,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const drift = await runCli(home, "status");
     expectExitCode(drift, 0);
     expect(drift.stdout).not.toContain("State: stale source");
-    expect(drift.stdout).toContain("- source changed (1):");
+    expect(drift.stdout).toContain("source changed");
     expect(drift.stdout).toContain("Details: apkit status --verbose");
 
     writeFileSync(configPath(home), `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`);
     const removal = await runCli(home, "status");
     expectExitCode(removal, 0);
     expect(removal.stdout).not.toContain("State: removal");
-    expect(removal.stdout).toContain("- needs attention (1):");
+    expect(removal.stdout).toContain("needs attention");
     expect(removal.stdout).toContain("Update will remove generated files for unbound projects.");
   });
 
@@ -6550,7 +6558,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const concise = await runCli(home, "status");
     expectExitCode(concise, 0);
-    expect(concise.stdout).toContain("- generated files missing (1):");
+    expect(concise.stdout).toContain("generated files missing");
 
     for (const command of ["status"] as const) {
       const result = await runCli(home, command, "--verbose");
@@ -7916,14 +7924,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(moduleRule);
     const repair = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repair, 0);
-    expect(repair.stdout).toContain("- generated files missing (1):");
+    expect(repair.stdout).toContain("generated files missing");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "update"), 0);
     expect(existsSync(moduleRule)).toBe(true);
 
     writeFileSync(envelope, "drifted\n");
     const drift = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(drift, 0);
-    expect(drift.stdout).toContain("- generated files changed (1):");
+    expect(drift.stdout).toContain("generated files changed");
     const verboseDrift = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expect(verboseDrift.stdout).toContain("generated files changed");
     writeFileSync(envelope, envelopeContent);
@@ -8091,7 +8099,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     rmSync(join(antigravityProject, ".agents", "skills", "top-skill"), { recursive: true, force: true });
     const repairStatus = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(repairStatus, 0);
-    expect(repairStatus.stdout).toContain("- generated files missing (1):");
+    expect(repairStatus.stdout).toContain("generated files missing");
     expectExitCode(await runCliWithPath(home, pathWithHosts, "update"), 0);
     expect(existsSync(join(antigravityProject, ".agents", "skills", "top-skill", "SKILL.md"))).toBe(true);
 
@@ -8100,7 +8108,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     writeFileSync(disabledSkillPath, "drifted\n");
     const drift = await runCliWithPath(home, pathWithHosts, "status");
     expectExitCode(drift, 0);
-    expect(drift.stdout).toContain("- generated files changed (1):");
+    expect(drift.stdout).toContain("generated files changed");
     const verboseDrift = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expect(verboseDrift.stdout).toContain("generated files changed");
     writeFileSync(disabledSkillPath, disabledSkillBytes);
@@ -8517,7 +8525,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     const deselectStatus = await runCliWithPath(home, pathWithClaude, "status");
     expectExitCode(deselectStatus, 0);
-    expect(deselectStatus.stdout).toContain("- source changed (1):");
+    expect(deselectStatus.stdout).toContain("source changed");
     const deselectVerbose = await runCliWithPath(home, pathWithClaude, "status", "--verbose");
     expect(deselectVerbose.stdout).toContain("removal");
     const deselect = await runCliWithPath(home, pathWithClaude, "update");
@@ -10129,7 +10137,7 @@ describe("responsive lifecycle reports", () => {
     expectExitCode(jsonWide, 0);
     expect(redirectedNarrow.stdout).toBe(redirectedWide.stdout);
     expect(narrow.stdout).toContain("Ready to update");
-    expect(narrow.stdout).toContain("- not installed yet (1):");
+    expect(narrow.stdout).toContain("not installed yet");
     expect(narrow.stdout).toContain("Next: apkit update");
     expect(narrow.stdout).not.toContain("Host setup:");
     expect(narrow.stdout).not.toContain("Standing Host setup:");
@@ -10473,7 +10481,7 @@ describe("apkit root help", () => {
     expect(bare.stderr).toBe("");
     // Fleet state from the delivered default scope (#435, #436): the bound
     // never-installed Project is named by its primary cause count.
-    expect(bare.stdout).toContain("not installed yet (1)");
+    expect(bare.stdout).toContain("not installed yet");
     expect(bare.stdout).toContain("apkit status");
     expect(bare.stdout).toContain("apkit update");
     expect(bare.stdout).not.toContain("apkit machine");
@@ -13374,7 +13382,8 @@ describe("apkit temporary Profile installation (Codex)", () => {
     const status = await runCli(home, "status");
     expectExitCode(status, 0);
     expect(status.stdout).toContain("Ready to update");
-    expect(status.stdout).toContain(`- not installed yet (1): ${identity}`);
+    expect(status.stdout).toContain("not installed yet");
+    expect(status.stdout).toContain(identity);
     expect(status.stdout).not.toContain(canonical);
 
     const verboseStatus = await runCli(home, "status", "--verbose");

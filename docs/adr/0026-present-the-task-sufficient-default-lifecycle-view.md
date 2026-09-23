@@ -19,9 +19,9 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
    - **`not installed yet`**: Projects configured for initial installation (addition).
    - **`source changed`**: Projects whose Workspace source or desired configuration has changed since the last installation.
 
-2. **Complete Actionable Identities.** Every actionable Project in the fleet is listed under its primary cause group. Default presentation wraps paths across terminal lines without artificial length caps or truncation pointers.
+2. **Complete Actionable Identities.** Every actionable Project in the fleet is listed under its primary cause group. Default presentation wraps paths across terminal lines without artificial length caps or truncation pointers. *Amended by issue #650 (spec #640, US-007): every checked Project — healthy included — is one compact scope row carrying its canonical Primary Cause; this listing supersedes #491 US-013/014's settled-count-only default where they conflict.*
 
-3. **Settled Counts & Wholly Settled Outcome.** Projects requiring no reconciliation work are summarized as a single count line (`settled (N)`) in mixed fleets. When every Project in the checked scope is settled, the view renders a single scope-accurate outcome notice naming only what was checked (`All Projects are up to date (N Projects)` for whole-fleet, `Selected Projects are up to date (N Projects)` for selected subsets, `This Project is up to date` for `--here`, or `<identity> is up to date` for explicit targets) with no breakdown listing and no next action. *Amended by issue #505 (spec #491, US-014, DEC-009, DEC-012).*
+3. **Settled Counts & Wholly Settled Outcome.** Projects requiring no reconciliation work are summarized as a single count line (`settled (N)`) in mixed fleets. When every Project in the checked scope is settled, the view renders a single scope-accurate outcome notice naming only what was checked (`All Projects are up to date (N Projects)` for whole-fleet, `Selected Projects are up to date (N Projects)` for selected subsets, `This Project is up to date` for `--here`, or `<identity> is up to date` for explicit targets) with no breakdown listing and no next action. *Amended by issue #505 (spec #491, US-014, DEC-009, DEC-012). Superseded in part by issue #650 (spec #640, US-007): settled Projects appear as scope rows labeled `up to date`, not as a count-only line, and a wholly settled fleet still names every checked Project.*
 
 4. **Blocker Containment.** Blockers are contained concisely within the status view. Project-scoped and global Blocker evidence (problem, requirement, remedy, scope) is presented without suppressing the primary cause partition of the remaining fleet.
 
@@ -34,6 +34,13 @@ Spec #373 (DEC-041) established the task-sufficient default lifecycle view: huma
 8. **Language and Vocabulary.** This decision extends ADR-0014's user-facing vocabulary standards. Primary cause labels (`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`, `source changed`, and `up to date`) are human presentation policy; detailed views add specifics rather than introducing synonyms (`addition`, `drifted output`, `stale source`, `current`). Machine schemas, exit codes, and typed diagnostic facts are preserved. *Amended by issue #505 (spec #491, US-014, DEC-009, DEC-012).*
 
 ## Supersessions
+
+Issue #650 (spec #640, US-007, DEC-010) narrowly supersedes this record's
+settled-count-only default listing and ADR-0020's clean-status no-Project-list
+rule for `status`: the default status view now names the selected Workspace and
+one compact row per checked Project. #491 US-013/014 are superseded to the same
+extent. Operation receipts, machine schemas, exit codes, and the primary-cause
+labels themselves are unchanged.
 
 This record supersedes:
 - **ADR-0017 (grouping and truncation):** Representative Project caps with `--verbose` escape hatches are superseded by complete wrapped primary-cause listings.

@@ -19,6 +19,8 @@ import {
   type WorkspaceViolation,
 } from "../installer/tool-errors.js";
 import type { WorkspaceFolderValidation } from "../installer/commands.js";
+import type { InfoWorkspaceLocation } from "../installer/info.js";
+import type { RowNode } from "./presentation-document.js";
 import {
   workspaceContractRecovery,
   workspaceViolationBulletParts,
@@ -487,64 +489,89 @@ export function partitionFleet(report: ReconciliationReport): FleetPartition {
   };
 }
 
-export function primaryCauseGroupNode(
-  label: string,
-  projects: readonly ReconciliationProjectRecord[],
-  scope: LocationDisplayScope,
-  identities: ProjectIdentityLookup,
-): PresentationNode {
-  const parts: InlineContent[] = [`${label} (${projects.length}): `];
-  projects.forEach((record, index) => {
-    if (index > 0) parts.push(", ");
-    parts.push(projectLocationPart(record, scope, identities));
-  });
+export function settledCountNode(count: number): PresentationNode {
   return {
     kind: "list-item",
-    parts,
+    parts: [`settled (${count})`],
   };
 }
 
-/** Nested needs-attention members: each path once, with diagnostic children. */
-function needsAttentionCauseNodes(
-  projects: readonly ReconciliationProjectRecord[],
+/** The canonical Primary Cause label for one Project (spec #640 US-007).
+ * One reader: {@link classifyPrimaryCause} decides; this maps its result to the
+ * default cause labels without re-deriving state or adding synonyms. */
+export function primaryCauseLabel(project: ReconciliationProjectRecord): string {
+  const cause = classifyPrimaryCause(project);
+  return cause === "settled" ? "up to date" : PRIMARY_CAUSE_LABELS[cause];
+}
+
+/** Checked-Project scope rows: one compact row per Project, healthy included
+ * (spec #640 US-007). Rows reuse the shared #649 row-group seam as-is. */
+function statusScopeRows(
+  report: ReconciliationReport,
+  scope: LocationDisplayScope,
+  identities: ProjectIdentityLookup,
+): RowNode[] {
+  const causeRank = (project: ReconciliationProjectRecord): number => {
+    const cause = classifyPrimaryCause(project);
+    return cause === "settled" ? PRIMARY_CAUSE_ORDER.length : PRIMARY_CAUSE_ORDER.indexOf(cause);
+  };
+  const ordered = [...report.projects].sort((left, right) =>
+    causeRank(left) - causeRank(right) ||
+    compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
+  );
+  return ordered.map((project) => ({
+    kind: "row" as const,
+    cells: [
+      {
+        column: "Project",
+        content: projectPathNode(
+          project.canonicalProject,
+          project.project,
+          scope,
+          identities(project),
+        ),
+      },
+      {
+        column: "Primary Cause",
+        content: { kind: "identifier" as const, value: primaryCauseLabel(project) },
+      },
+    ],
+  }));
+}
+
+/** Actionable Blocker and removal evidence that cannot fit in a scope row
+ * (TEST-005): rendered after the rows under the same Project identity. */
+function statusScopeEvidenceNodes(
+  report: ReconciliationReport,
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
   identities: ProjectIdentityLookup,
 ): PresentationNode[] {
-  const nodes: PresentationNode[] = [{
-    kind: "list-item",
-    parts: [`${PRIMARY_CAUSE_LABELS["needs-attention"]} (${projects.length}):`],
-  }];
-  for (const project of projects) {
+  const nodes: PresentationNode[] = [];
+  for (const project of report.projects) {
+    const needsEvidence = project.blockers.length > 0 || project.state.kind === "removal";
+    if (!needsEvidence) continue;
     nodes.push({
       kind: "prose",
-      parts: ["  ", projectLocationPart(project, scope, identities)],
+      parts: [projectLocationPart(project, scope, identities), ":"],
     });
-    const displayProject = identities(project);
     for (const blocker of project.blockers) {
       nodes.push(...conciseBlockerNodes(
         blocker,
-        displayProject,
+        identities(project),
         groups,
-        "    ",
+        "  ",
         scope,
       ));
     }
     if (project.state.kind === "removal") {
       nodes.push({
         kind: "prose",
-        parts: ["    Update will remove generated files for unbound projects."],
+        parts: ["  Update will remove generated files for unbound projects."],
       });
     }
   }
   return nodes;
-}
-
-export function settledCountNode(count: number): PresentationNode {
-  return {
-    kind: "list-item",
-    parts: [`settled (${count})`],
-  };
 }
 
 interface OutputSummary {
@@ -3608,6 +3635,8 @@ export interface LifecycleHumanOptions {
   readonly context?: TerminalPresentationContext;
   readonly selection: ProjectBindingSelection;
   readonly verbose?: boolean;
+  /** The selected Workspace this status checked (#629 seam, spec #640 US-007). */
+  readonly workspace?: InfoWorkspaceLocation;
 }
 
 interface VerboseSectionOptions {
@@ -5146,20 +5175,31 @@ function readyStatusGuidanceNodes(
   });
 }
 
+/**
+ * Status headline role (spec #640 US-007): ✔ when every checked Project is up
+ * to date, ⚠ when any Project has pending work or a Blocker — a Blocker never
+ * sits under a clean headline — and ● for an empty scope.
+ */
+function statusOutcomeSeverity(
+  report: ReconciliationReport,
+  selection?: ProjectBindingSelection,
+): NoticeSeverity {
+  if (selection?.filter !== undefined && report.projects.length === 0) return "neutral";
+  if (reportBlockers(report).length > 0) return "warning";
+  if (fullyCurrentProjectCount(report) === undefined) return "warning";
+  if (reportHasHostAttention(report)) return "warning";
+  return "success";
+}
+
 /** The status outcome notice: severity derives from report facts, never copy. */
 function statusOutcomeNotice(
   report: ReconciliationReport,
   selection?: ProjectBindingSelection,
   identities?: ProjectIdentityLookup,
 ): PresentationNode {
-  let severity: NoticeSeverity = "success";
-  if (reportBlockers(report).length > 0) severity = "error";
-  else if (
-    reportHasHostAttention(report) && fullyCurrentProjectCount(report) !== undefined
-  ) severity = "warning";
   return {
     kind: "notice",
-    severity,
+    severity: statusOutcomeSeverity(report, selection),
     nodes: [{ kind: "prose", parts: [outcomeLine("status", report, false, selection, identities)] }],
   };
 }
@@ -5463,6 +5503,9 @@ function conciseStatusDocument(
   const emptyStatus =
     !blocked && reportDesired(report).length === 0 && reportItems(report).length === 0;
   const fullyCurrentStatus = fullyCurrentProjectCount(report) !== undefined;
+  const workspaceRow = options.workspace === undefined
+    ? []
+    : [checkedWorkspaceRow(options.workspace.canonical, options.workspace.authored)];
 
   if (emptyStatus) {
     // A configured fleet with an empty filtered selection is not an
@@ -5471,15 +5514,17 @@ function conciseStatusDocument(
     if (options.selection.filter !== undefined) {
       return [
         statusOutcomeNotice(report, options.selection, grouped.identities),
+        ...workspaceRow,
         ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
       ];
     }
     return [
       {
         kind: "notice",
-        severity: "success",
+        severity: "neutral",
         nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       },
+      ...workspaceRow,
       {
         kind: "prose",
         category: "command",
@@ -5498,34 +5543,18 @@ function conciseStatusDocument(
   const nodes: PresentationNode[] = [
     statusOutcomeNotice(report, options.selection, grouped.identities),
     ...warningNodes(report, groups, scope),
+    ...workspaceRow,
   ];
+  if (report.projects.length > 0) {
+    nodes.push(spacerNode(), ...statusScopeRows(report, scope, grouped.identities));
+    const evidence = statusScopeEvidenceNodes(report, groups, scope, grouped.identities);
+    if (evidence.length > 0) {
+      nodes.push(spacerNode(), ...evidence);
+    }
+  }
   if (fullyCurrentStatus) {
     if (brokenProfiles.length > 0) nodes.push(spacerNode(), ...brokenProfiles);
     return nodes;
-  }
-
-  const partition = partitionFleet(report);
-  for (const cause of PRIMARY_CAUSE_ORDER) {
-    const causeProjects = partition.groups[cause];
-    if (causeProjects.length === 0) continue;
-    if (cause === "needs-attention") {
-      nodes.push(...needsAttentionCauseNodes(
-        causeProjects,
-        groups,
-        scope,
-        grouped.identities,
-      ));
-      continue;
-    }
-    nodes.push(primaryCauseGroupNode(
-      PRIMARY_CAUSE_LABELS[cause],
-      causeProjects,
-      scope,
-      grouped.identities,
-    ));
-  }
-  if (partition.settledCount > 0 && partition.totalActionableCount > 0) {
-    nodes.push(settledCountNode(partition.settledCount));
   }
 
   if (blocked) {

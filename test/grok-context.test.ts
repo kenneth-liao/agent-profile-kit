@@ -647,7 +647,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       );
       chmodSync(join(goodBin, "grok"), 0o755);
 
-      const status = await statusApplication(home);
+      const { report: status } = await statusApplication(home);
       expect(reportBlockers(status)).toEqual([]);
       expect(reportItems(status)).toContainEqual({ kind: "current", project });
       // Topology is preserved from the applied Manifest, not guessed as coalesced,

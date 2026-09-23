@@ -115,7 +115,7 @@ Commands separate binding authoring from global reconciliation:
   current Project results. Partial blockers exit `2`; a tool or post-commit
   verification failure exits `1` and retains committed-work evidence. `--json`
   includes both the resulting-state snapshot and an `applied` receipt snapshot.
-- `status` is the complete update-equivalent read-only plan. It reports current, not installed, stale source, drifted output (including wholly absent owned output), malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; and warnings. It performs no Agent Host process execution (DEC-015): Host capability probing happens only during `update`, where a missing or outdated Host CLI produces one advisory warning per Host per invocation (DEC-014) — naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages — and never gates planning, writing, or the outcome. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A bound Project with no ordinary Installation Receipt is not installed and eligible for `update`; no separate teardown intent is inferred or consulted. A fully current concise status states that fact once with no setup reminder, Project list, or next action; non-current state definitions are available through `--verbose`. `--json` uses the same machine payload and exit-code matrix as `update`.
+- `status` is the complete update-equivalent read-only plan. It reports current, not installed, stale source, drifted output (including wholly absent owned output), malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; and warnings. It performs no Agent Host process execution (DEC-015): Host capability probing happens only during `update`, where a missing or outdated Host CLI produces one advisory warning per Host per invocation (DEC-014) — naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages — and never gates planning, writing, or the outcome. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A bound Project with no ordinary Installation Receipt is not installed and eligible for `update`; no separate teardown intent is inferred or consulted. Concise `status` names the selected Workspace and prints one compact row per checked Project — healthy Projects included — through the shared row-group seam (spec #640 US-007, superseding #491 US-013/014's settled-count-only default listing); actionable Blocker and removal evidence stays in the default view after the rows. A fully current concise status invents no next action; non-current state definitions are available through `--verbose`. Operation receipts stay concise and never copy this inventory. `--json` uses the same machine payload and exit-code matrix as `update`.
 - `details [--list | <operation-id>] [--json]` reads the one machine-local
   operation-history document without writing anything or rerunning lifecycle
   planning: no argument shows the latest retained run, `--list` the compact
@@ -174,14 +174,16 @@ requested evidence (`--verbose`, `apkit details`, `--json`), the changed-file
 consent review, and every executable command argument keep the stable spelling. An identity is display-only and
 never elided; when it exceeds the measure it wraps at path-segment boundaries
 (ADR-0042). Concise output
-presents the outcome notice, partitions actionable Projects by primary cause
-(`needs attention`, `generated files changed`, `generated files missing`, `not installed yet`,
-`source changed`) with complete wrapped Project identities, summarizes non-actionable
-Projects as a settled count line in mixed fleets (or a single scope-accurate `up to date` outcome
-naming only what was checked when every Project in the scope is settled, US-014, DEC-009), nests Blocker diagnostics under each needs-attention member,
-and preserves one footer block (`Next:` update with an optional secondary
-`Details:` verbose route). It renders each semantic fact once and omits routine generated paths,
-Project matrices, Git exclusion bookkeeping, setup provenance, and separate consequences.
+presents the outcome notice and one compact scope row per checked Project
+(`Project` + canonical `Primary Cause` via `classifyPrimaryCause`) through the
+shared row-group seam, including healthy Projects labeled `up to date` (spec
+#640 US-007). The headline carries the state glyph: `✔` when every checked
+Project is up to date, `⚠` when any Project has pending work or a Blocker, and
+`●` for an empty scope. Blocker and removal evidence renders after the rows
+under the same Project identity. It preserves one footer block (`Next:` update
+with an optional secondary `Details:` verbose route). It renders each semantic
+fact once and omits routine generated paths from operation receipts, Git
+exclusion bookkeeping, setup provenance, and separate consequences.
 Blockers, warnings, ownership attention, drift, destructive-removal attention, and Git exclusion
 warnings retain the identity required for their remedies. Adapter diagnostic normalization keeps
 warning messages independent from Project identity (messages exclude Project
