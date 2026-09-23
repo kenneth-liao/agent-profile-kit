@@ -20,17 +20,21 @@ import {
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
+import {
+  CONTEXT_EXPLANATION_SENTENCE,
+  PROFILE_EXPLANATION_SENTENCE,
+  WORKSPACE_EXPLANATION_SENTENCE,
+  WORKSPACE_SCOPE_EXPLANATION_SENTENCE,
+} from "./concept-explanations.js";
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 /**
- * The one-sentence Profile explanation shown at the moment a user is asked to
- * choose one (US-033): the initialization receipt and the interactive bind
- * Profile prompt share this single home so the wording cannot drift.
+ * Re-exported so existing callers keep one authority for the Profile
+ * explanation (US-001, DEC-003): `cli/concept-explanations.ts` is its home.
  */
-export const PROFILE_EXPLANATION_SENTENCE =
-  "A Profile is a named selection of Context and Skills to adapt for your projects.";
+export { PROFILE_EXPLANATION_SENTENCE };
 
 /**
  * Authoring and teardown receipt views as presentation documents. Every node
@@ -308,12 +312,15 @@ export function initLocationDocument(input: {
   readonly destinationPath: string;
   readonly authoredPath?: string;
 }): PresentationDocument {
+  // Workspace first, before the folder choice (US-001, DEC-003).
   return [
     {
       kind: "sentence",
-      parts: [
-        "Your Workspace is a folder you choose.",
-      ],
+      parts: [WORKSPACE_EXPLANATION_SENTENCE],
+    },
+    {
+      kind: "sentence",
+      parts: [WORKSPACE_SCOPE_EXPLANATION_SENTENCE],
     },
     {
       kind: "sentence",
@@ -434,6 +441,10 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     {
       kind: "sentence",
       parts: [PROFILE_EXPLANATION_SENTENCE],
+    },
+    {
+      kind: "sentence",
+      parts: [CONTEXT_EXPLANATION_SENTENCE],
     },
     {
       kind: "sentence",

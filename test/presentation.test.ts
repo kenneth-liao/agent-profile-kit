@@ -9,6 +9,7 @@ import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import {
   guidedInitCompletionDocument,
+  initLocationDocument,
   initReceiptDocument,
   installReceiptDocument,
   newArtifactCreatedNodes,
@@ -55,6 +56,8 @@ import {
   installConfirmationDocument,
   installDeclinedDocument,
   installHostSelectionNoteDocument,
+  installProfileSelectionNoteDocument,
+  installTargetDocument,
   configureDeclinedDocument,
   configurePickerCancelledDocument,
   initCancelledDocument,
@@ -8854,18 +8857,23 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "sentence(success)",
       "sentence",
       "sentence",
+      "sentence",
       "sentence(command)",
     ]);
     expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
     expect(document[1]).toMatchObject({
       kind: "sentence",
-      parts: ["A Profile is a named selection of Context and Skills to adapt for your projects."],
+      parts: ["A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects."],
     });
     expect(document[2]).toMatchObject({
       kind: "sentence",
-      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "codex" }],
+      parts: ["Context is always-loaded facts, preferences, and standing rules a Profile selects."],
     });
     expect(document[3]).toMatchObject({
+      kind: "sentence",
+      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "codex" }],
+    });
+    expect(document[4]).toMatchObject({
       kind: "sentence",
       category: "command",
       parts: [
@@ -8888,14 +8896,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       folderCreated: true,
       detectedHosts: ["antigravity", "claude", "codex"],
     });
-    expect(multiHostDocument[2]).toMatchObject({
+    expect(multiHostDocument[3]).toMatchObject({
       kind: "sentence",
       parts: [
         "Detected Agent Hosts: ",
         { kind: "identifier", value: "antigravity, claude, codex" },
       ],
     });
-    expect(multiHostDocument[3]).toMatchObject({
+    expect(multiHostDocument[4]).toMatchObject({
       kind: "sentence",
       category: "command",
       parts: [
@@ -8922,6 +8930,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     expect(shapes(document)).toEqual([
       "sentence(success)",
+      "sentence",
       "sentence",
       "sentence",
     ]);
@@ -8995,13 +9004,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "sentence(success)",
       "sentence",
       "sentence",
+      "sentence",
       "sentence(command)",
     ]);
-    expect(document[2]).toMatchObject({
+    expect(document[3]).toMatchObject({
       kind: "sentence",
       parts: ["Detected Agent Hosts: none"],
     });
-    expect(document[3]).toMatchObject({
+    expect(document[4]).toMatchObject({
       kind: "sentence",
       category: "command",
       parts: [
@@ -9026,9 +9036,10 @@ describe("authoring and teardown receipt documents (#390)", () => {
       "sentence(success)",
       "sentence",
       "sentence",
+      "sentence",
       "sentence(command)",
     ]);
-    expect(document[3]).toMatchObject({
+    expect(document[4]).toMatchObject({
       kind: "sentence",
       category: "command",
       parts: [
@@ -11198,6 +11209,141 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
       expect(text).not.toContain("install-temp");
       expect(text).not.toContain("remove-temp");
     }
+  });
+});
+
+/**
+ * Distinctive definition openers for the five kit concepts US-001 asks first
+ * use to explain. Skill is deliberately absent: it is never defined.
+ */
+const CONCEPT_DEFINITION_MARKERS = [
+  { concept: "Workspace", marker: "Your Workspace is one folder that holds" },
+  { concept: "Project", marker: "A Project is one working folder" },
+  { concept: "Profile", marker: "A Profile is a named selection" },
+  { concept: "Context", marker: "Context is always-loaded" },
+  { concept: "Agent Host", marker: "An Agent Host is a tool" },
+] as const;
+
+/** Which kit concepts a rendered first-use block newly explains. */
+function explainedConcepts(text: string): string[] {
+  return CONCEPT_DEFINITION_MARKERS
+    .filter((entry) => text.includes(entry.marker))
+    .map((entry) => entry.concept);
+}
+
+function documentText(document: PresentationDocument): string {
+  return flattenPresentationNodes(document).map(nodeText).join("\n");
+}
+
+describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
+  const home = homedir();
+
+  test("bare apkit explains Workspace and Project before the recommended setup route", () => {
+    const document = bareInvocationDocument({
+      info: {
+        configurationState: "not-configured",
+        workspace: null,
+        engineVersion: "0.0.0",
+        installationState: "/home/.agents/agent-profile-kit/state/manifest.json",
+        localConfiguration: "/home/.agents/agent-profile-kit/config.yaml",
+      },
+    });
+    const text = documentText(document);
+    expect(explainedConcepts(text).sort()).toEqual(["Project", "Workspace"]);
+    expect(text).toContain(
+      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
+    );
+    expect(text).toContain(
+      "One Workspace can serve several Projects, and setup may add those folders and files.",
+    );
+    expect(text).toContain(
+      "A Project is one working folder that receives the installed material.",
+    );
+    // Recommended route leads; the current-folder form is secondary.
+    expect(text.indexOf("apkit init <path>")).toBeGreaterThan(0);
+    expect(text.indexOf("apkit init <path>")).toBeLessThan(text.indexOf("apkit init ."));
+    // Commands stay on their own footer lines (DEC-009).
+    const commandLines = flattenPresentationNodes(document)
+      .map(nodeText)
+      .filter((line) => line.includes("apkit init"));
+    expect(commandLines.length).toBeGreaterThanOrEqual(1);
+    for (const line of commandLines) {
+      expect(line.trim()).toMatch(/^apkit init (<path>|\.)$/);
+    }
+    // Skill is never defined; no Host-loads-everything claim.
+    expect(text).not.toMatch(/A Skill is |Skill is a /);
+    expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
+  });
+
+  test("the init location question explains Workspace before the folder choice", () => {
+    const document = initLocationDocument({
+      destinationPath: join(home, "projects", "demo"),
+      authoredPath: "~/projects/demo",
+    });
+    const text = documentText(document);
+    expect(explainedConcepts(text)).toEqual(["Workspace"]);
+    expect(text).toContain(
+      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
+    );
+    expect(text).toContain("Current folder: ");
+  });
+
+  test("the init receipt explains Profile and Context", () => {
+    const document = initReceiptDocument({
+      outcome: "created",
+      path: join(home, "apkit-workspace"),
+      authoredPath: join(home, "apkit-workspace"),
+      folderCreated: true,
+      detectedHosts: ["codex"],
+    });
+    const text = documentText(document);
+    expect(explainedConcepts(text).sort()).toEqual(["Context", "Profile"]);
+    expect(text).toContain(
+      "A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects.",
+    );
+    expect(text).toContain(
+      "Context is always-loaded facts, preferences, and standing rules a Profile selects.",
+    );
+    expect(text).not.toMatch(/A Skill is |Skill is a /);
+    expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
+  });
+
+  test("install target and Profile note stay within the two-concept pre-picker budget", () => {
+    // Direct install prints the target and the Profile note on one screen
+    // before the first picker (US-001, DEC-003): Project + Profile only.
+    const prePicker = [
+      ...installTargetDocument({
+        canonicalProject: join(home, "projects", "demo"),
+        authoredProject: "~/projects/demo",
+      }),
+      ...installProfileSelectionNoteDocument(),
+    ];
+    const text = documentText(prePicker);
+    expect(explainedConcepts(text).sort()).toEqual(["Profile", "Project"]);
+    expect(explainedConcepts(text).length).toBeLessThanOrEqual(2);
+    expect(text).toContain(
+      "A Project is one working folder that receives the installed material.",
+    );
+    expect(text).toContain(
+      "A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects.",
+    );
+    // Choosing a Profile does not require understanding Context: the Profile
+    // sentence may name Context, but Context is not defined here.
+    expect(text).toContain("Context and Skills");
+    expect(text).not.toContain("Context is always-loaded");
+    expect(text).not.toMatch(/A Skill is |Skill is a /);
+    expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
+  });
+
+  test("the install Host note explains Agent Host without claiming full Workspace loading", () => {
+    const text = documentText(installHostSelectionNoteDocument());
+    expect(explainedConcepts(text)).toEqual(["Agent Host"]);
+    expect(text).toContain(
+      "An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a Project.",
+    );
+    expect(text).toContain("Selecting a Host does not install it.");
+    expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
+    expect(text).not.toMatch(/A Skill is |Skill is a /);
   });
 });
 

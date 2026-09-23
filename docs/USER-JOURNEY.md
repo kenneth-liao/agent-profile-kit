@@ -116,13 +116,15 @@ explicit commands that change it:
 ```
 $ apkit
 Agent Profile Kit is not set up on this machine.
-Your Workspace is a folder you choose. The current folder matters only if you
-  choose it.
-Next: Run
-  apkit init <path>
-  to connect an existing Workspace, or
-  apkit init .
-  to use the current folder.
+Your Workspace is one folder that holds your Profiles, Context, and Skills.
+  One Workspace can serve several Projects, and setup may add those folders
+  and files.
+A Project is one working folder that receives the installed material.
+Start by naming the folder that will hold the Workspace. The second command
+  uses the current folder instead.
+Next:
+- apkit init <path>
+- apkit init .
 
 Run apkit --help for the full command list.
 ```
@@ -252,8 +254,10 @@ Project lifecycle diagnostic.
 $ apkit init ~/apkit-workspace
 Created the Workspace folder and initialized Agent Profile Kit Workspace and
   settings at ~/apkit-workspace
-A Profile is a named selection of Context and Skills to adapt for your
-  projects.
+A Profile is a named selection of Context and Skills suited to a kind of work
+  and reusable across projects.
+Context is always-loaded facts, preferences, and standing rules a Profile
+  selects.
 Detected Agent Hosts: claude, codex, opencode
 Next: run apkit validate
 ```
@@ -287,10 +291,14 @@ reports any bound Profiles that do not exist in the newly connected Workspace
 along with actionable authoring and installation commands (spec #593 DEC-002,
 ticket #607).
 
-The Workspace location is stated in actionable home-relative form (US-036), the
-receipt explains what a Profile is in one sentence at the moment one is first
-needed (US-033), and detection is advisory: it names the supported Agent Hosts
-found on the machine (US-037) and never blocks.
+The Workspace location is stated in actionable home-relative form (US-036). First
+use explains Workspace before asking the user to choose one, leads with one
+recommended setup command with the alternative as secondary guidance, and
+explains Context, Profile, Agent Host and Project briefly at the action that
+first needs them — including direct `init` and `install` entry — without a
+glossary dump, a Skill definition, or a persistent seen-terms record
+(spec #640 US-001, DEC-003). Detection is advisory: it names the supported
+Agent Hosts found on the machine (US-037) and never blocks.
 
 ### 3. Learn the format
 
@@ -447,14 +455,16 @@ commits nothing and renders no check.
 An interactive `install` shows the proposed scope and asks for confirmation
 before any write; `--auto-confirm` answers that confirmation. On an
 interactive terminal a bare `install` names the current-directory Project
-target first and collects only its missing Profile/Hosts through searchable
-pickers — a new installation lists detected Hosts first, preselects and marks
-them `detected`, marks undetected Hosts `not found` with one note that
-selecting a Host does not install it, and selects none when nothing is
-detected, while an existing installation starts from its remembered selection
-without adding newly detected Hosts (spec #640 US-005, superseding spec #491
-US-001's no-preselect rule; ADR-0034) — and a completed guided install prints
-the executable fully specified equivalent. The default-No confirmation shows
+target first — explaining Project and Profile before the first picker, and
+Agent Host at the Host picker, within the two-concept first-use budget
+(spec #640 US-001, DEC-003) — and collects only its missing Profile/Hosts
+through searchable pickers — a new installation lists detected Hosts first,
+preselects and marks them `detected`, marks undetected Hosts `not found` with
+one note that selecting a Host does not install it, and selects none when
+nothing is detected, while an existing installation starts from its remembered
+selection without adding newly detected Hosts (spec #640 US-005, superseding
+spec #491 US-001's no-preselect rule; ADR-0034) — and a completed guided
+install prints the executable fully specified equivalent. The default-No confirmation shows
 the final Host selection before any write. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
