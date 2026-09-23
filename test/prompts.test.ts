@@ -39,15 +39,6 @@ function written(output: { chunks: Buffer[] }): string {
   return Buffer.concat(output.chunks).toString();
 }
 
-/** The most recent redraw: one live frame, never the accumulated stream. */
-function lastFrame(output: { frames: string[] }): string {
-  return (output.frames[output.frames.length - 1] ?? "").replace(
-    /\x1b\[[0-9;?]*[ -/]*[@-~]/g,
-    "",
-  );
-}
-
-
 /** Wait until the live picker frame contains `fragment` (never a fixed sleep). */
 async function waitForFrame(
   output: { frames: string[] },
@@ -259,15 +250,17 @@ describe("multiselect prompt seam", () => {
 
   test("rejects a submit with no selected choice when a minimum is set", async () => {
     const input = fakeInteractiveInput();
-    const multi = createMultiSelectPrompt({ input, output: new PassThrough() });
+    const output = collectingOutput();
+    const multi = createMultiSelectPrompt({ input, output });
     const pending = multi(
       "Which Agent Hosts?",
       [{ title: "codex", value: "codex" }],
       { min: 1 },
     );
     // An empty submit is refused (min 1); the later cancel still unwinds.
+    await waitForFrame(output, "enter submit");
     input.write("\r");
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitForFrame(output, "select at least 1");
     input.end();
     expect(await pending).toEqual({ kind: "cancelled" });
   });
@@ -284,10 +277,9 @@ describe("multiselect prompt seam", () => {
       ],
       { min: 1 },
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitForFrame(output, "enter submit");
     input.write("\r");
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    expect(written(output)).toContain("select at least 1");
+    await waitForFrame(output, "select at least 1");
     input.write(" \r");
     expect(await pending).toEqual({ kind: "selected", values: ["codex"] });
   });
@@ -401,14 +393,15 @@ describe("prompt seam interactivity", () => {
 describe("searchable select prompt seam", () => {
   test("filters choices by typing and selects the match with enter", async () => {
     const input = fakeInteractiveInput();
-    const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
+    const output = collectingOutput();
+    const select = createSearchableSelectPrompt({ input, output });
     const pending = select("Which Profile?", [
       { title: "coding", value: "coding" },
       { title: "ops", value: "ops" },
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitForFrame(output, "enter select");
     input.write("op");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForFrame(output, "› op");
     input.write("\r");
     expect(await pending).toEqual({ kind: "selected", value: "ops" });
   });
@@ -423,15 +416,16 @@ describe("searchable select prompt seam", () => {
 
   test("matches string values as well as titles", async () => {
     const input = fakeInteractiveInput();
-    const select = createSearchableSelectPrompt({ input, output: new PassThrough() });
+    const output = collectingOutput();
+    const select = createSearchableSelectPrompt({ input, output });
     const pending = select("Which Profile?", [
       { title: "First", value: "one" },
       { title: "Second", value: "two" },
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitForFrame(output, "enter select");
     // "two" appears only in the value, never in a title.
     input.write("two");
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitForFrame(output, "› two");
     input.write("\r");
     expect(await pending).toEqual({ kind: "selected", value: "two" });
   });
@@ -576,7 +570,8 @@ describe("shared picker chrome (US-004)", () => {
 describe("searchable multiselect prompt seam", () => {
   test("toggles choices with space and submits with enter", async () => {
     const input = fakeInteractiveInput();
-    const multi = createSearchableMultiSelectPrompt({ input, output: new PassThrough() });
+    const output = collectingOutput();
+    const multi = createSearchableMultiSelectPrompt({ input, output });
     const pending = multi(
       "Which Agent Hosts?",
       [
@@ -585,30 +580,33 @@ describe("searchable multiselect prompt seam", () => {
       ],
       { min: 1 },
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    input.write(" \x1b[B ");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForFrame(output, "enter submit");
+    input.write(" ");
+    await waitForFrame(output, "1 selected");
+    input.write("\x1b[B ");
+    await waitForFrame(output, "2 selected");
     input.write("\r");
     expect(await pending).toEqual({ kind: "selected", values: ["claude", "codex"] });
   });
 
   test("keeps pre-selected choices checked and retains them across filters", async () => {
     const input = fakeInteractiveInput();
-    const multi = createSearchableMultiSelectPrompt({ input, output: new PassThrough() });
+    const output = collectingOutput();
+    const multi = createSearchableMultiSelectPrompt({ input, output });
     const pending = multi("Which Agent Hosts?", [
       { title: "claude", value: "claude", selected: true },
       { title: "codex", value: "codex" },
       { title: "pi", value: "pi" },
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
     // Filter to "pi", toggle it, clear the filter, then submit: both the
     // pre-selected and the filtered selection survive.
+    await waitForFrame(output, "1 selected");
     input.write("pi");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForFrame(output, "› pi");
     input.write(" ");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForFrame(output, "2 selected");
     input.write("\u007f\u007f");
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    await waitForFrame(output, "codex");
     input.write("\r");
     expect(await pending).toEqual({ kind: "selected", values: ["claude", "pi"] });
   });
@@ -623,9 +621,7 @@ describe("searchable multiselect prompt seam", () => {
 
   test("renders the question and choice titles on the injected output stream", async () => {
     const input = fakeInteractiveInput();
-    const output = new PassThrough();
-    const chunks: Buffer[] = [];
-    output.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const output = collectingOutput();
     const multi = createSearchableMultiSelectPrompt({ input, output });
     const pending = multi(
       "Which Agent Hosts?",
@@ -635,10 +631,10 @@ describe("searchable multiselect prompt seam", () => {
       ],
       { min: 1 },
     );
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitForFrame(output, "claude");
     input.write(" \r");
     await pending;
-    const text = Buffer.concat(chunks).toString();
+    const text = written(output);
     expect(text).toContain("Which Agent Hosts?");
     expect(text).toContain("claude");
     expect(text).toContain("codex");
@@ -653,8 +649,7 @@ describe("searchable multiselect prompt seam", () => {
       { title: "codex", value: "codex", annotation: "installed" },
       { title: "pi", value: "pi" },
     ]);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    const text = written(output);
+    const text = await waitForFrame(output, "enter submit");
     expect(text.indexOf("claude")).toBeLessThan(text.indexOf("codex"));
     expect(text.indexOf("codex")).toBeLessThan(text.indexOf("pi"));
     input.write("\r");

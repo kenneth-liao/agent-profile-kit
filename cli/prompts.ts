@@ -30,9 +30,6 @@ import {
   useState,
   useRef,
   useKeypress,
-  AbortPromptError,
-  CancelPromptError,
-  ExitPromptError,
   type KeypressEvent,
 } from "@inquirer/core";
 import { PassThrough, type Readable, type Writable } from "node:stream";
