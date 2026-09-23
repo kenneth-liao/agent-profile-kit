@@ -8,8 +8,8 @@ export const INVENTORY_TOPICS = [
     name: "profiles",
   },
   {
-    description: "Supported Agent Hosts for configured Projects.",
-    name: "hosts",
+    description: "Supported agents for configured Projects.",
+    name: "agents",
   },
 ] as const;
 
@@ -42,7 +42,7 @@ export function inventoryTopicNames(): readonly InventoryTopic[] {
 }
 
 export function inventoryCommandSyntax(): string {
-  return `list [projects|profiles [<profile>]|hosts] [--json]`;
+  return `list [projects|profiles [<profile>]|agents] [--json]`;
 }
 
 function machineInventoryTopicNames(): readonly MachineInventoryTopic[] {

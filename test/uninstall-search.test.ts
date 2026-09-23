@@ -233,7 +233,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" ");
     await settle();
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     expect(plain(started.streams.humanText())).toContain("Picked 1 Project");
@@ -276,7 +276,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     // The complete picked scope — every selected Project — is reviewed,
@@ -332,7 +332,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" [B ");
     await settle();
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     input.write("n\n");
@@ -356,7 +356,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" ");
     await settle();
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     const result = await started.pending;
     expect(result.exitCode).toBe(0);
@@ -373,7 +373,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" ");
     await settle();
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     // A concurrent installation lands after the review was shown.
@@ -427,7 +427,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     rmSync(configPath(home));
@@ -450,7 +450,7 @@ describe("interactive Host-only routing and removal mode", () => {
     await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project: first });
     await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project: second });
     const input = fakeInteractiveInput();
-    const started = startUninstall(home, ["--host", "codex"], input);
+    const started = startUninstall(home, ["--agent", "codex"], input);
     // No refusal: the picker opens instead.
     await waitForOutput(started.streams.humanText, "Which Projects");
     // Filter to a unique suffix of the first path so exactly that Project is
@@ -463,11 +463,11 @@ describe("interactive Host-only routing and removal mode", () => {
     await settle(150);
     input.write("\r");
     // The mode question opens with Host removal first and the named Host shown.
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
-    expect(plain(started.streams.humanText())).toContain("Selected Hosts (codex)");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
+    expect(plain(started.streams.humanText())).toContain("Selected agents (codex)");
     input.write("\r");
     // The carried Host stays pre-selected: submit keeps it.
-    await waitForOutput(started.streams.humanText, "Which Hosts");
+    await waitForOutput(started.streams.humanText, "Which agents");
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
     // The chosen mode is visible per Project: removed and kept Hosts named.
@@ -478,17 +478,17 @@ describe("interactive Host-only routing and removal mode", () => {
     expect(result.exitCode).toBe(0);
     expect(bindingHosts(home, first)).toEqual(["pi"]);
     expect(bindingHosts(home, second)).toEqual(["codex", "pi"]);
-    expect(plain(started.streams.humanText())).toContain("--host codex");
+    expect(plain(started.streams.humanText())).toContain("--agent codex");
   });
   test("a carried unknown Host fails before any pick with zero writes", async () => {
     // The carried filter normalizes before any picker opens: an unknown
     // Host refuses with supported-name guidance instead of proposing.
     const { home, first, second, firstOutput, secondOutput } = await setupInstalledPair();
     const input = fakeInteractiveInput();
-    const started = startUninstall(home, ["--host", "bogus"], input);
+    const started = startUninstall(home, ["--agent", "bogus"], input);
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("Unsupported Agent Host 'bogus'");
+    expect(plain(started.streams.errorText())).toContain("Unsupported agent 'bogus'");
     expect(plain(started.streams.humanText())).not.toContain("Which Projects");
     expect(readFileSync(configPath(home), "utf8")).toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
@@ -515,11 +515,11 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("[B");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Which Hosts");
+    await waitForOutput(started.streams.humanText, "Which agents");
     input.write("pi");
     await waitForOutput(started.streams.humanText, "› pi");
     input.write(" ");
@@ -560,11 +560,11 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("[B");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Which Hosts");
+    await waitForOutput(started.streams.humanText, "Which agents");
     input.write("codex");
     await waitForOutput(started.streams.humanText, "› codex");
     input.write(" ");
@@ -587,7 +587,7 @@ describe("interactive Host-only routing and removal mode", () => {
     const project = projectDirectory();
     await executeInstall(home, { profile: "engineering", hosts: ["codex", "pi"], project });
     const input = fakeInteractiveInput();
-    const started = startUninstall(home, ["--host", "codex"], input);
+    const started = startUninstall(home, ["--agent", "codex"], input);
     await waitForOutput(started.streams.humanText, "Which Projects");
     const suffix = project.slice(-6);
     input.write(suffix);
@@ -595,9 +595,9 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
-    expect(plain(started.streams.humanText())).toContain("Selected Hosts (codex)");
-    input.write("[B");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
+    expect(plain(started.streams.humanText())).toContain("Selected agents (codex)");
+    input.write("\x1b[B");
     await settle(150);
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Uninstall as listed?");
@@ -611,7 +611,7 @@ describe("interactive Host-only routing and removal mode", () => {
     expect(readFileSync(configPath(home), "utf8")).not.toContain(project);
     const echo = plain(started.streams.humanText());
     expect(echo).toContain("--project");
-    expect(echo).not.toContain("--host");
+    expect(echo).not.toContain("--agent");
   });
 
   test("a rebinding between pick and review halts with Host-narrowed retries", async () => {
@@ -638,11 +638,11 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
-    input.write("[B");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
+    input.write("\x1b[B");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Which Hosts");
+    await waitForOutput(started.streams.humanText, "Which agents");
     rebindHosts(home, project, ["pi"]);
     input.write("codex");
     await waitForOutput(started.streams.humanText, "› codex");
@@ -653,7 +653,7 @@ describe("interactive Host-only routing and removal mode", () => {
     expect(result.exitCode).toBe(1);
     const err = plain(started.streams.errorText());
     expect(err).toContain("scope changed during confirmation");
-    expect(err).toContain("--host codex");
+    expect(err).toContain("--agent codex");
     expect(err).toContain("--project");
     expect(err).not.toContain("--auto-confirm");
     expect(bindingHosts(home, project)).toEqual(["pi"]);
@@ -702,11 +702,11 @@ describe("interactive picked partial-removal consent", () => {
     input.write(" ");
     await settle(150);
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(started.streams.humanText, "Whole installations or selected agents?");
     input.write("[B");
     await settle();
     input.write("\r");
-    await waitForOutput(started.streams.humanText, "Which Hosts");
+    await waitForOutput(started.streams.humanText, "Which agents");
     input.write("codex");
     await waitForOutput(started.streams.humanText, "› codex");
     input.write(" ");

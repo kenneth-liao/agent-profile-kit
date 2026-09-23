@@ -96,7 +96,7 @@ describe("interactive uninstall under a real PTY", () => {
       await session.waitForTranscript("◼", { after: toggleOffset });
       const scopeEnterOffset = session.transcriptLength();
       session.write("\r");
-      await session.waitForTranscript("Whole installations or selected Hosts?", { after: scopeEnterOffset });
+      await session.waitForTranscript("Whole installations or selected agents?", { after: scopeEnterOffset });
       const confirmEnterOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("(y/N)", { after: confirmEnterOffset });
@@ -131,7 +131,7 @@ describe("interactive uninstall under a real PTY", () => {
       await session.waitForTranscript(`◼${second}`, { after: toggleOffset });
       const submitOffset = session.transcriptLength();
       session.write("\r");
-      await session.waitForTranscript("Whole installations or selected Hosts?", { after: submitOffset });
+      await session.waitForTranscript("Whole installations or selected agents?", { after: submitOffset });
       const confirmEnterOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("(y/N)", { after: confirmEnterOffset });

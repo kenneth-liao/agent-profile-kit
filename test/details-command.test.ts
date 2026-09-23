@@ -252,7 +252,7 @@ describe("lifecycle operation recording", () => {
   test("install records the committed generated work, and details reads it back", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const install = invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]);
+    const install = invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]);
     expect((await install.outcome).exitCode).toBe(0);
 
     const entries = await detailsEntries(home);
@@ -285,7 +285,7 @@ describe("lifecycle operation recording", () => {
   test("details never reruns lifecycle writes", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     const outputPath = join(projectPath, ".codex", "hooks.json");
     const before = readFileSync(outputPath, "utf8");
 
@@ -299,7 +299,7 @@ describe("lifecycle operation recording", () => {
   test("retrieval survives later filesystem state: the install entry keeps its evidence after uninstall", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     expect((await invokeUninstall(home, ["--all", "--auto-confirm"]).outcome).exitCode).toBe(0);
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(false);
 
@@ -318,7 +318,7 @@ describe("lifecycle operation recording", () => {
   test("a routine no-op update records no-op with the requested fleet scope", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     expect((await invokeUpdate(home, ["--all"]).outcome).exitCode).toBe(0);
 
     const latest = (await detailsEntries(home))[0]!;
@@ -332,7 +332,7 @@ describe("lifecycle operation recording", () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     const input = fakeInteractiveInput();
-    const install = invokeInstall(home, ["coding", projectPath, "--host", "codex"], input, true);
+    const install = invokeInstall(home, ["coding", projectPath, "--agent", "codex"], input, true);
     await waitForOutput(install.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await install.outcome).exitCode).toBe(1);
@@ -349,7 +349,7 @@ describe("lifecycle operation recording", () => {
   test("a declined changed-file consent records a cancelled update with reviewed outputs", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     // Independently change a generated file so the next update must consent.
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
 
@@ -371,13 +371,13 @@ describe("lifecycle operation recording", () => {
   test("a declined changed-file consent records a cancelled install with reviewed outputs", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     // Re-installing the same selection would replace an independently changed
     // generated file, so the shared consent gate fires.
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
 
     const input = fakeInteractiveInput();
-    const install = invokeInstall(home, ["coding", projectPath, "--host", "codex"], input, true);
+    const install = invokeInstall(home, ["coding", projectPath, "--agent", "codex"], input, true);
     await waitForOutput(install.streams.humanText, "Install into this Project?");
     input.write("y\n");
     await waitForOutput(install.streams.humanText, "Replace or delete these generated files");
@@ -396,7 +396,7 @@ describe("lifecycle operation recording", () => {
   test("a declined uninstall confirmation records a cancelled entry with nothing removed", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
 
     const input = fakeInteractiveInput();
     const uninstall = invokeUninstall(home, ["--all"], input, true);
@@ -415,7 +415,7 @@ describe("lifecycle operation recording", () => {
   test("a declined changed-file consent records a cancelled uninstall with reviewed outputs", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
 
     const input = fakeInteractiveInput();
@@ -436,7 +436,7 @@ describe("lifecycle operation recording", () => {
   test("a successful consented update records the reviewed changed-output identities", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
 
     const input = fakeInteractiveInput();
@@ -461,7 +461,7 @@ describe("lifecycle operation recording", () => {
     mkdirSync(drifting);
     mkdirSync(current);
     for (const project of [drifting, current]) {
-      expect((await invokeInstall(home, ["coding", project, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", project, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     }
     // One Project needs output, the other is settled: the run still succeeded.
     writeFileSync(join(drifting, ".codex", "hooks.json"), "{}\n");
@@ -588,9 +588,9 @@ describe("lifecycle operation recording", () => {
     const refusals = [
       // Missing non-interactive confirmation, an argument error, and a
       // missing Profile choice are refusals before any attempt.
-      await invokeInstall(home, ["coding", projectPath, "--host", "codex"]),
-      await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm", "--bogus"]),
-      await invokeInstall(home, [projectPath, "--host", "codex", "--auto-confirm"]),
+      await invokeInstall(home, ["coding", projectPath, "--agent", "codex"]),
+      await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm", "--bogus"]),
+      await invokeInstall(home, [projectPath, "--agent", "codex", "--auto-confirm"]),
       // A zero-match uninstall never attempts removal.
       await invokeUninstall(home, ["--profile", "nosuch", "--all", "--auto-confirm"]),
     ];
@@ -604,7 +604,7 @@ describe("lifecycle operation recording", () => {
     expect(existsSync(operationHistoryPath(home))).toBe(false);
 
     // Missing non-interactive changed-file consent refuses before any write.
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
     const before = historyBytes(home);
     const withheld = invokeUpdate(home, ["--all"]);
@@ -656,7 +656,7 @@ describe("lifecycle operation recording", () => {
     mkdirSync(first);
     mkdirSync(second);
     for (const project of [first, second]) {
-      expect((await invokeInstall(home, ["coding", project, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", project, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     }
     // The second pick carries an independently changed deletion: its consent
     // prompt is the pause point after the first pick already committed.
@@ -673,7 +673,7 @@ describe("lifecycle operation recording", () => {
     input.write(" ");
     await settle();
     input.write("\r");
-    await waitForOutput(uninstall.streams.humanText, "Whole installations or selected Hosts?");
+    await waitForOutput(uninstall.streams.humanText, "Whole installations or selected agents?");
     input.write("\r");
     await waitForOutput(uninstall.streams.humanText, "Uninstall as listed?");
     input.write("y\n");
@@ -701,7 +701,7 @@ describe("lifecycle operation recording", () => {
     mkdirSync(join(projectPath, ".codex"), { recursive: true });
     writeFileSync(join(projectPath, ".codex", "hooks.json"), "{}\n");
 
-    const install = invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]);
+    const install = invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]);
     expect((await install.outcome).exitCode).toBe(2);
 
     const entry = (await detailsEntries(home))[0]!;
@@ -716,7 +716,7 @@ describe("lifecycle operation recording", () => {
   test("a stopped uninstall records failed and remaining work", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     // A read-only Project root makes the proven removal fail mid-transaction.
     chmodSync(projectPath, 0o500);
     try {
@@ -742,7 +742,7 @@ describe("lifecycle operation recording", () => {
     mkdirSync(healthy);
     mkdirSync(failing);
     for (const project of [healthy, failing]) {
-      expect((await invokeInstall(home, ["coding", project, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", project, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     }
     chmodSync(failing, 0o500);
     try {
@@ -763,7 +763,7 @@ describe("lifecycle operation recording", () => {
   test("read-only commands leave history byte-identical", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     const before = historyBytes(home);
 
     await statusApplication(home);
@@ -838,7 +838,7 @@ describe("lifecycle operation recording", () => {
     // The history destination is not a file: publication must fail closed.
     mkdirSync(operationHistoryPath(home), { recursive: true });
 
-    const install = invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]);
+    const install = invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]);
     expect((await install.outcome).exitCode).toBe(0);
 
     const output = humanText(install.streams.humanText());
@@ -867,7 +867,7 @@ describe("lifecycle operation recording", () => {
   test("machine JSON reports the details family for latest, list, and one identity", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
 
     for (const [arguments_, selection] of [
       [["--json"], "latest"],
@@ -903,7 +903,7 @@ describe("lifecycle operation recording", () => {
   test("a long interactive detail pages through the shared pager and redirected output never does", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     const calls: string[] = [];
     const pagerExecution: InteractiveExecution = async (options) => {
       calls.push(
@@ -947,7 +947,7 @@ describe("lifecycle operation recording", () => {
   test("the retained document is strict JSON that the production reader accepts", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
+    expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"]).outcome).exitCode).toBe(0);
     const history = await readOperationHistory(home);
     expect(JSON.parse(historyBytes(home))).toEqual(history);
   });

@@ -2,19 +2,19 @@
 
 exports[`golden snapshots of every human view root help: root-help 1`] = `
 "--- stdout ---
-Agent Profile Kit composes reusable agent material into host-native projects.
+Agent Profile Kit composes reusable agent material into agent-native projects.
 
 Usage: apkit <command> [arguments]
 
 First run:
   apkit init <path>
-  apkit install <profile> --host <host>
+  apkit install <profile> --agent <agent>
   apkit status
   apkit update
 
   Scaffold material with apkit new; focus a topic with apkit guide profile,
     apkit guide context, or apkit guide skill; see apkit install --help for
-    supported Host values.
+    supported agent values.
 
 Common commands:
   init
@@ -28,8 +28,7 @@ Common commands:
   open
     Open the configured Workspace in your system file manager
   install
-    Install a Profile with Agent Hosts into a Project and remember the
-      selection
+    Install a Profile with agents into a Project and remember the selection
   validate
     Check a Workspace folder or the connected Workspace and settings
   configure
@@ -47,12 +46,12 @@ Common commands:
 More commands:
   Inventory:
   list
-    List read-only inventory for Projects, Profiles, or Hosts
+    List read-only inventory for Projects, Profiles, or agents
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection;
-      a lone --profile reaches that Profile's installations fleet-wide; --host
-      removes only those Hosts within the scope
+      a lone --profile reaches that Profile's installations fleet-wide; --agent
+      removes only those agents within the scope
   Machine details:
   info
     Show the engine version and selected application locations
@@ -139,8 +138,8 @@ Topics:
       without \`.md\`, and apkit reads no frontmatter.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
-      frontmatter \`name\`, and its description tells an Agent Host when the
-      workflow applies.
+      frontmatter \`name\`, and its description tells an agent when the workflow
+      applies.
 
 Complete references:
   apkit guide --contract
@@ -154,7 +153,7 @@ Examples:
   apkit init <path>
   apkit new skill <skill>
   apkit guide profile
-  apkit install example --host codex
+  apkit install example --agent codex
 --- stderr ---
 "
 `;
@@ -184,7 +183,8 @@ An example context/example-context.md:
 Keep project-specific instructions in the project repository.
 
 
-Next: from the project you want to try, run apkit install example --host codex
+Next: from the project you want to try, run
+  apkit install example --agent codex
 
 For the Workspace contract, run apkit guide --contract; for complete authoring
   guidance, run apkit guide --full.
@@ -225,7 +225,7 @@ exports[`golden snapshots of every human view focused guide skill: focused-guide
 Skill
 
 A Skill is a reusable workflow package. Profiles select it by its frontmatter
-  \`name\`, and its description tells an Agent Host when the workflow applies.
+  \`name\`, and its description tells an agent when the workflow applies.
 
 Workspace: Not configured (run apkit init <path>)
 
@@ -546,19 +546,19 @@ Project Bindings live only in machine-local
   existing absolute or home-relative project root, one Profile, and a non-empty
   set of supported Hosts (\`antigravity\`, \`codex\`, \`claude\`, \`grok\`, \`opencode\`,
   \`pi\`). Host order and duplicate entries normalize at ingestion. There are no
-  wildcards, recursive scans, hidden default projects, Host auto-detection,
+  wildcards, recursive scans, hidden default projects, agent auto-detection,
   per-session Profile selection, or Profile version pins. A project root may
   appear in only one binding.
 
 Hand-edit \`config.yaml\`, or record one binding and install it in one action
   with \`apkit install\` (confirms interactively; \`--auto-confirm\` answers it):
 
-apkit install coding --host codex --auto-confirm
-apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi --auto-confirm
+apkit install coding --agent codex --auto-confirm
+apkit install coding ~/projects/tools/agent-profile-kit --agent antigravity --agent codex --agent claude --agent grok --agent opencode --agent pi --auto-confirm
 
 Omit the project argument to use the current working directory. At least one
-  \`--host\` flag is required. An identical installation is left unchanged; a
-  different Profile or Host set for the same project replaces the installation
+  \`--agent\` flag is required. An identical installation is left unchanged; a
+  different Profile or agent set for the same project replaces the installation
   in the same action. Do not hand-edit \`config.yaml\` while \`install\` is running:
   cooperating lifecycle commands serialize, but a text editor does not
   participate in that lock. Installing a Profile also verifies its generated
@@ -885,10 +885,10 @@ Use \`apkit status\` for the bound Project containing the current directory,
 
 Use \`apkit uninstall --here\`, \`uninstall --project <path>\`, or \`uninstall
   --all\` (with \`--auto-confirm\` non-interactively, plus \`--profile <name>\`,
-  \`--host <host>\`, and \`--remove-changed\` as needed) to remove selected
-  installations and forget their recorded selection. \`--host <host>\`
-  (repeatable) removes only those Hosts within the scope while the remaining
-  Hosts keep working. It removes only Installation Receipt-proven output and
+  \`--agent <agent>\`, and \`--remove-changed\` as needed) to remove selected
+  installations and forget their recorded selection. \`--agent <agent>\`
+  (repeatable) removes only those agents within the scope while the remaining
+  agents keep working. It removes only Installation Receipt-proven output and
   preserves the Workspace and unselected Projects. It writes no teardown
   provenance. Because a fully removed Project is forgotten, the next \`status\` no
   longer selects it, rather than reporting it as unsafe unexplained missing
@@ -977,21 +977,21 @@ Use this workflow when helping a person author their Workspace and bind projects
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
 5. Install Profiles into Projects—either hand-edit \`config.yaml\` and run
-   \`apkit update\`, or run \`apkit install <profile> [project] --host <host>…\`
-   (cwd when project is omitted; at least one explicit \`--host\` required),
+   \`apkit update\`, or run \`apkit install <profile> [project] --agent <agent>…\`
+   (cwd when project is omitted; at least one explicit \`--agent\` required),
    which records the selection and installs the verified output in one
    action after an interactive confirmation (\`--auto-confirm\` answers it
    non-interactively). Do not
-   invent project roots or Host lists. Use only explicit paths the user confirms.
-   Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
+   invent project roots or agent lists. Use only explicit paths the user confirms.
+   Reject wildcards, recursive scans, agent auto-detection, all-agents defaults,
    per-session selection, and Profile version pins. Installing a different
-   Profile or Host set for the same project replaces the installation in the
+   Profile or agent set for the same project replaces the installation in the
    same action; replacing or deleting independently changed generated files
    needs \`--replace-changed\`/\`--remove-changed\`. After installing, continue
    with validate/status/update. To remove selected installations, use
    \`apkit uninstall --here\`, \`uninstall --project <path>\`, or \`uninstall --all\`
    (explicit scope plus \`--auto-confirm\` non-interactively, with \`--profile\`,
-   \`--host\`, and \`--remove-changed\` as needed); it forgets each fully removed Project's
+   \`--agent\`, and \`--remove-changed\` as needed); it forgets each fully removed Project's
    recorded selection so a later update does not reinstall it, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. To keep generated files in place instead, remove the
@@ -1092,7 +1092,7 @@ Written:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.229.2
+Engine version: 0.230.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1107,8 +1107,8 @@ Inventory topics:
     Configured Project inventory from settings.
   apkit list profiles
     Profile inventory from the selected Workspace.
-  apkit list hosts
-    Supported Agent Hosts for configured Projects.
+  apkit list agents
+    Supported agents for configured Projects.
 --- stderr ---
 "
 `;
@@ -1117,9 +1117,9 @@ exports[`golden snapshots of every human view list projects: list-projects 1`] =
 "--- stdout ---
 Projects:
 
-Project  Profile  Hosts  State
-demo     example  codex  configured
-other    example  codex  configured
+Project  Profile  Agents  State
+demo     example  codex   configured
+other    example  codex   configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -1141,9 +1141,9 @@ Use <profile> with apkit install to select it for a Project, or run
 "
 `;
 
-exports[`golden snapshots of every human view list hosts: list-hosts 1`] = `
+exports[`golden snapshots of every human view list agents: list-agents 1`] = `
 "--- stdout ---
-Supported Hosts:
+Supported agents:
   antigravity — detected
   claude — detected
   codex — detected
@@ -1151,8 +1151,8 @@ Supported Hosts:
   opencode — detected
   pi — detected
 
-"not found" means the Host executable was not detected here.
-Every Host stays selectable with apkit install.
+"not found" means the agent executable was not detected here.
+Every agent stays selectable with apkit install.
 --- stderr ---
 "
 `;
@@ -1184,7 +1184,7 @@ A Profile is a named selection of Context and Skills suited to a kind of work
   and reusable across projects.
 Context is always-loaded facts, preferences, and standing rules a Profile
   selects.
-Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi
+Detected agents: antigravity, claude, codex, grok, opencode, pi
 
 Next:
 - apkit new context <context>
@@ -1221,7 +1221,7 @@ exports[`golden snapshots of every human view install success: install-success 1
 "--- stdout ---
 ✔ Installed for ~/projects/demo
   Profile: example
-  Hosts: codex
+  Agents: codex
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
   Profile can load.
@@ -1241,7 +1241,7 @@ exports[`golden snapshots of every human view validate: validate 1`] = `
 ✔ Workspace and settings valid (1 Profile, 1 configured Project)
 Workspace: ~/apkit-workspace
 Profiles found: example
-Hosts bound: codex
+Agents bound: codex
 Next: apkit status
 --- stderr ---
 "
@@ -1523,10 +1523,10 @@ exports[`golden snapshots of every human view status verbose: status-verbose 1`]
 ✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
-Host setup:
+Agent setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
-Standing Host setup:
+Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
 - Launch Codex from the exact bound project root: ~/projects/demo
@@ -1579,7 +1579,7 @@ First use:
 - Trust the bound project in Codex so the Profile can load.
 - Launch Codex from the exact bound project root so the Profile can load.
 
-Start a new Host session from the Project root to use the updated material.
+Start a new agent session from the Project root to use the updated material.
 Optional check: start a new Codex session in ~/projects/demo and ask what
   Profile material it loaded.
 
@@ -1606,7 +1606,7 @@ exports[`golden snapshots of every human view update blocked: update-blocked 1`]
 
 Project: blocked
   Profile: example
-  Hosts: codex
+  Agents: codex
   ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
     write to it.
     Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1699,14 +1699,14 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
  /__\\ reusable agent material
 
 Agent Profile Kit composes reusable
-  agent material into host-native
+  agent material into agent-native
   projects.
 
 Usage: apkit <command> [arguments]
 
 First run:
   apkit init <path>
-  apkit install <profile> --host <host>
+  apkit install <profile> --agent <agent>
   apkit status
   apkit update
 
@@ -1716,7 +1716,7 @@ First run:
     apkit guide context, or
     apkit guide skill; see
     apkit install --help for supported
-    Host values.
+    agent values.
 
 Common commands:
   init
@@ -1734,8 +1734,8 @@ Common commands:
     Open the configured Workspace in
       your system file manager
   install
-    Install a Profile with Agent Hosts
-      into a Project and remember the
+    Install a Profile with agents into
+      a Project and remember the
       selection
   validate
     Check a Workspace folder or the
@@ -1762,15 +1762,15 @@ More commands:
   Inventory:
   list
     List read-only inventory for
-      Projects, Profiles, or Hosts
+      Projects, Profiles, or agents
   Teardown:
   uninstall
     Remove selected Project
       installations and forget their
       recorded selection; a lone
       --profile reaches that Profile's
-      installations fleet-wide; --host
-      removes only those Hosts within
+      installations fleet-wide; --agent
+      removes only those agents within
       the scope
   Machine details:
   info
@@ -1790,14 +1790,14 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
  /__\\ reusable agent material
 
 Agent Profile Kit composes reusable
-  agent material into host-native
+  agent material into agent-native
   projects.
 
 \x1B[1mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1mFirst run:\x1B[0m
 \x1B[36m  apkit init <path>\x1B[0m
-\x1B[36m  \x1B[0m\x1B[36mapkit install <profile> --host <host>\x1B[0m
+\x1B[36m  \x1B[0m\x1B[36mapkit install <profile> --agent <agent>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
@@ -1807,7 +1807,7 @@ Agent Profile Kit composes reusable
     \x1B[36mapkit guide context\x1B[0m, or
     \x1B[36mapkit guide skill\x1B[0m; see
     \x1B[36mapkit install --help\x1B[0m for supported
-    Host values.
+    agent values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1825,8 +1825,8 @@ Agent Profile Kit composes reusable
     Open the configured Workspace in
       your system file manager
 \x1B[36m  install\x1B[0m
-    Install a Profile with Agent Hosts
-      into a Project and remember the
+    Install a Profile with agents into
+      a Project and remember the
       selection
 \x1B[36m  validate\x1B[0m
     Check a Workspace folder or the
@@ -1853,15 +1853,15 @@ Agent Profile Kit composes reusable
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for
-      Projects, Profiles, or Hosts
+      Projects, Profiles, or agents
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project
       installations and forget their
       recorded selection; a lone
       --profile reaches that Profile's
-      installations fleet-wide; --host
-      removes only those Hosts within
+      installations fleet-wide; --agent
+      removes only those agents within
       the scope
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
@@ -1880,18 +1880,18 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
   /\\  Agent Profile Kit
  /__\\ reusable agent material
 
-Agent Profile Kit composes reusable agent material into host-native projects.
+Agent Profile Kit composes reusable agent material into agent-native projects.
 
 Usage: apkit <command> [arguments]
 
 First run:
   apkit init <path>
-  apkit install <profile> --host <host>
+  apkit install <profile> --agent <agent>
   apkit status
   apkit update
 
   Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
-    or apkit guide skill; see apkit install --help for supported Host values.
+    or apkit guide skill; see apkit install --help for supported agent values.
 
 Common commands:
   init
@@ -1904,7 +1904,7 @@ Common commands:
   open
     Open the configured Workspace in your system file manager
   install
-    Install a Profile with Agent Hosts into a Project and remember the selection
+    Install a Profile with agents into a Project and remember the selection
   validate
     Check a Workspace folder or the connected Workspace and settings
   configure
@@ -1921,11 +1921,11 @@ Common commands:
 More commands:
   Inventory:
   list
-    List read-only inventory for Projects, Profiles, or Hosts
+    List read-only inventory for Projects, Profiles, or agents
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection; a lone --profile
-      reaches that Profile's installations fleet-wide; --host removes only those Hosts within the
+      reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
   Machine details:
   info
@@ -1942,18 +1942,18 @@ exports[`rendering matrix for a representative subset root help matrix: root-hel
   /\\  Agent Profile Kit
  /__\\ reusable agent material
 
-Agent Profile Kit composes reusable agent material into host-native projects.
+Agent Profile Kit composes reusable agent material into agent-native projects.
 
 \x1B[1mUsage: \x1B[36mapkit <command> [arguments]\x1B[0m\x1B[0m
 
 \x1B[1mFirst run:\x1B[0m
 \x1B[36m  apkit init <path>\x1B[0m
-\x1B[36m  apkit install <profile> --host <host>\x1B[0m
+\x1B[36m  apkit install <profile> --agent <agent>\x1B[0m
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
   Scaffold material with \x1B[36mapkit new\x1B[0m; focus a topic with \x1B[36mapkit guide profile\x1B[0m, \x1B[36mapkit guide context\x1B[0m,
-    or \x1B[36mapkit guide skill\x1B[0m; see \x1B[36mapkit install --help\x1B[0m for supported Host values.
+    or \x1B[36mapkit guide skill\x1B[0m; see \x1B[36mapkit install --help\x1B[0m for supported agent values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1966,7 +1966,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  open\x1B[0m
     Open the configured Workspace in your system file manager
 \x1B[36m  install\x1B[0m
-    Install a Profile with Agent Hosts into a Project and remember the selection
+    Install a Profile with agents into a Project and remember the selection
 \x1B[36m  validate\x1B[0m
     Check a Workspace folder or the connected Workspace and settings
 \x1B[36m  configure\x1B[0m
@@ -1983,11 +1983,11 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[1mMore commands:\x1B[0m
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
-    List read-only inventory for Projects, Profiles, or Hosts
+    List read-only inventory for Projects, Profiles, or agents
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project installations and forget their recorded selection; a lone --profile
-      reaches that Profile's installations fleet-wide; --host removes only those Hosts within the
+      reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
@@ -2001,7 +2001,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.229.2
+Engine version: 0.230.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2011,7 +2011,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.229.2\x1B[0m
+\x1B[1mEngine version: 0.230.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2021,7 +2021,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.229.2
+Engine version: 0.230.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2031,7 +2031,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.229.2\x1B[0m
+\x1B[1mEngine version: 0.230.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2044,10 +2044,10 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 Projects:
 
 Project: demo  Profile: example
-Hosts: codex  State: configured
+Agents: codex  State: configured
 
 Project: other  Profile: example
-Hosts: codex  State: configured
+Agents: codex  State: configured
 
 2 Projects configured.
 Use apkit status to inspect Project
@@ -2061,10 +2061,10 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 \x1B[1mProjects:\x1B[0m
 
 Project: demo  Profile: example
-Hosts: codex  State: configured
+Agents: codex  State: configured
 
 Project: other  Profile: example
-Hosts: codex  State: configured
+Agents: codex  State: configured
 
 2 Projects configured.
 Use \x1B[36mapkit status\x1B[0m to inspect Project
@@ -2077,9 +2077,9 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 Projects:
 
-Project  Profile  Hosts  State
-demo     example  codex  configured
-other    example  codex  configured
+Project  Profile  Agents  State
+demo     example  codex   configured
+other    example  codex   configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -2091,9 +2091,9 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 \x1B[1mProjects:\x1B[0m
 
-\x1B[1mProject  Profile  Hosts  State\x1B[0m
-demo     example  codex  configured
-other    example  codex  configured
+\x1B[1mProject  Profile  Agents  State\x1B[0m
+demo     example  codex   configured
+other    example  codex   configured
 
 2 Projects configured.
 Use \x1B[36mapkit status\x1B[0m to inspect Project lifecycle diagnostics.
@@ -2242,13 +2242,13 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 ✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
-Host setup:
+Agent setup:
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
-Standing Host setup:
+Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does
     not load until the project is
@@ -2267,13 +2267,13 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32m✔ demo is up to date\x1B[0m
 \x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
-\x1B[1mHost setup:\x1B[0m
+\x1B[1mAgent setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
-\x1B[1mStanding Host setup:\x1B[0m
+\x1B[1mStanding agent setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does
     not load until the project is
@@ -2292,10 +2292,10 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 ✔ demo is up to date
 Projects:
 ~/projects/demo: up to date
-Host setup:
+Agent setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
-Standing Host setup:
+Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
 - Launch Codex from the exact bound project root: ~/projects/demo
@@ -2309,10 +2309,10 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[32m✔ demo is up to date\x1B[0m
 \x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
-\x1B[1mHost setup:\x1B[0m
+\x1B[1mAgent setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
-\x1B[1mStanding Host setup:\x1B[0m
+\x1B[1mStanding agent setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
 - Launch Codex from the exact bound project root: ~/projects/demo

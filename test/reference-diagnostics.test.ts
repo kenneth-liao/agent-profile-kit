@@ -138,12 +138,12 @@ describe("missing Profile and Host diagnostics (US-015, DEC-011)", () => {
       supportedHosts: SUPPORTED_HOSTS,
     };
     const parts = formatInstallerToolErrorDiagnostic(fact);
-    expect(flatInlineText(parts.happened)).toBe("Unsupported Agent Host 'claud'");
+    expect(flatInlineText(parts.happened)).toBe("Unsupported agent 'claud'");
     const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+    expect(why).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
     expect(why).toContain("Did you mean 'claude'?");
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
-    expect(whatToType).not.toContain("list hosts");
+    expect(whatToType).not.toContain("list agents");
   });
 
   test("without a clear Host match, shows supported Hosts and offers discovery command", () => {
@@ -153,12 +153,12 @@ describe("missing Profile and Host diagnostics (US-015, DEC-011)", () => {
       supportedHosts: SUPPORTED_HOSTS,
     };
     const parts = formatInstallerToolErrorDiagnostic(fact);
-    expect(flatInlineText(parts.happened)).toBe("Unsupported Agent Host 'completely-unknown'");
+    expect(flatInlineText(parts.happened)).toBe("Unsupported agent 'completely-unknown'");
     const why = (parts.why ?? []).map(flatInlineText).join("\n");
     expect(why).not.toContain("Did you mean");
-    expect(why).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+    expect(why).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
-    expect(whatToType).toContain("Run apkit list hosts to inspect supported Hosts.");
+    expect(whatToType).toContain("Run apkit list agents to inspect supported agents.");
   });
 
   test("machine formatInstallerToolError preserves lowercase prefix without capitalization change", () => {
@@ -168,7 +168,7 @@ describe("missing Profile and Host diagnostics (US-015, DEC-011)", () => {
       supportedHosts: SUPPORTED_HOSTS,
     };
     const sentence = flatInlineText(formatInstallerToolError(fact));
-    expect(sentence).toContain("unsupported Agent Host 'claud'; supported Hosts: antigravity, claude, codex, grok, opencode, pi");
+    expect(sentence).toContain("unsupported agent 'claud'; supported agents: antigravity, claude, codex, grok, opencode, pi");
   });
 });
 

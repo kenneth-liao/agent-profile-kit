@@ -265,9 +265,9 @@ describe("fleet-wide synchronization qualification", () => {
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project Binding");
     // Invocation-wide next-use instruction appears once (US-012).
-    expect(humanText(apply.stdout).match(/Start a new Host session from the Project root/g)).toHaveLength(1);
+    expect(humanText(apply.stdout).match(/Start a new agent session from the Project root/g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain(
-      humanText("Start a new Host session from the Project root to use the updated material."),
+      humanText("Start a new agent session from the Project root to use the updated material."),
     );
     // First fleet delivery offers one short optional check (ADR-0043).
     expect(humanText(apply.stdout).match(/Optional check: /g)).toHaveLength(1);

@@ -977,7 +977,7 @@ export function projectInventoryDocument(
         kind: "prose",
         parts: [
           "Use ",
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
           " to install a Project.",
         ],
       },
@@ -1012,7 +1012,7 @@ export function projectInventoryDocument(
           content: { kind: "identifier", value: project.profile, category: "path" },
         },
         {
-          column: "Hosts",
+          column: "Agents",
           content: { kind: "identifier", value: project.hosts.join(", ") },
         },
         {
@@ -1055,7 +1055,7 @@ export function projectInventoryDocument(
 }
 
 
-interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInventoryTopic> {
+interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInventoryTopic | "hosts"> {
   readonly command: "list";
   readonly engineVersion: string;
   readonly schemaVersion: 1;
@@ -1065,7 +1065,7 @@ interface ListInventoryMachineBase<Topic extends InventoryTopic | MachineInvento
 type ListInventoryMachineOutcome = "error" | "success";
 
 function listInventoryMachinePayload<
-  Topic extends InventoryTopic | MachineInventoryTopic,
+  Topic extends InventoryTopic | MachineInventoryTopic | "hosts",
   Outcome extends ListInventoryMachineOutcome,
   Payload extends object,
 >(
@@ -1219,7 +1219,7 @@ export function profileDetailDocument(
         "Use ",
         commandPart(COMMAND_NAME, [arg("configure"), arg("profile"), arg(profile.id)]),
         " to change its membership, or ",
-        commandPart(COMMAND_NAME, [arg("install"), arg(profile.id), arg("--host"), arg("<host>")]),
+        commandPart(COMMAND_NAME, [arg("install"), arg(profile.id), arg("--agent"), arg("<agent>")]),
         " to select it for a Project.",
       ],
     },
@@ -1328,7 +1328,7 @@ export function hostInventoryDocument(
   detected: readonly SupportedHost[],
 ): PresentationDocument {
   return [
-    { kind: "heading", text: "Supported Hosts:" },
+    { kind: "heading", text: "Supported agents:" },
     ...hosts.map(({ host }) => ({
       kind: "prose" as const,
       parts: [
@@ -1342,12 +1342,12 @@ export function hostInventoryDocument(
     spacerNode(),
     {
       kind: "prose",
-      parts: [`"${HOST_DETECTION_LABELS.notFound}" means the Host executable was not detected here.`],
+      parts: [`"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`],
     },
     {
       kind: "prose",
       parts: [
-        "Every Host stays selectable with ",
+        "Every agent stays selectable with ",
         commandPart(COMMAND_NAME, [arg("install")]),
         ".",
       ],
@@ -1579,7 +1579,7 @@ export function validationResultDocument(result: ValidationResult): Presentation
     },
     {
       kind: "key-value",
-      key: "Hosts bound",
+      key: "Agents bound",
       value: {
         kind: "prose",
         parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
@@ -1593,7 +1593,7 @@ export function validationResultDocument(result: ValidationResult): Presentation
         program: COMMAND_NAME,
         args: [{
           kind: "text",
-          value: result.bindings === 0 ? "install <profile> --host <host>" : "status",
+          value: result.bindings === 0 ? "install <profile> --agent <agent>" : "status",
         }],
       },
     },
@@ -1774,8 +1774,8 @@ export function uninstallConfirmationDocument(preview: {
         "  ",
         pathPart(entry.canonicalProject ?? entry.project, "fleet", entry.project),
         entry.removeHosts === undefined
-          ? ` (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")})`
-          : ` (Profile ${entry.profile}, Hosts ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
+          ? ` (Profile ${entry.profile}, agents ${entry.hosts.join(", ")})`
+          : ` (Profile ${entry.profile}, agents ${entry.hosts.join(", ")} — remove ${entry.removeHosts.join(", ")}; keep ${entry.hosts.filter((host) => !entry.removeHosts!.includes(host)).join(", ") || "none (full removal)"})`,
       ],
     })),
     {
@@ -1880,7 +1880,7 @@ export function uninstallReceiptDocument(
   }
   for (const [hosts, entries] of [...partialGroups.entries()].sort()) {
     outcomeLines.push(
-      `Removed Host ${hosts} from ${plural(entries.length, "Project")}; the remaining Hosts keep working with their shared output preserved.`,
+      `Removed agent ${hosts} from ${plural(entries.length, "Project")}; the remaining agents keep working with their shared output preserved.`,
     );
   }
   const nodes: PresentationNode[] = [{
@@ -1996,7 +1996,7 @@ export function uninstallPickerNoopDocument(
       ? "Uninstall was cancelled; nothing was written."
       : kind === "empty-projects"
         ? "Uninstall was declined (no Projects selected); nothing was written."
-        : "Uninstall was declined (no Hosts selected); nothing was written.",
+        : "Uninstall was declined (no agents selected); nothing was written.",
   ]);
 }
 
@@ -2653,7 +2653,7 @@ function outcomeLine(
     return selection.filter === "stale" ? "No stale Projects." : "No Blocked Projects.";
   }
   if (currentProjects !== undefined) {
-    if (reportHasHostAttention(report)) return "Host attention required";
+    if (reportHasHostAttention(report)) return "Agent attention required";
     return settledStatusOutcomeLine(report, selection, identities);
   }
   if (reportItems(report).length > 0) return "Ready to update";
@@ -3153,11 +3153,11 @@ function setupSectionsFromPresented(
   );
   const lines: string[] = [];
   if (transition.length > 0) {
-    lines.push("Host setup:");
+    lines.push("Agent setup:");
     for (const group of transition) lines.push(...setupStepLines(group, verbose, scope));
   }
   if (standing.length > 0) {
-    lines.push("Standing Host setup:");
+    lines.push("Standing agent setup:");
     for (const group of standing) lines.push(...setupStepLines(group, verbose, scope));
   }
   return lines;
@@ -3215,7 +3215,7 @@ function readinessLines(
   receipt: ReconciliationReport,
 ): readonly string[] {
   if (appliedProfiles(report, receipt).length === 0) return [];
-  return ["Start a new Host session from the Project root to use the updated material."];
+  return ["Start a new agent session from the Project root to use the updated material."];
 }
 
 function nextActionScope(
@@ -3989,7 +3989,7 @@ function conciseApplyDocument(
           },
           {
             kind: "key-value",
-            key: "  Hosts",
+            key: "  Agents",
             value: { kind: "identifier", value: desired.hosts.join(", ") },
           },
         );
@@ -4624,7 +4624,7 @@ export function installProfileSelectionNoteDocument(): PresentationDocument {
 export function installHostSelectionNoteDocument(): PresentationDocument {
   return [{
     kind: "prose",
-    parts: [AGENT_HOST_EXPLANATION_SENTENCE, " Selecting a Host does not install it."],
+    parts: [AGENT_HOST_EXPLANATION_SENTENCE, " Selecting an agent does not install it."],
   }];
 }
 /** The guided-install target notice (US-001, DEC-002, US-006): names the
@@ -4653,7 +4653,7 @@ export function installTargetDocument(target: {
     },
     ...(target.previous === undefined ? [] : [{
       kind: "prose",
-      parts: [`Current selection: Profile ${target.previous.profile}, Hosts ${target.previous.hosts.join(", ")}.`],
+      parts: [`Current selection: Profile ${target.previous.profile}, agents ${target.previous.hosts.join(", ")}.`],
     } as const]),
   ];
 }
@@ -4676,8 +4676,8 @@ export function installConfirmationDocument(preview: {
   const hostsLine =
     preview.previous !== undefined &&
     preview.previous.hosts.join(", ") !== preview.hosts.join(", ")
-      ? `  Hosts: ${preview.previous.hosts.join(", ")} → ${preview.hosts.join(", ")}`
-      : `  Hosts: ${preview.hosts.join(", ")}`;
+      ? `  Agents: ${preview.previous.hosts.join(", ")} → ${preview.hosts.join(", ")}`
+      : `  Agents: ${preview.hosts.join(", ")}`;
   return [
     {
       kind: "sentence",
@@ -5675,8 +5675,8 @@ function verboseHostSetupNodes(
   );
   const nodes: PresentationNode[] = [];
   for (const [heading, sectionGroups] of [
-    ["Host setup:", transition],
-    ["Standing Host setup:", standing],
+    ["Agent setup:", transition],
+    ["Standing agent setup:", standing],
   ] as const) {
     if (sectionGroups.length === 0) continue;
     nodes.push({ kind: "heading", text: heading });
@@ -5734,7 +5734,7 @@ function conciseStatusDocument(
           "Next: Run ",
           commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
           ` to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or `,
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--host"), arg("<host>")]),
+          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
           " to install one.",
         ],
       },

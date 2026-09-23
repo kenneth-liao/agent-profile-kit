@@ -46,7 +46,7 @@ for (const columns of [100, 60] as const) {
       const session = await startPtySession(["multi"], columns);
       temporaryDirectories.push(session.runDirectory);
       try {
-        await session.waitForTranscript("Which Agent Hosts?");
+        await session.waitForTranscript("Which agents?");
         // Pick claude first.
         const firstToggle = session.transcriptLength();
         session.write(" ");
@@ -93,7 +93,7 @@ for (const columns of [100, 60] as const) {
       const session = await startPtySession(["multi"], columns);
       temporaryDirectories.push(session.runDirectory);
       try {
-        await session.waitForTranscript("Which Agent Hosts?");
+        await session.waitForTranscript("Which agents?");
         // Enter with nothing selected must refuse (min 1) and keep the prompt.
         const refusedOffset = session.transcriptLength();
         session.write("\r");

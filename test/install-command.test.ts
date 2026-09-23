@@ -205,7 +205,7 @@ describe("install argument refusals happen before any write", () => {
 
     const outcome = await runInstallCommand({
       home,
-      arguments: ["coding", projectPath, "--host", "codex"],
+      arguments: ["coding", projectPath, "--agent", "codex"],
       stdout: streams.output as Writable & { isTTY?: boolean },
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input: nonInteractiveInput(),
@@ -227,7 +227,7 @@ describe("install argument refusals happen before any write", () => {
 
     const outcome = await runInstallCommand({
       home,
-      arguments: ["--host", "codex", "--auto-confirm"],
+      arguments: ["--agent", "codex", "--auto-confirm"],
       stdout: streams.output as Writable & { isTTY?: boolean },
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input: nonInteractiveInput(),
@@ -270,7 +270,7 @@ describe("explicit install records the selection and installs output in one acti
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -303,7 +303,7 @@ describe("install beside a broken Profile (#606)", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["healthy", projectPath, "--host", "codex", "--auto-confirm"],
+      ["healthy", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -319,7 +319,7 @@ describe("install beside a broken Profile (#606)", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["--host", "codex"],
+      ["--agent", "codex"],
       input,
       { cwd: projectPath },
     );
@@ -344,7 +344,7 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env: { PATH: hermeticCodexPath() } },
     );
@@ -372,14 +372,14 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     const env = { PATH: hermeticCodexPath() };
     await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
@@ -396,14 +396,14 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     const env = { PATH: hermeticCodexPath() };
     await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--host", "claude", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--agent", "claude", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
@@ -426,7 +426,7 @@ describe("install general confirmation", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -450,7 +450,7 @@ describe("install general confirmation", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -474,7 +474,7 @@ describe("install general confirmation", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -494,7 +494,7 @@ describe("install general confirmation", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -515,7 +515,7 @@ describe("install general confirmation", () => {
     input.end();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       input,
     );
     const { exitCode } = await pending;
@@ -530,7 +530,7 @@ describe("install general confirmation", () => {
     const projectPath = projectDirectory();
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--json"],
+      ["coding", projectPath, "--agent", "codex", "--json"],
       fakeInteractiveInput(),
     );
 
@@ -551,7 +551,7 @@ describe("install changed-file consent", () => {
     const projectPath = projectDirectory();
     const installed = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
     expect(installed.exitCode).toBe(0);
@@ -565,7 +565,7 @@ describe("install changed-file consent", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -585,7 +585,7 @@ describe("install changed-file consent", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -606,7 +606,7 @@ describe("install changed-file consent", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -623,7 +623,7 @@ describe("install changed-file consent", () => {
 
     const { exitCode } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm", "--replace-changed"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm", "--replace-changed"],
       nonInteractiveInput(),
     );
 
@@ -638,7 +638,7 @@ describe("install changed-file consent", () => {
 
     const refused = await runInstall(
       home,
-      ["coding", projectPath, "--host", "claude", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "claude", "--auto-confirm"],
       nonInteractiveInput(),
     );
     expect(refused.exitCode).toBe(1);
@@ -648,7 +648,7 @@ describe("install changed-file consent", () => {
 
     const permitted = await runInstall(
       home,
-      ["coding", projectPath, "--host", "claude", "--auto-confirm", "--remove-changed"],
+      ["coding", projectPath, "--agent", "claude", "--auto-confirm", "--remove-changed"],
       nonInteractiveInput(),
     );
     expect(permitted.exitCode).toBe(0);
@@ -668,7 +668,7 @@ describe("install failures report truthfully", () => {
     try {
       const { exitCode, streams } = await runInstall(
         home,
-        ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+        ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
         nonInteractiveInput(),
       );
 
@@ -693,7 +693,7 @@ describe("install failures report truthfully", () => {
     input.end();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
     const { exitCode } = await pending;
@@ -709,7 +709,7 @@ describe("install failures report truthfully", () => {
     const projectPath = projectDirectory();
     const installed = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
     expect(installed.exitCode).toBe(0);
@@ -718,7 +718,7 @@ describe("install failures report truthfully", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -747,7 +747,7 @@ describe("install failures report truthfully", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -765,7 +765,7 @@ describe("install failures report truthfully", () => {
     const projectPath = projectDirectory();
     const installed = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
     expect(installed.exitCode).toBe(0);
@@ -774,7 +774,7 @@ describe("install failures report truthfully", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -801,7 +801,7 @@ describe("install failures report truthfully", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["missing", projectPath, "--host", "codex", "--auto-confirm"],
+      ["missing", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -817,7 +817,7 @@ describe("install failures report truthfully", () => {
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "gemini", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "gemini", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -832,7 +832,7 @@ describe("install failures report truthfully", () => {
 
     const { exitCode } = await runInstall(
       home,
-      ["coding", missing, "--host", "codex", "--auto-confirm"],
+      ["coding", missing, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -853,7 +853,7 @@ describe("install changed-installation scope", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       input,
     );
 
@@ -877,7 +877,7 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
@@ -897,13 +897,13 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     expect((await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     )).exitCode).toBe(0);
     const unchanged = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
@@ -924,13 +924,13 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     expect((await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     )).exitCode).toBe(0);
     const unchanged = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
       { env },
     );
@@ -949,7 +949,7 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex"],
+      ["coding", projectPath, "--agent", "codex"],
       nonInteractiveInput(),
     );
 
@@ -964,7 +964,7 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "codex", "--auto-confirm", "--json"],
+      ["coding", projectPath, "--agent", "codex", "--auto-confirm", "--json"],
       nonInteractiveInput(),
     );
 
@@ -981,7 +981,7 @@ describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () =
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["codin", projectPath, "--host", "codex", "--auto-confirm"],
+      ["codin", projectPath, "--agent", "codex", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
@@ -999,14 +999,14 @@ describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () =
 
     const { exitCode, streams } = await runInstall(
       home,
-      ["coding", projectPath, "--host", "claud", "--auto-confirm"],
+      ["coding", projectPath, "--agent", "claud", "--auto-confirm"],
       nonInteractiveInput(),
     );
 
     expect(exitCode).toBe(1);
     const err = plain(streams.errorText());
-    expect(err).toContain("Unsupported Agent Host 'claud'");
-    expect(err).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+    expect(err).toContain("Unsupported agent 'claud'");
+    expect(err).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
     expect(err).toContain("Did you mean 'claude'?");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });

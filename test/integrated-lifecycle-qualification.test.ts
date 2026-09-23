@@ -231,7 +231,7 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
-      expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"])).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"])).exitCode).toBe(0);
       // A routine update over settled work records a no-op entry.
       expect((await invokeUpdate(home, ["--all"])).exitCode).toBe(0);
       // Declining the general uninstall confirmation records a cancelled entry with zero writes.
@@ -285,7 +285,7 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
-      expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"])).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"])).exitCode).toBe(0);
       // A read-only Project root makes the proven removal fail mid-transaction.
       chmodSync(projectPath, 0o500);
       let uninstall: { readonly exitCode: number; readonly streams: ReturnType<typeof capturedStreams> };
@@ -331,7 +331,7 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
-      expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"])).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"])).exitCode).toBe(0);
       // A real failed recovery (DEC-006) produced by the installer through
       // the same double fault the recovery suite uses: the state write
       // faults after removal, then the binding-restore publish faults too.
@@ -474,9 +474,9 @@ describe("integrated generated-source notice (US-021 interaction)", () => {
           await invokeInstall(home, [
             "coding",
             projectPath,
-            "--host",
+            "--agent",
             "claude",
-            "--host",
+            "--agent",
             "opencode",
             "--auto-confirm",
           ])
@@ -516,7 +516,7 @@ describe("integrated membership edits and partial Host removal (AC1)", () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     try {
-      expect((await invokeInstall(home, ["coding", projectPath, "--host", "codex", "--auto-confirm"])).exitCode).toBe(0);
+      expect((await invokeInstall(home, ["coding", projectPath, "--agent", "codex", "--auto-confirm"])).exitCode).toBe(0);
       expect(existsSync(join(projectPath, ".agents", "skills", "deploy", "SKILL.md"))).toBe(false);
 
       const configureStreams = capturedStreams();
@@ -567,9 +567,9 @@ describe("integrated membership edits and partial Host removal (AC1)", () => {
           await invokeInstall(home, [
             "coding",
             projectPath,
-            "--host",
+            "--agent",
             "codex",
-            "--host",
+            "--agent",
             "opencode",
             "--auto-confirm",
           ])
@@ -577,7 +577,7 @@ describe("integrated membership edits and partial Host removal (AC1)", () => {
       ).toBe(0);
       expect(existsSync(join(projectPath, ".opencode", "opencode.jsonc"))).toBe(true);
 
-      const removed = await invokeUninstall(home, ["--project", projectPath, "--host", "opencode", "--auto-confirm"]);
+      const removed = await invokeUninstall(home, ["--project", projectPath, "--agent", "opencode", "--auto-confirm"]);
       expect(removed.exitCode).toBe(0);
       const receipt = plain(removed.streams.humanText());
       expect(receipt).toContain("opencode");

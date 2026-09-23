@@ -96,7 +96,7 @@ describe("searchable prompts under a real PTY", () => {
     const session = await startPtySession(["multi"], 80);
     temporaryDirectories.push(session.runDirectory);
     try {
-      await session.waitForTranscript("Which Agent Hosts?");
+      await session.waitForTranscript("Which agents?");
       // Each arrow is observed through the highlight redraw (the underlined
       // row is styling — raw matching preserves the ANSI evidence).
       const firstArrowOffset = session.transcriptLength();
@@ -158,7 +158,7 @@ describe("guided install under a real PTY", () => {
       await session.waitForTranscript("›cod", { after: filterOffset });
       const profileEnterOffset = session.transcriptLength();
       session.write("\r");
-      await session.waitForTranscript("Which Agent Hosts?", { after: profileEnterOffset });
+      await session.waitForTranscript("Which agents?", { after: profileEnterOffset });
       const hostFilterOffset = session.transcriptLength();
       session.write("codex");
       await session.waitForTranscript("› codex", { after: hostFilterOffset });
@@ -222,8 +222,8 @@ describe("guided install under a real PTY", () => {
       await session.waitForTranscript("›cod", { after: filterOffset });
       const profileEnterOffset = session.transcriptLength();
       session.write("\r");
-      await session.waitForTranscript("Which Agent Hosts?", { after: profileEnterOffset });
-      await session.waitForTranscript("Selecting a Host does not install it.");
+      await session.waitForTranscript("Which agents?", { after: profileEnterOffset });
+      await session.waitForTranscript("Selecting an agent does not install it.");
       // Focus starts on the first (detected) Host, which is preselected;
       // undetected rows carry the not-found annotation in the same frame.
       await session.waitForTranscript("❯◼codex");
@@ -232,7 +232,7 @@ describe("guided install under a real PTY", () => {
       const enterOffset = session.transcriptLength();
       // Submitting immediately keeps only the preselected detected Host.
       session.write("\r");
-      await session.waitForTranscript("Hosts: codex", { after: enterOffset });
+      await session.waitForTranscript("Agents: codex", { after: enterOffset });
       const confirmOffset = session.transcriptLength();
       session.write("y\r");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });

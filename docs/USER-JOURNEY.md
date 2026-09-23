@@ -68,18 +68,18 @@ than duplicating it.
 
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
-| 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
-| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, Local Configuration named when written, only the parts actually added, the Hosts found on this machine, and a next move routed from the resulting content (Profile creation when none exist; bare install when they do) (spec #640 US-002); without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049); connecting a different Workspace preserves every Project Binding, provisions any missing required parts, and reports missing Profile bindings (spec #593 DEC-002, ticket #607) |
+| 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list agents [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which agents are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
+| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, Local Configuration named when written, only the parts actually added, the agents found on this machine, and a next move routed from the resulting content (Profile creation when none exist; bare install when they do) (spec #640 US-002); without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049); connecting a different Workspace preserves every Project Binding, provisions any missing required parts, and reports missing Profile bindings (spec #593 DEC-002, ticket #607) |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent\|--contract]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction, and the complete Workspace contract one command away |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
-| 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
+| 5 | Install | `install <profile> [project] --agent <agent> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its agents in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
 | 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the retained-evidence route, and on an interactive terminal a confirmation before any changed generated file is replaced |
-| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and a first installation or Host addition states one short optional Project-local check for the Hosts whose delivery began (ADR-0043) |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native agent discovery, and a first installation or agent addition states one short optional Project-local check for the agents whose delivery began (ADR-0043) |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
-| 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; `--host` removes only those Hosts within the scope; a later update does not reinstall them |
+| 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--agent <agent>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; `--agent` removes only those agents within the scope; a later update does not reinstall them |
 | 13 | Temporary Profile Installations | `machine install-temp <profile> <project> --host <host> [--json]`, `machine list temporary [--json]`, `machine remove-temp <temporary-installation-id> [--json]` | One Profile installed for one Host in one explicit Project for a receipt-owned lifetime, discoverable by identity, and removable idempotently; invoked through the machine-facing namespace (DEC-021) |
 
 Stages 1–8 are the first-run path; an update that installed the scaffolded
@@ -145,7 +145,7 @@ Common next steps:
   apkit update
     Sync the complete fleet, the containing Project, or one explicit Project
   apkit install
-    Install a Profile with Agent Hosts into a Project and remember the
+    Install a Profile with agents into a Project and remember the
       selection
   apkit guide
     Show a topic index, full Workspace guidance, or one focused authoring
@@ -173,7 +173,7 @@ deterministic close-match suggestion when available, otherwise only point to
 `list` is the read-only inventory entrypoint: without a topic it names each
 available inventory topic once with one human description. `list projects`
 prints the `Projects:` heading and one row per Project carrying the view's
-shortest-unambiguous identity, Profile, Hosts, and configuration state; the
+shortest-unambiguous identity, Profile, Agents, and configuration state; the
 count appears once, in the summary footer (US-013, ADR-0042). Aligned tables
 print a header row labeling each column (US-008):
 
@@ -181,7 +181,7 @@ print a header row labeling each column (US-008):
 $ apkit list projects
 Projects:
 
-Project  Profile  Hosts   State
+Project  Profile  Agents  State
 demo     example  codex   configured
 other    example  claude  configured
 
@@ -201,16 +201,16 @@ the entries. `--verbose`, `apkit details`, and `--json` keep the full
 home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
-`list hosts` leads with the canonical Hosts supported for configured Projects,
-labeling each Host's advisory executable detection as detected/not found —
-the one shared wording with the install Host picker (#669), so `installed` is
+`list agents` leads with the canonical agents supported for configured Projects,
+labeling each agent's advisory executable detection as detected/not found —
+the one shared wording with the install agent picker (#669), so `installed` is
 never used as detection evidence — without implying Profile loading
-(US-018); a Host whose executable is absent
+(US-018); an agent whose executable is absent
 from `PATH` stays listed and selectable:
 
 ```
-$ apkit list hosts
-Supported Hosts:
+$ apkit list agents
+Supported agents:
   antigravity — detected
   claude — detected
   codex — not found
@@ -218,12 +218,12 @@ Supported Hosts:
   opencode — detected
   pi — detected
 
-"not found" means the Host executable was not detected here.
-Every Host stays selectable with apkit install.
+"not found" means the agent executable was not detected here.
+Every agent stays selectable with apkit install.
 ```
 
 Executable detection is advisory: a "not found" label reports the executable
-only, never whether the Host can load a Profile, and it never removes the Host
+only, never whether the agent can load a Profile, and it never removes the agent
 from available installation choices.
 
 `list profiles <profile>` shows one Profile's selected Context Module and Skill
@@ -238,7 +238,7 @@ Profile 'example':
   Skills: (none)
 
 Use apkit configure profile example to change its membership, or
-  apkit install example --host <host>
+  apkit install example --agent <agent>
   to select it for a Project.
 ```
 
@@ -265,7 +265,7 @@ A Profile is a named selection of Context and Skills suited to a kind of work
   and reusable across projects.
 Context is always-loaded facts, preferences, and standing rules a Profile
   selects.
-Detected Agent Hosts: claude, codex, opencode
+Detected agents: claude, codex, opencode
 
 Next:
 - apkit new context <context>
@@ -361,7 +361,7 @@ Examples:
   apkit init <path>
   apkit new skill <skill>
   apkit guide profile
-  apkit install example --host codex
+  apkit install example --agent codex
 ```
 
 `guide --contract`, `guide --full`, and `guide --agent` retain the canonical
@@ -387,7 +387,7 @@ Create its Context Module, then the Profile selecting it:
 An example `profiles/example.yaml`:
 …
 
-Next: from the project you want to try, run `apkit install example --host codex`.
+Next: from the project you want to try, run `apkit install example --agent codex`.
 
 For the Workspace contract, run `apkit guide --contract`; for complete
 authoring guidance, run `apkit guide --full`.
@@ -447,10 +447,10 @@ side effect.
 ### 5. Install
 
 ```
-$ apkit install example <project> --host codex --auto-confirm
+$ apkit install example <project> --agent codex --auto-confirm
 Installed for <project>
   Profile: example
-  Hosts: codex
+  Agents: codex
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
@@ -465,10 +465,10 @@ Details: apkit details
 ```
 
 ```
-$ apkit install example <project> --host codex --host claude --auto-confirm
+$ apkit install example <project> --agent codex --agent claude --auto-confirm
 Replaced installation for <project>
   Profile: example
-  Hosts: codex → claude, codex
+  Agents: codex → claude, codex
 
 Optional check: start a new Claude session in <project> and ask what Profile
   material it loaded.
@@ -477,57 +477,57 @@ Next: apkit status
 Details: apkit details
 ```
 
-A first installation and a Host addition offer the short optional Host-loading
-check beside the receipt for the Hosts whose delivery began (US-012,
+A first installation and an agent addition offer the short optional agent-loading
+check beside the receipt for the agents whose delivery began (US-012,
 ADR-0043); re-running the same selection commits nothing and renders no check.
-Required Adapter-authored Host Setup Steps appear as concise `First use:` body
+Required Adapter-authored agent Setup Steps appear as concise `First use:` body
 guidance under the one footer, through the shared relevance policy; longer
 loading explanation stays behind `apkit guide --full`.
 
 An interactive `install` shows the proposed scope and asks for confirmation
 before any write; `--auto-confirm` answers that confirmation. The default-No
 confirmation names the Project by its home-relative or absolute path, the
-Profile once and the Hosts, with delta arrows only when an existing
+Profile once and the agents, with delta arrows only when an existing
 installation changes (US-006, DEC-006; ADR-0042 as amended), and the question
 is `Install into this Project? (y/N)`:
 
 ```
 Install into <project>
   Profile: example
-  Hosts: codex
+  Agents: codex
 ? Install into this Project? (y/N)
 ```
 
 On an interactive terminal a bare `install` names the current-directory Project
 target first by that same stable path — explaining Project and Profile before
-the first picker, and Agent Host at the Host picker, within the two-concept
-first-use budget (spec #640 US-001, DEC-003) — and collects only its missing Profile/Hosts
-through searchable pickers — a new installation lists detected Hosts first,
-preselects and marks them `detected`, marks undetected Hosts `not found` with
-one note that selecting a Host does not install it, and selects none when
+the first picker, and agent at the agent picker, within the two-concept
+first-use budget (spec #640 US-001, DEC-003) — and collects only its missing Profile/agents
+through searchable pickers — a new installation lists detected agents first,
+preselects and marks them `detected`, marks undetected agents `not found` with
+one note that selecting an agent does not install it, and selects none when
 nothing is detected, while an existing installation starts from its remembered
-selection without adding newly detected Hosts (spec #640 US-005, superseding
+selection without adding newly detected agents (spec #640 US-005, superseding
 spec #491 US-001's no-preselect rule; ADR-0034) — and a completed guided
 install prints the executable fully specified equivalent. The confirmation
-shows the final Host selection before any write. Replacing or
+shows the final agent selection before any write. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
 restored where possible and the retry is printed.
 
-Correct and well scoped; additional `--host` values are recorded the same way,
+Correct and well scoped; additional `--agent` values are recorded the same way,
 `unchanged` is distinguished from `Recorded`, the project defaults to the
-working directory, and `--host` is explicit with no default. A conflicting
+working directory, and `--agent` is explicit with no default. A conflicting
 bind without `--replace` fails and names the flag; passing `--replace`
-restates the existing binding's Profile and Host set in one command (shown
+restates the existing binding's Profile and agent set in one command (shown
 old → new above) while reconciling generated output through the ordinary
 status → update path.
 
 On an interactive terminal, `bind` asks only for the missing required Profile
-and Host arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
-by a one-sentence explanation of what a Profile is, the Host choices carry
+and agent arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
+by a one-sentence explanation of what a Profile is, the agent choices carry
 advisory detected/not found detection evidence (US-053), a completed flow
 records the binding and prints the equivalent fully specified command with the
-Project path and every `--host` flag explicit (US-052, DEC-032), and
+Project path and every `--agent` flag explicit (US-052, DEC-032), and
 cancellation exits before any configuration change (DEC-033). A fully
 specified bind never prompts.
 
@@ -538,7 +538,7 @@ $ apkit validate
 Workspace and settings valid (2 Profiles, 6 configured Projects)
 Workspace: ~/apkit-workspace
 Profiles found: example, release
-Hosts bound: claude, codex, grok
+Agents bound: claude, codex, grok
 Next: apkit status
 ```
 
@@ -749,7 +749,7 @@ First use:
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Start a new Host session from the Project root to use the updated material.
+Start a new agent session from the Project root to use the updated material.
 Optional check: start a new Codex session in <project> and ask what Profile
   material it loaded.
 
@@ -839,12 +839,12 @@ delivery began for a Host (ADR-0043).
 
 A successful first installation or Host addition states one short optional
 Project-local check for the Hosts whose delivery began (US-012, ADR-0043):
-start a new Host session in the Project and ask what Profile material it
+start a new agent session in the Project and ask what Profile material it
 loaded. Agent Profile Kit never claims it observed that loading or that
 material appeared in an answer (OOS-001). Longer loading explanation lives
 behind focused guidance (`apkit guide --full`). Routine repeated content
 updates offer no optional check; their closing next-use instruction already
-states that a new Host session uses the updated material. Beyond that check,
+states that a new agent session uses the updated material. Beyond that check,
 setup guidance is reported conditionally by Host *and* by what was installed:
 
 | Host | Requirement after `update` |
@@ -998,16 +998,16 @@ work stays committed.
 
 ### 12. Tear down
 
-`uninstall [--here | --project <path> | --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` removes the selected installations and forgets their recorded selection in one action. A later `update` does not reinstall a fully removed Project; installing again needs a new `install`.
+`uninstall [--here | --project <path> | --all] [--profile <name>] [--agent <agent>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` removes the selected installations and forgets their recorded selection in one action. A later `update` does not reinstall a fully removed Project; installing again needs a new `install`.
 
-Scope is explicit: `--here`, `--project <path>`, and `--all` are mutually exclusive and conflicting scopes are rejected before any write. `--profile <name>` alone selects installations using that Profile and intersects an explicit scope without ever broadening it; it never deletes Workspace source. `--host <host>` (repeatable) narrows removal to those Hosts within the selected scope: only output no longer required by the remaining Hosts is removed, shared output and the survivors' remembered selection are preserved, and removing the last Host removes the whole installation. A `--host` filter never provides scope itself — Host-only non-interactive or machine-JSON use needs an explicit Project scope, while Host-only interactive input routes into Project selection with its Hosts proposed as the Host-removal selection. `--replace-changed` is rejected for whole-removal because it only deletes (use `--remove-changed`); with `--host` it authorizes survivor rewrites that discard independent changes, each flag conditional on the actual plan. An absent scope never implies all Projects: a non-interactive or machine-JSON invocation refuses, while a bare interactive invocation opens the searchable Project picker with nothing pre-selected — typing filters by name/path, arrows and Space select, selections survive filter changes, and cancellation or an empty selection changes nothing. After Project choice the flow offers whole-installation versus selected-Host removal for the picked Projects (repeat runs mix modes); the complete picked scope is reviewed before the general confirmation, and completion prints one runnable command per picked Project.
+Scope is explicit: `--here`, `--project <path>`, and `--all` are mutually exclusive and conflicting scopes are rejected before any write. `--profile <name>` alone selects installations using that Profile and intersects an explicit scope without ever broadening it; it never deletes Workspace source. `--agent <agent>` (repeatable) narrows removal to those agents within the selected scope: only output no longer required by the remaining agents is removed, shared output and the survivors' remembered selection are preserved, and removing the last agent removes the whole installation. A `--agent` filter never provides scope itself — agent-only non-interactive or machine-JSON use needs an explicit Project scope, while agent-only interactive input routes into Project selection with its agents proposed as the agent-removal selection. `--replace-changed` is rejected for whole-removal because it only deletes (use `--remove-changed`); with `--agent` it authorizes survivor rewrites that discard independent changes, each flag conditional on the actual plan. An absent scope never implies all Projects: a non-interactive or machine-JSON invocation refuses, while a bare interactive invocation opens the searchable Project picker with nothing pre-selected — typing filters by name/path, arrows and Space select, selections survive filter changes, and cancellation or an empty selection changes nothing. After Project choice the flow offers whole-installation versus selected-agent removal for the picked Projects (repeat runs mix modes); the complete picked scope is reviewed before the general confirmation, and completion prints one runnable command per picked Project.
 
 On an interactive terminal `uninstall` confirms the selected scope before any write, even with fully supplied arguments; `--auto-confirm` answers that general confirmation only, never changed-file consent. Deleting independently changed generated files needs `--remove-changed` (or interactive consent); missing consent or cancellation leaves every selected Project untouched.
 
 Each selected Project commits in order: Projects with known Blockers are skipped while healthy Projects proceed, and an unexpected write failure stops further work. Completed Projects stay completed, a failed Project restores its previous selection and output where possible (a restoration failure is reported explicitly), and the outcome reports completed, failed, and unattempted Projects with a concrete scope-preserving retry.
 
 The removal receipt is outcome-first (ADR-0040): a successful removal states
-its removed Project count once, a partial Host removal names the removed Host
+its removed Project count once, a partial agent removal names the removed agent
 and the affected Project count, routine Git-exclusion bookkeeping stays out of
 the default view, skipped Projects and relevant cleanup warnings keep their
 actionable identities, and the run closes with one footer block whose secondary
@@ -1020,8 +1020,8 @@ Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
 
 Details: apkit details
 
-$ apkit uninstall <project> --host codex --auto-confirm
-Removed Host codex from 1 Project; the remaining Hosts keep working with
+$ apkit uninstall <project> --agent codex --auto-confirm
+Removed agent codex from 1 Project; the remaining agents keep working with
   their shared output preserved.
 
 Details: apkit details

@@ -357,7 +357,7 @@ describe("configure never installs", () => {
     const installStreams = capturedStreams();
     const installOutcome = await runInstallCommand({
       home,
-      arguments: ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      arguments: ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       stdout: installStreams.output as Writable & { isTTY?: boolean },
       stderr: installStreams.stderr as Writable & { isTTY?: boolean },
       input: nonInteractiveInput(),

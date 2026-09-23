@@ -39,4 +39,4 @@ export const CONTEXT_EXPLANATION_SENTENCE =
  * Workspace artifact: a Host can use the material installed into a Project.
  */
 export const AGENT_HOST_EXPLANATION_SENTENCE =
-  "An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a Project.";
+  "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.";

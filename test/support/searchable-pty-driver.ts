@@ -55,7 +55,7 @@ if (mode === "select") {
     output: process.stdout,
   });
   const answer = await multi(
-    "Which Agent Hosts?",
+    "Which agents?",
     [
       { title: "claude", value: "claude" },
       { title: "codex", value: "codex" },

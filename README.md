@@ -1,8 +1,7 @@
 # Agent Profile Kit
 
 Agent Profile Kit composes your Skills and Context into portable Profiles and
-installs them into the projects you choose, as native material for your Agent
-Hosts.
+installs them into the projects you choose, as native material for your agents.
 
 The initial release supports macOS only, on the Node.js 22 line — the package's
 declared primary Node runtime; no newer Node release line is claimed. The
@@ -12,7 +11,7 @@ evidence. Supporting additional environments is an explicit decision backed by
 matching packed installation and lifecycle evidence, never an engine-range
 promise.
 
-Supported Hosts: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
+Supported agents: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 
 ## Quick start
 
@@ -27,11 +26,11 @@ npx --package agent-profile-kit apkit init .
 ## First run
 
 ```sh
-apkit init <path>                      # set up your Workspace in the folder you name (`.` uses the current folder)
-apkit install <profile> --host <host>   # install a Profile into the current project
-apkit status                            # review the fleet plan
-apkit update                            # refresh installations from the Workspace (fleet by default)
-apkit uninstall --here --auto-confirm   # remove an installation and forget its selection
+apkit init <path>                       # set up your Workspace in the folder you name (`.` uses the current folder)
+apkit install <profile> --agent <agent> # install a Profile into the current project
+apkit status                             # review the fleet plan
+apkit update                             # refresh installations from the Workspace (fleet by default)
+apkit uninstall --here --auto-confirm    # remove an installation and forget its selection
 ```
 
 `apkit update` narrows to one Project with `--here` or `--project <path>`;

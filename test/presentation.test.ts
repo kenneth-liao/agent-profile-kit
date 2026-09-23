@@ -760,7 +760,7 @@ describe("lifecycle status document", () => {
       "Projects:",
       "State explanations:",
       "Outputs:",
-      "Standing Host setup:",
+      "Standing agent setup:",
     ]);
     expect(headings).not.toContain("Selected setup:");
     expect(headings).not.toContain("Blockers:");
@@ -805,7 +805,7 @@ describe("lifecycle status document", () => {
       lifecycleStatusDocument(hostAttention),
       { color: true, interactive: true, width: 80 , rows: undefined },
     );
-    expect(rendered).toContain("\u001b[33m⚠ Host attention required\u001b[0m");
+    expect(rendered).toContain("\u001b[33m⚠ Agent attention required\u001b[0m");
   });
 
   test("renders an explicitly selected Project as a typed command path argument", () => {
@@ -1181,8 +1181,8 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     // Sections are authored headings; each step is a list item whose distinct
     // consequence follows as its own prose node.
-    expect(headingsIn(verbose)).toContain("Host setup:");
-    expect(headingsIn(verbose)).toContain("Standing Host setup:");
+    expect(headingsIn(verbose)).toContain("Agent setup:");
+    expect(headingsIn(verbose)).toContain("Standing agent setup:");
     const nodes = flattenPresentationNodes(verbose);
     const approvalIndex = indexWhere(nodes, (node) =>
       node.kind === "list-item" && nodeText(node) ===
@@ -1337,15 +1337,15 @@ describe("Host Setup Step provenance and presentation", () => {
       expect.stringContaining("Launch Codex from the exact bound project root"),
     ]);
     expect(headingsIn(applyReportDocument(applyResult(report, resultingState))))
-      .not.toContain("Host setup:");
+      .not.toContain("Agent setup:");
     expect(headingsIn(applyReportDocument(applyResult(report, resultingState))))
-      .not.toContain("Standing Host setup:");
+      .not.toContain("Standing agent setup:");
     // The readiness statement is the trailing prose node; its wording is
     // golden-covered (no structured fact exists for it).
     expect(concise.at(-1)).toMatchObject({ kind: "prose" });
 
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
-    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Host setup:", "Standing Host setup:"]));
+    expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Agent setup:", "Standing agent setup:"]));
     expect(listItemsIn(verbose)).toEqual(expect.arrayContaining([
       "Trust the bound project in Codex.",
       "Launch Codex from the exact bound project root: /project-a",
@@ -1385,7 +1385,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
-    expect(headingsIn(verbose)).toContain("Standing Host setup:");
+    expect(headingsIn(verbose)).toContain("Standing agent setup:");
     expect(listItemsIn(verbose)).toContain("Trust the bound project in Codex.");
   });
 
@@ -1429,7 +1429,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
-    expect(headingsIn(verbose)).toContain("Standing Host setup:");
+    expect(headingsIn(verbose)).toContain("Standing agent setup:");
     expect(listItemsIn(verbose)).toContain("Trust the bound project in Pi.");
   });
 
@@ -1447,8 +1447,8 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
-    expect(headingsIn(concise)).not.toContain("Host setup:");
-    expect(headingsIn(concise)).not.toContain("Standing Host setup:");
+    expect(headingsIn(concise)).not.toContain("Agent setup:");
+    expect(headingsIn(concise)).not.toContain("Standing agent setup:");
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
   });
 
@@ -1498,10 +1498,10 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = applyReportDocument(applyResult(report, resultingState));
     expect(headingsIn(concise)).not.toContain("First use:");
-    expect(headingsIn(concise)).not.toContain("Standing Host setup:");
+    expect(headingsIn(concise)).not.toContain("Standing agent setup:");
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
-    expect(headingsIn(verbose)).toContain("Standing Host setup:");
+    expect(headingsIn(verbose)).toContain("Standing agent setup:");
     expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
   });
 
@@ -1832,7 +1832,7 @@ describe("responsive lifecycle presentation", () => {
     expect(wideStatus).toContain(`apkit update '${project}'`);
     expect(wideStatus).toContain(`apkit status '${project}' --verbose`);
     expect(emptyStatus).toContain("apkit list projects");
-    expect(emptyStatus).toContain("apkit install <profile> --host <host>");
+    expect(emptyStatus).toContain("apkit install <profile> --agent <agent>");
 
     // A command invocation inside an opaque carried message is no longer
     // re-identified or promoted: structural commands are authored as parts
@@ -2274,7 +2274,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding"));
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new Host session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
     )).toBe(true);
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" && nodeText(node).includes("will load the next time")
@@ -2308,7 +2308,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     // guidance.
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new Host session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
     )).toBe(true);
   });
 
@@ -2717,8 +2717,13 @@ describe("temporary-installation Project identity in documents", () => {
   });
 });
 
-function expectUserFacingVocabulary(view: string): void {
-  for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(view).not.toMatch(term);
+function expectUserFacingVocabulary(view: string, options?: { allowMachineHost?: boolean }): void {
+  for (const term of INTERNAL_ONLY_DEFAULT_TERMS) {
+    if (options?.allowMachineHost && (term.source === "\\bAgent Hosts?\\b" || term.source === "\\bHosts?\\b")) {
+      continue;
+    }
+    expect(view).not.toMatch(term);
+  }
 }
 
 /** Concise ownership evidence has problem, requirement, remedy, scope and
@@ -5553,7 +5558,7 @@ describe("standalone view presentation documents (#389)", () => {
     const row = document.find((node) => node.kind === "row") as Extract<PresentationNode, { kind: "row" }>;
     expect(row).toBeDefined();
     expect(row.cells).toHaveLength(4);
-    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Hosts", "State"]);
+    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Agents", "State"]);
     expect(row.cells[0]!.content).toEqual({
       kind: "path",
       canonicalPath: project,
@@ -5668,13 +5673,13 @@ describe("standalone view presentation documents (#389)", () => {
     const lines = rendered.split("\n");
     // lines: [ "Projects:", "", "<header>", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
     expect(lines[0]).toBe("Projects:");
-    expect(lines[2]).toMatch(/^Project\s+Profile\s+Hosts\s+State$/);
+    expect(lines[2]).toMatch(/^Project\s+Profile\s+Agents\s+State$/);
     const row1 = lines[3]!;
     const row2 = lines[4]!;
     expect(row1).toBeDefined();
     expect(row2).toBeDefined();
 
-    // The columns are: Project, Profile, Hosts, State.
+    // The columns are: Project, Profile, Agents, State.
     // In row 1: "~/p/short" padded to match "~/projects/much-longer-project-name"
     // In row 2: "~/projects/much-longer-project-name"
     // Then 2 spaces gap, then "eng" vs "data-engineering", then 2 spaces gap, then "codex" vs "claude, codex, opencode", then "configured"
@@ -5722,16 +5727,16 @@ describe("standalone view presentation documents (#389)", () => {
     // the exception item below the entries.
     expect(rendered).toContain("Project: alpha");
     expect(rendered).toContain("Profile: engineering");
-    expect(rendered).toContain("Hosts: codex");
+    expect(rendered).toContain("Agents: codex");
     expect(rendered).toContain("State: configured");
     expect(rendered).toContain("Project: beta");
     expect(rendered).toContain("Profile: devops");
-    expect(rendered).toContain("Hosts: claude");
+    expect(rendered).toContain("Agents: claude");
     expect(rendered).toContain("2 Projects configured.");
     const records = rendered.split("\n\n");
     expect(records[1]).toContain("Project: alpha");
     expect(records[1]).toContain("Profile: engineering");
-    expect(records[1]).toContain("Hosts: codex");
+    expect(records[1]).toContain("Agents: codex");
     expect(records[1]).toContain("State: configured");
     expect(records[2]).toContain("Project: beta");
     expect(Math.max(...rendered.split("\n").map((line) => line.length))).toBeLessThanOrEqual(40);
@@ -5762,9 +5767,9 @@ describe("standalone view presentation documents (#389)", () => {
     );
     const wideLines = wide.split("\n");
     expect(wideLines[0]).toBe("Projects:");
-    expect(wideLines[2]).toBe("Project  Profile  Hosts  State");
-    expect(wideLines[3]).toBe("demo     example  codex  configured");
-    expect(wideLines[4]).toBe("other    example  codex  configured");
+    expect(wideLines[2]).toBe("Project  Profile  Agents  State");
+    expect(wideLines[3]).toBe("demo     example  codex   configured");
+    expect(wideLines[4]).toBe("other    example  codex   configured");
 
     const narrow = renderPresentationDocument(
       projectInventoryDocument(projects, "/home", "/home"),
@@ -5778,7 +5783,7 @@ describe("standalone view presentation documents (#389)", () => {
       expect(recordLines.length).toBeLessThanOrEqual(2);
       expect(recordLines.join(" ")).toContain("Project:");
       expect(recordLines.join(" ")).toContain("Profile:");
-      expect(recordLines.join(" ")).toContain("Hosts:");
+      expect(recordLines.join(" ")).toContain("Agents:");
       expect(recordLines.join(" ")).toContain("State:");
     }
     expect(records[1]).toContain("demo");
@@ -5823,8 +5828,8 @@ describe("standalone view presentation documents (#389)", () => {
     // No fact is dropped when the records pack.
     expect(narrow).toContain("Profile: engineering");
     expect(narrow).toContain("Profile: devops");
-    expect(narrow).toContain("Hosts: codex");
-    expect(narrow).toContain("Hosts: claude, codex");
+    expect(narrow).toContain("Agents: codex");
+    expect(narrow).toContain("Agents: claude, codex");
     expect(narrow).toContain("State: configured");
     expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
     for (const record of narrow.split("\n\n").slice(1, 3)) {
@@ -6104,7 +6109,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(notice.severity).toBe("success");
     // The guidance is one prose node whose typed inline command part keeps
     // the install invocation atomic.
-    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit install <profile> --host <host>"]);
+    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit install <profile> --agent <agent>"]);
   });
 
   test("profile inventory presents each Profile with its module and skill counts", () => {
@@ -6162,7 +6167,7 @@ describe("standalone view presentation documents (#389)", () => {
     // The tail names the executable next actions with the Profile's own name.
     expect(inlineCommandTexts([document[4]!])).toEqual([
       "apkit configure profile coding",
-      "apkit install coding --host <host>",
+      "apkit install coding --agent <agent>",
     ]);
   });
 
@@ -6200,7 +6205,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(hostLines.join("\n")).not.toContain("— installed");
     // The advisory sentence quotes the shared not-found wording itself.
     expect(hostLines).toContain(
-      `"${HOST_DETECTION_LABELS.notFound}" means the Host executable was not detected here.`,
+      `"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`,
     );
     expect(inlineCommandTexts(document)).toContain("apkit install");
   });
@@ -6288,7 +6293,7 @@ describe("standalone view presentation documents (#389)", () => {
       "list-item",
       "key-value(Workspace)",
       "key-value(Profiles found)",
-      "key-value(Hosts bound)",
+      "key-value(Agents bound)",
       "key-value(Next)",
     ]);
     const next = keyValuesIn(document, "Next")[0]!;
@@ -6340,7 +6345,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
-      args: [{ kind: "text", value: "install <profile> --host <host>" }],
+      args: [{ kind: "text", value: "install <profile> --agent <agent>" }],
     });
     expect(keyValuesIn(document, "Profiles found")[0]!.value).toMatchObject({ kind: "prose" });
     // The count clause is protected report material: it never wraps (US-010).
@@ -6481,7 +6486,7 @@ describe("standalone view presentation documents (#389)", () => {
   test("install Host selection note states that selecting a Host does not install it", () => {
     const document = installHostSelectionNoteDocument();
     const rendered = renderPresentationDocument(document, defaultRenderContext);
-    expect(rendered).toContain("Selecting a Host does not install it.");
+    expect(rendered).toContain("Selecting an agent does not install it.");
   });
 
   test("install confirmation names the stable Project path, Profile once, and Hosts before any write", () => {
@@ -6498,7 +6503,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
     expect(rendered).toContain("Install into ~/project-a");
     expect(rendered).toContain("Profile: coding");
-    expect(rendered).toContain("Hosts: claude → claude, codex");
+    expect(rendered).toContain("Agents: claude → claude, codex");
     // US-006: installing into that Project, with no selection/verification jargon.
     expect(rendered).not.toMatch(/selection|verified/i);
     expect(INSTALL_CONFIRMATION_QUESTION).toBe("Install into this Project? (y/N)");
@@ -6516,7 +6521,7 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     expect(fresh).toContain("Profile: coding");
-    expect(fresh).toContain("Hosts: codex");
+    expect(fresh).toContain("Agents: codex");
     expect(fresh).not.toContain("→");
 
     const changed = renderPresentationDocument(
@@ -6531,7 +6536,7 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     expect(changed).toContain("Profile: coding → ops");
-    expect(changed).toContain("Hosts: codex → codex, claude");
+    expect(changed).toContain("Agents: codex → codex, claude");
   });
 
   test("install confirmation never prints a basename-only Project action location", () => {
@@ -7827,8 +7832,8 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       kind: "prose",
       parts: ["engineering"],
     });
-    expect(keyValuesIn(zeroProjects, "Hosts bound")[0]!.value).toMatchObject({ kind: "prose" });
-    expect(commandTexts(zeroProjects)).toContain("apkit install <profile> --host <host>");
+    expect(keyValuesIn(zeroProjects, "Agents bound")[0]!.value).toMatchObject({ kind: "prose" });
+    expect(commandTexts(zeroProjects)).toContain("apkit install <profile> --agent <agent>");
     expectUserFacingVocabulary(renderBoundary(zeroProjects));
 
     const oneProject = validationDocument(1, ["codex"], ["engineering"]);
@@ -7853,7 +7858,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     expectUserFacingVocabulary(renderPresentationDocument(index, defaultRenderContext));
 
     const machineIndex = machineInventoryIndexDocument();
-    expectUserFacingVocabulary(renderPresentationDocument(machineIndex, defaultRenderContext));
+    expectUserFacingVocabulary(renderPresentationDocument(machineIndex, defaultRenderContext), { allowMachineHost: true });
 
     // Empty temporary inventory: one success notice and one prose node whose
     // typed inline command part keeps the creation invocation atomic.
@@ -7863,7 +7868,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     expect(inlineCommandTexts(emptyTemp)).toEqual([
       "apkit machine install-temp <profile> <project> --host <host>",
     ]);
-    expectUserFacingVocabulary(renderPresentationDocument(emptyTemp, defaultRenderContext));
+    expectUserFacingVocabulary(renderPresentationDocument(emptyTemp, defaultRenderContext), { allowMachineHost: true });
 
     // Active temporary inventory: a heading carrying the installation count,
     // the fixture identity as a typed identifier, and the removal invocation
@@ -7884,7 +7889,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     expect(inlineCommandTexts(activeTemp)).toEqual([
       "apkit machine remove-temp <temporary-installation-id>",
     ]);
-    expectUserFacingVocabulary(renderPresentationDocument(activeTemp, defaultRenderContext));
+    expectUserFacingVocabulary(renderPresentationDocument(activeTemp, defaultRenderContext), { allowMachineHost: true });
   });
 
   test("routine teardown receipts state forgetting in user-facing vocabulary", () => {
@@ -7936,7 +7941,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
     // command parts keep both invocations atomic.
     expect(inlineCommandTexts(empty)).toEqual([
       "apkit list projects",
-      "apkit install <profile> --host <host>",
+      "apkit install <profile> --agent <agent>",
     ]);
     expectUserFacingVocabulary(renderPresentationDocument(empty, defaultRenderContext));
   });
@@ -7960,7 +7965,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       value: "temp-987",
     });
     expect(commandTexts(install)).toContain("apkit machine remove-temp temp-987");
-    expectUserFacingVocabulary(renderPresentationDocument(install, defaultRenderContext));
+    expectUserFacingVocabulary(renderPresentationDocument(install, defaultRenderContext), { allowMachineHost: true });
 
     const remove = temporaryInstallationDocument("remove-temp", {
       completionState: "removed",
@@ -7977,7 +7982,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       kind: "identifier",
       value: "temp-987",
     });
-    expectUserFacingVocabulary(renderPresentationDocument(remove, defaultRenderContext));
+    expectUserFacingVocabulary(renderPresentationDocument(remove, defaultRenderContext), { allowMachineHost: true });
   });
 
   test("technical surfaces (info, verbose, JSON, actionable recovery) retain canonical domain terms", () => {
@@ -8013,7 +8018,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
     });
     const verbose = lifecycleStatusDocument(report, { verbose: true });
-    expect(headingsIn(verbose)).toContain("Host setup:");
+    expect(headingsIn(verbose)).toContain("Agent setup:");
 
     const missingProfile = flatInlineText(formatMissingProfileError({
       availableProfiles: ["coding"],
@@ -9263,7 +9268,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     expect(document[5]).toMatchObject({
       kind: "sentence",
-      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "codex" }],
+      parts: ["Detected agents: ", { kind: "identifier", value: "codex" }],
     });
     const text = documentText(document);
     // Setup just validated; never recommend `apkit validate` (spec #640 US-002).
@@ -9430,7 +9435,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     expect(document[5]).toMatchObject({
       kind: "sentence",
-      parts: ["Detected Agent Hosts: none"],
+      parts: ["Detected agents: none"],
     });
     expect(documentText(document)).toContain("apkit new context <context>");
   });
@@ -9449,10 +9454,10 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
     const detected = document.find((node) =>
-      node.kind === "sentence" && node.parts[0] === "Detected Agent Hosts: ");
+      node.kind === "sentence" && node.parts[0] === "Detected agents: ");
     expect(detected).toMatchObject({
       kind: "sentence",
-      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "antigravity, claude, codex" }],
+      parts: ["Detected agents: ", { kind: "identifier", value: "antigravity, claude, codex" }],
     });
     const text = documentText(document);
     expect(text).not.toContain("--host");
@@ -9511,7 +9516,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(document)).toEqual([
       "sentence(success)",
       "key-value:Profile(path)",
-      "key-value:Hosts",
+      "key-value:Agents",
     ]);
     expect(document[1]).toEqual({
       kind: "key-value",
@@ -9527,7 +9532,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(rendered).not.toContain("Installed coding for");
     // Profile is stated once across the headline and body (US-006).
     expect(rendered.split("coding").length - 1).toBe(1);
-    expect(rendered).toContain("Hosts: codex, pi");
+    expect(rendered).toContain("Agents: codex, pi");
     expect(rendered).not.toMatch(/generated files:|outputs:|Removed /i);
   });
 
@@ -9544,7 +9549,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(shapes(hostsOnly)).toEqual([
       "sentence(success)",
       "key-value:Profile(path)",
-      "key-value:Hosts",
+      "key-value:Agents",
     ]);
     expect(hostsOnly[1]).toEqual({
       kind: "key-value",
@@ -9554,7 +9559,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     expect(hostsOnly[2]).toEqual({
       kind: "key-value",
-      key: "  Hosts",
+      key: "  Agents",
       value: { kind: "identifier", value: "codex, pi → codex" },
     });
 
@@ -9574,7 +9579,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     expect(profileChange[2]).toEqual({
       kind: "key-value",
-      key: "  Hosts",
+      key: "  Agents",
       value: { kind: "identifier", value: "codex" },
     });
   });
@@ -10226,7 +10231,7 @@ describe("help documents (#390)", () => {
     const hostIndex = sections.indexOf("sentence(heading)", examplesIndex + 1);
     expect(sections.indexOf("sentence(heading)", hostIndex + 1)).toBeGreaterThan(hostIndex);
     expect(inlineText(document[hostIndex] as PresentationNode))
-      .toContain(`Supported Hosts: ${install.supportedHosts!.join(", ")}`);
+      .toContain(`Supported agents: ${install.supportedHosts!.join(", ")}`);
   });
 
   test("machine help presents the namespace intro, usage, and machine commands", () => {
@@ -10291,7 +10296,7 @@ describe("guide documents (#390)", () => {
       "  apkit init <path>",
       "  apkit new skill <skill>",
       "  apkit guide profile",
-      "  apkit install example --host codex",
+      "  apkit install example --agent codex",
     ]);
     // Defect pin (#510): the index title renders as terminal content, not the
     // raw markdown heading. Fails on the pre-#510 rendering.
@@ -10368,7 +10373,7 @@ describe("guide documents (#390)", () => {
     // The next action is structured text plus command atoms: prose reflows
     // and commands stay whole without a trailing period on a promoted line.
     expect(inlineText(document.at(-3) as PresentationNode)).toBe(
-      "Next: from the project you want to try, run apkit install example --host codex",
+      "Next: from the project you want to try, run apkit install example --agent codex",
     );
     // Defect pins (#510): the raw markdown decoration is gone from rendered
     // output. Every pin fails on the pre-#510 rendering, which printed the
@@ -11092,7 +11097,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report);
       const rendered = renderBoundary(document);
 
-      expect(rendered).toContain("Host attention required");
+      expect(rendered).toContain("Agent attention required");
       expect(rendered).not.toContain("Warnings:");
       expect(rendered).toContain("Agent Host codex CLI is outdated");
       expect(rendered).not.toContain("needs attention");
@@ -11473,8 +11478,8 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     expect(headings).toContain("State explanations:");
     expect(headings).toContain("Outputs:");
     expect(headings).toContain("Git exclusions:");
-    expect(headings).toContain("Host setup:");
-    expect(headings).toContain("Standing Host setup:");
+    expect(headings).toContain("Agent setup:");
+    expect(headings).toContain("Standing agent setup:");
 
     // Proves underlying causes are all present in the diagnostic evidence:
     const verboseNodes = flattenPresentationNodes(verboseDoc);
@@ -11991,7 +11996,7 @@ const CONCEPT_DEFINITION_MARKERS = [
   { concept: "Project", marker: "A Project is one working folder" },
   { concept: "Profile", marker: "A Profile is a named selection" },
   { concept: "Context", marker: "Context is always-loaded" },
-  { concept: "Agent Host", marker: "An Agent Host is a tool" },
+  { concept: "agent", marker: "An agent is a tool" },
 ] as const;
 
 /** Which kit concepts a rendered first-use block newly explains. */
@@ -12125,13 +12130,13 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     expect(rendered).toContain(PROJECT_EXPLANATION_SENTENCE);
   });
 
-  test("the install Host note explains Agent Host without claiming full Workspace loading", () => {
+  test("the install Host note explains agent without claiming full Workspace loading", () => {
     const text = documentText(installHostSelectionNoteDocument());
-    expect(explainedConcepts(text)).toEqual(["Agent Host"]);
+    expect(explainedConcepts(text)).toEqual(["agent"]);
     expect(text).toContain(
-      "An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a Project.",
+      "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.",
     );
-    expect(text).toContain("Selecting a Host does not install it.");
+    expect(text).toContain("Selecting an agent does not install it.");
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
     expect(text).not.toMatch(/A Skill is |Skill is a /);
   });

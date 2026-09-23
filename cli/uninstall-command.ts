@@ -127,10 +127,10 @@ export function parseUninstallArguments(
       index += 1;
       continue;
     }
-    if (argument === "--host") {
+    if (argument === "--agent") {
       const value = arguments_[index + 1];
       if (value === undefined || value.startsWith("-")) {
-        throw new Error("uninstall --host requires an Agent Host name");
+        throw new Error("uninstall --agent requires an agent name");
       }
       hosts.push(value);
       index += 1;
@@ -202,7 +202,7 @@ export function parseUninstallArguments(
       "--replace-changed",
       equivalent,
       `uninstall --replace-changed is not applicable: whole-removal only deletes generated output, so there is no replacement scope to authorize. ` +
-        `It applies only to per-Host removal, where retained shared output may be rewritten for the remaining Hosts: add --host <name> to remove Hosts. ` +
+        `It applies only to per-agent removal, where retained shared output may be rewritten for the remaining agents: add --agent <name> to remove agents. ` +
         `Did you mean --remove-changed? To authorize deletion of independently changed output, run ${equivalent}`,
     );
   }
@@ -383,7 +383,7 @@ export function fullySpecifiedUninstallArguments(
     args.push(uninstallArg("--profile"), uninstallArg(parsed.profile));
   }
   for (const host of parsed.hosts ?? []) {
-    args.push(uninstallArg("--host"), uninstallArg(host));
+    args.push(uninstallArg("--agent"), uninstallArg(host));
   }
   if (parsed.removeChanged) args.push(uninstallArg("--remove-changed"));
   if (parsed.replaceChanged) args.push(uninstallArg("--replace-changed"));
@@ -414,8 +414,8 @@ function uninstallProgressIdentity(entry: {
  */
 const UNINSTALL_PROJECTS_QUESTION = "Which Projects to uninstall?";
 const UNINSTALL_REMOVAL_MODE_QUESTION =
-  "Whole installations or selected Hosts? (mix modes by repeating this command)";
-const UNINSTALL_HOSTS_QUESTION = "Which Hosts to remove?";
+  "Whole installations or selected agents? (mix modes by repeating this command)";
+const UNINSTALL_HOSTS_QUESTION = "Which agents to remove?";
 
 type InteractiveHost = UninstallPreviewProject["hosts"][number];
 
@@ -665,10 +665,10 @@ async function runInteractiveUninstall(
     carriedHosts === undefined
       ? [
         { title: "Whole installations", value: "whole" as const },
-        { title: "Selected Hosts", value: "hosts" as const },
+        { title: "Selected agents", value: "hosts" as const },
       ]
       : [
-        { title: `Selected Hosts (${carriedHosts.join(", ")})`, value: "hosts" as const },
+        { title: `Selected agents (${carriedHosts.join(", ")})`, value: "hosts" as const },
         { title: "Whole installations", value: "whole" as const },
       ],
   );
@@ -814,7 +814,7 @@ async function runInteractiveUninstall(
       recording.recordNothing("the picked scope resolved no removal");
       return { exitCode: 1 };
     }
-    const description = `the selected scope for Hosts '${narrowingHosts.join(", ")}'`;
+    const description = `the selected scope for agents '${narrowingHosts.join(", ")}'`;
     writeHumanDocument(request.stderr, uninstallNoMatchDocument(description), stderrContext);
     recording.recordNothing("no picked Project binds the selected Hosts");
     return { exitCode: 1 };
@@ -1325,12 +1325,12 @@ async function runUninstallCommandWithRecording(
     // no writes rather than failing as a target error.
     const hostFilter = parsed.hosts === undefined
       ? ""
-      : ` Host${parsed.hosts.length === 1 ? "" : "s"} '${parsed.hosts.join(", ")}'`;
+      : ` agent${parsed.hosts.length === 1 ? "" : "s"} '${parsed.hosts.join(", ")}'`;
     const description = parsed.profile !== undefined
       ? `Profile '${parsed.profile}'${parsed.all || parsed.here || parsed.project !== undefined ? " within the selected scope" : ""}${hostFilter}`
       : hostFilter === ""
         ? "the selected scope"
-        : `the selected scope for Host${parsed.hosts!.length === 1 ? "" : "s"} '${parsed.hosts!.join(", ")}'`;
+        : `the selected scope for agent${parsed.hosts!.length === 1 ? "" : "s"} '${parsed.hosts!.join(", ")}'`;
     if (parsed.json) {
       request.stdout.write(
         formatUninstallToolErrorJson(`uninstall matched no installation for ${description}`),

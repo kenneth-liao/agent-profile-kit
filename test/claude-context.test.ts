@@ -148,7 +148,7 @@ describe("Claude Context Local Configuration", () => {
         "schema_version: 1\nbindings:\n  - project: /tmp/project\n    profile: coding\n    hosts: [cursor]\n",
       ),
     ).toBe(
-      "Local Configuration config.yaml bindings[0] hosts[0] unsupported Agent Host 'cursor'; supported Hosts: antigravity, claude, codex, grok, opencode, pi",
+      "Local Configuration config.yaml bindings[0] hosts[0] unsupported agent 'cursor'; supported agents: antigravity, claude, codex, grok, opencode, pi",
     );
   });
 

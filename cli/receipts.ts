@@ -449,8 +449,8 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
       kind: "sentence",
       parts:
         detectedHosts.length > 0
-          ? ["Detected Agent Hosts: ", identifierPart(detectedHosts.join(", "))]
-          : ["Detected Agent Hosts: none"],
+          ? ["Detected agents: ", identifierPart(detectedHosts.join(", "))]
+          : ["Detected agents: none"],
     });
   }
   if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
@@ -517,7 +517,7 @@ export function installReceiptDocument(
     });
     nodes.push({
       kind: "key-value",
-      key: "  Hosts",
+      key: "  Agents",
       value: {
         kind: "identifier",
         value: hostsEqual(previousHosts, input.hosts)
@@ -535,7 +535,7 @@ export function installReceiptDocument(
       },
       {
         kind: "key-value",
-        key: "  Hosts",
+        key: "  Agents",
         value: { kind: "identifier", value: input.hosts.join(", ") },
       },
     );

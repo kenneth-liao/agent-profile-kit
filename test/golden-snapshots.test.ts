@@ -296,7 +296,7 @@ async function initialize(home: string): Promise<void> {
 
 async function installExample(home: string, projectPath: string): Promise<void> {
   expectExitCode(
-    await runCli(home, ["install", AUTHORING_EXAMPLES.profile.id, projectPath, "--host", "codex", "--auto-confirm"]),
+    await runCli(home, ["install", AUTHORING_EXAMPLES.profile.id, projectPath, "--agent", "codex", "--auto-confirm"]),
     0,
   );
 }
@@ -579,12 +579,12 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     },
   },
   {
-    test: "list hosts",
-    snapshot: "list-hosts",
+    test: "list agents",
+    snapshot: "list-agents",
     commandId: "list",
     prepare: async () => {
       const { home } = await initializedHome();
-      return { home, args: ["list", "hosts"] };
+      return { home, args: ["list", "agents"] };
     },
   },
   {
@@ -647,7 +647,7 @@ const HUMAN_VIEWS: readonly HumanView[] = [
       const { home, project } = await initializedHome();
       return {
         home,
-        args: ["install", AUTHORING_EXAMPLES.profile.id, project, "--host", "codex", "--auto-confirm"],
+        args: ["install", AUTHORING_EXAMPLES.profile.id, project, "--agent", "codex", "--auto-confirm"],
       };
     },
   },
@@ -1060,11 +1060,11 @@ describe("rendered atomicity mutation evidence from real captures", () => {
   test("INT-1 original committed root-help syntax fold is rejected", () => {
     const key = "golden snapshots of every human view root help: root-help 1";
     const baseline = baselineStream(snapshotBodies.get(key)!, "stdout");
-    const syntax = "apkit install <profile> --host <host>";
+    const syntax = "apkit install <profile> --agent <agent>";
     expect(baseline).toContain(syntax);
     checkAtomicRendering(baseline, baseline, goldenCorpus());
     expect(() => checkAtomicRendering(
-      baseline.replace(syntax, "apkit install\n    <profile> --host <host>"), baseline, goldenCorpus(),
+      baseline.replace(syntax, "apkit install\n    <profile> --agent <agent>"), baseline, goldenCorpus(),
     )).toThrow(/fragmented/);
     expect(collectSpellings(baseline, goldenCorpus()).some((value) => value.startsWith(syntax))).toBe(true);
   });
