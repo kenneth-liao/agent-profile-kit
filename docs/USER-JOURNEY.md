@@ -145,7 +145,7 @@ Common next steps:
   apkit update
     Sync the complete fleet, the containing Project, or one explicit Project
   apkit install
-    Install a Profile with Agent Hosts into a Project and remember the
+    Install a Profile with agents into a Project and remember the
       selection
   apkit guide
     Show a topic index, full Workspace guidance, or one focused authoring
@@ -173,7 +173,7 @@ deterministic close-match suggestion when available, otherwise only point to
 `list` is the read-only inventory entrypoint: without a topic it names each
 available inventory topic once with one human description. `list projects`
 prints the `Projects:` heading and one row per Project carrying the view's
-shortest-unambiguous identity, Profile, Hosts, and configuration state; the
+shortest-unambiguous identity, Profile, Agents, and configuration state; the
 count appears once, in the summary footer (US-013, ADR-0042). Aligned tables
 print a header row labeling each column (US-008):
 
@@ -181,7 +181,7 @@ print a header row labeling each column (US-008):
 $ apkit list projects
 Projects:
 
-Project  Profile  Hosts   State
+Project  Profile  Agents  State
 demo     example  codex   configured
 other    example  claude  configured
 
@@ -265,7 +265,7 @@ A Profile is a named selection of Context and Skills suited to a kind of work
   and reusable across projects.
 Context is always-loaded facts, preferences, and standing rules a Profile
   selects.
-Detected Agent Hosts: claude, codex, opencode
+Detected agents: claude, codex, opencode
 
 Next:
 - apkit new context <context>
@@ -538,7 +538,7 @@ $ apkit validate
 Workspace and settings valid (2 Profiles, 6 configured Projects)
 Workspace: ~/apkit-workspace
 Profiles found: example, release
-Hosts bound: claude, codex, grok
+Agents bound: claude, codex, grok
 Next: apkit status
 ```
 
@@ -749,7 +749,7 @@ First use:
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Start a new Host session from the Project root to use the updated material.
+Start a new agent session from the Project root to use the updated material.
 Optional check: start a new Codex session in <project> and ask what Profile
   material it loaded.
 
@@ -839,12 +839,12 @@ delivery began for a Host (ADR-0043).
 
 A successful first installation or Host addition states one short optional
 Project-local check for the Hosts whose delivery began (US-012, ADR-0043):
-start a new Host session in the Project and ask what Profile material it
+start a new agent session in the Project and ask what Profile material it
 loaded. Agent Profile Kit never claims it observed that loading or that
 material appeared in an answer (OOS-001). Longer loading explanation lives
 behind focused guidance (`apkit guide --full`). Routine repeated content
 updates offer no optional check; their closing next-use instruction already
-states that a new Host session uses the updated material. Beyond that check,
+states that a new agent session uses the updated material. Beyond that check,
 setup guidance is reported conditionally by Host *and* by what was installed:
 
 | Host | Requirement after `update` |

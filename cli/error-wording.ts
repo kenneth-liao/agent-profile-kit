@@ -1033,8 +1033,8 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
               whatToType: [
                 [
                   "Run ",
-                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
-                  " to inspect supported Hosts.",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
+                  " to inspect supported agents.",
                 ],
               ],
             }
@@ -1057,8 +1057,8 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
               whatToType: [
                 [
                   "Run ",
-                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
-                  " to inspect supported Hosts.",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
+                  " to inspect supported agents.",
                 ],
               ],
             }

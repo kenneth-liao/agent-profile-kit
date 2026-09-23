@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { parseInstallArguments } from "../cli/install-command.js";
 import { parseUninstallArguments } from "../cli/uninstall-command.js";
@@ -8,9 +10,17 @@ import {
   inventoryCommandSyntax,
 } from "../cli/inventory-topics.js";
 import { listHosts } from "../installer/inventory.js";
-import { formatHostInventoryJson } from "../cli/presentation.js";
+import {
+  formatHostInventoryJson,
+  inventoryIndexDocument,
+  validationResultDocument,
+} from "../cli/presentation.js";
 import { commandHelpDocument, defaultCommands } from "../cli/command-help.js";
-import { flatInlineText } from "../cli/presentation-document.js";
+import { flatInlineText, renderPresentationDocument } from "../cli/presentation-document.js";
+import { formatInstallerToolErrorDiagnostic } from "../cli/error-wording.js";
+import { diagnosticDocument } from "../cli/diagnostics.js";
+
+const defaultRenderContext = { color: false, interactive: false, width: 80, rows: undefined };
 
 describe("issue #673 agent wording & flag changes", () => {
   describe("install command argument parsing", () => {
@@ -144,6 +154,65 @@ describe("issue #673 agent wording & flag changes", () => {
           }
         }
       }
+    });
+
+    test("rendered diagnostic whatToType suggestions never suggest 'list hosts' or reference 'Host'", () => {
+      // INT-1, INT-3: ensure every diagnostic that offers an inventory or support suggestion
+      // points to 'list agents' and uses 'agent' vocabulary in its whatToType remedy.
+      const facts = [
+        { kind: "unsupported-host" as const, host: "unknown", supportedHosts: ["codex", "claude"] },
+        { kind: "unsupported-temporary-host" as const, host: "unknown", supportedHosts: ["codex"] },
+        { kind: "temporary-host-unsupported" as const, host: "unknown", supportedHosts: ["codex"] },
+      ];
+
+      for (const fact of facts) {
+        const parts = formatInstallerToolErrorDiagnostic(fact);
+        const doc = diagnosticDocument(parts);
+        const rendered = renderPresentationDocument(doc, defaultRenderContext);
+
+        expect(rendered).not.toContain("list hosts");
+        expect(rendered).not.toContain("supported Hosts");
+
+        if (parts.whatToType !== undefined) {
+          const whatToTypeText = parts.whatToType.map((line) => flatInlineText(line)).join("\n");
+          expect(whatToTypeText).not.toContain("list hosts");
+          expect(whatToTypeText).not.toMatch(/\bHosts?\b/);
+          expect(whatToTypeText).toContain("list agents");
+        }
+      }
+    });
+
+    test("key rendered receipts and inventory index present 'agents' vocabulary", () => {
+      const validationDoc = validationResultDocument({
+        bindings: 1,
+        hosts: ["codex"],
+        profiles: ["coding"],
+        warnings: [],
+        workspace: { authored: "~/apkit-workspace", canonical: "/home/apkit-workspace" },
+      });
+      const renderedValidation = renderPresentationDocument(validationDoc, defaultRenderContext);
+      expect(renderedValidation).toContain("Agents bound: codex");
+      expect(renderedValidation).not.toContain("Hosts bound");
+
+      const inventoryDoc = inventoryIndexDocument();
+      const renderedInventory = renderPresentationDocument(inventoryDoc, defaultRenderContext);
+      expect(renderedInventory).toContain("agents");
+      expect(renderedInventory).not.toContain("list hosts");
+    });
+
+    test("USER-JOURNEY user-facing output examples contain no stale Host wording", () => {
+      // INT-2: Verify USER-JOURNEY.md user-facing output blocks (stages 1-12)
+      // have received the rename pass and do not contain stale output strings.
+      const content = readFileSync(join(import.meta.dirname, "../docs/USER-JOURNEY.md"), "utf8");
+      // Split off stage 13 which preserves the machine namespace
+      const userFacingContent = content.split("### 13. Temporary Profile Installations")[0]!;
+
+      expect(userFacingContent).not.toContain("Detected Agent Hosts:");
+      expect(userFacingContent).not.toContain("Hosts bound:");
+      expect(userFacingContent).not.toContain("Start a new Host session");
+      expect(userFacingContent).not.toContain("Project  Profile  Hosts  State");
+      expect(userFacingContent).not.toContain("list hosts");
+      expect(userFacingContent).not.toContain("Install a Profile with Agent Hosts");
     });
   });
 });
