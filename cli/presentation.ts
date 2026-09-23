@@ -4441,17 +4441,14 @@ export function applyConsentRequiredDocument(
 
 export const INSTALL_CONFIRMATION_QUESTION = "Install as listed? (y/N)";
 
-/** The guided-install Host detection notice (US-005): states the advisory
- * detection result before the Host picker opens, mirroring the
- * initialization receipt's wording. Titles stay bare Host identities so
- * filtering matches the Host, never the evidence text; every Host stays
- * selectable regardless of detection. */
-export function installDetectedHostsDocument(detected: readonly string[]): PresentationDocument {
+/** The guided-install Host selection note (US-005, DEC-004): one concise
+ * sentence before the Host picker. Detection marks live on each choice
+ * (`detected` / `not found`); this note is the single place that states
+ * selection never installs a Host (OOS-001). */
+export function installHostSelectionNoteDocument(): PresentationDocument {
   return [{
     kind: "prose",
-    parts: [detected.length > 0
-      ? `Detected Agent Hosts: ${detected.join(", ")}.`
-      : "Detected Agent Hosts: none. Every supported Host stays selectable."],
+    parts: ["Selecting a Host does not install it."],
   }];
 }
 /** The guided-install target notice (US-001, DEC-002): names the Project

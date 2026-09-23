@@ -242,7 +242,7 @@ describe("guided install skips supplied choices", () => {
 });
 
 describe("guided install Host defaults", () => {
-  test("a new installation starts with nothing checked", async () => {
+  test("with none detected, nothing is selected", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     const input = fakeInteractiveInput();
@@ -259,8 +259,8 @@ describe("guided install Host defaults", () => {
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
     // An empty submit is refused (Hosts are required): the picker stays open.
-    // Toggling then selects exactly the first Host — proving no silent
-    // all-detected default, which would have submitted on the first enter.
+    // Toggling then selects exactly the first Host — proving nothing is
+    // preselected when no Host is detected.
     input.write("\r");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");
@@ -278,13 +278,12 @@ describe("guided install Host defaults", () => {
     expect(plain(streams.humanText())).not.toContain("Current selection");
   });
 
-  test("an existing installation pre-checks its Hosts", async () => {
+  test("with some detected, they list first, preselect, and mark detected/not found", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    writeFileSync(
-      configPath(home),
-      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - claude\n`,
-    );
+    const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-search-detected-bin-"));
+    temporaryDirectories.push(bin);
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli 0.145.0"\n`, { mode: 0o755 });
     const input = fakeInteractiveInput();
     const streams = capturedStreams();
     const pending = runInstallCommand({
@@ -294,11 +293,92 @@ describe("guided install Host defaults", () => {
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
       cwd: projectPath,
-      env: { PATH: "" },
+      env: { PATH: bin },
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
-    // The existing Host is pre-checked: submitting immediately keeps it.
+    await waitForOutput(streams.humanText, "detected");
+    const picker = plain(streams.humanText());
+    // One concise note replaces the Detected Agent Hosts summary.
+    expect(picker).toContain("Selecting a Host does not install it.");
+    expect(picker).not.toContain("Detected Agent Hosts:");
+    // Titles stay bare; evidence is the annotation slot.
+    expect(picker).toContain("detected");
+    expect(picker).toContain("not found");
+    // Detected Hosts list first: codex before the canonical first Host.
+    expect(picker.indexOf("codex")).toBeLessThan(picker.indexOf("antigravity"));
+    // Submitting immediately keeps only the preselected detected Host.
+    input.write("\r");
+    await waitForOutput(streams.humanText, "(y/N)");
+    const proposed = plain(streams.humanText());
+    expect(proposed).toContain("Hosts: codex");
+    input.write("y\n");
+    const outcome = await pending;
+
+    expect(outcome.exitCode).toBe(0);
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).toContain("- codex");
+    expect(config).not.toContain("- antigravity");
+    expect(config).not.toContain("- claude");
+    expect(config).not.toContain("- opencode");
+  });
+
+  test("explicit Host arguments bypass preselection", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-search-args-bin-"));
+    temporaryDirectories.push(bin);
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli 0.145.0"\n`, { mode: 0o755 });
+    const input = fakeInteractiveInput();
+    const streams = capturedStreams();
+    const pending = runInstallCommand({
+      home,
+      arguments: ["coding", "--host", "claude"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input,
+      cwd: projectPath,
+      env: { PATH: bin },
+    });
+
+    // Supplied Hosts skip their picker: detected Hosts are never added.
+    await waitForOutput(streams.humanText, "(y/N)");
+    expect(plain(streams.humanText())).not.toContain("Which Agent Hosts?");
+    const proposed = plain(streams.humanText());
+    expect(proposed).toContain("Hosts: claude");
+    input.write("y\n");
+    const outcome = await pending;
+
+    expect(outcome.exitCode).toBe(0);
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).toContain("- claude");
+    expect(config).not.toContain("- codex");
+  });
+
+  test("an existing installation starts from its remembered selection without adding newly detected Hosts", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${projectPath}\n    profile: ops\n    hosts:\n      - claude\n`,
+    );
+    const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-search-edit-bin-"));
+    temporaryDirectories.push(bin);
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli 0.145.0"\n`, { mode: 0o755 });
+    const input = fakeInteractiveInput();
+    const streams = capturedStreams();
+    const pending = runInstallCommand({
+      home,
+      arguments: ["coding"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input,
+      cwd: projectPath,
+      env: { PATH: bin },
+    });
+
+    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    // The remembered Host is pre-checked; the newly detected Host is not added.
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
     const proposed = plain(streams.humanText());
@@ -314,6 +394,7 @@ describe("guided install Host defaults", () => {
     const config = readFileSync(configPath(home), "utf8");
     expect(config).toContain("profile: coding");
     expect(config).toContain("- claude");
+    expect(config).not.toContain("- codex");
   });
 });
 
@@ -412,7 +493,7 @@ describe("guided install Host detection", () => {
     return bin;
   }
 
-  test("detected Hosts carry advisory evidence while undetected Hosts stay selectable", async () => {
+  test("undetected Hosts stay selectable and are marked not found", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     // Hermetic PATH: only the codex stub detects, so every label is exact.
@@ -430,9 +511,12 @@ describe("guided install Host detection", () => {
     });
 
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
-    // Advisory detection is stated up front; the picker titles stay bare
-    // Host identities so filtering matches the Host, never the evidence.
-    expect(plain(streams.humanText())).toContain("Detected Agent Hosts: codex");
+    await waitForOutput(streams.humanText, "not found");
+    const picker = plain(streams.humanText());
+    // Titles stay bare; evidence is the annotation slot.
+    expect(picker).toContain("Selecting a Host does not install it.");
+    expect(picker).toContain("detected");
+    expect(picker).toContain("not found");
     // An undetected Host remains selectable through the same picker.
     input.write("opencode");
     await new Promise((resolve) => setTimeout(resolve, 100));

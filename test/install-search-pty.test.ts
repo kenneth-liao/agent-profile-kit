@@ -142,7 +142,9 @@ describe("guided install under a real PTY", () => {
   test("a bare install at 60 columns names the target and installs the picked selection", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const session = await startPtySession(["install", home, projectPath], 60);
+    // Controlled Host detection PATH: none detected, so every choice starts
+    // unselected and the toggle is deterministic on any machine.
+    const session = await startPtySession(["install", home, projectPath, ""], 60);
     temporaryDirectories.push(session.runDirectory);
     try {
       // The bare install names its current-directory Project target first by
@@ -185,7 +187,7 @@ describe("guided install under a real PTY", () => {
   test("Ctrl-C during picking cancels with zero lifecycle changes", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
-    const session = await startPtySession(["install", home, projectPath], 80, { expectedExitCode: 1 });
+    const session = await startPtySession(["install", home, projectPath, ""], 80, { expectedExitCode: 1 });
     temporaryDirectories.push(session.runDirectory);
     try {
       await session.waitForTranscript("Which Profile?");
@@ -203,5 +205,44 @@ describe("guided install under a real PTY", () => {
 
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("detected Hosts list first, preselect, and mark detected/not found at 60 columns", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-install-pty-detected-bin-"));
+    temporaryDirectories.push(bin);
+    writeFileSync(join(bin, "codex"), `#!/bin/sh\necho "codex-cli 0.145.0"\n`, { mode: 0o755 });
+    const session = await startPtySession(["install", home, projectPath, bin], 60);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Which Profile?");
+      const filterOffset = session.transcriptLength();
+      session.write("cod");
+      await session.waitForTranscript("›cod", { after: filterOffset });
+      const profileEnterOffset = session.transcriptLength();
+      session.write("\r");
+      await session.waitForTranscript("Which Agent Hosts?", { after: profileEnterOffset });
+      await session.waitForTranscript("Selecting a Host does not install it.");
+      // Focus starts on the first (detected) Host, which is preselected;
+      // undetected rows carry the not-found annotation in the same frame.
+      await session.waitForTranscript("❯◼codex");
+      await session.waitForTranscript("not found");
+      await session.waitForTranscript("detected");
+      const enterOffset = session.transcriptLength();
+      // Submitting immediately keeps only the preselected detected Host.
+      session.write("\r");
+      await session.waitForTranscript("Hosts: codex", { after: enterOffset });
+      const confirmOffset = session.transcriptLength();
+      session.write("y\r");
+      await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
+    } finally {
+      await session.close();
+    }
+
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).toContain("- codex");
+    expect(config).not.toContain("- antigravity");
+    expect(config).not.toContain("- opencode");
   });
 });

@@ -33,7 +33,7 @@ import {
   installConfirmationDocument,
   installConfirmationRequiredDocument,
   installDeclinedDocument,
-  installDetectedHostsDocument,
+  installHostSelectionNoteDocument,
   installExecutionFailureDocument,
   installRecoveryAddendum,
   installReplacementCommandDocument,
@@ -324,20 +324,34 @@ async function collectMissingInstallChoices(
 
   let hosts = parsed.hosts;
   if (hosts === undefined) {
-    // Detection is advisory only and is stated once up front, mirroring
-    // the initialization receipt; titles stay bare Host identities so
-    // filtering matches the Host, never the evidence text. A new
-    // installation starts with nothing checked; an existing installation
-    // pre-checks its Hosts, so detected Hosts are never silently selected.
+    // Detection is advisory only (ADR-0012): Hosts are marked `detected` /
+    // `not found` and selecting one never installs it. A new installation
+    // lists detected Hosts first and preselects them (US-005); an existing
+    // installation starts from its remembered selection and never adds
+    // newly detected Hosts. Titles stay bare Host identities so filtering
+    // matches the Host, never the evidence text.
     const detected = await detectInstalledHosts({ env: request.env ?? process.env });
-    writeHumanDocument(request.stdout, installDetectedHostsDocument(detected), stdoutContext);
+    writeHumanDocument(request.stdout, installHostSelectionNoteDocument(), stdoutContext);
+    const detectedSet = new Set(detected);
     const previousHosts = new Set(target.previous?.hosts ?? []);
+    const editingExisting = target.previous !== undefined;
+    // Detected Hosts list first in both flows (US-005). Only selection
+    // differs: a new installation preselects detected Hosts; an existing
+    // installation starts from its remembered selection and never adds
+    // newly detected Hosts.
+    const orderedHosts = [
+      ...SUPPORTED_HOSTS.filter((host) => detectedSet.has(host)),
+      ...SUPPORTED_HOSTS.filter((host) => !detectedSet.has(host)),
+    ];
     const answer = await createSearchableMultiSelectPrompt(promptOptions)(
       INSTALL_HOSTS_QUESTION,
-      SUPPORTED_HOSTS.map((host) => ({
+      orderedHosts.map((host) => ({
         title: host,
         value: host,
-        ...(previousHosts.has(host) ? { selected: true } : {}),
+        selected: editingExisting
+          ? previousHosts.has(host)
+          : detectedSet.has(host),
+        annotation: detectedSet.has(host) ? "detected" : "not found",
       })),
       { min: 1 },
     );
