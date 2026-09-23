@@ -1977,7 +1977,7 @@ describe("project-bound release candidate", () => {
       { path: journeyPath },
     );
     expectExitCode(installExample, 0);
-    expect(installExample.stdout).toContain("Installed example for");
+    expect(installExample.stdout).toContain("Installed for");
     expect(installExample.stdout).toContain("Hosts: claude");
     expect(installExample.stdout).toContain("Next: apkit status");
     // US-017 (#515): the first installation offers the optional Host-loading
@@ -2215,7 +2215,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(install, 0);
-    expect(install.stdout).toContain("Installed example for");
+    expect(install.stdout).toContain("Installed for");
     expect(install.stdout).toContain("Profile: example");
     expect(install.stdout).toContain("Hosts: codex");
     expect(install.stdout).toContain("Next: apkit status");

@@ -76,3 +76,16 @@ spellings, selection, consent, and machine contracts are unchanged.
 - A future human surface must choose a view identity explicitly (or render the
   stable spelling); reading `canonicalProject` directly is no longer a way to
   render a Project.
+
+## Amendments
+
+- **Spec #640 US-006 / DEC-006 (ticket #647).** Action locations render the
+  stable home-relative or absolute Project path through the shared
+  `displayPath`/`pathPart` seam: the install target notice, the install
+  general-confirmation review, the install receipt, and the multi-Project
+  uninstall general-confirmation review. Inventory aliases — concise `status`,
+  `list projects`, `apkit details --list`, and `machine list temporary` —
+  remain shortest-unambiguous under the per-view policy above. The scanning-view
+  clause that includes default receipts is narrowed accordingly for those
+  install and uninstall confirmation/receipt action locations; requested
+  evidence and every executable command argument are unchanged.

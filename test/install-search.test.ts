@@ -138,7 +138,7 @@ describe("guided install collects only missing choices", () => {
     });
 
     // The bare install names its current-directory Project target first, by
-    // the shortest-unambiguous identity this view renders (US-013).
+    // its stable home-relative or absolute path (US-006).
     await waitForOutput(streams.humanText, basename(projectPath));
     // Searchable Profile choice: filter and submit.
     await waitForOutput(streams.humanText, "Which Profile?");

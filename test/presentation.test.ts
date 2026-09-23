@@ -13,6 +13,7 @@ import {
   installReceiptDocument,
   newArtifactCreatedNodes,
 } from "../cli/receipts.js";
+import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
 import {
   flatInlineText,
   identifierPart,
@@ -53,6 +54,7 @@ import {
   infoDocument,
   installBlockedDocument,
   installConfirmationDocument,
+  INSTALL_CONFIRMATION_QUESTION,
   installDeclinedDocument,
   installHostSelectionNoteDocument,
   installProfileSelectionNoteDocument,
@@ -6202,7 +6204,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("Selecting a Host does not install it.");
   });
 
-  test("install confirmation shows the final Host selection before any write", () => {
+  test("install confirmation names the stable Project path, Profile once, and Hosts before any write", () => {
     const document = installConfirmationDocument({
       canonicalProject: "/project-a",
       authoredProject: "~/project-a",
@@ -6210,20 +6212,78 @@ describe("standalone view presentation documents (#389)", () => {
       hosts: ["claude", "codex"],
       previous: { profile: "coding", hosts: ["claude"] },
     });
-    const rendered = renderPresentationDocument(document, defaultRenderContext);
-    expect(rendered).toContain("Install:");
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      home: "/home",
+      cwd: "/home",
+    });
+    expect(rendered).toContain("Install into ~/project-a");
+    expect(rendered).toContain("Profile: coding");
     expect(rendered).toContain("Hosts: claude → claude, codex");
+    // US-006: installing into that Project, with no selection/verification jargon.
+    expect(rendered).not.toMatch(/selection|verified/i);
+    expect(INSTALL_CONFIRMATION_QUESTION).toBe("Install into this Project? (y/N)");
   });
 
-  test("uninstall confirmation review names every selected Project before any write", () => {
+  test("install confirmation shows delta arrows only when an existing installation changes", () => {
+    const fresh = renderPresentationDocument(
+      installConfirmationDocument({
+        canonicalProject: "/home/projects/demo",
+        authoredProject: "~/projects/demo",
+        profile: "coding",
+        hosts: ["codex"],
+      }),
+      defaultRenderContext,
+      { home: "/home", cwd: "/home" },
+    );
+    expect(fresh).toContain("Profile: coding");
+    expect(fresh).toContain("Hosts: codex");
+    expect(fresh).not.toContain("→");
+
+    const changed = renderPresentationDocument(
+      installConfirmationDocument({
+        canonicalProject: "/home/projects/demo",
+        authoredProject: "~/projects/demo",
+        profile: "ops",
+        hosts: ["codex", "claude"],
+        previous: { profile: "coding", hosts: ["codex"] },
+      }),
+      defaultRenderContext,
+      { home: "/home", cwd: "/home" },
+    );
+    expect(changed).toContain("Profile: coding → ops");
+    expect(changed).toContain("Hosts: codex → codex, claude");
+  });
+
+  test("install confirmation never prints a basename-only Project action location", () => {
+    const rendered = renderPresentationDocument(
+      installConfirmationDocument({
+        canonicalProject: "/home/projects/my-app",
+        authoredProject: "~/projects/my-app",
+        profile: "coding",
+        hosts: ["codex"],
+      }),
+      defaultRenderContext,
+      { home: "/home", cwd: "/home" },
+    );
+    expect(rendered).toContain("~/projects/my-app");
+    expect(rendered).not.toContain("Install into my-app");
+  });
+
+  test("uninstall confirmation review names every selected Project on its stable path before any write", () => {
     const document = uninstallConfirmationDocument({
       projects: [
-        { canonicalProject: "/project-a", project: "/project-a", profile: "engineering", hosts: ["codex"] },
-        { project: "~/project-b", profile: "docs", hosts: ["claude", "pi"] },
+        { canonicalProject: "/home/projects/alpha", project: "~/projects/alpha", profile: "engineering", hosts: ["codex"] },
+        { project: "~/projects/beta", profile: "docs", hosts: ["claude", "pi"] },
       ],
     });
     expect(document.map(shape)).toEqual(["heading", "prose", "prose", "prose"]);
-    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      home: "/home",
+      cwd: "/home",
+    });
+    expect(rendered).toContain("~/projects/alpha");
+    expect(rendered).toContain("~/projects/beta");
+    expect(rendered).not.toContain(" alpha (");
     expect(rendered).toContain("engineering");
     expect(rendered).toContain("will not reinstall");
   });
@@ -9125,7 +9185,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(documentText(unchanged)).not.toContain("apkit validate");
   });
 
-  test("the created install receipt presents the installed selection and the next command", () => {
+  test("the created install receipt states the stable Project path, Profile once, and Hosts", () => {
     const document = installReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
@@ -9146,10 +9206,20 @@ describe("authoring and teardown receipt documents (#390)", () => {
       value: { kind: "identifier", value: "coding" },
       category: "path",
     });
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      home,
+      cwd: home,
+    });
+    expect(rendered).toContain("Installed for ~/projects/demo");
+    expect(rendered).not.toContain("Installed coding for");
+    // Profile is stated once across the headline and body (US-006).
+    expect(rendered.split("coding").length - 1).toBe(1);
+    expect(rendered).toContain("Hosts: codex, pi");
+    expect(rendered).not.toMatch(/generated files:|outputs:|Removed /i);
   });
 
-  test("the replaced install receipt keeps only the changed deltas", () => {
-    const document = installReceiptDocument({
+  test("the replaced install receipt keeps Profile once and arrows only on changed fields", () => {
+    const hostsOnly = installReceiptDocument({
       outcome: "replaced",
       canonicalProject: projectPath,
       project: projectPath,
@@ -9157,19 +9227,46 @@ describe("authoring and teardown receipt documents (#390)", () => {
       hosts: ["codex"],
       previous: { profile: "coding", hosts: ["codex", "pi"] },
     });
-    // The unchanged Profile delta is omitted; the changed Hosts delta remains.
-    expect(shapes(document)).toEqual([
+    // Profile stays stated once even when only Hosts change (US-006).
+    expect(shapes(hostsOnly)).toEqual([
       "sentence(success)",
+      "key-value:Profile(path)",
       "key-value:Hosts",
     ]);
-    expect(document[1]).toEqual({
+    expect(hostsOnly[1]).toEqual({
+      kind: "key-value",
+      key: "  Profile",
+      value: { kind: "identifier", value: "coding" },
+      category: "path",
+    });
+    expect(hostsOnly[2]).toEqual({
       kind: "key-value",
       key: "  Hosts",
       value: { kind: "identifier", value: "codex, pi → codex" },
     });
+
+    const profileChange = installReceiptDocument({
+      outcome: "replaced",
+      canonicalProject: projectPath,
+      project: projectPath,
+      profile: "ops",
+      hosts: ["codex"],
+      previous: { profile: "coding", hosts: ["codex"] },
+    });
+    expect(profileChange[1]).toEqual({
+      kind: "key-value",
+      key: "  Profile",
+      value: { kind: "identifier", value: "coding → ops" },
+      category: "path",
+    });
+    expect(profileChange[2]).toEqual({
+      kind: "key-value",
+      key: "  Hosts",
+      value: { kind: "identifier", value: "codex" },
+    });
   });
 
-  test("the unchanged install receipt stays informational", () => {
+  test("the unchanged install receipt stays informational on the stable Project path", () => {
     const unchangedInstall = installReceiptDocument({
       outcome: "unchanged",
       canonicalProject: projectPath,
@@ -9179,9 +9276,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
     });
     // One neutral statement (US-003, US-010); no next action.
     expect(shapes(unchangedInstall)).toEqual(["sentence(neutral)"]);
+    const rendered = renderPresentationDocument(unchangedInstall, defaultRenderContext, {
+      home,
+      cwd: home,
+    });
+    expect(rendered).toContain("Installation unchanged for ~/projects/demo");
   });
 
-  test("install receipt names the Project recognizably across created, unchanged, and replaced outcomes even inside the project", () => {
+  test("install receipt names the Project by its stable path across created, unchanged, and replaced outcomes even inside the project", () => {
     const created = installReceiptDocument({
       outcome: "created",
       canonicalProject: projectPath,
@@ -9193,13 +9295,12 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       parts: [
         "✔ ",
-        "Installed coding for ",
+        "Installed for ",
         {
           kind: "path",
           canonicalPath: projectPath,
           scope: "fleet",
-          authoredPath: "~/projects/demo",
-          identity: "demo",
+          authoredPath: ".",
         },
       ],
       category: "success",
@@ -9221,8 +9322,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
           kind: "path",
           canonicalPath: projectPath,
           scope: "fleet",
-          authoredPath: "~/projects/demo",
-          identity: "demo",
+          authoredPath: ".",
         },
         ".",
       ],
@@ -9241,17 +9341,23 @@ describe("authoring and teardown receipt documents (#390)", () => {
       kind: "sentence",
       parts: [
         "✔ ",
-        "Replaced installation ops for ",
+        "Replaced installation for ",
         {
           kind: "path",
           canonicalPath: projectPath,
           scope: "fleet",
-          authoredPath: "~/projects/demo",
-          identity: "demo",
+          authoredPath: ".",
         },
       ],
       category: "success",
     });
+    for (const document of [created, unchanged, replaced]) {
+      const rendered = renderPresentationDocument(document, defaultRenderContext, {
+        home,
+        cwd: home,
+      });
+      expect(rendered).toContain("~/projects/demo");
+    }
   });
 
   test("the uninstall receipt states forgetting with its compact count", () => {
@@ -11395,6 +11501,21 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     expect(text).not.toContain("Context is always-loaded");
     expect(text).not.toMatch(/A Skill is |Skill is a /);
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
+  });
+
+  test("install target names the Project action location by its stable path", () => {
+    const document = installTargetDocument({
+      canonicalProject: join(home, "projects", "demo"),
+      authoredProject: "~/projects/demo",
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      home,
+      cwd: home,
+    });
+    expect(rendered).toContain("Installing into ~/projects/demo.");
+    expect(rendered).not.toContain("Installing into demo");
+    // #645's Project sentence stays on this screen.
+    expect(rendered).toContain(PROJECT_EXPLANATION_SENTENCE);
   });
 
   test("the install Host note explains Agent Host without claiming full Workspace loading", () => {

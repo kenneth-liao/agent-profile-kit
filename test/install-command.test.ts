@@ -356,10 +356,10 @@ describe("install Host-loading handoff (spec #491 US-017, #515)", () => {
     // observed loading (OOS-009).
     expect(human).toContain("To check that codex loaded Profile coding");
     expect(human).toContain("ask codex what Profile material it loaded");
-    // The sentence names the installed Project by the same identity the
-    // receipt body carries (US-013): no second spelling appears.
+    // #648 still owns the loading-check sentence identity; the receipt body
+    // names the Project by its stable path (US-006, #647).
     expect(human).toContain(`start a new codex session in ${basename(projectPath)}`);
-    expect(human).not.toContain(projectPath);
+    expect(human).toContain(`Installed for ${projectPath}`);
   });
 
   test("an unchanged install offers no loading check", async () => {

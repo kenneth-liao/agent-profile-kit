@@ -8,8 +8,8 @@ import {
   guidedInstallRouting,
   newProfileCreationCommands,
 } from "./command-help.js";
-import { capitalize, DEFAULT_VIEW_LEXICON, singleProjectIdentity } from "./presentation.js";
-import { displayPath, displayProjectPath } from "./display-path.js";
+import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
+import { displayPath } from "./display-path.js";
 import {
   commandPart,
   footerNodes,
@@ -480,23 +480,14 @@ export type InstallReceiptInput = {
 };
 
 /** The receipt document for one `install` invocation: the installed
- * selection and its verified outcome in one action (US-001). */
+ * selection and its verified outcome in one action (US-001, US-006). The
+ * Project is named by its stable home-relative or absolute path (DEC-006);
+ * the Profile is stated once beside the Hosts, with no routine file
+ * inventory. */
 export function installReceiptDocument(
   input: InstallReceiptInput,
 ): PresentationDocument {
-  // The installed Project is this receipt's whole view, so its
-  // shortest-unambiguous identity is the label it carries (US-013).
-  const project: PathPart = {
-    ...pathPart(
-      input.canonicalProject,
-      "fleet",
-      displayProjectPath(input.canonicalProject, input.project, "fleet"),
-    ),
-    identity: singleProjectIdentity({
-      canonicalProject: input.canonicalProject,
-      project: input.project,
-    }),
-  };
+  const project = pathPart(input.canonicalProject, "fleet", input.project);
   const nodes: PresentationNode[] = [];
   if (input.outcome === "unchanged") {
     // One neutral statement (US-003, US-010): a clean no-op invents no next
@@ -508,26 +499,32 @@ export function installReceiptDocument(
     ]);
   }
   nodes.push(stateHeadline([
-    `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} ${input.profile} for `,
+    `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} for `,
     project,
   ], "success"));
   if (input.outcome === "replaced") {
     const { profile: previousProfile, hosts: previousHosts } = input.previous;
-    if (previousProfile !== input.profile) {
-      nodes.push({
-        kind: "key-value",
-        key: "  Profile",
-        value: { kind: "identifier", value: `${previousProfile} → ${input.profile}` },
-        category: "path",
-      });
-    }
-    if (!hostsEqual(previousHosts, input.hosts)) {
-      nodes.push({
-        kind: "key-value",
-        key: "  Hosts",
-        value: { kind: "identifier", value: `${previousHosts.join(", ")} → ${input.hosts.join(", ")}` },
-      });
-    }
+    nodes.push({
+      kind: "key-value",
+      key: "  Profile",
+      value: {
+        kind: "identifier",
+        value: previousProfile !== input.profile
+          ? `${previousProfile} → ${input.profile}`
+          : input.profile,
+      },
+      category: "path",
+    });
+    nodes.push({
+      kind: "key-value",
+      key: "  Hosts",
+      value: {
+        kind: "identifier",
+        value: hostsEqual(previousHosts, input.hosts)
+          ? input.hosts.join(", ")
+          : `${previousHosts.join(", ")} → ${input.hosts.join(", ")}`,
+      },
+    });
   } else {
     nodes.push(
       {
