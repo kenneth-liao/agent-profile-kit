@@ -125,7 +125,8 @@ Inspected the raw selection byte streams
 - Filter resolution settles on the `›` line (`› cod`); the old
   `Filtered results for:` label and the Instructions block are absent.
 - Redraws use line-erase (`EL` / `ESC[2K`) and cursor-up (`CUU` / `ESC[1A`)
-  with column home (`CR`), not full-screen clears. No leftover rows were
+  with column home (`CR`), not full-screen clears — 94 erase operations per
+  selection stream in both widths. No leftover rows were
   observed after filter or focus movement; the terminal cells after each
   redraw match the intended frame.
 - The cursor is never hidden during redraw and is shown on prompt exit
@@ -207,6 +208,10 @@ defects were found in this capture.
   only in the two fixed surfaces (frames `22`/`51` and `27`/`56`),
   timestamps, the single-`Time` line above, and random `mkdtemp` suffixes —
   no other CLI output changed.
+- The driver fails fast when the evidence directory's committed
+  `candidate-identity.json` does not name the candidate being captured, and
+  republishes the identity record beside the frames after each run, so the
+  committed provenance and the frames always come from the same archive.
 
 ## Principal review
 

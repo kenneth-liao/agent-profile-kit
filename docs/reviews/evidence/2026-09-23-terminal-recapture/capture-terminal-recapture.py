@@ -350,8 +350,9 @@ def inspect_picker_redraw() -> dict:
         show_cursor = "\x1b[?25h" in raw
         # A leftover line would be a full-width printable row that survives a
         # clear-to-end-of-screen without being rewritten; approximate by
-        # counting EL/ED use around filter updates.
-        erase_ops = len(re.findall(r"\x1b\[J|\x1b\[0J|\x1b\[1J|\x1b\[2J|\x1b\[K|\x1b\[0K", raw))
+        # counting ED/EL use around filter updates. The optional 0–2 parameter
+        # covers the bare, [0…, [1… and [2… forms of both escapes.
+        erase_ops = len(re.findall(r"\x1b\[[0-2]?[JK]", raw))
         findings.append(
             {
                 "stream": stream_id,
@@ -379,6 +380,24 @@ def inspect_picker_redraw() -> dict:
     }
 
 
+def check_identity(identity: dict) -> None:
+    """Fail fast when the evidence directory's committed identity record does
+    not match the candidate driving this capture (INT-1): the published
+    identity and the frames must come from the same archive."""
+    recorded_path = OUT / "candidate-identity.json"
+    if not recorded_path.exists():
+        return
+    recorded = json.loads(recorded_path.read_text())
+    for key in ("version", "repositoryHead", "archiveDigest"):
+        if recorded.get(key) != identity.get(key):
+            raise SystemExit(
+                f"{recorded_path} records {key}={recorded.get(key)!r} but the capture "
+                f"candidate ({IDENTITY}) has {identity.get(key)!r}; regenerate the "
+                "candidate with prepare-candidate.ts and recapture so the committed "
+                "identity and the frames come from the same archive"
+            )
+
+
 def main() -> None:
     if ROOT.exists():
         shutil.rmtree(ROOT)
@@ -393,6 +412,7 @@ def main() -> None:
     images_dir.mkdir()
 
     identity = json.loads(IDENTITY.read_text())
+    check_identity(identity)
     print("CANDIDATE", identity["version"], identity["repositoryHead"], identity["archiveDigest"], flush=True)
 
     for width in (100, 60):
@@ -521,6 +541,9 @@ def main() -> None:
         run(width, "21b-details-partial", ["details"])
 
     (OUT / "runs.json").write_text(json.dumps(runs, indent=2) + "\n")
+    # Publish the identity record beside the frames so the committed
+    # provenance always names the exact candidate the frames came from.
+    (OUT / "candidate-identity.json").write_text(json.dumps(identity, indent=2) + "\n")
     (OUT / "frames.json").write_text(
         json.dumps(
             [{k: v for k, v in f.items() if k not in ("html", "cells", "plain")} for f in frames],

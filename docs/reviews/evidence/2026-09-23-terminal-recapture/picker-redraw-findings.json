@@ -9,8 +9,8 @@
       "checkboxGlyph": true,
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
-      "eraseOperationCount": 0,
-      "rawBytes": 4083
+      "eraseOperationCount": 94,
+      "rawBytes": 3983
     },
     {
       "stream": "60-11-selection",
@@ -21,8 +21,8 @@
       "checkboxGlyph": true,
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
-      "eraseOperationCount": 0,
-      "rawBytes": 4096
+      "eraseOperationCount": 94,
+      "rawBytes": 3991
     }
   ],
   "summary": {
