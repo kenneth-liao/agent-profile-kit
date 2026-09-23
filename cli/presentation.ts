@@ -3763,6 +3763,11 @@ export function hostLoadingVerificationNodes(
   const session = hosts.length === 1
     ? `start a new ${hostList} session`
     : `start new ${hostList} sessions`;
+  // INT-1/INT-2: plural sessions or a distributive multi-Project form take
+  // "each loaded"; one session in one Project keeps "it loaded".
+  const ask = hosts.length > 1 || changed.length !== 1
+    ? "ask what Profile material each loaded"
+    : "ask what Profile material it loaded";
   const [firstChanged] = changed;
   if (changed.length === 1 && firstChanged !== undefined) {
     // The Project identity is one atomic path part (ADR-0016) and an action
@@ -3773,14 +3778,14 @@ export function hostLoadingVerificationNodes(
       parts: [
         `Optional check: ${session} in `,
         pathPart(firstChanged.canonicalProject, "fleet", firstChanged.project),
-        " and ask what Profile material it loaded.",
+        ` and ${ask}.`,
       ],
     }];
   }
   return [{
     kind: "prose",
     parts: [
-      `Optional check: ${session} in each updated Project and ask what Profile material it loaded.`,
+      `Optional check: ${session} in each updated Project and ${ask}.`,
     ],
   }];
 }

@@ -2370,18 +2370,19 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding", ["codex", "claude"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toBe(
-      "Optional check: start new Claude and Codex sessions in /project-a and ask what Profile material it loaded.",
+      "Optional check: start new Claude and Codex sessions in /project-a and ask what Profile material each loaded.",
     );
   });
 
-  test("a multi-Project update keeps the check Project-local without listing every Project", () => {
+  test("a multi-Project update pairs the distributive form with 'each loaded' (INT-2)", () => {
     const document = applyReportDocument(changedApply("coding", ["codex"], ["/project-a", "/project-b"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toBe(
-      "Optional check: start a new Codex session in each updated Project and ask what Profile material it loaded.",
+      "Optional check: start a new Codex session in each updated Project and ask what Profile material each loaded.",
     );
     expect(instruction).not.toContain("/project-a");
     expect(instruction).not.toContain("/project-b");
+    expect(instruction).not.toContain("it loaded");
   });
 
   test("a no-op update omits the check", () => {
