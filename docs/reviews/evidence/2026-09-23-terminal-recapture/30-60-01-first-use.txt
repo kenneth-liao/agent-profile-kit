@@ -1,0 +1,18 @@
+  /\  Agent Profile Kit
+ /__\ reusable agent material
+
+⚠ Agent Profile Kit is not set up on this machine.
+Your Workspace is one folder that holds your Profiles,
+  Context, and Skills.
+One Workspace can serve several Projects, and setup may
+  add those folders and files.
+A Project is one working folder that receives the
+  installed material.
+Start by naming the folder that will hold the Workspace.
+  The second command uses the current folder instead.
+
+Next:
+- apkit init <path>
+- apkit init .
+
+Run apkit --help for the full command list.

@@ -1,0 +1,350 @@
+[
+  {
+    "id": "01-100-01-first-use",
+    "label": "01-first-use",
+    "width": 100,
+    "command": "apkit "
+  },
+  {
+    "id": "02-100-02-setup-confirmation",
+    "label": "02-setup-confirmation",
+    "width": 100,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "03-100-02-setup",
+    "label": "02-setup",
+    "width": 100,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "04-100-05-first-install",
+    "label": "05-first-install",
+    "width": 100,
+    "command": "apkit install engineering /private/tmp/apkit-653-session/100/projects/hello --host codex --auto-confirm"
+  },
+  {
+    "id": "05-100-06-routine",
+    "label": "06-routine",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "06-100-07-status",
+    "label": "07-status",
+    "width": 100,
+    "command": "apkit status"
+  },
+  {
+    "id": "07-100-08-validate",
+    "label": "08-validate",
+    "width": 100,
+    "command": "apkit validate"
+  },
+  {
+    "id": "08-100-09-failure",
+    "label": "09-failure",
+    "width": 100,
+    "command": "apkit install enginering /private/tmp/apkit-653-session/100/projects/hello --host codex --auto-confirm"
+  },
+  {
+    "id": "09-100-10-invalid-target",
+    "label": "10-invalid-target",
+    "width": 100,
+    "command": "apkit install engineering /private/tmp/apkit-653-session/100/missing --host codex --auto-confirm"
+  },
+  {
+    "id": "10-100-11-selection-profile-picker",
+    "label": "11-selection-profile-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "11-100-11-selection-host-picker",
+    "label": "11-selection-host-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "12-100-11-selection-filtered-host",
+    "label": "11-selection-filtered-host",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "13-100-11-selection-install-confirmation",
+    "label": "11-selection-install-confirmation",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "14-100-11-selection",
+    "label": "11-selection",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "15-100-12-fleet-inventory",
+    "label": "12-fleet-inventory",
+    "width": 100,
+    "command": "apkit list projects"
+  },
+  {
+    "id": "16-100-13-fleet-status",
+    "label": "13-fleet-status",
+    "width": 100,
+    "command": "apkit status --all"
+  },
+  {
+    "id": "17-100-14-fleet-update",
+    "label": "14-fleet-update",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "18-100-15-details-list",
+    "label": "15-details-list",
+    "width": 100,
+    "command": "apkit details --list"
+  },
+  {
+    "id": "19-100-16-details",
+    "label": "16-details",
+    "width": 100,
+    "command": "apkit details"
+  },
+  {
+    "id": "20-100-18-setup-routing-with-profiles-confirmation",
+    "label": "18-setup-routing-with-profiles-confirmation",
+    "width": 100,
+    "command": "apkit init /private/tmp/apkit-653-session/100/workspace"
+  },
+  {
+    "id": "21-100-18-setup-routing-with-profiles",
+    "label": "18-setup-routing-with-profiles",
+    "width": 100,
+    "command": "apkit init /private/tmp/apkit-653-session/100/workspace"
+  },
+  {
+    "id": "22-100-19-list-hosts",
+    "label": "19-list-hosts",
+    "width": 100,
+    "command": "apkit list hosts"
+  },
+  {
+    "id": "23-100-20-narrow-wrap-command-profile-picker",
+    "label": "20-narrow-wrap-command-profile-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "24-100-20-narrow-wrap-command-host-picker",
+    "label": "20-narrow-wrap-command-host-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "25-100-20-narrow-wrap-command-confirmation",
+    "label": "20-narrow-wrap-command-confirmation",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "26-100-20-narrow-wrap-command",
+    "label": "20-narrow-wrap-command",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "27-100-17-host-missing-warning",
+    "label": "17-host-missing-warning",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "28-100-21-details-partial",
+    "label": "21-details-partial",
+    "width": 100,
+    "command": "apkit uninstall --all --auto-confirm"
+  },
+  {
+    "id": "29-100-21b-details-partial",
+    "label": "21b-details-partial",
+    "width": 100,
+    "command": "apkit details"
+  },
+  {
+    "id": "30-60-01-first-use",
+    "label": "01-first-use",
+    "width": 60,
+    "command": "apkit "
+  },
+  {
+    "id": "31-60-02-setup-confirmation",
+    "label": "02-setup-confirmation",
+    "width": 60,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "32-60-02-setup",
+    "label": "02-setup",
+    "width": 60,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "33-60-05-first-install",
+    "label": "05-first-install",
+    "width": 60,
+    "command": "apkit install engineering /private/tmp/apkit-653-session/60/projects/hello --host codex --auto-confirm"
+  },
+  {
+    "id": "34-60-06-routine",
+    "label": "06-routine",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "35-60-07-status",
+    "label": "07-status",
+    "width": 60,
+    "command": "apkit status"
+  },
+  {
+    "id": "36-60-08-validate",
+    "label": "08-validate",
+    "width": 60,
+    "command": "apkit validate"
+  },
+  {
+    "id": "37-60-09-failure",
+    "label": "09-failure",
+    "width": 60,
+    "command": "apkit install enginering /private/tmp/apkit-653-session/60/projects/hello --host codex --auto-confirm"
+  },
+  {
+    "id": "38-60-10-invalid-target",
+    "label": "10-invalid-target",
+    "width": 60,
+    "command": "apkit install engineering /private/tmp/apkit-653-session/60/missing --host codex --auto-confirm"
+  },
+  {
+    "id": "39-60-11-selection-profile-picker",
+    "label": "11-selection-profile-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "40-60-11-selection-host-picker",
+    "label": "11-selection-host-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "41-60-11-selection-filtered-host",
+    "label": "11-selection-filtered-host",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "42-60-11-selection-install-confirmation",
+    "label": "11-selection-install-confirmation",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "43-60-11-selection",
+    "label": "11-selection",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "44-60-12-fleet-inventory",
+    "label": "12-fleet-inventory",
+    "width": 60,
+    "command": "apkit list projects"
+  },
+  {
+    "id": "45-60-13-fleet-status",
+    "label": "13-fleet-status",
+    "width": 60,
+    "command": "apkit status --all"
+  },
+  {
+    "id": "46-60-14-fleet-update",
+    "label": "14-fleet-update",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "47-60-15-details-list",
+    "label": "15-details-list",
+    "width": 60,
+    "command": "apkit details --list"
+  },
+  {
+    "id": "48-60-16-details",
+    "label": "16-details",
+    "width": 60,
+    "command": "apkit details"
+  },
+  {
+    "id": "49-60-18-setup-routing-with-profiles-confirmation",
+    "label": "18-setup-routing-with-profiles-confirmation",
+    "width": 60,
+    "command": "apkit init /private/tmp/apkit-653-session/60/workspace"
+  },
+  {
+    "id": "50-60-18-setup-routing-with-profiles",
+    "label": "18-setup-routing-with-profiles",
+    "width": 60,
+    "command": "apkit init /private/tmp/apkit-653-session/60/workspace"
+  },
+  {
+    "id": "51-60-19-list-hosts",
+    "label": "19-list-hosts",
+    "width": 60,
+    "command": "apkit list hosts"
+  },
+  {
+    "id": "52-60-20-narrow-wrap-command-profile-picker",
+    "label": "20-narrow-wrap-command-profile-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "53-60-20-narrow-wrap-command-host-picker",
+    "label": "20-narrow-wrap-command-host-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "54-60-20-narrow-wrap-command-confirmation",
+    "label": "20-narrow-wrap-command-confirmation",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "55-60-20-narrow-wrap-command",
+    "label": "20-narrow-wrap-command",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "56-60-17-host-missing-warning",
+    "label": "17-host-missing-warning",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "57-60-21-details-partial",
+    "label": "21-details-partial",
+    "width": 60,
+    "command": "apkit uninstall --all --auto-confirm"
+  },
+  {
+    "id": "58-60-21b-details-partial",
+    "label": "21b-details-partial",
+    "width": 60,
+    "command": "apkit details"
+  }
+]

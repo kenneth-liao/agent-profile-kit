@@ -1,0 +1,34 @@
+{
+  "findings": [
+    {
+      "stream": "100-11-selection",
+      "settledFilterLine": true,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 94,
+      "rawBytes": 3983
+    },
+    {
+      "stream": "60-11-selection",
+      "settledFilterLine": true,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 94,
+      "rawBytes": 3991
+    }
+  ],
+  "summary": {
+    "settledFilterObserved": true,
+    "noOldFilteredResultsLabel": true,
+    "noInstructionsBlock": true,
+    "cursorRestoredWhereHidden": true
+  }
+}

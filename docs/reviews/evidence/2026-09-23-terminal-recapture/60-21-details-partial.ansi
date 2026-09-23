@@ -1,0 +1,15 @@
+[31m✖ apkit: uninstall stopped at[0m
+[31m  [0m[31m/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2:[0m
+[31m  [0m[31mEACCES: permission denied, mkdtemp[0m
+[31m  [0m[31m'/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2/.agent-profile-kit-remove-iawshK'[0m
+Completed Projects stay completed:
+  /private/tmp/apkit-653-session/60/home/proj/alpha. The
+  previous selection and output were restored where
+  possible. Unattempted Projects remain untouched:
+  /private/tmp/apkit-653-session/60/projects/alpha/my-app,
+  /private/tmp/apkit-653-session/60/projects/beta/my-app,
+  /private/tmp/apkit-653-session/60/projects/hello.
+After resolving the cause, retry the same scope with
+  [36mapkit uninstall --all --auto-confirm[0m
+
+[36mDetails: [36mapkit details[0m[0m

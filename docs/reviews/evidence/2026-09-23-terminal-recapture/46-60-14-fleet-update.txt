@@ -1,0 +1,8 @@
+✔ Update complete
+
+Updated 4 Projects (7 generated files).
+
+Start a new Host session from the Project root to use the
+  updated material.
+
+Details: apkit details

@@ -1,0 +1,552 @@
+[
+  {
+    "width": 100,
+    "label": "01-first-use",
+    "args": [],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "02-setup",
+    "args": [
+      "init",
+      "./workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "03-create-profile",
+    "args": [
+      "new",
+      "profile",
+      "engineering",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "04-create-second-profile",
+    "args": [
+      "new",
+      "profile",
+      "writing",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "05-first-install",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/100/projects/hello",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "06-routine",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "07-status",
+    "args": [
+      "status"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "08-validate",
+    "args": [
+      "validate"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "09-failure",
+    "args": [
+      "install",
+      "enginering",
+      "/private/tmp/apkit-653-session/100/projects/hello",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "10-invalid-target",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/100/missing",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "11-selection",
+    "args": [
+      "install"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-alpha-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/100/projects/alpha/my-app",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-beta-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/100/projects/beta/my-app",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-acme-internal-analytics-pipeline-v2",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/100/projects/acme-internal-analytics-pipeline-v2",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "12-fleet-inventory",
+    "args": [
+      "list",
+      "projects"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "13-fleet-status",
+    "args": [
+      "status",
+      "--all"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "14-fleet-update",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "15-details-list",
+    "args": [
+      "details",
+      "--list"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "16-details",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "18-setup-routing-with-profiles",
+    "args": [
+      "init",
+      "/private/tmp/apkit-653-session/100/workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home-connect"
+  },
+  {
+    "width": 100,
+    "label": "19-list-hosts",
+    "args": [
+      "list",
+      "hosts"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "20-narrow-wrap-command",
+    "args": [
+      "install"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "17-host-missing-warning",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "21-details-partial",
+    "args": [
+      "uninstall",
+      "--all",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "21b-details-partial",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/100/home"
+  },
+  {
+    "width": 60,
+    "label": "01-first-use",
+    "args": [],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "02-setup",
+    "args": [
+      "init",
+      "./workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "03-create-profile",
+    "args": [
+      "new",
+      "profile",
+      "engineering",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "04-create-second-profile",
+    "args": [
+      "new",
+      "profile",
+      "writing",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "05-first-install",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/60/projects/hello",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "06-routine",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "07-status",
+    "args": [
+      "status"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "08-validate",
+    "args": [
+      "validate"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "09-failure",
+    "args": [
+      "install",
+      "enginering",
+      "/private/tmp/apkit-653-session/60/projects/hello",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "10-invalid-target",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/60/missing",
+      "--host",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "11-selection",
+    "args": [
+      "install"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-alpha-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/60/projects/alpha/my-app",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-beta-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/60/projects/beta/my-app",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-acme-internal-analytics-pipeline-v2",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2",
+      "--host",
+      "codex",
+      "--host",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "12-fleet-inventory",
+    "args": [
+      "list",
+      "projects"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "13-fleet-status",
+    "args": [
+      "status",
+      "--all"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "14-fleet-update",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "15-details-list",
+    "args": [
+      "details",
+      "--list"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "16-details",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "18-setup-routing-with-profiles",
+    "args": [
+      "init",
+      "/private/tmp/apkit-653-session/60/workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home-connect"
+  },
+  {
+    "width": 60,
+    "label": "19-list-hosts",
+    "args": [
+      "list",
+      "hosts"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "20-narrow-wrap-command",
+    "args": [
+      "install"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "17-host-missing-warning",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "21-details-partial",
+    "args": [
+      "uninstall",
+      "--all",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "21b-details-partial",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-653-session/60/home"
+  }
+]

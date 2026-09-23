@@ -1,0 +1,10 @@
+[1mSupported Hosts:[0m
+  antigravity — not found
+  claude — detected
+  codex — detected
+  grok — not found
+  opencode — not found
+  pi — not found
+
+"not found" means the Host executable was not detected here.
+Every Host stays selectable with [36mapkit install[0m.

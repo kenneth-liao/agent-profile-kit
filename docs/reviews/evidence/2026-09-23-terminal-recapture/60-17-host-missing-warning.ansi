@@ -1,0 +1,19 @@
+● All Projects were already current.
+[33m⚠ [0m[33mClaude Code CLI was not found on PATH (alpha,[0m
+[33m  [0m[33macme-internal-analytics-pipeline-v2, alpha/my-app,[0m
+[33m  [0m[33mbeta/my-app)[0m
+  Requirement: The selected Profile requires Claude
+    project delivery
+  Remedy: install Claude Code and ensure [36mclaude --version[0m
+    works before checking status or updating the Profile
+[33m⚠ [0m[33mCodex CLI was not found on PATH (alpha,[0m
+[33m  [0m[33macme-internal-analytics-pipeline-v2, alpha/my-app,[0m
+[33m  [0m[33mbeta/my-app, … 1 more Project; use --verbose to see all[0m
+[33m  [0m[33mProjects)[0m
+  Requirement: The selected Profile requires Codex project
+    delivery
+  Remedy: install Codex and ensure [36mcodex --version[0m works
+    before checking status or updating Profiles that require
+    Codex Host capabilities
+
+[36mDetails: [36mapkit details[0m[0m

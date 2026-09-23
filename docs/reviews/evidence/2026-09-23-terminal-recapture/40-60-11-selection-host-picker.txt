@@ -1,0 +1,26 @@
+A Project is one working folder that receives the
+  installed material.
+Installing into
+  /private/tmp/apkit-653-session/60/projects/selection.
+A Profile is a named selection of Context and Skills
+  suited to a kind of work and reusable across projects.
+
+✔ Which Profile? › engineering
+An Agent Host is a tool such as Claude Code or Codex that
+  can use the material you install into a Project. Selecting
+  a Host does not install it.
+❯ Which Agent Hosts?
+type to filter › ↑↓ move › space toggle › enter submit
+2 selected
+❯ ◼ claude
+    detected
+  ◼ codex
+    detected
+  ◻ antigravity
+    not found
+  ◻ grok
+    not found
+  ◻ opencode
+    not found
+  ◻ pi
+    not found

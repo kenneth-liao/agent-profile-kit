@@ -1,0 +1,6 @@
+✔ Workspace and settings valid
+  (2 Profiles, 1 configured Project)
+Workspace: /private/tmp/apkit-653-session/60/workspace
+Profiles found: engineering, writing
+Hosts bound: codex
+Next: apkit status

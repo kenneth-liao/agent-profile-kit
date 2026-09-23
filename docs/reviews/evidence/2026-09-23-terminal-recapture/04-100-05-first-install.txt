@@ -1,0 +1,12 @@
+✔ Installed for /private/tmp/apkit-653-session/100/projects/hello
+  Profile: engineering
+  Hosts: codex
+First use:
+- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
+- Trust the bound project in Codex so the Profile can load.
+- Launch Codex from the exact bound project root so the Profile can load.
+Optional check: start a new Codex session in /private/tmp/apkit-653-session/100/projects/hello and
+  ask what Profile material it loaded.
+
+Next: apkit status
+Details: apkit details

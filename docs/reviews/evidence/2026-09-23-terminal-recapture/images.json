@@ -1,0 +1,222 @@
+[
+  {
+    "frame": "01-100-01-first-use",
+    "palette": "dark",
+    "path": "images/01-100-01-first-use-dark.png"
+  },
+  {
+    "frame": "01-100-01-first-use",
+    "palette": "light",
+    "path": "images/01-100-01-first-use-light.png"
+  },
+  {
+    "frame": "03-100-02-setup",
+    "palette": "dark",
+    "path": "images/03-100-02-setup-dark.png"
+  },
+  {
+    "frame": "03-100-02-setup",
+    "palette": "light",
+    "path": "images/03-100-02-setup-light.png"
+  },
+  {
+    "frame": "04-100-05-first-install",
+    "palette": "dark",
+    "path": "images/04-100-05-first-install-dark.png"
+  },
+  {
+    "frame": "04-100-05-first-install",
+    "palette": "light",
+    "path": "images/04-100-05-first-install-light.png"
+  },
+  {
+    "frame": "06-100-07-status",
+    "palette": "dark",
+    "path": "images/06-100-07-status-dark.png"
+  },
+  {
+    "frame": "06-100-07-status",
+    "palette": "light",
+    "path": "images/06-100-07-status-light.png"
+  },
+  {
+    "frame": "11-100-11-selection-host-picker",
+    "palette": "dark",
+    "path": "images/11-100-11-selection-host-picker-dark.png"
+  },
+  {
+    "frame": "11-100-11-selection-host-picker",
+    "palette": "light",
+    "path": "images/11-100-11-selection-host-picker-light.png"
+  },
+  {
+    "frame": "12-100-11-selection-filtered-host",
+    "palette": "dark",
+    "path": "images/12-100-11-selection-filtered-host-dark.png"
+  },
+  {
+    "frame": "12-100-11-selection-filtered-host",
+    "palette": "light",
+    "path": "images/12-100-11-selection-filtered-host-light.png"
+  },
+  {
+    "frame": "18-100-15-details-list",
+    "palette": "dark",
+    "path": "images/18-100-15-details-list-dark.png"
+  },
+  {
+    "frame": "18-100-15-details-list",
+    "palette": "light",
+    "path": "images/18-100-15-details-list-light.png"
+  },
+  {
+    "frame": "26-100-20-narrow-wrap-command",
+    "palette": "dark",
+    "path": "images/26-100-20-narrow-wrap-command-dark.png"
+  },
+  {
+    "frame": "26-100-20-narrow-wrap-command",
+    "palette": "light",
+    "path": "images/26-100-20-narrow-wrap-command-light.png"
+  },
+  {
+    "frame": "27-100-17-host-missing-warning",
+    "palette": "dark",
+    "path": "images/27-100-17-host-missing-warning-dark.png"
+  },
+  {
+    "frame": "27-100-17-host-missing-warning",
+    "palette": "light",
+    "path": "images/27-100-17-host-missing-warning-light.png"
+  },
+  {
+    "frame": "28-100-21-details-partial",
+    "palette": "dark",
+    "path": "images/28-100-21-details-partial-dark.png"
+  },
+  {
+    "frame": "28-100-21-details-partial",
+    "palette": "light",
+    "path": "images/28-100-21-details-partial-light.png"
+  },
+  {
+    "frame": "29-100-21b-details-partial",
+    "palette": "dark",
+    "path": "images/29-100-21b-details-partial-dark.png"
+  },
+  {
+    "frame": "29-100-21b-details-partial",
+    "palette": "light",
+    "path": "images/29-100-21b-details-partial-light.png"
+  },
+  {
+    "frame": "30-60-01-first-use",
+    "palette": "dark",
+    "path": "images/30-60-01-first-use-dark.png"
+  },
+  {
+    "frame": "30-60-01-first-use",
+    "palette": "light",
+    "path": "images/30-60-01-first-use-light.png"
+  },
+  {
+    "frame": "32-60-02-setup",
+    "palette": "dark",
+    "path": "images/32-60-02-setup-dark.png"
+  },
+  {
+    "frame": "32-60-02-setup",
+    "palette": "light",
+    "path": "images/32-60-02-setup-light.png"
+  },
+  {
+    "frame": "33-60-05-first-install",
+    "palette": "dark",
+    "path": "images/33-60-05-first-install-dark.png"
+  },
+  {
+    "frame": "33-60-05-first-install",
+    "palette": "light",
+    "path": "images/33-60-05-first-install-light.png"
+  },
+  {
+    "frame": "35-60-07-status",
+    "palette": "dark",
+    "path": "images/35-60-07-status-dark.png"
+  },
+  {
+    "frame": "35-60-07-status",
+    "palette": "light",
+    "path": "images/35-60-07-status-light.png"
+  },
+  {
+    "frame": "40-60-11-selection-host-picker",
+    "palette": "dark",
+    "path": "images/40-60-11-selection-host-picker-dark.png"
+  },
+  {
+    "frame": "40-60-11-selection-host-picker",
+    "palette": "light",
+    "path": "images/40-60-11-selection-host-picker-light.png"
+  },
+  {
+    "frame": "41-60-11-selection-filtered-host",
+    "palette": "dark",
+    "path": "images/41-60-11-selection-filtered-host-dark.png"
+  },
+  {
+    "frame": "41-60-11-selection-filtered-host",
+    "palette": "light",
+    "path": "images/41-60-11-selection-filtered-host-light.png"
+  },
+  {
+    "frame": "47-60-15-details-list",
+    "palette": "dark",
+    "path": "images/47-60-15-details-list-dark.png"
+  },
+  {
+    "frame": "47-60-15-details-list",
+    "palette": "light",
+    "path": "images/47-60-15-details-list-light.png"
+  },
+  {
+    "frame": "55-60-20-narrow-wrap-command",
+    "palette": "dark",
+    "path": "images/55-60-20-narrow-wrap-command-dark.png"
+  },
+  {
+    "frame": "55-60-20-narrow-wrap-command",
+    "palette": "light",
+    "path": "images/55-60-20-narrow-wrap-command-light.png"
+  },
+  {
+    "frame": "56-60-17-host-missing-warning",
+    "palette": "dark",
+    "path": "images/56-60-17-host-missing-warning-dark.png"
+  },
+  {
+    "frame": "56-60-17-host-missing-warning",
+    "palette": "light",
+    "path": "images/56-60-17-host-missing-warning-light.png"
+  },
+  {
+    "frame": "57-60-21-details-partial",
+    "palette": "dark",
+    "path": "images/57-60-21-details-partial-dark.png"
+  },
+  {
+    "frame": "57-60-21-details-partial",
+    "palette": "light",
+    "path": "images/57-60-21-details-partial-light.png"
+  },
+  {
+    "frame": "58-60-21b-details-partial",
+    "palette": "dark",
+    "path": "images/58-60-21b-details-partial-dark.png"
+  },
+  {
+    "frame": "58-60-21b-details-partial",
+    "palette": "light",
+    "path": "images/58-60-21b-details-partial-light.png"
+  }
+]
