@@ -285,7 +285,7 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     // AC-2/AC-3: runnable recovery quoting the authored spelling.
     const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
     expect(whatToType).toContain(
-      "Restore the directory, or run apkit uninstall --project '~/projects/nope' to remove its stale record.",
+      "Restore the directory, or run apkit uninstall --project ~/'projects/nope' to remove its stale record.",
     );
   });
 
@@ -315,7 +315,7 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     const whatToType = formatInstallerToolErrorDiagnostic(fact)
       .whatToType?.map((line) => flatInlineText(line))
       .join("\n");
-    expect(whatToType).toContain("apkit uninstall --project '~/my projects/nope'");
+    expect(whatToType).toContain("apkit uninstall --project ~/'my projects/nope'");
   });
 
   test("a dangling recorded binding keeps the target-first lead and its restore remedy", () => {

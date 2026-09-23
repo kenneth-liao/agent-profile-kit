@@ -264,11 +264,10 @@ test("renders a command argument fully spelled, never middle-elided", () => {
   expect(text.startsWith(prefix)).toBe(true);
   // A copyable command token is executable as printed: the identity renders
   // fully spelled — never middle-elided, however wide that renders (review
-  // INT-1 cycle 2 on #489).
-  // Shell-quoted as one POSIX token through the shared quoting boundary
-  // (review RE-1 on #489).
+  // INT-1 cycle 2 on #489) — and is quoted through the one shared shell-quoting
+  // boundary so `~` still expands (#651).
   expect(text.slice(prefix.length)).toBe(
-    `'${displayPath(project, project, "fleet", cwd, home)}'`,
+    `~/'projects/deeply/nested/workspaces/agent-profile-kit'`,
   );
 });
 
@@ -472,7 +471,10 @@ test("lays out a column group side by side and stacks when it will not fit", () 
   expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(18);
 });
 
-test("wraps a sentence continuously with embedded commands inline and whole", () => {
+test("wraps a sentence continuously with embedded command words inline and whole", () => {
+  // Plain prose that merely mentions commands: words reflow at the measure and
+  // never split mid-word. Structurally supplied command atoms are covered by
+  // the dedicated-copyable tests below (US-009).
   const sentence =
     "apkit: apkit status Project target '/projects/demo' is not a bound Project; " +
     "run apkit list projects or apkit bind";
@@ -481,24 +483,160 @@ test("wraps a sentence continuously with embedded commands inline and whole", ()
     { color: false, interactive: false, width: 40 , rows: undefined },
   );
   const lines = text.split("\n");
-  // The sentence wraps to the measure…
   expect(lines.length).toBeGreaterThan(1);
   for (const line of lines) {
     expect(line.length).toBeLessThanOrEqual(40);
-  }
-  // …as one continuous flow: no embedded command is promoted onto its own
-  // dedicated line, and no command is split across lines.
-  expect(lines).not.toContain("apkit status");
-  for (const command of ["apkit status", "apkit list projects", "apkit bind"]) {
-    const linesCarrying = lines.filter((line) =>
-      command.split(" ").some((word) => line.includes(word)),
-    );
-    expect(
-      linesCarrying.some((line) => line.includes(command)),
-      `command '${command}' must stay whole on one line`,
-    ).toBe(true);
+    expect(line).not.toMatch(/\S\n/);
   }
   expect(lines.map((line) => line.trimStart()).join(" ")).toBe(sentence);
+});
+
+test("keeps a fitting prose+command node on one line without promoting the command", () => {
+  // US-009, RE-1: "Use apkit status to inspect Project lifecycle diagnostics."
+  // is 58 characters and fits a 60-column measure. Promotion would orphan
+  // "Use" above the command (#651).
+  const text = renderPresentationDocument(
+    [{
+      kind: "prose",
+      parts: [
+        "Use ",
+        commandPart("apkit", [arg("status")]),
+        " to inspect Project lifecycle diagnostics.",
+      ],
+    }],
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  expect(text).toBe("Use apkit status to inspect Project lifecycle diagnostics.");
+});
+
+test("keeps a fitting command inline when a longer sentence wraps around it (RE-1)", () => {
+  // The node must wrap, but `apkit status` still fits beside its lead-in on
+  // one measure line: the command is not promoted when it fits (RE-1).
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "See ",
+        commandPart("apkit", [arg("status")]),
+        " for details about this Project's lifecycle and every pending work item.",
+      ],
+    }],
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.some((line) => line.includes("See apkit status for details"))).toBe(true);
+  expect(lines).not.toContain("apkit status");
+});
+
+test("places a command on its own line when it does not fit beside the prose, without sentence punctuation", () => {
+  // US-009, RE-1: the command is promoted only when it does not fit; a
+  // promoted command line never carries a trailing period (it would paste as
+  // part of the final argument).
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "Next: from the project you want to try, run ",
+        commandPart("apkit", [arg("install"), arg("example"), arg("--host"), arg("codex")]),
+        ".",
+      ],
+      category: "command",
+    }],
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines[0]).toBe("Next: from the project you want to try, run");
+  expect(lines).toHaveLength(2);
+  const commandLine = lines[1]!.trim();
+  expect(commandLine).toBe("apkit install example --host codex");
+  for (const line of lines) {
+    expect(line.trimEnd()).not.toMatch(/[.,;:]$/);
+  }
+});
+
+test("fail-closed manual-recovery prose is actionable default colour (ORCH-1)", () => {
+  const colored = renderPresentationDocument(
+    [{
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "update" },
+        { kind: "path", canonicalPath: "", scope: "fleet" },
+      ],
+    }],
+    { color: true, interactive: true, width: 80, rows: undefined },
+    { home: "/home", cwd: "/home" },
+  );
+  expect(colored).toContain("Manual recovery is required");
+  // Remedies use the default colour — never muted (DEC-001, ORCH-1).
+  expect(colored).not.toContain("\u001b[2m");
+});
+
+test("moves trailing sentence punctuation off a promoted command line", () => {
+  const text = renderPresentationDocument(
+    [{
+      kind: "list-item",
+      parts: [
+        "Run ",
+        commandPart("apkit", [arg("update"), { kind: "path", canonicalPath: "/projects/alpha/with/a/long/copyable/path", scope: "fleet" }]),
+        ".",
+      ],
+    }],
+    { color: false, interactive: false, width: 40, rows: undefined },
+  );
+  const lines = text.split("\n");
+  const commandLine = lines.find((line) => line.includes("apkit update"));
+  expect(commandLine).toBeDefined();
+  expect(commandLine!.trimEnd()).not.toMatch(/[.,;:]$/);
+  expect(commandLine!.trim()).toMatch(/^apkit update /);
+  expect(lines.join("\n")).toContain("- Run");
+});
+
+test("never rewrites command-run text when dropping separator punctuation (PROD-3)", () => {
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ",
+        commandPart("apkit", [arg("status.")]),
+        ".",
+      ],
+    }],
+    { color: false, interactive: false, width: 40, rows: undefined },
+  );
+  const lines = text.split("\n");
+  const commandLine = lines.find((line) => line.includes("apkit status"));
+  expect(commandLine).toBeDefined();
+  // The authored command text keeps its period; only the separator run drops.
+  expect(commandLine!.trim()).toBe("apkit status.");
+});
+
+test("keeps an over-measure copyable command or path whole on one line", () => {
+  const longPath = "/projects/alpha/with/a/very/long/copyable/path/that/exceeds/the/measure/segment";
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "Update it with ",
+        commandPart("apkit", [
+          arg("update"),
+          { kind: "path", canonicalPath: longPath, scope: "fleet" },
+        ]),
+        " after resolving the blocker.",
+      ],
+    }],
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  const lines = text.split("\n");
+  const commandLine = lines.find((line) => line.includes("apkit update"));
+  expect(commandLine).toBeDefined();
+  expect(commandLine).toContain(longPath);
+  expect(commandLine!.trimEnd()).not.toMatch(/[.,;:]$/);
+  for (const line of lines) {
+    if (line.includes("apkit update")) continue;
+    expect(line.length).toBeLessThanOrEqual(60);
+  }
 });
 
 test("carries a sentence's category across every wrapped line", () => {

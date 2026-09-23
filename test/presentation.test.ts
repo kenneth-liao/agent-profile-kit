@@ -9086,6 +9086,38 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     expect(commands(wording(blocker).remedy)).not.toContain("apkit uninstall --project '/project-a'");
   });
 
+  test("uninstallAlternative emits honest prose when the command cannot be derived (INT-1)", () => {
+    const unquotableProject = "/project-a\u0007";
+    const blocker = normalizeBlocker(occupiedOutputBlocker({
+      occupied: { case: "occupied-destination", occupation: "directory" },
+      path: ".opencode/opencode.json",
+      project: unquotableProject,
+    }));
+    const { remedy } = flat(blocker);
+    expect(remedy).toContain(
+      "or remove its generated files and stop managing this Project yourself",
+    );
+    // No dangling "; or run" lead-in and no empty command (INT-1).
+    expect(remedy).not.toContain("; or run");
+    expect(remedy).not.toMatch(/or run\s+to /);
+    expect(commands(wording(blocker).remedy).some((command) => command.includes("uninstall")))
+      .toBe(false);
+  });
+
+  test("untrack-undefined branch emits honest prose with no dangling then-run (INT-1)", () => {
+    const unquotableProject = "/project-a\u0007";
+    const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
+      paths: ["broken\nname.md"],
+      project: unquotableProject,
+    }));
+    const { remedy } = flat(blocker);
+    expect(remedy).toContain("Manual recovery is required");
+    expect(remedy).toContain("leave the files in place to keep Git ownership");
+    // No dangling "then run" without a command (INT-1).
+    expect(remedy).not.toContain("then run");
+    expect(commands(wording(blocker).remedy)).toEqual([]);
+  });
+
   test("quoted filenames survive POSIX quoting inside the derived command (#440)", () => {
     const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
       paths: ["weird'name.md", "a b.md", "-leading-dash.md"],
@@ -9915,7 +9947,7 @@ describe("guide documents (#390)", () => {
       "spacer",
       "verbatim",
       "spacer",
-      "sentence(heading)",
+      "sentence(command)",
       "spacer",
       "sentence",
     ]);
@@ -9949,9 +9981,11 @@ describe("guide documents (#390)", () => {
       kind: "verbatim",
       text: contextExample.contents,
     });
-    // The carried next action renders whole, as the literal block it came from.
-    expect(renderedNodeLine(document.at(-3) as PresentationNode))
-      .toBe(TOPIC_GUIDES.profile.next);
+    // The next action is structured text plus command atoms: prose reflows
+    // and commands stay whole without a trailing period on a promoted line.
+    expect(inlineText(document.at(-3) as PresentationNode)).toBe(
+      "Next: from the project you want to try, run apkit install example --host codex",
+    );
     // Defect pins (#510): the raw markdown decoration is gone from rendered
     // output. Every pin fails on the pre-#510 rendering, which printed the
     // literal `# Profile` heading and the ```yaml / ```md fences.
@@ -9994,7 +10028,7 @@ describe("guide documents (#390)", () => {
         "spacer",
         "verbatim",
         "spacer",
-        "sentence(heading)",
+        "sentence(command)",
         "spacer",
         "sentence",
       ]);

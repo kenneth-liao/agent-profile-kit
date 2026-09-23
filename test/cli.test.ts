@@ -30,6 +30,7 @@ import {
   machineCommands,
 } from "../cli/command-help.js";
 import { TOPIC_GUIDES } from "../cli/guides.js";
+import { flatInlineText, type CommandPart } from "../cli/presentation-document.js";
 import {
   INVENTORY_TOPICS,
   inventoryCommandSyntax,
@@ -97,6 +98,20 @@ function isolatedHome(): string {
   const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-test-"));
   temporaryDirectories.push(home);
   return home;
+}
+
+/** The focused-guide next-action block: from `Next:` up to the following section. */
+function nextActionLines(stdout: string): string[] {
+  const lines = stdout.split("\n");
+  const start = lines.findIndex((line) => line.startsWith("Next:"));
+  expect(start).toBeGreaterThanOrEqual(0);
+  const block: string[] = [];
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (index > start && (line.trim() === "" || line.startsWith("For the Workspace"))) break;
+    block.push(line);
+  }
+  return block;
 }
 
 function project(prefix = "agent-profile-kit-project-"): string {
@@ -2142,7 +2157,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // The copyable command argument is one shell-quoted token (review RE-1 on
     // #489).
     expect(humanText(statusExact.stdout)).toContain(
-      "Resolve the reported blocker, then run apkit status '~/projects/second' again.",
+      "Resolve the reported blocker, then run apkit status ~/'projects/second' again.",
     );
     expect(statusExact.stdout).not.toContain("then run apkit status again.");
 
@@ -2150,7 +2165,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const applyExact = await runCli(home, "update", secondProject);
     expectExitCode(applyExact, 2);
     expect(humanText(applyExact.stdout)).toContain(
-      "Resolve the reported blocker, then run apkit update '~/projects/second' again.",
+      "Resolve the reported blocker, then run apkit update ~/'projects/second' again.",
     );
     expect(applyExact.stdout).not.toContain("then run apkit update again.");
     // Prove firstProject was still NOT written
@@ -2167,7 +2182,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const globalBlockedApplyExact = await runCli(home, "update", firstProject);
     expectExitCode(globalBlockedApplyExact, 2);
     expect(humanText(globalBlockedApplyExact.stdout)).toContain(
-      "Resolve the reported global blocker, then run apkit update '~/projects/first' again.",
+      "Resolve the reported global blocker, then run apkit update ~/'projects/first' again.",
     );
   });
 
@@ -2211,10 +2226,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // shared project-scope display identity as one shell-quoted token
     // (review RE-1 on #489).
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Next: apkit update '~/projects/absolute-project'"),
+      humanText("Next: apkit update ~/'projects/absolute-project'"),
     );
     expect(humanText(explicitStatus.stdout)).toContain(
-      humanText("Details: apkit status '~/projects/absolute-project' --verbose"),
+      humanText("Details: apkit status ~/'projects/absolute-project' --verbose"),
     );
 
     expectExitCode(await runCli(home, "update", absolute), 0);
@@ -3898,12 +3913,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const scopedStale = await runCli(home, "status", stale, "--stale");
 
     expectExitCode(scopedStale, 0);
-    expect(humanText(scopedStale.stdout)).toContain("~/projects/compose-stale");
+    expect(humanText(scopedStale.stdout)).toContain("~/'projects/compose-stale'");
 
     const scopedSettled = await runCli(home, "status", settled, "--stale");
 
     expectExitCode(scopedSettled, 0);
-    expect(humanText(scopedSettled.stdout)).not.toContain("~/projects/compose-stale");
+    expect(humanText(scopedSettled.stdout)).not.toContain("~/'projects/compose-stale'");
 
     const hereStale = await runCliAt(home, stale, "status", "--here", "--stale");
 
@@ -10979,20 +10994,47 @@ describe("apkit root help", () => {
       const narrow = await runCliInPty(home, 40, "guide", topic);
       const wide = await runCliInPty(home, 100, "guide", topic);
       const next = TOPIC_GUIDES[topic].next;
+      const nextText = flatInlineText([...next]);
+      const nextCommands = next
+        .filter((part): part is CommandPart => typeof part !== "string" && part.kind === "command")
+        .map((part) => [part.program, ...part.args.map((a) => a.kind === "text" ? a.value : a.authoredPath ?? a.canonicalPath)].join(" "));
 
       expectExitCode(narrow, 0);
       expectExitCode(wide, 0);
       expect(narrow.stdout).not.toBe(wide.stdout);
       expect(narrow.stdout).toContain(AUTHORING_EXAMPLES[topic].contents);
-      expect(narrow.stdout).toContain(next);
+      // Ordered full next text (INT-3): wide fits it whole; narrow reflows it
+      // and we reconstruct the ordered text from the next-action block.
+      expect(wide.stdout).toContain(nextText);
+      const nextLines = nextActionLines(narrow.stdout);
+      const plainNextLines = nextLines.map((line) => line.replaceAll(/\u001b\[[0-9;]*m/g, ""));
+      const flattened = plainNextLines
+        .map((line) => line.trim())
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .replace(/ ,/g, ",")
+        .replace(/ ;/g, ";")
+        .trim();
+      expect(flattened).toBe(nextText);
+      // Each command stays intact on one line; one that does not fit beside
+      // its prose is promoted alone (RE-1, INT-3).
+      for (const command of nextCommands) {
+        const carriers = plainNextLines.filter((line) => line.includes(command));
+        expect(carriers).toHaveLength(1);
+        const trimmed = carriers[0]!.trim();
+        expect(trimmed === command || trimmed.includes(command)).toBe(true);
+        if (trimmed !== command) {
+          expect(trimmed.endsWith(command) || trimmed.includes(` ${command}`)).toBe(true);
+        }
+      }
       expect(narrow.stdout).not.toContain("```y");
       expect(narrow.stdout).not.toContain("```m");
 
       // Prose wraps at the terminal width; the verbatim example bodies are
       // reproduced whole (never wrapped), so they are exempt. The profile
       // guide also renders the context example, so every example body is
-      // exempt regardless of topic (#510). Scaffold commands and the next
-      // action are atomic command lines: the renderer keeps them whole, so at
+      // exempt regardless of topic (#510). Scaffold commands and copyable
+      // next-action commands are atomic: the renderer keeps them whole, so at
       // narrow widths they overflow rather than split (the
       // rendered-atomicity gate enforces the same rule).
       const exampleLines = new Set(
@@ -11004,9 +11046,12 @@ describe("apkit root help", () => {
         (args) => `  apkit ${args.join(" ")}`,
       );
       for (const line of narrow.stdout.split("\n")) {
-        if (exampleLines.has(line) || line === next) continue;
+        if (exampleLines.has(line)) continue;
         if (/^An example [^`]+:$/.test(line)) continue;
         if (scaffoldLines.includes(line)) continue;
+        if (nextCommands.some((command) => line.trim() === command || line.trimEnd() === command)) {
+          continue;
+        }
         expect(line.length).toBeLessThanOrEqual(40);
       }
     }
@@ -11705,7 +11750,7 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("No Profiles are available.");
     expect(result.stdout.replace(/\s+/g, " ")).toContain(
-      "Add a Profile to the selected Workspace, then use <profile> with apkit install.",
+      "Add a Profile to the selected Workspace, then use <profile> with apkit install",
     );
     expect(result.stdout).not.toContain("Next:");
     // With zero Profiles the focused route is not offered: nothing can be
@@ -14624,7 +14669,7 @@ describe("packed CLI new profile", () => {
     // user to repair the uncreated Profile file (US-015, #508).
     expect(unknownContext.stderr).toContain("Profile 'engineering' was not created");
     expect(unknownContext.stderr).not.toContain("Correct profiles/engineering.yaml");
-    expect(unknownContext.stderr).toMatch(/apkit new profile engineering again/);
+    expect(unknownContext.stderr).toMatch(/apkit new profile engineering\s+again/);
     expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
 
     const unknownSkill = await runCli(
@@ -15156,7 +15201,7 @@ describe("packed CLI install missing-argument errors (#494, US-001, US-006)", ()
     expect(humanText(refused.stderr)).toContain("--auto-confirm");
     // The real entrypoint leaves cwd implicit: the retry still names the
     // resolved Project explicitly, so it cannot install elsewhere (DEC-006).
-    expect(humanText(refused.stderr)).toContain("'~/projects/install-fully-specified'");
+    expect(humanText(refused.stderr)).toContain("~/'projects/install-fully-specified'");
     expect(readFileSync(configPath(home), "utf8")).not.toContain(realpathSync(projectPath));
 
     const result = await runCliAt(home, projectPath, "install", "coding", "--host", "codex", "--auto-confirm");
@@ -15716,7 +15761,10 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     // The machine list is the human list: every message appears in the report.
     const report = humanText(human.stderr);
     for (const violation of payload.violations) {
-      expect(report).toContain(humanText(violation.message));
+      // A promoted command line drops a trailing sentence period (#651);
+      // compare the human and machine messages modulo that terminator.
+      const message = humanText(violation.message).replace(/\.$/, "");
+      expect(report.replace(/\.$/, "")).toContain(message);
     }
   });
 

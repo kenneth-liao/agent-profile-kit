@@ -89,28 +89,40 @@ export function identifierPart(value: string): IdentifierPart {
 
 /**
  * POSIX single-quote a value so a copied command survives spaces and special
- * characters. The canonical quoting helper for command authoring: wording
- * tables and the document renderer consume it from this dependency-free leaf.
+ * characters. Internal primitive for {@link shellQuoteArg}; command authoring
+ * never calls this directly (#651).
  */
-export function shellSingleQuoted(value: string): string {
+function shellSingleQuoted(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 /**
- * Shell-quote a value for command authoring, or refuse it: empty values and
- * control characters (newlines among them) cannot be copied or pasted safely,
- * so the authoring boundary returns `undefined` and the remedy degrades to
- * honest manual-recovery prose instead of emitting an unsafe command (#440).
+ * The one shared shell-quoting function: the only way a command argument is
+ * quoted (US-009, #651). A printed argument must stay executable when pasted
+ * into a real shell.
+ *
+ * - Empty values and control characters are refused (`undefined`), so the
+ *   remedy degrades to honest manual-recovery prose instead of emitting an
+ *   unsafe command (#440).
+ * - A home-relative spelling keeps its `~` / `~/` prefix unquoted so the shell
+ *   expands it; only the remainder is single-quoted (`~/'proj with space'`).
+ *   Quoting the whole `~/…` spelling would freeze `~` and break the command.
+ * - Every other value is POSIX single-quoted as one token.
  */
-export function safeShellQuoted(value: string): string | undefined {
+export function shellQuoteArg(value: string): string | undefined {
   if (value.length === 0) return undefined;
   for (const character of value) {
     const code = character.codePointAt(0)!;
     if (code < 0x20 || code === 0x7f) return undefined;
   }
+  if (value === "~") return "~";
+  if (value.startsWith("~/")) {
+    const remainder = value.slice(2);
+    if (remainder.length === 0) return "~/";
+    return `~/${shellSingleQuoted(remainder)}`;
+  }
   return shellSingleQuoted(value);
 }
-
 
 /**
  * The plain-text projection of inline content: atomic parts render verbatim.
