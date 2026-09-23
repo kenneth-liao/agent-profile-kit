@@ -58,6 +58,9 @@ const STABLE_UUID = "00000000-0000-4000-8000-000000000000";
 /** Retained operation evidence carries real times; rendering is what is reviewed. */
 const OPERATION_TIME_PATTERN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/g;
 const STABLE_OPERATION_TIME = "2026-01-01T00:00:00Z";
+/** Compact history-list time is relative to wall clock; pin one representative. */
+const COMPACT_TIME_PATTERN = /\b(?:just now|\d+[mhd] ago|\d{4}-\d{2}-\d{2})\b/g;
+const STABLE_COMPACT_TIME = "3m ago";
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
@@ -107,9 +110,23 @@ function stabilize(text: string, home: string): string {
   for (const path of replacements) {
     next = next.split(path).join(sameLengthPlaceholder(path));
   }
-  return next
+  next = next
     .replace(UUID_PATTERN, STABLE_UUID)
     .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME);
+  // Identical stabilized endpoints render as one Time line (US-008); collapse
+  // the Started/Finished pair the real-clock run may have printed.
+  next = next.replace(
+    new RegExp(`Started: ${STABLE_OPERATION_TIME}\nFinished: ${STABLE_OPERATION_TIME}`, "g"),
+    `Time: ${STABLE_OPERATION_TIME}`,
+  );
+  // Compact history-list time is relative to wall clock; pin one representative
+  // at the captured width so column alignment stays reviewable.
+  return next.replace(COMPACT_TIME_PATTERN, (time) => {
+    const token = STABLE_COMPACT_TIME;
+    return time.length <= token.length
+      ? token.slice(0, time.length)
+      : token.padEnd(time.length, " ");
+  });
 }
 
 function snapshotBody(result: ProcessResult, home: string): string {

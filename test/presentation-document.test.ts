@@ -4,10 +4,14 @@ import { Writable } from "node:stream";
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
 import {
+  formatCompactOperationTime,
   omitsOperationDetailsHint,
   operationDetailsDocument,
+  operationHistoryEntryDocument,
+  operationHistoryListDocument,
   writeLifecycleReport,
 } from "../cli/operation-history-presentation.js";
+import type { OperationHistoryEntry } from "../installer/operation-history.js";
 import { beginLifecycleOperationRecording } from "../cli/operation-recording.js";
 import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
@@ -268,7 +272,7 @@ test("renders a command argument fully spelled, never middle-elided", () => {
   );
 });
 
-test("aligns sibling rows into columns and right-aligns numeric cells", () => {
+test("aligns sibling rows into columns under a header row and right-aligns numeric cells", () => {
   const text = renderPresentationDocument(
     [
       {
@@ -289,12 +293,69 @@ test("aligns sibling rows into columns and right-aligns numeric cells", () => {
     { color: false, interactive: true, width: 80 , rows: undefined },
   );
   const lines = text.split("\n");
-  expect(lines).toHaveLength(2);
-  expect(lines[0]!.endsWith("12")).toBe(true);
-  expect(lines[1]!.endsWith(" 3")).toBe(true);
+  expect(lines).toHaveLength(3);
+  expect(lines[0]).toBe("project    files");
+  expect(lines[1]!.endsWith("12")).toBe(true);
+  expect(lines[2]!.endsWith(" 3")).toBe(true);
+  expect(lines[1]!.length).toBe(lines[2]!.length);
+  expect(lines[1]!.indexOf("12")).toBe(lines[2]!.length - 2);
+  expect(lines[0]!.endsWith("files")).toBe(true);
   expect(lines[0]!.length).toBe(lines[1]!.length);
-  expect(lines[0]!.indexOf("12")).toBe(lines[1]!.length - 2);
   expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(80);
+});
+
+test("prints a header row labeling each aligned column at the table measure", () => {
+  const text = renderPresentationDocument(
+    [
+      {
+        kind: "row",
+        cells: [
+          { column: "Project", content: { kind: "identifier", value: "demo" } },
+          { column: "Profile", content: { kind: "identifier", value: "example" } },
+          { column: "Hosts", content: { kind: "identifier", value: "codex" } },
+          { column: "State", content: { kind: "identifier", value: "configured" } },
+        ],
+      },
+    ],
+    { color: false, interactive: true, width: 100, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines).toHaveLength(2);
+  expect(lines[0]).toBe("Project  Profile  Hosts  State");
+  expect(lines[1]).toBe("demo     example  codex  configured");
+});
+
+test("packs labeled compact records at a narrow width without dropping facts", () => {
+  const row = {
+    kind: "row" as const,
+    cells: [
+      { column: "Project", content: { kind: "identifier" as const, value: "demo" } },
+      { column: "Profile", content: { kind: "identifier" as const, value: "example" } },
+      { column: "Hosts", content: { kind: "identifier" as const, value: "codex" } },
+      { column: "State", content: { kind: "identifier" as const, value: "configured" } },
+    ],
+  };
+  const text = renderPresentationDocument([row, row], {
+    color: false,
+    interactive: true,
+    width: 60,
+    rows: undefined,
+  });
+  const lines = text.split("\n");
+  // Two records, each about two lines, with a blank line so they stay distinct.
+  expect(lines.filter((line) => line.length === 0)).toHaveLength(1);
+  expect(lines[lines.length - 1]!.length).toBeGreaterThan(0);
+  const records = text.split("\n\n");
+  expect(records).toHaveLength(2);
+  for (const record of records) {
+    const recordLines = record.split("\n");
+    expect(recordLines.length).toBeLessThanOrEqual(2);
+    expect(recordLines.join(" ")).toContain("Project: demo");
+    expect(recordLines.join(" ")).toContain("Profile: example");
+    expect(recordLines.join(" ")).toContain("Hosts: codex");
+    expect(recordLines.join(" ")).toContain("State: configured");
+  }
+  expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(60);
 });
 
 test("degrades rows to stacked pairs when aligned columns will not fit", () => {
@@ -375,11 +436,13 @@ test("lets rows use the full terminal width while prose stays at 80", () => {
     }],
     { color: false, interactive: true, width: 100 , rows: undefined },
   );
-  expect(wide.split("\n")).toHaveLength(1);
+  const lines = wide.split("\n");
+  expect(lines).toHaveLength(2);
+  expect(lines[0]).toBe("left".padEnd(45) + "  " + "right");
   expect(wide).toContain(left);
   expect(wide).toContain(right);
-  expect(wide.length).toBeGreaterThan(80);
-  expect(wide.length).toBeLessThanOrEqual(100);
+  expect(Math.max(...lines.map((line) => line.length))).toBeGreaterThan(80);
+  expect(Math.max(...lines.map((line) => line.length))).toBeLessThanOrEqual(100);
 });
 
 test("lays out a column group side by side and stacks when it will not fit", () => {
@@ -896,5 +959,194 @@ test("separates compact entries below the table minimum width", () => {
     width: 80,
     rows: undefined,
   });
-  expect(normal).toBe("alpha\nbeta");
+  expect(normal).toBe("project\nalpha\nbeta");
+});
+
+function historyEntry(overrides: Partial<OperationHistoryEntry> & Pick<OperationHistoryEntry, "outcome">): OperationHistoryEntry {
+  const base: OperationHistoryEntry = {
+    id: "op-000001",
+    command: "install",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    finishedAt: "2026-01-01T00:00:00.000Z",
+    outcome: "succeeded",
+    scope: { selection: "project", profile: "example", hosts: ["codex"] },
+    projects: [{
+      project: "/tmp/demo",
+      canonicalProject: "/tmp/demo",
+      result: "completed",
+      written: [".codex/hooks.json"],
+    }],
+  };
+  return { ...base, ...overrides };
+}
+
+test("formatCompactOperationTime is deterministic UTC buckets with an injected now", () => {
+  const now = Date.parse("2026-01-01T12:00:00.000Z");
+  expect(formatCompactOperationTime("2026-01-01T11:59:30.000Z", now)).toBe("just now");
+  expect(formatCompactOperationTime("2026-01-01T11:57:00.000Z", now)).toBe("3m ago");
+  expect(formatCompactOperationTime("2026-01-01T09:00:00.000Z", now)).toBe("3h ago");
+  expect(formatCompactOperationTime("2025-12-30T12:00:00.000Z", now)).toBe("2d ago");
+  expect(formatCompactOperationTime("2025-12-01T12:00:00.000Z", now)).toBe("2025-12-01");
+  expect(formatCompactOperationTime("not-a-time", now)).toBe("not-a-time");
+});
+
+test("details show one exact Time when start and end are identical, never a duration", () => {
+  const rendered = renderPresentationDocument(
+    operationHistoryEntryDocument(historyEntry({ outcome: "succeeded" })),
+    redirected,
+    { home: "/home", cwd: "/work" },
+  );
+  expect(rendered).toContain("Time: 2026-01-01T00:00:00Z");
+  expect(rendered).not.toContain("→");
+  expect(rendered).not.toContain("Started:");
+  expect(rendered).not.toContain("Finished:");
+  expect(rendered).not.toContain("duration");
+});
+
+test("details show exact Started and Finished timestamps when they differ", () => {
+  const rendered = renderPresentationDocument(
+    operationHistoryEntryDocument(historyEntry({
+      outcome: "partial",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:00:12.000Z",
+    })),
+    redirected,
+    { home: "/home", cwd: "/work" },
+  );
+  expect(rendered).toContain("Started: 2026-01-01T00:00:00Z");
+  expect(rendered).toContain("Finished: 2026-01-01T00:00:12Z");
+  expect(rendered).not.toContain("Time:");
+  expect(rendered).not.toContain("→");
+});
+
+test("details use user-facing file-work headings that keep committed, pending and failed distinct", () => {
+  const rendered = renderPresentationDocument(
+    operationHistoryEntryDocument(historyEntry({
+      outcome: "partial",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:00:12.000Z",
+      projects: [
+        {
+          project: "/tmp/written",
+          canonicalProject: "/tmp/written",
+          result: "completed",
+          written: [".codex/hooks.json"],
+        },
+        {
+          project: "/tmp/failed",
+          canonicalProject: "/tmp/failed",
+          result: "failed",
+          failure: "write refused",
+        },
+        {
+          project: "/tmp/skipped",
+          canonicalProject: "/tmp/skipped",
+          result: "skipped",
+          failure: "declined changed file",
+        },
+        {
+          project: "/tmp/pending",
+          canonicalProject: "/tmp/pending",
+          result: "unattempted",
+        },
+      ],
+    })),
+    redirected,
+    { home: "/home", cwd: "/work" },
+  );
+  expect(rendered).toContain("Written:");
+  expect(rendered).toContain("Failed:");
+  expect(rendered).toContain("Skipped:");
+  expect(rendered).toContain("Pending:");
+  expect(rendered).not.toContain("Committed:");
+  expect(rendered).not.toContain("Remaining:");
+  expect(rendered).toContain("+ .codex/hooks.json");
+  expect(rendered).toContain("write refused");
+  expect(rendered).toContain("declined changed file");
+  expect(rendered).toContain("/tmp/pending");
+});
+
+test("the details headline glyph matches each operation outcome", () => {
+  const glyphs = {
+    succeeded: "✔",
+    partial: "⚠",
+    blocked: "⚠",
+    failed: "✖",
+    "no-op": "●",
+    cancelled: "●",
+  } as const;
+  const projectsFor = (outcome: keyof typeof glyphs) => {
+    if (outcome === "no-op") {
+      return [{ project: "/tmp/demo", canonicalProject: "/tmp/demo", result: "unchanged" as const }];
+    }
+    if (outcome === "cancelled") {
+      return [{ project: "/tmp/demo", canonicalProject: "/tmp/demo", result: "unattempted" as const }];
+    }
+    if (outcome === "blocked") {
+      return [{
+        project: "/tmp/demo",
+        canonicalProject: "/tmp/demo",
+        result: "unattempted" as const,
+        failure: "needs attention",
+      }];
+    }
+    return undefined;
+  };
+  for (const [outcome, glyph] of Object.entries(glyphs)) {
+    const key = outcome as keyof typeof glyphs;
+    const extra = projectsFor(key);
+    const rendered = renderPresentationDocument(
+      operationHistoryEntryDocument(historyEntry({
+        outcome: key,
+        ...(extra === undefined ? {} : { projects: extra }),
+      })),
+      redirected,
+      { home: "/home", cwd: "/work" },
+    );
+    expect(rendered.startsWith(glyph)).toBe(true);
+  }
+});
+
+test("history rows carry compact human time and label every column at the table measure", () => {
+  const now = Date.parse("2026-01-01T00:05:00.000Z");
+  const rendered = renderPresentationDocument(
+    operationHistoryListDocument([historyEntry({ outcome: "succeeded" })], now),
+    { color: false, interactive: true, width: 100, rows: undefined },
+    { home: "/home", cwd: "/work" },
+  );
+  const lines = rendered.split("\n");
+  expect(lines[0]).toBe("Operation history (1):");
+  expect(lines[1]).toBe("");
+  expect(lines[2]).toMatch(/^Operation\s+Time\s+Command\s+Outcome\s+Scope$/);
+  expect(lines[3]).toContain("op-000001");
+  expect(lines[3]).toContain("5m ago");
+  expect(lines[3]).toContain("install");
+  expect(lines[3]).toContain("succeeded");
+  expect(rendered).not.toContain("2026-01-01T00:00:00Z");
+});
+
+test("history rows pack into compact labeled records at 60 columns", () => {
+  const now = Date.parse("2026-01-01T00:05:00.000Z");
+  const rendered = renderPresentationDocument(
+    operationHistoryListDocument([
+      historyEntry({ outcome: "succeeded" }),
+      historyEntry({ id: "op-000002", outcome: "failed" }),
+    ], now),
+    { color: false, interactive: true, width: 60, rows: undefined },
+    { home: "/home", cwd: "/work" },
+  );
+  const records = rendered.split("\n\n");
+  expect(records.length).toBeGreaterThanOrEqual(3);
+  for (const record of records.slice(1, 3)) {
+    const recordLines = record.split("\n");
+    expect(recordLines.length).toBeLessThanOrEqual(2);
+    expect(recordLines.join(" ")).toContain("Operation:");
+    expect(recordLines.join(" ")).toContain("Time:");
+    expect(recordLines.join(" ")).toContain("Command:");
+    expect(recordLines.join(" ")).toContain("Outcome:");
+    expect(recordLines.join(" ")).toContain("Scope:");
+  }
+  expect(rendered).toContain("op-000001");
+  expect(rendered).toContain("op-000002");
+  expect(Math.max(...rendered.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
 });

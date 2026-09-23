@@ -51,6 +51,8 @@ export interface DetailsCommandRequest {
   readonly pagerEnvironment?: NodeJS.ProcessEnv;
   /** Test seam over the history document's filesystem operations. */
   readonly fileSystem?: Partial<OperationHistoryFileSystem>;
+  /** Injectable wall clock for compact history-list time (US-008). */
+  readonly now?: number;
 }
 
 export interface DetailsCommandOutcome {
@@ -204,7 +206,12 @@ export async function runDetailsCommand(
         exitCode: await writeDetailsDocument(request, operationHistoryEmptyDocument(historyPath)),
       };
     }
-    return { exitCode: await writeDetailsDocument(request, operationHistoryListDocument(entries)) };
+    return {
+      exitCode: await writeDetailsDocument(
+        request,
+        operationHistoryListDocument(entries, request.now ?? Date.now()),
+      ),
+    };
   }
 
   const selection = parsed.selection;

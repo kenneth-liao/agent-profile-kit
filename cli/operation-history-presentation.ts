@@ -183,6 +183,54 @@ export function formatOperationTime(iso: string): string {
     : parsed.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+/**
+ * Compact human time for the history list (US-008): UTC and locale-free
+ * buckets from an injected `now`, so tests are deterministic across runners.
+ * Exact timestamps stay in operation details through `formatOperationTime`.
+ */
+export function formatCompactOperationTime(iso: string, nowMs: number): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const deltaSeconds = Math.floor((nowMs - parsed.getTime()) / 1000);
+  if (deltaSeconds < 60) return "just now";
+  const deltaMinutes = Math.floor(deltaSeconds / 60);
+  if (deltaMinutes < 60) return `${deltaMinutes}m ago`;
+  const deltaHours = Math.floor(deltaMinutes / 60);
+  if (deltaHours < 24) return `${deltaHours}h ago`;
+  const deltaDays = Math.floor(deltaHours / 24);
+  if (deltaDays < 7) return `${deltaDays}d ago`;
+  return parsed.toISOString().slice(0, 10);
+}
+
+/**
+ * Details time is exact and never claims a duration: identical start and end
+ * render as one `Time` line, and only a real interval shows both endpoints
+ * (US-008).
+ */
+function detailTimeNodes(entry: OperationHistoryEvidence): readonly PresentationNode[] {
+  const started = formatOperationTime(entry.startedAt);
+  const finished = formatOperationTime(entry.finishedAt);
+  if (started === finished) {
+    return [{
+      kind: "key-value",
+      key: "Time",
+      value: { kind: "identifier", value: started },
+    }];
+  }
+  return [
+    {
+      kind: "key-value",
+      key: "Started",
+      value: { kind: "identifier", value: started },
+    },
+    {
+      kind: "key-value",
+      key: "Finished",
+      value: { kind: "identifier", value: finished },
+    },
+  ];
+}
+
 /** The requested scope of one operation in one short human phrase. */
 export function operationScopeText(scope: OperationHistoryScope): string {
   const base = scope.selection === "all" ? "all Projects" : "one Project";
@@ -240,7 +288,7 @@ function committedNodes(projects: readonly OperationHistoryProject[]): readonly 
     (project.removed?.length ?? 0) > 0 ||
     project.outputCommitted === true
   );
-  const nodes: PresentationNode[] = [{ kind: "heading", text: "Committed:" }];
+  const nodes: PresentationNode[] = [{ kind: "heading", text: "Written:" }];
   if (committed.length === 0) {
     nodes.push({ kind: "prose", parts: ["  none"] });
     return nodes;
@@ -316,7 +364,7 @@ function reviewNodes(
 
 /**
  * The complete evidence of one run: identity, command, time, scope, outcome,
- * committed work, failed work, skipped work, and remaining work. The same
+ * written file work, failed work, skipped work, and pending work. The same
  * document serves `apkit details` and, unsaved, the run whose entry could not
  * be published (DEC-008).
  */
@@ -337,14 +385,7 @@ export function operationHistoryEntryDocument(
       severity: OUTCOME_SEVERITY[entry.outcome],
       nodes: [title],
     },
-    {
-      kind: "key-value",
-      key: "Time",
-      value: {
-        kind: "identifier",
-        value: `${formatOperationTime(entry.startedAt)} → ${formatOperationTime(entry.finishedAt)}`,
-      },
-    },
+    ...detailTimeNodes(entry),
     ...scopeNodes(entry.scope),
     {
       kind: "key-value",
@@ -382,7 +423,7 @@ export function operationHistoryEntryDocument(
       "warning",
     ),
     ...outcomeGroupNodes(
-      "Remaining:",
+      "Pending:",
       entry.projects.filter((project) => project.result === "unattempted"),
       "muted",
     ),
@@ -397,9 +438,11 @@ export function operationHistoryEntryDocument(
 /** The compact retained list, newest first (US-012). */
 export function operationHistoryListDocument(
   entries: readonly OperationHistoryEntry[],
+  nowMs: number = Date.now(),
 ): PresentationDocument {
   const nodes: PresentationNode[] = [
     { kind: "heading", text: `Operation history (${entries.length}):` },
+    { kind: "verbatim", text: "" },
   ];
   for (const entry of entries) {
     nodes.push({
@@ -408,7 +451,10 @@ export function operationHistoryListDocument(
         { column: "Operation", content: { kind: "identifier", value: entry.id } },
         {
           column: "Time",
-          content: { kind: "identifier", value: formatOperationTime(entry.startedAt) },
+          content: {
+            kind: "identifier",
+            value: formatCompactOperationTime(entry.startedAt, nowMs),
+          },
         },
         { column: "Command", content: { kind: "identifier", value: entry.command } },
         {
@@ -426,15 +472,18 @@ export function operationHistoryListDocument(
       ],
     });
   }
-  nodes.push({
-    kind: "sentence",
-    parts: [
-      "Run ",
-      commandPart(COMMAND_NAME, [arg("details"), arg("<operation-id>")]),
-      " for one operation's complete evidence.",
-    ],
-    category: "command",
-  });
+  nodes.push(
+    { kind: "verbatim", text: "" },
+    {
+      kind: "sentence",
+      parts: [
+        "Run ",
+        commandPart(COMMAND_NAME, [arg("details"), arg("<operation-id>")]),
+        " for one operation's complete evidence.",
+      ],
+      category: "command",
+    },
+  );
   return nodes;
 }
 

@@ -117,3 +117,11 @@ boundary. Machine-local history is per-user and disposable: a user may delete
 it at any time, and the next lifecycle run starts a fresh window. `apkit
 configure` continues to record nothing (ADR-0038), and compact default
 receipts remain owned by the receipt-presentation work rather than this store.
+
+## Amendments
+
+- **Spec #640 US-008 (ticket #649).** Presentation of the retained list uses
+  compact human time (UTC, locale-free buckets from an injected clock), while
+  `apkit details <id>` keeps exact timestamps. Identical start and end never
+  render as a duration: one `Time` line, or `Started`/`Finished` only for a
+  real interval. Storage and retention are unchanged.

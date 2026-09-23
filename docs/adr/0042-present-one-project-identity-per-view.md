@@ -89,3 +89,8 @@ spellings, selection, consent, and machine contracts are unchanged.
   clause that includes default receipts is narrowed accordingly for those
   install and uninstall confirmation/receipt action locations; requested
   evidence and every executable command argument are unchanged.
+- **Spec #640 US-008 (ticket #649).** The shared row-group seam gains a header
+  row labeling each column whenever the table aligns, and the compact-entry
+  fallback packs `Label: value` fields into about two lines when values fit —
+  a blank line still separates records, and no fact is dropped. A squeezed
+  table remains forbidden. Status scope rows (#650) reuse the same seam.
