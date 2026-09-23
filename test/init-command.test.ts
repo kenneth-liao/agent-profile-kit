@@ -1,11 +1,11 @@
 /**
  * The interactive init command (US-054; US-045 interactive clauses; init
  * clauses of US-052, US-055–056; DEC-030–035; TEST-001, TEST-017, TEST-019):
- * optional first-Profile guidance fires only on an interactive input stream,
- * collects every flow decision before initialization commits any change, and
- * creates the Profile through the same scaffolding path as `apkit new`. A
- * completed flow prints the equivalent fully specified command; cancellation
- * records no configuration change or generated output.
+ * setup and connection name the Workspace and, when written, Local
+ * Configuration, list only the parts actually added, and route the handoff
+ * from the resulting content (spec #640 US-002). Setup never creates or
+ * guides a first Profile. Cancellation records no configuration change or
+ * generated output.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
@@ -141,103 +141,166 @@ async function waitForOutput(
   }
 }
 
-/** A fixture destination with material but no Profile: the guided offer fires (DEC-003). */
-function writeGuidedFixture(home: string): void {
+/** A fixture destination with material but no Profile (spec #640 US-002). */
+function writeMaterialWithoutProfile(home: string): void {
   mkdirSync(join(workspacePath(home), "skills"), { recursive: true });
   writeFileSync(join(workspacePath(home), "workspace.yaml"), WORKSPACE_MANIFEST);
   writeMaterial(home, "team-rules");
   writeConfig(home, workspacePath(home));
 }
 
-describe("guided first-Profile init", () => {
-  test("accepts the offer, collects name and selections, and creates the Profile through the scaffolding path", async () => {
+describe("setup handoff routes from the resulting content (#646, US-002)", () => {
+  test("fresh setup with zero Profiles and no Context prints the Context-then-Profile chain and never offers a first Profile", async () => {
     const home = isolatedHome();
-    writeGuidedFixture(home);
     const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
+    const { pending, streams } = startInit(home, [workspacePath(home)], input);
 
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    await waitForOutput(streams.humanText, "stored in and loaded from");
+    expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
     input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Context Modules?");
-    input.write(" \r");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
-    const profileFile = join(workspacePath(home), "profiles", "my-profile.yaml");
     expect(existsSync(configPath(home))).toBe(true);
-    expect(existsSync(profileFile)).toBe(true);
-    const profile = readFileSync(profileFile, "utf8");
-    // The written Profile carries the new shape: no `id` field — the file
-    // name is its ID (spec #593 DEC-014, #598).
-    expect(profile).not.toContain("id:");
-    expect(profile).toContain("- \"team-rules\"");
+    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     const human = plain(streams.humanText());
-    expect(human).toContain("Created Profile my-profile");
-    expect(human).toContain(profileFile);
-    expect(human).toContain("already initialized");
-    // One install next action naming the actually created Profile (spec #491,
-    // US-016): no Host named in guidance, no stale equivalent-creation line
-    // (the Profile exists, so `apkit new profile` would fail), no vague
-    // validate-then-install parallel next action.
-    expect(human).toContain(
-      "Next: from the project you want to try, run apkit install my-profile",
-    );
-    expect(human).not.toContain("apkit new profile");
-    expect(human).not.toContain("then install the Profile into a Project");
-    expect(human).not.toContain("--host");
+    // Names the Workspace and Local Configuration when written.
+    expect(human).toContain("apkit-workspace");
+    expect(human).toContain("config.yaml");
+    // Lists only the parts actually missing and added.
+    expect(human).toContain("workspace.yaml");
+    expect(human).toContain("context/");
+    expect(human).toContain("skills/");
+    expect(human).toContain("profiles/");
+    // Concept sentences stay (spec #645).
+    expect(human).toContain("A Profile is a named selection of Context and Skills");
+    expect(human).toContain("Context is always-loaded facts");
+    // Zero Profiles, no Context: the creation chain (spec #640 US-002).
+    expect(human).toContain("apkit new context <context>");
+    expect(human).toContain("apkit new profile <name> --context <context>");
+    // Setup just validated; never recommend `apkit validate` (US-002).
+    expect(human).not.toContain("apkit validate");
+    expect(human).not.toContain("Set up your first Profile now?");
   }, 20_000);
 
-  test("declining the offer initializes normally without creating a Profile", async () => {
+  test("zero Profiles with existing Context print only the Profile creation command and name no Context", async () => {
+    // First connection of a folder that already has Context and no Profile
+    // (DEC-005): the handoff drops the new-context step and names no Context.
     const home = isolatedHome();
-    writeGuidedFixture(home);
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("n");
+    const workspace = join(home, "material");
+    mkdirSync(join(workspace, "context"), { recursive: true });
+    mkdirSync(join(workspace, "skills"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
+    writeFileSync(join(workspace, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(workspace, "context", "team-rules.md"), "Team rules.\n");
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [workspace], input);
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
-    expect(existsSync(configPath(home))).toBe(true);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(streams.errorText()).toBe("");
-    expect(plain(streams.humanText())).not.toContain("What should the Profile be named?");
+    expect(existsSync(join(workspace, "profiles", "my-profile.yaml"))).toBe(false);
+    const human = plain(streams.humanText());
+    expect(human).not.toContain("Set up your first Profile now?");
+    expect(human).not.toContain("apkit new context");
+    expect(human).toContain("apkit new profile <name> --context <context>");
+    // Never invent or pick an existing Context (US-002).
+    expect(human).not.toContain("team-rules");
+    expect(human).not.toContain("apkit validate");
   }, 20_000);
 
-  test("cancelling at the offer initializes nothing", async () => {
+  test("already-initialized is a clean no-op: one neutral statement and no handoff", async () => {
+    // US-002's handoff is owed after a setup or connection that did
+    // something. An init that finds everything already in place is a clean
+    // no-op (#642): one neutral statement, no invented next action, and no
+    // details hint — even when the Workspace has Profiles.
     const home = isolatedHome();
-    writeGuidedFixture(home);
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
+    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+    writeMaterial(home, "team-rules");
+    writeFileSync(
+      join(workspacePath(home), "profiles", "coding.yaml"),
+      "context: [team-rules]\nskills: []\n",
+    );
+    const input = new PassThrough();
     input.end();
+    const { pending, streams } = startInit(home, [], input);
     const { exitCode } = await pending;
 
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(plain(streams.errorText())).toContain("Setup was cancelled; nothing was initialized or created.");
+    expect(exitCode).toBe(0);
+    const human = plain(streams.humanText());
+    expect(human).toContain("already initialized");
+    expect(human).toContain("unchanged");
+    // No handoff of any kind (spec #640 US-002 after a change only; #642).
+    expect(human).not.toContain("Next:");
+    expect(human).not.toContain("apkit install");
+    expect(human).not.toContain("apkit new profile");
+    expect(human).not.toContain("apkit new context");
+    expect(human).not.toContain("apkit validate");
+    expect(human).not.toContain("Details:");
   }, 20_000);
 
-  test("cancelling after answering the name initializes nothing", async () => {
+  test("connecting a Workspace with zero Profiles and existing Context routes to Profile creation", async () => {
     const home = isolatedHome();
-    writeGuidedFixture(home);
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    // A has a Profile; B has Context and no Profile.
+    mkdirSync(join(wsA, "context"), { recursive: true });
+    mkdirSync(join(wsA, "profiles"), { recursive: true });
+    mkdirSync(join(wsA, "skills"), { recursive: true });
+    writeFileSync(join(wsA, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(wsA, "context", "team-rules.md"), "Team rules.\n");
+    writeFileSync(join(wsA, "profiles", "coding.yaml"), "context: [team-rules]\nskills: []\n");
+    mkdirSync(join(wsB, "context"), { recursive: true });
+    mkdirSync(join(wsB, "profiles"), { recursive: true });
+    mkdirSync(join(wsB, "skills"), { recursive: true });
+    writeFileSync(join(wsB, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(wsB, "context", "ops-rules.md"), "Ops rules.\n");
+    writeConfig(home, wsA);
 
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Context Modules?");
+    const input = new PassThrough();
     input.end();
+    const { pending, streams } = startInit(home, [wsB], input);
     const { exitCode } = await pending;
 
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    expect(plain(streams.errorText())).toContain("Setup was cancelled; nothing was initialized or created.");
+    expect(exitCode).toBe(0);
+    const human = plain(streams.humanText());
+    expect(human).toContain("Connected Agent Profile Kit Workspace");
+    expect(human).toContain("apkit new profile <name> --context <context>");
+    expect(human).not.toContain("apkit new context");
+    expect(human).not.toContain("apkit validate");
+    expect(human).not.toContain("ops-rules");
+  }, 20_000);
+
+  test("connecting a Workspace with one or more Profiles routes to bare install", async () => {
+    const home = isolatedHome();
+    const wsA = join(home, "ws-a");
+    const wsB = join(home, "ws-b");
+    mkdirSync(join(wsA, "context"), { recursive: true });
+    mkdirSync(join(wsA, "profiles"), { recursive: true });
+    mkdirSync(join(wsA, "skills"), { recursive: true });
+    writeFileSync(join(wsA, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeConfig(home, wsA);
+    mkdirSync(join(wsB, "context"), { recursive: true });
+    mkdirSync(join(wsB, "profiles"), { recursive: true });
+    mkdirSync(join(wsB, "skills"), { recursive: true });
+    writeFileSync(join(wsB, "workspace.yaml"), WORKSPACE_MANIFEST);
+    writeFileSync(join(wsB, "context", "team-rules.md"), "Team rules.\n");
+    writeFileSync(join(wsB, "profiles", "one.yaml"), "context: [team-rules]\nskills: []\n");
+    writeFileSync(join(wsB, "profiles", "two.yaml"), "context: [team-rules]\nskills: []\n");
+
+    const input = new PassThrough();
+    input.end();
+    const { pending, streams } = startInit(home, [wsB], input);
+    const { exitCode } = await pending;
+
+    expect(exitCode).toBe(0);
+    const human = plain(streams.humanText());
+    expect(human).toContain("Connected Agent Profile Kit Workspace");
+    expect(human).toContain("apkit install");
+    expect(human).not.toContain("apkit install one");
+    expect(human).not.toContain("apkit install two");
+    expect(human).not.toContain("apkit new profile");
+    expect(human).not.toContain("apkit validate");
   }, 20_000);
 
   test("a fresh destination without material initializes without any guidance offer", async () => {
@@ -245,17 +308,12 @@ describe("guided first-Profile init", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspacePath(home)], input);
 
-    // Interactive setup confirms the given path before writing (#603); with
-    // no material there is nothing to offer first-Profile guidance about.
     await waitForOutput(streams.humanText, "stored in and loaded from");
     input.write("y");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
     expect(existsSync(configPath(home))).toBe(true);
-    // Setup adds only the required parts and no example material (DEC-003,
-    // #599); with no material there is nothing to offer first-Profile
-    // guidance about.
     for (const directory of ["context", "profiles", "skills"]) {
       expect(existsSync(join(workspacePath(home), directory))).toBe(true);
     }
@@ -274,190 +332,20 @@ describe("guided first-Profile init", () => {
     expect(existsSync(configPath(home))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "example.yaml"))).toBe(false);
     expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
+    expect(plain(streams.humanText())).not.toContain("apkit validate");
   }, 20_000);
 
-  test("init with an existing Profile never offers the guidance", async () => {
-    const home = isolatedHome();
-    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-    writeMaterial(home, "team-rules");
-    writeFileSync(join(workspacePath(home), "profiles", "coding.yaml"), "context: [team-rules]\nskills: []\n");
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(0);
-    expect(existsSync(configPath(home))).toBe(true);
-    const human = plain(streams.humanText());
-    expect(human).toContain("already initialized");
-    expect(human).not.toContain("Set up your first Profile now?");
-  }, 20_000);
-
-  test("an invalid Profile name is refused before any initialization change", async () => {
-    const home = isolatedHome();
-    writeGuidedFixture(home);
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("My Profile\r");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-  }, 20_000);
-
-  test("offers both categories when both have material and records the combined selection", async () => {
-    const home = isolatedHome();
-    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-    writeMaterial(home, "team-rules");
-    mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
-    writeFileSync(
-      join(workspacePath(home), "skills", "release-check", "SKILL.md"),
-      '---\nname: "release-check"\ndescription: Check the release state.\n---\n\n# release-check\n',
-    );
-    writeConfig(home, workspacePath(home));
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Context Modules?");
-    input.write("\r"); // no Context selected; both categories are available
-    await waitForOutput(streams.humanText, "Which Skills?");
-    input.write(" \r"); // select the highlighted Skill
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(0);
-    const profile = readFileSync(join(workspacePath(home), "profiles", "my-profile.yaml"), "utf8");
-    // The written Profile carries the new shape: no `id` field — the file
-    // name is its ID (spec #593 DEC-014, #598).
-    expect(profile).not.toContain("id:");
-    expect(profile).toContain("context: []");
-    expect(profile).toContain('- "release-check"');
-    expect(plain(streams.humanText())).toContain(
-      "Next: from the project you want to try, run apkit install my-profile",
-    );
-    expect(plain(streams.humanText())).not.toContain("apkit new profile");
-  }, 20_000);
-
-  test("refuses zero selections before any initialization change", async () => {
-    const home = isolatedHome();
-    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-    writeMaterial(home, "team-rules");
-    mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
-    writeFileSync(
-      join(workspacePath(home), "skills", "release-check", "SKILL.md"),
-      '---\nname: "release-check"\ndescription: Check the release state.\n---\n\n# release-check\n',
-    );
-    writeConfig(home, workspacePath(home));
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Context Modules?");
-    input.write("\r");
-    await waitForOutput(streams.humanText, "Which Skills?");
-    input.write("\r");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(1);
-    expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-    // The Workspace existed before this invocation; initialization did not run.
-    expect(plain(streams.errorText())).toContain("Profile");
-  }, 20_000);
-
-  // The fault injection below relies on filesystem permission enforcement:
-  // as root, 0o555 does not block writes, so the expected failure would not
-  // reproduce; skip rather than assert from a non-faulting run.
-  test.skipIf(process.getuid?.() === 0)(
-    "a guided creation failure after initialization reports the error and no next action",
-    async () => {
-    // The receipt precedes creation and therefore carries no next action; on
-    // a creation failure the error diagnostic on stderr owns recovery, and
-    // stdout claims no next step for a Profile that does not exist.
-    const home = isolatedHome();
-    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-    writeMaterial(home, "team-rules");
-    writeConfig(home, workspacePath(home));
-    chmodSync(join(workspacePath(home), "profiles"), 0o555);
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    try {
-      await waitForOutput(streams.humanText, "Set up your first Profile now?");
-      input.write("y");
-      await waitForOutput(streams.humanText, "What should the Profile be named?");
-      input.write("my-profile\r");
-      await waitForOutput(streams.humanText, "Which Context Modules?");
-      input.write(" \r");
-      const { exitCode } = await pending;
-
-      expect(exitCode).toBe(1);
-      expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
-      expect(plain(streams.humanText())).toContain("already initialized");
-      expect(plain(streams.humanText())).not.toContain("Next:");
-      expect(plain(streams.errorText())).toContain("my-profile.yaml");
-    } finally {
-      // Restore even when the invocation throws or times out, so the temp
-      // directory never keeps a read-only directory behind.
-      chmodSync(join(workspacePath(home), "profiles"), 0o755);
-    }
-  },
-  20_000,
-  );
-
-  test("a Workspace with no Context Modules skips the Context question and records the Skills-only selection", async () => {
-    const home = isolatedHome();
-    await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-    mkdirSync(join(workspacePath(home), "skills", "release-check"), { recursive: true });
-    writeFileSync(
-      join(workspacePath(home), "skills", "release-check", "SKILL.md"),
-      '---\nname: "release-check"\ndescription: Check the release state.\n---\n\n# release-check\n',
-    );
-    writeConfig(home, workspacePath(home));
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("y");
-    await waitForOutput(streams.humanText, "What should the Profile be named?");
-    input.write("my-profile\r");
-    await waitForOutput(streams.humanText, "Which Skills?");
-    input.write(" \r");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(0);
-    expect(plain(streams.humanText())).not.toContain("Which Context Modules?");
-    const profile = readFileSync(join(workspacePath(home), "profiles", "my-profile.yaml"), "utf8");
-    expect(profile).toContain("context: []");
-    expect(profile).toContain('- "release-check"');
-    expect(plain(streams.humanText())).toContain(
-      "Next: from the project you want to try, run apkit install my-profile",
-    );
-    expect(plain(streams.humanText())).not.toContain("apkit new profile");
-  }, 20_000);
-
-  test("declining to connect a different Workspace never enters guidance", async () => {
+  test("declining to connect a different Workspace never enters a Profile offer", async () => {
     const home = isolatedHome();
     const a = join(home, "workspace-a");
     const b = join(home, "workspace-b");
-    await initializeWorkspace(home, { workspace: a }); // Local Configuration selects A
+    await initializeWorkspace(home, { workspace: a });
     writeMaterial(a, "team-rules");
-    // B is a distinct valid Workspace with selectable material.
     mkdirSync(join(b, "context"), { recursive: true });
     mkdirSync(join(b, "profiles"), { recursive: true });
+    mkdirSync(join(b, "skills"), { recursive: true });
     writeFileSync(join(b, "workspace.yaml"), WORKSPACE_MANIFEST);
-    writeFileSync(
-      join(b, "context", "other.md"),
-      "Content for other.\n",
-    );
+    writeFileSync(join(b, "context", "other.md"), "Content for other.\n");
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [b], input);
 
@@ -469,38 +357,10 @@ describe("guided first-Profile init", () => {
     expect(exitCode).toBe(0);
     expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${a}`);
-    expect(existsSync(join(a, "profiles", "my-profile.yaml"))).toBe(false);
-    expect(existsSync(join(b, "profiles", "my-profile.yaml"))).toBe(false);
-  }, 20_000);
-
-  test("an explicit Workspace equivalent to the configured selection is eligible for guidance", async () => {
-    const home = isolatedHome();
-    const workspace = join(home, "configured");
-    await initializeWorkspace(home, { workspace }); // Local Configuration selects it
-    writeFileSync(
-      join(workspace, "context", "team-rules.md"),
-      "Content for team-rules.\n",
-    );
-    const input = fakeInteractiveInput();
-    const { pending, streams } = startInit(home, [workspace], input);
-
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("n");
-    const { exitCode } = await pending;
-
-    expect(exitCode).toBe(0);
-    expect(plain(streams.humanText())).toContain("already initialized");
   }, 20_000);
 
 });
 
-/**
- * Zero-argument init never selects a Workspace location the user did not give
- * (spec #593 #601, DEC-001, DEC-011, ISC-23): the fixed default is gone, so a
- * fresh home and a legacy configuration without `workspace` refuse. A machine
- * that already selects a Workspace keeps validating it — it selects nothing
- * new (connecting-again semantics remain #607's).
- */
 describe("zero-argument init requires a user-given location", () => {
   async function refusedInit(home: string, arguments_: readonly string[] = []): Promise<InstallerToolError> {
     const input = new PassThrough(); // no TTY evidence
@@ -866,7 +726,8 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(fileTreeSnapshot(workspace)).toEqual(before);
     // A first connection at a fully valid folder writes the configuration
     // and nothing else (US-002, ISC-27.2).
-    expect(plain(streams.humanText())).toContain("Initialized Agent Profile Kit Workspace and settings");
+    expect(plain(streams.humanText())).toContain("Initialized Agent Profile Kit Workspace at");
+    expect(plain(streams.humanText())).toContain("settings:");
     expect(existsSync(join(workspace, "profiles", "example.yaml"))).toBe(false);
   }, 20_000);
 
@@ -921,7 +782,7 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(plain(streams.humanText())).toMatch(/migrat/i);
   }, 20_000);
 
-  test("the guided first-Profile offer follows the confirmation for material without a Profile", async () => {
+  test("confirming material without a Profile routes to Profile creation and never offers a first Profile", async () => {
     const home = isolatedHome();
     const workspace = join(home, "material");
     mkdirSync(join(workspace, "context"), { recursive: true });
@@ -930,17 +791,21 @@ describe("the setup confirmation content and scope (#603)", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspace], input);
 
-    // Confirmation first (US-001), then the guided offer (DEC-003).
+    // Confirmation only (US-001); setup does not create or guide a first
+    // Profile (spec #640 US-002, OOS-002).
     await waitForOutput(streams.humanText, "Set up this folder as your Workspace?");
     expect(plain(streams.humanText())).not.toContain("Set up your first Profile now?");
     input.write("y");
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("n");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
     expect(existsSync(configPath(home))).toBe(true);
     expect(existsSync(join(workspace, "profiles", "my-profile.yaml"))).toBe(false);
+    const human = plain(streams.humanText());
+    expect(human).not.toContain("Set up your first Profile now?");
+    expect(human).toContain("apkit new profile <name> --context <context>");
+    expect(human).not.toContain("apkit new context");
+    expect(human).not.toContain("apkit validate");
   }, 20_000);
 
   test("an empty typed folder path is refused before any write", async () => {
@@ -1166,14 +1031,18 @@ describe("connect a different Workspace (#607)", () => {
     expect(human).toContain("~/ws-b");
 
     input.write("y");
-    await waitForOutput(streams.humanText, "Set up your first Profile now?");
-    input.write("n");
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(0);
     expect(existsSync(join(wsB, "skills"))).toBe(true);
     expect(existsSync(join(wsB, "profiles"))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${wsB}`);
+    const receipt = plain(streams.humanText());
+    expect(receipt).not.toContain("Set up your first Profile now?");
+    // Zero Profiles and existing Context: Profile creation only.
+    expect(receipt).toContain("apkit new profile <name> --context <context>");
+    expect(receipt).not.toContain("apkit new context");
+    expect(receipt).not.toContain("apkit validate");
   }, 20_000);
 
   test("legacy migration connecting to a different Workspace reports Project Bindings whose Profile is missing", async () => {

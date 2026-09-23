@@ -250,6 +250,32 @@ export function createdProfileInstallRouting(profile: string): ReturnType<typeof
 }
 
 /**
+ * The Profile-creation next action for a Workspace with zero Profiles
+ * (spec #640 US-002, DEC-005): the handoff comes from the resulting content.
+ * With no Context Module the chain starts by authoring one; with existing
+ * Context it is only the Profile command, and no existing Context is named.
+ * One home so help and receipts cannot route differently.
+ */
+export function newProfileCreationCommands(
+  hasContexts: boolean,
+): readonly (readonly InlineContent[])[] {
+  return hasContexts
+    ? [[invocation("new", "profile", "<name>", "--context", "<context>")]]
+    : [
+        [invocation("new", "context", "<context>")],
+        [invocation("new", "profile", "<name>", "--context", "<context>")],
+      ];
+}
+
+/**
+ * The install next action after setup when Profiles already exist (spec
+ * #640 US-002): names no Profile — the user chooses in the picker.
+ */
+export function guidedInstallRouting(): ReturnType<typeof invocation> {
+  return invocation("install");
+}
+
+/**
  * Commands shown in the default command list: every command outside a
  * machine-facing namespace (DEC-019).
  */

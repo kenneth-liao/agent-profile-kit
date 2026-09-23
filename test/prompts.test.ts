@@ -323,7 +323,7 @@ describe("yes/no prompt seam", () => {
   test("accepts an explicit yes", async () => {
     const input = fakeInteractiveInput();
     const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
-    const pending = yesNo("Set up your first Profile now?");
+    const pending = yesNo("Set up this folder as your Workspace?");
     input.write("y");
     expect(await pending).toBe("accepted");
   });
@@ -331,7 +331,7 @@ describe("yes/no prompt seam", () => {
   test("declines an explicit no", async () => {
     const input = fakeInteractiveInput();
     const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
-    const pending = yesNo("Set up your first Profile now?");
+    const pending = yesNo("Set up this folder as your Workspace?");
     input.write("n");
     expect(await pending).toBe("declined");
   });
@@ -339,7 +339,7 @@ describe("yes/no prompt seam", () => {
   test("takes the default answer — no — on enter", async () => {
     const input = fakeInteractiveInput();
     const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
-    const pending = yesNo("Set up your first Profile now?");
+    const pending = yesNo("Set up this folder as your Workspace?");
     input.write("\r");
     expect(await pending).toBe("declined");
   });
@@ -359,7 +359,7 @@ describe("yes/no prompt seam", () => {
   test("cancels when the input stream ends before an answer", async () => {
     const input = fakeInteractiveInput();
     const yesNo = createYesNoPrompt({ input, output: new PassThrough() });
-    const pending = yesNo("Set up your first Profile now?");
+    const pending = yesNo("Set up this folder as your Workspace?");
     input.end();
     expect(await pending).toBe("cancelled");
   });

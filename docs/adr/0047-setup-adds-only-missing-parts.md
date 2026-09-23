@@ -64,6 +64,13 @@ Profile could be connected (spec #593, US-002–US-003, DEC-003, DEC-011).
    that already has material but no Profile (DEC-003); the planned-example-
    scaffold machinery is removed. Connecting-again behavior (previewing and
    completing an already-configured Workspace) remains #607's.
+   **Superseded by ticket #646 (spec #640 US-002, DEC-005, DEC-010):** setup
+   never creates or guides a first Profile. The guided offer and its preview
+   path are removed entirely; the handoff routes from the resulting content
+   (zero Profiles lead to Profile creation; existing Profiles lead to bare
+   install). This supersedes spec #491 US-016 and this point's guided-first-
+   Profile requirement only; the add-only-missing-parts rules above remain
+   binding.
 
 ## Consequences
 

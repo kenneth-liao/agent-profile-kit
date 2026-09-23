@@ -54,6 +54,19 @@ export interface InitializationResult {
   readonly folderCreated: boolean;
   readonly warnings: readonly string[];
   readonly missingProfileBindings?: readonly MissingProfileBindingReport[];
+  /** Structural parts this run actually added (never planned-but-absent). */
+  readonly addedParts: readonly string[];
+  /** Profiles present in the resulting Workspace (spec #640 US-002). */
+  readonly profileCount: number;
+  /** Whether the resulting Workspace has any Context Module (spec #640 US-002). */
+  readonly hasContexts: boolean;
+  /**
+   * True when this run wrote Local Configuration (created, replaced, or
+   * migrated it). Set at each commit site — never derived from `outcome`.
+   */
+  readonly configurationWritten: boolean;
+  /** Absolute Local Configuration path this commit read or wrote. */
+  readonly configurationPath: string;
 }
 
 export interface InitializeWorkspaceOptions {
@@ -217,6 +230,11 @@ const WORKSPACE_SETUP_PARTS = [
   WORKSPACE_MANIFEST_FILE,
   ...WORKSPACE_ARTIFACT_DIRECTORIES,
 ] as const;
+
+/** The structural parts of one commit's `added` list (never the folder itself). */
+function structuralAddedParts(added: readonly string[]): readonly string[] {
+  return added.filter((part) => (WORKSPACE_SETUP_PARTS as readonly string[]).includes(part));
+}
 
 /**
  * The read-only plan of one first-connection setup (spec #593 #599, #603):
@@ -424,111 +442,6 @@ async function commitSetupPlan(
 }
 
 /**
- * Read-only preview of the Workspace one `init` invocation will target, so
- * guided initialization can offer material selections before committing any
- * change (US-054, DEC-031). One home beside the resolution logic it mirrors:
- * the destination is resolved the same way init resolves it, and the material
- * is read through the canonical Workspace ingestion boundary. Setup no longer
- * scaffolds example material (spec #593 DEC-003, #599), so a missing or empty
- * destination previews no material and the guided first-Profile offer fires
- * only for a destination that already has material but no Profile. Ambiguous
- * targets (invalid Workspace, legacy migration, unread material) return
- * undefined, meaning "do not offer guidance": init then behaves exactly as it
- * does today and explains any problem itself.
- */
-export interface InitTargetPreview {
-  /** Absolute destination path this init will target. */
-  readonly destinationPath: string;
-  /** Existing Profile IDs at the destination. */
-  readonly profiles: readonly string[];
-  /** Existing Context Module IDs at the destination. */
-  readonly contexts: readonly string[];
-  /** Existing Skill IDs at the destination. */
-  readonly skills: readonly string[];
-}
-
-async function previewWorkspaceDestination(
-  destination: string,
-): Promise<InitTargetPreview | undefined> {
-  const state = await inspectDestinationPath(destination).catch(() => undefined);
-  if (state === undefined) return undefined;
-  if (state === "missing") {
-    return { destinationPath: destination, profiles: [], contexts: [], skills: [] };
-  }
-  try {
-    const workspace = await ingestWorkspace(await realpath(destination));
-    return {
-      destinationPath: destination,
-      profiles: [...workspace.profiles.keys()].sort(),
-      contexts: [...workspace.contexts.keys()].sort(),
-      skills: [...workspace.skills.keys()].sort(),
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * Preview the init target for guided initialization without changing
- * anything, for destinations Local Configuration already selects (the
- * first-connection destinations are planned by `planFirstConnectionSetup`).
- * Shares init's selection functions so a selection init will refuse never
- * enters guidance; see `InitTargetPreview`'s undefined contract.
- */
-export async function previewInitTarget(
-  home: string,
-  options: { readonly workspace?: string } = {},
-): Promise<InitTargetPreview | undefined> {
-  // First connections plan through `planFirstConnectionSetup` (spec #593
-  // #603): zero-argument init on a machine with no selected Workspace
-  // refuses there, and an explicit path confirms from the plan. The
-  // classification shares init's error behavior, but guidance stays
-  // advisory: an ambiguous target lets init explain the problem itself.
-  try {
-    if ((await classifyInitSetup(home)).kind !== "already-connected") {
-      return undefined;
-    }
-  } catch {
-    return undefined;
-  }
-  const requested = options.workspace === undefined
-    ? undefined
-    : normalizeAuthoredWorkspace(options.workspace);
-  const configPath = localConfigurationPath(home);
-  let source: string;
-  try {
-    source = await readFile(configPath, "utf8");
-  } catch {
-    return undefined;
-  }
-  let parsed;
-  try {
-    parsed = parseLocalConfiguration(source, configPath);
-  } catch {
-    return undefined;
-  }
-  if (parsed.schemaVersion === LEGACY_LOCAL_CONFIGURATION_SCHEMA_VERSION) {
-    return undefined;
-  }
-  const configured = requireCurrentApplicationConfiguration(parsed, configPath).workspace;
-  try {
-    if (requested !== undefined) {
-      const plan = await planFirstConnectionSetup(home, requested);
-      return {
-        destinationPath: plan.destinationPath,
-        profiles: plan.profiles,
-        contexts: plan.contexts,
-        skills: plan.skills,
-      };
-    }
-    const destination = await resolveWorkspaceRoot(home, configured, configPath);
-    return await previewWorkspaceDestination(destination.path);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * When Local Configuration already selects a custom Workspace path, validate
  * that target only. Never create, move, copy, adopt, or repair user-owned source.
  */
@@ -538,13 +451,18 @@ async function initializeConfiguredWorkspace(
   configPath: string,
 ): Promise<InitializationResult> {
   const resolved = await resolveWorkspaceRoot(home, authored, configPath);
-  await ingestWorkspace(resolved.path);
+  const workspace = await ingestWorkspace(resolved.path);
   return {
     outcome: "unchanged",
     path: resolved.path,
     authoredPath: resolved.authored,
     folderCreated: false,
     warnings: [],
+    addedParts: [],
+    profileCount: workspace.profiles.size,
+    hasContexts: workspace.contexts.size > 0,
+    configurationWritten: false,
+    configurationPath: configPath,
   };
 }
 
@@ -606,10 +524,15 @@ async function connectWorkspace(
           authoredPath: currentParsed.workspace!,
           folderCreated: false,
           warnings: [],
+          addedParts: [],
+          profileCount: plan.profiles.length,
+          hasContexts: plan.contexts.length > 0,
+          configurationWritten: false,
+          configurationPath: configPath,
         };
       }
 
-      const { folderCreated } = await commitSetupPlan(plan, fileSystem);
+      const { folderCreated, added } = await commitSetupPlan(plan, fileSystem);
       const destinationCanonical = await realpath(plan.destinationPath);
       const missingProfileBindings = detectMissingProfileBindings(currentParsed.bindings, plan.profiles);
 
@@ -633,6 +556,11 @@ async function connectWorkspace(
         authoredPath: plan.authoredPath,
         folderCreated,
         warnings: [],
+        addedParts: structuralAddedParts(added),
+        profileCount: plan.profiles.length,
+        hasContexts: plan.contexts.length > 0,
+        configurationWritten: true,
+        configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },
@@ -648,6 +576,7 @@ async function connectFromPlan(
   },
 ): Promise<InitializationResult> {
   const applicationRoot = applicationDirectory(home);
+  const configurationPath = join(applicationRoot, LOCAL_CONFIGURATION_FILE);
   const { folderCreated, added } = await commitSetupPlan(plan, options.fileSystem);
 
   let configurationCreated = false;
@@ -673,6 +602,11 @@ async function connectFromPlan(
     authoredPath: plan.authoredPath,
     folderCreated,
     warnings: [],
+    addedParts: structuralAddedParts(added),
+    profileCount: plan.profiles.length,
+    hasContexts: plan.contexts.length > 0,
+    configurationWritten: configurationCreated,
+    configurationPath,
   };
 }
 
@@ -758,6 +692,11 @@ async function migrateLegacyConfiguration(
         authoredPath: workspaceResult.authoredPath,
         folderCreated: workspaceResult.folderCreated,
         warnings: workspaceResult.warnings,
+        addedParts: workspaceResult.addedParts,
+        profileCount: isConnecting ? plan!.profiles.length : workspaceResult.profileCount,
+        hasContexts: isConnecting ? plan!.contexts.length > 0 : workspaceResult.hasContexts,
+        configurationWritten: true,
+        configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
       };
     },
