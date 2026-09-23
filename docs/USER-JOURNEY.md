@@ -202,19 +202,21 @@ home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
 `list hosts` leads with the canonical Hosts supported for configured Projects,
-labeling each Host's advisory executable detection as installed/not found
-without implying Profile loading (US-018); a Host whose executable is absent
+labeling each Host's advisory executable detection as detected/not found —
+the one shared wording with the install Host picker (#669), so `installed` is
+never used as detection evidence — without implying Profile loading
+(US-018); a Host whose executable is absent
 from `PATH` stays listed and selectable:
 
 ```
 $ apkit list hosts
 Supported Hosts:
-  antigravity — installed
-  claude — installed
+  antigravity — detected
+  claude — detected
   codex — not found
   grok — not found
-  opencode — installed
-  pi — installed
+  opencode — detected
+  pi — detected
 
 "not found" means the Host executable was not detected here.
 Every Host stays selectable with apkit install.
@@ -523,7 +525,7 @@ status → update path.
 On an interactive terminal, `bind` asks only for the missing required Profile
 and Host arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
 by a one-sentence explanation of what a Profile is, the Host choices carry
-advisory installed/absent detection evidence (US-053), a completed flow
+advisory detected/not found detection evidence (US-053), a completed flow
 records the binding and prints the equivalent fully specified command with the
 Project path and every `--host` flag explicit (US-052, DEC-032), and
 cancellation exits before any configuration change (DEC-033). A fully
