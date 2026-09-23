@@ -119,7 +119,7 @@ describe("typed Installer tool errors", () => {
       expect(unsupportedHost).toBeInstanceOf(InstallerToolError);
       expect((unsupportedHost as InstallerToolError).fact.kind).toBe("unsupported-host");
       expect(flatInlineText(formatInstallerToolError((unsupportedHost as InstallerToolError).fact))).toBe(
-        "unsupported Agent Host 'gemini'; supported Hosts: antigravity, claude, codex, grok, opencode, pi",
+        "unsupported agent 'gemini'; supported agents: antigravity, claude, codex, grok, opencode, pi",
       );
 
       await bindProject({ home, profile: "coding", project: projectPath, hosts: ["codex"] });
@@ -130,7 +130,7 @@ describe("typed Installer tool errors", () => {
       expect((conflict as InstallerToolError).fact.kind).toBe("bind-conflict");
       const conflictSentence = flatInlineText(formatInstallerToolError((conflict as InstallerToolError).fact));
       expect(conflictSentence).toContain("already binds canonical project");
-      expect(conflictSentence).toContain("pass --replace to restate its Profile and Hosts");
+      expect(conflictSentence).toContain("pass --replace to restate its Profile and agents");
 
       const source = `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`;
       const duplicate = await rejection(() =>
@@ -232,7 +232,7 @@ describe("typed Installer tool errors", () => {
     expect(rejection.reason.schema).toBe("local-configuration");
     expect(rejection.reason.detail.case).toBe("unsupported-host");
     expect(flatInlineText(formatSchemaRejection(rejection.reason))).toBe(
-      `Local Configuration ${path} bindings[0] hosts[0] unsupported Agent Host 'cursor'; supported Hosts: antigravity, claude, codex, grok, opencode, pi`,
+      `Local Configuration ${path} bindings[0] hosts[0] unsupported agent 'cursor'; supported agents: antigravity, claude, codex, grok, opencode, pi`,
     );
     expect(rejection.message).toBe("schema rejected: local-configuration/unsupported-host");
   });

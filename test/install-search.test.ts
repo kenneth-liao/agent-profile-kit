@@ -156,12 +156,12 @@ describe("guided install collects only missing choices", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
     // Searchable Host choices: filter, toggle, submit.
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     const hostPicker = plain(streams.humanText());
     expect(hostPicker).toContain(
-      "An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a Project.",
+      "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.",
     );
-    expect(hostPicker).toContain("Selecting a Host does not install it.");
+    expect(hostPicker).toContain("Selecting an agent does not install it.");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");
@@ -186,7 +186,7 @@ describe("guided install collects only missing choices", () => {
     // Completion prints the executable fully specified equivalent.
     const receipt = plain(streams.humanText());
     expect(receipt).toContain("apkit install coding");
-    expect(receipt).toContain("--host codex");
+    expect(receipt).toContain("--agent codex");
     expect(receipt).toContain("--auto-confirm");
   });
 });
@@ -207,7 +207,7 @@ describe("guided install skips supplied choices", () => {
       env: { PATH: "" },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     expect(plain(streams.humanText())).not.toContain("Which Profile?");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -231,7 +231,7 @@ describe("guided install skips supplied choices", () => {
     const streams = capturedStreams();
     const pending = runInstallCommand({
       home,
-      arguments: ["--host", "codex"],
+      arguments: ["--agent", "codex"],
       stdout: streams.output as Writable & { isTTY?: boolean },
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
@@ -240,7 +240,7 @@ describe("guided install skips supplied choices", () => {
     });
 
     await waitForOutput(streams.humanText, "Which Profile?");
-    expect(plain(streams.humanText())).not.toContain("Which Agent Hosts?");
+    expect(plain(streams.humanText())).not.toContain("Which agents?");
     input.write("ops");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
@@ -272,7 +272,7 @@ describe("guided install Host defaults", () => {
       env: { PATH: "" },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     // An empty submit is refused (Hosts are required): the picker stays open.
     // Toggling then selects exactly the first Host — proving nothing is
     // preselected when no Host is detected.
@@ -311,11 +311,11 @@ describe("guided install Host defaults", () => {
       env: { PATH: bin },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     await waitForOutput(streams.humanText, "detected");
     const picker = plain(streams.humanText());
     // One concise note replaces the Detected Agent Hosts summary.
-    expect(picker).toContain("Selecting a Host does not install it.");
+    expect(picker).toContain("Selecting an agent does not install it.");
     expect(picker).not.toContain("Detected Agent Hosts:");
     // Titles stay bare; evidence is the annotation slot.
     expect(picker).toContain("detected");
@@ -326,7 +326,7 @@ describe("guided install Host defaults", () => {
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("Hosts: codex");
+    expect(proposed).toContain("Agents: codex");
     input.write("y\n");
     const outcome = await pending;
 
@@ -348,7 +348,7 @@ describe("guided install Host defaults", () => {
     const streams = capturedStreams();
     const pending = runInstallCommand({
       home,
-      arguments: ["coding", "--host", "claude"],
+      arguments: ["coding", "--agent", "claude"],
       stdout: streams.output as Writable & { isTTY?: boolean },
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input,
@@ -358,9 +358,9 @@ describe("guided install Host defaults", () => {
 
     // Supplied Hosts skip their picker: detected Hosts are never added.
     await waitForOutput(streams.humanText, "(y/N)");
-    expect(plain(streams.humanText())).not.toContain("Which Agent Hosts?");
+    expect(plain(streams.humanText())).not.toContain("Which agents?");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("Hosts: claude");
+    expect(proposed).toContain("Agents: claude");
     input.write("y\n");
     const outcome = await pending;
 
@@ -392,7 +392,7 @@ describe("guided install Host defaults", () => {
       env: { PATH: bin },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     // The remembered Host is pre-checked; the newly detected Host is not added.
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
@@ -454,7 +454,7 @@ describe("guided install cancellation", () => {
       env: { PATH: "" },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     input.end();
     const outcome = await pending;
 
@@ -483,7 +483,7 @@ describe("guided install cancellation", () => {
     input.write("cod");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");
@@ -525,11 +525,11 @@ describe("guided install Host detection", () => {
       env: { PATH: bin },
     });
 
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     await waitForOutput(streams.humanText, "not found");
     const picker = plain(streams.humanText());
     // Titles stay bare; evidence is the annotation slot.
-    expect(picker).toContain("Selecting a Host does not install it.");
+    expect(picker).toContain("Selecting an agent does not install it.");
     expect(picker).toContain("detected");
     expect(picker).toContain("not found");
     // An undetected Host remains selectable through the same picker.
@@ -554,7 +554,7 @@ describe("guided install changed-file consent", () => {
     const streams = capturedStreams();
     const installed = await runInstallCommand({
       home,
-      arguments: ["coding", projectPath, "--host", "codex", "--auto-confirm"],
+      arguments: ["coding", projectPath, "--agent", "codex", "--auto-confirm"],
       stdout: streams.output as Writable & { isTTY?: boolean },
       stderr: streams.stderr as Writable & { isTTY?: boolean },
       input: new PassThrough(),
@@ -576,7 +576,7 @@ describe("guided install changed-file consent", () => {
     });
 
     // The existing Host stays pre-checked: submit immediately.
-    await waitForOutput(guided.humanText, "Which Agent Hosts?");
+    await waitForOutput(guided.humanText, "Which agents?");
     expect(plain(guided.humanText())).not.toContain("Which Profile?");
     input.write("\r");
     await waitForOutput(guided.humanText, "(y/N)");
@@ -666,7 +666,7 @@ describe("guided install executable equivalent", () => {
     input.write("cod");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");
@@ -705,7 +705,7 @@ describe("guided install DEC-004", () => {
     input.write("cod");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
-    await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    await waitForOutput(streams.humanText, "Which agents?");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");

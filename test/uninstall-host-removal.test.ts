@@ -471,7 +471,7 @@ describe("uninstall --host partial removal", () => {
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--host", "codex", "--auto-confirm"],
+        arguments: ["--agent", "codex", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -479,7 +479,7 @@ describe("uninstall --host partial removal", () => {
 
       expect(outcome.exitCode).toBe(1);
       expect(plain(streams.errorText())).toContain("--all");
-      expect(plain(streams.errorText())).toContain("--host codex");
+      expect(plain(streams.errorText())).toContain("--agent codex");
       // Zero writes: selection and output survive.
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
       expect(existsSync(codexOutput)).toBe(true);
@@ -504,7 +504,7 @@ describe("uninstall --host partial removal", () => {
       const input = fakeInteractiveInput();
       const pending = runUninstallCommand({
         home,
-        arguments: ["--host", "codex"],
+        arguments: ["--agent", "codex"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input,
@@ -532,7 +532,7 @@ describe("uninstall --host partial removal", () => {
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "pi", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "pi", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -557,14 +557,14 @@ describe("uninstall --host partial removal", () => {
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "borked", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "borked", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
       });
 
       expect(outcome.exitCode).toBe(1);
-      expect(plain(streams.errorText())).toContain("Unsupported Agent Host 'borked'");
+      expect(plain(streams.errorText())).toContain("Unsupported agent 'borked'");
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
       expect(existsSync(codexOutput)).toBe(true);
     } finally {
@@ -582,7 +582,7 @@ describe("uninstall --host partial removal", () => {
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "claud", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "claud", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -590,8 +590,8 @@ describe("uninstall --host partial removal", () => {
 
       expect(outcome.exitCode).toBe(1);
       const err = plain(streams.errorText());
-      expect(err).toContain("Unsupported Agent Host 'claud'");
-      expect(err).toContain("Supported Hosts: antigravity, claude, codex, grok, opencode, pi.");
+      expect(err).toContain("Unsupported agent 'claud'");
+      expect(err).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
       expect(err).toContain("Did you mean 'claude'?");
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
     } finally {
@@ -609,7 +609,7 @@ describe("uninstall --host partial removal", () => {
       const input = fakeInteractiveInput();
       const pending = runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex"],
+        arguments: ["--project", project, "--agent", "codex"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input,
@@ -620,7 +620,7 @@ describe("uninstall --host partial removal", () => {
       input.write("y\n");
       const outcome = await pending;
       expect(outcome.exitCode).toBe(0);
-      expect(plain(streams.humanText())).toContain("Removed Host codex from 1 Project");
+      expect(plain(streams.humanText())).toContain("Removed agent codex from 1 Project");
       expect(plain(streams.humanText())).toContain("Details: apkit details");
       expect(bindingHosts(home, project)).toEqual(["pi"]);
     } finally {
@@ -637,7 +637,7 @@ describe("uninstall --host partial removal", () => {
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm", "--json"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm", "--json"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -673,7 +673,7 @@ describe("uninstall --host consent matrix (changed/clean x delete/rewrite)", () 
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -704,7 +704,7 @@ describe("uninstall --host consent matrix (changed/clean x delete/rewrite)", () 
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm", "--remove-changed"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm", "--remove-changed"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -734,7 +734,7 @@ describe("uninstall --host consent matrix (changed/clean x delete/rewrite)", () 
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -764,7 +764,7 @@ describe("uninstall --host consent matrix (changed/clean x delete/rewrite)", () 
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm", "--replace-changed"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm", "--replace-changed"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),
@@ -794,7 +794,7 @@ describe("uninstall --host consent matrix (changed/clean x delete/rewrite)", () 
       const streams = capturedStreams();
       const outcome = await runUninstallCommand({
         home,
-        arguments: ["--project", project, "--host", "codex", "--auto-confirm"],
+        arguments: ["--project", project, "--agent", "codex", "--auto-confirm"],
         stdout: streams.output as Writable & { isTTY?: boolean },
         stderr: streams.stderr as Writable & { isTTY?: boolean },
         input: nonInteractiveInput(),

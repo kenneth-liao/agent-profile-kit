@@ -648,7 +648,7 @@ export function formatLocalConfigurationError(
     case "unsupported-host": {
       const suggestion = nameSuggestionSentence(reason.host, reason.supportedHosts);
       const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
-      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported Agent Host '${reason.host}'; supported Hosts: ${reason.supportedHosts.join(", ")}${suggestionText}`];
+      return [`Local Configuration ${reason.path} bindings[${reason.index}] hosts[${reason.hostIndex}] unsupported agent '${reason.host}'; supported agents: ${reason.supportedHosts.join(", ")}${suggestionText}`];
     }
   }
 }
@@ -843,19 +843,19 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
     case "missing-local-configuration":
       return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])];
     case "bind-conflict":
-      return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and Hosts`];
+      return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and agents`];
     case "duplicate-canonical-root":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`];
     case "bind-host-required":
-      return [`bind requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
+      return [`bind requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "install-host-required":
-      return [`install requires at least one --host flag; supported Hosts: ${fact.supportedHosts.join(", ")}`];
+      return [`install requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-host": {
       const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
       const suggestionText = suggestion !== undefined ? `; ${suggestion}` : "";
-      return [`unsupported Agent Host '${fact.host}'; supported Hosts: ${fact.supportedHosts.join(", ")}${suggestionText}`];
+      return [`unsupported agent '${fact.host}'; supported agents: ${fact.supportedHosts.join(", ")}${suggestionText}`];
     }
     case "unsupported-temporary-host": {
       const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
@@ -977,7 +977,7 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
     case "bind-conflict":
       return {
         happened: [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]`],
-        whatToType: [["Pass --replace to restate its Profile and Hosts."]],
+        whatToType: [["Pass --replace to restate its Profile and agents."]],
       };
     case "duplicate-canonical-root":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };
@@ -985,32 +985,32 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`] };
     case "bind-host-required":
       return {
-        happened: ["bind requires at least one --host flag"],
-        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+        happened: ["bind requires at least one --agent flag"],
+        why: [[`supported agents: ${fact.supportedHosts.join(", ")}`]],
       };
     case "install-host-required":
       return {
-        happened: ["install requires at least one --host flag"],
-        why: [[`supported Hosts: ${fact.supportedHosts.join(", ")}`]],
+        happened: ["install requires at least one --agent flag"],
+        why: [[`supported agents: ${fact.supportedHosts.join(", ")}`]],
       };
     case "unsupported-host": {
       const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
       const why: (readonly InlineContent[])[] = [
-        [`Supported Hosts: ${fact.supportedHosts.join(", ")}.`],
+        [`Supported agents: ${fact.supportedHosts.join(", ")}.`],
       ];
       if (suggestion !== undefined) {
         why.push([suggestion]);
       }
       return {
-        happened: [`Unsupported Agent Host '${fact.host}'`],
+        happened: [`Unsupported agent '${fact.host}'`],
         why,
         ...(suggestion === undefined
           ? {
               whatToType: [
                 [
                   "Run ",
-                  commandPart(COMMAND_NAME, [arg("list"), arg("hosts")]),
-                  " to inspect supported Hosts.",
+                  commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
+                  " to inspect supported agents.",
                 ],
               ],
             }

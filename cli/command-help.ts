@@ -59,7 +59,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Initialize, adopt, or connect the canonical Workspace and settings",
     examples: COMMAND_EXAMPLES.init,
     writes: "Creates missing Workspace scaffolding and settings; never overwrites a valid Workspace.",
-    next: ["Run ", invocation("install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"), "."],
+    next: ["Run ", invocation("install", AUTHORING_EXAMPLES.profile.id, "--agent", "codex"), "."],
   },
   {
     name: "guide",
@@ -100,12 +100,12 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "install",
     group: "common",
-    syntax: "install <profile> [project] --host <host> [--host <host> ...] [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]",
-    summary: "Install a Profile with Agent Hosts into a Project and remember the selection",
+    syntax: "install <profile> [project] --agent <agent> [--agent <agent> ...] [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]",
+    summary: "Install a Profile with agents into a Project and remember the selection",
     examples: COMMAND_EXAMPLES.install,
     supportedHosts: SUPPORTED_HOSTS,
     writes:
-      "Records the Project's Profile and Host choice and installs its verified files in one action.",
+      "Records the Project's Profile and agent choice and installs its verified files in one action.",
     next: ["Run ", invocation("status"), "."],
   },
   {
@@ -139,7 +139,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     name: "list",
     group: "inventory",
     syntax: inventoryCommandSyntax(),
-    summary: "List read-only inventory for Projects, Profiles, or Hosts",
+    summary: "List read-only inventory for Projects, Profiles, or agents",
     examples: COMMAND_EXAMPLES.list,
     writes: "Nothing; this command is read-only.",
     next: ["Run ", invocation("status"), " for Project lifecycle diagnostics."],
@@ -160,7 +160,7 @@ export const COMMANDS: readonly CommandHelp[] = [
     summary: "Sync the complete fleet, the containing Project, or one explicit Project",
     examples: COMMAND_EXAMPLES.update,
     writes: "Updates Agent Profile Kit-owned generated project files and machine-local installation records from the Workspace. This updates installed Context and Skills; it does not upgrade the apkit executable itself.",
-    next: ["Launch a bound Host from the project, or run ", invocation("status"), "."],
+    next: ["Launch a bound agent from the project, or run ", invocation("status"), "."],
   },
   {
     name: "details",
@@ -174,8 +174,8 @@ export const COMMANDS: readonly CommandHelp[] = [
   {
     name: "uninstall",
     group: "teardown",
-    syntax: "uninstall [--here | --project <path> | --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]",
-    summary: "Remove selected Project installations and forget their recorded selection; a lone --profile reaches that Profile's installations fleet-wide; --host removes only those Hosts within the scope",
+    syntax: "uninstall [--here | --project <path> | --all] [--profile <name>] [--agent <agent>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]",
+    summary: "Remove selected Project installations and forget their recorded selection; a lone --profile reaches that Profile's installations fleet-wide; --agent removes only those agents within the scope",
     examples: COMMAND_EXAMPLES.uninstall,
     writes: "Removes owned generated project files, forgets the removed scope's recorded selection, and updates machine-local installation records; keeps the Workspace and unselected Projects.",
     next: ["Run ", invocation("install"), " to install a Profile into a Project again."],
@@ -316,7 +316,7 @@ import type {
 } from "./presentation-document.js";
 
 const ROOT_INTRO =
-  "Agent Profile Kit composes reusable agent material into host-native projects.";
+  "Agent Profile Kit composes reusable agent material into agent-native projects.";
 const ROOT_DISCOVERY_PARTS: readonly InlineContent[] = [
   "  Scaffold material with ",
   invocation("new"),
@@ -328,7 +328,7 @@ const ROOT_DISCOVERY_PARTS: readonly InlineContent[] = [
   invocation("guide", "skill"),
   "; see ",
   invocation("install", "--help"),
-  " for supported Host values.",
+  " for supported agent values.",
 ];
 const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
   "For the complete Workspace authoring reference (Context Modules, Skills, and Profiles), run ",
@@ -338,7 +338,7 @@ const ROOT_GUIDANCE_PARTS: readonly InlineContent[] = [
 
 const QUICK_START_COMMANDS = [
   "init <path>",
-  "install <profile> --host <host>",
+  "install <profile> --agent <agent>",
   "status",
   "update",
 ] as const;
@@ -490,11 +490,12 @@ export function commandHelpDocument(command: CommandHelp): PresentationDocument 
     });
   }
   if (command.supportedHosts !== undefined) {
+    const label = command.namespace === "machine" ? "Supported Hosts" : "Supported agents";
     nodes.push(
       spacer(),
       {
         kind: "sentence",
-        parts: [`Supported Hosts: ${command.supportedHosts.join(", ")}`],
+        parts: [`${label}: ${command.supportedHosts.join(", ")}`],
         category: "heading",
       },
     );

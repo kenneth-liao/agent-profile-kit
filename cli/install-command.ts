@@ -132,10 +132,10 @@ export function parseInstallArguments(
   const positionals: string[] = [];
   for (let index = 0; index < arguments_.length; index += 1) {
     const argument = arguments_[index]!;
-    if (argument === "--host") {
+    if (argument === "--agent") {
       const value = arguments_[index + 1];
       if (value === undefined || value.startsWith("-")) {
-        throw new Error("install --host requires an Agent Host name");
+        throw new Error("install --agent requires an agent name");
       }
       hosts.push(value);
       index += 1;
@@ -254,7 +254,7 @@ function installArgumentErrorDiagnostic(error: unknown): PresentationDocument {
 }
 
 const INSTALL_PROFILE_QUESTION = "Which Profile?";
-const INSTALL_HOSTS_QUESTION = "Which Agent Hosts?";
+const INSTALL_HOSTS_QUESTION = "Which agents?";
 
 /**
  * Collect the missing Profile/Host choices for one guided install (#495,
@@ -934,7 +934,7 @@ export function fullySpecifiedInstallArguments(
     if (parsed.project !== undefined && parsed.projectFlag) args.push(arg("--project"), projectArg);
     else args.push(projectArg);
   }
-  for (const host of parsed.hosts ?? []) args.push(arg("--host"), arg(host));
+  for (const host of parsed.hosts ?? []) args.push(arg("--agent"), arg(host));
   if (parsed.replaceChanged || answering?.replace === true) args.push(arg("--replace-changed"));
   if (parsed.removeChanged || answering?.remove === true) args.push(arg("--remove-changed"));
   args.push(arg("--auto-confirm"));

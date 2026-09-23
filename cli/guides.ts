@@ -68,7 +68,7 @@ export const TOPIC_GUIDES = {
     ] as const,
     next: [
       "Next: from the project you want to try, run ",
-      commandPart(COMMAND_NAME, [arg("install"), arg("example"), arg("--host"), arg("codex")]),
+      commandPart(COMMAND_NAME, [arg("install"), arg("example"), arg("--agent"), arg("codex")]),
     ] as const satisfies readonly InlineContent[],
   },
   context: {
@@ -92,7 +92,7 @@ export const TOPIC_GUIDES = {
     title: "Skill",
     introduction:
       "A Skill is a reusable workflow package. Profiles select it by its frontmatter `name`, " +
-      "and its description tells an Agent Host when the workflow applies.",
+      "and its description tells an agent when the workflow applies.",
     scaffoldLead: "Create one, then select it into a Profile:",
     scaffoldCommands: [
       ["new", "skill", "<skill>"],
@@ -169,7 +169,7 @@ export function guideIndexDocument(): PresentationDocument {
     ["init", "<path>"],
     ["new", "skill", "<skill>"],
     ["guide", "profile"],
-    ["install", AUTHORING_EXAMPLES.profile.id, "--host", "codex"],
+    ["install", AUTHORING_EXAMPLES.profile.id, "--agent", "codex"],
   ] as const) {
     nodes.push(routeLine(args));
   }

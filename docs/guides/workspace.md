@@ -297,20 +297,20 @@ Project Bindings live only in machine-local
 existing absolute or home-relative project root, one Profile, and a non-empty set
 of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `opencode`, `pi`). Host order
 and duplicate entries normalize at ingestion. There are no wildcards, recursive scans,
-hidden default projects, Host auto-detection, per-session Profile selection, or
+hidden default projects, agent auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
 
 Hand-edit `config.yaml`, or record one binding and install it in one action
 with `apkit install` (confirms interactively; `--auto-confirm` answers it):
 
 ```sh
-apkit install coding --host codex --auto-confirm
-apkit install coding ~/projects/tools/agent-profile-kit --host antigravity --host codex --host claude --host grok --host opencode --host pi --auto-confirm
+apkit install coding --agent codex --auto-confirm
+apkit install coding ~/projects/tools/agent-profile-kit --agent antigravity --agent codex --agent claude --agent grok --agent opencode --agent pi --auto-confirm
 ```
 
 Omit the project argument to use the current working directory. At least one
-`--host` flag is required. An identical installation is left unchanged; a different
-Profile or Host set for the same project replaces the installation in the same
+`--agent` flag is required. An identical installation is left unchanged; a different
+Profile or agent set for the same project replaces the installation in the same
 action. Do not
 hand-edit `config.yaml` while `install` is running: cooperating lifecycle commands
 serialize, but a text editor does not participate in that lock. Installing a
@@ -633,7 +633,7 @@ It reports current, not installed, stale source, drifted output (including wholl
 owned output), malformed ownership, and blocked installations, while keeping Host
 configuration warnings visible.
 
-Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>`, `--host <host>`, and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. `--host <host>` (repeatable) removes only those Hosts within the scope while the remaining Hosts keep working. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
+Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>`, `--agent <agent>`, and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. `--agent <agent>` (repeatable) removes only those agents within the scope while the remaining agents keep working. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
 
 To stop managing a Project but keep its Git-owned files in place, remove its entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next `update` reconciles the leftovers. Neither path modifies personal/global Host configuration or repository-owned files.
 

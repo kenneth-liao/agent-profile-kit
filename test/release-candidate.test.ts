@@ -1135,7 +1135,7 @@ describe("project-bound release candidate", () => {
     writeBindings(home, [{ project: projectPath, hosts: ["cursor"] }]);
     const unsupportedHost = await runCli(home, ["update"]);
     expectExitCode(unsupportedHost, 1);
-    expect(unsupportedHost.stderr).toContain("unsupported Agent Host 'cursor'");
+    expect(unsupportedHost.stderr).toContain("unsupported agent 'cursor'");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
 
     writeBindings(home, [{ project: projectPath, hosts: ["claude"] }]);
@@ -1440,7 +1440,7 @@ describe("project-bound release candidate", () => {
     writeWorkspaceAuthoring(home);
 
     // Inventory: supported Hosts and available Profiles from canonical sources.
-    const hosts = await runCli(home, ["list", "hosts"]);
+    const hosts = await runCli(home, ["list", "agents"]);
     expectExitCode(hosts, 0);
     expect(hosts.stdout).toContain("  codex — detected\n");
 
@@ -1944,16 +1944,17 @@ describe("project-bound release candidate", () => {
     );
     // Present and absent Hosts: detection names exactly what is installed
     // (US-037) and never invents an absent Host (US-038, TEST-016).
-    expect(init.stdout).toContain("Detected Agent Hosts: claude, codex, opencode");
+    expect(init.stdout).toContain("Detected agents: claude, codex, opencode");
     for (const absentHost of ["antigravity", "grok", "pi"]) {
-      expect(init.stdout).not.toContain(`--host ${absentHost}`);
+      expect(init.stdout).not.toContain(`--agent ${absentHost}`);
     }
     // The handoff comes from the resulting content (spec #640 US-002): fresh
     // setup has zero Profiles and no Context, so it leads to Profile creation
-    // and never recommends validate. Host choice stays with install.
+    // and never recommends validate. Agent choice stays with install.
     expect(init.stdout).toContain("apkit new context <context>");
     expect(init.stdout).toContain("apkit new profile <name> --context <context>");
     expect(init.stdout).not.toContain("apkit validate");
+    expect(init.stdout).not.toContain("--agent");
     expect(init.stdout).not.toContain("--host");
 
     // 3. Execute the printed creation chain with supplied names, then author
@@ -1975,12 +1976,12 @@ describe("project-bound release candidate", () => {
     writeExampleMaterial(home);
     const installExample = await runCli(
       home,
-      ["install", "example", firstProject, "--host", "claude", "--auto-confirm"],
+      ["install", "example", firstProject, "--agent", "claude", "--auto-confirm"],
       { path: journeyPath },
     );
     expectExitCode(installExample, 0);
     expect(installExample.stdout).toContain("Installed for");
-    expect(installExample.stdout).toContain("Hosts: claude");
+    expect(installExample.stdout).toContain("Agents: claude");
     expect(installExample.stdout).toContain("Next: apkit status");
     // US-012 (#648): the first installation offers the short optional
     // Host-loading check beside the receipt, phrased as a user action that
@@ -2046,7 +2047,7 @@ describe("project-bound release candidate", () => {
     expect(validate.stdout).toContain("Next: apkit status");
     const installReal = await runCli(
       home,
-      ["install", "real-profile", realProject, "--host", "claude", "--auto-confirm"],
+      ["install", "real-profile", realProject, "--agent", "claude", "--auto-confirm"],
       { path: journeyPath },
     );
     expectExitCode(installReal, 0);
@@ -2058,7 +2059,7 @@ describe("project-bound release candidate", () => {
     // the exit code (US-017–019, TEST-009, TEST-021).
     const absentInstall = await runCli(
       home,
-      ["install", "real-profile", absentProject, "--host", "grok", "--auto-confirm"],
+      ["install", "real-profile", absentProject, "--agent", "grok", "--auto-confirm"],
       { path: journeyPath },
     );
     expectExitCode(absentInstall, 0);
@@ -2180,7 +2181,7 @@ describe("project-bound release candidate", () => {
     // 1. Bare help: discover root command surface and first-run guidance.
     const help = await runCli(home, ["--help"], { path: pathWithHosts });
     expectExitCode(help, 0);
-    expect(help.stdout).toContain("First run:\n  apkit init <path>\n  apkit install <profile> --host <host>\n  apkit status\n  apkit update");
+    expect(help.stdout).toContain("First run:\n  apkit init <path>\n  apkit install <profile> --agent <agent>\n  apkit status\n  apkit update");
     expect(help.stdout).toContain("Common commands:\n  init");
     expect(help.stdout).toContain("More commands:\n  Inventory:");
 
@@ -2192,7 +2193,7 @@ describe("project-bound release candidate", () => {
     expect(init.stdout).toContain("~/apkit-workspace");
     expect(init.stdout).toContain("settings:");
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills suited to a kind of work");
-    expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
+    expect(init.stdout).toContain("Detected agents: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain("apkit new context <context>");
     expect(init.stdout).toContain("apkit new profile <name> --context <context>");
     expect(init.stdout).not.toContain("apkit validate");
@@ -2207,8 +2208,8 @@ describe("project-bound release candidate", () => {
       "Workspace and settings valid (0 Profiles, 0 configured Projects)",
     );
     expect(validate.stdout).toContain("Profiles found: none");
-    expect(validate.stdout).toContain("Hosts bound: none");
-    expect(validate.stdout).toContain("Next: apkit install <profile> --host <host>");
+    expect(validate.stdout).toContain("Agents bound: none");
+    expect(validate.stdout).toContain("Next: apkit install <profile> --agent <agent>");
 
     // 4. Author the canonical example pair, then install it into the
     // configured Git Project in one action (pipes add --auto-confirm for the
@@ -2216,13 +2217,13 @@ describe("project-bound release candidate", () => {
     writeExampleMaterial(home);
     const install = await runCli(
       home,
-      ["install", "example", boundProject, "--host", "codex", "--auto-confirm"],
+      ["install", "example", boundProject, "--agent", "codex", "--auto-confirm"],
       { path: pathWithHosts },
     );
     expectExitCode(install, 0);
     expect(install.stdout).toContain("Installed for");
     expect(install.stdout).toContain("Profile: example");
-    expect(install.stdout).toContain("Hosts: codex");
+    expect(install.stdout).toContain("Agents: codex");
     expect(install.stdout).toContain("Next: apkit status");
     expect(existsSync(join(boundProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
     expect(existsSync(join(boundProject, ".codex", "hooks.json"))).toBe(true);
@@ -2297,7 +2298,7 @@ describe("project-bound release candidate", () => {
     // optional loading check; the next-use instruction remains.
     expect(humanApply).not.toContain("Optional check: ");
     expect(humanApply).toContain(
-      "Start a new Host session from the Project root to use the updated material.",
+      "Start a new agent session from the Project root to use the updated material.",
     );
     expect(apply.stdout).not.toContain("already current");
     expect(apply.stdout).not.toContain("Now author your own:");
@@ -2330,7 +2331,7 @@ describe("project-bound release candidate", () => {
     // offers no optional loading check (US-012).
     expect(restore.stdout).not.toContain("Optional check: ");
     expect(humanText(restore.stdout)).toContain(
-      "Start a new Host session from the Project root to use the updated material.",
+      "Start a new agent session from the Project root to use the updated material.",
     );
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
@@ -2339,11 +2340,11 @@ describe("project-bound release candidate", () => {
     // installs the new outputs in the same action (INT-1, US-040, DEC-024).
     const addHost = await runCli(
       home,
-      ["install", "example", boundProject, "--host", "codex", "--host", "claude", "--auto-confirm"],
+      ["install", "example", boundProject, "--agent", "codex", "--agent", "claude", "--auto-confirm"],
       { path: pathWithHosts },
     );
     expectExitCode(addHost, 0);
-    expect(humanText(addHost.stdout)).toContain("Hosts: codex → claude, codex");
+    expect(humanText(addHost.stdout)).toContain("Agents: codex → claude, codex");
     // US-012 (#648): adding a Host offers the optional check only for the
     // newly added Host (claude); codex was already established.
     expect(humanText(addHost.stdout)).toContain(
@@ -2362,7 +2363,7 @@ describe("project-bound release candidate", () => {
     expect(humanText(maintenance.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
     expect(maintenance.stdout).not.toContain("Optional check: ");
     expect(humanText(maintenance.stdout)).toContain(
-      "Start a new Host session from the Project root to use the updated material.",
+      "Start a new agent session from the Project root to use the updated material.",
     );
     expect(maintenance.stdout).not.toContain("apkit new ");
 
@@ -2420,7 +2421,7 @@ describe("project-bound release candidate", () => {
     const allPath = `${allBin}:${allowlistBin(allHome)}`;
     const allInit = await runCli(allHome, ["init", "~/apkit-workspace"], { path: allPath });
     expectExitCode(allInit, 0);
-    expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
+    expect(allInit.stdout).toContain("Detected agents: antigravity, claude, codex, grok, opencode, pi");
     expect(allInit.stdout).toContain("apkit new context <context>");
 
     // 2. Single host present (only codex): still no Host in init guidance
@@ -2435,7 +2436,7 @@ describe("project-bound release candidate", () => {
     const codexPath = `${codexBin}:${allowlistBin(codexHome)}`;
     const codexInit = await runCli(codexHome, ["init", "~/apkit-workspace"], { path: codexPath });
     expectExitCode(codexInit, 0);
-    expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
+    expect(codexInit.stdout).toContain("Detected agents: codex");
     expect(codexInit.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(codexInit.stdout).not.toContain("--host");
@@ -2452,7 +2453,7 @@ describe("project-bound release candidate", () => {
     const claudePath = `${claudeBin}:${allowlistBin(claudeHome)}`;
     const claudeInit = await runCli(claudeHome, ["init", "~/apkit-workspace"], { path: claudePath });
     expectExitCode(claudeInit, 0);
-    expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
+    expect(claudeInit.stdout).toContain("Detected agents: claude");
     expect(claudeInit.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host claude" here.
     expect(claudeInit.stdout).not.toContain("--host");
@@ -2465,7 +2466,7 @@ describe("project-bound release candidate", () => {
     const emptyPath = `${emptyBin}:${allowlistBin(noHostsHome)}`;
     const noHostsInit = await runCli(noHostsHome, ["init", "~/apkit-workspace"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
-    expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
+    expect(noHostsInit.stdout).toContain("Detected agents: none");
     expect(noHostsInit.stdout).toContain("apkit new context <context>");
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
@@ -2491,7 +2492,7 @@ describe("project-bound release candidate", () => {
     // 1. init reports the present executable without starting it.
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: stubPath });
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("Detected Agent Hosts: codex");
+    expect(init.stdout).toContain("Detected agents: codex");
     expect(init.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(init.stdout).not.toContain("--host");
@@ -2501,7 +2502,7 @@ describe("project-bound release candidate", () => {
     const cwd = project();
     const homeBefore = fileTree(home);
     const cwdBefore = fileTree(cwd);
-    const hosts = await runCli(home, ["list", "hosts"], { path: stubPath, cwd });
+    const hosts = await runCli(home, ["list", "agents"], { path: stubPath, cwd });
     expectExitCode(hosts, 0);
     expect(hosts.stdout).toContain("codex — detected");
     expect(fileTree(home)).toEqual(homeBefore);
@@ -2603,7 +2604,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(calm, 0);
     const calmDetection = calm.stdout
       .split("\n")
-      .find((line) => line.startsWith("Detected Agent Hosts:"))!;
+      .find((line) => line.startsWith("Detected agents:"))!;
     expect(calmDetection).toBeDefined();
 
     // Hostile ambient window: trap executables stand in for every Host name
@@ -2625,7 +2626,7 @@ describe("project-bound release candidate", () => {
       });
       expectExitCode(varied, 0);
       expect(
-        varied.stdout.split("\n").find((line) => line.startsWith("Detected Agent Hosts:")),
+        varied.stdout.split("\n").find((line) => line.startsWith("Detected agents:")),
       ).toBe(calmDetection);
       expect(hostile.trapLog(), "no unselected Host-named executable may run").toEqual([]);
     } finally {
@@ -2798,7 +2799,7 @@ describe("project-bound release candidate", () => {
       "install",
       "consolidated",
       boundProject,
-      "--host",
+      "--agent",
       "claude",
       "--auto-confirm",
     ]);

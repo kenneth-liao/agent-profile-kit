@@ -95,20 +95,20 @@ describe("uninstall scope parsing", () => {
     );
   });
 
-  test("repeatable --host narrows within the scope", () => {
-    const parsed = parseUninstallArguments(["--here", "--host", "codex", "--host", "pi", "--auto-confirm"]);
+  test("repeatable --agent narrows within the scope", () => {
+    const parsed = parseUninstallArguments(["--here", "--agent", "codex", "--agent", "pi", "--auto-confirm"]);
     expect(parsed.hosts).toEqual(["codex", "pi"]);
     expect(parsed.here).toBe(true);
   });
 
-  test("--host requires a value", () => {
-    expect(() => parseUninstallArguments(["--host"])).toThrow(
-      "uninstall --host requires an Agent Host name",
+  test("--agent requires a value", () => {
+    expect(() => parseUninstallArguments(["--agent"])).toThrow(
+      "uninstall --agent requires an agent name",
     );
   });
 
-  test("--host alone selects no scope", () => {
-    const parsed = parseUninstallArguments(["--host", "codex"]);
+  test("--agent alone selects no scope", () => {
+    const parsed = parseUninstallArguments(["--agent", "codex"]);
     expect(parsed.hosts).toEqual(["codex"]);
     expect(parsed.here).toBe(false);
     expect(parsed.all).toBe(false);
@@ -116,8 +116,8 @@ describe("uninstall scope parsing", () => {
     expect(parsed.profile).toBeUndefined();
   });
 
-  test("--replace-changed is accepted alongside --host", () => {
-    const parsed = parseUninstallArguments(["--here", "--host", "codex", "--replace-changed"]);
+  test("--replace-changed is accepted alongside --agent", () => {
+    const parsed = parseUninstallArguments(["--here", "--agent", "codex", "--replace-changed"]);
     expect(parsed.replaceChanged).toBe(true);
     expect(parsed.hosts).toEqual(["codex"]);
   });
@@ -135,7 +135,7 @@ describe("uninstall scope parsing", () => {
     expect(message).toContain("--remove-changed");
   });
 
-  test("whole-removal --replace-changed rejection points at the --host partial path", () => {
+  test("whole-removal --replace-changed rejection points at the --agent partial path", () => {
     let caught: unknown;
     try {
       parseUninstallArguments(["--here", "--replace-changed"]);
@@ -145,7 +145,7 @@ describe("uninstall scope parsing", () => {
     expect(caught).toBeInstanceOf(UninstallUnsupportedFlagError);
     const message = (caught as Error).message;
     expect(message).toContain("--replace-changed");
-    expect(message).toContain("--host <name>");
+    expect(message).toContain("--agent <name>");
   });
 
   test("--replace-changed is rejected with a did-you-mean---remove-changed equivalent", () => {

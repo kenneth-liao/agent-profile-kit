@@ -16,8 +16,12 @@ _Avoid_: Open-source tool repository, Profile Installation, Host-global second s
 The `workspace.yaml` file that marks a Workspace root and declares the Workspace schema version without listing or duplicating artifact content.
 _Avoid_: Installation Receipt, Profile
 
+**Agent**:
+The user-facing term for an agent product or environment that consumes Agent Profile Kit material (such as Antigravity, Claude Code, Codex, Cursor, Grok, OpenCode, or Pi). User-facing surfaces (the `--agent` flag, `apkit list agents`, help output, guides, and the README) call these tools agents. Contributor and architectural documentation maintains "Agent Host" for the integration target and its Adapters (ADR-0051).
+_Avoid_: Host (in user-facing surfaces), Agent Profile Kit implementation
+
 **Agent Host**:
-An agent product or environment that consumes Agent Profile Kit material, such as Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi.
+An agent product or environment that consumes Agent Profile Kit material, such as Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi. This term is used in contributor, architecture, and adapter documentation to describe the external execution environment and integration target, whereas user-facing surfaces use "agent" (ADR-0051).
 _Avoid_: Agent Profile Kit implementation
 
 **Adapter**:

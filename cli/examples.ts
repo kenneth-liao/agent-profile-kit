@@ -12,8 +12,8 @@ export const COMMAND_EXAMPLES = {
   new: ["new skill review-pr", "new context review-standards", `new profile my-profile --context ${AUTHORING_EXAMPLES.context.id}`],
   open: ["open"],
   install: [
-    `install ${profile} --host codex --auto-confirm`,
-    `install ${profile} ${project} --host codex --host claude --auto-confirm`,
+    `install ${profile} --agent codex --auto-confirm`,
+    `install ${profile} ${project} --agent codex --agent claude --auto-confirm`,
   ],
   validate: ["validate", `validate ${workspace}`],
   configure: [
@@ -51,7 +51,7 @@ export const COMMAND_EXAMPLES = {
     "uninstall --profile my-profile --auto-confirm",
     "uninstall --profile my-profile --all --auto-confirm",
     "uninstall --all --remove-changed --auto-confirm",
-    "uninstall --here --host codex --auto-confirm",
+    "uninstall --here --agent codex --auto-confirm",
   ],
   "install-temp": [
     `machine install-temp ${profile} ${project} --host codex --json`,

@@ -432,9 +432,9 @@ function positionalArgument(command: string, description: string, value: string)
   return value;
 }
 
-function parseInstallTempArguments(
+export function parseInstallTempArguments(
   arguments_: readonly string[],
-  label: string,
+  label = "machine install-temp",
 ): {
   readonly host: string;
   readonly json: boolean;
@@ -1266,7 +1266,7 @@ async function main(): Promise<void> {
           }
         }
         return;
-      case "hosts":
+      case "agents":
         {
           const hosts = listHosts();
           if (parsed.json) {

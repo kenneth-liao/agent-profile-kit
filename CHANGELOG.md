@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Replaced user-facing host terminology and flags with "agent": `install` and `uninstall` accept `--agent` instead of `--host`, `apkit list agents` replaces `apkit list hosts`, and human output, help, guides, and documentation refer to agents, while machine JSON payloads and the machine namespace (`apkit machine`) remain unchanged (#673)
+
 - Made `apkit list hosts` use the same Host-detection wording as the install Host picker: a found Host is `detected` and a missing one `not found` from one shared definition (`HOST_DETECTION_LABELS`), replacing the ambiguous `installed` label beside a Host while machine JSON and every installing-into-a-Project use of the word stay unchanged (#669)
 
 - Named every affected Project in missing-Host warnings: the Installer's host-scope deduplication stamps the canonical identities of every Project that produced a Host's failure onto the surviving warning, so a fleet warning names every affected Project through the view identity (`alpha/my-app`, never the bare `alpha`) while machine JSON keeps one host-attention message per Host (#668)

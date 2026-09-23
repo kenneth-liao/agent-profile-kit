@@ -63,21 +63,21 @@ Use this workflow when helping a person author their Workspace and bind projects
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
 5. Install Profiles into Projects—either hand-edit `config.yaml` and run
-   `apkit update`, or run `apkit install <profile> [project] --host <host>…`
-   (cwd when project is omitted; at least one explicit `--host` required),
+   `apkit update`, or run `apkit install <profile> [project] --agent <agent>…`
+   (cwd when project is omitted; at least one explicit `--agent` required),
    which records the selection and installs the verified output in one
    action after an interactive confirmation (`--auto-confirm` answers it
    non-interactively). Do not
-   invent project roots or Host lists. Use only explicit paths the user confirms.
-   Reject wildcards, recursive scans, Host auto-detection, all-Hosts defaults,
+   invent project roots or agent lists. Use only explicit paths the user confirms.
+   Reject wildcards, recursive scans, agent auto-detection, all-agents defaults,
    per-session selection, and Profile version pins. Installing a different
-   Profile or Host set for the same project replaces the installation in the
+   Profile or agent set for the same project replaces the installation in the
    same action; replacing or deleting independently changed generated files
    needs `--replace-changed`/`--remove-changed`. After installing, continue
    with validate/status/update. To remove selected installations, use
    `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all`
    (explicit scope plus `--auto-confirm` non-interactively, with `--profile`,
-   `--host`, and `--remove-changed` as needed); it forgets each fully removed Project's
+   `--agent`, and `--remove-changed` as needed); it forgets each fully removed Project's
    recorded selection so a later update does not reinstall it, matches
    existing paths canonically, and permits missing-path recovery only by exact
    authored spelling. To keep generated files in place instead, remove the
