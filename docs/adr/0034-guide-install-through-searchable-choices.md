@@ -57,3 +57,13 @@ ADR-0033's "missing choices remain errors" holds only for
 non-interactive/machine-JSON input now; interactive humans are guided.
 `install` help syntax is unchanged — it documents the explicit contract,
 which is also the printed equivalent of every guided install.
+
+### Amendment: the single prompt dependency is `@inquirer/core` (spec #640 US-004, issue #643)
+
+This decision's "single prompt dependency's autocomplete kinds" wording is
+superseded by ADR-0050: `prompts` is replaced by `@inquirer/core` behind the
+same injectable prompt seam, and the shared picker chrome (focus marker,
+multi-select checkboxes, one reflowing control hint, visible filter and
+selection state) is owned by the seam. The prompt seam, missing-choice, and
+explicit-operation contracts above are unchanged. The type-ahead race this
+decision recorded as a dependency limitation is narrowed in ADR-0050.

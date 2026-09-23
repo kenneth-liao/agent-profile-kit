@@ -12,15 +12,13 @@
  * - `uninstall <home>`: bare interactive `uninstall` over bound Projects.
  * - `configure <home> <profile>`: interactive `configure profile` for the
  *   named Profile (ticket #500).
- * - `gated-select <releaseFile> <pidFile>`: the real `prompts` dependency
- *   bound directly with the REAL exported product filter
- *   (`searchableSuggest`), whose resolution is gated until the fixture-owned
- *   release file (outside the PTY) appears. This is a fixture boundary, not
- *   wrapper injection: `createSearchableSelectPrompt` is never given a
- *   fixture suggest — the converted PTY tests cover the unchanged product
- *   wrapper; this mode only makes the async-filter timing condition
- *   controllable for the causal discrimination proof (#542). Writes its pid
- *   to `pidFile` for owned-process cleanup evidence.
+ * - `gated-select <releaseFile> <pidFile>`: the shared searchable-select seam
+ *   bound with the REAL exported product filter (`searchableSuggest`), whose
+ *   resolution is gated until the fixture-owned release file (outside the
+ *   PTY) appears. This is a fixture boundary: the product prompt wrapper is
+ *   unchanged and only the filter's delivery is gated for the causal
+ *   discrimination proof (#542). Writes its pid to `pidFile` for owned-process
+ *   cleanup evidence.
  */
 import { basename, dirname } from "node:path";
 import { existsSync, watch, writeFileSync } from "node:fs";
@@ -122,7 +120,6 @@ if (mode === "select") {
   const releaseFile = process.argv[3] ?? "";
   const pidFile = process.argv[4] ?? "";
   writeFileSync(pidFile, `${process.pid}\n`);
-  const promptsPackage = (await import("prompts")).default;
   const choices = [
     { title: "coding", value: "coding" },
     { title: "ops", value: "ops" },
@@ -168,21 +165,18 @@ if (mode === "select") {
       else pendingDeliveries.push(deliver);
     });
   };
-  const answer = (await promptsPackage({
-    type: "autocomplete",
-    name: "answer",
-    message: "Which Profile?",
-    choices,
-    suggest: gatedSuggest,
-    hint: "Type to filter, \u2191/\u2193 navigate, enter selects.",
-    stdin: process.stdin,
-    stdout: process.stdout,
-  })) as { readonly answer?: unknown } | undefined;
+  const select = createSearchableSelectPrompt({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  const answer = await select("Which Profile?", choices, { suggest: gatedSuggest });
   // Release both watch handles: an open fs.watch handle would keep the event
   // loop alive after the prompt resolves and the driver would never exit.
   clearInterval(backstop);
   watcher.close();
-  process.stdout.write(`\nRESULT ${JSON.stringify(answer?.answer)}\n`);
+  process.stdout.write(
+    `\nRESULT ${JSON.stringify(answer.kind === "selected" ? answer.value : null)}\n`,
+  );
 } else {
   process.stderr.write(`unknown PTY driver mode '${mode ?? ""}'\n`);
   process.exit(2);

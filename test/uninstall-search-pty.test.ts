@@ -89,11 +89,11 @@ describe("interactive uninstall under a real PTY", () => {
       // so exactly one Project is picked here. The highlighted row is the
       // picker's canonical first row (not necessarily the first-created temp
       // directory), so the toggle redraw is observed as the selected marker
-      // (◉) itself — unselected rows render ◯, and no row is selected before
+      // (◼) itself — unselected rows render ◻, and no row is selected before
       // the Space keystroke.
       const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await session.waitForTranscript("\x1b[32m◉", { after: toggleOffset, raw: true });
+      await session.waitForTranscript("◼", { after: toggleOffset });
       const scopeEnterOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("Whole installations or selected Hosts?", { after: scopeEnterOffset });
@@ -120,15 +120,15 @@ describe("interactive uninstall under a real PTY", () => {
       await session.waitForTranscript("Which Projects");
       // Filter to the second Project's unique path suffix, then toggle and
       // submit: typing narrows by path on a real terminal too. The filter
-      // echo ("Filtered results for: <input>") is the multi-select's own
+      // echo (the `› <input>` filter line) is the multi-select's own
       // synchronous filter-applied redraw.
       const suffix = second.slice(-6);
       const filterOffset = session.transcriptLength();
       session.write(suffix);
-      await session.waitForTranscript(`Filtered results for: ${suffix}`, { after: filterOffset });
+      await session.waitForTranscript(`› ${suffix}`, { after: filterOffset });
       const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await session.waitForTranscript(`◉${second}`, { after: toggleOffset });
+      await session.waitForTranscript(`◼${second}`, { after: toggleOffset });
       const submitOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("Whole installations or selected Hosts?", { after: submitOffset });
