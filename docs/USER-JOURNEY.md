@@ -448,9 +448,14 @@ An interactive `install` shows the proposed scope and asks for confirmation
 before any write; `--auto-confirm` answers that confirmation. On an
 interactive terminal a bare `install` names the current-directory Project
 target first and collects only its missing Profile/Hosts through searchable
-pickers — an existing installation pre-checks its Hosts while a new one
-starts with nothing checked — and a completed guided install prints the
-executable fully specified equivalent. Replacing or
+pickers — a new installation lists detected Hosts first, preselects and marks
+them `detected`, marks undetected Hosts `not found` with one note that
+selecting a Host does not install it, and selects none when nothing is
+detected, while an existing installation starts from its remembered selection
+without adding newly detected Hosts (spec #640 US-005, superseding spec #491
+US-001's no-preselect rule; ADR-0034) — and a completed guided install prints
+the executable fully specified equivalent. The default-No confirmation shows
+the final Host selection before any write. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
 restored where possible and the retry is printed.

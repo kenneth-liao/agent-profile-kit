@@ -52,7 +52,9 @@ import {
   hostInventoryDocument,
   infoDocument,
   installBlockedDocument,
+  installConfirmationDocument,
   installDeclinedDocument,
+  installHostSelectionNoteDocument,
   configureDeclinedDocument,
   configurePickerCancelledDocument,
   initCancelledDocument,
@@ -6190,6 +6192,25 @@ describe("standalone view presentation documents (#389)", () => {
     const document = uninstallReceiptDocument({ completed: [], skipped: [], unattempted: [], warnings: [] });
     expect(document.map(shape)).toEqual(["notice:success"]);
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toMatchObject({ kind: "prose" });
+  });
+
+  test("install Host selection note states that selecting a Host does not install it", () => {
+    const document = installHostSelectionNoteDocument();
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Selecting a Host does not install it.");
+  });
+
+  test("install confirmation shows the final Host selection before any write", () => {
+    const document = installConfirmationDocument({
+      canonicalProject: "/project-a",
+      authoredProject: "~/project-a",
+      profile: "coding",
+      hosts: ["claude", "codex"],
+      previous: { profile: "coding", hosts: ["claude"] },
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Install:");
+    expect(rendered).toContain("Hosts: claude → claude, codex");
   });
 
   test("uninstall confirmation review names every selected Project before any write", () => {

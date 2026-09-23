@@ -8,7 +8,10 @@
  * Modes:
  * - `select`: searchable single choice over three Profiles.
  * - `multi`: searchable multi choice over three Hosts (none pre-selected).
- * - `install <home> <cwd>`: bare guided `install` in the given Project.
+ * - `install <home> <cwd> [detectionPath]`: bare guided `install` in the
+ *   given Project. When `detectionPath` is present it is the whole Host
+ *   detection `PATH` (`request.env`), so detected-Host behavior stays
+ *   deterministic on machines that carry real Host CLIs.
  * - `uninstall <home>`: bare interactive `uninstall` over bound Projects.
  * - `configure <home> <profile>`: interactive `configure profile` for the
  *   named Profile (ticket #500).
@@ -64,6 +67,7 @@ if (mode === "select") {
 } else if (mode === "install") {
   const home = process.argv[3] ?? "";
   const cwd = process.argv[4] ?? process.cwd();
+  const detectionPath = process.argv[5];
   const outcome = await runInstallCommand({
     home,
     arguments: [],
@@ -71,6 +75,7 @@ if (mode === "select") {
     stderr: process.stderr,
     input: process.stdin,
     cwd,
+    ...(detectionPath === undefined ? {} : { env: { PATH: detectionPath } }),
   });
   process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
   process.exit(outcome.exitCode);

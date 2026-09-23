@@ -67,3 +67,19 @@ multi-select checkboxes, one reflowing control hint, visible filter and
 selection state) is owned by the seam. The prompt seam, missing-choice, and
 explicit-operation contracts above are unchanged. The type-ahead race this
 decision recorded as a dependency limitation is narrowed in ADR-0050.
+
+### Amendment: detected-Host preselection (spec #640 US-005, DEC-010, issue #644)
+
+This decision's "a new installation starts with nothing checked, so detected
+Hosts are never silently selected" rule (spec #491 US-001) is superseded.
+Detected Hosts are listed first and preselected on a **new** installation,
+marked `detected` beside a bare Host title; undetected Hosts stay selectable,
+are marked `not found`, and one concise note states that selecting a Host does
+not install it. With none detected, nothing is selected. Detected Hosts list
+first in both the new and edit pickers; an existing installation starts from
+its remembered selection and never adds newly detected Hosts. Explicit Host
+arguments remain authoritative and skip the picker. Host preselection changes
+only the picker's initial choices (DEC-004): the general confirmation stays
+default No, shows the final selection before any write, and `--auto-confirm`
+gains no new authority. Detection stays the advisory Adapter `detectHost`
+presence check (ADR-0012, ADR-0016).
