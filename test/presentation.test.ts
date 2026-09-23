@@ -8,7 +8,6 @@ import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import {
-  guidedInitCompletionDocument,
   initLocationDocument,
   initReceiptDocument,
   installReceiptDocument,
@@ -8841,231 +8840,273 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const home = homedir();
   const projectPath = join(home, "projects", "demo");
 
-  test("the created receipt presents a success headline, Profile explanation, detected Hosts, and the next command", () => {
+  test("the created receipt names the Workspace, settings when written, only added parts, and the zero-Profile creation chain", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, "apkit-workspace"),
       authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: ["workspace.yaml", "context", "skills", "profiles"],
+      profileCount: 0,
+      hasContexts: false,
     });
-    // Selective shape: kinds, categories, order, and atomic values — the
-    // carried wording is locked by the golden snapshots. Setup adds no
-    // example material (spec #593 DEC-003, #599), so the one next action is
-    // the validate pointer.
+    // Success headline (Workspace), settings path, added parts, Profile and
+    // Context sentences, detection, then the one footer (US-010).
     expect(shapes(document)).toEqual([
       "sentence(success)",
+      "key-value:settings(path)",
       "sentence",
       "sentence",
       "sentence",
-      "sentence(command)",
+      "sentence",
+      "spacer",
+      "heading",
+      "list-item",
+      "list-item",
     ]);
     expect(document[0]).toMatchObject({ kind: "sentence", category: "success" });
     expect(document[1]).toMatchObject({
+      kind: "key-value",
+      key: "settings",
+      category: "path",
+    });
+    // Only the Workspace parts that were actually missing and added.
+    const added = nodeText(document[2]!);
+    expect(added).toContain("workspace.yaml");
+    expect(added).toContain("context/");
+    expect(added).toContain("skills/");
+    expect(added).toContain("profiles/");
+    // Concept sentences stay (spec #645).
+    expect(document[3]).toMatchObject({
       kind: "sentence",
       parts: ["A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects."],
     });
-    expect(document[2]).toMatchObject({
+    expect(document[4]).toMatchObject({
       kind: "sentence",
       parts: ["Context is always-loaded facts, preferences, and standing rules a Profile selects."],
     });
-    expect(document[3]).toMatchObject({
+    expect(document[5]).toMatchObject({
       kind: "sentence",
       parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "codex" }],
     });
-    expect(document[4]).toMatchObject({
-      kind: "sentence",
-      category: "command",
-      parts: [
-        "Next: run ",
-        {
-          kind: "command",
-          program: "apkit",
-          args: [{ kind: "text", value: "validate" }],
-        },
-      ],
+    const text = documentText(document);
+    // Setup just validated; never recommend `apkit validate` (spec #640 US-002).
+    expect(text).not.toContain("apkit validate");
+    // Zero Profiles and no Context: the creation chain starts with a Context
+    // Module (spec #640 US-002, DEC-005).
+    const commands = flattenPresentationNodes(document).flatMap((node) => {
+      if (node.kind === "command") return [node];
+      if (node.kind === "key-value" && node.value.kind === "command") return [node.value];
+      if (node.kind === "list-item" || node.kind === "sentence" || node.kind === "prose") {
+        return node.parts.flatMap((part) =>
+          typeof part !== "string" && part.kind === "command" ? [part] : []);
+      }
+      return [];
     });
-
-    // Host choice stays with install's searchable choices (spec #491, US-016,
-    // ADR-0034): even with several detected Hosts, init guidance never names
-    // one, so it cannot arbitrarily select the first detected Host.
-    const multiHostDocument = initReceiptDocument({
-      outcome: "created",
-      path: join(home, "apkit-workspace"),
-      authoredPath: join(home, "apkit-workspace"),
-      folderCreated: true,
-      detectedHosts: ["antigravity", "claude", "codex"],
-    });
-    expect(multiHostDocument[3]).toMatchObject({
-      kind: "sentence",
-      parts: [
-        "Detected Agent Hosts: ",
-        { kind: "identifier", value: "antigravity, claude, codex" },
-      ],
-    });
-    expect(multiHostDocument[4]).toMatchObject({
-      kind: "sentence",
-      category: "command",
-      parts: [
-        "Next: run ",
-        {
-          kind: "command",
-          program: "apkit",
-          args: [{ kind: "text", value: "validate" }],
-        },
-      ],
-    });
+    expect(commands.map((command) => [command.program, ...command.args.map((argument) => argument.kind === "text" ? argument.value : argument.canonicalPath)])).toEqual([
+      ["apkit", "new", "context", "<context>"],
+      ["apkit", "new", "profile", "<name>", "--context", "<context>"],
+    ]);
   });
 
-  test("the guided receipt that is followed by the created Profile carries no parallel next action", () => {
-    // The guided flow's Profile completion owns the one install next action
-    // (spec #491, US-016); the receipt cannot print a conflicting one first.
+  test("zero Profiles with existing Context show only the Profile creation command and name no Context", () => {
     const document = initReceiptDocument({
-      outcome: "created",
+      outcome: "connected",
       path: join(home, "apkit-workspace"),
-      authoredPath: join(home, "apkit-workspace"),
-      folderCreated: true,
-      detectedHosts: ["codex"],
-      guidedProfileFollows: true,
+      authoredPath: "~/apkit-workspace",
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: ["profiles"],
+      profileCount: 0,
+      hasContexts: true,
+    });
+    expect(shapes(document)).toEqual([
+      "sentence(success)",
+      "key-value:settings(path)",
+      "sentence",
+      "spacer",
+      "heading",
+      "list-item",
+    ]);
+    const text = documentText(document);
+    expect(text).not.toContain("apkit new context");
+    expect(text).toContain("apkit new profile <name> --context <context>");
+    // Never invent or pick an existing Context (spec #640 US-002).
+    expect(text).not.toContain("--context team-rules");
+    expect(text).not.toContain("apkit validate");
+  });
+
+  test("one or more Profiles route to bare install without naming a Profile", () => {
+    for (const profileCount of [1, 3]) {
+      const document = initReceiptDocument({
+        outcome: "connected",
+        path: join(home, "apkit-workspace"),
+        authoredPath: "~/apkit-workspace",
+        configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+        addedParts: ["workspace.yaml"],
+        profileCount,
+        hasContexts: true,
+      });
+      expect(shapes(document)).toEqual([
+        "sentence(success)",
+        "key-value:settings(path)",
+        "sentence",
+        "spacer",
+        "key-value:Next(command)",
+      ]);
+      expect(document[document.length - 1]).toMatchObject({
+        kind: "key-value",
+        key: "Next",
+        category: "command",
+        value: {
+          kind: "command",
+          program: "apkit",
+          args: [{ kind: "text", value: "install" }],
+        },
+      });
+      const text = documentText(document);
+      expect(text).not.toContain("apkit validate");
+      expect(text).not.toContain("apkit new profile");
+    }
+  });
+
+  test("the receipt lists only the Workspace parts that were actually missing and added", () => {
+    const document = initReceiptDocument({
+      outcome: "connected",
+      path: join(home, "apkit-workspace"),
+      authoredPath: "~/apkit-workspace",
+      addedParts: ["context", "profiles"],
+      profileCount: 0,
+      hasContexts: true,
     });
     expect(shapes(document)).toEqual([
       "sentence(success)",
       "sentence",
-      "sentence",
-      "sentence",
+      "spacer",
+      "heading",
+      "list-item",
     ]);
-    expect(document.every((node) => JSON.stringify(node).includes("Next:") === false))
-      .toBe(true);
+    const added = nodeText(document[1]!);
+    expect(added).toContain("context/");
+    expect(added).toContain("profiles/");
+    expect(added).not.toContain("workspace.yaml");
+    expect(added).not.toContain("skills/");
   });
 
-  test("the guided initialization completion presents the created Profile and one install next action", () => {
-    const document = guidedInitCompletionDocument({
-      artifactType: "Profile",
-      id: "my-profile",
-      path: "/test/workspace/profiles/my-profile.yaml",
-      selectedContexts: ["example-context"],
-      selectedSkills: [],
-      availableContexts: ["example-context"],
-      availableSkills: ["example-skill"],
+  test("Local Configuration is named only when it was written", () => {
+    const written = initReceiptDocument({
+      outcome: "connected",
+      path: join(home, "apkit-workspace"),
+      authoredPath: "~/apkit-workspace",
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: [],
+      profileCount: 1,
+      hasContexts: true,
     });
-    expect(shapes(document)).toEqual([
+    expect(shapes(written)).toEqual([
       "sentence(success)",
-      "key-value:Context(path)",
-      "sentence",
-      "sentence",
-      "sentence(command)",
+      "key-value:settings(path)",
+      "spacer",
+      "key-value:Next(command)",
     ]);
-    expect(document[0]).toMatchObject({
-      kind: "sentence",
-      category: "success",
+    // Home-relative `~` display (DEC-005).
+    expect(written[1]).toMatchObject({
+      kind: "key-value",
+      key: "settings",
+      value: {
+        kind: "path",
+        authoredPath: join("~", ".agents", "agent-profile-kit", "config.yaml"),
+      },
     });
-    // Exactly one next action, naming the Profile actually created, leaving
-    // Host choice to install's searchable choices.
-    expect(document[4]).toMatchObject({
-      kind: "sentence",
-      category: "command",
-      parts: [
-        "Next: from the project you want to try, run ",
-        {
-          kind: "command",
-          program: "apkit",
-          args: [
-            { kind: "text", value: "install" },
-            { kind: "text", value: "my-profile" },
-          ],
-        },
-      ],
+    const unwritten = initReceiptDocument({
+      outcome: "connected",
+      path: join(home, "apkit-workspace"),
+      authoredPath: "~/apkit-workspace",
+      addedParts: [],
+      profileCount: 1,
+      hasContexts: true,
     });
-    // The created-fact nodes are the shared `apkit new` receipt nodes.
-    expect(document.slice(0, 4)).toEqual(
-      newArtifactCreatedNodes({
-        artifactType: "Profile",
-        id: "my-profile",
-        path: "/test/workspace/profiles/my-profile.yaml",
-        selectedContexts: ["example-context"],
-        selectedSkills: [],
-        availableContexts: ["example-context"],
-        availableSkills: ["example-skill"],
-      }),
-    );
+    expect(shapes(unwritten)).toEqual([
+      "sentence(success)",
+      "spacer",
+      "key-value:Next(command)",
+    ]);
   });
 
-  test("the created receipt with no detected Hosts states so and still names the next action", () => {
-    // Detection is advisory (DEC-011): undetected Hosts remain selectable
-    // install choices (ADR-0034); the receipt's next action never names one.
+  test("no detected Hosts states so and still routes the handoff", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, "apkit-workspace"),
-      authoredPath: join(home, "apkit-workspace"),
+      authoredPath: "~/apkit-workspace",
       folderCreated: true,
       detectedHosts: [],
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: ["workspace.yaml", "context", "skills", "profiles"],
+      profileCount: 0,
+      hasContexts: false,
     });
-    expect(shapes(document)).toEqual([
-      "sentence(success)",
-      "sentence",
-      "sentence",
-      "sentence",
-      "sentence(command)",
-    ]);
-    expect(document[3]).toMatchObject({
+    expect(document[5]).toMatchObject({
       kind: "sentence",
       parts: ["Detected Agent Hosts: none"],
     });
-    expect(document[4]).toMatchObject({
-      kind: "sentence",
-      category: "command",
-      parts: [
-        "Next: run ",
-        {
-          kind: "command",
-          program: "apkit",
-          args: [{ kind: "text", value: "validate" }],
-        },
-      ],
-    });
+    expect(documentText(document)).toContain("apkit new context <context>");
   });
 
-  test("the created receipt without a created folder points at validate", () => {
+  test("several detected Hosts never enter the handoff", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, "apkit-workspace"),
-      authoredPath: join(home, "apkit-workspace"),
-      detectedHosts: ["codex"],
+      authoredPath: "~/apkit-workspace",
+      folderCreated: true,
+      detectedHosts: ["antigravity", "claude", "codex"],
+      addedParts: [],
+      profileCount: 1,
+      hasContexts: true,
     });
-    expect(shapes(document)).toEqual([
-      "sentence(success)",
-      "sentence",
-      "sentence",
-      "sentence",
-      "sentence(command)",
-    ]);
-    expect(document[4]).toMatchObject({
+    expect(document[3]).toMatchObject({
       kind: "sentence",
-      category: "command",
-      parts: [
-        "Next: run ",
-        {
-          kind: "command",
-          program: "apkit",
-          args: [{ kind: "text", value: "validate" }],
-        },
-      ],
+      parts: ["Detected Agent Hosts: ", { kind: "identifier", value: "antigravity, claude, codex" }],
     });
+    const text = documentText(document);
+    expect(text).not.toContain("--host");
+    expect(text).not.toContain("apkit validate");
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "key-value" && node.value.kind === "command" &&
+      node.value.args.length === 1 && node.value.args[0]!.kind === "text" &&
+      node.value.args[0]!.value === "install"
+    )).toBe(true);
   });
 
-  test("the migrated and unchanged receipts carry their severities and values", () => {
-    const migrated = initReceiptDocument({
+  test("the migrated receipt routes the handoff and keeps missing Profile bindings in the body", () => {
+    const document = initReceiptDocument({
       outcome: "migrated",
-      path: `/test/workspace`,
-      authoredPath: `/test/workspace`,
+      path: "/test/workspace",
+      authoredPath: "/test/workspace",
+      configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
+      addedParts: ["skills"],
+      profileCount: 0,
+      hasContexts: true,
+      missingProfileBindings: [{ project: "/projects/demo", profile: "coding" }],
     });
-    expect(shapes(migrated)).toEqual(["sentence(success)", "sentence(command)"]);
+    const text = documentText(document);
+    expect(text).toContain("Project Bindings whose Profile this Workspace lacks:");
+    expect(text).toContain("apkit new profile coding");
+    expect(text).toContain("apkit new profile <name> --context <context>");
+    expect(text).not.toContain("apkit validate");
+  });
+
+  test("the unchanged receipt is a clean no-op with no next action", () => {
     const unchanged = initReceiptDocument({
       outcome: "unchanged",
       path: `/test/workspace`,
       authoredPath: `/test/workspace`,
+      profileCount: 2,
+      hasContexts: true,
     });
-    expect(shapes(unchanged)).toEqual(["sentence"]);
+    expect(shapes(unchanged)).toEqual(["sentence(neutral)"]);
+    expect(documentText(unchanged)).not.toContain("Next:");
+    expect(documentText(unchanged)).not.toContain("apkit validate");
   });
 
   test("the created install receipt presents the installed selection and the next command", () => {
@@ -11295,6 +11336,10 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
       authoredPath: join(home, "apkit-workspace"),
       folderCreated: true,
       detectedHosts: ["codex"],
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: ["workspace.yaml", "context", "skills", "profiles"],
+      profileCount: 0,
+      hasContexts: false,
     });
     const text = documentText(document);
     expect(explainedConcepts(text).sort()).toEqual(["Context", "Profile"]);

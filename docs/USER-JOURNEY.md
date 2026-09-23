@@ -69,7 +69,7 @@ than duplicating it.
 | # | Stage | Command | Outcome the stage owes |
 |---|-------|---------|------------------------|
 | 1 | Discover | `apkit` (setup state), `--help`, `-h`, `help`, `help <command>`, `<command> -h`, `<command> --help`, `--version`, `-v`, `info [--json]`, `list`, `list projects [--json]`, `list profiles [--json]`, `list profiles [<profile>] [--json]`, `list hosts [--json]`, `new skill <name>`, `new context <name>`, `new profile <name>`, `open` | Understand what is set up right now, the command surface, command-specific guidance, where the engine and application locations live, which Projects are configured, which Profiles are available from the selected Workspace, and which Hosts are supported; machine-facing commands stay out of this list entirely (DEC-020, DEC-021) |
-| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, the Hosts found on this machine, and a clear next move tailored to what is installed; without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049); connecting a different Workspace preserves every Project Binding, provisions any missing required parts, and reports missing Profile bindings (spec #593 DEC-002, ticket #607) |
+| 2 | Initialize | `init [<workspace>]` | A valid Workspace and Local Configuration at the folder the user named, the Workspace location in actionable home-relative form, Local Configuration named when written, only the parts actually added, the Hosts found on this machine, and a next move routed from the resulting content (Profile creation when none exist; bare install when they do) (spec #640 US-002); without a path on a machine with no selected Workspace, the explicit command forms (ADR-0049); connecting a different Workspace preserves every Project Binding, provisions any missing required parts, and reports missing Profile bindings (spec #593 DEC-002, ticket #607) |
 | 3 | Learn the format | `guide [profile\|context\|skill\|--full\|--agent\|--contract]` | Enough to author a first Context Module, Skill, and Profile, with the Workspace location stated before any "create this file" instruction, and the complete Workspace contract one command away |
 | 4 | Author | `new skill <name>`; `new context <name>`; `new profile <name> --context <id> --skill <id>`; `configure profile [name] [--context <id>] [--skill <id>]`; `open`; edit Workspace files | Valid material created at its printed path without prompting, an existing Profile's membership changed without rewriting installed output, an explicit command to open the configured Workspace, and a Profile that selects real artifacts |
 | 5 | Install | `install <profile> [project] --host <host> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its Hosts in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
@@ -252,14 +252,19 @@ Project lifecycle diagnostic.
 
 ```
 $ apkit init ~/apkit-workspace
-Created the Workspace folder and initialized Agent Profile Kit Workspace and
-  settings at ~/apkit-workspace
+Created the Workspace folder and initialized Agent Profile Kit Workspace at
+  ~/apkit-workspace
+  settings: ~/.agents/agent-profile-kit/config.yaml
+Added workspace.yaml, context/, skills/ and profiles/.
 A Profile is a named selection of Context and Skills suited to a kind of work
   and reusable across projects.
 Context is always-loaded facts, preferences, and standing rules a Profile
   selects.
 Detected Agent Hosts: claude, codex, opencode
-Next: run apkit validate
+
+Next:
+- apkit new context <context>
+- apkit new profile <name> --context <context>
 ```
 
 Setup requires a path the user gives: there is no default Workspace location
@@ -291,7 +296,10 @@ reports any bound Profiles that do not exist in the newly connected Workspace
 along with actionable authoring and installation commands (spec #593 DEC-002,
 ticket #607).
 
-The Workspace location is stated in actionable home-relative form (US-036). First
+The Workspace location is stated in actionable home-relative form (US-036), and
+Local Configuration is named at `~/.agents/agent-profile-kit/config.yaml` when
+this run wrote it (spec #640 US-002, DEC-005). The receipt lists only the
+Workspace parts that were actually missing and added. First
 use explains Workspace before asking the user to choose one, leads with one
 recommended setup command with the alternative as secondary guidance, and
 explains Context, Profile, Agent Host and Project briefly at the action that
@@ -299,6 +307,15 @@ first needs them — including direct `init` and `install` entry — without a
 glossary dump, a Skill definition, or a persistent seen-terms record
 (spec #640 US-001, DEC-003). Detection is advisory: it names the supported
 Agent Hosts found on the machine (US-037) and never blocks.
+
+Setup and connection route the handoff from the resulting content and never
+create or guide a first Profile (spec #640 US-002, OOS-002). With zero Profiles
+and no Context, the next action is `apkit new context <context>` then
+`apkit new profile <name> --context <context>`; with zero Profiles and existing
+Context, only the Profile command prints and no existing Context is named; with
+one or more Profiles, the next action is bare `apkit install`, which names no
+Profile (the user chooses in the picker). After this run's own successful
+validation, the receipt never recommends `apkit validate`.
 
 ### 3. Learn the format
 
@@ -1027,4 +1044,4 @@ are argued from these rather than from scratch.
    journey into the Host without presenting unobserved Host state as unfinished
    setup.
 10. **Exit codes agree across commands** for the same state.
-11. **Prompts are predictable and teach by use.** Exactly install, init, uninstall, and the update changed-file review interact; every completed prompt flow other than init's guided first-Profile flow prints the equivalent fully specified command, and everything else never prompts (DEC-004, DEC-005). Init's guided first-Profile flow instead ends with one install next action naming the Profile it actually created (spec #491, US-016), because the equivalent `apkit new profile` command it used to print would fail on the already-created Profile.
+11. **Prompts are predictable and teach by use.** Exactly install, init, uninstall, and the update changed-file review interact; every completed prompt flow prints the equivalent fully specified command, and everything else never prompts (DEC-004, DEC-005). Setup never creates or guides a first Profile (spec #640 US-002; supersedes spec #491 US-016's guided first-Profile setup requirement).

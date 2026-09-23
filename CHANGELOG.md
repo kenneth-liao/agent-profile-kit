@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Routed the setup and connection handoff from the resulting content: the receipt names the Workspace and Local Configuration when written, lists only the Workspace parts actually added, leads to Profile creation when no Profiles exist (a Context first only when the Workspace has none) or to bare `apkit install` when they do, never recommends `apkit validate` after its own successful validation, and no longer creates or guides a first Profile (#646)
+
 - Explained Workspace and kit concepts where they first matter for newcomers: bare `apkit` leads with one recommended setup route after a Workspace/Project explanation, `init` explains Workspace at the folder choice and Profile/Context on the receipt, and `install` explains Project/Profile before the first picker and Agent Host at the Host picker, without a Skill definition or a seen-terms record (#645)
 - Marked and preselected detected Hosts when selecting Hosts for a new installation: the Host picker lists detected Hosts first, preselects and marks them `detected`, marks undetected Hosts `not found` with one note that selecting a Host does not install it, selects none when nothing is detected, keeps explicit Host arguments authoritative, starts an existing installation from its remembered selection without adding newly detected Hosts, and leaves the default-No confirmation showing the final Host selection before any write (#644)
 - Fixed prompts tests to synchronize on observed picker renders instead of fixed sleeps, removed an unused test helper and unused prompt-error imports (#643)

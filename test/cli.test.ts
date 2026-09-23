@@ -742,7 +742,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(existsSync(exampleContext)).toBe(false);
   });
 
-  test("init help and scaffold success route to validate before any Profile exists", async () => {
+  test("init routes a fresh Workspace to Profile creation and never recommends validate", async () => {
     const home = isolatedHome();
 
     const help = await runCli(home, "init", "--help");
@@ -750,10 +750,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(help, 0);
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("Next: run apkit validate");
-    // Setup adds no example material (spec #593 DEC-003, #599), so the init
-    // receipt names no Profile to install.
+    // Zero Profiles and no Context: the creation chain (spec #640 US-002).
+    expect(init.stdout).toContain("apkit new context <context>");
+    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).not.toContain("apkit validate");
+    // Setup adds no example material (spec #593 DEC-003, #599).
     expect(init.stdout).not.toContain("install example");
+    expect(init.stdout).not.toContain("Set up your first Profile now?");
   });
 
   test("init creates both canonical inputs and never overwrites either", async () => {
@@ -1396,7 +1399,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 0);
     expect(result.stdout).not.toContain("bind example");
-    expect(result.stdout).toContain("Next: run apkit validate");
+    // Existing Profile: the handoff is bare install, naming no Profile
+    // (spec #640 US-002).
+    expect(result.stdout).toContain("Next:");
+    expect(result.stdout).toContain("apkit install");
+    expect(result.stdout).not.toContain("apkit install existing");
+    expect(result.stdout).not.toContain("apkit validate");
     const validate = await runCli(home, "validate");
     expectExitCode(validate, 0);
   });
@@ -14496,43 +14504,92 @@ describe("packed CLI new profile", () => {
     expect(existsSync(profileFile)).toBe(true);
   });
 
-  test("guided init accepts the offer and creates the first Profile through the packed CLI", async () => {
+  test("fresh setup prints a runnable Profile-creation chain that the packed journey executes (TEST-001, #646)", async () => {
     const home = isolatedHome();
-    // The guided first-Profile offer fires only for a destination that has
-    // material but no Profile (spec #593 DEC-003, #599); a fresh home has
-    // neither, so the fixture prepares the destination without connecting it.
-    const workspace = workspacePath(home);
+    const init = await runCli(home, "init", "~/apkit-workspace");
+    expectExitCode(init, 0);
+    // Zero Profiles and no Context (spec #640 US-002, DEC-005).
+    expect(init.stdout).toContain("apkit new context <context>");
+    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).not.toContain("apkit validate");
+    expect(init.stdout).not.toContain("Set up your first Profile now?");
+
+    // Execute the printed chain with supplied names.
+    const createContext = await runCli(home, "new", "context", "starter");
+    expectExitCode(createContext, 0);
+    const createProfile = await runCli(home, "new", "profile", "coding", "--context", "starter");
+    expectExitCode(createProfile, 0);
+    expect(existsSync(join(workspacePath(home), "context", "starter.md"))).toBe(true);
+    expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
+    expectExitCode(await runCli(home, "validate"), 0);
+  });
+
+  test("setup with existing Context and no Profiles prints only the Profile command and runs it (TEST-001, #646)", async () => {
+    const home = isolatedHome();
+    const workspace = join(home, "material");
     mkdirSync(join(workspace, "context"), { recursive: true });
     mkdirSync(join(workspace, "skills"), { recursive: true });
+    mkdirSync(join(workspace, "profiles"), { recursive: true });
     writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
-    writeFileSync(
-      join(workspace, "context", "example-context.md"),
-      "Keep project-specific instructions in the project repository.\n",
-    );
+    writeFileSync(join(workspace, "context", "team-rules.md"), "Team rules.\n");
 
-    const result = await runCliInPtyWithInput(
-      home,
-      80,
-      // The given path is confirmed before any write (#603), then the
-      // guided first-Profile offer follows.
-      ["y", "y", "my-profile\r", " \r"],
-      "init",
-      workspace,
-    );
-    expectExitCode(result, 0);
-    const profileFile = join(realpathSync(workspacePath(home)), "profiles", "my-profile.yaml");
-    expect(existsSync(profileFile)).toBe(true);
-    expect(readFileSync(profileFile, "utf8")).toContain('"example-context"');
-    expect(result.stdout).toContain(profileFile);
-    // One install next action naming the actually created Profile (spec #491,
-    // US-016); the equivalent `apkit new profile` line would fail on the
-    // already-created Profile, so it no longer prints.
-    expect(result.stdout).toContain(
-      "Next: from the project you want to try, run apkit install my-profile",
-    );
-    expect(result.stdout).not.toContain("apkit new profile");
-    // The guided Profile is valid, bindable Workspace material (TEST-017).
-    expectExitCode(await runCli(home, "validate"), 0);
+    const init = await runCli(home, "init", workspace);
+    expectExitCode(init, 0);
+    // Existing Context: drop the new-context step; name no Context (US-002).
+    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).not.toContain("apkit new context");
+    expect(init.stdout).not.toContain("team-rules");
+    expect(init.stdout).not.toContain("apkit validate");
+
+    // Execute the printed command with supplied names.
+    const createProfile = await runCli(home, "new", "profile", "coding", "--context", "team-rules");
+    expectExitCode(createProfile, 0);
+    expect(existsSync(join(workspace, "profiles", "coding.yaml"))).toBe(true);
+  });
+
+  test("setup with existing Profiles prints bare install and the packed journey installs with supplied choices (TEST-001, #646)", async () => {
+    for (const profiles of [["one"], ["one", "two"]] as const) {
+      const home = isolatedHome();
+      const workspace = join(home, "material");
+      mkdirSync(join(workspace, "context"), { recursive: true });
+      mkdirSync(join(workspace, "skills"), { recursive: true });
+      mkdirSync(join(workspace, "profiles"), { recursive: true });
+      writeFileSync(join(workspace, "workspace.yaml"), "schema_version: 1\n");
+      writeFileSync(join(workspace, "context", "team-rules.md"), "Team rules.\n");
+      for (const profile of profiles) {
+        writeFileSync(
+          join(workspace, "profiles", `${profile}.yaml`),
+          "context: [team-rules]\nskills: []\n",
+        );
+      }
+
+      const init = await runCli(home, "init", workspace);
+      expectExitCode(init, 0);
+      // Bare install: the user chooses the Profile in the picker (US-002).
+      expect(init.stdout).toContain("Next:");
+      expect(init.stdout).toContain("apkit install");
+      expect(init.stdout).not.toContain("apkit install one");
+      expect(init.stdout).not.toContain("apkit install two");
+      expect(init.stdout).not.toContain("apkit new profile");
+      expect(init.stdout).not.toContain("apkit validate");
+
+      // Execute the printed `apkit install` with valid supplied inputs
+      // (TEST-001): the printed action names no Profile — the picker does —
+      // so the journey supplies that choice at the command boundary. Picker
+      // keyboard behavior is owned by the real-PTY install suite (TEST-002).
+      const projectPath = project();
+      const install = await runCli(
+        home,
+        "install",
+        profiles[0]!,
+        projectPath,
+        "--host",
+        "codex",
+        "--auto-confirm",
+      );
+      expectExitCode(install, 0);
+      expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    }
   });
 
   test("new profile refuses unknown selections with available names and the nearest match", async () => {

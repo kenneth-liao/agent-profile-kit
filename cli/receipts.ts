@@ -5,11 +5,14 @@ import type { CreationArtifactType } from "../installer/tool-errors.js";
 import {
   configureProfileRouting,
   createdProfileInstallRouting,
+  guidedInstallRouting,
+  newProfileCreationCommands,
 } from "./command-help.js";
 import { capitalize, DEFAULT_VIEW_LEXICON, singleProjectIdentity } from "./presentation.js";
 import { displayPath, displayProjectPath } from "./display-path.js";
 import {
   commandPart,
+  footerNodes,
   identifierPart,
   neutralStatementDocument,
   pathPart,
@@ -131,23 +134,6 @@ export function newArtifactCreatedNodes(input: NewArtifactReceiptInput): Present
   return nodes;
 }
 
-/**
- * The guided initialization completion (spec #491, US-016): the created
- * Profile's receipt facts plus the one install next action naming the
- * Profile actually created. It replaces the parallel stale lines the guided
- * flow used to print — the vague validate-then-install sentence and the
- * equivalent `apkit new profile` command, which would fail with
- * `duplicate-artifact-name` because the Profile it describes already exists.
- */
-export function guidedInitCompletionDocument(
-  input: NewArtifactReceiptInput,
-): PresentationDocument {
-  return [
-    ...newArtifactCreatedNodes(input),
-    ...createdProfileInstallNextActionDocument(input.id),
-  ];
-}
-
 /** The receipt document for one `apkit new` invocation (US-042–US-046,
  * #509): a new Skill or Context Module is selected into a Profile with
  * configure, and a new Profile is installed — the same routing the `new`
@@ -192,13 +178,18 @@ export interface InitReceiptInput {
    */
   readonly folderCreated?: boolean;
   readonly detectedHosts?: readonly SupportedHost[];
-  /**
-   * The guided flow reports the Profile it just created — and that
-   * completion's one install next action — right after this receipt, so the
-   * receipt carries no parallel next action of its own (spec #491, US-016).
-   */
-  readonly guidedProfileFollows?: boolean;
   readonly missingProfileBindings?: readonly MissingProfileBindingReport[];
+  /** The parts setup actually added (SETUP_PART_LABELS keys), never planned-but-absent. */
+  readonly addedParts?: readonly string[];
+  /**
+   * Absolute Local Configuration path, named when this outcome wrote it
+   * (DEC-005). Absent means Local Configuration was not written.
+   */
+  readonly configurationPath?: string;
+  /** Profiles present in the resulting Workspace; routes the handoff (US-002). */
+  readonly profileCount: number;
+  /** Whether the resulting Workspace has any Context Module (US-002). */
+  readonly hasContexts: boolean;
 }
 
 export interface InitConfirmationInput {
@@ -359,6 +350,55 @@ function appendMissingProfileBindings(
   }
 }
 
+/** The settings path when Local Configuration was written, home-relative (DEC-005). */
+function settingsPathNode(configurationPath: string): PresentationNode {
+  return {
+    kind: "key-value",
+    key: localConfiguration,
+    value: {
+      kind: "path",
+      canonicalPath: configurationPath,
+      authoredPath: displayPath(configurationPath, configurationPath, "fleet"),
+      scope: "fleet",
+    },
+    category: "path",
+  };
+}
+
+/** Only the Workspace parts this setup actually added, in presentation order. */
+function addedPartsNode(addedParts: readonly string[]): PresentationNode | undefined {
+  if (addedParts.length === 0) return undefined;
+  const ordered = orderedSetupParts([...addedParts]);
+  const partParts: InlineContent[] = [];
+  ordered.forEach((label, index) => {
+    if (index > 0) partParts.push(index === ordered.length - 1 ? " and " : ", ");
+    partParts.push(identifierPart(label));
+  });
+  return { kind: "sentence", parts: ["Added ", ...partParts, "."] };
+}
+
+/**
+ * The one setup handoff footer (spec #640 US-002, DEC-005): it comes from the
+ * resulting content. Zero Profiles lead to Profile creation — a Context first
+ * when the Workspace has none, otherwise the Profile command alone, never
+ * naming an existing Context. Existing Profiles lead to bare install, which
+ * names no Profile (the user chooses in the picker). Never `apkit validate`
+ * after this run's own successful validation.
+ */
+function setupHandoffFooter(input: InitReceiptInput): PresentationNode[] {
+  if (input.profileCount > 0) {
+    return footerNodes({
+      next: { kind: "command", value: guidedInstallRouting() },
+    });
+  }
+  return footerNodes({
+    next: {
+      kind: "actions",
+      items: newProfileCreationCommands(input.hasContexts),
+    },
+  });
+}
+
 /** The receipt document for one `init` invocation. */
 export function initReceiptDocument(input: InitReceiptInput): PresentationDocument {
   const workspace = pathPart(
@@ -367,94 +407,54 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     displayPath(input.path, input.authoredPath, "fleet"),
   );
   if (input.outcome === "unchanged") {
-    return [{
-      kind: "sentence",
-      parts: [
-        `Workspace and ${localConfiguration} already initialized at `,
-        workspace,
-        "; unchanged.",
-      ],
-    }];
+    return neutralStatementDocument([
+      `Workspace and ${localConfiguration} already initialized at `,
+      workspace,
+      "; unchanged.",
+    ]);
   }
+  const nodes: PresentationNode[] = [];
   if (input.outcome === "connected") {
-    const nodes: PresentationNode[] = [
-      stateHeadline(input.folderCreated === true
-        ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
-        : [`Connected Agent Profile Kit Workspace at `, workspace], "success"),
-    ];
-    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
-      appendMissingProfileBindings(nodes, input.missingProfileBindings);
-    }
-    nodes.push({
-      kind: "sentence",
-      parts: [
-        "Next: run ",
-        commandPart(COMMAND_NAME, [arg("validate")]),
-      ],
-      category: "command",
-    });
-    return nodes;
+    nodes.push(stateHeadline(input.folderCreated === true
+      ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
+      : [`Connected Agent Profile Kit Workspace at `, workspace], "success"));
+  } else if (input.outcome === "migrated") {
+    nodes.push(stateHeadline([
+      `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
+      workspace,
+    ], "success"));
+  } else {
+    nodes.push(stateHeadline(input.folderCreated === true
+      ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace at ", workspace]
+      : ["Initialized Agent Profile Kit Workspace at ", workspace], "success"));
   }
-  if (input.outcome === "migrated") {
-    const nodes: PresentationNode[] = [
-      stateHeadline([
-        `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
-        workspace,
-      ], "success"),
-    ];
-    if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
-      appendMissingProfileBindings(nodes, input.missingProfileBindings);
-    }
-    nodes.push({
-      kind: "sentence",
-      parts: [
-        "Next: run ",
-        commandPart(COMMAND_NAME, [arg("validate")]),
-        ", then status and update as needed",
-      ],
-      category: "command",
-    });
-    return nodes;
+  if (input.configurationPath !== undefined) {
+    nodes.push(settingsPathNode(input.configurationPath));
   }
-  // The one next action is the delivered validate pointer: setup adds no
-  // example material (spec #593 DEC-003, #599), so there is no scaffolded
-  // Profile to recommend. Detection is advisory (DEC-011) and Host choice
-  // stays with install's searchable choices (ADR-0034), so the next action
-  // never names a Host. When the guided flow's Profile completion follows, it
-  // owns the one next action and the receipt prints none.
-  const nextAction = input.guidedProfileFollows === true
-    ? undefined
-    : [{
-      kind: "sentence" as const,
-      parts: [
-        "Next: run ",
-        commandPart(COMMAND_NAME, [arg("validate")]),
-      ],
-      category: "command" as const,
-    }];
-  const detectedHosts = input.detectedHosts ?? [];
-
-  return [
-    stateHeadline(input.folderCreated === true
-      ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace and ", localConfiguration, " at ", workspace]
-      : [`Initialized Agent Profile Kit Workspace and ${localConfiguration} at `, workspace], "success"),
-    {
-      kind: "sentence",
-      parts: [PROFILE_EXPLANATION_SENTENCE],
-    },
-    {
-      kind: "sentence",
-      parts: [CONTEXT_EXPLANATION_SENTENCE],
-    },
-    {
+  const added = addedPartsNode(input.addedParts ?? []);
+  if (added !== undefined) nodes.push(added);
+  if (input.outcome === "created") {
+    // Concept sentences from spec #645 stay on the creation receipt (DEC-003).
+    nodes.push(
+      { kind: "sentence", parts: [PROFILE_EXPLANATION_SENTENCE] },
+      { kind: "sentence", parts: [CONTEXT_EXPLANATION_SENTENCE] },
+    );
+  }
+  if (input.outcome === "created") {
+    const detectedHosts = input.detectedHosts ?? [];
+    nodes.push({
       kind: "sentence",
       parts:
         detectedHosts.length > 0
           ? ["Detected Agent Hosts: ", identifierPart(detectedHosts.join(", "))]
           : ["Detected Agent Hosts: none"],
-    },
-    ...(nextAction ?? []),
-  ];
+    });
+  }
+  if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
+    appendMissingProfileBindings(nodes, input.missingProfileBindings);
+  }
+  nodes.push(...setupHandoffFooter(input));
+  return nodes;
 }
 
 export type InstallReceiptInput = {

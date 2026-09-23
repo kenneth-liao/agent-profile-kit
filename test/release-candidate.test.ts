@@ -1946,17 +1946,30 @@ describe("project-bound release candidate", () => {
     for (const absentHost of ["antigravity", "grok", "pi"]) {
       expect(init.stdout).not.toContain(`--host ${absentHost}`);
     }
-    // Init guidance leaves Host choice to install's searchable choices
-    // (spec #491, US-016, ADR-0034) and, with no example material scaffolded
-    // (spec #593 DEC-003, #599), points at validate.
-    expect(init.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: run apkit validate",
-    );
+    // The handoff comes from the resulting content (spec #640 US-002): fresh
+    // setup has zero Profiles and no Context, so it leads to Profile creation
+    // and never recommends validate. Host choice stays with install.
+    expect(init.stdout).toContain("apkit new context <context>");
+    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).not.toContain("apkit validate");
     expect(init.stdout).not.toContain("--host");
 
-    // 3. Author the canonical example pair, then follow the printed install
-    // form, made project-specific the way the printed sentence says. Pipes
-    // add --auto-confirm for the interactive general confirmation.
+    // 3. Execute the printed creation chain with supplied names, then author
+    // the canonical example pair and install it. Pipes add --auto-confirm
+    // for the interactive general confirmation.
+    const createdContext = await runCli(
+      home,
+      ["new", "context", "starter"],
+      { path: journeyPath },
+    );
+    expectExitCode(createdContext, 0);
+    const createdProfile = await runCli(
+      home,
+      ["new", "profile", "starter-profile", "--context", "starter"],
+      { path: journeyPath },
+    );
+    expectExitCode(createdProfile, 0);
+    expect(existsSync(join(workspacePath(home), "profiles", "starter-profile.yaml"))).toBe(true);
     writeExampleMaterial(home);
     const installExample = await runCli(
       home,
@@ -2063,6 +2076,87 @@ describe("project-bound release candidate", () => {
     expect(bareConfigured.stdout).not.toContain("machine");
   }, 30_000);
 
+  test("setup and connection route the handoff from the resulting content and every printed chain runs (TEST-001, #646)", async () => {
+    // Fresh setup: zero Profiles and no Context — the creation chain runs
+    // with supplied names.
+    const freshHome = isolatedHome();
+    installAllControlledHosts(freshHome);
+    const freshPath = controlledPath(freshHome, {
+      stubBins: [apkitBin(freshHome), join(freshHome, "bin")],
+    });
+    const freshInit = await runCli(freshHome, ["init", "~/apkit-workspace"], { path: freshPath });
+    expectExitCode(freshInit, 0);
+    expect(freshInit.stdout).toContain("apkit new context <context>");
+    expect(freshInit.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(freshInit.stdout).not.toContain("apkit validate");
+    expectExitCode(await runCli(freshHome, ["new", "context", "starter"], { path: freshPath }), 0);
+    expectExitCode(
+      await runCli(freshHome, ["new", "profile", "coding", "--context", "starter"], { path: freshPath }),
+      0,
+    );
+    expect(existsSync(join(workspacePath(freshHome), "profiles", "coding.yaml"))).toBe(true);
+
+    // Connection with zero Profiles and existing Context: only the Profile
+    // command; no Context is named or picked.
+    const connectZeroHome = isolatedHome();
+    installAllControlledHosts(connectZeroHome);
+    const connectZeroPath = controlledPath(connectZeroHome, {
+      stubBins: [apkitBin(connectZeroHome), join(connectZeroHome, "bin")],
+    });
+    await runCli(connectZeroHome, ["init", "~/apkit-workspace"], { path: connectZeroPath });
+    const material = join(connectZeroHome, "material");
+    mkdirSync(join(material, "context"), { recursive: true });
+    mkdirSync(join(material, "skills"), { recursive: true });
+    mkdirSync(join(material, "profiles"), { recursive: true });
+    writeFileSync(join(material, "workspace.yaml"), "schema_version: 1\n");
+    writeFileSync(join(material, "context", "team-rules.md"), "Team rules.\n");
+    const connectZero = await runCli(connectZeroHome, ["init", material], { path: connectZeroPath });
+    expectExitCode(connectZero, 0);
+    expect(connectZero.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(connectZero.stdout).not.toContain("apkit new context");
+    expect(connectZero.stdout).not.toContain("team-rules");
+    expect(connectZero.stdout).not.toContain("apkit validate");
+    expectExitCode(
+      await runCli(
+        connectZeroHome,
+        ["new", "profile", "ops", "--context", "team-rules"],
+        { path: connectZeroPath },
+      ),
+      0,
+    );
+
+    // Connection with one Profile, then with multiple: bare install names no
+    // Profile (the picker chooses).
+    for (const profiles of [["solo"], ["alpha", "beta"]] as const) {
+      const home = isolatedHome();
+      installAllControlledHosts(home);
+      const journeyPath = controlledPath(home, {
+        stubBins: [apkitBin(home), join(home, "bin")],
+      });
+      await runCli(home, ["init", "~/apkit-workspace"], { path: journeyPath });
+      const ws = join(home, "with-profiles");
+      mkdirSync(join(ws, "context"), { recursive: true });
+      mkdirSync(join(ws, "skills"), { recursive: true });
+      mkdirSync(join(ws, "profiles"), { recursive: true });
+      writeFileSync(join(ws, "workspace.yaml"), "schema_version: 1\n");
+      writeFileSync(join(ws, "context", "team-rules.md"), "Team rules.\n");
+      for (const profile of profiles) {
+        writeFileSync(
+          join(ws, "profiles", `${profile}.yaml`),
+          "context: [team-rules]\nskills: []\n",
+        );
+      }
+      const connect = await runCli(home, ["init", ws], { path: journeyPath });
+      expectExitCode(connect, 0);
+      expect(connect.stdout).toContain("apkit install");
+      for (const profile of profiles) {
+        expect(connect.stdout).not.toContain(`apkit install ${profile}`);
+      }
+      expect(connect.stdout).not.toContain("apkit new profile");
+      expect(connect.stdout).not.toContain("apkit validate");
+    }
+  }, 30_000);
+
   test("one packed newcomer journey proves bare help, init, validate, bind, ready status, changed update, current status, temporary install, the exact printed remove command, and successful removal (TEST-017)", async () => {
     const home = isolatedHome();
     const boundProject = gitRepository("agent-profile-kit-rc-newcomer-git-");
@@ -2089,11 +2183,14 @@ describe("project-bound release candidate", () => {
     // adds only the required parts (spec #593 DEC-003, #599, #601).
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: pathWithHosts });
     expectExitCode(init, 0);
-    expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace and settings at");
+    expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace at");
     expect(init.stdout).toContain("~/apkit-workspace");
+    expect(init.stdout).toContain("settings:");
     expect(init.stdout).toContain("A Profile is a named selection of Context and Skills suited to a kind of work");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
-    expect(init.stdout).toContain("Next: run apkit validate");
+    expect(init.stdout).toContain("apkit new context <context>");
+    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).not.toContain("apkit validate");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
     enableCodexHooks(home);
@@ -2319,7 +2416,7 @@ describe("project-bound release candidate", () => {
     const allInit = await runCli(allHome, ["init", "~/apkit-workspace"], { path: allPath });
     expectExitCode(allInit, 0);
     expect(allInit.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
-    expect(allInit.stdout).toContain("Next: run apkit validate");
+    expect(allInit.stdout).toContain("apkit new context <context>");
 
     // 2. Single host present (only codex): still no Host in init guidance
     const codexHome = isolatedHome();
@@ -2334,7 +2431,7 @@ describe("project-bound release candidate", () => {
     const codexInit = await runCli(codexHome, ["init", "~/apkit-workspace"], { path: codexPath });
     expectExitCode(codexInit, 0);
     expect(codexInit.stdout).toContain("Detected Agent Hosts: codex");
-    expect(codexInit.stdout).toContain("Next: run apkit validate");
+    expect(codexInit.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(codexInit.stdout).not.toContain("--host");
 
@@ -2351,7 +2448,7 @@ describe("project-bound release candidate", () => {
     const claudeInit = await runCli(claudeHome, ["init", "~/apkit-workspace"], { path: claudePath });
     expectExitCode(claudeInit, 0);
     expect(claudeInit.stdout).toContain("Detected Agent Hosts: claude");
-    expect(claudeInit.stdout.replace(/\s+/g, " ")).toContain("Next: run apkit validate");
+    expect(claudeInit.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host claude" here.
     expect(claudeInit.stdout).not.toContain("--host");
 
@@ -2364,7 +2461,7 @@ describe("project-bound release candidate", () => {
     const noHostsInit = await runCli(noHostsHome, ["init", "~/apkit-workspace"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
     expect(noHostsInit.stdout).toContain("Detected Agent Hosts: none");
-    expect(noHostsInit.stdout).toContain("Next: run apkit validate");
+    expect(noHostsInit.stdout).toContain("apkit new context <context>");
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
 
@@ -2390,7 +2487,7 @@ describe("project-bound release candidate", () => {
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: stubPath });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("Detected Agent Hosts: codex");
-    expect(init.stdout).toContain("Next: run apkit validate");
+    expect(init.stdout).toContain("apkit new context <context>");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(init.stdout).not.toContain("--host");
 
