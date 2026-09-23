@@ -35,6 +35,7 @@ import {
   installDeclinedDocument,
   installHostSelectionNoteDocument,
   installExecutionFailureDocument,
+  installProfileSelectionNoteDocument,
   installRecoveryAddendum,
   installReplacementCommandDocument,
   installTargetDocument,
@@ -307,6 +308,7 @@ async function collectMissingInstallChoices(
       );
       return undefined;
     }
+    writeHumanDocument(request.stdout, installProfileSelectionNoteDocument(), stdoutContext);
     const answer = await createSearchableSelectPrompt(promptOptions)(
       INSTALL_PROFILE_QUESTION,
       profiles.map((entry) => ({ title: entry.id, value: entry.id })),

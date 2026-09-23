@@ -57,6 +57,13 @@ import {
 
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
+import {
+  AGENT_HOST_EXPLANATION_SENTENCE,
+  PROJECT_EXPLANATION_SENTENCE,
+  PROFILE_EXPLANATION_SENTENCE,
+  WORKSPACE_EXPLANATION_SENTENCE,
+  WORKSPACE_SCOPE_EXPLANATION_SENTENCE,
+} from "./concept-explanations.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
@@ -778,8 +785,10 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
     if (options.info.workspace === null) {
       // No Workspace location was ever given (not configured, or a legacy
       // file without a `workspace` value): there is no default location to
-      // name, so the screen says where setup puts the Workspace and names
-      // the explicit connect commands (spec #593 #601, US-001, ISC-22).
+      // name, so the screen explains Workspace and Project before the one
+      // recommended setup route and its secondary alternative (US-001,
+      // DEC-003; spec #593 #601, ISC-22). Commands stay on their own footer
+      // lines (DEC-009).
       return [
         ...prefix,
         {
@@ -789,19 +798,32 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
         },
         {
           kind: "prose",
-          parts: ["Your Workspace is a folder you choose. The current folder matters only if you choose it."],
+          parts: [WORKSPACE_EXPLANATION_SENTENCE],
         },
         {
           kind: "prose",
-          category: "command",
+          parts: [WORKSPACE_SCOPE_EXPLANATION_SENTENCE],
+        },
+        {
+          kind: "prose",
+          parts: [PROJECT_EXPLANATION_SENTENCE],
+        },
+        {
+          kind: "prose",
+          category: "muted",
           parts: [
-            "Next: Run ",
-            commandPart(COMMAND_NAME, [arg("init"), arg("<path>")]),
-            " to connect an existing Workspace, or ",
-            commandPart(COMMAND_NAME, [arg("init"), arg(".")]),
-            " to use the current folder.",
+            "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
           ],
         },
+        ...footerNodes({
+          next: {
+            kind: "actions",
+            items: [
+              [commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])],
+              [commandPart(COMMAND_NAME, [arg("init"), arg(".")])],
+            ],
+          },
+        }),
         ...bareHelpPointerNodes(),
       ];
     }
@@ -4441,14 +4463,28 @@ export function applyConsentRequiredDocument(
 
 export const INSTALL_CONFIRMATION_QUESTION = "Install as listed? (y/N)";
 
-/** The guided-install Host selection note (US-005, DEC-004): one concise
- * sentence before the Host picker. Detection marks live on each choice
- * (`detected` / `not found`); this note is the single place that states
- * selection never installs a Host (OOS-001). */
+/**
+ * The guided-install Profile selection note (US-001, DEC-003): the Profile
+ * concept at the first action that needs it. Names Context and Skills without
+ * defining them — Context is explained on the init receipt, so a direct
+ * install's pre-picker screen stays within the two-concept budget with the
+ * Project sentence on the target notice.
+ */
+export function installProfileSelectionNoteDocument(): PresentationDocument {
+  return [{
+    kind: "prose",
+    parts: [PROFILE_EXPLANATION_SENTENCE],
+  }];
+}
+
+/** The guided-install Host selection note (US-005, DEC-004, US-001): the
+ * Agent Host concept and the one statement that selection never installs a
+ * Host (OOS-001). Detection marks live on each choice (`detected` /
+ * `not found`). Never claims every Host loads every Workspace artifact. */
 export function installHostSelectionNoteDocument(): PresentationDocument {
   return [{
     kind: "prose",
-    parts: ["Selecting a Host does not install it."],
+    parts: [AGENT_HOST_EXPLANATION_SENTENCE, " Selecting a Host does not install it."],
   }];
 }
 /** The guided-install target notice (US-001, DEC-002): names the Project
@@ -4463,6 +4499,10 @@ export function installTargetDocument(target: {
 }): PresentationDocument {
   const scope = "project" as const;
   return [
+    {
+      kind: "prose",
+      parts: [PROJECT_EXPLANATION_SENTENCE],
+    },
     {
       kind: "prose",
       parts: [`Installing into ${singleProjectIdentity({

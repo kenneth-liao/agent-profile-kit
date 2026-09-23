@@ -142,11 +142,26 @@ describe("guided install collects only missing choices", () => {
     await waitForOutput(streams.humanText, basename(projectPath));
     // Searchable Profile choice: filter and submit.
     await waitForOutput(streams.humanText, "Which Profile?");
+    // Combined pre-picker copy stays within the two-concept budget (US-001,
+    // DEC-003): Project and Profile, with Context named but not defined.
+    const prePicker = plain(streams.humanText());
+    expect(prePicker).toContain(
+      "A Project is one working folder that receives the installed material.",
+    );
+    expect(prePicker).toContain(
+      "A Profile is a named selection of Context and Skills suited to a kind of work",
+    );
+    expect(prePicker).not.toContain("Context is always-loaded");
     input.write("cod");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write("\r");
     // Searchable Host choices: filter, toggle, submit.
     await waitForOutput(streams.humanText, "Which Agent Hosts?");
+    const hostPicker = plain(streams.humanText());
+    expect(hostPicker).toContain(
+      "An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a Project.",
+    );
+    expect(hostPicker).toContain("Selecting a Host does not install it.");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");

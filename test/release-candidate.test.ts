@@ -1914,15 +1914,31 @@ describe("project-bound release candidate", () => {
     expectExitCode(bare, 0);
     expect(bare.stdout).toContain("Agent Profile Kit is not set up on this machine.");
     const barePlain = bare.stdout.replace(/\n\s+/g, " ");
-    expect(barePlain).toContain("Your Workspace is a folder you choose. The current folder matters only if you choose it.");
-    expect(barePlain).toContain("Next: Run apkit init <path> to connect an existing Workspace, or apkit init . to use the current folder.");
+    expect(barePlain).toContain(
+      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
+    );
+    expect(barePlain).toContain(
+      "One Workspace can serve several Projects, and setup may add those folders and files.",
+    );
+    expect(barePlain).toContain(
+      "A Project is one working folder that receives the installed material.",
+    );
+    // One recommended setup route leads; the current-folder form is secondary
+    // in the same footer (US-001, DEC-003). Commands stay on their own lines.
+    expect(bare.stdout).toContain("Next:");
+    expect(bare.stdout).toContain("apkit init <path>");
+    expect(bare.stdout).toContain("apkit init .");
+    expect(bare.stdout.indexOf("apkit init <path>")).toBeLessThan(
+      bare.stdout.indexOf("apkit init ."),
+    );
+    expect(bare.stdout).toContain("Run apkit --help for the full command list.");
 
     // 2. Follow the printed command: initialization matches the machine.
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: journeyPath });
     expectExitCode(init, 0);
     expect(init.stdout).toContain("~/apkit-workspace");
     expect(init.stdout).toContain(
-      "A Profile is a named selection of Context and Skills to adapt for your",
+      "A Profile is a named selection of Context and Skills suited to a kind of work",
     );
     // Present and absent Hosts: detection names exactly what is installed
     // (US-037) and never invents an absent Host (US-038, TEST-016).
@@ -2075,7 +2091,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(init, 0);
     expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace and settings at");
     expect(init.stdout).toContain("~/apkit-workspace");
-    expect(init.stdout).toContain("A Profile is a named selection of Context and Skills to adapt for your");
+    expect(init.stdout).toContain("A Profile is a named selection of Context and Skills suited to a kind of work");
     expect(init.stdout).toContain("Detected Agent Hosts: antigravity, claude, codex, grok, opencode, pi");
     expect(init.stdout).toContain("Next: run apkit validate");
     expect(existsSync(workspacePath(home))).toBe(true);
