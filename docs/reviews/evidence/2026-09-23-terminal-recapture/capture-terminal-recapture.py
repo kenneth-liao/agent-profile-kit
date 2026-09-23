@@ -484,8 +484,8 @@ def main() -> None:
             home_override=side_home,
         )
 
-        # Host inventory wording check (picker says 'detected'; this surface
-        # currently says 'installed' — recorded as a product defect).
+        # Host inventory wording check (picker and `list hosts` must both say
+        # 'detected' / 'not found' — #669).
         run(width, "19-list-hosts", ["list", "hosts"])
 
         # Narrow-wrap command quoting: guided install of a Project under HOME

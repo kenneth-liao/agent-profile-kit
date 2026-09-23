@@ -6,15 +6,21 @@ does not accept, disposition, or close #519 or #491.
 
 ## Provenance
 
-- Product: Agent Profile Kit **0.229.0**, revision
-  [`35e1708`](https://github.com/kenneth-liao/agent-profile-kit/commit/35e1708bdd6e6d25cb66557dc504a1875ce75e10)
-  (origin/main after #641–#652).
+- Product: Agent Profile Kit **0.229.2**, revision
+  [`e241646`](https://github.com/kenneth-liao/agent-profile-kit/commit/e24164604465db1154c0f40f67df2c8ab685738a)
+  (origin/main after the #668/#669 fixes, merged as PR #670 and PR #671). This
+  is the post-fix recapture: the first capture (0.229.0 at
+  [`35e1708`](https://github.com/kenneth-liao/agent-profile-kit/commit/35e1708bdd6e6d25cb66557dc504a1875ce75e10))
+  found product defects A and B below; both are fixed on this revision and
+  re-verified by this capture.
 - Package created with `scripts/create-package-candidate.ts`; extracted through
   `extractPackageArchive`, which verifies the identity record against the
-  archive bytes. Identity summary:
+  archive bytes. The recorded candidate was created from a detached checkout
+  of the revision above, so the identity record names the product revision.
+  Identity summary:
   [`candidate-identity.json`](evidence/2026-09-23-terminal-recapture/candidate-identity.json).
 - Archive SHA-256:
-  `3e8b140f7cee9b6f28dec301d61465b5d4a42ded265e774552a072615995d712`.
+  `ded0579a55446a0bb4e003fb5b7c3c435f13eded0f34c8b113e34bb72c56ee84`.
 - Runtime: Node v22.23.2 (`/opt/homebrew/opt/node@22/bin/node`, spawned as an
   absolute path; node@22 is never exported onto `PATH`); build: Bun 1.4.0.
 - Real PTYs: 100×24 and 60×24, `TERM=xterm-256color`, driven by pexpect.
@@ -70,7 +76,7 @@ this spec affects.
 | `16-details` | Operation details, exact timestamps, Written (US-008) |
 | `17-host-missing-warning` | Missing-Host warnings naming Project view identity (US-011) |
 | `18-setup-routing-with-profiles` | Setup routing with ≥1 Profiles → `apkit install` (US-002) |
-| `19-list-hosts` | Host inventory (see product defect A) |
+| `19-list-hosts` | Host inventory (`detected` / `not found`, matching the picker — fixed by #669) |
 | `20-narrow-wrap-command` | Guided install under HOME; `~/'proj/alpha'` quoting at both widths (US-009) |
 | `21-details-partial` / `21b-details-partial` | Partial uninstall outcome and its details (US-008) |
 
@@ -104,7 +110,7 @@ the label.
 | R10, R11 | US-008 | `15`, `18`, `19`, `29` — labeled rows / stacked records; compact history time; details exact timestamps and Written/Failed/Skipped/Pending |
 | X5, S7 | US-009 | `26`, `55` — command on its own line; `~/'proj/alpha'` intact in emitted bytes; terminal soft wrap only at the physical width |
 | X4, R9, PD5 | US-010 | `05` (clean no-op, no details hint), `14` (neutral cancel, one `●` statement), `04`/`26` (one footer with Next + Details) |
-| R13, SC6, PD7 | US-011 | `27`, `56` — one `⚠` line per missing Host; identical remedies not merged across Hosts; see product defect B |
+| R13, SC6, PD7 | US-011 | `27`, `56` — one `⚠` line per missing Host; identical remedies not merged across Hosts; the line names the affected Projects (fixed by #668) |
 | PD4; required-handoff coverage gap | US-012 | `04`, `26` — required Adapter-authored Host Setup Steps under `First use:` including the Codex SessionStart hook; optional loading check names the stable path |
 | X6, R6, R12, S4–S6, PD6 | Optional polish (OOS-005) | `01` (banner retained), `08` (error glyph), `29` (single `Time` line when start/end match at second precision) — nits only, not gates |
 
@@ -126,51 +132,61 @@ Inspected the raw selection byte streams
   (`ESC[?25h` before the committed answer line).
 - Focus `❯` and multi-select `◻`/`◼` are present; annotations sit beside the
   title and are excluded from filter matching (`detected` / `not found`).
+- Confirmed again on this recapture; summary in
+  [`picker-redraw-findings.json`](evidence/2026-09-23-terminal-recapture/picker-redraw-findings.json)
+  (settled filter observed, no old label, no Instructions block, cursor
+  restored wherever hidden).
 
 ### Light/dark readability
 
 Representative frames were rasterized in both palettes under
 [`images/`](evidence/2026-09-23-terminal-recapture/images/) and inspected.
 
-- Light palette: default text, commands, success, warning and error inks are
-  all ≥6:1 against the frame background. Readable.
-- Dark palette: default text, commands, success and warning are readable
-  (≥6:1). **Muted secondary text (`#666666`) is ~3.2:1 and error red
-  (`#cd3131`) is ~3.6:1 against the dark frame background**, below WCAG AA
-  4.5:1 for normal text. Meaning never depends on color alone (glyphs and
-  wording carry state), so this is a readability nit rather than a
+- Light palette: default text (17.4:1), muted (6.1:1), commands (6.4:1),
+  success (6.6:1), warning (6.3:1) and error (6.5:1) inks are all ≥6:1
+  against the white frame background. Readable.
+- Dark palette: default text (14.6:1), success (7.4:1), warning (13.6:1) and
+  commands — rendered in cyan `#11a8cd` (6.6:1) — are readable. **Muted
+  secondary text (`#666666`, 3.2:1) and error red (`#cd3131`, 3.6:1) sit
+  below WCAG AA 4.5:1 against the dark frame background**, as in the first
+  capture (palette unchanged). Meaning never depends on color alone (glyphs
+  and wording carry state), so this is a readability nit rather than a
   correctness failure — worth a palette pass in optional polish.
 - No meaning is lost at 60 columns in either palette; stacked rows and
   promoted commands remain distinguishable.
 
 ## Product defects
 
-Recorded only; **not fixed in this change**. Turn these into tracked work.
+The first capture (0.229.0 at `35e1708`) found two product defects inside
+#640's scope. Both were recorded here, tracked as #668 and #669, fixed and
+merged on main, and are **verified fixed by this recapture**. No new product
+defects were found in this capture.
 
-### A — `list hosts` says `installed` where the picker says `detected`
+### A — `list hosts` said `installed` where the picker says `detected` — **fixed by #669 (PR #671)**
 
 - **Frames:** `22-100-19-list-hosts`, `51-60-19-list-hosts`
-- **Contrast:** picker frames `11-100-11-selection-host-picker`,
-  `40-60-11-selection-host-picker` annotate `detected` / `not found`.
-- **Expectation (DEC-14 / #644):** detection marks use `detected`, never
-  `installed` (ambiguous with Project installation).
-- **Actual:** `cli/presentation.ts` `hostInventoryDocument` still emits
-  `— installed` for detected Hosts on `apkit list hosts`.
-- **Scope:** human inventory wording only.
+- **Was:** `cli/presentation.ts` `hostInventoryDocument` emitted `— installed`
+  for detected Hosts on `apkit list hosts`, while the picker frames
+  (`11-100-11-selection-host-picker`, `40-60-11-selection-host-picker`)
+  annotate `detected` / `not found` (DEC-14 / #644: detection marks never say
+  `installed`).
+- **Now:** both frames print `claude — detected` and `codex — detected`,
+  matching the picker wording.
 
-### B — Missing-Host warning names one Project, not the affected set
+### B — Missing-Host warning named one Project, not the affected set — **fixed by #668 (PR #670)**
 
 - **Frames:** `27-100-17-host-missing-warning`, `56-60-17-host-missing-warning`
-- **Expectation (US-011, DEC-23 / #652):** each missing-Host warning is its
-  own `⚠` line naming the Projects (view identity) whose verification is
-  affected.
-- **Actual:** `installer/project-plan.ts` keeps one capability warning per
-  Host per invocation (DEC-014) and ties keep the first Project in canonical
-  order, so the line names a single Project even when several Projects select
-  that Host. Affected scope is therefore hidden unless the user runs
-  `--verbose`.
-- **Note:** one warning per Host (no duplicate Host wording) matches DEC-23;
-  the missing piece is the full affected-Project list on that one line.
+- **Was:** `installer/project-plan.ts` kept one capability warning per Host
+  per invocation (DEC-014) and ties kept the first Project in canonical order,
+  so the `⚠` line named a single Project even when several Projects select
+  that Host, hiding the affected scope unless the user ran `--verbose`.
+- **Now (US-011, DEC-23 / #652):** each `⚠` line names the affected Projects —
+  for example `(alpha, acme-internal-analytics-pipeline-v2, alpha/my-app,
+  beta/my-app)`. The concise default view caps the rendered list at four
+  Projects and, when more exist, appends an explicit counter with a remedy
+  pointer (`… 1 more Project; use --verbose to see all Projects`); `--verbose`
+  names every affected Project. One `⚠` line per Host (no duplicate Host
+  wording) is unchanged, per DEC-23.
 
 ## Capture notes
 
@@ -183,7 +199,14 @@ Recorded only; **not fixed in this change**. Turn these into tracked work.
   physical width; US-009 allows terminal soft wrapping and forbids only
   application-inserted breaks inside atoms. `~/'proj/alpha'` stays intact.
 - The partial details frame shows Written / Failed / Pending headings and one
-  `Time` line when start and end share a second.
+  `Time` line when start and end share a second. In this capture the `update`
+  behind frame `19-100-16-details` also completed within one second, so that
+  frame shows the single `Time` line too (the first capture's run straddled a
+  second boundary and showed `Started` / `Finished`).
+- Diffing this capture's frames against the first capture's shows changes
+  only in the two fixed surfaces (frames `22`/`51` and `27`/`56`),
+  timestamps, the single-`Time` line above, and random `mkdtemp` suffixes —
+  no other CLI output changed.
 
 ## Principal review
 

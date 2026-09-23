@@ -1,10 +1,15 @@
 ● All Projects were already current.
-⚠ Claude Code CLI was not found on PATH (alpha)
+⚠ Claude Code CLI was not found on PATH (alpha,
+  acme-internal-analytics-pipeline-v2, alpha/my-app,
+  beta/my-app)
   Requirement: The selected Profile requires Claude
     project delivery
   Remedy: install Claude Code and ensure claude --version
     works before checking status or updating the Profile
-⚠ Codex CLI was not found on PATH (alpha)
+⚠ Codex CLI was not found on PATH (alpha,
+  acme-internal-analytics-pipeline-v2, alpha/my-app,
+  beta/my-app, … 1 more Project; use --verbose to see all
+  Projects)
   Requirement: The selected Profile requires Codex project
     delivery
   Remedy: install Codex and ensure codex --version works
