@@ -525,7 +525,7 @@ status → update path.
 On an interactive terminal, `bind` asks only for the missing required Profile
 and Host arguments (US-051, DEC-030, DEC-031): the Profile choice is preceded
 by a one-sentence explanation of what a Profile is, the Host choices carry
-advisory detected/absent detection evidence (US-053), a completed flow
+advisory detected/not found detection evidence (US-053), a completed flow
 records the binding and prints the equivalent fully specified command with the
 Project path and every `--host` flag explicit (US-052, DEC-032), and
 cancellation exits before any configuration change (DEC-033). A fully
