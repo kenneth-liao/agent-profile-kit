@@ -83,6 +83,18 @@ export function capabilityRequirement(host: SupportedHost): string {
   return `The selected Profile requires ${hostLabel(host)} project delivery`;
 }
 
+/**
+ * Authored parts that flatten to exactly the problem are its structured form
+ * (US-011, INT-3); otherwise the problem stays plain text and the machine
+ * message remains the authored parts.
+ */
+function inferProblemParts(
+  parts: readonly InlineContent[] | undefined,
+  problem: string,
+): readonly InlineContent[] | undefined {
+  return parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
+}
+
 /** Create the canonical typed evidence for one Adapter capability failure. */
 export function capabilityFailure(
   host: SupportedHost,
@@ -91,14 +103,11 @@ export function capabilityFailure(
   remedy: string,
   affectedItems: readonly AdapterCapabilityAffectedItem[] = [],
   parts?: readonly InlineContent[],
+  remedyParts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const allAffected = [{ kind: "host" as const, value: host }, ...affectedItems];
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
-  // Authored parts that flatten to exactly the problem are its structured
-  // form (US-011); otherwise the problem is carried as plain text and the
-  // machine message stays the authored parts.
-  const structuredProblem =
-    parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
+  const structuredProblem = inferProblemParts(parts, problem);
   return new AdapterCapabilityError({
     affectedItems: allAffected,
     host,
@@ -106,6 +115,7 @@ export function capabilityFailure(
     parts: authoredParts,
     problem,
     ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
+    ...(remedyParts === undefined ? {} : { remedyParts }),
     remedy,
     requirement: capabilityRequirement(host),
     scope,
@@ -123,10 +133,10 @@ export function versionFloorCapabilityFailure(
   remedy: string,
   requiredVersion: string,
   parts?: readonly InlineContent[],
+  remedyParts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
-  const structuredProblem =
-    parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
+  const structuredProblem = inferProblemParts(parts, problem);
   return new AdapterCapabilityError({
     affectedItems: [{ kind: "host", value: host }],
     host,
@@ -134,6 +144,7 @@ export function versionFloorCapabilityFailure(
     parts: authoredParts,
     problem,
     ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
+    ...(remedyParts === undefined ? {} : { remedyParts }),
     requiredVersion,
     remedy,
     requirement: capabilityRequirement(host),

@@ -1809,8 +1809,9 @@ describe("project-bound release candidate", () => {
     // The approved changed replacements keep their Project identities; the
     // routine restored and source-updated Projects stay a count on the impact
     // line. Missing-Host warnings may name every affected Project (US-011).
+    // Identities are the view's shortest-unambiguous aliases (INT-1).
     for (const replaced of [changed, multi]) {
-      expect(staleApply.stdout).toContain(replaced);
+      expect(staleApply.stdout).toContain(basename(replaced));
     }
     expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
     expect(staleApply.stdout).not.toMatch(/Updated .*agent-profile-kit-rc-loop-missing/);

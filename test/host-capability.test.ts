@@ -10,17 +10,22 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { assertAntigravityProjectCapability } from "../adapters/antigravity.js";
-import { assertClaudeProjectCapability } from "../adapters/claude.js";
-import { assertCodexProjectCapability } from "../adapters/codex.js";
-import { assertGrokProjectCapability, parseGrokInspectDocument } from "../adapters/grok.js";
-import { assertOpenCodeProjectCapability } from "../adapters/opencode.js";
-import { assertPiProjectCapability } from "../adapters/pi.js";
+import { assertAntigravityProjectCapability, probeAntigravityMachineCapability } from "../adapters/antigravity.js";
+import { assertClaudeProjectCapability, probeClaudeMachineCapability } from "../adapters/claude.js";
+import { assertCodexProjectCapability, probeCodexMachineCapability } from "../adapters/codex.js";
+import {
+  assertGrokProjectCapability,
+  parseGrokInspectDocument,
+  probeGrokMachineCapability,
+} from "../adapters/grok.js";
+import { assertOpenCodeProjectCapability, probeOpenCodeMachineCapability } from "../adapters/opencode.js";
+import { assertPiProjectCapability, probePiMachineCapability } from "../adapters/pi.js";
 import {
   capabilityFailure,
   caughtCapabilityFailure,
   isAdapterCapabilityError,
   type AdapterCapabilityAffectedItem,
+  type AdapterCapabilityError,
 } from "../adapters/capability.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -404,5 +409,86 @@ describe("Host capability probing", () => {
     expect(flatInlineText(plannedInstallation(installation!)?.warnings[0]?.parts ?? [])).toContain(
       "SessionStart hooks are not enabled",
     );
+  });
+});
+
+describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
+  async function missingHostFailure(
+    run: () => Promise<unknown>,
+  ): Promise<AdapterCapabilityError> {
+    let caught: unknown;
+    try {
+      await run();
+    } catch (error) {
+      caught = error;
+    }
+    expect(isAdapterCapabilityError(caught)).toBe(true);
+    return caught as AdapterCapabilityError;
+  }
+
+  function expectStructuralRemedy(failure: AdapterCapabilityError): void {
+    // Machine JSON message stays byte-identical (backticks included).
+    expect(flatInlineText(failure.parts)).toContain("`");
+    expect(failure.remedy).toContain("`");
+    // Human remedy is structural: command atoms, no markdown backticks.
+    expect(failure.remedyParts).toBeDefined();
+    expect(flatInlineText(failure.remedyParts!)).not.toContain("`");
+    expect(
+      failure.remedyParts!.some((part) => typeof part !== "string" && part.kind === "command"),
+    ).toBe(true);
+  }
+
+  test("Antigravity missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-antigravity-bin-");
+    const failure = await missingHostFailure(() =>
+      probeAntigravityMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("Antigravity CLI was not found on PATH");
+    expectStructuralRemedy(failure);
+  });
+
+  test("Claude missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-claude-bin-");
+    const failure = await missingHostFailure(() =>
+      probeClaudeMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("Claude Code CLI was not found on PATH");
+    expectStructuralRemedy(failure);
+  });
+
+  test("Codex missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-codex-bin-");
+    const failure = await missingHostFailure(() =>
+      probeCodexMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("Codex CLI was not found on PATH");
+    expectStructuralRemedy(failure);
+  });
+
+  test("Grok missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-grok-bin-");
+    const failure = await missingHostFailure(() =>
+      probeGrokMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("Grok CLI was not found on PATH");
+    expectStructuralRemedy(failure);
+  });
+
+  test("OpenCode missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-opencode-bin-");
+    const failure = await missingHostFailure(() =>
+      probeOpenCodeMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("OpenCode was not found on PATH");
+    expectStructuralRemedy(failure);
+  });
+
+  test("Pi missing-Host remedy keeps JSON backticks and human command atoms", async () => {
+    const emptyBin = temporaryDirectory("apkit-orch1-pi-bin-");
+    const failure = await missingHostFailure(() =>
+      probePiMachineCapability({ env: { PATH: emptyBin } })
+    );
+    expect(failure.problem).toContain("Pi CLI was not found on PATH");
+    expectStructuralRemedy(failure);
   });
 });

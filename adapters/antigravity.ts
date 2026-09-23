@@ -29,6 +29,7 @@ import {
   SHARED_SKILLS_DISCOVERY_ROOT,
 } from "./shared-skill.js";
 import {
+  commandPart,
   identifierPart,
   type AdapterHostSetupStep,
   type AdapterProjectPlan,
@@ -162,6 +163,13 @@ async function resolveAntigravityCliVersion(
         "host",
         "Antigravity CLI was not found on PATH",
         `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or updating the Profile`,
+        [],
+        undefined,
+        [
+          `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure `,
+          commandPart("agy", [{ kind: "text", value: "--version" }]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

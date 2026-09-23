@@ -9971,6 +9971,71 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     expect(warning.remedy).toBe(codexMissing.remedy);
     expect(warning.requirement).toBe(codexMissing.requirement);
   });
+
+  test("a Project in only one report set uses the view's unioned identity (INT-1)", () => {
+    // `/teams/alpha/tools` exists only in the receipt; `/teams/beta/tools`
+    // only in resulting state. A unioned lookup must give `alpha/tools`
+    // (two segments because both end in `tools`), not a full-path fallback
+    // and not the one-set basename `tools`.
+    const receipt = machineReport([
+      machineProject("/teams/alpha/tools", {
+        warnings: [hostAttentionWarning(codexMissing)],
+      }),
+    ]);
+    const resultingState = machineReport([
+      machineProject("/teams/beta/tools"),
+    ]);
+    const rendered = renderBoundary(applyReportDocument({ receipt, resultingState }));
+    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/tools)");
+    expect(rendered).not.toContain("/teams/alpha/tools");
+    expect(rendered).not.toContain("Codex CLI was not found on PATH (tools)");
+  });
+
+  test("identical machine messages with different typed splits never merge (INT-2)", () => {
+    const report = machineReport([
+      machineProject("/work/a", {
+        warnings: [{
+          kind: "host-attention",
+          copyableValues: [],
+          parts: ["Same message"],
+          problem: ["Same message"],
+          remedy: ["Remedy A"],
+          requirement: ["Requirement A"],
+        }],
+      }),
+      machineProject("/work/b", {
+        warnings: [{
+          kind: "host-attention",
+          copyableValues: [],
+          parts: ["Same message"],
+          problem: ["Same message"],
+          remedy: ["Remedy B"],
+          requirement: ["Requirement B"],
+        }],
+      }),
+    ]);
+    const rendered = renderBoundary(applyReportDocument({
+      receipt: emptyReport({
+        desired: ["/work/a", "/work/b"].map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: ["/work/a", "/work/b"].map((project) => ({ kind: "addition" as const, project })),
+        outputs: ["/work/a", "/work/b"].map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    }));
+    expect(rendered).toContain("Remedy: Remedy A");
+    expect(rendered).toContain("Remedy: Remedy B");
+    expect(rendered).toContain("Requirement: Requirement A");
+    expect(rendered).toContain("Requirement: Requirement B");
+    // Two warning statements: the typed splits kept the groups distinct.
+    expect(rendered.split("Same message").length - 1).toBe(2);
+  });
 });
 
 /**

@@ -24,6 +24,7 @@ import {
   normalizeCoreSemanticVersion,
 } from "./services/semantic-version.js";
 import {
+  commandPart,
   identifierPart,
   type AdapterHostSetupStep,
   type AdapterDiagnosticWarning,
@@ -242,6 +243,13 @@ export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Pro
         "host",
         "Grok CLI was not found on PATH",
         "install Grok Build and ensure `grok version` works before checking status or updating the Profile",
+        [],
+        undefined,
+        [
+          "install Grok Build and ensure ",
+          commandPart("grok", [{ kind: "text", value: "version" }]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -561,6 +569,16 @@ export async function inspectGrokProject(
         "host",
         "Grok CLI was not found on PATH",
         "install Grok Build and ensure `grok inspect --json` works before checking status or updating the Profile",
+        [],
+        undefined,
+        [
+          "install Grok Build and ensure ",
+          commandPart("grok", [
+            { kind: "text", value: "inspect" },
+            { kind: "text", value: "--json" },
+          ]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && error.message.startsWith("Grok inspect")) {

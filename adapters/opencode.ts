@@ -32,6 +32,7 @@ import {
   SHARED_SKILL_DISCOVERY_REQUIREMENT,
 } from "./shared-skill.js";
 import {
+  commandPart,
   identifierPart,
   type AdapterDiagnosticWarning,
   type AdapterHostSetupStep,
@@ -172,6 +173,13 @@ async function resolveOpenCodeCliVersion(
         "host",
         "OpenCode was not found on PATH",
         `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or updating the Profile`,
+        [],
+        undefined,
+        [
+          `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure `,
+          commandPart("opencode", [{ kind: "text", value: "--version" }]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

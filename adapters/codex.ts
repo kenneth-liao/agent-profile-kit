@@ -15,7 +15,7 @@ import type {
   AdapterProjectPlan,
   ProposedProjectOutput,
 } from "./project-plan.js";
-import { identifierPart } from "../cli/inline-content.js";
+import { commandPart, identifierPart } from "../cli/inline-content.js";
 import { invokeExecutable } from "./services/executable.js";
 import { detectHostByPresence } from "./services/executable-lookup.js";
 import {
@@ -202,6 +202,13 @@ async function resolveCodexCliVersion(
         "host",
         "Codex CLI was not found on PATH",
         "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
+        [],
+        undefined,
+        [
+          "install Codex and ensure ",
+          commandPart("codex", [{ kind: "text", value: "--version" }]),
+          " works before checking status or updating Profiles that require Codex Host capabilities",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

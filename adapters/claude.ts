@@ -11,6 +11,7 @@ import {
   type AdapterCapabilityFailure,
 } from "./capability.js";
 import {
+  commandPart,
   identifierPart,
   type AdapterProjectPlan,
   type ProposedDirectoryFileMember,
@@ -184,6 +185,13 @@ async function resolveClaudeCliVersion(
         "host",
         "Claude Code CLI was not found on PATH",
         "install Claude Code and ensure `claude --version` works before checking status or updating the Profile",
+        [],
+        undefined,
+        [
+          "install Claude Code and ensure ",
+          commandPart("claude", [{ kind: "text", value: "--version" }]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
