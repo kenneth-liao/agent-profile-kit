@@ -11016,9 +11016,16 @@ describe("apkit root help", () => {
         .replace(/ ;/g, ";")
         .trim();
       expect(flattened).toBe(nextText);
-      // Each promoted command sits on its own intact line (INT-3).
+      // Each command stays intact on one line; one that does not fit beside
+      // its prose is promoted alone (RE-1, INT-3).
       for (const command of nextCommands) {
-        expect(plainNextLines.some((line) => line.trim() === command)).toBe(true);
+        const carriers = plainNextLines.filter((line) => line.includes(command));
+        expect(carriers).toHaveLength(1);
+        const trimmed = carriers[0]!.trim();
+        expect(trimmed === command || trimmed.includes(command)).toBe(true);
+        if (trimmed !== command) {
+          expect(trimmed.endsWith(command) || trimmed.includes(` ${command}`)).toBe(true);
+        }
       }
       expect(narrow.stdout).not.toContain("```y");
       expect(narrow.stdout).not.toContain("```m");

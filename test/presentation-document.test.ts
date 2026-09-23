@@ -492,9 +492,9 @@ test("wraps a sentence continuously with embedded command words inline and whole
 });
 
 test("keeps a fitting prose+command node on one line without promoting the command", () => {
-  // US-009: "Use apkit status to inspect Project lifecycle diagnostics." is
-  // 58 characters and fits a 60-column measure. Lifecycle-style promotion
-  // would orphan "Use" above the command (#651).
+  // US-009, RE-1: "Use apkit status to inspect Project lifecycle diagnostics."
+  // is 58 characters and fits a 60-column measure. Promotion would orphan
+  // "Use" above the command (#651).
   const text = renderPresentationDocument(
     [{
       kind: "prose",
@@ -509,10 +509,30 @@ test("keeps a fitting prose+command node on one line without promoting the comma
   expect(text).toBe("Use apkit status to inspect Project lifecycle diagnostics.");
 });
 
-test("places a command on its own line when the node wraps, without sentence punctuation", () => {
-  // US-009, #651: long commands sit intact on their own line when the
-  // utterance cannot fit; a promoted command line never carries a trailing
-  // period (it would paste as part of the final argument).
+test("keeps a fitting command inline when a longer sentence wraps around it (RE-1)", () => {
+  // The node must wrap, but `apkit status` still fits beside its lead-in on
+  // one measure line: the command is not promoted when it fits (RE-1).
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "See ",
+        commandPart("apkit", [arg("status")]),
+        " for details about this Project's lifecycle and every pending work item.",
+      ],
+    }],
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  const lines = text.split("\n");
+  expect(lines.length).toBeGreaterThan(1);
+  expect(lines.some((line) => line.includes("See apkit status for details"))).toBe(true);
+  expect(lines).not.toContain("apkit status");
+});
+
+test("places a command on its own line when it does not fit beside the prose, without sentence punctuation", () => {
+  // US-009, RE-1: the command is promoted only when it does not fit; a
+  // promoted command line never carries a trailing period (it would paste as
+  // part of the final argument).
   const text = renderPresentationDocument(
     [{
       kind: "sentence",
@@ -533,6 +553,24 @@ test("places a command on its own line when the node wraps, without sentence pun
   for (const line of lines) {
     expect(line.trimEnd()).not.toMatch(/[.,;:]$/);
   }
+});
+
+test("fail-closed manual-recovery prose is actionable default colour (ORCH-1)", () => {
+  const colored = renderPresentationDocument(
+    [{
+      kind: "command",
+      program: "apkit",
+      args: [
+        { kind: "text", value: "update" },
+        { kind: "path", canonicalPath: "", scope: "fleet" },
+      ],
+    }],
+    { color: true, interactive: true, width: 80, rows: undefined },
+    { home: "/home", cwd: "/home" },
+  );
+  expect(colored).toContain("Manual recovery is required");
+  // Remedies use the default colour — never muted (DEC-001, ORCH-1).
+  expect(colored).not.toContain("\u001b[2m");
 });
 
 test("moves trailing sentence punctuation off a promoted command line", () => {

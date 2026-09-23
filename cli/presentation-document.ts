@@ -396,11 +396,12 @@ function renderNode(
     case "command": {
       const rendered = renderCommand(node, environment);
       // Fail closed (PROD-1): never print a refused argument in a copyable
-      // command; fall back to non-copyable manual-recovery prose.
+      // command; fall back to non-copyable manual-recovery prose. Recovery is
+      // actionable guidance, so it stays in the default colour (ORCH-1).
       if (rendered === undefined) {
         return styleLines(
           "Manual recovery is required: this command cannot be printed safely.",
-          "muted",
+          undefined,
           context.color,
         );
       }
@@ -1006,17 +1007,9 @@ function wrapRuns(
   };
   for (let index = 0; index < runs.length; index += 1) {
     const run = runs[index]!;
-    // A wrapping node places every copyable command on its own line (US-009,
-    // #651): the command never folds into reflowed prose, and glued trailing
-    // sentence punctuation is dropped with it (never command-run text).
-    if (run.command) {
-      flush();
-      lines.push(finalizeCommandLine([run]));
-      while (index + 1 < runs.length && isSentencePunctuation(runs[index + 1]!.text)) {
-        index += 1;
-      }
-      continue;
-    }
+    // A command is atomic and only leaves the line when it does not fit beside
+    // the prose already on it (US-009 "when needed"; RE-1). Fitting commands
+    // stay inline; over-measure commands keep their whole-line behaviour.
     let remainder = run.text;
     while (remainder.length > 0) {
       const separator = current.length === 0 || run.glue ? 0 : 1;
@@ -1035,8 +1028,12 @@ function wrapRuns(
         remainder = remainder.slice(measure);
         continue;
       }
-      // Other over-measure runs keep their established whole-line behaviour.
+      // Over-measure atomic runs stay whole on their own line. A following
+      // sentence terminator is dropped with that line (never command text).
       lines.push(finalizeCommandLine([{ text: remainder, command: run.command, glue: run.glue }]));
+      while (index + 1 < runs.length && isSentencePunctuation(runs[index + 1]!.text)) {
+        index += 1;
+      }
       break;
     }
   }

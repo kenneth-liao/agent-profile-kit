@@ -12,17 +12,9 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with
-    apkit new
-    ; focus a topic with
-    apkit guide profile
-    ,
-    apkit guide context
-    , or
-    apkit guide skill
-    ; see
-    apkit install --help
-    for supported Host values.
+  Scaffold material with apkit new; focus a topic with apkit guide profile,
+    apkit guide context, or apkit guide skill; see apkit install --help for
+    supported Host values.
 
 Common commands:
   init
@@ -66,8 +58,7 @@ More commands:
     Show the engine version and selected application locations
 
 For the complete Workspace authoring reference (Context Modules, Skills, and
-  Profiles), run
-  apkit guide --full
+  Profiles), run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -195,10 +186,8 @@ Keep project-specific instructions in the project repository.
 
 Next: from the project you want to try, run apkit install example --host codex
 
-For the Workspace contract, run
-  apkit guide --contract
-  ; for complete authoring guidance, run
-  apkit guide --full
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -222,15 +211,11 @@ An example context/example-context.md:
 Keep project-specific instructions in the project repository.
 
 
-Next: run
-  apkit validate
-  , then select it into a Profile with
+Next: run apkit validate, then select it into a Profile with
   apkit configure profile
 
-For the Workspace contract, run
-  apkit guide --contract
-  ; for complete authoring guidance, run
-  apkit guide --full
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -260,15 +245,11 @@ description: Summarize a change. Use when asked for a concise change summary.
 Describe what changed, how it was verified, and any follow-up work.
 
 
-Next: run
-  apkit validate
-  , then select it into a Profile with
+Next: run apkit validate, then select it into a Profile with
   apkit configure profile
 
-For the Workspace contract, run
-  apkit guide --contract
-  ; for complete authoring guidance, run
-  apkit guide --full
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -1154,11 +1135,8 @@ Profile: example
   Context Modules: 1
   Skills: 0
 
-Use <profile> with
-  apkit install
-  to select it for a Project, or run
-  apkit list profiles <profile>
-  to see one Profile's Context and Skill names.
+Use <profile> with apkit install to select it for a Project, or run
+  apkit list profiles <profile> to see one Profile's Context and Skill names.
 --- stderr ---
 "
 `;
@@ -1331,16 +1309,15 @@ blocked:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'. To keep
+      Git ownership instead, leave the files in place.
     Affected paths (1):
       - .codex/hooks.json
 
 ✖ Projects: 1 · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run
-  apkit status ~/'projects/blocked'
+- Resolve the reported blocker, then run apkit status ~/'projects/blocked'
   again.
 --- stderr ---
 "
@@ -1363,8 +1340,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.claude/skills/single' '.grok/skills/single'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (14):
       - .agents/skills/ (12 paths)
       - .claude/skills/single
@@ -1374,8 +1351,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1397,8 +1373,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (11):
       - .agents/skills/ (11 paths)
 
@@ -1406,8 +1382,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1429,8 +1404,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/s001' '.claude/skills/s002' '.grok/skills/s001' '.grok/skills/s002'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (6):
       - .agents/skills/ (2 paths)
       - .claude/skills/ (2 paths)
@@ -1440,8 +1415,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1463,8 +1437,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.claude/skills/single'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (3):
       - .agents/skills/ (2 paths)
       - .claude/skills/single
@@ -1473,8 +1447,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1496,8 +1469,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/alpha' '.claude/skills/beta' '.grok/skills/zeta'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (3):
       - .agents/skills/alpha
       - .claude/skills/beta
@@ -1507,8 +1480,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1530,8 +1502,8 @@ tracked-counts:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/tracked-counts' rm -r --cached -- '.agents/skills/s001' '.agents/skills/s002' '.agents/skills/s003' '.agents/skills/s004' '.agents/skills/s005' '.agents/skills/s006' '.agents/skills/s007' '.agents/skills/s008' '.agents/skills/s009' '.agents/skills/s010' '.agents/skills/s011' '.agents/skills/s012' '.agents/skills/s013' '.agents/skills/s014' '.agents/skills/s015' '.agents/skills/s016' '.agents/skills/s017' '.agents/skills/s018' '.agents/skills/s019' '.agents/skills/s020' '.agents/skills/s021' '.agents/skills/s022' '.agents/skills/s023' '.agents/skills/s024' '.agents/skills/s025' '.agents/skills/s026' '.agents/skills/s027' '.agents/skills/s028' '.agents/skills/s029' '.agents/skills/s030' '.agents/skills/s031' '.agents/skills/s032' '.agents/skills/s033' '.agents/skills/s034' '.agents/skills/s035' '.agents/skills/s036' '.agents/skills/s037' '.agents/skills/s038' '.agents/skills/s039' '.agents/skills/s040' '.agents/skills/s041' '.agents/skills/s042' '.agents/skills/s043' '.agents/skills/s044' '.agents/skills/s045' '.agents/skills/s046' '.agents/skills/s047' '.agents/skills/s048' '.agents/skills/s049' '.agents/skills/s050' '.agents/skills/s051' '.agents/skills/s052' '.agents/skills/s053' '.agents/skills/s054' '.agents/skills/s055' '.agents/skills/s056' '.agents/skills/s057' '.agents/skills/s058' '.agents/skills/s059' '.agents/skills/s060' '.claude/skills/s001' '.claude/skills/s002' '.claude/skills/s003' '.claude/skills/s004' '.claude/skills/s005' '.claude/skills/s006' '.claude/skills/s007' '.claude/skills/s008' '.claude/skills/s009' '.claude/skills/s010' '.claude/skills/s011' '.claude/skills/s012' '.claude/skills/s013' '.claude/skills/s014' '.claude/skills/s015' '.claude/skills/s016' '.claude/skills/s017' '.claude/skills/s018' '.claude/skills/s019' '.claude/skills/s020' '.claude/skills/s021' '.claude/skills/s022' '.claude/skills/s023' '.claude/skills/s024' '.claude/skills/s025' '.claude/skills/s026' '.claude/skills/s027' '.claude/skills/s028' '.claude/skills/s029' '.claude/skills/s030' '.claude/skills/s031' '.claude/skills/s032' '.claude/skills/s033' '.claude/skills/s034' '.claude/skills/s035' '.claude/skills/s036' '.claude/skills/s037' '.claude/skills/s038' '.claude/skills/s039' '.claude/skills/s040' '.claude/skills/s041' '.claude/skills/s042' '.claude/skills/s043' '.claude/skills/s044' '.claude/skills/s045' '.claude/skills/s046' '.claude/skills/s047' '.claude/skills/s048' '.claude/skills/s049' '.claude/skills/s050' '.claude/skills/s051' '.claude/skills/s052' '.claude/skills/s053' '.claude/skills/s054' '.claude/skills/s055' '.claude/skills/s056' '.claude/skills/s057' '.claude/skills/s058' '.claude/skills/s059' '.claude/skills/s060' '.grok/skills/s001' '.grok/skills/s002' '.grok/skills/s003' '.grok/skills/s004' '.grok/skills/s005' '.grok/skills/s006' '.grok/skills/s007' '.grok/skills/s008' '.grok/skills/s009' '.grok/skills/s010' '.grok/skills/s011' '.grok/skills/s012' '.grok/skills/s013' '.grok/skills/s014' '.grok/skills/s015' '.grok/skills/s016' '.grok/skills/s017' '.grok/skills/s018' '.grok/skills/s019' '.grok/skills/s020' '.grok/skills/s021' '.grok/skills/s022' '.grok/skills/s023' '.grok/skills/s024' '.grok/skills/s025' '.grok/skills/s026' '.grok/skills/s027' '.grok/skills/s028' '.grok/skills/s029' '.grok/skills/s030'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/tracked-counts'. To
+      keep Git ownership instead, leave the files in place.
     Affected paths (150):
       - .agents/skills/ (60 paths)
       - .claude/skills/ (60 paths)
@@ -1541,8 +1513,7 @@ tracked-counts:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/tracked-counts'
-  again.
+  apkit status ~/'projects/tracked-counts' again.
 --- stderr ---
 "
 `;
@@ -1582,8 +1553,8 @@ blocked:
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'. To keep
+      Git ownership instead, leave the files in place.
     Affected paths (1):
       - .codex/hooks.json
 
@@ -1591,8 +1562,7 @@ blocked:
 
 Next:
 - Resolve the reported blocker, then run
-  apkit status ~/'projects/blocked' --blocked
-  again.
+  apkit status ~/'projects/blocked' --blocked again.
 --- stderr ---
 "
 `;
@@ -1645,8 +1615,8 @@ Project: blocked
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'
-      To keep Git ownership instead, leave the files in place.
+      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'. To keep
+      Git ownership instead, leave the files in place.
     Affected paths (1):
       - .codex/hooks.json
 
@@ -1655,8 +1625,7 @@ Git exclusions: 2 entries to add.
 ✖ Projects: 1 · Pending: blocked · Blockers: 1
 
 Next:
-- Resolve the reported blocker, then run
-  apkit update ~/'projects/blocked'
+- Resolve the reported blocker, then run apkit update ~/'projects/blocked'
   again.
 Details: apkit details
 --- stderr ---
@@ -1708,8 +1677,8 @@ Remedy: Choose one. To let Agent Profile Kit manage these files, run
   git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked' rm -r --cached -- '.codex/hooks.json'
   — it stages their removal from the Git index while the files stay on disk;
   commit afterwards to keep the change — then run
-  apkit update '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked'
-  To keep Git ownership instead, leave the files in place.
+  apkit update '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked'. To
+  keep Git ownership instead, leave the files in place.
 "
 `;
 
@@ -1741,17 +1710,13 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with
-    apkit new
-    ; focus a topic with
-    apkit guide profile
-    ,
-    apkit guide context
-    , or
-    apkit guide skill
-    ; see
-    apkit install --help
-    for supported Host values.
+  Scaffold material with apkit new;
+    focus a topic with
+    apkit guide profile,
+    apkit guide context, or
+    apkit guide skill; see
+    apkit install --help for supported
+    Host values.
 
 Common commands:
   init
@@ -1814,8 +1779,7 @@ More commands:
 
 For the complete Workspace authoring
   reference (Context Modules, Skills,
-  and Profiles), run
-  apkit guide --full
+  and Profiles), run apkit guide --full.
 --- stderr ---
 "
 `;
@@ -1837,17 +1801,13 @@ Agent Profile Kit composes reusable
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with
-    \x1B[36mapkit new\x1B[0m
-    ; focus a topic with
-    \x1B[36mapkit guide profile\x1B[0m
-    ,
-    \x1B[36mapkit guide context\x1B[0m
-    , or
-    \x1B[36mapkit guide skill\x1B[0m
-    ; see
-    \x1B[36mapkit install --help\x1B[0m
-    for supported Host values.
+  Scaffold material with \x1B[36mapkit new\x1B[0m;
+    focus a topic with
+    \x1B[36mapkit guide profile\x1B[0m,
+    \x1B[36mapkit guide context\x1B[0m, or
+    \x1B[36mapkit guide skill\x1B[0m; see
+    \x1B[36mapkit install --help\x1B[0m for supported
+    Host values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1910,8 +1870,7 @@ Agent Profile Kit composes reusable
 
 \x1B[2mFor the complete Workspace authoring\x1B[0m
 \x1B[2m  \x1B[0m\x1B[2mreference (Context Modules, Skills,\x1B[0m
-\x1B[2m  \x1B[0m\x1B[2mand Profiles), run\x1B[0m
-\x1B[2m  \x1B[0m\x1B[2mapkit guide --full\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mand Profiles), run apkit guide --full.\x1B[0m
 --- stderr ---
 "
 `;
@@ -1931,17 +1890,8 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with
-    apkit new
-    ; focus a topic with
-    apkit guide profile
-    ,
-    apkit guide context
-    , or
-    apkit guide skill
-    ; see
-    apkit install --help
-    for supported Host values.
+  Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
+    or apkit guide skill; see apkit install --help for supported Host values.
 
 Common commands:
   init
@@ -2002,17 +1952,8 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with
-    \x1B[36mapkit new\x1B[0m
-    ; focus a topic with
-    \x1B[36mapkit guide profile\x1B[0m
-    ,
-    \x1B[36mapkit guide context\x1B[0m
-    , or
-    \x1B[36mapkit guide skill\x1B[0m
-    ; see
-    \x1B[36mapkit install --help\x1B[0m
-    for supported Host values.
+  Scaffold material with \x1B[36mapkit new\x1B[0m; focus a topic with \x1B[36mapkit guide profile\x1B[0m, \x1B[36mapkit guide context\x1B[0m,
+    or \x1B[36mapkit guide skill\x1B[0m; see \x1B[36mapkit install --help\x1B[0m for supported Host values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -2109,10 +2050,8 @@ Project: other  Profile: example
 Hosts: codex  State: configured
 
 2 Projects configured.
-Use
-  apkit status
-  to inspect Project lifecycle
-  diagnostics.
+Use apkit status to inspect Project
+  lifecycle diagnostics.
 --- stderr ---
 "
 `;
@@ -2128,10 +2067,8 @@ Project: other  Profile: example
 Hosts: codex  State: configured
 
 2 Projects configured.
-Use
-  \x1B[36mapkit status\x1B[0m
-  to inspect Project lifecycle
-  diagnostics.
+Use \x1B[36mapkit status\x1B[0m to inspect Project
+  lifecycle diagnostics.
 --- stderr ---
 "
 `;
@@ -2259,8 +2196,7 @@ blocked:
     Remedy: Choose one. To let Agent Profile Kit manage these files, run
       git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk; commit afterwards
-      to keep the change — then run
-      apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'
+      to keep the change — then run apkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'.
       To keep Git ownership instead, leave the files in place.
     Affected paths (1):
       - .codex/hooks.json
@@ -2288,8 +2224,7 @@ blocked:
     Remedy: Choose one. To let Agent Profile Kit manage these files, run
       \x1B[36mgit --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/blocked' rm -r --cached -- '.codex/hooks.json'\x1B[0m
       — it stages their removal from the Git index while the files stay on disk; commit afterwards
-      to keep the change — then run
-      \x1B[36mapkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'\x1B[0m
+      to keep the change — then run \x1B[36mapkit update '/private/tmp/apkit-golden-xxxx/projects/blocked'\x1B[0m.
       To keep Git ownership instead, leave the files in place.
     Affected paths (1):
       - .codex/hooks.json
@@ -2391,13 +2326,10 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 ✖ apkit: Directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
-Run
-  apkit install
-  to configure this directory as a
-  Project.
-Run
-  apkit list projects
-  to see configured Projects.
+Run apkit install to configure this
+  directory as a Project.
+Run apkit list projects to see
+  configured Projects.
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
@@ -2408,13 +2340,10 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31m✖ apkit: Directory\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31m'/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31mis not configured as a Project\x1B[0m
-Run
-  \x1B[36mapkit install\x1B[0m
-  to configure this directory as a
-  Project.
-Run
-  \x1B[36mapkit list projects\x1B[0m
-  to see configured Projects.
+Run \x1B[36mapkit install\x1B[0m to configure this
+  directory as a Project.
+Run \x1B[36mapkit list projects\x1B[0m to see
+  configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
