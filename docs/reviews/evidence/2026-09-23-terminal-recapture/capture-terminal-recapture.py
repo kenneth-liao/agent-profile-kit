@@ -594,6 +594,7 @@ def write_gallery(identity: dict) -> None:
         "code{font:14px Menlo,monospace}"
         ".toolbar{margin:0 0 24px}"
         "button{font:14px system-ui;padding:6px 12px;margin-right:8px}"
+        ":root:not([data-palette='light']) pre.light,[data-palette='light'] pre.dark{display:none}"
         "</style>"
         "<div class='toolbar'>"
         "<button type='button' onclick=\"document.documentElement.dataset.palette='dark'\">Dark</button>"
@@ -615,7 +616,9 @@ def write_gallery(identity: dict) -> None:
     for f in frames:
         parts.append(f"<section id='{f['id']}'><h2>{f['id']}</h2>")
         parts.append(f"<p><code>{html.escape(f['command'])}</code></p>")
-        parts.append(f"<pre>{''.join(f['html']['dark'])}</pre>")
+        # Each palette's rows carry inline colors, so the toggle swaps whole frames.
+        for palette in ("dark", "light"):
+            parts.append(f"<pre class='{palette}'>{chr(10).join(f['html'][palette])}</pre>")
         parts.append("</section>")
     (OUT / "index.html").write_text("".join(parts))
 
@@ -644,7 +647,7 @@ def write_gallery(identity: dict) -> None:
         for f in frames:
             static.append(f"<section id='{f['id']}'><h2>{f['id']}</h2>")
             static.append(f"<p><code>{html.escape(f['command'])}</code></p>")
-            static.append(f"<pre>{''.join(f['html'][palette])}</pre>")
+            static.append(f"<pre>{chr(10).join(f['html'][palette])}</pre>")
             static.append("</section>")
         (OUT / f"index-{palette}.html").write_text("".join(static))
 
