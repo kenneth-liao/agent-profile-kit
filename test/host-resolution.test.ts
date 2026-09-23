@@ -100,7 +100,7 @@ describe("Host Resolution", () => {
     writeSkill(join(home, ".codex", "skills"), "review-pr");
     writeSkill(join(home, ".claude", "skills"), "review-pr");
 
-    const status = await statusApplication(home, { env: hostCapabilityEnv() });
+    const { report: status } = await statusApplication(home, { env: hostCapabilityEnv() });
     expect(reportBlockers(status)).toEqual([]);
     expect(reportWarnings(status)).toEqual([]);
     expect(reportItems(status).some((item) => item.project === project && item.kind === "current")).toBe(

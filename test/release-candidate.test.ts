@@ -784,7 +784,8 @@ describe("project-bound release candidate", () => {
     );
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (5): ");
+    expect(staleStatus.stdout).toStartWith("⚠ Ready to update\n");
+    expect(staleStatus.stdout).toContain("source changed");
 
     const reapply = await runCli(home, ["update"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
@@ -1280,7 +1281,8 @@ describe("project-bound release candidate", () => {
     writeSkill(home, "review-pr", { body: "# Review updated for release candidate\n" });
     const staleStatus = await runCli(home, ["status"], { path: pathWithClaude });
     expectExitCode(staleStatus, 0);
-    expect(staleStatus.stdout).toContain("Ready to update\n- source changed (2): ");
+    expect(staleStatus.stdout).toStartWith("⚠ Ready to update\n");
+    expect(staleStatus.stdout).toContain("source changed");
     const reapply = await runCli(home, ["update"], { path: pathWithClaude });
     expectExitCode(reapply, 0);
     expect(
@@ -1467,7 +1469,7 @@ describe("project-bound release candidate", () => {
     const plannedStatus = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(plannedStatus, 0);
     expect(plannedStatus.stdout).toContain("Ready to update");
-    expect(plannedStatus.stdout).toContain("- not installed yet (1):");
+    expect(plannedStatus.stdout).toContain("not installed yet");
 
     const apply = await runCli(home, ["update"], { path: pathWithHosts });
     expectExitCode(apply, 0);
@@ -1709,29 +1711,24 @@ describe("project-bound release candidate", () => {
     const status = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(status, 2);
     for (const group of [
-      "needs attention (1):",
-      "generated files changed (2):",
-      "generated files missing (1):",
-      "not installed yet (1):",
-      "source changed (1):",
-      "settled (1)",
+      "needs attention",
+      "generated files changed",
+      "generated files missing",
+      "not installed yet",
+      "source changed",
+      "up to date",
     ]) {
       expect(status.stdout).toContain(group);
     }
-    // One appearance per Project: group counts plus the settled count account
-    // for all seven Projects exactly once, and the settled Project is not
-    // listed (TEST-004).
+    // Every checked Project is a scope row, including the settled one (US-007).
     // The scanning view names each Project by its shortest-unambiguous
     // identity (US-013); the full path stays in verbose and JSON evidence.
     const identity = (project: string): string => basename(project);
-    for (const listed of [changed, multi, missing, source, neverInstalled]) {
+    for (const listed of [changed, multi, missing, source, neverInstalled, settled]) {
       expect(countOccurrences(status.stdout, identity(listed))).toBe(1);
     }
-    expect(status.stdout).not.toContain(identity(settled));
-    expect(status.stdout).toContain("Projects: 7 · Blockers: 1");
-
-    // Fact-once (US-008, TEST-012): the multi-cause Project appears once in
-    // the default view under its primary cause, never twice.
+    // Fact-once (US-008, TEST-012): the multi-cause Project appears once as a
+    // scope row under its primary cause, never twice.
     expect(countOccurrences(status.stdout, identity(multi))).toBe(1);
     expect(countOccurrences(status.stdout, "drifted output")).toBe(0);
 
@@ -1832,9 +1829,9 @@ describe("project-bound release candidate", () => {
     // four reconciled Projects are current while the excluded ones are not.
     const afterStaleApply = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(afterStaleApply, 2);
-    expect(afterStaleApply.stdout).toContain("needs attention (1):");
-    expect(afterStaleApply.stdout).toContain("not installed yet (1):");
-    expect(countOccurrences(afterStaleApply.stdout, "settled (5)")).toBe(1);
+    expect(afterStaleApply.stdout).toContain("needs attention");
+    expect(afterStaleApply.stdout).toContain("not installed yet");
+    expect((afterStaleApply.stdout.match(/up to date/g) ?? []).length).toBeGreaterThanOrEqual(5);
 
     // 4. Full-fleet non-interactive apply commits the never-installed Project,
     // leaves the Blocked Project untouched, and still exits 2 (TEST-021).
@@ -1860,7 +1857,10 @@ describe("project-bound release candidate", () => {
     // (US-004, US-007, TEST-004).
     const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(settledStatus, 0);
-    expect(settledStatus.stdout).toBe("✔ All Projects are up to date (7 Projects)\n");
+    expect(settledStatus.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (7 Projects)");
+    expect(settledStatus.stdout).toContain("Workspace:");
+    expect(settledStatus.stdout).toContain("Primary Cause");
+    expect((settledStatus.stdout.match(/up to date/g) ?? []).length).toBe(8);
     expect(settledStatus.stdout).not.toContain("Next:");
 
     // 7. Whole-invocation cancellation: a cancelled changed-output
@@ -2068,7 +2068,10 @@ describe("project-bound release candidate", () => {
     // current, and the bare invocation summarizes the settled fleet.
     const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
     expectExitCode(finalStatus, 0);
-    expect(finalStatus.stdout).toBe("✔ All Projects are up to date (3 Projects)\n");
+    expect(finalStatus.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (3 Projects)");
+    expect(finalStatus.stdout).toContain("Workspace:");
+    expect(finalStatus.stdout).toContain("Primary Cause");
+    expect((finalStatus.stdout.match(/up to date/g) ?? []).length).toBe(4);
     const bareConfigured = await runCli(home, [], { path: journeyPath });
     expectExitCode(bareConfigured, 0);
     expect(bareConfigured.stdout).toContain("3 Projects up to date.");

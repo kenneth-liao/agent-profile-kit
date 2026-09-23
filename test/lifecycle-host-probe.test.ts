@@ -652,7 +652,7 @@ describe("machine-level Host capability probes within one invocation", () => {
     // Controlled Hosts are on PATH and recording; status must not launch them.
     const bin = installProbeHosts(home, { codex: "0.145.0" });
 
-    const report = await statusApplication(home, {
+    const { report } = await statusApplication(home, {
       env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
     });
 

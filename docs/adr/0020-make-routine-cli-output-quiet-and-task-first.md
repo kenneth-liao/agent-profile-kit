@@ -87,6 +87,18 @@ and whole-fleet outcomes state `All Projects are up to date (N Projects)`. Scope
 results never imply unselected Projects were checked. Machine schemas and exit codes
 are unchanged.
 
+### Amendment: checked-Project scope inventory (issue #650, spec #640, US-007, DEC-010)
+
+Tier 1's rule that concise output omits Project matrices is narrowed for
+`status` only: concise `status` names the selected Workspace and prints one
+compact row per checked Project — healthy Projects included — through the
+shared row-group seam, with each Project's canonical Primary Cause. This
+supersedes #491 US-013/014 and this ADR's clean-status single-sentence shape
+where they conflict with US-007. Operation receipts (`install`/`update`/
+`uninstall`) stay free of the status inventory. Blocker and warning evidence
+that cannot fit a row stays in the default view. Machine schemas and exit codes
+are unchanged.
+
 ## Superseded decisions
 
 This ADR supersedes only the conflicting default-view rules below; the remaining

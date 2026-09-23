@@ -105,8 +105,7 @@ import {
   hasGeneratedFilesMissing,
   hasNotInstalledYet,
   hasSourceChanged,
-  primaryCauseGroupNode,
-  settledCountNode,
+  primaryCauseLabel,
 } from "../cli/presentation.js";
 import type {
   PresentationDocument,
@@ -511,6 +510,8 @@ function proseOccurrences(document: PresentationDocument, substring: string): nu
               : part.kind === "path"
               ? [part.authoredPath ?? part.canonicalPath]
               : [])
+        : node.kind === "path"
+        ? [node.authoredPath ?? node.canonicalPath]
         : node.kind === "heading" || node.kind === "verbatim"
         ? [node.text]
         : [])
@@ -532,6 +533,8 @@ function proseTexts(document: PresentationDocument): string[] {
             : part.kind === "path"
             ? [part.authoredPath ?? part.canonicalPath]
             : [])
+      : node.kind === "path"
+      ? [node.authoredPath ?? node.canonicalPath]
       : node.kind === "heading" || node.kind === "verbatim"
       ? [node.text]
       : node.kind === "identifier"
@@ -622,7 +625,7 @@ describe("lifecycle status document", () => {
     items: [{ kind: "blocked", project: "/project-a" }],
   });
 
-  test("concise current status states current without setup, Project list, or next action", () => {
+  test("concise current status names every checked Project and invents no next action", () => {
     const report = emptyReport({
       desired: ["/project-a", "/project-b"].map((project) => ({
         canonicalProject: project,
@@ -640,19 +643,31 @@ describe("lifecycle status document", () => {
 
     const document = lifecycleStatusDocument(report);
 
-    expect(document.map(shape)).toEqual(["notice:success"]);
+    expect(document.map(shape)).toEqual([
+      "notice:success",
+      "blank",
+      "row",
+      "row",
+    ]);
+    const rendered = renderBoundary(document);
+    expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+    expect(rendered).toContain("up to date");
+    expect(rendered).not.toContain("Next:");
+    expect(rendered).not.toContain("Details:");
   });
 
-  test("concise pending status is outcome, warnings, then typed next commands in order", () => {
+  test("concise pending status is outcome, scope rows, then typed next commands in order", () => {
     const document = lifecycleStatusDocument(pendingReport());
 
     expect(document.map(shape)).toEqual([
-      "notice:success",
-      "list-item",
+      "notice:warning",
+      "blank",
+      "row",
       "blank",
       "key-value(Next):command",
       "key-value(Details):command",
     ]);
+    expect(renderBoundary(document)).toStartWith("⚠ Ready to update\n");
     const commands = flattenPresentationNodes(document).filter((node) => node.kind === "command");
     expect(commands).toEqual([
       {
@@ -671,12 +686,14 @@ describe("lifecycle status document", () => {
     ]);
   });
 
-  test("concise blocked status orders notice, typed Blocker fields, summary, and next actions", () => {
+  test("concise blocked status orders notice, scope rows, typed Blocker fields, summary, and next actions", () => {
     const document = lifecycleStatusDocument(blockedReport());
 
     expect(document.map(shape)).toEqual([
-      "notice:error",
-      "list-item",
+      "notice:warning",
+      "blank",
+      "row",
+      "blank",
       "prose",
       "prose:error",
       "prose",
@@ -687,6 +704,7 @@ describe("lifecycle status document", () => {
       "heading",
       "list-item",
     ]);
+    expect(renderBoundary(document)).toStartWith("⚠ Cannot update\n");
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "list-item" &&
       node.parts !== undefined &&
@@ -721,7 +739,7 @@ describe("lifecycle status document", () => {
     const document = lifecycleStatusDocument(report, { verbose: true });
 
     expect(document.map(shape)).toEqual([
-      "notice:success",
+      "notice:warning",
       "heading",
       "prose",
       "heading",
@@ -776,6 +794,8 @@ describe("lifecycle status document", () => {
     expect(document.map(shape)).toEqual([
       "notice:warning",
       "list-item",
+      "blank",
+      "row",
     ]);
     // Severity drives the colour, not rendered copy (TEST-008).
     const rendered = renderBoundary(
@@ -1684,8 +1704,11 @@ describe("Host Setup Step provenance and presentation", () => {
       items: projects.map((desired) => ({ kind: "current", project: desired.project })),
     });
 
-    // Concise clean status stays quiet; verbose retains the full Project scope.
-    expect(lifecycleStatusDocument(report).map(shape)).toEqual(["notice:success"]);
+    // Concise clean status names checked Projects as rows; verbose retains the full Project scope.
+    expect(lifecycleStatusDocument(report).map(shape)).toEqual([
+      "notice:success", "blank",
+      "row", "row", "row", "row", "row", "row",
+    ]);
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     expect(listItemsIn(verbose)).toContain(
       "Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
@@ -3007,7 +3030,7 @@ describe("status concise terminology", () => {
     expect(headingsIn(concise)).toContain("Global blockers:");
     expect(nodes.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(2);
     const projectAt = indexWhere(nodes, (node) =>
-      node.kind === "list-item" && typeof node.parts?.[0] === "string" && node.parts[0].includes("needs attention"));
+      node.kind === "row" || (node.kind === "prose" && nodeText(node).includes("project-a")));
     const globalAt = indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === "Global blockers:");
     expect(projectAt).toBeGreaterThan(-1);
@@ -4044,12 +4067,12 @@ describe("status concise terminology", () => {
 
     const concise = lifecycleStatusDocument(report);
 
-    // The ready summary is a success notice; the project is classified under generated files changed.
+    // The ready summary is a warning notice; the project is classified under generated files changed.
     expect(noticesIn(concise)).toHaveLength(1);
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    const listItems = concise.filter((node) => node.kind === "list-item");
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("generated files changed (1):"))).toBe(true);
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("/project-a"))).toBe(true);
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
+    const rendered = renderBoundary(concise);
+    expect(rendered).toContain("generated files changed");
+    expect(rendered).toContain("project-a");
     // The verbose route is a typed command value on the Details key-value.
     expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -4176,8 +4199,7 @@ describe("status concise terminology", () => {
     });
 
     const concise = lifecycleStatusDocument(report);
-    const listItems = concise.filter((node) => node.kind === "list-item");
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("generated files changed"))).toBe(true);
+    expect(renderBoundary(concise)).toContain("generated files changed");
 
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     const verboseNodes = flattenPresentationNodes(verbose);
@@ -4303,10 +4325,11 @@ describe("status concise terminology", () => {
     // Only the blocked Project presents its binding block; no planned-change
     // summary or state explanations.
     const conciseText = renderBoundary(concise);
-    expect(conciseText).toContain("- needs attention (1):");
+    expect(conciseText).toContain("needs attention");
     expect(conciseText).toContain("/project-b");
-    expect(conciseText).toContain("- source changed (1): /project-a");
-    expect(proseOccurrences(concise, "/project-b")).toBe(1);
+    expect(conciseText).toContain("source changed");
+    expect(conciseText).toContain("/project-a");
+    expect(proseOccurrences(concise, "/project-b")).toBe(2);
     expect(concise.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(headingsIn(concise)).not.toContain("State explanations:");
     expect(headingsIn(concise)).not.toContain("Changes:");
@@ -4469,7 +4492,7 @@ describe("status concise terminology", () => {
     const texts = presentationTexts(verbose);
 
     // The outcome notice leads; every verbose section follows with its typed nodes.
-    expect(noticesIn(verbose)[0]).toMatchObject({ kind: "notice", severity: "error" });
+    expect(noticesIn(verbose)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     const sectionAt = (text: string) => indexWhere(nodes, (node) =>
       node.kind === "heading" && nodeText(node) === text);
     for (const section of ["Projects:", "Outputs:", "Git exclusions:", "Blockers:", "State explanations:"]) {
@@ -4804,7 +4827,7 @@ describe("status next-action guidance", () => {
 
     const concise = lifecycleStatusDocument(report);
     expect(nextGuidance(concise)).toEqual(["apkit update"]);
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     // The drift detail stays behind the verbose route; no routine path appears.
     expect(presentationTexts(concise).some((text) => text.includes("a.md"))).toBe(false);
     expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
@@ -4830,7 +4853,7 @@ describe("status next-action guidance", () => {
 
     const concise = lifecycleStatusDocument(report);
     expect(nextGuidance(concise)).toEqual(["apkit update"]);
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
   });
 
   test("blocked status retries status without recommending update", () => {
@@ -4852,8 +4875,8 @@ describe("status next-action guidance", () => {
     expect(nextActionItems(status).map(nextActionStructure)).toEqual([
       { paths: [], commands: ["apkit status"] },
     ]);
-    // The outcome notice leads; the aggregate Blocker count follows it.
-    expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "error" });
+    // The outcome notice is the warning headline; the aggregate Blocker count is the error notice.
+    expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "warning" });
   });
 
   test("blocked update directs resolve-and-retry of update", () => {
@@ -5105,7 +5128,7 @@ describe("status next-action guidance", () => {
     });
 
     const status = lifecycleStatusDocument(report);
-    expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    expect(noticesIn(status)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     expect(headingsIn(status)).not.toContain("Git exclusions:");
     expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -5131,7 +5154,7 @@ describe("status next-action guidance", () => {
     });
 
     const status = lifecycleStatusDocument(report);
-    expect(status.map(shape)).toEqual(["notice:success"]);
+    expect(status.map(shape)).toEqual(["notice:success", "blank", "row"]);
     expect(nextGuidance(status)).toEqual([]);
   });
 
@@ -6894,7 +6917,7 @@ describe("operation-first multi-Project presentation", () => {
     // The operation summary is one notice; guidance is the typed Next and
     // Details command values; no per-Project receipt bookkeeping appears.
     expect(noticesIn(concise)).toHaveLength(1);
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     expect(nextGuidance(concise)).toEqual(["apkit update"]);
     expect(keyValuesIn(concise, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -6922,10 +6945,9 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = lifecycleStatusDocument(report);
 
-    // The ready summary notice leads; primary causes partition the affected Projects.
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    const listItems = concise.filter((node) => node.kind === "list-item");
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("source changed"))).toBe(true);
+    // The ready summary notice leads; scope rows carry each Project's Primary Cause.
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
+    expect(renderBoundary(concise)).toContain("source changed");
     expect(headingsIn(concise)).not.toContain("Project changes:");
   });
 
@@ -6955,7 +6977,7 @@ describe("operation-first multi-Project presentation", () => {
     expect(noticesIn(lifecycleStatusDocument(report))).toHaveLength(1);
     expect(noticesIn(lifecycleStatusDocument(report))[0]).toMatchObject({
       kind: "notice",
-      severity: "success",
+      severity: "warning",
     });
   });
 
@@ -6981,7 +7003,7 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = lifecycleStatusDocument(report, { selection: { command: "status", kind: "project", match: "exact", target: "/project-a" } });
 
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "success" });
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     // The selected Project is a typed path argument on each guidance command.
     const next = keyValuesIn(concise, "Next")[0]!.value;
     expect(next).toMatchObject({ kind: "command", program: "apkit" });
@@ -7020,7 +7042,7 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = lifecycleStatusDocument(report);
 
-    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "error" });
+    expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && node.category === "error"
     )).toBe(true);
@@ -7062,11 +7084,10 @@ describe("operation-first multi-Project presentation", () => {
       ],
     });
 
-    const concise = lifecycleStatusDocument(report);
-    const listItems = concise.filter((node) => node.kind === "list-item");
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("generated files changed (1):"))).toBe(true);
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("/project-a"))).toBe(true);
-    expect(listItems.some((node) => flatInlineText(node.parts).includes("source changed (2):"))).toBe(true);
+    const rendered = renderBoundary(lifecycleStatusDocument(report));
+    expect(rendered).toContain("generated files changed");
+    expect(rendered).toContain("source changed");
+    expect(rendered).toContain("project-a");
   });
 
   test("verbose retains complete per-Project operation evidence", () => {
@@ -7898,8 +7919,8 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("empty status references configured Projects in next guidance", () => {
     const empty = lifecycleStatusDocument(emptyReport());
-    expect(empty.map(shape)).toEqual(["notice:success", "prose:command"]);
-    expect((empty[0] as Extract<PresentationNode, { kind: "notice" }>).severity).toBe("success");
+    expect(empty.map(shape)).toEqual(["notice:neutral", "prose:command"]);
+    expect((empty[0] as Extract<PresentationNode, { kind: "notice" }>).severity).toBe("neutral");
     // The next action is one command-category prose node whose typed inline
     // command parts keep both invocations atomic.
     expect(inlineCommandTexts(empty)).toEqual([
@@ -10543,7 +10564,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
   });
 
   describe("lifecycleStatusDocument primary-cause presentation", () => {
-    test("renders mixed fleet with notice, all 5 cause groups, settled count, and next/details", () => {
+    test("renders mixed fleet with notice, one row per Project, and next/details", () => {
       const p1 = createRecord({ canonicalProject: "/project-1", project: "/project-1", state: { kind: "removal" } });
       const p2 = createRecord({ canonicalProject: "/project-2", project: "/project-2", state: { kind: "drifted output" }, outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "a.md" }] });
       const p3 = createRecord({ canonicalProject: "/project-3", project: "/project-3", state: { kind: "drifted output" }, outputs: [{ consumingHosts: ["codex"], driftKind: "missing", kind: "update", path: "b.md" }] });
@@ -10560,20 +10581,22 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("✔ Ready to update\n");
-      expect(rendered).toContain("- needs attention (1):");
-      expect(rendered).toContain("/project-1");
-      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
-      expect(rendered).toContain("- generated files changed (1): /project-2");
-      expect(rendered).toContain("- generated files missing (1): /project-3");
-      expect(rendered).toContain("- not installed yet (1): /project-4");
-      expect(rendered).toContain("- source changed (1): /project-5");
-      expect(rendered).toContain("- settled (1)");
+      expect(rendered).toStartWith("⚠ Ready to update\n");
+      expect(rendered).toContain("needs attention");
+      expect(rendered).toContain("generated files changed");
+      expect(rendered).toContain("generated files missing");
+      expect(rendered).toContain("not installed yet");
+      expect(rendered).toContain("source changed");
+      expect(rendered).toContain("up to date");
+      for (const project of ["/project-1", "/project-2", "/project-3", "/project-4", "/project-5", "/project-6"]) {
+        expect(rendered).toContain(project);
+      }
+      expect(rendered).not.toContain("settled (");
       expect(rendered).toContain("Next: apkit update");
       expect(rendered).toContain("Details: apkit status --verbose");
     });
 
-    test("contains Blockers concisely while preserving the full fleet partition", () => {
+    test("contains Blockers concisely while preserving every checked Project row", () => {
       const p1 = createRecord({
         blockers: [fixtureBlocker("occupied output", "/project-1")],
         canonicalProject: "/project-1",
@@ -10594,21 +10617,22 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("✖ Cannot update\n");
-      expect(rendered).toContain("- needs attention (1):");
+      expect(rendered).toStartWith("⚠ Cannot update\n");
+      expect(rendered).toContain("needs attention");
+      expect(rendered).toContain("not installed yet");
       expect(rendered).toContain("/project-1");
-      expect(rendered).toContain("- not installed yet (1): /project-2");
+      expect(rendered).toContain("/project-2");
       expect(rendered).toContain("Blocker:");
       expect(rendered).toContain("Requirement:");
       expect(rendered).toContain("Remedy:");
       expect(rendered).not.toContain("Scope: Project");
-      // Prose identity stays exactly once; recovery commands may repeat the
-      // scoped Project argument (a runnable copy needs it).
-      expect(proseOccurrences(document, "/project-1")).toBe(1);
+      // Identity is the scope row plus, when evidence exists, its evidence
+      // anchor; recovery commands may repeat the scoped Project argument.
+      expect(proseOccurrences(document, "/project-1")).toBe(2);
       expect(proseOccurrences(document, "/project-2")).toBe(1);
     });
 
-    test("wholly settled fleet renders single line outcome without breakdown or next action", () => {
+    test("wholly settled fleet names every checked Project and invents no next action", () => {
       const p1 = createRecord({ canonicalProject: "/project-1", project: "/project-1", state: { kind: "current" } });
       const p2 = createRecord({ canonicalProject: "/project-2", project: "/project-2", state: { kind: "current" } });
 
@@ -10621,8 +10645,11 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered.trim()).toBe("✔ All Projects are up to date (2 Projects)");
-      expect(rendered).not.toContain("settled");
+      expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+      expect(rendered).toContain("up to date");
+      expect(rendered).toContain("/project-1");
+      expect(rendered).toContain("/project-2");
+      expect(rendered).not.toContain("settled (");
       expect(rendered).not.toContain("Next:");
     });
 
@@ -10670,24 +10697,15 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report);
       const rendered = renderBoundary(document);
 
-      expect(rendered).toContain("- needs attention (1):");
+      expect(rendered).toContain("needs attention");
       expect(rendered).toContain("/project-1");
       expect(rendered).toContain("Update will remove generated files for unbound projects.");
       expect(rendered).not.toContain("Blocker:");
-      expect((rendered.match(/\/project-1/g) || []).length).toBe(1);
+      expect(proseOccurrences(document, "/project-1")).toBe(2);
     });
 
-    test("two interleaved removals each keep nested teardown explanation among blocked and healthy peers", () => {
+    test("two interleaved removals each keep teardown evidence with their Project among blocked and healthy peers", () => {
       const sharedPath = ".codex/hooks.json";
-      const nodeHasPath = (node: PresentationNode, canonical: string): boolean => {
-        if (node.kind !== "prose" && node.kind !== "list-item") return false;
-        return node.parts.some((part) =>
-          typeof part !== "string" && part.kind === "path" && part.canonicalPath === canonical,
-        );
-      };
-      const nextCauseAt = (nodes: readonly PresentationNode[], after: number): number =>
-        nodes.findIndex((node, index) =>
-          index > after && node.kind === "list-item" && nodeText(node).startsWith("not installed yet"));
       const beta = createRecord({
         blockers: [
           normalizeBlocker(outputOwnershipConflictBlocker({
@@ -10740,82 +10758,41 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       };
 
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
-      const nodes = flattenPresentationNodes(document);
-      const attentionAt = indexWhere(nodes, (node) =>
-        node.kind === "list-item" && nodeText(node) === "needs attention (4):");
-      const betaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-beta"));
-      const removalFirstAt = indexWhere(nodes, (node) => nodeHasPath(node, "/removal-first"));
-      const alphaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-alpha"));
-      const removalSecondAt = indexWhere(nodes, (node) => nodeHasPath(node, "/removal-second"));
-      const pendingGroupAt = nextCauseAt(nodes, removalSecondAt);
-      expect(attentionAt).toBeGreaterThan(-1);
-      expect(betaAt).toBeGreaterThan(attentionAt);
-      expect(removalFirstAt).toBeGreaterThan(betaAt);
-      expect(alphaAt).toBeGreaterThan(removalFirstAt);
-      expect(removalSecondAt).toBeGreaterThan(alphaAt);
-      expect(pendingGroupAt).toBeGreaterThan(removalSecondAt);
+      const rendered = renderBoundary(document);
 
-      const betaChildren = nodes.slice(betaAt + 1, removalFirstAt);
-      expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
-      expect(betaChildren.some((node) => nodeText(node).includes("second.json"))).toBe(true);
-      expect(betaChildren.some((node) => nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(false);
-      expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
-
-      const removalFirstChildren = nodes.slice(removalFirstAt + 1, alphaAt);
-      expect(removalFirstChildren.some((node) =>
-        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
-      expect(removalFirstChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
-      expect(removalFirstChildren.some((node) => nodeHasPath(node, "/removal-first"))).toBe(false);
-
-      const alphaChildren = nodes.slice(alphaAt + 1, removalSecondAt);
-      expect(alphaChildren.some((node) =>
-        nodeText(node).includes("already contains a file Agent Profile Kit did not install")
-      )).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Manual recovery is required"))).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(false);
-
-      const removalSecondChildren = nodes.slice(removalSecondAt + 1, pendingGroupAt);
-      expect(removalSecondChildren.some((node) =>
-        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
-      expect(removalSecondChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
-      expect(removalSecondChildren.some((node) => nodeHasPath(node, "/removal-second"))).toBe(false);
-      expect(pendingGroupAt).not.toBe(removalSecondAt + 1);
+      // Every checked Project is a scope row; settled is named too (US-007).
+      for (const project of ["project-beta", "removal-first", "project-alpha", "removal-second", "pending", "settled"]) {
+        expect(rendered).toContain(project);
+      }
+      expect(rendered).toContain("needs attention");
+      expect(rendered).toContain("not installed yet");
+      expect(rendered).toContain("up to date");
+      // Evidence stays with its Project and never disappears (TEST-005).
+      expect(rendered).toContain("tracked by Git");
+      expect(rendered).toContain("second.json");
+      expect(rendered).toContain("already contains a file Agent Profile Kit did not install");
+      expect(rendered.match(/Update will remove generated files for unbound projects\./g)).toHaveLength(2);
 
       for (const width of [40, 60, 80, 10_000]) {
-        const rendered = renderBoundary(document, { ...defaultRenderContext, width });
-        expect(rendered).toContain("- needs attention (4):");
-        expect(rendered).toContain("- not installed yet (1):");
-        expect(rendered).toContain("- settled (1)");
-        expect(proseOccurrences(document, "/project-beta")).toBe(1);
-        expect(proseOccurrences(document, "/removal-first")).toBe(1);
-        expect(proseOccurrences(document, "/project-alpha")).toBe(1);
-        expect((rendered.match(/\/removal-second/g) || []).length).toBe(1);
-        expect((rendered.match(/\/pending/g) || []).length).toBe(1);
-        expect((rendered.match(/\/settled/g) || []).length).toBe(0);
-
-        const compact = (text: string): string => text.replace(/\s+/g, " ");
-        const betaStart = rendered.indexOf("/project-beta");
-        const removalFirstStart = rendered.indexOf("/removal-first");
-        const alphaStart = rendered.indexOf("/project-alpha");
-        const removalSecondStart = rendered.indexOf("/removal-second");
-        expect(betaStart).toBeGreaterThan(-1);
-        expect(removalFirstStart).toBeGreaterThan(betaStart);
-        expect(alphaStart).toBeGreaterThan(removalFirstStart);
-        expect(removalSecondStart).toBeGreaterThan(alphaStart);
-        const removalFirstSection = compact(rendered.slice(removalFirstStart, alphaStart));
-        const removalSecondSection = compact(rendered.slice(removalSecondStart, rendered.indexOf("- not installed yet")));
-        const alphaSection = compact(rendered.slice(alphaStart, removalSecondStart));
-        expect(removalFirstSection).toContain("Update will remove generated files for unbound projects.");
-        expect(removalFirstSection).not.toContain("Blocker:");
-        expect(removalSecondSection).toContain("Update will remove generated files for unbound projects.");
-        expect(removalSecondSection).not.toContain("Blocker:");
-        expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
-        expect(alphaSection).not.toContain("Update will remove generated files for unbound projects.");
+        const narrow = renderBoundary(document, { ...defaultRenderContext, width });
+        const packed = narrow.replace(/\s+/g, " ");
+        expect(packed).toContain("tracked by Git");
+        expect(packed).toContain("second.json");
+        expect(packed).toContain("Update will remove generated files for unbound projects.");
+        expect(packed).toContain("already contains a file Agent Profile Kit did not install");
+        expect(packed).toContain("up to date");
+        // Each Project identity is its scope row plus, when evidence exists,
+        // its evidence anchor.
+        expect(proseOccurrences(document, "/project-beta")).toBe(2);
+        expect(proseOccurrences(document, "/removal-first")).toBe(2);
+        expect(proseOccurrences(document, "/project-alpha")).toBe(2);
+        expect(proseOccurrences(document, "/removal-second")).toBe(2);
+        expect(proseOccurrences(document, "/pending")).toBe(1);
+        expect(proseOccurrences(document, "/settled")).toBe(1);
       }
     });
 
-    test("nested needs-attention members bind each blocker remedy to its project among reversed multi-blocked, removal, pending, and settled peers", () => {
+    test("evidence sections bind each blocker remedy to its Project among reversed multi-blocked, removal, pending, and settled peers", () => {
       const sharedPath = ".codex/hooks.json";
       const beta = createRecord({
         blockers: [normalizeBlocker(outputOwnershipConflictBlocker({
@@ -10857,84 +10834,49 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       };
 
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
-      const nodes = flattenPresentationNodes(document);
-      const nodeHasPath = (node: PresentationNode, canonical: string): boolean => {
-        if (node.kind !== "prose" && node.kind !== "list-item") return false;
-        return node.parts.some((part) =>
-          typeof part !== "string" && part.kind === "path" && part.canonicalPath === canonical,
-        );
-      };
-      const attentionAt = indexWhere(nodes, (node) =>
-        node.kind === "list-item" && nodeText(node) === "needs attention (3):");
-      const betaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-beta"));
-      const alphaAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-alpha"));
-      const removalAt = indexWhere(nodes, (node) => nodeHasPath(node, "/project-removal"));
-      expect(attentionAt).toBeGreaterThan(-1);
-      expect(betaAt).toBeGreaterThan(attentionAt);
-      expect(alphaAt).toBeGreaterThan(betaAt);
-      expect(removalAt).toBeGreaterThan(alphaAt);
-      expect(nodeHasPath(nodes[attentionAt]!, "/project-beta")).toBe(false);
-      expect(nodeHasPath(nodes[attentionAt]!, "/project-alpha")).toBe(false);
-      expect(nodeHasPath(nodes[attentionAt]!, "/project-removal")).toBe(false);
+      const rendered = renderBoundary(document);
 
-      const betaChildren = nodes.slice(betaAt + 1, alphaAt);
-      expect(betaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(true);
-      expect(betaChildren.some((node) =>
-        nodeText(node).includes("stages their removal from the Git index while the files stay on disk")
-      )).toBe(true);
-      expect(betaChildren.some((node) => nodeText(node).includes("Remove, move, or adopt"))).toBe(false);
-      expect(betaChildren.some((node) => nodeHasPath(node, "/project-beta"))).toBe(false);
+      expect(rendered).toContain("needs attention");
+      expect(rendered).toContain("not installed yet");
+      expect(rendered).toContain("up to date");
+      expect(rendered).not.toContain("Scope: Project");
 
-      const alphaChildren = nodes.slice(alphaAt + 1, removalAt);
-      expect(alphaChildren.some((node) =>
-        nodeText(node).includes("already contains a file Agent Profile Kit did not install")
-      )).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("Manual recovery is required"))).toBe(true);
-      expect(alphaChildren.some((node) => nodeText(node).includes("tracked by Git"))).toBe(false);
-      expect(alphaChildren.some((node) => nodeHasPath(node, "/project-alpha"))).toBe(false);
-
-      const removalChildren = nodes.slice(removalAt + 1, indexWhere(nodes, (node) =>
-        node.kind === "list-item" && nodeText(node).startsWith("not installed yet")));
-      expect(removalChildren.some((node) =>
-        nodeText(node).includes("Update will remove generated files for unbound projects."))).toBe(true);
-      expect(removalChildren.some((node) => nodeText(node).includes("Blocker:"))).toBe(false);
+      // Each remedy stays inside its Project's evidence section.
+      const betaStart = rendered.indexOf("project-beta:");
+      const alphaStart = rendered.indexOf("project-alpha:");
+      const removalStart = rendered.indexOf("project-removal:");
+      expect(betaStart).toBeGreaterThan(-1);
+      expect(alphaStart).toBeGreaterThan(betaStart);
+      expect(removalStart).toBeGreaterThan(alphaStart);
+      const compact = (text: string): string => text.replace(/\s+/g, " ");
+      const betaSection = compact(rendered.slice(betaStart, alphaStart));
+      const alphaSection = compact(rendered.slice(alphaStart, removalStart));
+      const removalSection = compact(rendered.slice(removalStart));
+      expect(betaSection).toContain("tracked by Git");
+      expect(betaSection).toContain("stages their removal from the Git index while the files stay on disk");
+      expect(betaSection).not.toContain("Manual recovery is required");
+      expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
+      expect(alphaSection).toContain("Manual recovery is required");
+      expect(alphaSection).not.toContain("tracked by Git");
+      expect(removalSection).toContain("Update will remove generated files for unbound projects.");
+      expect(removalSection).not.toContain("Blocker:");
 
       for (const width of [40, 60, 80, 10_000]) {
-        const rendered = renderBoundary(document, { ...defaultRenderContext, width });
-        expect(rendered).toContain("- needs attention (3):");
-        expect(rendered).toContain("- not installed yet (1):");
-        expect(rendered).toContain("- settled (1)");
-        expect(rendered).not.toContain("Scope: Project");
-        // Each Project is named once by its shortest-unambiguous identity;
-        // copyable paths inside a Project keep their own spelling.
-        expect(proseOccurrences(document, "project-beta")).toBe(1);
-        expect(proseOccurrences(document, "project-alpha")).toBe(1);
-        expect((rendered.match(/project-removal/g) || []).length).toBe(1);
-        expect((rendered.match(/project-pending/g) || []).length).toBe(1);
-        expect((rendered.match(/project-settled/g) || []).length).toBe(0);
-
-        const betaStart = rendered.indexOf("project-beta");
-        const alphaStart = rendered.indexOf("project-alpha");
-        const removalStart = rendered.indexOf("project-removal");
-        expect(betaStart).toBeGreaterThan(-1);
-        expect(alphaStart).toBeGreaterThan(betaStart);
-        expect(removalStart).toBeGreaterThan(alphaStart);
-        const compact = (text: string): string => text.replace(/\s+/g, " ");
-        const betaSection = compact(rendered.slice(betaStart, alphaStart));
-        const alphaSection = compact(rendered.slice(alphaStart, removalStart));
-        const removalSection = compact(rendered.slice(removalStart));
-        expect(betaSection).toContain("tracked by Git");
-        expect(betaSection).toContain("stages their removal from the Git index while the files stay on disk");
-        expect(betaSection).not.toContain("Manual recovery is required");
-        expect(alphaSection).toContain("already contains a file Agent Profile Kit did not install");
-        expect(alphaSection).toContain("Manual recovery is required");
-        expect(alphaSection).not.toContain("tracked by Git");
-        expect(removalSection).toContain("Update will remove generated files for unbound projects.");
-        expect(removalSection).not.toContain("Blocker:");
+        const narrow = renderBoundary(document, { ...defaultRenderContext, width });
+        const packed = narrow.replace(/\s+/g, " ");
+        expect(packed).toContain("tracked by Git");
+        expect(packed).toContain("Manual recovery is required");
+        expect(packed).toContain("Update will remove generated files for unbound projects.");
+        expect(packed).toContain("project-settled");
+        expect(proseOccurrences(document, "project-beta")).toBe(2);
+        expect(proseOccurrences(document, "project-alpha")).toBe(2);
+        expect(proseOccurrences(document, "project-removal")).toBe(2);
+        expect(proseOccurrences(document, "project-pending")).toBe(1);
+        expect(proseOccurrences(document, "project-settled")).toBe(1);
       }
     });
 
-    test("healthy mixed fleet names each actionable project exactly once and settled projects zero times", () => {
+    test("healthy mixed fleet names every checked Project including settled ones", () => {
       const pMissing = createRecord({
         canonicalProject: "/project-missing",
         outputs: [{
@@ -10972,12 +10914,13 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toContain("- generated files missing (1): /project-missing");
-      expect(rendered).toContain("- generated files changed (1): /project-changed");
-      expect(rendered).toContain("- settled (1)");
-      expect((rendered.match(/\/project-missing/g) || []).length).toBe(1);
-      expect((rendered.match(/\/project-changed/g) || []).length).toBe(1);
-      expect((rendered.match(/\/project-settled/g) || []).length).toBe(0);
+      expect(rendered).toContain("generated files missing");
+      expect(rendered).toContain("generated files changed");
+      expect(rendered).toContain("up to date");
+      expect(rendered).toContain("/project-missing");
+      expect(rendered).toContain("/project-changed");
+      expect(rendered).toContain("/project-settled");
+      expect(proseOccurrences(document, "/project-settled")).toBe(1);
       expect(rendered).toContain("Next: apkit update");
     });
 
@@ -11010,10 +10953,10 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       for (const width of [40, 60, 80]) {
         const rendered = renderBoundary(document, { ...defaultRenderContext, width });
-        // Prose identity stays exactly once; the remedy's scoped command
-        // arguments repeat the Project path on purpose (a runnable copy needs
-        // it), and atomic commands never split.
-        expect(proseOccurrences(document, "project-one")).toBe(1);
+        // Identity is the scope row plus, when evidence exists, its evidence
+        // anchor; the remedy's scoped command arguments repeat the Project
+        // path on purpose (a runnable copy needs it).
+        expect(proseOccurrences(document, "project-one")).toBe(2);
         expect(proseOccurrences(document, "project-two")).toBe(1);
       }
     });
@@ -11995,7 +11938,9 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
 
     const doc = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     const rendered = renderBoundary(doc);
-    expect(rendered.trim()).toBe("✔ All Projects are up to date (3 Projects)");
+    expect(rendered).toStartWith("✔ All Projects are up to date (3 Projects)\n");
+    expect(rendered).toContain("up to date");
+    expect(rendered).not.toContain("Next:");
   });
 
   test("scoped status output cannot imply unselected Projects were checked", () => {
@@ -12010,7 +11955,8 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
       selection: { command: "status", kind: "project", match: "containing", target: "/fleet/project-alpha" },
     });
     const hereRendered = renderBoundary(hereDoc).trim();
-    expect(hereRendered).toBe("✔ This Project is up to date");
+    expect(hereRendered).toStartWith("✔ This Project is up to date");
+    expect(hereRendered).toContain("up to date");
     expect(hereRendered).not.toContain("All Projects");
     expect(hereRendered).not.toContain("project-beta");
     expect(hereRendered).not.toContain("project-gamma");
@@ -12020,7 +11966,8 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
       selection: { command: "status", kind: "project", match: "exact", target: "/fleet/project-alpha" },
     });
     const targetRendered = renderBoundary(targetDoc).trim();
-    expect(targetRendered).toBe("✔ project-alpha is up to date");
+    expect(targetRendered).toStartWith("✔ project-alpha is up to date");
+    expect(targetRendered).toContain("up to date");
     expect(targetRendered).not.toContain("All Projects");
     expect(targetRendered).not.toContain("project-beta");
     expect(targetRendered).not.toContain("project-gamma");
@@ -12031,7 +11978,8 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
       selection: { command: "status", kind: "project", match: "containing", target: "/fleet" },
     });
     const subsetRendered = renderBoundary(subsetDoc).trim();
-    expect(subsetRendered).toBe("✔ Selected Projects are up to date (2 Projects)");
+    expect(subsetRendered).toStartWith("✔ Selected Projects are up to date (2 Projects)");
+    expect(subsetRendered).toContain("up to date");
     expect(subsetRendered).not.toContain("All Projects");
 
     // Filtered selection subset:
@@ -12039,7 +11987,8 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
       selection: { kind: "all", filter: "stale" },
     });
     const filteredRendered = renderBoundary(filteredDoc).trim();
-    expect(filteredRendered).toBe("✔ Selected Projects are up to date (2 Projects)");
+    expect(filteredRendered).toStartWith("✔ Selected Projects are up to date (2 Projects)");
+    expect(filteredRendered).toContain("up to date");
     expect(filteredRendered).not.toContain("All Projects");
   });
 
@@ -12136,6 +12085,253 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
     expect(rendered).not.toContain("- addition:");
     expect(rendered).not.toContain("- drifted output:");
     expect(rendered).not.toContain("- stale source:");
+  });
+});
+
+
+describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", () => {
+  const createRecord = (overrides: Partial<ReconciliationProjectRecord> = {}): ReconciliationProjectRecord => ({
+    blockers: [],
+    canonicalProject: "/fleet/p1",
+    desired: {
+      context: "composed",
+      hosts: ["codex"],
+      outputs: [],
+      profile: "coding",
+      resolvedArtifacts: [],
+    },
+    outputs: [],
+    project: "/fleet/p1",
+    repositoryExclusions: [],
+    setupSteps: [],
+    state: { kind: "current" },
+    warnings: [],
+    ...overrides,
+  });
+  const workspace = { authored: "~/apkit-workspace", canonical: "/home/me/apkit-workspace" };
+  const healthyFleet = () => ({
+    brokenProfileViolations: [],
+    globalBlockers: [],
+    projects: [
+      createRecord({ canonicalProject: "/fleet/alpha", project: "/fleet/alpha" }),
+      createRecord({ canonicalProject: "/fleet/beta", project: "/fleet/beta" }),
+      createRecord({ canonicalProject: "/fleet/gamma", project: "/fleet/gamma" }),
+      createRecord({ canonicalProject: "/fleet/delta", project: "/fleet/delta" }),
+    ],
+  });
+  const mixedFleet = () => ({
+    brokenProfileViolations: [],
+    globalBlockers: [],
+    projects: [
+      createRecord({
+        blockers: [fixtureBlocker("occupied output", "/fleet/alpha")],
+        canonicalProject: "/fleet/alpha",
+        project: "/fleet/alpha",
+        state: { kind: "blocked" },
+      }),
+      createRecord({
+        canonicalProject: "/fleet/beta",
+        project: "/fleet/beta",
+        state: { kind: "drifted output" },
+        outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "a.md" }],
+      }),
+      createRecord({
+        canonicalProject: "/fleet/gamma",
+        project: "/fleet/gamma",
+        state: { kind: "drifted output" },
+        outputs: [{ consumingHosts: ["codex"], driftKind: "missing", kind: "update", path: "b.md" }],
+      }),
+      createRecord({
+        canonicalProject: "/fleet/delta",
+        project: "/fleet/delta",
+        state: { kind: "addition" },
+      }),
+      createRecord({
+        canonicalProject: "/fleet/epsilon",
+        project: "/fleet/epsilon",
+        state: { kind: "stale source" },
+      }),
+      createRecord({ canonicalProject: "/fleet/zeta", project: "/fleet/zeta" }),
+    ],
+  });
+
+  test("healthy fleet names the Workspace and prints one row per checked Project including healthy", () => {
+    const document = lifecycleStatusDocument(healthyFleet(), { workspace });
+    const rendered = renderBoundary(document, context(100));
+
+    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
+    expect(rendered).toContain("Workspace: ~/apkit-workspace");
+    expect(rendered).toContain("Project");
+    expect(rendered).toContain("Primary Cause");
+    for (const project of ["alpha", "beta", "gamma", "delta"]) {
+      expect(rendered).toContain(project);
+      expect(rendered).toContain("up to date");
+    }
+    expect((rendered.match(/up to date/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(rendered).not.toContain("Next:");
+    expect(rendered).not.toContain("Details:");
+  });
+
+  test("mixed Primary Causes print one row per Project with canonical cause labels and keep Blocker evidence", () => {
+    const document = lifecycleStatusDocument(mixedFleet(), { workspace });
+    const rendered = renderBoundary(document, context(100));
+
+    expect(rendered).toStartWith("⚠ Cannot update\n");
+    expect(rendered).toContain("Workspace: ~/apkit-workspace");
+    expect(rendered).toContain("needs attention");
+    expect(rendered).toContain("generated files changed");
+    expect(rendered).toContain("generated files missing");
+    expect(rendered).toContain("not installed yet");
+    expect(rendered).toContain("source changed");
+    expect(rendered).toContain("up to date");
+    expect(rendered).toContain("Blocker:");
+    expect(rendered).toContain("Requirement:");
+    expect(rendered).toContain("Remedy:");
+    expect(rendered).toContain("Next:");
+    // Rows carry every checked Project; settled is not a bare count.
+    expect(rendered).not.toContain("settled (");
+  });
+
+  test("pending work without a Blocker uses the warning headline Ready to update", () => {
+    const pendingOnly = {
+      brokenProfileViolations: [],
+      globalBlockers: [],
+      projects: [
+        createRecord({
+          canonicalProject: "/fleet/beta",
+          project: "/fleet/beta",
+          state: { kind: "addition" },
+        }),
+        createRecord({ canonicalProject: "/fleet/zeta", project: "/fleet/zeta" }),
+      ],
+    };
+    const document = lifecycleStatusDocument(pendingOnly, { workspace });
+    const rendered = renderBoundary(document, context(100));
+    expect(rendered).toStartWith("⚠ Ready to update\n");
+    expect(rendered).not.toStartWith("✔ ");
+  });
+
+  test("a Blocker never sits under a clean headline", () => {
+    const document = lifecycleStatusDocument(mixedFleet(), { workspace });
+    const rendered = renderBoundary(document, context(100));
+    expect(rendered).toStartWith("⚠ ");
+    expect(rendered).not.toStartWith("✔ ");
+  });
+
+  test("scoped status names only the Projects in that scope with canonical Primary Cause", () => {
+    const scoped = {
+      brokenProfileViolations: [],
+      globalBlockers: [],
+      projects: [
+        createRecord({
+          canonicalProject: "/fleet/beta",
+          project: "/fleet/beta",
+          state: { kind: "drifted output" },
+          outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "a.md" }],
+        }),
+        createRecord({
+          canonicalProject: "/fleet/gamma",
+          project: "/fleet/gamma",
+          state: { kind: "drifted output" },
+          outputs: [{ consumingHosts: ["codex"], driftKind: "missing", kind: "update", path: "b.md" }],
+        }),
+      ],
+    };
+    const document = lifecycleStatusDocument(scoped, {
+      selection: { kind: "all", filter: "stale" },
+      workspace,
+    });
+    const rendered = renderBoundary(document, context(100));
+
+    expect(rendered).toContain("beta");
+    expect(rendered).toContain("gamma");
+    expect(rendered).not.toContain("alpha");
+    expect(rendered).not.toContain("delta");
+    expect(rendered).toContain("generated files changed");
+    expect(rendered).toContain("generated files missing");
+  });
+
+  test("empty scope is a distinct neutral statement and still names the Workspace", () => {
+    const empty = { brokenProfileViolations: [], globalBlockers: [], projects: [] };
+    const document = lifecycleStatusDocument(empty, {
+      selection: { kind: "all", filter: "stale" },
+      workspace,
+    });
+    const rendered = renderBoundary(document, context(100));
+
+    expect(rendered).toStartWith("● No stale Projects.\n");
+    expect(rendered).toContain("Workspace: ~/apkit-workspace");
+    expect(rendered).not.toContain("up to date");
+    expect(rendered).not.toContain("Next:");
+  });
+
+  test("empty unconfigured fleet is neutral and distinct from an empty scope filter", () => {
+    const empty = { brokenProfileViolations: [], globalBlockers: [], projects: [] };
+    const document = lifecycleStatusDocument(empty, { workspace });
+    const rendered = renderBoundary(document, context(100));
+
+    expect(rendered).toStartWith("● No Projects are configured.\n");
+    expect(rendered).toContain("Workspace: ~/apkit-workspace");
+    expect(rendered).not.toContain("No stale Projects.");
+    expect(rendered).toContain("apkit install");
+  });
+
+  test("primaryCauseLabel reads classifyPrimaryCause once and never adds synonyms", () => {
+    expect(primaryCauseLabel(createRecord())).toBe("up to date");
+    expect(primaryCauseLabel(createRecord({ state: { kind: "addition" } }))).toBe("not installed yet");
+    expect(primaryCauseLabel(createRecord({ state: { kind: "stale source" } }))).toBe("source changed");
+    expect(primaryCauseLabel(createRecord({
+      outputs: [{ consumingHosts: ["codex"], driftKind: "changed", kind: "update", path: "a.md" }],
+      state: { kind: "drifted output" },
+    }))).toBe("generated files changed");
+    expect(primaryCauseLabel(createRecord({
+      outputs: [{ consumingHosts: ["codex"], driftKind: "missing", kind: "update", path: "a.md" }],
+      state: { kind: "drifted output" },
+    }))).toBe("generated files missing");
+    expect(primaryCauseLabel(createRecord({ blockers: [fixtureBlocker("occupied output", "/fleet/p1")] }))).toBe("needs attention");
+  });
+
+  test("at 60 columns scope rows pack greedily onto one line when the fields fit", () => {
+    const document = lifecycleStatusDocument(healthyFleet(), { workspace });
+    const rendered = renderBoundary(document, context(60));
+    const lines = rendered.trimEnd().split("\n");
+
+    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
+    // #649's packer: Project + Primary Cause share one line when they fit the measure.
+    const packed = lines.filter((line) => line.includes("Primary Cause:") && line.includes("Project:"));
+    expect(packed.length).toBeGreaterThanOrEqual(4);
+    for (const line of packed) {
+      expect(line.length).toBeLessThanOrEqual(60);
+    }
+  });
+
+  test("at 60 columns a blocked fleet keeps complete Blocker evidence and no actionable item disappears", () => {
+    const document = lifecycleStatusDocument(mixedFleet(), { workspace });
+    const rendered = renderBoundary(document, context(60));
+
+    expect(rendered).toStartWith("⚠ Cannot update\n");
+    for (const label of [
+      "needs attention",
+      "generated files changed",
+      "generated files missing",
+      "not installed yet",
+      "source changed",
+      "up to date",
+    ]) {
+      expect(rendered).toContain(label);
+    }
+    expect(rendered).toContain("Blocker:");
+    expect(rendered).toContain("Remedy:");
+    expect(rendered).toContain("alpha");
+    expect(rendered).toContain("zeta");
+  });
+
+  test("healthy fleet at 100 columns uses the shared header-row seam", () => {
+    const document = lifecycleStatusDocument(healthyFleet(), { workspace });
+    const rendered = renderBoundary(document, context(100));
+    const lines = rendered.trimEnd().split("\n");
+    const header = lines.find((line) => line.startsWith("Project") && line.includes("Primary Cause"));
+    expect(header).toBeDefined();
   });
 });
 

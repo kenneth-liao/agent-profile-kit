@@ -574,54 +574,65 @@ including `.`, name the folder the command runs from.
 
 ### 7. Plan
 
-`status` defaults to the complete fleet and groups every actionable Project
-under exactly one primary cause — needs attention, generated files changed,
-generated files missing, not installed yet, or source changed — naming every
-affected Project by short identity, while settled Projects are summarised as a
-count (US-001–003, US-006, US-016, DEC-002, ADR-0026). A Project with several
-causes at once appears once, under its highest-priority cause; verbose
-diagnostics retain every underlying cause. Group counts plus the settled count
-account for every Project exactly once (US-016):
+`status` defaults to the complete fleet and names the selected Workspace plus
+one compact row per checked Project, including healthy Projects (US-007,
+spec #640). Each row keeps that Project's canonical Primary Cause — needs
+attention, generated files changed, generated files missing, not installed yet,
+source changed, or up to date — through the shared row-group seam (US-008).
+The headline opens with its state glyph: `✔` when every checked Project is up
+to date, `⚠` when any Project has pending work or a Blocker, and `●` for an
+empty scope. A Project with several causes at once appears once, under its
+highest-priority cause; verbose diagnostics retain every underlying cause.
+This listing supersedes #491 US-013/014 and ADR-0020/0026's settled-count-only
+default view (DEC-010); operation receipts stay concise and never copy this
+inventory:
 
 ```
 $ apkit status
-Cannot update
-- needs attention (1):
-  <project>
-    Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
-      by Git, so Agent Profile Kit cannot write to them.
-      Requirement: Agent Profile Kit must exclusively manage its generated
-        files; Git-tracked paths cannot be replaced.
-      Remedy: Choose one. To let Agent Profile Kit manage these files, run
-        git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
-        — it stages their removal from the Git index while the files stay on
-        disk; commit afterwards to keep the change — then run
-        apkit update '<project>'.
-        To keep Git ownership instead, leave the files in place.
-      Affected paths (2):
-        - .agent-profile-kit/codex/context.md
-        - .codex/hooks.json
-- generated files changed (2): <project>, <project>
-- generated files missing (1): <project>
-- not installed yet (1): <project>
-- source changed (1): <project>
-- settled (1)
+⚠ Cannot update
+Workspace: ~/apkit-workspace
 
-Projects: 7 · Blockers: 1
+Project   Primary Cause
+<project> needs attention
+<project> generated files changed
+<project> generated files missing
+<project> not installed yet
+<project> source changed
+<project> up to date
+
+<project>:
+  Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
+    by Git, so Agent Profile Kit cannot write to them.
+    Requirement: Agent Profile Kit must exclusively manage its generated
+      files; Git-tracked paths cannot be replaced.
+    Remedy: Choose one. To let Agent Profile Kit manage these files, run
+      git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
+      — it stages their removal from the Git index while the files stay on
+      disk; commit afterwards to keep the change — then run
+      apkit update '<project>'.
+      To keep Git ownership instead, leave the files in place.
+    Affected paths (2):
+      - .agent-profile-kit/codex/context.md
+      - .codex/hooks.json
 
 Next:
 - Resolve the reported blocker, then run apkit status again.
 ```
 
-A Blocker never suppresses pending work for other Projects and never replaces
-the fleet summary (US-005, DEC-005); Blocker rows render inside the same frame
-with their runnable remedy (US-021, DEC-013). When nothing is blocked, the
-pending view presents one compact decision:
+A Blocker never suppresses pending work for other Projects (US-005, DEC-005);
+Blocker evidence renders after the scope rows with its runnable remedy
+(US-021, DEC-013). When nothing is blocked, the pending view presents one
+compact decision:
 
 ```
 $ apkit status
-Ready to update
-- not installed yet (2): <project>, <project>
+⚠ Ready to update
+Workspace: ~/apkit-workspace
+
+Project   Primary Cause
+<project> not installed yet
+<project> up to date
+
 Next: apkit update
 Details: apkit status --verbose
 ```
@@ -861,7 +872,10 @@ correct. A fully-synchronized single Project states that fact once
 (`This Project is up to date` for `--here`, `<identity> is up to date` for an explicit target);
 a fully-synchronized fleet uses the whole-fleet shape (`All Projects are up to date (N Projects)`),
 and a selected subset uses `Selected Projects are up to date (N Projects)` (US-014, DEC-009).
-Neither emits a Host setup reminder, Project list, or next action (US-004). Verbose status and JSON
+Every checked Project — healthy included — is named as a scope row under the
+selected Workspace (US-007, superseding #491 US-013/014's settled-count-only
+listing). A fully current status invents no next action and emits no Host
+setup reminder (US-004, US-010). Verbose status and JSON
 retain the underlying causes; every fact is stated once per view (US-008,
 DEC-007). Interactive status inspections that outlast a short anti-flicker
 threshold show delayed operation-level progress on the terminal line; the line

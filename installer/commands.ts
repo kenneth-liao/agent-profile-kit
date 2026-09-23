@@ -199,10 +199,18 @@ export async function applyApplication(
   });
 }
 
+/** The read-only status outcome: the reconciliation report plus the Workspace
+ * the run checked (spec #640 US-007). Machine JSON serializes `report` only. */
+export interface StatusApplicationResult {
+  readonly report: ReconciliationReport;
+  /** The selected Workspace as Local Configuration authored it (#629). */
+  readonly workspace: InfoWorkspaceLocation;
+}
+
 export async function statusApplication(
   home: string,
   options: LifecycleCommandOptions = {},
-): Promise<ReconciliationReport> {
+): Promise<StatusApplicationResult> {
   const instrumentation = options.instrumentation;
   const gitInspection = createLifecycleGitInspectionContext(instrumentation?.git);
   const scheduler = createProjectReadScheduler();
@@ -220,12 +228,18 @@ export async function statusApplication(
       scheduler,
       ...(options.selection === undefined ? {} : { selection: options.selection }),
     });
-    return unreadableInstallationStateReport(
-      home,
-      desired.installations,
-      error,
-      brokenProfileViolations(desired.brokenProfiles),
-    );
+    return {
+      report: await unreadableInstallationStateReport(
+        home,
+        desired.installations,
+        error,
+        brokenProfileViolations(desired.brokenProfiles),
+      ),
+      workspace: {
+        authored: desired.authoredWorkspace,
+        canonical: desired.workspace.path,
+      },
+    };
   }
   // Let each Adapter resolve its topology from the prior Manifest and keep
   // desired-state planning probe-free: status performs no Agent Host process
@@ -249,18 +263,24 @@ export async function statusApplication(
   // One selected-Project contract: narrowing membership is trimmed once here,
   // so the human view, machine JSON, and write scope share it (DEC-006).
   const selected = filterSelectedProjects(report, options.selection?.filter);
-  return reconciliationReportWithProjects(
-    selected,
-    selected.projects.map((project) => {
-      // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
-      // already diagnose the problem and must keep their precise status labels.
-      if (
-        project.blockers.length > 0 &&
-        (project.state.kind === "addition" || project.state.kind === "current")
-      ) {
-        return { ...project, state: { ...project.state, kind: "blocked" as const } };
-      }
-      return project;
-    }),
-  );
+  return {
+    report: reconciliationReportWithProjects(
+      selected,
+      selected.projects.map((project) => {
+        // Only remap otherwise-healthy states. Drift, ownership, and malformed kinds
+        // already diagnose the problem and must keep their precise status labels.
+        if (
+          project.blockers.length > 0 &&
+          (project.state.kind === "addition" || project.state.kind === "current")
+        ) {
+          return { ...project, state: { ...project.state, kind: "blocked" as const } };
+        }
+        return project;
+      }),
+    ),
+    workspace: {
+      authored: desired.authoredWorkspace,
+      canonical: desired.workspace.path,
+    },
+  };
 }

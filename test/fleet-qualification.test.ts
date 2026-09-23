@@ -217,7 +217,8 @@ describe("fleet-wide synchronization qualification", () => {
     const preview = await runCli(home, pathWithHosts, "status");
     expectExitCode(preview, 0);
     // Primary-cause fleet partition renders complete actionable fleet.
-    expect(preview.stdout).toStartWith("✔ Ready to update\n- source changed (12): ");
+    expect(preview.stdout).toStartWith("⚠ Ready to update\n");
+    expect(preview.stdout).toContain("source changed");
     // The scanning view names every Project by its shortest-unambiguous
     // identity; verbose and JSON below retain the full evidence.
     for (const project of projects) expect(preview.stdout).toContain(basename(project));
@@ -274,12 +275,18 @@ describe("fleet-wide synchronization qualification", () => {
 
     const status = await runCli(home, pathWithHosts, "status");
     expectExitCode(status, 0);
-    expect(status.stdout).toBe("✔ All Projects are up to date (12 Projects)\n");
-    // Clean concise status stays quiet: no standing reminder or Project matrix.
+    // Deliberate exact frame: headline, Workspace, and one up-to-date row per
+    // checked Project (US-007). Never loosened to a bare headline match.
+    expect(status.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (12 Projects)");
+    expect(status.stdout).toContain("Workspace:");
+    expect(status.stdout).toContain("Primary Cause");
+    expect((status.stdout.match(/up to date/g) ?? []).length).toBe(13);
+    for (const project of projects) expect(status.stdout).toContain(basename(project));
+    // Clean concise status stays quiet: no standing reminder and no next action.
     expect(status.stdout).not.toContain("Standing Host setup:");
     expect(status.stdout).not.toContain("Host setup:");
-    expect(status.stdout).not.toContain("Project: ");
     expect(status.stdout).not.toContain("Next:");
+    expect(status.stdout).not.toContain("Details:");
     // Pi now generates output in the added Project.
     expect(existsSync(join(withPi, ".pi", "APPEND_SYSTEM.md"))).toBe(true);
   }, FLEET_TEST_TIMEOUT_MS);
@@ -358,7 +365,7 @@ describe("fleet-wide synchronization qualification", () => {
     const home = isolatedHome();
     const { pathWithHosts } = createPackedFleet(home);
     const instrumentation = createLifecycleInstrumentation();
-    const report = await statusApplication(home, {
+    const { report } = await statusApplication(home, {
       env: controlledEnvironment({ home, path: pathWithHosts }),
       instrumentation,
     });
@@ -460,7 +467,9 @@ describe("fleet-wide synchronization qualification", () => {
 
     const nextRead = await runCli(home, fixture.pathWithHosts, "status");
     expectExitCode(nextRead, 0);
-    expect(nextRead.stdout).toContain("All Projects are up to date (14 Projects)");
+    expect(nextRead.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (14 Projects)");
+    expect(nextRead.stdout).toContain("Workspace:");
+    expect((nextRead.stdout.match(/up to date/g) ?? []).length).toBe(15);
     expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);
     expect(readFileSync(statePath, "utf8")).toBe(published);
   }, FLEET_TEST_TIMEOUT_MS);
@@ -575,7 +584,7 @@ describe("fleet-wide synchronization qualification", () => {
     expect(instrumentation.counts.findGitProject).toBe(12);
 
     const statusInstrumentation = createLifecycleInstrumentation();
-    const report = await statusApplication(home, {
+    const { report } = await statusApplication(home, {
       env: controlledEnvironment({ home, path: pathWithHosts }),
       instrumentation: statusInstrumentation,
     });
@@ -914,7 +923,11 @@ describe("integrated fleet recovery qualification", () => {
 
     const settled = await runCli(home, pathWithHosts, "status");
     expectExitCode(settled, 0);
-    expect(settled.stdout).toBe("✔ All Projects are up to date (30 Projects)\n");
+    expect(settled.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (30 Projects)");
+    expect(settled.stdout).toContain("Workspace:");
+    expect(settled.stdout).toContain("Primary Cause");
+    expect((settled.stdout.match(/up to date/g) ?? []).length).toBe(31);
+    expect(settled.stdout).not.toContain("Next:");
   }, 240_000);
 
   test("a 30-Project fleet with mixed pending, drifted, missing-Host, unprovable-Git-topology, and deleted-generated-roots conditions completes status --all and update --all at exit 0", async () => {

@@ -648,7 +648,7 @@ exit 2
     const previousPath = process.env.PATH ?? "";
     process.env.PATH = `${bin}:${previousPath}`;
     try {
-      const report = await statusApplication(home);
+      const { report } = await statusApplication(home);
       expect(reportBlockers(report)).toEqual([]);
       expect(reportWarnings(report)).toEqual([]);
       expect(reportItems(report).some((item) => item.kind === "current")).toBe(true);
@@ -701,7 +701,7 @@ exit 2
     const previousPath = process.env.PATH ?? "";
     process.env.PATH = `${bin}:${previousPath}`;
     try {
-      const report = await statusApplication(home);
+      const { report } = await statusApplication(home);
       expect(reportBlockers(report)).toEqual([]);
       expect(reportItems(report).some((item) => item.kind === "current")).toBe(true);
     } finally {

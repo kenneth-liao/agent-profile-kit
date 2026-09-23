@@ -911,14 +911,14 @@ function interactiveProgress(
 async function runBareInvocation(home: string): Promise<void> {
   try {
     const info = await readApplicationInfo(home);
-    const report = info.configurationState === "current"
+    const status = info.configurationState === "current"
       ? await statusApplication(home)
       : undefined;
     writeHumanDocument(
       process.stdout,
       bareInvocationDocument({
         info,
-        ...(report === undefined ? {} : { report }),
+        ...(status === undefined ? {} : { report: status.report }),
         wordmark: rootWordmark(stdoutPresentationContext),
       }),
       stdoutPresentationContext,
@@ -1310,16 +1310,19 @@ async function main(): Promise<void> {
     const context = stdoutPresentationContext;
     const progress = interactiveProgress(context, parsed.json, STATUS_PROGRESS_LABEL);
     try {
-      const report = await statusApplication(home, {
+      const status = await statusApplication(home, {
         selection: parsed.selection,
       });
       progress?.finish();
       if (parsed.json) {
-        process.stdout.write(formatLifecycleJson("status", report));
+        process.stdout.write(formatLifecycleJson("status", status.report));
       } else {
-        writeHumanDocument(process.stdout, lifecycleStatusDocument(report, parsed), context);
+        writeHumanDocument(process.stdout, lifecycleStatusDocument(status.report, {
+          ...parsed,
+          workspace: status.workspace,
+        }), context);
       }
-      process.exitCode = lifecycleExitCode(report);
+      process.exitCode = lifecycleExitCode(status.report);
     } catch (error) {
       progress?.finish();
       if (parsed.json) {

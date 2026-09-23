@@ -117,7 +117,7 @@ describe("structured Installer blocker evidence", () => {
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, `#${"x".repeat(OWNERSHIP_STATE_LIMITS.maxBytes)}\n`);
 
-    const report = await statusApplication(home);
+    const { report } = await statusApplication(home);
 
     expect(reportBlockers(report)).toHaveLength(1);
     const blocker = reportBlockers(report)[0]!;
@@ -427,7 +427,7 @@ describe("structured Installer blocker evidence", () => {
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, "not: a valid installation state\n");
 
-    const report = await statusApplication(home);
+    const { report } = await statusApplication(home);
     const blocker = requireDefined(
       reportBlockers(report).find(
         (candidate) =>
