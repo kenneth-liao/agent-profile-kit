@@ -2933,7 +2933,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       .toEqual([]);
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project: ");
-    expect(humanText(apply.stdout).match(/will load the next time you launch/g)).toHaveLength(1);
+    expect(humanText(apply.stdout).match(/Start a new Host session from the Project root/g)).toHaveLength(1);
 
     // A later status reports the next shared change once.
     writeFileSync(
@@ -3103,7 +3103,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
     // US-060/US-041: machine JSON is untouched by the post-apply verification
     // instruction; it stays on the human surface only.
-    expect(apply.stdout).not.toContain("To check that ");
+    expect(apply.stdout).not.toContain("Optional check: ");
     expect(
       readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Always preserve the project boundary.");
@@ -3374,14 +3374,14 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     );
     expect(humanText(result.stdout)).toContain(
       humanText(
-        "Profile coding will load the next time you launch a configured Host from a bound Project root.",
+        "Start a new Host session from the Project root to use the updated material.",
       ),
     );
-    // US-041 (DEC-025, OOS-009): the readiness promise is followed by the
-    // concrete Project-local check for Host loading.
+    // US-012 (ADR-0043, OOS-001): the next-use instruction is followed by the
+    // short optional check on the stable Project action path.
     expect(humanText(result.stdout)).toContain(
       humanText(
-        `To check that codex loaded Profile coding, start a new codex session in ${basename(projectPath)} and ask codex what Profile material it loaded; the installed material should appear in its answer.`,
+        `Optional check: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
       ),
     );
     expect(humanText(result.stdout)).toEndWith("Details: apkit details");
@@ -3518,7 +3518,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // offers no optional loading check. The direct behavioral pin against
     // this same captured output; the identity negative below is the
     // unchanged-US-013 side effect, not the check's own evidence.
-    expect(humanText(result.stdout)).not.toContain("To check that ");
+    expect(humanText(result.stdout)).not.toContain("Optional check: ");
     expect(humanText(result.stdout)).not.toContain(basename(changedProject));
   });
 

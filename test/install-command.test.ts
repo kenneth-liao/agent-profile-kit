@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, basename } from "node:path";
+import { join } from "node:path";
 import { PassThrough, type Readable, type Writable } from "node:stream";
 
 import { runInstallCommand } from "../cli/install-command.js";
@@ -337,8 +337,8 @@ describe("install beside a broken Profile (#606)", () => {
   });
 });
 
-describe("install Host-loading handoff (spec #491 US-017, #515)", () => {
-  test("a first installation offers the optional loading check after the receipt", async () => {
+describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
+  test("a first installation offers the optional loading check and required Host Setup Steps", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
 
@@ -346,63 +346,76 @@ describe("install Host-loading handoff (spec #491 US-017, #515)", () => {
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env: { PATH: hermeticCodexPath() } },
     );
 
     expect(exitCode).toBe(0);
     const human = plain(streams.humanText());
-    // US-017 (#515): the receipt's committed evidence proves this invocation
-    // began codex's Profile delivery in the Project, so the optional check is
-    // offered after the next action. It directs a user action and claims no
-    // observed loading (OOS-009).
-    expect(human).toContain("To check that codex loaded Profile coding");
-    expect(human).toContain("ask codex what Profile material it loaded");
-    // #648 still owns the loading-check sentence identity; the receipt body
-    // names the Project by its stable path (US-006, #647).
-    expect(human).toContain(`start a new codex session in ${basename(projectPath)}`);
+    // US-012: the receipt that created the Codex SessionStart hook surfaces
+    // its required approval step (DEC-009, ADR-0012).
+    expect(human).toContain("First use:");
+    expect(human).toContain(
+      "Review and approve the generated SessionStart hook when Codex asks",
+    );
+    // The optional check is one short action on the stable Project path
+    // (US-006); it never claims loading was observed (OOS-001).
+    expect(human).toContain(
+      `Optional check: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
+    );
+    expect(human).not.toContain("installed material should appear");
     expect(human).toContain(`Installed for ${projectPath}`);
   });
 
-  test("an unchanged install offers no loading check", async () => {
+  test("an unchanged install offers no loading check and no First use", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
+    const env = { PATH: hermeticCodexPath() };
     await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     const { exitCode, streams } = await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     expect(exitCode).toBe(0);
     // Nothing was committed, so no handoff guidance follows the receipt.
-    expect(plain(streams.humanText())).not.toContain("To check that ");
+    expect(plain(streams.humanText())).not.toContain("Optional check: ");
+    expect(plain(streams.humanText())).not.toContain("First use:");
   });
 
-  test("adding a Host to an installed Project offers the loading check", async () => {
+  test("adding a Host offers the loading check only for the newly added Host", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
+    const env = { PATH: hermeticCodexPath() };
     await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     const { exitCode, streams } = await runInstall(
       home,
       ["coding", projectPath, "--host", "codex", "--host", "claude", "--auto-confirm"],
       nonInteractiveInput(),
+      { env },
     );
 
     expect(exitCode).toBe(0);
-    // The receipt proves claude's first outputs in the Project, so the check
-    // names every configured Host of the committed selection.
-    expect(plain(streams.humanText())).toContain(
-      "To check that claude and codex loaded Profile coding",
+    const human = plain(streams.humanText());
+    // codex was already established; only claude's delivery began (US-012).
+    expect(human).toContain(
+      `Optional check: start a new Claude session in ${projectPath} and ask what Profile material it loaded.`,
     );
+    expect(human).not.toContain("Optional check: start new Claude and Codex");
+    expect(human).not.toContain("start a new Codex session");
   });
 });
 

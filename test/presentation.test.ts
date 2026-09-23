@@ -57,6 +57,7 @@ import {
   INSTALL_CONFIRMATION_QUESTION,
   installDeclinedDocument,
   installHostSelectionNoteDocument,
+  installHostSetupNodes,
   installProfileSelectionNoteDocument,
   installTargetDocument,
   configureDeclinedDocument,
@@ -2192,7 +2193,7 @@ describe("example apply authoring handoff (issue #456, US-040, DEC-024, TEST-015
   });
 });
 
-describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS-009)", () => {
+describe("Host-loading optional check and next-use instruction (US-012, ADR-0043, OOS-001)", () => {
   /** A changed apply receipt that installed or refreshed one Profile's outputs. */
   const changedApply = (
     profile: string,
@@ -2220,35 +2221,40 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     return applyResult(receipt, resultingState);
   };
 
-  /** Every prose line of the document that carries the verification instruction. */
+  /** Every prose line of the document that carries the optional check. */
   const verificationLines = (document: PresentationDocument): readonly string[] =>
     flattenPresentationNodes(document)
-      .filter((node) => node.kind === "prose" && nodeText(node).startsWith("To check that "))
+      .filter((node) => node.kind === "prose" && nodeText(node).startsWith("Optional check: "))
       .map((line) => nodeText(line));
 
-  test("a successful changed update follows readiness with one concrete Project-local check", () => {
+  test("a first delivery offers one short optional check on the stable Project path", () => {
     const document = applyReportDocument(changedApply("coding"));
     const lines = verificationLines(document);
-    // Exactly one instruction, and it is the trailing node: the readiness
-    // statement is immediately followed by the way to confirm loading.
     expect(lines).toHaveLength(1);
-    expect(flattenPresentationNodes(document).at(-1)).toMatchObject({
-      kind: "prose",
-    });
     const instruction = lines[0];
-    // The check names the configured Host, the applied Profile, and the
-    // updated Project, and directs a user action rather than claiming that
-    // Agent Profile Kit observed the loading (OOS-009).
-    expect(instruction).toContain("To check that codex loaded Profile coding");
-    expect(instruction).toContain("start a new codex session in /project-a");
-    expect(instruction).toContain("ask codex what Profile material it loaded");
-    expect(instruction).toContain("the installed material should appear in its answer");
-    // The check states no Agent Profile Kit observation and no completed
-    // Host-owned setup.
+    // One short optional action: name the newly delivering Host and the
+    // Project, and ask what material loaded — no unverifiable appearance
+    // claim (OOS-001).
+    expect(instruction).toBe(
+      "Optional check: start a new Codex session in /project-a and ask what Profile material it loaded.",
+    );
+    expect(instruction).not.toContain("installed material should appear");
     expect(instruction).not.toContain("Agent Profile Kit");
+    expect(instruction).not.toContain("loaded Profile");
   });
 
-  test("a routine update that refreshes already-delivered Host outputs omits the check (US-017, #515)", () => {
+  test("the next-use instruction is an action and never claims a Host will load", () => {
+    const document = applyReportDocument(changedApply("coding"));
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "prose" &&
+      nodeText(node) === "Start a new Host session from the Project root to use the updated material."
+    )).toBe(true);
+    expect(flattenPresentationNodes(document).some((node) =>
+      node.kind === "prose" && nodeText(node).includes("will load the next time")
+    )).toBe(false);
+  });
+
+  test("a routine update that refreshes already-delivered Host outputs omits the check (US-012, #515)", () => {
     // An ordinary repeated content update: the receipt proves an update or
     // repair of outputs the Host already consumed, never a first delivery.
     const receipt = emptyReport({
@@ -2270,17 +2276,16 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
     const document = applyReportDocument(applyResult(receipt, resultingState));
-    // The explicit negative against the same output, so a shorter positive
-    // match can never stand in for the check's absence (US-017).
     expect(verificationLines(document)).toEqual([]);
-    // The short relevant new-session reminder remains the committed update's
-    // closing guidance.
+    // The short next-use instruction remains the committed update's closing
+    // guidance.
     expect(flattenPresentationNodes(document).some((node) =>
-      node.kind === "prose" && nodeText(node).includes("will load the next time you launch")
+      node.kind === "prose" &&
+      nodeText(node) === "Start a new Host session from the Project root to use the updated material."
     )).toBe(true);
   });
 
-  test("a content update that adds a file for an already-delivering Host omits the check (US-017, #515)", () => {
+  test("a content update that adds a file for an already-delivering Host omits the check (US-012, #515)", () => {
     // The receipt proves an addition consumed by codex, but codex already
     // delivered prior output in this Project, so this is not a first delivery.
     const receipt = emptyReport({
@@ -2318,9 +2323,9 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     expect(verificationLines(applyReportDocument(applyResult(receipt, resultingState)))).toEqual([]);
   });
 
-  test("an update that delivers a Host's outputs for the first time offers the check (US-017, #515)", () => {
+  test("the check names only the Hosts whose delivery began (US-012)", () => {
     // The fleet Host-addition pattern: the Project's installation is not an
-    // addition, but the receipt proves pi's first outputs in this Project.
+    // addition; codex is refreshed while pi receives its first outputs.
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2354,26 +2359,30 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
       ],
     });
     const instruction = verificationLines(applyReportDocument(applyResult(receipt, resultingState)))[0];
-    expect(instruction).toContain("To check that codex and pi loaded Profile coding");
+    expect(instruction).toBe(
+      "Optional check: start a new Pi session in /project-a and ask what Profile material it loaded.",
+    );
+    expect(instruction).not.toContain("Codex");
   });
 
-  test("the check names every configured Host and asks for a session of each", () => {
-    // Fixture order is deliberately non-canonical: the instruction renders the
-    // Hosts in canonical order regardless of Binding order.
+  test("a first delivery for several Hosts names those Hosts in canonical order", () => {
+    // Fixture order is deliberately non-canonical.
     const document = applyReportDocument(changedApply("coding", ["codex", "claude"]));
     const instruction = verificationLines(document)[0];
-    expect(instruction).toContain("To check that claude and codex loaded Profile coding");
-    expect(instruction).toContain("start a new session of each configured Host");
-    expect(instruction).toContain("ask each Host what Profile material it loaded");
-    expect(instruction).toContain("the installed material should appear in the answers");
+    expect(instruction).toBe(
+      "Optional check: start new Claude and Codex sessions in /project-a and ask what Profile material each loaded.",
+    );
   });
 
-  test("a multi-Project update keeps the check Project-local without listing every Project", () => {
+  test("a multi-Project update pairs the distributive form with 'each loaded' (INT-2)", () => {
     const document = applyReportDocument(changedApply("coding", ["codex"], ["/project-a", "/project-b"]));
     const instruction = verificationLines(document)[0];
-    expect(instruction).toContain("in each updated Project");
+    expect(instruction).toBe(
+      "Optional check: start a new Codex session in each updated Project and ask what Profile material each loaded.",
+    );
     expect(instruction).not.toContain("/project-a");
     expect(instruction).not.toContain("/project-b");
+    expect(instruction).not.toContain("it loaded");
   });
 
   test("a no-op update omits the check", () => {
@@ -2412,7 +2421,6 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     const document = applyReportDocument(changedApply("coding"), { verbose: true });
     const lines = verificationLines(document);
     expect(lines).toHaveLength(1);
-    expect(flattenPresentationNodes(document).at(-1)).toMatchObject({ kind: "prose" });
   });
 
   test("the Project path is one atomic part, whole at narrow width (ADR-0016)", () => {
@@ -2421,13 +2429,15 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     // the renderer may split or normalize (INT-2, ADR-0016).
     const spaced = "/projects/My Demo Space/project one  two";
     const document = applyReportDocument(changedApply("coding", ["codex"], [spaced]));
-    const trailing = flattenPresentationNodes(document).at(-1);
+    const trailing = flattenPresentationNodes(document).find((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("Optional check: ")
+    );
     expect(trailing).toMatchObject({ kind: "prose" });
     const trailingParts = trailing?.kind === "prose" ? trailing.parts : [];
     expect(trailingParts).toEqual([
-      expect.stringMatching(/^To check that codex loaded Profile coding/),
+      "Optional check: start a new Codex session in ",
       expect.objectContaining({ kind: "path", canonicalPath: spaced }),
-      expect.stringMatching(/ and ask codex what Profile material it loaded/),
+      " and ask what Profile material it loaded.",
     ]);
     for (const width of [40, 100]) {
       // Render the check node in isolation: the Apply Receipt's Project
@@ -2438,8 +2448,6 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
       );
       // The whole identity — including its repeated spaces — sits on one
       // line; a split or normalized value would not match the full string.
-      // The atomic run may occupy its own continuation line. This concise
-      // view names the single Project by its shortest-unambiguous identity.
       const pathLines = rendered.split("\n").filter((line) =>
         line.includes("project one  two")
       );
@@ -2447,9 +2455,25 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     }
   });
 
+  test("the check is a stable action path, not a scanning alias (US-006, #647)", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-check-home-"));
+    try {
+      const project = join(home, "projects", "demo");
+      const document = applyReportDocument(changedApply("coding", ["codex"], [project]));
+      const rendered = renderPresentationDocument(document, defaultRenderContext, {
+        home,
+        cwd: home,
+      });
+      expect(rendered).toContain("Optional check: start a new Codex session in ~/projects/demo");
+      expect(rendered).not.toContain("session in demo ");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("the check precedes the first-run authoring handoff, which still closes the view", () => {
-    // Cross-ticket coherence with #456 (US-040): one closing frame — verify
-    // loading, then author real material — with no duplicated teaching.
+    // Cross-ticket coherence with #456 (US-040): one closing frame — optional
+    // check, then author real material — with no duplicated teaching.
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2473,7 +2497,7 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
     );
     const nodes = flattenPresentationNodes(document);
     const checkIndex = nodes.findIndex((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("To check that ")
+      node.kind === "prose" && nodeText(node).startsWith("Optional check: ")
     );
     const handoffIndex = nodes.findIndex((node) => node.kind === "heading" && nodeText(node) === "Now author your own:");
     expect(checkIndex).toBeGreaterThan(-1);
@@ -2482,6 +2506,96 @@ describe("post-apply Host-loading verification (issue #457, US-041, DEC-025, OOS
       kind: "sentence",
       category: "command",
     });
+  });
+});
+
+describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
+  const hookPath = ".codex/hooks.json";
+  const hookApproval = (): HostSetupStep => ({
+    host: "codex",
+    kind: "approval-required",
+    message: "Review and approve the generated SessionStart hook when Codex asks.",
+    consequence: "Declining the hook prevents Profile Context from loading.",
+    output: hookPath,
+    provenance: "transition",
+  });
+  const codexTrust = (): HostSetupStep => ({
+    host: "codex",
+    kind: "trust-required",
+    message: "Trust the bound project in Codex.",
+    consequence: "Profile Context does not load until the project is trusted.",
+    provenance: "standing",
+  });
+  const sharedPath = (): HostSetupStep => ({
+    host: "grok",
+    kind: "shared-path",
+    message: "Grok uses Claude's shared rule path.",
+    provenance: "standing",
+  });
+
+  const installReports = (setupSteps: readonly HostSetupStep[], hosts: readonly SupportedHost[] = ["codex"]) => {
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps,
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: hookPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    return { receipt, resultingState };
+  };
+
+  test("a first install surfaces relevant required Adapter-authored steps as First use", () => {
+    const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
+    const nodes = installHostSetupNodes(resultingState, receipt, ["codex", "grok"]);
+    const firstUse = indexWhere(nodes, (node) => node.kind === "heading" && nodeText(node) === "First use:");
+    expect(firstUse).toBeGreaterThan(-1);
+    expect(listItemsFrom(nodes, firstUse + 1)).toEqual([
+      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
+      expect.stringContaining("Trust the bound project in Codex"),
+    ]);
+    // Shared-path stays out of the concise receipt; longer explanation is
+    // focused guidance and verbose/JSON evidence.
+    expect(listItemsIn(nodes).some((text) => text.includes("shared rule path"))).toBe(false);
+    // Adapter text is presented through the concise rewriter; the unshortened
+    // consequence is not dumped on the default receipt.
+    expect(documentText(nodes)).not.toContain("Declining the hook prevents Profile Context from loading.");
+  });
+
+  test("steps for Hosts outside the installed selection never appear", () => {
+    const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
+    const nodes = installHostSetupNodes(resultingState, receipt, ["claude"]);
+    expect(headingsIn(nodes)).not.toContain("First use:");
+  });
+
+  test("an unchanged install renders no First use section", () => {
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        hosts: ["codex"],
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [codexTrust()],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+    const nodes = installHostSetupNodes(receipt, receipt, ["codex"]);
+    expect(headingsIn(nodes)).not.toContain("First use:");
   });
 });
 

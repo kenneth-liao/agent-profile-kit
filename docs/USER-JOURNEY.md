@@ -76,7 +76,7 @@ than duplicating it.
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
 | 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the retained-evidence route, and on an interactive terminal a confirmation before any changed generated file is replaced |
-| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and a first installation or Host addition states one concrete Project-local action that checks whether the Host loaded the Profile (ADR-0043) |
+| 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native Host discovery, and a first installation or Host addition states one short optional Project-local check for the Hosts whose delivery began (ADR-0043) |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
 | 12 | Tear down | `uninstall [--here \| --project <path> \| --all] [--profile <name>] [--host <host>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` | Remove selected installations and forget their recorded selection, after confirmation; `--host` removes only those Hosts within the scope; a later update does not reinstall them |
@@ -446,30 +446,38 @@ $ apkit install example <project> --host codex --auto-confirm
 Installed for <project>
   Profile: example
   Hosts: codex
-To check that codex loaded Profile example, start a new codex session in
-  <project> and ask codex what Profile material it loaded; the installed
-  material should appear in its answer.
+
+First use:
+- Review and approve the generated SessionStart hook when Codex asks so the
+  Profile can load.
+- Trust the bound project in Codex so the Profile can load.
+
+Optional check: start a new Codex session in <project> and ask what Profile
+  material it loaded.
 
 Next: apkit status
 Details: apkit details
 ```
 
 ```
-$ apkit install ops <project> --host codex --host claude --auto-confirm
+$ apkit install example <project> --host codex --host claude --auto-confirm
 Replaced installation for <project>
-  Profile: example → ops
+  Profile: example
   Hosts: codex → claude, codex
-To check that claude and codex loaded Profile ops, start a new session of
-  each configured Host in <project> and ask each Host what Profile material it
-  loaded; the installed material should appear in the answers.
+
+Optional check: start a new Claude session in <project> and ask what Profile
+  material it loaded.
 
 Next: apkit status
 Details: apkit details
 ```
 
-A first installation and a Host addition offer the optional Host-loading
-check beside the receipt (US-017, ADR-0043); re-running the same selection
-commits nothing and renders no check.
+A first installation and a Host addition offer the short optional Host-loading
+check beside the receipt for the Hosts whose delivery began (US-012,
+ADR-0043); re-running the same selection commits nothing and renders no check.
+Required Adapter-authored Host Setup Steps appear as concise `First use:` body
+guidance under the one footer, through the shared relevance policy; longer
+loading explanation stays behind `apkit guide --full`.
 
 An interactive `install` shows the proposed scope and asks for confirmation
 before any write; `--auto-confirm` answers that confirmation. The default-No
@@ -721,20 +729,20 @@ First use:
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Profile example will load the next time you launch a configured Host from a
-  bound Project root.
-To check that claude and codex loaded Profile example, start a new session of
-  each configured Host in each updated Project and ask each Host what Profile
-  material it loaded; the installed material should appear in the answers.
+Start a new Host session from the Project root to use the updated material.
+Optional check: start a new Codex session in <project> and ask what Profile
+  material it loaded.
 
 Details: apkit details
 ```
 
 The sample above is a first delivery — the receipt proves the hook output is
-new for its Host. The optional Host-loading check is offered only then (US-017,
-ADR-0043): a first installation or Host addition offers it, whether through
-`install` or an update that installs a pending Project, while an ordinary
-repeated content update closes with the readiness reminder alone:
+new for its Host. The short optional Host-loading check is offered only then
+(US-012, ADR-0043) and names only the Hosts whose delivery began: a first
+installation or Host addition offers it, whether through `install` or an
+update that installs a pending Project, while an ordinary repeated content
+update closes with the next-use instruction alone and never claims a Host
+will load:
 
 The first-run example update closes with a concrete handoff to authoring real
 material (US-040, DEC-024); routine applies do not repeat it:
@@ -802,22 +810,22 @@ Verbose update retains the complete per-Project, per-path inventory, and
 machine JSON keeps its keys and meanings (US-060); the completed operation's
 complete evidence is one `apkit details` away, never a re-run. The default
 receipt states its impact once and is followed by change-relevant first-use
-guidance and the invocation-wide next-launch readiness (once per update
-invocation, never split by Host or Project set); the optional Host-loading
-check follows the readiness statement only when the receipt proves delivery
-began (ADR-0043).
+guidance and the invocation-wide next-use instruction (once per update
+invocation, never split by Host or Project set); the short optional
+Host-loading check follows that instruction only when the receipt proves
+delivery began for a Host (ADR-0043).
 
 ### 9. Use
 
-A successful first installation or Host addition states one concrete
-Project-local action that checks whether the Agent Host loaded the Profile
-(US-041, DEC-025, US-017, ADR-0043): start a new session of the configured Host
-in the updated Project and ask it what Profile material it loaded — the
-installed material should appear in the answer. Agent Profile Kit never claims
-it observed that loading (OOS-009). Routine repeated content updates offer no
-optional check; their closing readiness reminder already states that a new
-session loads the refreshed material. Beyond that check, setup guidance is
-reported conditionally by Host *and* by what was installed:
+A successful first installation or Host addition states one short optional
+Project-local check for the Hosts whose delivery began (US-012, ADR-0043):
+start a new Host session in the Project and ask what Profile material it
+loaded. Agent Profile Kit never claims it observed that loading or that
+material appeared in an answer (OOS-001). Longer loading explanation lives
+behind focused guidance (`apkit guide --full`). Routine repeated content
+updates offer no optional check; their closing next-use instruction already
+states that a new Host session uses the updated material. Beyond that check,
+setup guidance is reported conditionally by Host *and* by what was installed:
 
 | Host | Requirement after `update` |
 |------|---------------------------|
