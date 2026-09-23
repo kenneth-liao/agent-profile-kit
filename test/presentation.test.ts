@@ -6192,7 +6192,9 @@ describe("standalone view presentation documents (#389)", () => {
       .map((node) => nodeText(node));
     // One shared definition with the install Host picker (US-003, #669):
     // `installed` beside a Host is ambiguous — in this kit installing means
-    // installing into a Project.
+    // installing into a Project. Literal bytes pin the wording end-to-end;
+    // the constant checks pin that the literals read the one shared home.
+    expect(hostLines[0]).toContain("codex — detected");
     expect(hostLines[0]).toContain(`codex — ${HOST_DETECTION_LABELS.detected}`);
     expect(hostLines[1]).toContain(`claude — ${HOST_DETECTION_LABELS.notFound}`);
     expect(hostLines.join("\n")).not.toContain("— installed");
