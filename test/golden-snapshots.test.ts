@@ -18,7 +18,6 @@ import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { bindProject } from "../installer/bind-project.js";
 import { operationHistoryPath } from "../installer/operation-history.js";
-import { TEST_NOW_ENV } from "../cli/details-command.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { humanGuide, agentGuide } from "../cli/guides.js";
 import { readSnapshotBodies } from "./support/snapshot-file.js";
@@ -208,16 +207,12 @@ async function runCli(
   home: string,
   args: readonly string[],
   cwd?: string,
-  environment?: NodeJS.ProcessEnv,
 ): Promise<ProcessResult> {
   return runProcess({
     executable: controlledToolPath("node"),
     arguments_: [cliPath, ...args],
     ...(cwd === undefined ? {} : { cwd }),
-    environment: {
-      ...redirectedEnvironment(home),
-      ...(environment ?? {}),
-    },
+    environment: redirectedEnvironment(home),
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI golden",
   });
@@ -419,11 +414,7 @@ interface HumanView {
   readonly snapshot: string;
   readonly commandId?: string;
   readonly extraRoute?: (typeof EXTRA_ROUTES)[number];
-  readonly prepare: () => Promise<{
-    home: string;
-    args: readonly string[];
-    environment?: NodeJS.ProcessEnv;
-  }>;
+  readonly prepare: () => Promise<{ home: string; args: readonly string[] }>;
 }
 
 const HUMAN_VIEWS: readonly HumanView[] = [
@@ -509,10 +500,11 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     prepare: async () => {
       const { home, project } = await initializedHome();
       await installExample(home, project);
-      // Freeze the retained times and the compact-time clock together so the
-      // history list is a deterministic render (US-008): no global date rewrite
-      // is needed, and a wrong date anywhere else fails this snapshot.
-      const frozenStart = "2026-01-01T00:00:00.000Z";
+      // A retained start old enough to render in the absolute YYYY-MM-DD
+      // compact-time bucket: deterministic with no product clock hook and no
+      // global date rewrite (US-008). Relative buckets stay unit-tested with
+      // an injected `now`.
+      const frozenStart = "2020-01-01T00:00:00.000Z";
       const history = JSON.parse(
         readFileSync(operationHistoryPath(home), "utf8"),
       ) as {
@@ -536,13 +528,7 @@ const HUMAN_VIEWS: readonly HumanView[] = [
           2,
         )}\n`,
       );
-      return {
-        home,
-        args: ["details", "--list"],
-        environment: {
-          [TEST_NOW_ENV]: String(Date.parse("2026-01-01T00:05:00.000Z")),
-        },
-      };
+      return { home, args: ["details", "--list"] };
     },
   },
   {
@@ -892,11 +878,11 @@ describe("golden snapshots of every human view", () => {
 
   for (const view of HUMAN_VIEWS) {
     test(view.test, async () => {
-      const { home, args, environment } = await view.prepare();
+      const { home, args } = await view.prepare();
       expectGolden(
         view.snapshot,
         `golden snapshots of every human view ${view.test}: ${view.snapshot} 1`,
-        await runCli(home, args, undefined, environment),
+        await runCli(home, args),
         home,
       );
     });
