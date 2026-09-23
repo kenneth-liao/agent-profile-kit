@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { bindProject } from "../installer/bind-project.js";
+import { operationHistoryPath } from "../installer/operation-history.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { humanGuide, agentGuide } from "../cli/guides.js";
 import { readSnapshotBodies } from "./support/snapshot-file.js";
@@ -107,9 +108,15 @@ function stabilize(text: string, home: string): string {
   for (const path of replacements) {
     next = next.split(path).join(sameLengthPlaceholder(path));
   }
-  return next
+  next = next
     .replace(UUID_PATTERN, STABLE_UUID)
     .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME);
+  // Identical stabilized endpoints render as one Time line (US-008); collapse
+  // the Started/Finished pair the real-clock run may have printed.
+  return next.replace(
+    new RegExp(`Started: ${STABLE_OPERATION_TIME}\nFinished: ${STABLE_OPERATION_TIME}`, "g"),
+    `Time: ${STABLE_OPERATION_TIME}`,
+  );
 }
 
 function snapshotBody(result: ProcessResult, home: string): string {
@@ -493,6 +500,34 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     prepare: async () => {
       const { home, project } = await initializedHome();
       await installExample(home, project);
+      // A retained start old enough to render in the absolute YYYY-MM-DD
+      // compact-time bucket: deterministic with no product clock hook and no
+      // global date rewrite (US-008). Relative buckets stay unit-tested with
+      // an injected `now`.
+      const frozenStart = "2020-01-01T00:00:00.000Z";
+      const history = JSON.parse(
+        readFileSync(operationHistoryPath(home), "utf8"),
+      ) as {
+        entries: readonly {
+          startedAt: string;
+          finishedAt: string;
+        }[];
+      };
+      writeFileSync(
+        operationHistoryPath(home),
+        `${JSON.stringify(
+          {
+            ...history,
+            entries: history.entries.map((entry) => ({
+              ...entry,
+              startedAt: frozenStart,
+              finishedAt: frozenStart,
+            })),
+          },
+          null,
+          2,
+        )}\n`,
+      );
       return { home, args: ["details", "--list"] };
     },
   },

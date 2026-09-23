@@ -522,36 +522,56 @@ function renderRowGroup(
     return renderStackedRows(rows, environment, inheritedCategory);
   }
   const widths = columns.map((column) =>
-    Math.max(0, ...rendered.map((values) => values.get(column)?.[0]?.length ?? 0)),
+    Math.max(
+      column.length,
+      ...rendered.map((values) => values.get(column)?.[0]?.length ?? 0),
+    ),
   );
   const alignedWidth =
     widths.reduce((sum, width) => sum + width, 0) + COLUMN_GAP * Math.max(0, columns.length - 1);
   if (alignedWidth > environment.context.width) {
     return renderStackedRows(rows, environment, inheritedCategory);
   }
-  return rendered.map((values) =>
+  const layoutLine = (cells: readonly string[]): string =>
     styleSemanticText(
-      columns
-        .map((column, index) => {
-          const value = values.get(column)?.[0] ?? "";
+      cells
+        .map((value, index) => {
           const width = widths[index] ?? 0;
-          const padded = numeric.get(column) === true
+          return numeric.get(columns[index] ?? "") === true
             ? value.padStart(width)
             : value.padEnd(width);
-          return padded;
         })
         .join(" ".repeat(COLUMN_GAP))
         .trimEnd(),
       inheritedCategory,
       environment.context.color,
-    ),
+    );
+  // The header labels each column (US-008) and shares the value alignment.
+  const header = styleSemanticText(
+    columns
+      .map((column, index) => {
+        const width = widths[index] ?? 0;
+        return numeric.get(column) === true ? column.padStart(width) : column.padEnd(width);
+      })
+      .join(" ".repeat(COLUMN_GAP))
+      .trimEnd(),
+    "heading",
+    environment.context.color,
   );
+  return [
+    header,
+    ...rendered.map((values) =>
+      layoutLine(columns.map((column) => values.get(column)?.[0] ?? "")),
+    ),
+  ];
 }
 
 /**
- * One compact entry per row: field lines separated by a blank line so entries
- * stay visibly distinct, and an identity value wraps under its field label
- * instead of overflowing or being elided into ambiguity (US-013).
+ * One compact labeled record per row: fields pack onto as few lines as their
+ * values allow — about two lines when they fit — separated by a blank line so
+ * records stay visibly distinct. No fact is dropped (US-008). A value that
+ * cannot sit on one line keeps its label line and wraps beneath it instead of
+ * overflowing or being elided into ambiguity (US-013).
  */
 function renderStackedRows(
   rows: readonly RowNode[],
@@ -561,7 +581,9 @@ function renderStackedRows(
   const lines: string[] = [];
   rows.forEach((row, rowIndex) => {
     if (rowIndex > 0) lines.push("");
-    for (const cell of row.cells) {
+    const indent = "  ";
+    type StackedField = { readonly inline: string | undefined; readonly label: string; readonly valueLines: readonly string[] };
+    const fields: StackedField[] = row.cells.map((cell) => {
       const inlinePrefix = `${cell.column}: `;
       const inlineValue = renderCellLines(
         cell.content,
@@ -570,20 +592,47 @@ function renderStackedRows(
       );
       const inline = `${inlinePrefix}${inlineValue[0] ?? ""}`;
       if (inlineValue.length === 1 && inline.length <= environment.context.width) {
-        lines.push(styleSemanticText(inline, inheritedCategory, environment.context.color));
+        return { inline, label: cell.column, valueLines: inlineValue };
+      }
+      return {
+        inline: undefined,
+        label: cell.column,
+        valueLines: renderCellLines(
+          cell.content,
+          withWidth(environment, Math.max(1, environment.context.width - indent.length)),
+          inheritedCategory,
+        ),
+      };
+    });
+
+    let current = "";
+    const flush = (): void => {
+      if (current === "") return;
+      lines.push(styleSemanticText(current, inheritedCategory, environment.context.color));
+      current = "";
+    };
+    for (const field of fields) {
+      if (field.inline === undefined) {
+        flush();
+        lines.push(styleSemanticText(field.label, inheritedCategory, environment.context.color));
+        for (const valueLine of field.valueLines) {
+          lines.push(
+            styleSemanticText(`${indent}${valueLine}`, inheritedCategory, environment.context.color),
+          );
+        }
         continue;
       }
-      lines.push(styleSemanticText(cell.column, inheritedCategory, environment.context.color));
-      const indent = "  ";
-      const valueLines = renderCellLines(
-        cell.content,
-        withWidth(environment, Math.max(1, environment.context.width - indent.length)),
-        inheritedCategory,
-      );
-      for (const valueLine of valueLines) {
-        lines.push(styleSemanticText(`${indent}${valueLine}`, inheritedCategory, environment.context.color));
+      const candidate = current === ""
+        ? field.inline
+        : `${current}${" ".repeat(COLUMN_GAP)}${field.inline}`;
+      if (candidate.length <= environment.context.width) {
+        current = candidate;
+        continue;
       }
+      flush();
+      current = field.inline;
     }
+    flush();
   });
   return lines;
 }

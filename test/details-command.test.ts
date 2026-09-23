@@ -222,7 +222,7 @@ function invokeUpdate(
 async function readDetails(
   home: string,
   arguments_: readonly string[],
-  options: Partial<Pick<DetailsCommandRequest, "pagerExecution" | "pagerEnvironment">> = {},
+  options: Partial<Pick<DetailsCommandRequest, "pagerExecution" | "pagerEnvironment" | "now">> = {},
 ): Promise<{ readonly exitCode: number; readonly output: string; readonly error: string }> {
   const streams = capturedStreams(arguments_.includes("--json") ? false : process.stdout.isTTY === true);
   const outcome = await runDetailsCommand({
@@ -522,7 +522,7 @@ describe("lifecycle operation recording", () => {
     )).toBeUndefined();
   });
 
-  test("committed output without enumerated paths still renders under Committed", async () => {
+  test("committed output without enumerated paths still renders under Written", async () => {
     const home = await setupHome();
     await appendOperationHistory(home, {
       command: "update",
@@ -541,8 +541,45 @@ describe("lifecycle operation recording", () => {
 
     const rendered = await readDetails(home, []);
     expect(rendered.exitCode).toBe(0);
-    expect(humanText(rendered.output)).toContain("Committed:");
+    expect(humanText(rendered.output)).toContain("Written:");
+    expect(humanText(rendered.output)).not.toContain("Committed:");
     expect(humanText(rendered.output)).toContain("committed generated output (paths not enumerated)");
+    expect(humanText(rendered.output)).toContain("Started:");
+    expect(humanText(rendered.output)).toContain("Finished:");
+    expect(humanText(rendered.output)).not.toContain("→");
+  });
+
+  test("history list uses compact human time and details keep exact timestamps", async () => {
+    const home = await setupHome();
+    await appendOperationHistory(home, {
+      command: "install",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:00:00.000Z",
+      outcome: "succeeded",
+      scope: { selection: "all" },
+      projects: [{
+        project: "/tmp/demo",
+        canonicalProject: "/tmp/demo",
+        result: "completed",
+        written: [".codex/hooks.json"],
+      }],
+    });
+
+    const now = Date.parse("2026-01-01T00:05:00.000Z");
+    const list = await readDetails(home, ["--list"], { now });
+    expect(humanText(list.output)).toContain("5m ago");
+    expect(humanText(list.output)).not.toContain("2026-01-01T00:00:00Z");
+    expect(humanText(list.output)).toContain("Operation");
+    expect(humanText(list.output)).toContain("Time");
+    expect(humanText(list.output)).toContain("Command");
+    expect(humanText(list.output)).toContain("Outcome");
+    expect(humanText(list.output)).toContain("Scope");
+
+    const latest = await readDetails(home, [], { now });
+    expect(humanText(latest.output)).toContain("Time: 2026-01-01T00:00:00Z");
+    expect(humanText(latest.output)).not.toContain("→");
+    expect(humanText(latest.output)).not.toContain("Started:");
+    expect(humanText(latest.output)).toContain("Written:");
   });
 
   test("invalid invocations and fail-closed refusals record nothing and decide explicitly", async () => {
@@ -814,7 +851,7 @@ describe("lifecycle operation recording", () => {
     expect(error).toContain("does not include it");
     // The complete run evidence is displayed, not lost with the entry.
     expect(error).toContain("Install (not saved)");
-    expect(error).toContain("Committed:");
+    expect(error).toContain("Written:");
     expect(error).toContain(".agent-profile-kit/codex/context.md");
     expect(error).toContain(".codex/hooks.json");
     expect(error).toContain("Outcome: succeeded");

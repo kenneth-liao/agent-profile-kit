@@ -1062,7 +1062,10 @@ History: ~/.agents/agent-profile-kit/operation-history.json
 exports[`golden snapshots of every human view details list: details-list 1`] = `
 "--- stdout ---
 Operation history (1):
-op-000001  2026-01-01T00:00:00Z  install  succeeded  one Project
+
+Operation  Time        Command  Outcome    Scope
+op-000001  2020-01-01  install  succeeded  one Project
+
 Run apkit details <operation-id> for one operation's complete evidence.
 --- stderr ---
 "
@@ -1071,13 +1074,13 @@ Run apkit details <operation-id> for one operation's complete evidence.
 exports[`golden snapshots of every human view details latest: details-latest 1`] = `
 "--- stdout ---
 ✔ Install op-000001
-Time: 2026-01-01T00:00:00Z → 2026-01-01T00:00:00Z
+Time: 2026-01-01T00:00:00Z
 Scope: one Project
 Profile: example
 Hosts: codex
 Outcome: succeeded
 
-Committed:
+Written:
   ~/projects/demo
     + .agent-profile-kit/codex/context.md
     + .codex/hooks.json
@@ -1087,7 +1090,7 @@ Committed:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.225.0
+Engine version: 0.226.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1112,8 +1115,9 @@ exports[`golden snapshots of every human view list projects: list-projects 1`] =
 "--- stdout ---
 Projects:
 
-demo   example  codex  configured
-other  example  codex  configured
+Project  Profile  Hosts  State
+demo     example  codex  configured
+other    example  codex  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -1968,7 +1972,7 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.225.0
+Engine version: 0.226.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -1978,7 +1982,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.225.0\x1B[0m
+\x1B[1mEngine version: 0.226.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -1988,7 +1992,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.225.0
+Engine version: 0.226.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1998,7 +2002,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.225.0\x1B[0m
+\x1B[1mEngine version: 0.226.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2010,15 +2014,11 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 Projects:
 
-Project: demo
-Profile: example
-Hosts: codex
-State: configured
+Project: demo  Profile: example
+Hosts: codex  State: configured
 
-Project: other
-Profile: example
-Hosts: codex
-State: configured
+Project: other  Profile: example
+Hosts: codex  State: configured
 
 2 Projects configured.
 Use
@@ -2033,15 +2033,11 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 \x1B[1mProjects:\x1B[0m
 
-Project: demo
-Profile: example
-Hosts: codex
-State: configured
+Project: demo  Profile: example
+Hosts: codex  State: configured
 
-Project: other
-Profile: example
-Hosts: codex
-State: configured
+Project: other  Profile: example
+Hosts: codex  State: configured
 
 2 Projects configured.
 Use
@@ -2056,8 +2052,9 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 Projects:
 
-demo   example  codex  configured
-other  example  codex  configured
+Project  Profile  Hosts  State
+demo     example  codex  configured
+other    example  codex  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -2069,8 +2066,9 @@ exports[`rendering matrix for a representative subset list projects matrix: list
 "--- stdout ---
 \x1B[1mProjects:\x1B[0m
 
-demo   example  codex  configured
-other  example  codex  configured
+\x1B[1mProject  Profile  Hosts  State\x1B[0m
+demo     example  codex  configured
+other    example  codex  configured
 
 2 Projects configured.
 Use \x1B[36mapkit status\x1B[0m to inspect Project lifecycle diagnostics.

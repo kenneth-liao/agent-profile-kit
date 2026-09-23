@@ -104,3 +104,11 @@ route for every lifecycle receipt.
   audit trail.
 - Golden baselines for the affected views change facts on purpose; their
   review rule records the accepted diff (test/__snapshots__/README.md).
+
+## Amendments
+
+- **Spec #640 US-008 (ticket #649).** Operation details use user-facing
+  file-work headings — `Written:`, `Failed:`, `Skipped:`, `Pending:` — and
+  still distinguish committed, pending and failed work. The complete evidence
+  content and the default receipt's `Updated:`/`Pending:` verbose structure
+  are unchanged.

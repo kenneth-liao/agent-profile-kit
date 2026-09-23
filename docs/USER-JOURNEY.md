@@ -174,14 +174,16 @@ deterministic close-match suggestion when available, otherwise only point to
 available inventory topic once with one human description. `list projects`
 prints the `Projects:` heading and one row per Project carrying the view's
 shortest-unambiguous identity, Profile, Hosts, and configuration state; the
-count appears once, in the summary footer (US-013, ADR-0042):
+count appears once, in the summary footer (US-013, ADR-0042). Aligned tables
+print a header row labeling each column (US-008):
 
 ```
 $ apkit list projects
 Projects:
 
-demo   example  codex   configured
-other  example  claude  configured
+Project  Profile  Hosts   State
+demo     example  codex   configured
+other    example  claude  configured
 
 2 Projects configured.
 Use apkit status to inspect Project lifecycle diagnostics.
@@ -191,11 +193,12 @@ Each Project is named by the shortest trailing path segments no other Project
 in the same view shares, so `~/projects/demo` and `~/projects/other` render as
 `demo` and `other` while two Projects named `api` keep their distinguishing
 parents. Below an 80-column terminal, and whenever a row group cannot fit the
-measure, the same fields render as separated compact entries with one blank
-line between Projects. A configured binding that cannot be resolved shows the
-short `problem` state in its row, and its complete sentence with the repair
-locator renders once after the entries. `--verbose`, `apkit details`, and
-`--json` keep the full home-relative or absolute path.
+measure, the same fields render as compact labeled records of about two lines
+when the values fit, with one blank line between Projects and no fact dropped.
+A configured binding that cannot be resolved shows the short `problem` state in
+its row, and its complete sentence with the repair locator renders once after
+the entries. `--verbose`, `apkit details`, and `--json` keep the full
+home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
 `list hosts` leads with the canonical Hosts supported for configured Projects,
@@ -946,8 +949,12 @@ neutral cancellation/decline (US-010), so the
 complete record of an earlier run is retrieved without repeating its writes:
 `apkit details` shows the latest retained operation, `apkit details --list` the
 compact newest-first history of the latest 200 runs, and `apkit details
-<operation-id>` one run — each naming its command, time, requested scope,
-outcome, committed generated paths, and failed, skipped, or remaining work.
+<operation-id>` one run — each naming its command, requested scope, and
+outcome, with user-facing file-work headings that keep written, failed, skipped
+and pending work distinct. The history list uses compact human time and labels
+every column when the table aligns (US-008); operation details keep exact
+timestamps, showing one `Time` line when start and end are identical and
+`Started`/`Finished` only for a real interval — never a duration claim.
 Clean no-ops and plain declines/cancels omit the printed hint while retention
 itself is unchanged. `--json` publishes the same structured evidence, and an operation that
 stopped after committing part of its scope keeps that committed evidence. The document lives at
