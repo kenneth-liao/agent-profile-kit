@@ -227,7 +227,7 @@ describe("bare interactive uninstall Project selection", () => {
     const input = fakeInteractiveInput();
     const started = startUninstall(home, [], input);
     await waitForOutput(started.streams.humanText, "Which Projects");
-    expect(plain(started.streams.humanText())).toContain("space toggles");
+    expect(plain(started.streams.humanText())).toContain("space toggle");
     // Toggle only the highlighted Project, then submit: no pre-selection
     // means exactly one Project is picked here.
     input.write(" ");
@@ -267,12 +267,12 @@ describe("bare interactive uninstall Project selection", () => {
     // change. Each toggle waits for its filter-applied render, so no toggle
     // can race the asynchronous filter into becoming filter text.
     input.write("alpha");
-    await waitForOutput(started.streams.humanText, "Filtered results for: alpha");
+    await waitForOutput(started.streams.humanText, "› alpha");
     input.write(" ");
     await settle(150);
     for (let index = 0; index < "alpha".length; index += 1) input.write("");
     input.write("beta");
-    await waitForOutput(started.streams.humanText, "Filtered results for: beta");
+    await waitForOutput(started.streams.humanText, "› beta");
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -458,7 +458,7 @@ describe("interactive Host-only routing and removal mode", () => {
     // the toggle, so no type-ahead race can widen the pick.
     const firstSuffix = first.slice(-6);
     input.write(firstSuffix);
-    await waitForOutput(started.streams.humanText, `Filtered results for: ${firstSuffix}`);
+    await waitForOutput(started.streams.humanText, `› ${firstSuffix}`);
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -521,7 +521,7 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Which Hosts");
     input.write("pi");
-    await waitForOutput(started.streams.humanText, "Filtered results for: pi");
+    await waitForOutput(started.streams.humanText, "› pi");
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -566,7 +566,7 @@ describe("interactive Host-only routing and removal mode", () => {
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Which Hosts");
     input.write("codex");
-    await waitForOutput(started.streams.humanText, "Filtered results for: codex");
+    await waitForOutput(started.streams.humanText, "› codex");
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -591,7 +591,7 @@ describe("interactive Host-only routing and removal mode", () => {
     await waitForOutput(started.streams.humanText, "Which Projects");
     const suffix = project.slice(-6);
     input.write(suffix);
-    await waitForOutput(started.streams.humanText, `Filtered results for: ${suffix}`);
+    await waitForOutput(started.streams.humanText, `› ${suffix}`);
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -634,7 +634,7 @@ describe("interactive Host-only routing and removal mode", () => {
     await waitForOutput(started.streams.humanText, "Which Projects");
     const suffix = project.slice(-6);
     input.write(suffix);
-    await waitForOutput(started.streams.humanText, `Filtered results for: ${suffix}`);
+    await waitForOutput(started.streams.humanText, `› ${suffix}`);
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -645,7 +645,7 @@ describe("interactive Host-only routing and removal mode", () => {
     await waitForOutput(started.streams.humanText, "Which Hosts");
     rebindHosts(home, project, ["pi"]);
     input.write("codex");
-    await waitForOutput(started.streams.humanText, "Filtered results for: codex");
+    await waitForOutput(started.streams.humanText, "› codex");
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -698,7 +698,7 @@ describe("interactive picked partial-removal consent", () => {
     await waitForOutput(started.streams.humanText, "Which Projects");
     const driftedSuffix = drifted.slice(-6);
     input.write(driftedSuffix);
-    await waitForOutput(started.streams.humanText, `Filtered results for: ${driftedSuffix}`);
+    await waitForOutput(started.streams.humanText, `› ${driftedSuffix}`);
     input.write(" ");
     await settle(150);
     input.write("\r");
@@ -708,7 +708,7 @@ describe("interactive picked partial-removal consent", () => {
     input.write("\r");
     await waitForOutput(started.streams.humanText, "Which Hosts");
     input.write("codex");
-    await waitForOutput(started.streams.humanText, "Filtered results for: codex");
+    await waitForOutput(started.streams.humanText, "› codex");
     input.write(" ");
     await settle(150);
     input.write("\r");

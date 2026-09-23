@@ -10,8 +10,8 @@
  * Synchronization rule (#542): input is sent only after the required
  * prompt/redraw state is OBSERVED — the transcript offset is captured
  * immediately before each triggering write, filter Enter waits for the
- * filter echo ("Filtered results for: <input>"), toggles for the selected-
- * marker redraw (◉) — never a fixed settle delay.
+ * filter echo (`› <input>`), toggles for the selected-
+ * marker redraw (◼) — never a fixed settle delay.
  */
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
@@ -76,7 +76,7 @@ describe("interactive configure under a real PTY", () => {
       await session.waitForTranscript("Which Context Modules?");
       const contextFilterOffset = session.transcriptLength();
       session.write("extra");
-      await session.waitForTranscript("Filtered results for: extra", { after: contextFilterOffset });
+      await session.waitForTranscript("› extra", { after: contextFilterOffset });
       const contextEnterOffset = session.transcriptLength();
       session.write("\r");
       // Skills picker: filter, observe the filter echo, observe the toggle
@@ -84,10 +84,10 @@ describe("interactive configure under a real PTY", () => {
       await session.waitForTranscript("Which Skills?", { after: contextEnterOffset });
       const skillsFilterOffset = session.transcriptLength();
       session.write("review");
-      await session.waitForTranscript("Filtered results for: review", { after: skillsFilterOffset });
+      await session.waitForTranscript("› review", { after: skillsFilterOffset });
       const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await session.waitForTranscript("◉review-pr", { after: toggleOffset });
+      await session.waitForTranscript("◼review-pr", { after: toggleOffset });
       const skillsEnterOffset = session.transcriptLength();
       session.write("\r");
       // The pre-save statement names the reusable Profile; confirm.

@@ -101,15 +101,15 @@ describe("searchable prompts under a real PTY", () => {
       // row is styling — raw matching preserves the ANSI evidence).
       const firstArrowOffset = session.transcriptLength();
       session.write("\x1b[B");
-      await session.waitForTranscript("\x1b[36m\x1b[4mcodex", { after: firstArrowOffset, raw: true });
+      await session.waitForTranscript("❯◻codex", { after: firstArrowOffset });
       const secondArrowOffset = session.transcriptLength();
       session.write("\x1b[B");
-      await session.waitForTranscript("\x1b[36m\x1b[4mpi", { after: secondArrowOffset, raw: true });
+      await session.waitForTranscript("❯◻pi", { after: secondArrowOffset });
       const toggleOffset = session.transcriptLength();
       session.write(" ");
-      // The selected marker (◉) next to the highlighted title is the toggle
-      // redraw; unselected rows render ◯.
-      await session.waitForTranscript("◉pi", { after: toggleOffset });
+      // The selected marker (◼) next to the highlighted title is the toggle
+      // redraw; unselected rows render ◻.
+      await session.waitForTranscript("◼pi", { after: toggleOffset });
       const enterOffset = session.transcriptLength();
       session.write("\r");
       const { text } = await session.waitForTranscript('"values":["pi"]', { after: enterOffset });
@@ -159,10 +159,10 @@ describe("guided install under a real PTY", () => {
       await session.waitForTranscript("Which Agent Hosts?", { after: profileEnterOffset });
       const hostFilterOffset = session.transcriptLength();
       session.write("codex");
-      await session.waitForTranscript("Filtered results for: codex", { after: hostFilterOffset });
+      await session.waitForTranscript("› codex", { after: hostFilterOffset });
       const toggleOffset = session.transcriptLength();
       session.write(" ");
-      await session.waitForTranscript("◉codex", { after: toggleOffset });
+      await session.waitForTranscript("◼codex", { after: toggleOffset });
       const hostEnterOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("(y/N)", { after: hostEnterOffset });

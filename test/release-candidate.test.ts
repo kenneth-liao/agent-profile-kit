@@ -595,7 +595,7 @@ describe("project-bound release candidate", () => {
     expect(packedManifest.os).toEqual(["darwin"]);
     expect(packedManifest.files).toEqual(["dist/cli.js", "docs/guides", "README.md"]);
     expect(packedManifest.bin).toEqual({ apkit: "./dist/cli.js" });
-    // Prompt support is bundled into the single CLI file (DEC-036): the
+    // Prompt support is bundled into the single CLI file (ADR-0050): the
     // published package carries no runtime dependency to resolve.
     expect(packedManifest.dependencies).toBeUndefined();
 
@@ -649,7 +649,7 @@ describe("project-bound release candidate", () => {
       env: { ...process.env, HOME: isolatedHome() },
       stdio: "pipe",
     });
-    expect(existsSync(join(installPrefix, "node_modules", "prompts"))).toBe(false);
+    expect(existsSync(join(installPrefix, "node_modules", "@inquirer"))).toBe(false);
     const home = isolatedHome();
     const installedCli = join(installPrefix, "node_modules", ".bin", "apkit");
     const runInstalled = (arguments_: readonly string[]) =>
