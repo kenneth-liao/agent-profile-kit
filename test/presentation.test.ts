@@ -12192,6 +12192,71 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     expect(rendered).not.toContain("settled (");
   });
 
+  test("mixed Primary Causes render rows in PRIMARY_CAUSE_ORDER then settled (INT-1)", () => {
+    const document = lifecycleStatusDocument(mixedFleet(), { workspace });
+    const rendered = renderBoundary(document, context(100));
+
+    // Cause labels appear in the promised order: each cause's row is reached
+    // before the next cause's row, and settled `up to date` is last.
+    const causeOrder = [
+      "needs attention",
+      "generated files changed",
+      "generated files missing",
+      "not installed yet",
+      "source changed",
+    ] as const;
+    const causeIndexes = causeOrder.map((label) => rendered.indexOf(label));
+    for (let index = 1; index < causeIndexes.length; index += 1) {
+      expect(causeIndexes[index]!).toBeGreaterThan(causeIndexes[index - 1]!);
+    }
+    const settledIndex = rendered.indexOf("up to date");
+    expect(settledIndex).toBeGreaterThan(causeIndexes[causeOrder.length - 1]!);
+
+    // Project rows follow the same sequence (alpha…zeta map one-to-one onto
+    // the causes above, settled last).
+    const projectOrder = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta"] as const;
+    const projectIndexes = projectOrder.map((name) => rendered.indexOf(name));
+    for (let index = 1; index < projectIndexes.length; index += 1) {
+      expect(projectIndexes[index]!).toBeGreaterThan(projectIndexes[index - 1]!);
+    }
+  });
+
+  test("same-cause Projects break ties by canonical Project (INT-1)", () => {
+    const sameCause = {
+      brokenProfileViolations: [],
+      globalBlockers: [],
+      projects: [
+        // Insertion order is deliberately reverse-canonical.
+        createRecord({
+          canonicalProject: "/fleet/zulu",
+          project: "/fleet/zulu",
+          state: { kind: "stale source" },
+        }),
+        createRecord({
+          canonicalProject: "/fleet/alpha",
+          project: "/fleet/alpha",
+          state: { kind: "stale source" },
+        }),
+        createRecord({
+          canonicalProject: "/fleet/middle",
+          project: "/fleet/middle",
+          state: { kind: "stale source" },
+        }),
+      ],
+    };
+    const document = lifecycleStatusDocument(sameCause, { workspace });
+    const rendered = renderBoundary(document, context(100));
+
+    const alphaAt = rendered.indexOf("alpha");
+    const middleAt = rendered.indexOf("middle");
+    const zuluAt = rendered.indexOf("zulu");
+    expect(alphaAt).toBeGreaterThan(-1);
+    expect(middleAt).toBeGreaterThan(alphaAt);
+    expect(zuluAt).toBeGreaterThan(middleAt);
+    // Every row still carries the same canonical cause.
+    expect(rendered.match(/source changed/g) ?? []).toHaveLength(3);
+  });
+
   test("pending work without a Blocker uses the warning headline Ready to update", () => {
     const pendingOnly = {
       brokenProfileViolations: [],
