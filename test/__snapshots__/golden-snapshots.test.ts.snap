@@ -1144,12 +1144,12 @@ Use <profile> with apkit install to select it for a Project, or run
 exports[`golden snapshots of every human view list hosts: list-hosts 1`] = `
 "--- stdout ---
 Supported Hosts:
-  antigravity — installed
-  claude — installed
-  codex — installed
-  grok — installed
-  opencode — installed
-  pi — installed
+  antigravity — detected
+  claude — detected
+  codex — detected
+  grok — detected
+  opencode — detected
+  pi — detected
 
 "not found" means the Host executable was not detected here.
 Every Host stays selectable with apkit install.

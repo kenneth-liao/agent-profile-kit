@@ -11438,7 +11438,7 @@ describe("apkit list", () => {
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
 
-  test("hosts labels installed detected executables", async () => {
+  test("hosts labels detected executables with the shared detected wording", async () => {
     const home = isolatedHome();
 
     const result = await runCliWithPath(
@@ -11452,7 +11452,7 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
-        SUPPORTED_HOSTS.map((host) => `  ${host} — installed\n`).join("") +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — detected\n`).join("") +
         "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
     );
   });
@@ -11461,7 +11461,7 @@ describe("apkit list", () => {
     const home = isolatedHome();
 
     // One controlled Host stub deliberately absent: that Host degrades to
-    // "not found" while every other Host reports installed, and the
+    // "not found" while every other Host reports detected, and the
     // undetected Host stays listed as an available installation choice.
     // The call only seeds home/bin, which pathWithoutHostStub symlinks from.
     installControlledHosts(home);
@@ -11472,7 +11472,7 @@ describe("apkit list", () => {
     expect(result.stdout).toContain("  codex — not found\n");
     for (const host of SUPPORTED_HOSTS) {
       if (host === "codex") continue;
-      expect(result.stdout).toContain(`  ${host} — installed\n`);
+      expect(result.stdout).toContain(`  ${host} — detected\n`);
     }
     expect(existsSync(join(home, ".agents"))).toBe(false);
   });
@@ -11508,7 +11508,7 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "Supported Hosts:\n" +
-        SUPPORTED_HOSTS.map((host) => `  ${host} — installed\n`).join("") +
+        SUPPORTED_HOSTS.map((host) => `  ${host} — detected\n`).join("") +
         "\n\"not found\" means the Host executable was not detected here.\nEvery Host stays selectable with apkit install.\n",
     );
     // No Host executable was started and the command wrote nothing.

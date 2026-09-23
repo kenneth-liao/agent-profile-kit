@@ -47,6 +47,7 @@ import {
   formatLifecycleJson,
   formatLifecycleToolErrorJson,
   lifecycleExitCode,
+  HOST_DETECTION_LABELS,
   INSTALL_CONFIRMATION_QUESTION,
   type ChangedFileAnsweringScope,
   type InstallRecoveryEvidence,
@@ -352,7 +353,9 @@ async function collectMissingInstallChoices(
         selected: editingExisting
           ? previousHosts.has(host)
           : detectedSet.has(host),
-        annotation: detectedSet.has(host) ? "detected" : "not found",
+        annotation: detectedSet.has(host)
+          ? HOST_DETECTION_LABELS.detected
+          : HOST_DETECTION_LABELS.notFound,
       })),
       { min: 1 },
     );

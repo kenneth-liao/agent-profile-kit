@@ -1306,12 +1306,23 @@ export function formatProfileDetailToolErrorJson(
   );
 }
 
+/** The one shared Host-detection wording (#669, US-003): the `install` Host
+ * picker annotations and the `list hosts` inventory labels both read this, so
+ * a found Host is always `detected` and a missing one `not found`. The word
+ * `installed` is reserved for installing into a Project and never appears
+ * beside a Host as detection evidence. */
+export const HOST_DETECTION_LABELS = {
+  detected: "detected",
+  notFound: "not found",
+} as const;
+
 /** The Agent Host inventory listing as a presentation document (US-018).
- * Executable detection is advisory: each supported Host carries an
- * installed/not-found label, and the advisory sentence distinguishes
- * executable presence from Profile loading while keeping every Host an
- * available installation choice. Detection facts are human-view evidence
- * only; the machine payload stays byte-stable (DEC-009). */
+ * Executable detection is advisory: each supported Host carries the shared
+ * detected/not-found label (one home for that wording; #669), and the
+ * advisory sentence distinguishes executable presence from Profile loading
+ * while keeping every Host an available installation choice. Detection facts
+ * are human-view evidence only; the machine payload stays byte-stable
+ * (DEC-009). */
 export function hostInventoryDocument(
   hosts: readonly HostInventoryRecord[],
   detected: readonly SupportedHost[],
@@ -1323,13 +1334,15 @@ export function hostInventoryDocument(
       parts: [
         "  ",
         identifierPart(host),
-        detected.includes(host) ? " — installed" : " — not found",
+        detected.includes(host)
+          ? ` — ${HOST_DETECTION_LABELS.detected}`
+          : ` — ${HOST_DETECTION_LABELS.notFound}`,
       ],
     })),
     spacerNode(),
     {
       kind: "prose",
-      parts: ["\"not found\" means the Host executable was not detected here."],
+      parts: [`"${HOST_DETECTION_LABELS.notFound}" means the Host executable was not detected here.`],
     },
     {
       kind: "prose",

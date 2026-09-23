@@ -52,6 +52,7 @@ import {
   formatBlockedApplyJson,
   formatLifecycleJson,
   formatLifecycleToolErrorJson,
+  HOST_DETECTION_LABELS,
   hostInventoryDocument,
   infoDocument,
   installBlockedDocument,
@@ -6177,7 +6178,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
   });
 
-  test("host inventory labels detected executables as installed or not found", () => {
+  test("host inventory uses the shared detected/not found wording, never `installed`", () => {
     const document = hostInventoryDocument(
       [
         { host: "codex", supportsTemporaryProfileInstallation: true },
@@ -6189,10 +6190,16 @@ describe("standalone view presentation documents (#389)", () => {
     const hostLines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
       .map((node) => nodeText(node));
-    expect(hostLines[0]).toContain("codex");
-    expect(hostLines[0]).toContain("installed");
-    expect(hostLines[1]).toContain("claude");
-    expect(hostLines[1]).toContain("not found");
+    // One shared definition with the install Host picker (US-003, #669):
+    // `installed` beside a Host is ambiguous — in this kit installing means
+    // installing into a Project.
+    expect(hostLines[0]).toContain(`codex — ${HOST_DETECTION_LABELS.detected}`);
+    expect(hostLines[1]).toContain(`claude — ${HOST_DETECTION_LABELS.notFound}`);
+    expect(hostLines.join("\n")).not.toContain("— installed");
+    // The advisory sentence quotes the shared not-found wording itself.
+    expect(hostLines).toContain(
+      `"${HOST_DETECTION_LABELS.notFound}" means the Host executable was not detected here.`,
+    );
     expect(inlineCommandTexts(document)).toContain("apkit install");
   });
 

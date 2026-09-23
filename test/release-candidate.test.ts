@@ -1442,7 +1442,7 @@ describe("project-bound release candidate", () => {
     // Inventory: supported Hosts and available Profiles from canonical sources.
     const hosts = await runCli(home, ["list", "hosts"]);
     expectExitCode(hosts, 0);
-    expect(hosts.stdout).toContain("  codex — installed\n");
+    expect(hosts.stdout).toContain("  codex — detected\n");
 
     const profiles = await runCli(home, ["list", "profiles"]);
     expectExitCode(profiles, 0);
@@ -2503,7 +2503,7 @@ describe("project-bound release candidate", () => {
     const cwdBefore = fileTree(cwd);
     const hosts = await runCli(home, ["list", "hosts"], { path: stubPath, cwd });
     expectExitCode(hosts, 0);
-    expect(hosts.stdout).toContain("codex — installed");
+    expect(hosts.stdout).toContain("codex — detected");
     expect(fileTree(home)).toEqual(homeBefore);
     expect(fileTree(cwd)).toEqual(cwdBefore);
 
