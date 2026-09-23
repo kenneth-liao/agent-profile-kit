@@ -191,9 +191,18 @@ path prefixes), while nested Project records in the ReconciliationReport remain
 the sole scope authority. Human presentation groups warnings across Projects by
 the exact warning tuple `(kind, message, consequence, copyableValues)` with
 deterministic canonical sorting and renders them inline directly beside command outcomes without a separate titled `Warnings:` section or empty warning block: concise output renders each semantic warning
-once with its deterministic affected-Project count `(N Projects)`, while
-ordinary verbose output renders each semantic warning once and lists every
-affected Project via the canonical Project presenter (`displayProjectPath`).
+once, naming every affected Project through the view's one consistent identity
+(status and multi-Project scanning views use shortest-unambiguous aliases;
+install and single-Project update receipts use stable paths) with a see-all
+pointer when the list is long, while ordinary verbose output renders each
+semantic warning once and lists every affected Project via the canonical
+Project presenter (`displayProjectPath`). A missing-Host warning is its own
+`⚠` line under a truthful `✔` completed-outcome headline, with its
+Adapter-authored requirement and remedy on separate default-colored lines;
+different Hosts keep separate remedies and a genuinely shared identical
+remedy appears once with its Project list. Output never claims a successful
+generated-output update proved Host loading or that a missing Host failed the
+update.
 Machine JSON preserves normalized warning records nested under each affected
 Project without embedded Project prefixes. A concise clean `status` states that
 the selected scope is current once and emits no Host setup reminder or next

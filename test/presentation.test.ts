@@ -15,6 +15,7 @@ import {
 } from "../cli/receipts.js";
 import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
 import {
+  commandPart,
   flatInlineText,
   identifierPart,
   type CommandPart,
@@ -60,6 +61,7 @@ import {
   installHostSelectionNoteDocument,
   installHostSetupNodes,
   installProfileSelectionNoteDocument,
+  installWarningNodes,
   installTargetDocument,
   configureDeclinedDocument,
   configurePickerCancelledDocument,
@@ -8151,7 +8153,7 @@ describe("update presentation documents", () => {
 });
 
 describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
-  test("concise lifecycle output groups identical warnings and reports affected-Project count", () => {
+  test("concise lifecycle output groups identical warnings and names affected Projects", () => {
     const report: ReconciliationReport = {
       brokenProfileViolations: [],
       globalBlockers: [],
@@ -8183,12 +8185,13 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     const concise = lifecycleStatusDocument(report);
     const warningItems = listItemsIn(concise).filter((text) =>
       text.startsWith("OpenCode discovers Skills from both .claude/skills and .agents/skills"));
-    // One grouped warning item carries the affected-Project count.
+    // One grouped warning item names every affected Project.
     expect(warningItems).toHaveLength(1);
+    expect(warningItems[0]).toContain("(/project-a, /project-b, /project-c)");
     expect(headingsIn(concise)).not.toContain("Warnings:");
   });
 
-  test("concise lifecycle output reports (1 Project) for a single affected project", () => {
+  test("concise lifecycle output names the affected project rather than only a count", () => {
     const report: ReconciliationReport = {
       brokenProfileViolations: [],
       globalBlockers: [],
@@ -8205,7 +8208,9 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
 
     const concise = lifecycleStatusDocument(report);
     expect(headingsIn(concise)).not.toContain("Warnings:");
-    expect(listItemsIn(concise)).toEqual([expect.stringContaining("Codex SessionStart hooks are not enabled")]);
+    expect(listItemsIn(concise)).toEqual([
+      expect.stringContaining("Codex SessionStart hooks are not enabled (/project-a)"),
+    ]);
   });
 
   test("verbose lifecycle output renders each semantic warning once and lists every affected project", () => {
@@ -8428,9 +8433,9 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
     const conciseWarnings = listItemsIn(concise).filter((text) =>
       text.startsWith("Skill discovery collision warning") || text.startsWith("Codex SessionStart hooks warning"));
     // w1 affects 2 projects (/project-a, /project-b) because /project-a is unioned once.
-    expect(conciseWarnings).toContainEqual(expect.stringContaining("Skill discovery collision warning (2 Projects)"));
+    expect(conciseWarnings).toContainEqual(expect.stringContaining("Skill discovery collision warning (/project-a, /project-b)"));
     // w2 affects 1 project (/project-c) which was only in receipt.
-    expect(conciseWarnings).toContainEqual(expect.stringContaining("Codex SessionStart hooks warning (1 Project)"));
+    expect(conciseWarnings).toContainEqual(expect.stringContaining("Codex SessionStart hooks warning (/project-c)"));
     expect(headingsIn(concise)).not.toContain("Warnings:");
 
     const verbose = applyReportDocument(applyRes, { verbose: true });
@@ -9694,6 +9699,342 @@ describe("authoring and teardown receipt documents (#390)", () => {
       ],
     });
     expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+});
+
+describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
+  const codexMissing = {
+    problem: "Codex CLI was not found on PATH",
+    remedy: "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
+    requirement: "The selected Profile requires Codex project delivery",
+    copyableValues: ["codex"],
+  };
+  const claudeMissing = {
+    problem: "Claude Code CLI was not found on PATH",
+    remedy: "install Claude Code and ensure `claude --version` works before checking status or updating the Profile",
+    requirement: "The selected Profile requires Claude Code project delivery",
+    copyableValues: ["claude"],
+  };
+
+  function hostAttentionWarning(input: {
+    readonly problem: string;
+    readonly remedy: string;
+    readonly requirement: string;
+    readonly copyableValues?: readonly string[];
+    readonly problemParts?: readonly InlineContent[];
+    readonly remedyParts?: readonly InlineContent[];
+    readonly requirementParts?: readonly InlineContent[];
+  }): ReconciliationWarning {
+    return {
+      kind: "host-attention",
+      copyableValues: input.copyableValues ?? [],
+      parts: [`${input.problem}; ${input.remedy}`],
+      problem: input.problemParts ?? [input.problem],
+      remedy: input.remedyParts ?? [input.remedy],
+      requirement: input.requirementParts ?? [input.requirement],
+    };
+  }
+
+  test("a single Project missing one Host names that Project and keeps the outcome successful", () => {
+    const report = machineReport([
+      machineProject("~/projects/demo", {
+        warnings: [hostAttentionWarning(codexMissing)],
+      }),
+    ]);
+    const install = [...installReceiptDocument({
+      canonicalProject: "~/projects/demo",
+      hosts: ["codex"],
+      outcome: "created",
+      profile: "coding",
+      project: "~/projects/demo",
+    }), ...installWarningNodes(report)];
+    const update = applyReportDocument({
+      receipt: emptyReport({
+        desired: [{
+          canonicalProject: "~/projects/demo",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "~/projects/demo",
+          resolvedArtifacts: [],
+        }],
+        items: [{ kind: "addition", project: "~/projects/demo" }],
+        outputs: [{ kind: "addition", path: "a.md", project: "~/projects/demo" }],
+      }),
+      resultingState: report,
+    });
+
+    for (const document of [install, update]) {
+      const rendered = renderBoundary(document);
+      // US-011: the completed outcome stays truthful and separate.
+      expect(rendered).toStartWith("✔ ");
+      expect(rendered).toContain("Codex CLI was not found on PATH (~/projects/demo)");
+      expect(rendered).not.toContain("(1 Project)");
+      expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
+      expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
+      // Never claim Host loading or that the missing Host failed the update.
+      expect(rendered).not.toMatch(/proved Host loading|Host loaded the material|update failed because/i);
+    }
+    expect(renderBoundary(install)).toContain("Installed for ~/projects/demo");
+    expect(renderBoundary(update)).toContain("Update complete");
+  });
+
+  test("one Host missing across several Projects names every Project once with one remedy", () => {
+    const warning = hostAttentionWarning(codexMissing);
+    const report = machineReport([
+      machineProject("/work/alpha", { warnings: [warning] }),
+      machineProject("/work/beta", { warnings: [warning] }),
+      machineProject("/work/gamma", { warnings: [warning] }),
+    ]);
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: ["/work/alpha", "/work/beta", "/work/gamma"].map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: ["/work/alpha", "/work/beta", "/work/gamma"].map((project) => ({ kind: "addition" as const, project })),
+        outputs: ["/work/alpha", "/work/beta", "/work/gamma"].map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    expect(rendered).toStartWith("✔ Update complete");
+    // One warning statement names every affected Project (view identity).
+    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta, gamma)");
+    expect(rendered).not.toContain("(3 Projects)");
+    // The identical Adapter-authored remedy appears once.
+    expect(rendered.split("Remedy: install Codex").length - 1).toBe(1);
+  });
+
+  test("two Hosts keep separate warning lines with their own remedy and requirement", () => {
+    const report = machineReport([
+      machineProject("/work/alpha", {
+        warnings: [hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" })],
+      }),
+      machineProject("/work/beta", {
+        warnings: [
+          hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" }),
+          hostAttentionWarning(claudeMissing),
+        ],
+      }),
+    ]);
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: ["/work/alpha", "/work/beta"].map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: ["/work/alpha", "/work/beta"].map((project) => ({ kind: "addition" as const, project })),
+        outputs: ["/work/alpha", "/work/beta"].map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    expect(rendered).toStartWith("✔ Update complete");
+    // Different Hosts: each keeps its own Adapter-authored remedy and requirement.
+    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta)");
+    expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
+    expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
+    expect(rendered).toContain("Claude Code CLI was not found on PATH (beta)");
+    expect(rendered).toContain("Remedy: install Claude Code and ensure `claude --version` works");
+    expect(rendered).toContain("Requirement: The selected Profile requires Claude Code project delivery");
+    // No synthesized merge of two Host remedies.
+    expect(rendered).not.toContain("install Codex and Claude Code");
+  });
+
+  test("a fleet-scale missing-Host list names Projects and points at --verbose instead of dropping any", () => {
+    const warning = hostAttentionWarning({
+      problem: "Pi CLI was not found on PATH",
+      remedy: "install Pi and ensure `pi --version` works before checking status or updating the Profile",
+      requirement: "The selected Profile requires Pi project delivery",
+      copyableValues: ["pi"],
+    });
+    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
+    const report = machineReport(
+      projects.map((project) => machineProject(project, { warnings: [warning] })),
+    );
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: projects.map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: projects.map((project) => ({ kind: "addition" as const, project })),
+        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    // Canonical sort keeps the see-all pointer truthful and deterministic.
+    expect(rendered).toContain("Pi CLI was not found on PATH (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)");
+    expect(rendered).not.toContain("(12 Projects)");
+    const verbose = renderBoundary(applyReportDocument({
+      receipt: emptyReport(),
+      resultingState: report,
+    }, { verbose: true }));
+    for (const project of projects) {
+      expect(verbose).toContain(project);
+    }
+    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
+  });
+
+  test("remedy stays default-colored while the warning statement carries the warning role", () => {
+    const report = machineReport([
+      machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
+    ]);
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: [{
+          canonicalProject: "/work/alpha",
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project: "/work/alpha",
+          resolvedArtifacts: [],
+        }],
+        items: [{ kind: "addition", project: "/work/alpha" }],
+        outputs: [{ kind: "addition", path: "a.md", project: "/work/alpha" }],
+      }),
+      resultingState: report,
+    });
+    const items = flattenPresentationNodes(document).filter((node) =>
+      node.kind === "list-item" && node.category === "warning"
+    );
+    expect(items).toHaveLength(1);
+    expect(nodeText(items[0]!)).toContain("Codex CLI was not found on PATH");
+    const remedies = flattenPresentationNodes(document).filter((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    );
+    expect(remedies).toHaveLength(1);
+    expect((remedies[0] as { category?: string }).category).toBeUndefined();
+  });
+
+  test("a structurally marked remedy command renders as an atomic command part", () => {
+    const report = machineReport([
+      machineProject("/work/alpha", {
+        warnings: [hostAttentionWarning({
+          ...codexMissing,
+          remedyParts: [
+            "install Codex and ensure ",
+            commandPart("codex", [{ kind: "text", value: "--version" }]),
+            " works",
+          ],
+        })],
+      }),
+    ]);
+    const nodes = flattenPresentationNodes([
+      ...installWarningNodes(report),
+    ]);
+    const remedy = nodes.find((node) =>
+      node.kind === "prose" && nodeText(node).includes("Remedy:")
+    ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
+    expect(remedy).toBeDefined();
+    expect(remedy!.parts.some((part) =>
+      typeof part !== "string" && part.kind === "command" && part.program === "codex"
+    )).toBe(true);
+  });
+
+  test("a plain-string remedy with markdown backticks is left unparsed", () => {
+    const report = machineReport([
+      machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
+    ]);
+    const remedy = flattenPresentationNodes(installWarningNodes(report)).find((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
+    expect(remedy).toBeDefined();
+    // Correction: do not parse markdown backticks out of a plain string.
+    expect(flatInlineText(remedy!.parts)).toContain("`codex --version`");
+    expect(remedy!.parts.some((part) => typeof part !== "string" && part.kind === "command")).toBe(false);
+  });
+
+  test("capabilityWarning carries typed problem, remedy, and requirement for presentation", () => {
+    const failure = capabilityFailure(
+      "codex",
+      "host",
+      codexMissing.problem,
+      codexMissing.remedy,
+    );
+    const warning = capabilityWarning("codex", failure);
+    expect(warning.problem).toBe(codexMissing.problem);
+    expect(warning.remedy).toBe(codexMissing.remedy);
+    expect(warning.requirement).toBe(codexMissing.requirement);
+  });
+
+  test("a Project in only one report set uses the view's unioned identity (INT-1)", () => {
+    // `/teams/alpha/tools` exists only in the receipt; `/teams/beta/tools`
+    // only in resulting state. A unioned lookup must give `alpha/tools`
+    // (two segments because both end in `tools`), not a full-path fallback
+    // and not the one-set basename `tools`.
+    const receipt = machineReport([
+      machineProject("/teams/alpha/tools", {
+        warnings: [hostAttentionWarning(codexMissing)],
+      }),
+    ]);
+    const resultingState = machineReport([
+      machineProject("/teams/beta/tools"),
+    ]);
+    const rendered = renderBoundary(applyReportDocument({ receipt, resultingState }));
+    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/tools)");
+    expect(rendered).not.toContain("/teams/alpha/tools");
+    expect(rendered).not.toContain("Codex CLI was not found on PATH (tools)");
+  });
+
+  test("identical machine messages with different typed splits never merge (INT-2)", () => {
+    const report = machineReport([
+      machineProject("/work/a", {
+        warnings: [{
+          kind: "host-attention",
+          copyableValues: [],
+          parts: ["Same message"],
+          problem: ["Same message"],
+          remedy: ["Remedy A"],
+          requirement: ["Requirement A"],
+        }],
+      }),
+      machineProject("/work/b", {
+        warnings: [{
+          kind: "host-attention",
+          copyableValues: [],
+          parts: ["Same message"],
+          problem: ["Same message"],
+          remedy: ["Remedy B"],
+          requirement: ["Requirement B"],
+        }],
+      }),
+    ]);
+    const rendered = renderBoundary(applyReportDocument({
+      receipt: emptyReport({
+        desired: ["/work/a", "/work/b"].map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: ["/work/a", "/work/b"].map((project) => ({ kind: "addition" as const, project })),
+        outputs: ["/work/a", "/work/b"].map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    }));
+    expect(rendered).toContain("Remedy: Remedy A");
+    expect(rendered).toContain("Remedy: Remedy B");
+    expect(rendered).toContain("Requirement: Requirement A");
+    expect(rendered).toContain("Requirement: Requirement B");
+    // Two warning statements: the typed splits kept the groups distinct.
+    expect(rendered.split("Same message").length - 1).toBe(2);
   });
 });
 

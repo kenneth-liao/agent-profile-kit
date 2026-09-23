@@ -182,6 +182,14 @@ export interface ReconciliationWarning {
   readonly copyableValues: readonly string[];
   readonly kind: "diagnostic" | "host-attention";
   readonly parts: readonly InlineContent[];
+  /**
+   * Typed presentation facts for capability warnings (US-011). JSON keeps
+   * `parts` as the message; human views may split problem, remedy, and
+   * requirement. Absent on diagnostic warnings that carry only `parts`.
+   */
+  readonly problem?: readonly InlineContent[];
+  readonly remedy?: readonly InlineContent[];
+  readonly requirement?: readonly InlineContent[];
 }
 
 export interface ReconciliationProjectOutput
@@ -942,6 +950,9 @@ function nestedReconciliationReport(
         copyableValues: [...entry.warning.copyableValues],
         kind: "host-attention",
         parts: entry.warning.parts,
+        problem: entry.problemParts ?? [entry.problem],
+        remedy: entry.remedyParts ?? [entry.remedy],
+        requirement: entry.requirementParts ?? [entry.requirement],
       });
     }
     warningsByCanonical.set(key, warnings);

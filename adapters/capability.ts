@@ -25,6 +25,10 @@ export interface AdapterCapabilityFailure {
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
+  /** Structurally marked sentences when the Adapter supplies atomic parts. */
+  readonly problemParts?: readonly InlineContent[];
+  readonly remedyParts?: readonly InlineContent[];
+  readonly requirementParts?: readonly InlineContent[];
   /** Whether the failure is machine-level or bound to one Project's surface. */
   readonly scope: AdapterCapabilityScope;
   /** The normalized Host CLI floor the failure names, when it names one. */
@@ -42,6 +46,9 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
+  readonly problemParts?: readonly InlineContent[];
+  readonly remedyParts?: readonly InlineContent[];
+  readonly requirementParts?: readonly InlineContent[];
   readonly scope: AdapterCapabilityScope;
   readonly requiredVersion?: string;
 
@@ -56,6 +63,9 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
     this.scope = failure.scope;
     this.parts = failure.parts;
     if (failure.requiredVersion !== undefined) this.requiredVersion = failure.requiredVersion;
+    if (failure.problemParts !== undefined) this.problemParts = failure.problemParts;
+    if (failure.remedyParts !== undefined) this.remedyParts = failure.remedyParts;
+    if (failure.requirementParts !== undefined) this.requirementParts = failure.requirementParts;
   }
 }
 
@@ -73,6 +83,18 @@ export function capabilityRequirement(host: SupportedHost): string {
   return `The selected Profile requires ${hostLabel(host)} project delivery`;
 }
 
+/**
+ * Authored parts that flatten to exactly the problem are its structured form
+ * (US-011, INT-3); otherwise the problem stays plain text and the machine
+ * message remains the authored parts.
+ */
+function inferProblemParts(
+  parts: readonly InlineContent[] | undefined,
+  problem: string,
+): readonly InlineContent[] | undefined {
+  return parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
+}
+
 /** Create the canonical typed evidence for one Adapter capability failure. */
 export function capabilityFailure(
   host: SupportedHost,
@@ -81,15 +103,19 @@ export function capabilityFailure(
   remedy: string,
   affectedItems: readonly AdapterCapabilityAffectedItem[] = [],
   parts?: readonly InlineContent[],
+  remedyParts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const allAffected = [{ kind: "host" as const, value: host }, ...affectedItems];
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
+  const structuredProblem = inferProblemParts(parts, problem);
   return new AdapterCapabilityError({
     affectedItems: allAffected,
     host,
     message: flatInlineText(authoredParts),
     parts: authoredParts,
     problem,
+    ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
+    ...(remedyParts === undefined ? {} : { remedyParts }),
     remedy,
     requirement: capabilityRequirement(host),
     scope,
@@ -107,17 +133,21 @@ export function versionFloorCapabilityFailure(
   remedy: string,
   requiredVersion: string,
   parts?: readonly InlineContent[],
+  remedyParts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
+  const structuredProblem = inferProblemParts(parts, problem);
   return new AdapterCapabilityError({
     affectedItems: [{ kind: "host", value: host }],
     host,
     message: flatInlineText(authoredParts),
     parts: authoredParts,
     problem,
+    ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
+    ...(remedyParts === undefined ? {} : { remedyParts }),
+    requiredVersion,
     remedy,
     requirement: capabilityRequirement(host),
-    requiredVersion,
     scope: "host",
   });
 }

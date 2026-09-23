@@ -1807,12 +1807,14 @@ describe("project-bound release candidate", () => {
     expect(staleApply.stdout).toContain("Update complete");
     expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
     // The approved changed replacements keep their Project identities; the
-    // routine restored and source-updated Projects stay a count.
+    // routine restored and source-updated Projects stay a count on the impact
+    // line. Missing-Host warnings may name every affected Project (US-011).
+    // Identities are the view's shortest-unambiguous aliases (INT-1).
     for (const replaced of [changed, multi]) {
-      expect(staleApply.stdout).toContain(replaced);
+      expect(staleApply.stdout).toContain(basename(replaced));
     }
-    expect(staleApply.stdout).not.toContain(missing);
-    expect(staleApply.stdout).not.toContain(source);
+    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
+    expect(staleApply.stdout).not.toMatch(/Updated .*agent-profile-kit-rc-loop-missing/);
     // The receipt names the replaced changed generated file without wording
     // that infers who changed it (US-028, TEST-013).
     expect(staleApply.stdout).toContain(".agent-profile-kit/codex/context.md");

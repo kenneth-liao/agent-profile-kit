@@ -11,6 +11,7 @@ import {
   type AdapterDiagnosticWarning,
   type AdapterProjectPlan,
   type HostSetupStep,
+  type InlineContent,
   type OutputRemedyKey,
   type ProposedDirectoryMember,
   type ProposedProjectOutput,
@@ -133,6 +134,18 @@ export interface HostCapabilityWarning {
   readonly scope: "host" | "project";
   /** The normalized Host CLI floor the failure names, when it names one. */
   readonly requiredVersion?: string;
+  /**
+   * Typed Adapter-authored sentences for human presentation (US-011).
+   * `warning.parts` remains the machine message. Remedies and requirements
+   * stay Adapter-authored; presentation never synthesizes them (DEC-009).
+   */
+  readonly problem: string;
+  readonly remedy: string;
+  readonly requirement: string;
+  /** Structurally marked problem/remedy when the Adapter supplies atoms. */
+  readonly problemParts?: readonly InlineContent[];
+  readonly remedyParts?: readonly InlineContent[];
+  readonly requirementParts?: readonly InlineContent[];
   readonly warning: AdapterDiagnosticWarning;
 }
 
@@ -153,6 +166,14 @@ export function capabilityWarning(
     ...(failure.requiredVersion === undefined
       ? {}
       : { requiredVersion: failure.requiredVersion }),
+    problem: failure.problem,
+    remedy: failure.remedy,
+    requirement: failure.requirement,
+    ...(failure.problemParts === undefined ? {} : { problemParts: failure.problemParts }),
+    ...(failure.remedyParts === undefined ? {} : { remedyParts: failure.remedyParts }),
+    ...(failure.requirementParts === undefined
+      ? {}
+      : { requirementParts: failure.requirementParts }),
     warning: {
       copyableValues: failure.affectedItems.map((item) => item.value),
       parts: failure.parts,

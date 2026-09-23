@@ -24,6 +24,7 @@ import {
   type AdapterPlanningMaterials,
 } from "./skill-package.js";
 import {
+  commandPart,
   flatInlineText,
   identifierPart,
   type AdapterHostSetupStep,
@@ -215,6 +216,13 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
         "host",
         "Pi CLI was not found on PATH",
         "install Pi and ensure `pi --version` works before checking status or updating the Profile",
+        [],
+        undefined,
+        [
+          "install Pi and ensure ",
+          commandPart("pi", [{ kind: "text", value: "--version" }]),
+          " works before checking status or updating the Profile",
+        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
