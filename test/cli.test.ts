@@ -100,6 +100,20 @@ function isolatedHome(): string {
   return home;
 }
 
+/** The focused-guide next-action block: from `Next:` up to the following section. */
+function nextActionLines(stdout: string): string[] {
+  const lines = stdout.split("\n");
+  const start = lines.findIndex((line) => line.startsWith("Next:"));
+  expect(start).toBeGreaterThanOrEqual(0);
+  const block: string[] = [];
+  for (let index = start; index < lines.length; index += 1) {
+    const line = lines[index]!;
+    if (index > start && (line.trim() === "" || line.startsWith("For the Workspace"))) break;
+    block.push(line);
+  }
+  return block;
+}
+
 function project(prefix = "agent-profile-kit-project-"): string {
   const path = mkdtempSync(join(tmpdir(), prefix));
   temporaryDirectories.push(path);
@@ -10989,9 +11003,22 @@ describe("apkit root help", () => {
       expectExitCode(wide, 0);
       expect(narrow.stdout).not.toBe(wide.stdout);
       expect(narrow.stdout).toContain(AUTHORING_EXAMPLES[topic].contents);
-      expect(narrow.stdout).toContain(nextText.split(" ").slice(0, 4).join(" "));
+      // Ordered full next text (INT-3): wide fits it whole; narrow reflows it
+      // and we reconstruct the ordered text from the next-action block.
+      expect(wide.stdout).toContain(nextText);
+      const nextLines = nextActionLines(narrow.stdout);
+      const plainNextLines = nextLines.map((line) => line.replaceAll(/\u001b\[[0-9;]*m/g, ""));
+      const flattened = plainNextLines
+        .map((line) => line.trim())
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .replace(/ ,/g, ",")
+        .replace(/ ;/g, ";")
+        .trim();
+      expect(flattened).toBe(nextText);
+      // Each promoted command sits on its own intact line (INT-3).
       for (const command of nextCommands) {
-        expect(narrow.stdout).toContain(command);
+        expect(plainNextLines.some((line) => line.trim() === command)).toBe(true);
       }
       expect(narrow.stdout).not.toContain("```y");
       expect(narrow.stdout).not.toContain("```m");
@@ -14635,7 +14662,7 @@ describe("packed CLI new profile", () => {
     // user to repair the uncreated Profile file (US-015, #508).
     expect(unknownContext.stderr).toContain("Profile 'engineering' was not created");
     expect(unknownContext.stderr).not.toContain("Correct profiles/engineering.yaml");
-    expect(unknownContext.stderr).toMatch(/apkit new profile engineering again/);
+    expect(unknownContext.stderr).toMatch(/apkit new profile engineering\s+again/);
     expect(existsSync(join(workspacePath(home), "profiles", "engineering.yaml"))).toBe(false);
 
     const unknownSkill = await runCli(
@@ -15727,7 +15754,10 @@ describe("packed CLI validate of a folder that is not connected (#595)", () => {
     // The machine list is the human list: every message appears in the report.
     const report = humanText(human.stderr);
     for (const violation of payload.violations) {
-      expect(report).toContain(humanText(violation.message));
+      // A promoted command line drops a trailing sentence period (#651);
+      // compare the human and machine messages modulo that terminator.
+      const message = humanText(violation.message).replace(/\.$/, "");
+      expect(report.replace(/\.$/, "")).toContain(message);
     }
   });
 

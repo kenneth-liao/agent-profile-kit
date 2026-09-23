@@ -14,10 +14,20 @@ import { commandPart, renderPresentationDocument } from "../cli/presentation-doc
  * with spaces or quotes.
  */
 
+/**
+ * Interpret one already-quoted argument in a real shell. The shell must parse
+ * the quoting under test: this suite's purpose is to prove that the printed
+ * text works when a user pastes it into a shell, so passing the value as
+ * `"$1"` would check nothing. Isolation (PROD-2): a fixed temporary HOME and
+ * cwd, a minimal env equivalent to `env -i` with only `HOME` and `PATH`, and
+ * only fixed fixture paths that never come from program output other than the
+ * function under test.
+ */
 function shEval(alreadyQuoted: string, home: string): string {
   return execFileSync("sh", ["-c", `printf %s ${alreadyQuoted}`], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home },
+    cwd: home,
+    env: { HOME: home, PATH: "/usr/bin:/bin" },
   });
 }
 
@@ -95,4 +105,27 @@ test("renderCommand path arguments stay executable at the display spelling", () 
   expect(rendered).toBe(`apkit update ~/'projects/alpha with space'`);
   const pathArg = rendered.slice("apkit update ".length);
   expect(shEval(pathArg, home)).toBe(project);
+});
+
+test("renderCommand fails closed on empty and control-character arguments (PROD-1)", () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "apkit-shell-quote-refuse-")));
+  for (const canonicalPath of ["", "/proj/line\nbreak", "/proj/bell\u0007"]) {
+    const rendered = renderPresentationDocument(
+      [{
+        kind: "command",
+        program: "apkit",
+        args: [
+          { kind: "text", value: "update" },
+          { kind: "path", canonicalPath, authoredPath: canonicalPath, scope: "fleet" },
+        ],
+      }],
+      { color: false, interactive: false, width: 80, rows: undefined },
+      { home, cwd: home },
+    );
+    expect(rendered).not.toContain("apkit update");
+    if (canonicalPath.length > 0) {
+      expect(rendered).not.toContain(canonicalPath);
+    }
+    expect(rendered).toContain("Manual recovery is required");
+  }
 });

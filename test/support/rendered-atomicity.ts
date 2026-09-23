@@ -112,9 +112,23 @@ function isPlainGrammarWord(token: string): boolean {
   return COMMAND_WORD.has(token) || COMMAND_WORD_RE.test(token) || isPathToken(token);
 }
 
+/**
+ * One shell word that concatenates an unquoted `~/` prefix with a quoted
+ * remainder (`~/'proj with space'`, #651): opaque and a grammar continuation.
+ * Anchored so glued prose like `foo'bar` is never swept in (INT-2).
+ */
+function isHomeQuotedShellWord(token: string): boolean {
+  return token.startsWith("~/") && /['"]/.test(token.slice(2));
+}
+
+/** A quoted span or a home-quoted shell word is an opaque carried value. */
+function keepsShellQuoting(token: string, quoted: ReadonlySet<number>, index: number): boolean {
+  return quoted.has(index) || isHomeQuotedShellWord(token);
+}
+
 /** A quoted span is an opaque carried value: always grammar-valid. */
 function isGrammarWord(tokens: readonly string[], quoted: ReadonlySet<number>, index: number): boolean {
-  return quoted.has(index) || isPlainGrammarWord(tokens[index]!);
+  return keepsShellQuoting(tokens[index]!, quoted, index) || isPlainGrammarWord(tokens[index]!);
 }
 
 /** Strip SGR styling; whole-line styling makes stripping lossless for content. */
@@ -174,7 +188,7 @@ function commandSpelling(
   let index = start + 2;
   while (index < tokens.length) {
     const token = tokens[index]!;
-    const allowed = quoted.has(index) || isPlainGrammarWord(token) ||
+    const allowed = keepsShellQuoting(token, quoted, index) || isPlainGrammarWord(token) ||
       (program === "git" && GIT_SUBCOMMANDS.has(token));
     if (!allowed) break;
     parts.push(token);
@@ -217,12 +231,15 @@ function extractSpellings(lines: readonly string[]): readonly string[] {
       // that concatenates an unquoted `~/` prefix with a quoted remainder
       // (`~/'proj with space'`) is likewise opaque (#651). Other tokens shed
       // prose punctuation.
-      const keepsQuotes = quoted.has(index) || /['"]/.test(token.slice(1));
-      const trimmed = keepsQuotes ? trimTokenEdges(token, true) : trimTokenEdges(token);
-      if (isPathToken(trimmed) || (keepsQuotes && trimmed.length > 1)) found.add(trimmed);
+      const trimmed = keepsShellQuoting(token, quoted, index)
+        ? trimTokenEdges(token, true)
+        : trimTokenEdges(token);
+      if (isPathToken(trimmed) || (keepsShellQuoting(token, quoted, index) && trimmed.length > 1)) {
+        found.add(trimmed);
+      }
     }
     const tokens = rawTokens.map((token, index) =>
-      quoted.has(index) || /['"]/.test(token.slice(1))
+      keepsShellQuoting(token, quoted, index)
         ? trimTokenEdges(token, true)
         : trimTokenEdges(token),
     );

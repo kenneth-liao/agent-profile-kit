@@ -9086,6 +9086,38 @@ describe("every Blocker renders plain wording and an evidence-derived runnable r
     expect(commands(wording(blocker).remedy)).not.toContain("apkit uninstall --project '/project-a'");
   });
 
+  test("uninstallAlternative emits honest prose when the command cannot be derived (INT-1)", () => {
+    const unquotableProject = "/project-a\u0007";
+    const blocker = normalizeBlocker(occupiedOutputBlocker({
+      occupied: { case: "occupied-destination", occupation: "directory" },
+      path: ".opencode/opencode.json",
+      project: unquotableProject,
+    }));
+    const { remedy } = flat(blocker);
+    expect(remedy).toContain(
+      "or remove its generated files and stop managing this Project yourself",
+    );
+    // No dangling "; or run" lead-in and no empty command (INT-1).
+    expect(remedy).not.toContain("; or run");
+    expect(remedy).not.toMatch(/or run\s+to /);
+    expect(commands(wording(blocker).remedy).some((command) => command.includes("uninstall")))
+      .toBe(false);
+  });
+
+  test("untrack-undefined branch emits honest prose with no dangling then-run (INT-1)", () => {
+    const unquotableProject = "/project-a\u0007";
+    const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
+      paths: ["broken\nname.md"],
+      project: unquotableProject,
+    }));
+    const { remedy } = flat(blocker);
+    expect(remedy).toContain("Manual recovery is required");
+    expect(remedy).toContain("leave the files in place to keep Git ownership");
+    // No dangling "then run" without a command (INT-1).
+    expect(remedy).not.toContain("then run");
+    expect(commands(wording(blocker).remedy)).toEqual([]);
+  });
+
   test("quoted filenames survive POSIX quoting inside the derived command (#440)", () => {
     const blocker = normalizeBlocker(outputOwnershipConflictBlocker({
       paths: ["weird'name.md", "a b.md", "-leading-dash.md"],

@@ -290,32 +290,58 @@ function untrackChoiceRemedy(
   const untrack = gitUntrackCommand(project, paths);
   const apply = apkit(...applyArgs);
   if (untrack === undefined) {
-    return compact([
+    // Honest manual-recovery prose with no dangling "then run" lead-in when the
+    // follow-up command cannot be derived (INT-1, as error-wording.ts does).
+    if (apply === undefined) {
+      return [
+        "Manual recovery is required: Agent Profile Kit could not derive a safe " +
+          `untracking command from the recorded paths (${pathList(paths)}). Untrack them ` +
+          "in Git yourself without reinterpreting special characters; or leave the files " +
+          "in place to keep Git ownership.",
+      ];
+    }
+    return [
       "Manual recovery is required: Agent Profile Kit could not derive a safe " +
         `untracking command from the recorded paths (${pathList(paths)}). Untrack them ` +
         "in Git yourself without reinterpreting special characters, then run ",
       apply,
       "; or leave the files in place to keep Git ownership.",
-    ]);
+    ];
   }
-  return compact([
+  if (apply === undefined) {
+    return [
+      "Choose one. To let Agent Profile Kit manage these files, run ",
+      untrack,
+      " — it stages their removal from the Git index while the files stay on " +
+        "disk; commit afterwards to keep the change. To keep Git ownership instead, " +
+        "leave the files in place.",
+    ];
+  }
+  return [
     "Choose one. To let Agent Profile Kit manage these files, run ",
     untrack,
     " — it stages their removal from the Git index while the files stay on " +
       "disk; commit afterwards to keep the change — then run ",
     apply,
     ". To keep Git ownership instead, leave the files in place.",
-  ]);
+  ];
 }
 
-/** The scoped uninstall alternative with its honest consequence: removal plus
- * forgetting, so a later update does not reinstall (DEC-001). */
-function uninstallAlternative(project: string): readonly InlineContent[] {
-  return compact([
+/**
+ * The scoped uninstall alternative with its honest consequence: removal plus
+ * forgetting, so a later update does not reinstall (DEC-001). Pass the already
+ * derived uninstall command; when it cannot be printed, this is manual-recovery
+ * prose with no dangling "or run" lead-in (INT-1).
+ */
+function uninstallAlternative(uninstall: CommandPart | undefined): readonly InlineContent[] {
+  if (uninstall === undefined) {
+    return ["; or remove its generated files and stop managing this Project yourself."];
+  }
+  return [
     "; or run ",
-    apkit("uninstall", "--project", quoted(project)),
+    uninstall,
     " to remove its generated files and stop managing this Project.",
-  ]);
+  ];
 }
 
 /** A non-following inspection command for one recorded path, when derivable. */
@@ -481,26 +507,59 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
           "destinations; it never overwrites files it did not install.",
       ];
       if (blocker.remedyKey === "opencode-config-occupied") {
-        const remedy = compact([
+        const update = apkit("update", quoted(blocker.project!));
+        const uninstall = apkit("uninstall", "--project", quoted(blocker.project!));
+        const remedy: InlineContent[] = [
           `Move your OpenCode configuration to ${OPENCODE_UNCLAIMED_CONFIG_LOCATIONS.join(" or ")} ` +
-            "yourself, then run ",
-          apkit("update", quoted(blocker.project!)),
-          ...uninstallAlternative(blocker.project!),
-        ]);
+            "yourself",
+        ];
+        if (update !== undefined) remedy.push(", then run ", update);
+        remedy.push(...uninstallAlternative(uninstall));
         return { message: problem, problem, remedy, requirement };
       }
       const inspectParent = blocker.occupied?.case === "occupied-parent";
       const inspected = inspectParent ? path.replace(/\/?[^/]+$/, "") : path;
-      const remedy = compact([
-        "Manual recovery is required: Agent Profile Kit will not remove or overwrite " +
-          "these files. Inspect ",
-        inspectParent
-          ? inspectCommand(projectPath(blocker.project!, inspected))
-          : listCommand(projectPath(blocker.project!, inspected)),
-        ", move or remove it yourself only if you do not need it, then run ",
-        apkit("update", quoted(blocker.project!)),
-        ...uninstallAlternative(blocker.project!),
-      ]);
+      const inspect = inspectParent
+        ? inspectCommand(projectPath(blocker.project!, inspected))
+        : listCommand(projectPath(blocker.project!, inspected));
+      const update = apkit("update", quoted(blocker.project!));
+      const uninstall = apkit("uninstall", "--project", quoted(blocker.project!));
+      if (inspect === undefined && update === undefined && uninstall === undefined) {
+        // Honest manual recovery with no dangling "Inspect" / "then run" (INT-1).
+        return {
+          message: problem,
+          problem,
+          remedy: [
+            "Manual recovery is required: Agent Profile Kit will not remove or overwrite " +
+              "these files. Inspect the recorded path yourself, move or remove it only if " +
+              "you do not need it; or remove its generated files and stop managing this " +
+              "Project yourself.",
+          ],
+          requirement,
+        };
+      }
+      const remedy: InlineContent[] = [
+        "Manual recovery is required: Agent Profile Kit will not remove or overwrite these files.",
+      ];
+      if (inspect !== undefined) {
+        remedy.push(" Inspect ", inspect);
+        if (update !== undefined) {
+          remedy.push(
+            ", move or remove it yourself only if you do not need it, then run ",
+            update,
+          );
+        } else {
+          remedy.push(", move or remove it yourself only if you do not need it");
+        }
+      } else if (update !== undefined) {
+        remedy.push(
+          " Move or remove it yourself only if you do not need it, then run ",
+          update,
+        );
+      } else {
+        remedy.push(" Inspect the recorded path yourself, move or remove it only if you do not need it");
+      }
+      remedy.push(...uninstallAlternative(uninstall));
       return { message: problem, problem, remedy, requirement };
     }
     case INSTALLATION_OWNERSHIP: {
@@ -574,26 +633,50 @@ function wordingParts(blocker: ReconciliationBlocker): BlockerWordingParts {
       const inspectTarget = failure.case === "unsafe-parent"
         ? failure.parent
         : projectPath(blocker.project!, inspected);
-      const restoreClause = failure.case === "unsafe-parent"
-        ? ", restore it to a regular directory inside the Project yourself, then run "
-        : ", remove or restore it yourself, then run ";
-      const remedy = compact(verify
-        ? [
-            "Manual recovery is required: Agent Profile Kit will not adopt or delete " +
-              "files it cannot prove. Inspect ",
-            inspectCommand(inspectTarget),
-            restoreClause,
-            apkit("update", quoted(blocker.project!)),
-            ...uninstallAlternative(blocker.project!),
-          ]
-        : [
-            "Manual recovery is required: Agent Profile Kit will not delete files it " +
-              "cannot prove. Inspect ",
-            inspectCommand(inspectTarget),
-            restoreClause,
-            apkit("update", "--all"),
-            " — it updates every pending Project, not only this one.",
-          ]);
+      const inspect = inspectCommand(inspectTarget);
+      const update = verify
+        ? apkit("update", quoted(blocker.project!))
+        : apkit("update", "--all");
+      const uninstall = verify
+        ? apkit("uninstall", "--project", quoted(blocker.project!))
+        : undefined;
+      const restoreTail = failure.case === "unsafe-parent"
+        ? "restore it to a regular directory inside the Project yourself"
+        : "remove or restore it yourself";
+      const restoreLead = failure.case === "unsafe-parent"
+        ? "Restore it to a regular directory inside the Project yourself"
+        : "Remove or restore it yourself";
+      if (inspect === undefined && update === undefined) {
+        return {
+          message: problem,
+          problem,
+          remedy: [
+            `Manual recovery is required: Agent Profile Kit will not ${
+              verify ? "adopt or delete" : "delete"
+            } files it cannot prove. Inspect the recorded path yourself, ${restoreTail}, ${
+              verify ? "or stop managing this Project" : "then retry"
+            }.`,
+          ],
+          requirement,
+        };
+      }
+      const remedy: InlineContent[] = [
+        `Manual recovery is required: Agent Profile Kit will not ${
+          verify ? "adopt or delete" : "delete"
+        } files it cannot prove.`,
+      ];
+      if (inspect !== undefined) {
+        remedy.push(" Inspect ", inspect);
+        if (update !== undefined) remedy.push(`, ${restoreTail}, then run `, update);
+        else remedy.push(`, ${restoreTail}`);
+      } else if (update !== undefined) {
+        remedy.push(` ${restoreLead}, then run `, update);
+      }
+      if (!verify) {
+        remedy.push(" — it updates every pending Project, not only this one.");
+      } else {
+        remedy.push(...uninstallAlternative(uninstall));
+      }
       return { message: problem, problem, remedy, requirement };
     }
     case OUTPUT_OWNERSHIP_CONFLICT: {

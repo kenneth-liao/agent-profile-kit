@@ -393,12 +393,23 @@ function renderNode(
         : wrapProjectIdentity(node.identity, context.width);
       return lines.map((line) => styleSemanticText(line, category, context.color));
     }
-    case "command":
+    case "command": {
+      const rendered = renderCommand(node, environment);
+      // Fail closed (PROD-1): never print a refused argument in a copyable
+      // command; fall back to non-copyable manual-recovery prose.
+      if (rendered === undefined) {
+        return styleLines(
+          "Manual recovery is required: this command cannot be printed safely.",
+          "muted",
+          context.color,
+        );
+      }
       return styleLines(
-        renderCommand(node, environment),
+        rendered,
         node.category ?? inheritedCategory ?? "command",
         context.color,
       );
+    }
     case "key-value": {
       const valueLines = renderNode(
         node.value,
@@ -655,7 +666,12 @@ function withWidth(
   };
 }
 
-function renderCommand(node: CommandNode, environment: RenderEnvironment): string {
+/**
+ * Render one copyable command, or refuse it: a path argument that cannot be
+ * shell-quoted fails the whole command closed so the raw value never appears
+ * unquoted in a copyable line (PROD-1, #440).
+ */
+function renderCommand(node: CommandNode, environment: RenderEnvironment): string | undefined {
   // A copyable command argument must be executable as printed: the identity
   // renders fully spelled — home-relative or absolute, never middle-elided —
   // and shell-quoted as one POSIX token through the shared quoting boundary,
@@ -663,8 +679,18 @@ function renderCommand(node: CommandNode, environment: RenderEnvironment): strin
   // commands render past the width exactly like the remedy commands, whose
   // quoted path tokens are already spelled out in full (US-007, review
   // INT-1 cycle 2 and RE-1 on #489; ADR-0028's argv-only quoting precedent).
-  return [node.program, ...node.args.map((arg) => {
-    if (arg.kind === "text") return arg.value;
+  const args: string[] = [];
+  for (const arg of node.args) {
+    if (arg.kind === "text") {
+      args.push(arg.value);
+      continue;
+    }
+    if (
+      arg.canonicalPath.length === 0 ||
+      /[\u0000-\u001f\u007f]/.test(arg.canonicalPath)
+    ) {
+      return undefined;
+    }
     const display = displayPath(
       arg.canonicalPath,
       arg.authoredPath ?? arg.canonicalPath,
@@ -672,8 +698,11 @@ function renderCommand(node: CommandNode, environment: RenderEnvironment): strin
       environment.cwd,
       environment.home,
     );
-    return shellQuoteArg(display) ?? display;
-  })].join(" ");
+    const quoted = shellQuoteArg(display);
+    if (quoted === undefined) return undefined;
+    args.push(quoted);
+  }
+  return [node.program, ...args].join(" ");
 }
 
 function unstyled(environment: RenderEnvironment): RenderEnvironment {
@@ -710,11 +739,15 @@ function renderInlinePart(part: InlinePart, environment: RenderEnvironment): str
   switch (part.kind) {
     case "text":
       return part.value;
-    case "command":
-      return renderCommand(
+    case "command": {
+      const rendered = renderCommand(
         { kind: "command", program: part.program, args: part.args },
         environment,
       );
+      // Fail closed (PROD-1): an unquotable argument never becomes raw text
+      // inside a copyable command.
+      return rendered ?? "";
+    }
     case "path":
       return part.identity ?? displayPath(
         part.canonicalPath,
@@ -903,46 +936,52 @@ function inlineRuns(
     // so the wrapper may break at a path-segment boundary.
     if (token.glued && !token.glue && runs.length > 0) {
       const run = runs.at(-1)!;
-      runs[runs.length - 1] = {
-        text: run.text + token.text,
-        command: run.command || token.command,
-        glue: run.glue,
-      };
-      continue;
+      // Punctuation after a command stays a separate glued run so a promoted
+      // command line can drop a sentence terminator without rewriting command
+      // text (PROD-3), and a clause comma can continue on the next line.
+      const punctuationAfterCommand = run.command && isPunctuationToken(token.text);
+      if (!punctuationAfterCommand) {
+        runs[runs.length - 1] = {
+          text: run.text + token.text,
+          command: run.command || token.command,
+          glue: run.glue,
+        };
+        continue;
+      }
     }
-    runs.push({ text: token.text, command: token.command, glue: token.glue });
+    runs.push({
+      text: token.text,
+      command: token.command,
+      glue: token.glue || (token.glued && runs.at(-1)?.command === true),
+    });
   }
   return runs;
 }
 
-/** Trailing sentence punctuation must never ride on a promoted command line. */
-const SENTENCE_PUNCTUATION = /^[.,;:]+$/;
-const TRAILING_SENTENCE_PUNCTUATION = /[.,;:]+$/;
+/** A trailing period must never ride on a promoted command line. */
+const SENTENCE_PUNCTUATION = /^[.]$/;
+const PUNCTUATION_TOKEN = /^[.,;:]+$/;
 
 function isSentencePunctuation(text: string): boolean {
   return SENTENCE_PUNCTUATION.test(text);
 }
 
-function stripSentencePunctuation(text: string): string {
-  return text.replace(TRAILING_SENTENCE_PUNCTUATION, "");
+function isPunctuationToken(text: string): boolean {
+  return PUNCTUATION_TOKEN.test(text);
 }
 
 /**
  * A line that is only a copyable command (plus glued sentence punctuation)
- * drops that punctuation: the line is the paste target, and a trailing period
- * would join the final argument (#651).
+ * drops those separator punctuation runs: the line is the paste target, and a
+ * trailing period would join the final argument (#651). Command-run text is
+ * never rewritten (PROD-3).
  */
 function finalizeCommandLine(line: readonly InlineRun[]): InlineRun[] {
   if (!line.some((run) => run.command)) return [...line];
   if (!line.every((run) => run.command || isSentencePunctuation(run.text))) {
     return [...line];
   }
-  const kept = line.filter((run) => !isSentencePunctuation(run.text));
-  return kept.map((run, index) =>
-    index === kept.length - 1
-      ? { ...run, text: stripSentencePunctuation(run.text) }
-      : run
-  );
+  return line.filter((run) => !isSentencePunctuation(run.text));
 }
 
 function wrapRuns(
@@ -965,10 +1004,17 @@ function wrapRuns(
       current = [];
     }
   };
-  for (const run of runs) {
-    if (policy === "lifecycle" && run.command) {
+  for (let index = 0; index < runs.length; index += 1) {
+    const run = runs[index]!;
+    // A wrapping node places every copyable command on its own line (US-009,
+    // #651): the command never folds into reflowed prose, and glued trailing
+    // sentence punctuation is dropped with it (never command-run text).
+    if (run.command) {
       flush();
       lines.push(finalizeCommandLine([run]));
+      while (index + 1 < runs.length && isSentencePunctuation(runs[index + 1]!.text)) {
+        index += 1;
+      }
       continue;
     }
     let remainder = run.text;

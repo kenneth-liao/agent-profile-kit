@@ -12,9 +12,17 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with apkit new; focus a topic with apkit guide profile,
-    apkit guide context, or apkit guide skill; see apkit install --help for
-    supported Host values.
+  Scaffold material with
+    apkit new
+    ; focus a topic with
+    apkit guide profile
+    ,
+    apkit guide context
+    , or
+    apkit guide skill
+    ; see
+    apkit install --help
+    for supported Host values.
 
 Common commands:
   init
@@ -58,7 +66,8 @@ More commands:
     Show the engine version and selected application locations
 
 For the complete Workspace authoring reference (Context Modules, Skills, and
-  Profiles), run apkit guide --full.
+  Profiles), run
+  apkit guide --full
 --- stderr ---
 "
 `;
@@ -186,8 +195,10 @@ Keep project-specific instructions in the project repository.
 
 Next: from the project you want to try, run apkit install example --host codex
 
-For the Workspace contract, run apkit guide --contract; for complete authoring
-  guidance, run apkit guide --full.
+For the Workspace contract, run
+  apkit guide --contract
+  ; for complete authoring guidance, run
+  apkit guide --full
 --- stderr ---
 "
 `;
@@ -211,11 +222,15 @@ An example context/example-context.md:
 Keep project-specific instructions in the project repository.
 
 
-Next: run apkit validate, then select it into a Profile with
+Next: run
+  apkit validate
+  , then select it into a Profile with
   apkit configure profile
 
-For the Workspace contract, run apkit guide --contract; for complete authoring
-  guidance, run apkit guide --full.
+For the Workspace contract, run
+  apkit guide --contract
+  ; for complete authoring guidance, run
+  apkit guide --full
 --- stderr ---
 "
 `;
@@ -245,11 +260,15 @@ description: Summarize a change. Use when asked for a concise change summary.
 Describe what changed, how it was verified, and any follow-up work.
 
 
-Next: run apkit validate, then select it into a Profile with
+Next: run
+  apkit validate
+  , then select it into a Profile with
   apkit configure profile
 
-For the Workspace contract, run apkit guide --contract; for complete authoring
-  guidance, run apkit guide --full.
+For the Workspace contract, run
+  apkit guide --contract
+  ; for complete authoring guidance, run
+  apkit guide --full
 --- stderr ---
 "
 `;
@@ -1722,13 +1741,17 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with apkit new;
-    focus a topic with
+  Scaffold material with
+    apkit new
+    ; focus a topic with
     apkit guide profile
-    apkit guide context, or
-    apkit guide skill; see
-    apkit install --help for supported
-    Host values.
+    ,
+    apkit guide context
+    , or
+    apkit guide skill
+    ; see
+    apkit install --help
+    for supported Host values.
 
 Common commands:
   init
@@ -1791,7 +1814,8 @@ More commands:
 
 For the complete Workspace authoring
   reference (Context Modules, Skills,
-  and Profiles), run apkit guide --full.
+  and Profiles), run
+  apkit guide --full
 --- stderr ---
 "
 `;
@@ -1813,13 +1837,17 @@ Agent Profile Kit composes reusable
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with \x1B[36mapkit new;\x1B[0m
-    focus a topic with
+  Scaffold material with
+    \x1B[36mapkit new\x1B[0m
+    ; focus a topic with
     \x1B[36mapkit guide profile\x1B[0m
-    \x1B[36mapkit guide context,\x1B[0m or
-    \x1B[36mapkit guide skill;\x1B[0m see
-    \x1B[36mapkit install --help\x1B[0m for supported
-    Host values.
+    ,
+    \x1B[36mapkit guide context\x1B[0m
+    , or
+    \x1B[36mapkit guide skill\x1B[0m
+    ; see
+    \x1B[36mapkit install --help\x1B[0m
+    for supported Host values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -1882,7 +1910,8 @@ Agent Profile Kit composes reusable
 
 \x1B[2mFor the complete Workspace authoring\x1B[0m
 \x1B[2m  \x1B[0m\x1B[2mreference (Context Modules, Skills,\x1B[0m
-\x1B[2m  \x1B[0m\x1B[2mand Profiles), run apkit guide --full.\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mand Profiles), run\x1B[0m
+\x1B[2m  \x1B[0m\x1B[2mapkit guide --full\x1B[0m
 --- stderr ---
 "
 `;
@@ -1902,8 +1931,17 @@ First run:
   apkit status
   apkit update
 
-  Scaffold material with apkit new; focus a topic with apkit guide profile, apkit guide context,
-    or apkit guide skill; see apkit install --help for supported Host values.
+  Scaffold material with
+    apkit new
+    ; focus a topic with
+    apkit guide profile
+    ,
+    apkit guide context
+    , or
+    apkit guide skill
+    ; see
+    apkit install --help
+    for supported Host values.
 
 Common commands:
   init
@@ -1964,8 +2002,17 @@ Agent Profile Kit composes reusable agent material into host-native projects.
 \x1B[36m  apkit status\x1B[0m
 \x1B[36m  apkit update\x1B[0m
 
-  Scaffold material with \x1B[36mapkit new;\x1B[0m focus a topic with \x1B[36mapkit guide profile,\x1B[0m \x1B[36mapkit guide context,\x1B[0m
-    or \x1B[36mapkit guide skill;\x1B[0m see \x1B[36mapkit install --help\x1B[0m for supported Host values.
+  Scaffold material with
+    \x1B[36mapkit new\x1B[0m
+    ; focus a topic with
+    \x1B[36mapkit guide profile\x1B[0m
+    ,
+    \x1B[36mapkit guide context\x1B[0m
+    , or
+    \x1B[36mapkit guide skill\x1B[0m
+    ; see
+    \x1B[36mapkit install --help\x1B[0m
+    for supported Host values.
 
 \x1B[1mCommon commands:\x1B[0m
 \x1B[36m  init\x1B[0m
@@ -2344,10 +2391,13 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 ✖ apkit: Directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
-Run apkit install to configure this
-  directory as a Project.
-Run apkit list projects to see
-  configured Projects.
+Run
+  apkit install
+  to configure this directory as a
+  Project.
+Run
+  apkit list projects
+  to see configured Projects.
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
@@ -2358,10 +2408,13 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31m✖ apkit: Directory\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31m'/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31mis not configured as a Project\x1B[0m
-Run \x1B[36mapkit install\x1B[0m to configure this
-  directory as a Project.
-Run \x1B[36mapkit list projects\x1B[0m to see
-  configured Projects.
+Run
+  \x1B[36mapkit install\x1B[0m
+  to configure this directory as a
+  Project.
+Run
+  \x1B[36mapkit list projects\x1B[0m
+  to see configured Projects.
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "

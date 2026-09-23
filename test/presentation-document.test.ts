@@ -555,6 +555,25 @@ test("moves trailing sentence punctuation off a promoted command line", () => {
   expect(lines.join("\n")).toContain("- Run");
 });
 
+test("never rewrites command-run text when dropping separator punctuation (PROD-3)", () => {
+  const text = renderPresentationDocument(
+    [{
+      kind: "sentence",
+      parts: [
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA ",
+        commandPart("apkit", [arg("status.")]),
+        ".",
+      ],
+    }],
+    { color: false, interactive: false, width: 40, rows: undefined },
+  );
+  const lines = text.split("\n");
+  const commandLine = lines.find((line) => line.includes("apkit status"));
+  expect(commandLine).toBeDefined();
+  // The authored command text keeps its period; only the separator run drops.
+  expect(commandLine!.trim()).toBe("apkit status.");
+});
+
 test("keeps an over-measure copyable command or path whole on one line", () => {
   const longPath = "/projects/alpha/with/a/very/long/copyable/path/that/exceeds/the/measure/segment";
   const text = renderPresentationDocument(
