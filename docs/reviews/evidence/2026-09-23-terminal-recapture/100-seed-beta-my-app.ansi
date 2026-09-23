@@ -1,0 +1,12 @@
+[32m✔ Installed for /private/tmp/apkit-653-session/100/projects/beta/my-app[0m
+[1m  Profile: engineering[0m
+  Hosts: claude, codex
+[1mFirst use:[0m
+- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
+- Trust the bound project in Codex so the Profile can load.
+- Launch Codex from the exact bound project root so the Profile can load.
+Optional check: start new Claude and Codex sessions in
+  /private/tmp/apkit-653-session/100/projects/beta/my-app and ask what Profile material each loaded.
+
+[36mNext: [36mapkit status[0m[0m
+[36mDetails: [36mapkit details[0m[0m

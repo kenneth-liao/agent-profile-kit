@@ -1,0 +1,11 @@
+● All Projects were already current.
+⚠ Claude Code CLI was not found on PATH (alpha)
+  Requirement: The selected Profile requires Claude project delivery
+  Remedy: install Claude Code and ensure claude --version works before checking status or updating
+    the Profile
+⚠ Codex CLI was not found on PATH (alpha)
+  Requirement: The selected Profile requires Codex project delivery
+  Remedy: install Codex and ensure codex --version works before checking status or updating
+    Profiles that require Codex Host capabilities
+
+Details: apkit details

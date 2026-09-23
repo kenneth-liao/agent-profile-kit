@@ -1,0 +1,10 @@
+[1mProjects:[0m
+
+[1mProject                              Profile      Hosts          State[0m
+acme-internal-analytics-pipeline-v2  engineering  claude, codex  configured
+alpha/my-app                         engineering  claude, codex  configured
+beta/my-app                          engineering  claude, codex  configured
+hello                                engineering  codex          configured
+
+4 Projects configured.
+Use [36mapkit status[0m to inspect Project lifecycle diagnostics.

@@ -1,0 +1,13 @@
+✖ apkit: uninstall stopped at
+  /private/tmp/apkit-653-session/100/projects/acme-internal-analytics-pipeline-v2: EACCES:
+  permission denied, mkdtemp
+  '/private/tmp/apkit-653-session/100/projects/acme-internal-analytics-pipeline-v2/.agent-profile-ki
+t-remove-FBYtZB'
+Completed Projects stay completed: /private/tmp/apkit-653-session/100/home/proj/alpha. The
+  previous selection and output were restored where possible. Unattempted Projects remain untouched:
+  /private/tmp/apkit-653-session/100/projects/alpha/my-app,
+  /private/tmp/apkit-653-session/100/projects/beta/my-app,
+  /private/tmp/apkit-653-session/100/projects/hello.
+After resolving the cause, retry the same scope with apkit uninstall --all --auto-confirm
+
+Details: apkit details

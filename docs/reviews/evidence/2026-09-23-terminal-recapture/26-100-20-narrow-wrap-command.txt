@@ -1,0 +1,29 @@
+A Project is one working folder that receives the installed material.
+Installing into ~/proj/alpha.
+A Profile is a named selection of Context and Skills suited to a kind of work and reusable across
+  projects.
+
+✔ Which Profile? › engineering
+An Agent Host is a tool such as Claude Code or Codex that can use the material you install into a
+  Project. Selecting a Host does not install it.
+
+✔ Which Agent Hosts? › claude, codex
+Install into ~/proj/alpha
+  Profile: engineering
+  Hosts: claude, codex
+
+✔ Install into this Project? (y/N) › y
+✔ Installed for ~/proj/alpha
+  Profile: engineering
+  Hosts: claude, codex
+First use:
+- Review and approve the generated SessionStart hook when Codex asks so the Profile can load.
+- Trust the bound project in Codex so the Profile can load.
+- Launch Codex from the exact bound project root so the Profile can load.
+Optional check: start new Claude and Codex sessions in ~/proj/alpha and ask what Profile material
+  each loaded.
+Run the same install without the prompt:
+  apkit install engineering ~/'proj/alpha' --host claude --host codex --auto-confirm
+
+Next: apkit status
+Details: apkit details

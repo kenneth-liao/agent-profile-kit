@@ -1,0 +1,14 @@
+Context and Skill files will be stored in and loaded from
+  /private/tmp/apkit-653-session/100/workspace.
+Nothing needs to be added — /private/tmp/apkit-653-session/100/workspace already satisfies the
+  Workspace contract.
+[36m❯ [0m[1mSet up this folder as your Workspace? (y/N)[0m[46G[47G[46G[2K[G[G[?25h
+[32m✔ [0m[32mSet up this folder as your Workspace?[0m [36m›[0m [32myes[0m
+[32m✔ Initialized Agent Profile Kit Workspace at /private/tmp/apkit-653-session/100/workspace[0m
+[1msettings: [1m~/.agents/agent-profile-kit/config.yaml[0m[0m
+A Profile is a named selection of Context and Skills suited to a kind of work and reusable across
+  projects.
+Context is always-loaded facts, preferences, and standing rules a Profile selects.
+Detected Agent Hosts: claude, codex
+
+[36mNext: [36mapkit install[0m[0m

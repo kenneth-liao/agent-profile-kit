@@ -1,0 +1,17 @@
+Projects:
+
+Project: acme-internal-analytics-pipeline-v2
+Profile: engineering  Hosts: claude, codex
+State: configured
+
+Project: alpha/my-app  Profile: engineering
+Hosts: claude, codex  State: configured
+
+Project: beta/my-app  Profile: engineering
+Hosts: claude, codex  State: configured
+
+Project: hello  Profile: engineering  Hosts: codex
+State: configured
+
+4 Projects configured.
+Use apkit status to inspect Project lifecycle diagnostics.

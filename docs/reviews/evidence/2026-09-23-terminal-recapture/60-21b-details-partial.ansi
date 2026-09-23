@@ -1,0 +1,22 @@
+[33m⚠ Uninstall op-000010[0m
+Time: 2026-09-23T14:50:28Z
+Scope: all Projects
+[33mOutcome: partial[0m
+[31mFailure: EACCES: permission denied, mkdtemp '/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2/.agent-profile-kit-remove-i46WWZ'[0m
+
+[1mWritten:[0m
+[1m  ~/proj/alpha[0m
+[33m    - .agent-profile-kit/codex/context.md[0m
+[33m    - .claude/rules/agent-profile-kit.md[0m
+[33m    - .codex/hooks.json[0m
+[1mFailed:[0m
+[31m  [0m[31m/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2:[0m
+[31m    [0m[31mEACCES: permission denied, mkdtemp[0m
+[31m    [0m[31m'/private/tmp/apkit-653-session/60/projects/acme-internal-analytics-pipeline-v2/.agent-profile-kit-remove-i46WWZ'[0m
+[1mPending:[0m
+[2m  [0m[2m/private/tmp/apkit-653-session/60/projects/alpha/my-app:[0m
+[2m    [0m[2mnot completed[0m
+[2m  [0m[2m/private/tmp/apkit-653-session/60/projects/beta/my-app:[0m
+[2m    [0m[2mnot completed[0m
+[2m  [0m[2m/private/tmp/apkit-653-session/60/projects/hello: not[0m
+[2m    [0m[2mcompleted[0m

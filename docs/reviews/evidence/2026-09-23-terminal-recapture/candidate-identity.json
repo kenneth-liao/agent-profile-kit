@@ -1,0 +1,15 @@
+{
+  "version": "0.229.0",
+  "repositoryHead": "35e1708bdd6e6d25cb66557dc504a1875ce75e10",
+  "sourceFingerprint": "6c0650a3b5b30cbecb9e2f1d73b09e4a27b9776880d1a70da3561517d7ce3a64",
+  "archiveDigest": "3e8b140f7cee9b6f28dec301d61465b5d4a42ded265e774552a072615995d712",
+  "archivePath": "/private/tmp/apkit-653-candidate/agent-profile-kit-0.229.0.tgz",
+  "recordPath": "/private/tmp/apkit-653-candidate/agent-profile-kit-0.229.0.tgz.provenance.json",
+  "extractRoot": "/private/tmp/apkit-653-candidate/package",
+  "runtime": {
+    "node": "v22.23.2",
+    "nodeBinary": "/opt/homebrew/opt/node@22/bin/node",
+    "buildBun": "1.4.0",
+    "platform": "darwin"
+  }
+}

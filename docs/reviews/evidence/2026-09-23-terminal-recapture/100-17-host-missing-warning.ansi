@@ -1,0 +1,11 @@
+● All Projects were already current.
+[33m⚠ Claude Code CLI was not found on PATH (alpha)[0m
+  Requirement: The selected Profile requires Claude project delivery
+  Remedy: install Claude Code and ensure [36mclaude --version[0m works before checking status or updating
+    the Profile
+[33m⚠ Codex CLI was not found on PATH (alpha)[0m
+  Requirement: The selected Profile requires Codex project delivery
+  Remedy: install Codex and ensure [36mcodex --version[0m works before checking status or updating
+    Profiles that require Codex Host capabilities
+
+[36mDetails: [36mapkit details[0m[0m

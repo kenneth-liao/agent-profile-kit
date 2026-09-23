@@ -1,0 +1,105 @@
+A Project is one working folder that receives the
+  installed material.
+Installing into
+  /private/tmp/apkit-653-session/60/projects/selection.
+A Profile is a named selection of Context and Skills
+  suited to a kind of work and reusable across projects.
+[36m❯ [0m[1mWhich Profile?[0m
+type to filter › ↑↓ move › enter select
+[36m❯ [0mengineering
+  writing[10G[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mWhich Profile?[0m [36m›[0m [32mengineering[0m
+An Agent Host is a tool such as Claude Code or Codex that
+  can use the material you install into a Project. Selecting
+  a Host does not install it.
+[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+2 selected
+[36m❯ [0m[36m◼ [0mclaude
+    [2mdetected[0m
+  [36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mantigravity
+    [2mnot found[0m
+  [36m◻ [0mgrok
+    [2mnot found[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m
+  [36m◻ [0mpi
+    [2mnot found[0m[14G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m…[0m c
+2 selected
+[36m❯ [0m[36m◼ [0mclaude
+    [2mdetected[0m
+  [36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mantigravity
+    [2mnot found[0m
+  [36m◻ [0mgrok
+    [2mnot found[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m
+  [36m◻ [0mpi
+    [2mnot found[0m[14G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m…[0m co
+2 selected
+[36m❯ [0m[36m◼ [0mclaude
+    [2mdetected[0m
+  [36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mantigravity
+    [2mnot found[0m
+  [36m◻ [0mgrok
+    [2mnot found[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m
+  [36m◻ [0mpi
+    [2mnot found[0m[14G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m…[0m cod
+2 selected
+[36m❯ [0m[36m◼ [0mclaude
+    [2mdetected[0m
+  [36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mantigravity
+    [2mnot found[0m
+  [36m◻ [0mgrok
+    [2mnot found[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m
+  [36m◻ [0mpi
+    [2mnot found[0m[14G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m…[0m cod
+2 selected
+[36m❯ [0m[36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m[14G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m›[0m cod
+2 selected
+[36m❯ [0m[36m◼ [0mcodex
+    [2mdetected[0m
+  [36m◻ [0mopencode
+    [2mnot found[0m[14G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Agent Hosts?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+[36m›[0m cod
+2 selected
+  [36m◼ [0mcodex
+    [2mdetected[0m
+[36m❯ [0m[36m◻ [0mopencode
+    [2mnot found[0m[14G[11G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mWhich Agent Hosts?[0m [36m›[0m [32mclaude, codex[0m
+Install into
+  /private/tmp/apkit-653-session/60/projects/selection
+  Profile: engineering
+  Hosts: claude, codex
+[36m❯ [0m[1mInstall into this Project? (y/N)[0m[35G[36G[2K[G[36m❯ [0m[1mInstall into this Project? (y/N)[0m
+[36m❯ [0mn[4G[3G[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mInstall into this Project? (y/N)[0m [36m›[0m [32mn[0m
+● Install was declined; nothing was written (you answered
+  no).

@@ -1,0 +1,25 @@
+[1mOperation history (7):[0m
+
+Operation: op-000007  Time: just now  Command: update
+Outcome: succeeded  Scope: all Projects
+
+Operation: op-000006  Time: just now  Command: install
+Outcome: succeeded  Scope: one Project
+
+Operation: op-000005  Time: just now  Command: install
+Outcome: succeeded  Scope: one Project
+
+Operation: op-000004  Time: just now  Command: install
+Outcome: succeeded  Scope: one Project
+
+Operation: op-000003  Time: just now  Command: install
+Outcome: cancelled  Scope: one Project
+
+Operation: op-000002  Time: just now  Command: update
+Outcome: no-op  Scope: all Projects
+
+Operation: op-000001  Time: just now  Command: install
+Outcome: succeeded  Scope: one Project
+
+[36mRun apkit details <operation-id> for one operation's[0m
+[36m  [0m[36mcomplete evidence.[0m

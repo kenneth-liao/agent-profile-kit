@@ -1,0 +1,4 @@
+✔ All Projects are up to date (1 Project)
+Workspace: /private/tmp/apkit-653-session/60/workspace
+
+Project: hello  Primary Cause: up to date
