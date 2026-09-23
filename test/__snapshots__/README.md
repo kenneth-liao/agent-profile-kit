@@ -64,6 +64,15 @@ clean-tree gate.
 Snapshot files are created and changed only on a maintainer machine. CI never
 enables snapshot updating; an uncommitted snapshot fails the clean-tree gate.
 
+## Accepted content change: missing-Host warning Project naming (#652, US-011)
+
+Warning list items replace the `(N Projects)` count with every affected
+Project's view identity, and a typed capability warning splits its
+Adapter-authored requirement and remedy onto separate default-colored lines
+under a truthful `✔` completed-outcome headline. Those frames changed facts on
+purpose. Adapter remedy strings that still carry markdown backticks are left
+unparsed until Adapters mark commands structurally.
+
 ## Accepted content change: compact lifecycle receipts (#502, ADR-0040)
 
 US-011 deliberately replaces the default `update` receipt with one

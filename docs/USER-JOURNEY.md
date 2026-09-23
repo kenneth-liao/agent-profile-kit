@@ -907,18 +907,28 @@ asserting a user edit without provenance.
 during `update`, a missing or outdated Host CLI produces one advisory warning
 per Host per invocation, rendered inline with the outcome — no warnings
 heading, no empty warning section — and never changes the exit code
-(US-017–019, DEC-010, DEC-011):
+(US-017–019, DEC-010, DEC-011, US-011):
 
 ```
 $ apkit update <project>
-Update complete
-- Grok inspect --json output is not valid JSON; upgrade Grok Build or fix the
-  CLI before checking status or updating the Profile (1 Project)
+✔ Update complete
+⚠ Codex CLI was not found on PATH (demo)
+  Requirement: The selected Profile requires Codex project delivery
+  Remedy: install Codex and ensure `codex --version` works before checking
+  status or updating Profiles that require Codex Host capabilities.
 
 Updated 1 Project (1 generated file).
 
 Details: apkit details
 ```
+
+The completed outcome stays truthful and separate (`✔ Update complete` /
+`✔ Installed for …`); each missing-Host warning is its own `⚠` line that
+names the affected Project or Projects rather than only a count. A genuinely
+shared identical Adapter-authored remedy appears once with its Project list;
+different Hosts keep their own remedy and requirement. The remedy stays in
+the default colour. Nothing states or implies that the update proved Host
+loading or that the missing Host made the update fail (US-011).
 
 The historical excerpt below showed these conditions as Blockers with
 problem/requirement/remedy prose; that gating and the Installer-authored prose

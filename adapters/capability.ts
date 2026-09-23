@@ -25,6 +25,10 @@ export interface AdapterCapabilityFailure {
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
+  /** Structurally marked sentences when the Adapter supplies atomic parts. */
+  readonly problemParts?: readonly InlineContent[];
+  readonly remedyParts?: readonly InlineContent[];
+  readonly requirementParts?: readonly InlineContent[];
   /** Whether the failure is machine-level or bound to one Project's surface. */
   readonly scope: AdapterCapabilityScope;
   /** The normalized Host CLI floor the failure names, when it names one. */
@@ -42,6 +46,9 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
   readonly problem: string;
   readonly remedy: string;
   readonly requirement: string;
+  readonly problemParts?: readonly InlineContent[];
+  readonly remedyParts?: readonly InlineContent[];
+  readonly requirementParts?: readonly InlineContent[];
   readonly scope: AdapterCapabilityScope;
   readonly requiredVersion?: string;
 
@@ -56,6 +63,9 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
     this.scope = failure.scope;
     this.parts = failure.parts;
     if (failure.requiredVersion !== undefined) this.requiredVersion = failure.requiredVersion;
+    if (failure.problemParts !== undefined) this.problemParts = failure.problemParts;
+    if (failure.remedyParts !== undefined) this.remedyParts = failure.remedyParts;
+    if (failure.requirementParts !== undefined) this.requirementParts = failure.requirementParts;
   }
 }
 
@@ -84,12 +94,18 @@ export function capabilityFailure(
 ): AdapterCapabilityError {
   const allAffected = [{ kind: "host" as const, value: host }, ...affectedItems];
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
+  // Authored parts that flatten to exactly the problem are its structured
+  // form (US-011); otherwise the problem is carried as plain text and the
+  // machine message stays the authored parts.
+  const structuredProblem =
+    parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
   return new AdapterCapabilityError({
     affectedItems: allAffected,
     host,
     message: flatInlineText(authoredParts),
     parts: authoredParts,
     problem,
+    ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
     remedy,
     requirement: capabilityRequirement(host),
     scope,
@@ -109,15 +125,18 @@ export function versionFloorCapabilityFailure(
   parts?: readonly InlineContent[],
 ): AdapterCapabilityError {
   const authoredParts = parts ?? [`${problem}; ${remedy}`];
+  const structuredProblem =
+    parts !== undefined && flatInlineText(parts) === problem ? parts : undefined;
   return new AdapterCapabilityError({
     affectedItems: [{ kind: "host", value: host }],
     host,
     message: flatInlineText(authoredParts),
     parts: authoredParts,
     problem,
+    ...(structuredProblem === undefined ? {} : { problemParts: structuredProblem }),
+    requiredVersion,
     remedy,
     requirement: capabilityRequirement(host),
-    requiredVersion,
     scope: "host",
   });
 }

@@ -2647,6 +2647,20 @@ function aggregateLine(
   return parts.length === 1 ? undefined : parts.join(" · ");
 }
 
+export interface WarningPresentationGroup {
+  readonly consequence?: string;
+  readonly copyableValues: readonly string[];
+  readonly kind: ReconciliationWarning["kind"];
+  readonly parts: readonly InlineContent[];
+  readonly problem?: readonly InlineContent[];
+  readonly remedy?: readonly InlineContent[];
+  readonly requirement?: readonly InlineContent[];
+  readonly projects: readonly {
+    readonly canonicalProject: string;
+    readonly project: string;
+  }[];
+}
+
 function warningGroupKey(warning: ReconciliationWarning): string {
   return JSON.stringify([
     warning.kind,
@@ -2654,17 +2668,6 @@ function warningGroupKey(warning: ReconciliationWarning): string {
     warning.consequence ?? "",
     [...warning.copyableValues],
   ]);
-}
-
-export interface WarningPresentationGroup {
-  readonly consequence?: string;
-  readonly copyableValues: readonly string[];
-  readonly kind: ReconciliationWarning["kind"];
-  readonly parts: readonly InlineContent[];
-  readonly projects: readonly {
-    readonly canonicalProject: string;
-    readonly project: string;
-  }[];
 }
 
 function groupWarnings(
@@ -2676,6 +2679,9 @@ function groupWarnings(
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
     parts: readonly InlineContent[];
+    problem?: readonly InlineContent[];
+    remedy?: readonly InlineContent[];
+    requirement?: readonly InlineContent[];
     projects: { canonicalProject: string; project: string }[];
   }>();
 
@@ -2697,6 +2703,9 @@ function groupWarnings(
             copyableValues: [...warning.copyableValues],
             kind: warning.kind,
             parts: warning.parts,
+            ...(warning.problem === undefined ? {} : { problem: warning.problem }),
+            ...(warning.remedy === undefined ? {} : { remedy: warning.remedy }),
+            ...(warning.requirement === undefined ? {} : { requirement: warning.requirement }),
             projects: [{
               canonicalProject: projectRecord.canonicalProject,
               project: projectRecord.project,
@@ -2720,6 +2729,9 @@ function groupWarnings(
       copyableValues: group.copyableValues,
       kind: group.kind,
       parts: group.parts,
+      ...(group.problem === undefined ? {} : { problem: group.problem }),
+      ...(group.remedy === undefined ? {} : { remedy: group.remedy }),
+      ...(group.requirement === undefined ? {} : { requirement: group.requirement }),
       projects: [...group.projects].sort((left, right) =>
         compareCanonicalStrings(left.canonicalProject, right.canonicalProject)
       ),
@@ -3832,7 +3844,14 @@ function conciseApplyDocument(
   const noOpApply = isNoOpApply("update", report, receipt);
 
   const nodes: PresentationNode[] = [];
-  const warnings = warningNodes(receipt ? [report, receipt] : report, groups, scope);
+  const warnings = warningNodes(
+    receipt ? [report, receipt] : report,
+    groups,
+    scope,
+    // Single-Project update receipts name action locations by stable path
+    // (DEC-006, #647); multi-Project receipts use the view identity.
+    groups.length === 1 ? "stable" : "identity",
+  );
   if (noOpApply) {
     // One neutral statement (US-003, US-010): a clean no-op invents no next
     // action and omits the details hint; history retention is unchanged.
@@ -4113,7 +4132,12 @@ export function applyExecutionFailureDocument(
   const groups = grouped.groups;
   const warningItems = options.verbose === true
     ? verboseWarningNodes(reports, groups, scope)
-    : warningNodes(reports, groups, scope);
+    : warningNodes(
+        reports,
+        groups,
+        scope,
+        groups.length === 1 ? "stable" : "identity",
+      );
   const nodes: PresentationNode[] = [
     {
       kind: "notice",
@@ -4744,7 +4768,8 @@ export function configureNameRequiredDocument(usage: string): PresentationDocume
  * report warnings) for one installed Project: advisory only, never
  * blocking, reusing the shared warning rendering. Empty when none. */
 export function installWarningNodes(report: ReconciliationReport): PresentationDocument {
-  return warningNodes(report, groupProjects(report).groups, "project");
+  // Install is a single-Project action location: stable path (DEC-006, #647).
+  return warningNodes(report, groupProjects(report).groups, "project", "stable");
 }
 
 /** The broken-Profile section for install views (#606): every broken Profile
@@ -4918,7 +4943,12 @@ export function applyVerificationFailureDocument(
   const groups = grouped.groups;
   const warningItems = options.verbose === true
     ? verboseWarningNodes(receipt, groups, scope)
-    : warningNodes(receipt, groups, scope);
+    : warningNodes(
+        receipt,
+        groups,
+        scope,
+        groups.length === 1 ? "stable" : "identity",
+      );
   if (options.verbose === true) {
     return [
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: [message] }] },
@@ -5233,21 +5263,125 @@ function formatWarningGroupParts(
   return shortenInlineProjectReferences(group.parts, groups, scope, display);
 }
 
+/** How one warning names its affected Projects inside its view (DEC-006). */
+type WarningProjectNaming = "identity" | "stable";
+
+function warningProjectName(
+  project: { readonly canonicalProject: string; readonly project: string },
+  identities: ProjectIdentityLookup,
+  naming: WarningProjectNaming,
+): string {
+  if (naming === "stable") {
+    return displayProjectPath(project.canonicalProject, project.project, "fleet");
+  }
+  return identities(project);
+}
+
+/**
+ * The affected-Project clause (US-011): every Project is named through the
+ * view's one consistent identity. A long list is capped with a see-all
+ * pointer and never drops a Project (TEST-005).
+ */
+function warningProjectClause(
+  projects: readonly { readonly canonicalProject: string; readonly project: string }[],
+  identities: ProjectIdentityLookup,
+  naming: WarningProjectNaming,
+  verbose: boolean,
+): string {
+  const names = projects.map((project) => warningProjectName(project, identities, naming));
+  if (verbose || names.length <= PROJECT_SCOPE_LIMIT) {
+    return ` (${names.join(", ")})`;
+  }
+  const visible = names.slice(0, PROJECT_SCOPE_LIMIT);
+  return ` (${visible.join(", ")}, … ${plural(names.length - PROJECT_SCOPE_LIMIT, "more Project")}; use --verbose to see all Projects)`;
+}
+
+/**
+ * One warning group as typed nodes (US-011): a ⚠ statement that names the
+ * affected Projects, then its consequence, requirement, and remedy as
+ * separate default-colored lines. Remedies stay Adapter-authored (DEC-009);
+ * a structurally marked command inside a remedy stays an atomic command part
+ * (#651), while a plain string is left unparsed.
+ */
+function warningGroupNodes(
+  group: WarningPresentationGroup,
+  groups: readonly ProjectGroup[],
+  identities: ProjectIdentityLookup,
+  scope: LocationDisplayScope,
+  naming: WarningProjectNaming,
+  display: "identity" | "stable",
+  verbose: boolean,
+): PresentationNode[] {
+  const statement = group.problem === undefined
+    ? formatWarningGroupParts(group, groups, scope, display)
+    : shortenInlineProjectReferences(group.problem, groups, scope, display);
+  const nodes: PresentationNode[] = [{
+    kind: "list-item" as const,
+    parts: [
+      ...statement,
+      warningProjectClause(group.projects, identities, naming, verbose),
+    ],
+    category: "warning" as const,
+  }];
+  if (group.consequence !== undefined) {
+    nodes.push({ kind: "prose", parts: [`  Consequence: ${group.consequence}`] });
+  }
+  if (group.requirement !== undefined) {
+    nodes.push({
+      kind: "prose",
+      parts: [
+        "  Requirement: ",
+        ...shortenInlineProjectReferences(group.requirement, groups, scope, display),
+      ],
+    });
+  }
+  if (group.remedy !== undefined) {
+    nodes.push({
+      kind: "prose",
+      parts: [
+        "  Remedy: ",
+        ...shortenInlineProjectReferences(group.remedy, groups, scope, display),
+      ],
+    });
+  }
+  return nodes;
+}
+
+function warningIdentities(
+  reports: ReconciliationReport | readonly ReconciliationReport[],
+  groups: readonly ProjectGroup[],
+): ProjectIdentityLookup {
+  const reportList = Array.isArray(reports) ? reports : [reports];
+  const byCanonical = new Map<string, ViewProjectLocation>();
+  for (const project of reportList.flatMap((report) => report.projects)) {
+    byCanonical.set(project.canonicalProject, {
+      canonicalProject: project.canonicalProject,
+      project: project.project,
+    });
+  }
+  for (const group of groups) {
+    if (!byCanonical.has(group.canonicalProject)) {
+      byCanonical.set(group.canonicalProject, {
+        canonicalProject: group.canonicalProject,
+        project: group.project,
+      });
+    }
+  }
+  return projectIdentityLookup([...byCanonical.values()]);
+}
+
 function warningNodes(
   reports: ReconciliationReport | readonly ReconciliationReport[],
   groups: readonly ProjectGroup[],
   scope: LocationDisplayScope,
+  naming: WarningProjectNaming = "identity",
 ): PresentationNode[] {
   const warningGroups = groupWarnings(reports);
   if (warningGroups.length === 0) return [];
-  return warningGroups.map((group) => ({
-    kind: "list-item" as const,
-    parts: [
-      ...formatWarningGroupParts(group, groups, scope, "identity"),
-      ` (${plural(group.projects.length, "Project")})`,
-    ],
-    category: "warning" as const,
-  }));
+  const identities = warningIdentities(reports, groups);
+  return warningGroups.flatMap((group) =>
+    warningGroupNodes(group, groups, identities, scope, naming, "identity", false)
+  );
 }
 
 function verboseWarningNodes(
@@ -5257,19 +5391,10 @@ function verboseWarningNodes(
 ): PresentationNode[] {
   const warningGroups = groupWarnings(reports);
   if (warningGroups.length === 0) return [];
-  return warningGroups.map((group) => {
-    const projectList = group.projects
-      .map((project) => displayProjectPath(project.canonicalProject, project.project, "fleet"))
-      .join(", ");
-    return {
-      kind: "list-item" as const,
-      parts: [
-        ...formatWarningGroupParts(group, groups, scope, "stable"),
-        ` (${projectList})`,
-      ],
-      category: "warning" as const,
-    };
-  });
+  const identities = warningIdentities(reports, groups);
+  return warningGroups.flatMap((group) =>
+    warningGroupNodes(group, groups, identities, scope, "stable", "stable", true)
+  );
 }
 
 function renderVerboseOutputKind(output: OutputReconciliationItem): string {

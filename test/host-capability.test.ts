@@ -91,6 +91,9 @@ describe("Host capability probing", () => {
         host: "codex",
         scope: "host",
         requiredVersion: "0.145.0",
+        problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+        remedy: "upgrade Codex before checking status or updating the Profile",
+        requirement: "The selected Profile requires Codex project delivery",
         warning: {
           copyableValues: ["codex"],
           parts: ["Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+); upgrade Codex before checking status or updating the Profile"],
@@ -120,6 +123,14 @@ describe("Host capability probing", () => {
       {
         host: "antigravity",
         scope: "project",
+        problem: "Antigravity project surface cannot host Context: .agents is a file, not a directory",
+        problemParts: [
+          "Antigravity project surface cannot host Context: ",
+          { kind: "identifier", value: ".agents" },
+          " is a file, not a directory",
+        ],
+        remedy: "ensure the Antigravity Context surface is a directory, then retry",
+        requirement: "The selected Profile requires Antigravity project delivery",
         warning: {
           copyableValues: [
             "antigravity",
