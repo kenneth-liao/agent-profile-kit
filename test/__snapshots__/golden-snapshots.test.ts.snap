@@ -1063,8 +1063,8 @@ exports[`golden snapshots of every human view details list: details-list 1`] = `
 "--- stdout ---
 Operation history (1):
 
-Operation  Time      Command  Outcome    Scope
-op-000001  3m ago    install  succeeded  one Project
+Operation  Time    Command  Outcome    Scope
+op-000001  5m ago  install  succeeded  one Project
 
 Run apkit details <operation-id> for one operation's complete evidence.
 --- stderr ---

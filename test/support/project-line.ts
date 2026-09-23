@@ -5,9 +5,10 @@ import { expect } from "bun:test";
  * node elides in the middle, so the rendered `Project:` field always fits the
  * measure, keeps the unique tail visible, and never exposes the full
  * over-width path. Independent of the machine's temporary-directory layout.
- * Compact labeled records may pack further fields onto the same line (US-008),
- * so the identity is matched as the `Project:` field value rather than the
- * entire line ending.
+ * Compact labeled records pack further fields onto the same line separated by
+ * a double space (US-008), so the identity is the `Project:` field up to that
+ * separator — never the first whitespace token, which would break on paths
+ * containing spaces and could read a packed neighbor.
  */
 export function expectElidedProjectLine(
   output: string,
@@ -18,7 +19,7 @@ export function expectElidedProjectLine(
   const line = output
     .split("\n")
     .find((candidate) => {
-      const field = candidate.match(/Project: (\S+)/);
+      const field = candidate.match(/Project: (.+?)(?:  |$)/);
       return field !== null && field[1]!.endsWith(tail);
     });
   expect(line, `expected a Project: field ending in ${tail}`).toBeDefined();

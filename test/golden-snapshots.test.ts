@@ -17,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import { bindProject } from "../installer/bind-project.js";
+import { operationHistoryPath } from "../installer/operation-history.js";
+import { TEST_NOW_ENV } from "../cli/details-command.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { humanGuide, agentGuide } from "../cli/guides.js";
 import { readSnapshotBodies } from "./support/snapshot-file.js";
@@ -58,9 +60,6 @@ const STABLE_UUID = "00000000-0000-4000-8000-000000000000";
 /** Retained operation evidence carries real times; rendering is what is reviewed. */
 const OPERATION_TIME_PATTERN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/g;
 const STABLE_OPERATION_TIME = "2026-01-01T00:00:00Z";
-/** Compact history-list time is relative to wall clock; pin one representative. */
-const COMPACT_TIME_PATTERN = /\b(?:just now|\d+[mhd] ago|\d{4}-\d{2}-\d{2})\b/g;
-const STABLE_COMPACT_TIME = "3m ago";
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
@@ -115,18 +114,10 @@ function stabilize(text: string, home: string): string {
     .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME);
   // Identical stabilized endpoints render as one Time line (US-008); collapse
   // the Started/Finished pair the real-clock run may have printed.
-  next = next.replace(
+  return next.replace(
     new RegExp(`Started: ${STABLE_OPERATION_TIME}\nFinished: ${STABLE_OPERATION_TIME}`, "g"),
     `Time: ${STABLE_OPERATION_TIME}`,
   );
-  // Compact history-list time is relative to wall clock; pin one representative
-  // at the captured width so column alignment stays reviewable.
-  return next.replace(COMPACT_TIME_PATTERN, (time) => {
-    const token = STABLE_COMPACT_TIME;
-    return time.length <= token.length
-      ? token.slice(0, time.length)
-      : token.padEnd(time.length, " ");
-  });
 }
 
 function snapshotBody(result: ProcessResult, home: string): string {
@@ -217,12 +208,16 @@ async function runCli(
   home: string,
   args: readonly string[],
   cwd?: string,
+  environment?: NodeJS.ProcessEnv,
 ): Promise<ProcessResult> {
   return runProcess({
     executable: controlledToolPath("node"),
     arguments_: [cliPath, ...args],
     ...(cwd === undefined ? {} : { cwd }),
-    environment: redirectedEnvironment(home),
+    environment: {
+      ...redirectedEnvironment(home),
+      ...(environment ?? {}),
+    },
     deadlineMs: TEST_CHILD_DEADLINE_MS,
     commandLabel: "packed CLI golden",
   });
@@ -424,7 +419,11 @@ interface HumanView {
   readonly snapshot: string;
   readonly commandId?: string;
   readonly extraRoute?: (typeof EXTRA_ROUTES)[number];
-  readonly prepare: () => Promise<{ home: string; args: readonly string[] }>;
+  readonly prepare: () => Promise<{
+    home: string;
+    args: readonly string[];
+    environment?: NodeJS.ProcessEnv;
+  }>;
 }
 
 const HUMAN_VIEWS: readonly HumanView[] = [
@@ -510,7 +509,40 @@ const HUMAN_VIEWS: readonly HumanView[] = [
     prepare: async () => {
       const { home, project } = await initializedHome();
       await installExample(home, project);
-      return { home, args: ["details", "--list"] };
+      // Freeze the retained times and the compact-time clock together so the
+      // history list is a deterministic render (US-008): no global date rewrite
+      // is needed, and a wrong date anywhere else fails this snapshot.
+      const frozenStart = "2026-01-01T00:00:00.000Z";
+      const history = JSON.parse(
+        readFileSync(operationHistoryPath(home), "utf8"),
+      ) as {
+        entries: readonly {
+          startedAt: string;
+          finishedAt: string;
+        }[];
+      };
+      writeFileSync(
+        operationHistoryPath(home),
+        `${JSON.stringify(
+          {
+            ...history,
+            entries: history.entries.map((entry) => ({
+              ...entry,
+              startedAt: frozenStart,
+              finishedAt: frozenStart,
+            })),
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      return {
+        home,
+        args: ["details", "--list"],
+        environment: {
+          [TEST_NOW_ENV]: String(Date.parse("2026-01-01T00:05:00.000Z")),
+        },
+      };
     },
   },
   {
@@ -860,11 +892,11 @@ describe("golden snapshots of every human view", () => {
 
   for (const view of HUMAN_VIEWS) {
     test(view.test, async () => {
-      const { home, args } = await view.prepare();
+      const { home, args, environment } = await view.prepare();
       expectGolden(
         view.snapshot,
         `golden snapshots of every human view ${view.test}: ${view.snapshot} 1`,
-        await runCli(home, args),
+        await runCli(home, args, undefined, environment),
         home,
       );
     });

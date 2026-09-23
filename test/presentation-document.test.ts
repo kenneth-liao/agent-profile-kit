@@ -1003,6 +1003,25 @@ test("details show one exact Time when start and end are identical, never a dura
   expect(rendered).not.toContain("duration");
 });
 
+test("details keep one Time line for a sub-second interval at second display precision", () => {
+  // Display identity is second precision (US-008): 0.5s is not a
+  // user-meaningful duration, so it must not print identical Started and
+  // Finished endpoints. Millisecond evidence stays in --json/--verbose.
+  const rendered = renderPresentationDocument(
+    operationHistoryEntryDocument(historyEntry({
+      outcome: "succeeded",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      finishedAt: "2026-01-01T00:00:00.500Z",
+    })),
+    redirected,
+    { home: "/home", cwd: "/work" },
+  );
+  expect(rendered).toContain("Time: 2026-01-01T00:00:00Z");
+  expect(rendered).not.toContain("Started:");
+  expect(rendered).not.toContain("Finished:");
+  expect(rendered).not.toContain("→");
+});
+
 test("details show exact Started and Finished timestamps when they differ", () => {
   const rendered = renderPresentationDocument(
     operationHistoryEntryDocument(historyEntry({

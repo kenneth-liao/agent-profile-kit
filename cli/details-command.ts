@@ -51,8 +51,25 @@ export interface DetailsCommandRequest {
   readonly pagerEnvironment?: NodeJS.ProcessEnv;
   /** Test seam over the history document's filesystem operations. */
   readonly fileSystem?: Partial<OperationHistoryFileSystem>;
-  /** Injectable wall clock for compact history-list time (US-008). */
+  /**
+   * Injectable wall clock for compact history-list time (US-008). Packed-CLI
+   * harnesses that cannot set this field freeze the same clock through
+   * `APKIT_TEST_NOW` (epoch milliseconds).
+   */
   readonly now?: number;
+}
+
+/** The packed-CLI harness freeze for compact history-list time (US-008). */
+export const TEST_NOW_ENV = "APKIT_TEST_NOW";
+
+function resolvedNow(request: DetailsCommandRequest): number {
+  if (request.now !== undefined) return request.now;
+  const frozen = process.env[TEST_NOW_ENV];
+  if (frozen !== undefined && frozen !== "") {
+    const parsed = Number(frozen);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now();
 }
 
 export interface DetailsCommandOutcome {
@@ -209,7 +226,7 @@ export async function runDetailsCommand(
     return {
       exitCode: await writeDetailsDocument(
         request,
-        operationHistoryListDocument(entries, request.now ?? Date.now()),
+        operationHistoryListDocument(entries, resolvedNow(request)),
       ),
     };
   }

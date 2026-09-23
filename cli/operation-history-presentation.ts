@@ -203,9 +203,12 @@ export function formatCompactOperationTime(iso: string, nowMs: number): string {
 }
 
 /**
- * Details time is exact and never claims a duration: identical start and end
- * render as one `Time` line, and only a real interval shows both endpoints
- * (US-008).
+ * Details time uses the human display identity (UTC, second precision) and
+ * never claims a duration (US-008): when start and end display the same
+ * second they are one `Time` line — including a real sub-second interval,
+ * which at this precision is not a user-meaningful duration. Only a visible
+ * second-level interval shows `Started` and `Finished`. Millisecond endpoints
+ * stay in `--json` and `--verbose` evidence unchanged (DEC-007).
  */
 function detailTimeNodes(entry: OperationHistoryEvidence): readonly PresentationNode[] {
   const started = formatOperationTime(entry.startedAt);

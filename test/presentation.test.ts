@@ -30,6 +30,7 @@ import {
   rootHelpDocument,
 } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
+import { expectElidedProjectLine } from "./support/project-line.js";
 import { guideMarkdownDocument } from "../cli/guide-markdown.js";
 import {
   focusedGuideDocument,
@@ -5757,6 +5758,86 @@ describe("standalone view presentation documents (#389)", () => {
     expect(records[1]).toContain("demo");
     expect(records[2]).toContain("other");
     expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
+  });
+
+  test("project inventory keeps over-width colliding-tail paths elided and whole at 60 columns", () => {
+    const sharedTail = "shared-project-name";
+    const first = `/home/very-long-parent-aaaaaaaaaaaaaaaaaaaa/team-a/${sharedTail}`;
+    const second = `/home/very-long-parent-bbbbbbbbbbbbbbbbbbbb/team-b/${sharedTail}`;
+    const projects = [
+      {
+        canonicalProject: first,
+        hosts: ["codex" as const],
+        problem: null,
+        profile: "engineering",
+        project: first,
+      },
+      {
+        canonicalProject: second,
+        hosts: ["claude" as const, "codex" as const],
+        problem: null,
+        profile: "devops",
+        project: second,
+      },
+    ];
+
+    const narrow = renderPresentationDocument(
+      projectInventoryDocument(projects, "/home", "/home"),
+      { color: false, interactive: true, width: 60, rows: undefined },
+      { home: "/home", cwd: "/home" },
+    );
+    // Both identities keep their unique tail visible without exposing the
+    // over-width path, and packed neighbors cannot be read as the Project field.
+    expectElidedProjectLine(narrow, first, 60);
+    expectElidedProjectLine(narrow, second, 60);
+    expect(narrow).not.toContain(first);
+    expect(narrow).not.toContain(second);
+    expect(narrow).toContain(`team-a/${sharedTail}`);
+    expect(narrow).toContain(`team-b/${sharedTail}`);
+    // No fact is dropped when the records pack.
+    expect(narrow).toContain("Profile: engineering");
+    expect(narrow).toContain("Profile: devops");
+    expect(narrow).toContain("Hosts: codex");
+    expect(narrow).toContain("Hosts: claude, codex");
+    expect(narrow).toContain("State: configured");
+    expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
+    for (const record of narrow.split("\n\n").slice(1, 3)) {
+      expect(record.split("\n").length).toBeLessThanOrEqual(3);
+    }
+  });
+
+  test("project inventory keeps a Project field with spaces intact beside packed neighbors", () => {
+    const spaced = "/home/my projects/demo app";
+    const document = projectInventoryDocument(
+      [{
+        canonicalProject: spaced,
+        hosts: ["codex" as const],
+        problem: null,
+        profile: "example",
+        project: spaced,
+      }],
+      "/home",
+      "/home",
+    );
+    const narrow = renderPresentationDocument(document, {
+      color: false,
+      interactive: true,
+      width: 60,
+      rows: undefined,
+    }, { home: "/home", cwd: "/home" });
+    // The view identity keeps the space-containing tail whole; the field
+    // matcher must not stop at the first space and read `demo` only.
+    expect(narrow).toContain("Project: demo app  Profile: example");
+    expectElidedProjectLine(narrow, spaced, 60);
+  });
+
+  test("the Project field matcher keeps space-containing paths and ignores packed neighbors", () => {
+    const spaced = "/home/my projects/demo app";
+    expectElidedProjectLine(
+      `Projects:\n\nProject: ${spaced}  Profile: example  Hosts: codex\nState: configured\n\n1 Project configured.\n`,
+      spaced,
+      80,
+    );
   });
 
   test("project inventory preserves canonical diagnostic evidence and repair locators", () => {
