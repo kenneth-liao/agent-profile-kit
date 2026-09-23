@@ -13,11 +13,14 @@ import {
 } from "./guide-markdown.js";
 import {
   commandPart,
-  identifierPart,
   pathPart,
+  type CommandArg,
+  type InlineContent,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
+
+const arg = (value: string): CommandArg => ({ kind: "text", value });
 
 function guidePath(name: string): URL {
   return new URL(`../docs/guides/${name}`, import.meta.url);
@@ -63,7 +66,10 @@ export const TOPIC_GUIDES = {
       ["new", "context", "<context>"],
       ["new", "profile", "<profile>", "--context", "<context>"],
     ] as const,
-    next: "Next: from the project you want to try, run `apkit install example --host codex`.",
+    next: [
+      "Next: from the project you want to try, run ",
+      commandPart(COMMAND_NAME, [arg("install"), arg("example"), arg("--host"), arg("codex")]),
+    ] as const satisfies readonly InlineContent[],
   },
   context: {
     title: "Context Module",
@@ -75,7 +81,12 @@ export const TOPIC_GUIDES = {
       ["new", "context", "<context>"],
       ["configure", "profile"],
     ] as const,
-    next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
+    next: [
+      "Next: run ",
+      commandPart(COMMAND_NAME, [arg("validate")]),
+      ", then select it into a Profile with ",
+      commandPart(COMMAND_NAME, [arg("configure"), arg("profile")]),
+    ] as const satisfies readonly InlineContent[],
   },
   skill: {
     title: "Skill",
@@ -87,7 +98,12 @@ export const TOPIC_GUIDES = {
       ["new", "skill", "<skill>"],
       ["configure", "profile"],
     ] as const,
-    next: "Next: run `apkit validate`, then select it into a Profile with `apkit configure profile`.",
+    next: [
+      "Next: run ",
+      commandPart(COMMAND_NAME, [arg("validate")]),
+      ", then select it into a Profile with ",
+      commandPart(COMMAND_NAME, [arg("configure"), arg("profile")]),
+    ] as const satisfies readonly InlineContent[],
   },
 } as const;
 
@@ -272,9 +288,10 @@ export function focusedGuideDocument(
     spacer(),
     {
       kind: "sentence",
-      // The carried next action renders whole, as the literal block it came from.
-      parts: [identifierPart(guide.next)],
-      category: "heading",
+      // Prose reflows and commands stay atomic; a promoted command line
+      // carries no trailing sentence punctuation (US-009, #651).
+      parts: [...guide.next],
+      category: "command",
     },
     spacer(),
     FULL_GUIDE_POINTER,

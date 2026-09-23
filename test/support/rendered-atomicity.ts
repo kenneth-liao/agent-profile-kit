@@ -213,13 +213,18 @@ function extractSpellings(lines: readonly string[]): readonly string[] {
     );
     for (const [index, token] of rawTokens.entries()) {
       // Quoted spans keep their quotes: the quoted form is the renderer's
-      // atomic form, and the spelling must match the raw text. Other tokens
-      // shed prose punctuation.
-      const trimmed = quoted.has(index) ? trimTokenEdges(token, true) : trimTokenEdges(token);
-      if (isPathToken(trimmed) || (quoted.has(index) && trimmed.length > 1)) found.add(trimmed);
+      // atomic form, and the spelling must match the raw text. A shell word
+      // that concatenates an unquoted `~/` prefix with a quoted remainder
+      // (`~/'proj with space'`) is likewise opaque (#651). Other tokens shed
+      // prose punctuation.
+      const keepsQuotes = quoted.has(index) || /['"]/.test(token.slice(1));
+      const trimmed = keepsQuotes ? trimTokenEdges(token, true) : trimTokenEdges(token);
+      if (isPathToken(trimmed) || (keepsQuotes && trimmed.length > 1)) found.add(trimmed);
     }
     const tokens = rawTokens.map((token, index) =>
-      quoted.has(index) ? trimTokenEdges(token, true) : trimTokenEdges(token),
+      quoted.has(index) || /['"]/.test(token.slice(1))
+        ? trimTokenEdges(token, true)
+        : trimTokenEdges(token),
     );
     for (let index = 0; index < tokens.length; index += 1) {
       const spelling = commandSpelling(tokens, quoted, index);

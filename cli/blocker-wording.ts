@@ -26,8 +26,7 @@ import { compareCanonicalStrings } from "../schemas/canonical.js";
 import {
   commandPart,
   flatInlineText,
-  safeShellQuoted,
-  shellSingleQuoted,
+  shellQuoteArg,
   type CommandArg,
   type CommandPart,
   type InlineContent,
@@ -76,22 +75,26 @@ export interface HumanBlockerWording {
   readonly requirement: readonly InlineContent[];
 }
 
-/** One scoped apkit command part with pre-rendered argument strings. */
-function apkit(...args: readonly string[]): CommandPart {
-  return commandPart(COMMAND_NAME, args.map(arg));
+/**
+ * One scoped apkit command part with pre-rendered argument strings. Any
+ * argument that cannot be shell-quoted fails the whole command closed.
+ */
+function apkit(...args: readonly (string | undefined)[]): CommandPart | undefined {
+  if (args.some((value) => value === undefined)) return undefined;
+  return commandPart(COMMAND_NAME, args.map((value) => arg(value!)));
 }
 
 /**
  * One scoped non-apkit command part: flags stay bare, every path-like value is
- * POSIX-quoted, and any value that cannot be quoted safely fails closed to
- * `undefined` (#440).
+ * quoted through {@link shellQuoteArg}, and any value that cannot be quoted
+ * safely fails closed to `undefined` (#440).
  */
 function externalCommand(
   program: string,
   flags: readonly string[],
   values: readonly string[],
 ): CommandPart | undefined {
-  const quotedValues = values.map((value) => safeShellQuoted(value));
+  const quotedValues = values.map((value) => shellQuoteArg(value));
   if (quotedValues.some((value) => value === undefined)) return undefined;
   return commandPart(program, [
     ...flags.map(arg),
@@ -100,14 +103,12 @@ function externalCommand(
 }
 
 /**
- * A single-quoted file-system path argument for an `apkit` command. POSIX
- * quoting preserves every byte — even control characters inside single quotes
- * survive copy-paste — so the command always carries the true evidence path;
- * the stricter refusal in {@link safeShellQuoted} is reserved for authoring
- * that reinterprets argument content, like Git pathspecs.
+ * A file-system path argument for an `apkit` command, quoted through the one
+ * shared shell-quoting boundary (#651). Home-relative spellings keep an
+ * unquoted `~/` prefix so the shell expands them.
  */
-function quoted(value: string): string {
-  return shellSingleQuoted(value);
+function quoted(value: string): string | undefined {
+  return shellQuoteArg(value);
 }
 
 /** The project-relative path of one recorded output inside its Project. */
@@ -120,10 +121,10 @@ function gitUntrackCommand(
   project: string,
   paths: readonly string[],
 ): CommandPart | undefined {
-  const projectArg = safeShellQuoted(project);
+  const projectArg = shellQuoteArg(project);
   if (projectArg === undefined) return undefined;
   const ordered = [...paths].sort(compareCanonicalStrings);
-  const pathArgs = ordered.map((path) => safeShellQuoted(path));
+  const pathArgs = ordered.map((path) => shellQuoteArg(path));
   if (pathArgs.length === 0 || pathArgs.some((path) => path === undefined)) {
     return undefined;
   }
@@ -284,36 +285,37 @@ function occupiedOutputProblem(blocker: ReconciliationBlocker): string {
 function untrackChoiceRemedy(
   project: string,
   paths: readonly string[],
-  applyArgs: readonly string[],
+  applyArgs: readonly (string | undefined)[],
 ): readonly InlineContent[] {
   const untrack = gitUntrackCommand(project, paths);
+  const apply = apkit(...applyArgs);
   if (untrack === undefined) {
-    return [
+    return compact([
       "Manual recovery is required: Agent Profile Kit could not derive a safe " +
         `untracking command from the recorded paths (${pathList(paths)}). Untrack them ` +
         "in Git yourself without reinterpreting special characters, then run ",
-      apkit(...applyArgs),
+      apply,
       "; or leave the files in place to keep Git ownership.",
-    ];
+    ]);
   }
-  return [
+  return compact([
     "Choose one. To let Agent Profile Kit manage these files, run ",
     untrack,
     " — it stages their removal from the Git index while the files stay on " +
       "disk; commit afterwards to keep the change — then run ",
-    apkit(...applyArgs),
+    apply,
     ". To keep Git ownership instead, leave the files in place.",
-  ];
+  ]);
 }
 
 /** The scoped uninstall alternative with its honest consequence: removal plus
  * forgetting, so a later update does not reinstall (DEC-001). */
 function uninstallAlternative(project: string): readonly InlineContent[] {
-  return [
+  return compact([
     "; or run ",
     apkit("uninstall", "--project", quoted(project)),
     " to remove its generated files and stop managing this Project.",
-  ];
+  ]);
 }
 
 /** A non-following inspection command for one recorded path, when derivable. */
@@ -360,11 +362,11 @@ function recordRecovery(
 ): readonly InlineContent[] {
   const hasCommands = rich.some((part) => typeof part !== "string" && part !== undefined);
   if (hasCommands) return compact(rich);
-  return [
+  return compact([
     `${fallbackLead} ${fallbackBody} '${path}' yourself, then run `,
     apkit("status"),
     " to verify.",
-  ];
+  ]);
 }
 
 /**

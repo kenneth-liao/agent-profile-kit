@@ -7,7 +7,7 @@ import {
   flatInlineText,
   identifierPart,
   pathPart,
-  safeShellQuoted,
+  shellQuoteArg,
   splitInlineLines,
   textPart,
   type CommandArg,
@@ -672,7 +672,7 @@ function renderCommand(node: CommandNode, environment: RenderEnvironment): strin
       environment.cwd,
       environment.home,
     );
-    return safeShellQuoted(display) ?? display;
+    return shellQuoteArg(display) ?? display;
   })].join(" ");
 }
 
@@ -915,6 +915,36 @@ function inlineRuns(
   return runs;
 }
 
+/** Trailing sentence punctuation must never ride on a promoted command line. */
+const SENTENCE_PUNCTUATION = /^[.,;:]+$/;
+const TRAILING_SENTENCE_PUNCTUATION = /[.,;:]+$/;
+
+function isSentencePunctuation(text: string): boolean {
+  return SENTENCE_PUNCTUATION.test(text);
+}
+
+function stripSentencePunctuation(text: string): string {
+  return text.replace(TRAILING_SENTENCE_PUNCTUATION, "");
+}
+
+/**
+ * A line that is only a copyable command (plus glued sentence punctuation)
+ * drops that punctuation: the line is the paste target, and a trailing period
+ * would join the final argument (#651).
+ */
+function finalizeCommandLine(line: readonly InlineRun[]): InlineRun[] {
+  if (!line.some((run) => run.command)) return [...line];
+  if (!line.every((run) => run.command || isSentencePunctuation(run.text))) {
+    return [...line];
+  }
+  const kept = line.filter((run) => !isSentencePunctuation(run.text));
+  return kept.map((run, index) =>
+    index === kept.length - 1
+      ? { ...run, text: stripSentencePunctuation(run.text) }
+      : run
+  );
+}
+
 function wrapRuns(
   runs: readonly InlineRun[],
   measure: number,
@@ -931,14 +961,14 @@ function wrapRuns(
   };
   const flush = (): void => {
     if (current.length > 0) {
-      lines.push(current);
+      lines.push(finalizeCommandLine(current));
       current = [];
     }
   };
   for (const run of runs) {
     if (policy === "lifecycle" && run.command) {
       flush();
-      lines.push([run]);
+      lines.push(finalizeCommandLine([run]));
       continue;
     }
     let remainder = run.text;
@@ -955,12 +985,12 @@ function wrapRuns(
       if (run.glue) {
         // A path segment wider than the measure cannot fit whole; split it at
         // the measure so the identity stays complete without overflowing.
-        lines.push([{ text: remainder.slice(0, measure), command: run.command, glue: run.glue }]);
+        lines.push(finalizeCommandLine([{ text: remainder.slice(0, measure), command: run.command, glue: run.glue }]));
         remainder = remainder.slice(measure);
         continue;
       }
       // Other over-measure runs keep their established whole-line behaviour.
-      lines.push([{ text: remainder, command: run.command, glue: run.glue }]);
+      lines.push(finalizeCommandLine([{ text: remainder, command: run.command, glue: run.glue }]));
       break;
     }
   }

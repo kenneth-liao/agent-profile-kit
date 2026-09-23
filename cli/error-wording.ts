@@ -40,7 +40,7 @@ import {
   substituteInline,
 } from "./blocker-wording.js";
 import { InstallerToolError, SchemaRejectionError } from "../installer/tool-errors.js";
-import { commandPart, flatInlineText, identifierPart, safeShellQuoted, shellSingleQuoted, type CommandArg, type InlineContent } from "./inline-content.js";
+import { commandPart, flatInlineText, identifierPart, shellQuoteArg, type CommandArg, type InlineContent } from "./inline-content.js";
 import { nearestName, suggestMovedContextModuleId } from "./nearest-match.js";
 import { diagnosticDocument, type DiagnosticDocumentParts } from "./diagnostics.js";
 import type { PresentationDocument } from "./presentation-document.js";
@@ -1182,15 +1182,17 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       if (fact.cleanupFailed) {
         whyLines.push(["The opener process could not be cleaned up completely."]);
       }
-      const quotedPath = safeShellQuoted(fact.path) ?? shellSingleQuoted(fact.path);
+      const quotedPath = shellQuoteArg(fact.path);
       return {
         happened: [`Could not open Workspace at ${fact.path}`],
         why: whyLines,
-        whatToType: [[
-          "Run ",
-          commandPart("cd", [arg(quotedPath)]),
-          " to inspect the Workspace directory.",
-        ]],
+        whatToType: quotedPath === undefined
+          ? [["Open the Workspace directory manually to inspect it."]]
+          : [[
+            "Run ",
+            commandPart("cd", [arg(quotedPath)]),
+            " to inspect the Workspace directory.",
+          ]],
       };
     }
     case "profile-file-symlink":
@@ -1292,12 +1294,16 @@ function listProjectsRecovery(): readonly InlineContent[] {
 
 /** The carried command line for one stale recorded Project binding (#507). */
 function staleBindingRecovery(authored: string): readonly InlineContent[] {
+  const projectArg = shellQuoteArg(authored);
+  if (projectArg === undefined) {
+    return ["Restore the directory, or remove its stale record with uninstall."];
+  }
   return [
     "Restore the directory, or run ",
     commandPart(COMMAND_NAME, [
       arg("uninstall"),
       arg("--project"),
-      arg(shellSingleQuoted(authored)),
+      arg(projectArg),
     ]),
     " to remove its stale record.",
   ];

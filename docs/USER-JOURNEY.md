@@ -654,9 +654,13 @@ select the same Projects for reports and update writes (shown in stage 10).
 Each selected view states one primary next action naming the selected scope
 (US-007), and every copyable command argument is executable as printed: the
 Project argument renders home-relative or absolute — never the cwd-relative
-alias, never middle-elided — as one shell-quoted POSIX token, so a path
-containing spaces survives the shell that runs it and the printed action
-never dead-ends. The surrounding prose names the Project by this view's
+alias, never middle-elided — through the one shared shell-quoting boundary,
+which keeps an unquoted `~/` prefix so the shell expands it and single-quotes
+only the remainder, so a path containing spaces survives the shell that runs
+it and the printed action never dead-ends (US-009). At narrow widths prose
+reflows without mid-word breaks while copyable commands and paths stay intact
+on their own lines when needed, without sentence punctuation on a promoted
+command line. The surrounding prose names the Project by this view's
 shortest-unambiguous identity (US-013, ADR-0042); the command keeps the
 runnable path.
 

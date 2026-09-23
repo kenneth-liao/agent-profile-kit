@@ -100,6 +100,22 @@ Semantic category is authored at formatter sites rather than inferred from rende
 
 This amendment records the shared semantic visual system adopted across every human surface inside the existing terminal-presentation boundary. The authored category vocabulary becomes the DEC-001 roles: `command` (single accent for commands and prompt interaction), `muted` (secondary text only), `heading` and `path` (bold default names and headings — decorative magenta paths and blue headings are removed), and the state roles `success`, `warning` (renamed from `attention`), `error`, and `neutral`. Success, warning, and error colors are reserved for state glyphs and headlines. Remedies, required actions, and suggestions render in the default color with embedded commands in the accent; explanatory `why` text may be muted. Notice headlines open with the DEC-001 glyph for their role (`✔`, `⚠`, `✖`, `●`) and carry the state color; notice bodies stay in the default color. The glyph table also exports interaction roles (`›`, `❯`, `◻`, `◼`) for the shared prompt boundary without applying picker chrome here. `NO_COLOR` and redirected output emit no ANSI styling while every state remains distinguishable by glyph or wording. JSON, exit codes, and stdout/stderr ownership are unchanged.
 
+### Amendment: intact copyable values and one shell-quoting boundary (spec #640, US-009, issue #651)
+
+This amendment records how the presentation document seam keeps copyable
+commands and paths executable at narrow widths (DEC-009). Prose and hints
+reflow at the terminal width without mid-word breaks. Atomic command and path
+parts never split; when an inline node must wrap, a command or copyable path
+is placed on its own line rather than folded into reflowed prose, and a
+command-only line drops trailing sentence punctuation so a pasted command
+does not absorb a period. Every command argument is quoted through the one
+shared `shellQuoteArg` in `cli/inline-content.ts`: empty values and control
+characters are refused, a home-relative spelling keeps its `~`/`~/` prefix
+unquoted so the shell expands it while single-quoting only the remainder
+(`~/'proj with space'`), and every other value is POSIX single-quoted as one
+token. No second quoting helper remains. JSON, exit codes, and stdout/stderr
+ownership are unchanged.
+
 ### Amendment: advisory executable detection in Host inventory (issue #512, spec #491, US-018)
 
 This amendment records the targeted exception to the read-only discovery

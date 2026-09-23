@@ -9915,7 +9915,7 @@ describe("guide documents (#390)", () => {
       "spacer",
       "verbatim",
       "spacer",
-      "sentence(heading)",
+      "sentence(command)",
       "spacer",
       "sentence",
     ]);
@@ -9949,9 +9949,11 @@ describe("guide documents (#390)", () => {
       kind: "verbatim",
       text: contextExample.contents,
     });
-    // The carried next action renders whole, as the literal block it came from.
-    expect(renderedNodeLine(document.at(-3) as PresentationNode))
-      .toBe(TOPIC_GUIDES.profile.next);
+    // The next action is structured text plus command atoms: prose reflows
+    // and commands stay whole without a trailing period on a promoted line.
+    expect(inlineText(document.at(-3) as PresentationNode)).toBe(
+      "Next: from the project you want to try, run apkit install example --host codex",
+    );
     // Defect pins (#510): the raw markdown decoration is gone from rendered
     // output. Every pin fails on the pre-#510 rendering, which printed the
     // literal `# Profile` heading and the ```yaml / ```md fences.
@@ -9994,7 +9996,7 @@ describe("guide documents (#390)", () => {
         "spacer",
         "verbatim",
         "spacer",
-        "sentence(heading)",
+        "sentence(command)",
         "spacer",
         "sentence",
       ]);
