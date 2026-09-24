@@ -41,25 +41,28 @@ route for every lifecycle receipt.
   generated files:`. Routine committed additions, updates, and removals are
   counted, not enumerated. A failure view never implies that failed work
   completed.
-- **One completed-operation detail route.** A default receipt whose run
-  retained an operation-history entry (ADR-0039) closes with
-  `Details: apkit details`: the read-only command that retrieves that run's
-  stored evidence. It is the secondary line of the report's one footer block
-  (US-010): when the footer already carries a `Next` action list the details
-  route follows it with no second blank line, so no output prints two
-  footers. It is present for every outcome the recording boundary retains
-  except a clean no-op or a neutral cancellation/decline, which omit the
-  details hint while retention itself is unchanged (DEC-010) — those runs stay
-  retrievable through `apkit details` and `apkit details --list`. Failures,
-  warnings, remaining work, and history-write failures keep the route. It is
-  absent for pre-write refusals that retain nothing. It is written to the same
-  stream as the report it closes, so a declined or failed run keeps the pointer
-  beside its own diagnostic, and the terminal branch hands the run's recording
-  to that writer, which reads its one decision and fails loudly when a report
-  is written before its branch decided. A run whose entry could not be saved
-  still prints the route, and the save-failure diagnostic states that this run
-  is not in the store the route reads while that run's complete evidence
-  follows; machine JSON never carries the route.
+- **One completed-operation detail route.** A default receipt closes with
+  `Details: apkit details` exactly when its run went wrong — a failure, a
+  blocked run, a warning, or a partial run (`blocked` is named explicitly: it
+  is a distinct outcome, not a kind of failure; spec #672 US-008, DEC-007;
+  review D4) — with a
+  short note saying what that run shows (`notedCommand`). It is the secondary
+  line of the report's one footer block (US-010): when the footer already
+  carries a `Next` action list the details route follows it with no second
+  blank line, so no output prints two footers. A normal success — a clean
+  success, a clean no-op, or a neutral cancellation/decline — omits the route
+  while retention itself is unchanged: those runs stay retrievable through
+  `apkit details` and `apkit details --list`. The rule is one shared
+  presentation decision read from recorded facts (outcome, report warnings,
+  file work), never from rendered copy. It is absent for pre-write refusals
+  that retain nothing. It is written to the same stream as the report it
+  closes, so a declined or failed run keeps the pointer beside its own
+  diagnostic, and the terminal branch hands the run's recording to that
+  writer, which reads its one decision and fails loudly when a report is
+  written before its branch decided. A run whose entry could not be saved
+  still shows the route when its outcome went wrong, and the save-failure
+  diagnostic states that this run is not in the store the route reads while
+  that run's complete evidence follows; machine JSON never carries the route.
 - **Re-running the command is never the evidence route.** `apkit details`
   reads retained evidence; `apkit update --verbose` plans and describes the
   current run and is never offered as retrieval of an earlier one (DEC-007).
@@ -86,6 +89,11 @@ route for every lifecycle receipt.
   `apkit details --list` are unchanged. The hint remains for failures,
   warnings, remaining work, history-write failures, and successful changed
   work that already carries a footer.
+- **Spec #640 US-010's remaining details-hint breadth** — the hint after every
+  recorded run that changed something — is superseded by spec #672 US-008
+  (DEC-007, DEC-009, ticket #679): the route appears only after a failure, a
+  blocked run, a warning or a partial run. Normal successes omit it; retention
+  and explicit `apkit details` retrieval stay unchanged (review decision D4).
 - **ADR-0020** already requires concise output to omit routine generated paths
   and Repository Exclusion bookkeeping, and reserves `--verbose` and JSON for
   complete evidence. This record fixes the receipt's concrete default shape and
@@ -112,3 +120,13 @@ route for every lifecycle receipt.
   still distinguish committed, pending and failed work. The complete evidence
   content and the default receipt's `Updated:`/`Pending:` verbose structure
   are unchanged.
+- **Spec #672 US-008 (ticket #679, DEC-007/DEC-009).** The details route is
+  narrowed to failures, blocked runs, warnings and partial runs and carries one short note
+  (`notedCommand`) saying what the run shows; normal successes omit it
+  (superseding #640 US-010's hint after every changed run, review D4). The
+  route is decided from recorded facts only. `apkit details --list` reads as
+  recent runs with labelled columns, and one run's details show the outcome in
+  its headline, a local human time and scope, then `Changed files`, `What went
+  wrong` and `Not done` as they apply; exact timestamps stay in `--json`
+  (human time reads an injected clock and time zone, never the ambient zone or
+  locale). History retention and explicit retrieval are unchanged.

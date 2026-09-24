@@ -76,7 +76,10 @@ import {
   updateVerificationFailureRecording,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
-import { writeLifecycleReport } from "./operation-history-presentation.js";
+import {
+  localHumanTimeContext,
+  writeLifecycleReport,
+} from "./operation-history-presentation.js";
 
 export interface ApplyCommandRequest {
   readonly home: string;
@@ -94,6 +97,8 @@ export interface ApplyCommandRequest {
   /** Injectable prompt input stream; TTY evidence is read here (DEC-035). */
   readonly input: Readable;
   readonly clock?: PromptClock;
+  /** Injectable process environment for Host capability probes. */
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 export interface ApplyCommandOutcome {
@@ -144,6 +149,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
   const recording = beginLifecycleOperationRecording();
   const outcome = await runApplyCommandWithRecording(request, recording);
   await finishLifecycleOperationRecording({
+    time: localHumanTimeContext(),
     recording,
     home: request.home,
     command: "update",
@@ -204,6 +210,7 @@ async function runApplyCommandWithRecording(
   try {
     const applied = await applyApplication(request.home, {
       selection: request.selection,
+      ...(request.env === undefined ? {} : { env: request.env }),
       ...(request.replaceChanged ? { replaceChanged: true as const } : {}),
       ...(request.removeChanged ? { removeChanged: true as const } : {}),
       ...(confirmChangedOutputReplacement === undefined

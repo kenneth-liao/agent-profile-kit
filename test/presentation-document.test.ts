@@ -4,8 +4,9 @@ import { Writable } from "node:stream";
 import { delimitedContext, displayPath } from "../cli/presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
 import {
+  detailsRouteDecision,
   formatCompactOperationTime,
-  omitsOperationDetailsHint,
+  formatLocalHumanTime,
   operationDetailsDocument,
   operationHistoryEntryDocument,
   operationHistoryListDocument,
@@ -159,7 +160,7 @@ test("renders actionable guidance in the default color with commands in the acce
   const lines = colored.split("\n");
   // The why line stays beside the headline inside the notice part; the
   // what-to-type run follows after one blank line (US-001).
-  expect(lines[0]).toBe("\u001b[31m✖ apkit: Profile 'codng' was not found\u001b[0m");
+  expect(lines[0]).toBe("\u001b[31m✖ Profile 'codng' was not found\u001b[0m");
   expect(lines[1]).toBe("Available Profiles: coding, writing");
   expect(lines[1]).not.toMatch(/\u001b\[2m/);
   expect(lines[1]).not.toMatch(/\u001b\[31m/);
@@ -681,7 +682,7 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
   // Structural shape, not unstructured string: the notice states what
   // happened as one part, the what-to-type run is its own part, and the
   // usage reference is its own part — one blank line between each (US-001).
-  expect(lines[0]).toBe("✖ apkit: something failed");
+  expect(lines[0]).toBe("✖ something failed");
   expect(lines[1]).toBe("");
   expect(lines[2]).toBe("Run apkit first-recovery to recover.");
   expect(lines[3]).toBe("Run apkit second-recovery as an alternative.");
@@ -704,7 +705,7 @@ test("renders diagnostic cause lines after what happened and before what to type
   );
   const lines = text.split("\n").filter((line) => line.length > 0);
   // Order is the structural shape: happened, then why, then what to type.
-  expect(lines[0]!.startsWith("✖ apkit: ")).toBe(true);
+  expect(lines[0]!.startsWith("✖ ")).toBe(true);
   expect(lines.slice(1, 3).every((line) => line.startsWith("caused by: "))).toBe(true);
   expect(lines[3]!.startsWith("Run apkit")).toBe(true);
   expect(lines).toHaveLength(4);
@@ -795,11 +796,11 @@ function stripAnsi(text: string): string {
 }
 
 
-test("renders the completed-operation detail route as one copyable command", () => {
-  const document = operationDetailsDocument();
+test("renders the completed-operation detail route as one copyable command with its note", () => {
+  const document = operationDetailsDocument("see exactly what changed");
 
   const plain = renderPresentationDocument(document, redirected);
-  expect(plain).toBe("Details: apkit details");
+  expect(plain).toBe("Details: apkit details (see exactly what changed)");
   expect(plain).not.toMatch(/\u001b/);
 
   const colored = renderPresentationDocument(document, {
@@ -810,7 +811,7 @@ test("renders the completed-operation detail route as one copyable command", () 
   });
   // The command stays one whole token on one line whatever the width.
   const stripped = colored.replace(/\u001b\[[0-9;]*m/g, "");
-  expect(stripped.trim()).toBe("Details: apkit details");
+  expect(stripped.trim()).toBe("Details: apkit details (see exactly what changed)");
 });
 
 test("footerNodes carries one action list with an optional secondary details route", () => {
@@ -864,20 +865,76 @@ test("neutralStatementDocument is one statement without an apkit: prefix", () =>
   expect(document).toHaveLength(1);
 });
 
-test("omits the details hint only for clean no-ops and cancellations", () => {
-  expect(omitsOperationDetailsHint("no-op", false)).toBe(true);
-  expect(omitsOperationDetailsHint("cancelled", false)).toBe(true);
-  // Warning-carrying endings keep the route (US-010: warnings keep actionable
-  // guidance and recovery evidence).
-  expect(omitsOperationDetailsHint("no-op", true)).toBe(false);
-  expect(omitsOperationDetailsHint("cancelled", true)).toBe(false);
-  expect(omitsOperationDetailsHint("succeeded", false)).toBe(false);
-  expect(omitsOperationDetailsHint("failed", false)).toBe(false);
-  expect(omitsOperationDetailsHint("partial", false)).toBe(false);
-  expect(omitsOperationDetailsHint("blocked", false)).toBe(false);
+test("the details-route rule is decided from recorded facts only (US-008, DEC-007, D4)", () => {
+  // Normal successes omit the route (D4): a clean success, a clean no-op and
+  // a clean cancellation never advertise it.
+  expect(detailsRouteDecision({ outcome: "succeeded", hasWarnings: false, hasFileWork: true })).toEqual({
+    show: false,
+    note: "see exactly what changed",
+  });
+  expect(detailsRouteDecision({ outcome: "no-op", hasWarnings: false, hasFileWork: false })).toEqual({
+    show: false,
+    note: "see exactly what this run checked",
+  });
+  expect(detailsRouteDecision({ outcome: "cancelled", hasWarnings: false, hasFileWork: false })).toEqual({
+    show: false,
+    note: "see exactly what this run checked",
+  });
+  // A failure, a warning or a partial run shows the route (D4).
+  expect(detailsRouteDecision({ outcome: "failed", hasWarnings: false, hasFileWork: false }).show).toBe(true);
+  expect(detailsRouteDecision({ outcome: "partial", hasWarnings: false, hasFileWork: true }).show).toBe(true);
+  expect(detailsRouteDecision({ outcome: "blocked", hasWarnings: false, hasFileWork: false }).show).toBe(true);
+  expect(detailsRouteDecision({ outcome: "succeeded", hasWarnings: true, hasFileWork: true }).show).toBe(true);
+  expect(detailsRouteDecision({ outcome: "no-op", hasWarnings: true, hasFileWork: false }).show).toBe(true);
+  expect(detailsRouteDecision({ outcome: "cancelled", hasWarnings: true, hasFileWork: false }).show).toBe(true);
+  // The note says what the run shows: file work reads "changed"; a run that
+  // only checked reads "checked" (review screens 27 and 28).
+  expect(detailsRouteDecision({ outcome: "partial", hasWarnings: false, hasFileWork: true }).note).toBe(
+    "see exactly what changed",
+  );
+  expect(detailsRouteDecision({ outcome: "no-op", hasWarnings: true, hasFileWork: false }).note).toBe(
+    "see exactly what this run checked",
+  );
+  expect(detailsRouteDecision({ outcome: "failed", hasWarnings: false, hasFileWork: true }).note).toBe(
+    "see exactly what changed",
+  );
+  // A failure with no changed paths only checked (INT-A-1).
+  expect(detailsRouteDecision({ outcome: "failed", hasWarnings: false, hasFileWork: false }).note).toBe(
+    "see exactly what this run checked",
+  );
 });
 
-test("keeps the details route on a no-op report that carries warnings", () => {
+test("a failed run with no written or removed paths reads the checked note (INT-A-1)", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [{ kind: "prose" as const, parts: ["Report."] }];
+
+  const failed = beginLifecycleOperationRecording();
+  failed.collect({
+    outcome: "failed",
+    scope: { selection: "all" },
+    projects: [{ project: "/p", canonicalProject: "/p", result: "failed", failure: "injected fault" }],
+    hasWarnings: false,
+  });
+  writeLifecycleReport(stream, document, context, failed);
+  // The note comes from the same predicate the Changed files section reads:
+  // no written or removed paths means the run only checked.
+  expect(stream.text()).toContain("Details: apkit details (see exactly what this run checked)");
+  expect(stream.text()).not.toContain("see exactly what changed");
+});
+
+test("keeps the details route on a no-op run that carries warning facts", () => {
   class Sink extends Writable {
     readonly chunks: Buffer[] = [];
     override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
@@ -901,10 +958,19 @@ test("keeps the details route on a no-op report that carries warnings", () => {
   ];
 
   const retained = beginLifecycleOperationRecording();
-  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [], hasWarnings: true });
   writeLifecycleReport(stream, document, context, retained);
   expect(stream.text()).toContain("Everything is already up to date.");
   expect(stream.text()).toContain("Details: apkit details");
+
+  // The rule reads the recorded warning fact, never the rendered document:
+  // the same warning-shaped body with no recorded warnings omits the route.
+  const unwarned = beginLifecycleOperationRecording();
+  unwarned.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [], hasWarnings: false });
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, unwarned);
+  expect(stream.text()).toContain("Everything is already up to date.");
+  expect(stream.text()).not.toContain("Details:");
 });
 
 test("writes the retained-operation route onto the report's own stream only for a retained run", () => {
@@ -924,9 +990,9 @@ test("writes the retained-operation route onto the report's own stream only for 
   const document = [{ kind: "prose" as const, parts: ["Report."] }];
 
   // A clean no-op omits the details hint even when the run was retained
-  // (US-010, DEC-010): retrieval stays available through `apkit details`.
+  // (US-008, DEC-007): retrieval stays available through `apkit details`.
   const noOp = beginLifecycleOperationRecording();
-  noOp.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
+  noOp.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [], hasWarnings: false });
   stream.chunks.length = 0;
   writeLifecycleReport(stream, document, context, noOp);
   expect(stream.text()).toContain("Report.");
@@ -939,15 +1005,41 @@ test("writes the retained-operation route onto the report's own stream only for 
     scope: { selection: "all" },
     projects: [],
     cancelledReason: "declined",
+    hasWarnings: false,
   });
   stream.chunks.length = 0;
   writeLifecycleReport(stream, document, context, cancelled);
   expect(stream.text()).not.toContain("Details:");
 
-  // Successful and failed retained runs keep the route.
-  for (const outcome of ["succeeded", "failed", "partial", "blocked"] as const) {
+  // A normal success omits the route (D4).
+  const succeeded = beginLifecycleOperationRecording();
+  succeeded.collect({
+    outcome: "succeeded",
+    scope: { selection: "all" },
+    projects: [],
+    hasWarnings: false,
+  });
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, succeeded);
+  expect(stream.text()).toContain("Report.");
+  expect(stream.text()).not.toContain("Details:");
+
+  // A success that carried warnings keeps the route.
+  const warned = beginLifecycleOperationRecording();
+  warned.collect({
+    outcome: "succeeded",
+    scope: { selection: "all" },
+    projects: [],
+    hasWarnings: true,
+  });
+  stream.chunks.length = 0;
+  writeLifecycleReport(stream, document, context, warned);
+  expect(stream.text()).toContain("Details: apkit details");
+
+  // Failures, partial runs and blocked runs keep the route.
+  for (const outcome of ["failed", "partial", "blocked"] as const) {
     const retained = beginLifecycleOperationRecording();
-    retained.collect({ outcome, scope: { selection: "all" }, projects: [] });
+    retained.collect({ outcome, scope: { selection: "all" }, projects: [], hasWarnings: false });
     stream.chunks.length = 0;
     writeLifecycleReport(stream, document, context, retained);
     expect(stream.text()).toContain("Report.");
@@ -956,7 +1048,12 @@ test("writes the retained-operation route onto the report's own stream only for 
 
   // `--verbose` prints the complete current-run receipt and omits the route.
   const verboseSource = beginLifecycleOperationRecording();
-  verboseSource.collect({ outcome: "succeeded", scope: { selection: "all" }, projects: [] });
+  verboseSource.collect({
+    outcome: "failed",
+    scope: { selection: "all" },
+    projects: [],
+    hasWarnings: false,
+  });
   stream.chunks.length = 0;
   writeLifecycleReport(stream, document, context, verboseSource, false);
   expect(stream.text()).toContain("Report.");
@@ -1003,10 +1100,17 @@ test("attaches the details route to an existing Next footer as one block", () =>
   ];
 
   const retained = beginLifecycleOperationRecording();
-  retained.collect({ outcome: "succeeded", scope: { selection: "all" }, projects: [] });
+  retained.collect({
+    outcome: "partial",
+    scope: { selection: "all" },
+    projects: [{ project: "/p", canonicalProject: "/p", result: "completed", written: ["a.md"] }],
+    hasWarnings: false,
+  });
   writeLifecycleReport(stream, document, context, retained);
   const text = stream.text();
-  expect(text).toBe("Report.\n\nNext: apkit status\nDetails: apkit details\n");
+  expect(text).toBe(
+    "Report.\n\nNext: apkit status\nDetails: apkit details (see exactly what changed)\n",
+  );
   expect(text.match(/Details:/g)).toHaveLength(1);
   expect(text.match(/Next:/g)).toHaveLength(1);
 });
@@ -1014,7 +1118,7 @@ test("attaches the details route to an existing Next footer as one block", () =>
 test("holds the compact receipt impact and its route intact at a narrow width", () => {
   const document = [
     { kind: "prose" as const, parts: ["Updated 12 Projects (22 generated files)."] },
-    ...operationDetailsDocument(),
+    ...operationDetailsDocument("see exactly what changed"),
   ];
 
   const narrow = renderPresentationDocument(document, {
@@ -1025,7 +1129,7 @@ test("holds the compact receipt impact and its route intact at a narrow width", 
   });
   // The impact count and the copyable detail command never split.
   expect(narrow).toContain("Updated 12 Projects (22 generated files).");
-  expect(narrow).toContain("Details: apkit details");
+  expect(narrow).toContain("Details: apkit details (see exactly what changed)");
 });
 
 test("renders a view identity without eliding it and wraps it at segment boundaries", () => {
@@ -1131,6 +1235,9 @@ function historyEntry(overrides: Partial<OperationHistoryEntry> & Pick<Operation
   return { ...base, ...overrides };
 }
 
+/** The injected clock and zone every human time needs (never ambient). */
+const laTime = { nowMs: Date.parse("2026-01-01T02:00:00.000Z"), timeZone: "America/Los_Angeles" } as const;
+
 test("formatCompactOperationTime is deterministic UTC buckets with an injected now", () => {
   const now = Date.parse("2026-01-01T12:00:00.000Z");
   expect(formatCompactOperationTime("2026-01-01T11:59:30.000Z", now)).toBe("just now");
@@ -1141,52 +1248,106 @@ test("formatCompactOperationTime is deterministic UTC buckets with an injected n
   expect(formatCompactOperationTime("not-a-time", now)).toBe("not-a-time");
 });
 
-test("details show one exact Time when start and end are identical, never a duration", () => {
-  const rendered = renderPresentationDocument(
-    operationHistoryEntryDocument(historyEntry({ outcome: "succeeded" })),
-    redirected,
-    { home: "/home", cwd: "/work" },
-  );
-  expect(rendered).toContain("Time: 2026-01-01T00:00:00Z");
-  expect(rendered).not.toContain("→");
-  expect(rendered).not.toContain("Started:");
-  expect(rendered).not.toContain("Finished:");
-  expect(rendered).not.toContain("duration");
+test("formatLocalHumanTime is deterministic from an injected clock and time zone", () => {
+  const zone = "America/Los_Angeles";
+  const now = Date.parse("2026-01-01T18:00:00.000Z");
+  // Same calendar day in the injected zone reads Today.
+  expect(formatLocalHumanTime("2026-01-01T17:45:00.000Z", { nowMs: now, timeZone: zone }))
+    .toBe("Today at 9:45 AM");
+  // The previous calendar day in the injected zone reads Yesterday.
+  expect(formatLocalHumanTime("2025-12-31T17:45:00.000Z", { nowMs: now, timeZone: zone }))
+    .toBe("Yesterday at 9:45 AM");
+  // A date in another year carries the year (locale-free en-US spelling).
+  expect(formatLocalHumanTime("2025-12-30T17:45:00.000Z", { nowMs: now, timeZone: zone }))
+    .toBe("Dec 30, 2025 at 9:45 AM");
+  // An earlier date in the same year omits the year.
+  expect(formatLocalHumanTime("2026-03-01T17:45:00.000Z", {
+    nowMs: Date.parse("2026-06-15T18:00:00.000Z"),
+    timeZone: zone,
+  })).toBe("Mar 1 at 9:45 AM");
+  // A zone change moves the wall clock without changing the facts.
+  expect(formatLocalHumanTime("2026-01-01T17:45:00.000Z", { nowMs: now, timeZone: "UTC" }))
+    .toBe("Today at 5:45 PM");
+  // Yesterday is the previous calendar day in the injected zone, not a fixed
+  // 24h subtract: on the US spring-forward day (2026-03-08, 23 hours) the
+  // 24h-before instant lands two calendar days back (INT-A-3).
+  expect(formatLocalHumanTime("2026-03-08T18:00:00.000Z", {
+    nowMs: Date.parse("2026-03-09T07:30:00.000Z"),
+    timeZone: zone,
+  })).toBe("Yesterday at 11:00 AM");
+  expect(formatLocalHumanTime("not-a-time", { nowMs: now, timeZone: zone })).toBe("not-a-time");
 });
 
-test("details keep one Time line for a sub-second interval at second display precision", () => {
-  // Display identity is second precision (US-008): 0.5s is not a
-  // user-meaningful duration, so it must not print identical Started and
-  // Finished endpoints. Millisecond evidence stays in --json/--verbose.
+test("one run's details show the outcome in the headline and local time and scope below (screen 19)", () => {
   const rendered = renderPresentationDocument(
-    operationHistoryEntryDocument(historyEntry({
-      outcome: "succeeded",
-      startedAt: "2026-01-01T00:00:00.000Z",
-      finishedAt: "2026-01-01T00:00:00.500Z",
-    })),
+    operationHistoryEntryDocument(historyEntry({ outcome: "succeeded" }), laTime),
     redirected,
     { home: "/home", cwd: "/work" },
   );
-  expect(rendered).toContain("Time: 2026-01-01T00:00:00Z");
-  expect(rendered).not.toContain("Started:");
-  expect(rendered).not.toContain("Finished:");
-  expect(rendered).not.toContain("→");
-});
-
-test("details show exact Started and Finished timestamps when they differ", () => {
-  const rendered = renderPresentationDocument(
-    operationHistoryEntryDocument(historyEntry({
-      outcome: "partial",
-      startedAt: "2026-01-01T00:00:00.000Z",
-      finishedAt: "2026-01-01T00:00:12.000Z",
-    })),
-    redirected,
-    { home: "/home", cwd: "/work" },
-  );
-  expect(rendered).toContain("Started: 2026-01-01T00:00:00Z");
-  expect(rendered).toContain("Finished: 2026-01-01T00:00:12Z");
+  expect(rendered).toStartWith("✔ Install op-000001 succeeded");
+  expect(rendered).toContain("Today at 4:00 PM · one Project · Profile example · Agents codex");
+  // Exact timestamps stay in --json only (US-008).
+  expect(rendered).not.toContain("2026-01-01T00:00:00Z");
   expect(rendered).not.toContain("Time:");
-  expect(rendered).not.toContain("→");
+  expect(rendered).not.toContain("Started:");
+  expect(rendered).not.toContain("Finished:");
+  expect(rendered).not.toContain("Outcome:");
+});
+
+test("one run that stopped partway shows What went wrong, Changed files, and Not done (screen 29)", () => {
+  const rendered = renderPresentationDocument(
+    operationHistoryEntryDocument(historyEntry({
+      id: "op-000010",
+      command: "uninstall",
+      outcome: "partial",
+      scope: { selection: "all" },
+      failure: "permission denied",
+      projects: [
+        {
+          project: "~/proj/alpha",
+          canonicalProject: "/home/proj/alpha",
+          result: "completed",
+          removed: [".agent-profile-kit/codex/context.md", ".codex/hooks.json"],
+        },
+        {
+          project: "/projects/acme-internal-analytics-pipeline-v2",
+          canonicalProject: "/projects/acme-internal-analytics-pipeline-v2",
+          result: "failed",
+          failure: "permission denied",
+          restored: true,
+        },
+        {
+          project: "/projects/alpha/my-app",
+          canonicalProject: "/projects/alpha/my-app",
+          result: "unattempted",
+        },
+        {
+          project: "/projects/beta/my-app",
+          canonicalProject: "/projects/beta/my-app",
+          result: "unattempted",
+        },
+      ],
+    }), laTime),
+    redirected,
+    { home: "/home", cwd: "/work" },
+  );
+  expect(rendered).toStartWith("⚠ Uninstall op-000010 stopped partway");
+  expect(rendered).toContain("Today at 4:00 PM · all Projects");
+  // Every recovery fact stays (OOS-004): what went wrong, what changed, what is not done.
+  expect(rendered).toContain("What went wrong:");
+  expect(rendered).toContain("permission denied");
+  expect(rendered).toContain("Changed files:");
+  expect(rendered).toContain("- .agent-profile-kit/codex/context.md");
+  expect(rendered).toContain("Not done:");
+  expect(rendered).toContain("/projects/alpha/my-app");
+  expect(rendered).toContain("/projects/beta/my-app");
+  // Sections appear only as they apply; the finished work is not relisted as not-done.
+  expect(rendered).not.toContain("Written:");
+  expect(rendered).not.toContain("Pending:");
+  expect(rendered).not.toContain("Skipped:");
+  expect(rendered).not.toContain("Failed:");
+  // The changed Project stays named under Changed files.
+  expect(rendered).toContain("~/proj/alpha");
 });
 
 test("details use user-facing file-work headings that keep committed, pending and failed distinct", () => {
@@ -1220,20 +1381,21 @@ test("details use user-facing file-work headings that keep committed, pending an
           result: "unattempted",
         },
       ],
-    })),
+    }), laTime),
     redirected,
     { home: "/home", cwd: "/work" },
   );
-  expect(rendered).toContain("Written:");
-  expect(rendered).toContain("Failed:");
-  expect(rendered).toContain("Skipped:");
-  expect(rendered).toContain("Pending:");
-  expect(rendered).not.toContain("Committed:");
-  expect(rendered).not.toContain("Remaining:");
+  expect(rendered).toContain("Changed files:");
+  expect(rendered).toContain("What went wrong:");
+  expect(rendered).toContain("Not done:");
   expect(rendered).toContain("+ .codex/hooks.json");
   expect(rendered).toContain("write refused");
   expect(rendered).toContain("declined changed file");
   expect(rendered).toContain("/tmp/pending");
+  expect(rendered).not.toContain("Written:");
+  expect(rendered).not.toContain("Failed:");
+  expect(rendered).not.toContain("Skipped:");
+  expect(rendered).not.toContain("Pending:");
 });
 
 test("the details headline glyph matches each operation outcome", () => {
@@ -1244,6 +1406,14 @@ test("the details headline glyph matches each operation outcome", () => {
     failed: "✖",
     "no-op": "●",
     cancelled: "●",
+  } as const;
+  const phrases = {
+    succeeded: "succeeded",
+    partial: "stopped partway",
+    blocked: "was blocked",
+    failed: "failed",
+    "no-op": "changed nothing",
+    cancelled: "cancelled",
   } as const;
   const projectsFor = (outcome: keyof typeof glyphs) => {
     if (outcome === "no-op") {
@@ -1269,15 +1439,16 @@ test("the details headline glyph matches each operation outcome", () => {
       operationHistoryEntryDocument(historyEntry({
         outcome: key,
         ...(extra === undefined ? {} : { projects: extra }),
-      })),
+      }), laTime),
       redirected,
       { home: "/home", cwd: "/work" },
     );
     expect(rendered.startsWith(glyph)).toBe(true);
+    expect(rendered.split("\n")[0]).toContain(phrases[key]);
   }
 });
 
-test("history rows carry compact human time and label every column at the table measure", () => {
+test("history reads as recent runs with labelled columns and one noted next step (screen 18)", () => {
   const now = Date.parse("2026-01-01T00:05:00.000Z");
   const rendered = renderPresentationDocument(
     operationHistoryListDocument([historyEntry({ outcome: "succeeded" })], now),
@@ -1285,14 +1456,16 @@ test("history rows carry compact human time and label every column at the table 
     { home: "/home", cwd: "/work" },
   );
   const lines = rendered.split("\n");
-  expect(lines[0]).toBe("Operation history (1):");
+  expect(lines[0]).toBe("Recent runs (1)");
   expect(lines[1]).toBe("");
-  expect(lines[2]).toMatch(/^Operation\s+Time\s+Command\s+Outcome\s+Scope$/);
+  expect(lines[2]).toMatch(/^Run\s+When\s+Command\s+Result\s+Scope$/);
   expect(lines[3]).toContain("op-000001");
   expect(lines[3]).toContain("5m ago");
   expect(lines[3]).toContain("install");
   expect(lines[3]).toContain("succeeded");
+  expect(rendered).toContain("Next: apkit details <run> (see exactly what one run changed)");
   expect(rendered).not.toContain("2026-01-01T00:00:00Z");
+  expect(rendered).not.toContain("Operation history");
 });
 
 test("history rows pack into compact labeled records at 60 columns", () => {
@@ -1310,10 +1483,10 @@ test("history rows pack into compact labeled records at 60 columns", () => {
   for (const record of records.slice(1, 3)) {
     const recordLines = record.split("\n");
     expect(recordLines.length).toBeLessThanOrEqual(2);
-    expect(recordLines.join(" ")).toContain("Operation:");
-    expect(recordLines.join(" ")).toContain("Time:");
+    expect(recordLines.join(" ")).toContain("Run:");
+    expect(recordLines.join(" ")).toContain("When:");
     expect(recordLines.join(" ")).toContain("Command:");
-    expect(recordLines.join(" ")).toContain("Outcome:");
+    expect(recordLines.join(" ")).toContain("Result:");
     expect(recordLines.join(" ")).toContain("Scope:");
   }
   expect(rendered).toContain("op-000001");

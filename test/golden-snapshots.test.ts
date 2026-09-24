@@ -59,6 +59,10 @@ const STABLE_UUID = "00000000-0000-4000-8000-000000000000";
 /** Retained operation evidence carries real times; rendering is what is reviewed. */
 const OPERATION_TIME_PATTERN = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z/g;
 const STABLE_OPERATION_TIME = "2026-01-01T00:00:00Z";
+/** One run's local human time is wall-clock text; the shape is what is reviewed. */
+const LOCAL_HUMAN_TIME_PATTERN =
+  /(?:Today|Yesterday|[A-Z][a-z]{2} \d{1,2}(?:, \d{4})?) at \d{1,2}:\d{2} [AP]M/g;
+const STABLE_HUMAN_TIME = "Today at 9:45 AM";
 const COLOR_TERMINAL_ENVIRONMENT: NodeJS.ProcessEnv = {
   NO_COLOR: undefined,
   TERM: "xterm-256color",
@@ -108,15 +112,10 @@ function stabilize(text: string, home: string): string {
   for (const path of replacements) {
     next = next.split(path).join(sameLengthPlaceholder(path));
   }
-  next = next
+  return next
     .replace(UUID_PATTERN, STABLE_UUID)
-    .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME);
-  // Identical stabilized endpoints render as one Time line (US-008); collapse
-  // the Started/Finished pair the real-clock run may have printed.
-  return next.replace(
-    new RegExp(`Started: ${STABLE_OPERATION_TIME}\nFinished: ${STABLE_OPERATION_TIME}`, "g"),
-    `Time: ${STABLE_OPERATION_TIME}`,
-  );
+    .replace(OPERATION_TIME_PATTERN, STABLE_OPERATION_TIME)
+    .replace(LOCAL_HUMAN_TIME_PATTERN, STABLE_HUMAN_TIME);
 }
 
 function snapshotBody(result: ProcessResult, home: string): string {

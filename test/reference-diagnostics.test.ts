@@ -92,43 +92,42 @@ describe("invalid-reference diagnostics (US-025/026, DEC-014/017)", () => {
   });
 });
 
-describe("missing Profile and Host diagnostics (US-015, DEC-011)", () => {
-  test("suggests a plausible near-match for a mistyped Profile in the why section", () => {
+describe("missing Profile and Host diagnostics (US-007, US-015, DEC-011)", () => {
+  test("suggests a plausible near-match for a mistyped Profile in the guidance section", () => {
     const error = new MissingProfileError("enginering", ["engineering", "example", "writing"]);
     const parts = formatMissingProfileErrorDiagnostic(error);
-    const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).toContain("Available Profiles: engineering, example, writing.");
-    expect(why).toContain("Did you mean 'engineering'?");
-    // Near-match does not suggest discovery command
+    expect(flatInlineText(parts.happened)).toBe("There's no Profile called 'enginering'.");
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Did you mean 'engineering'?");
+    expect(whatToType).toContain("Your Profiles: engineering, example, writing");
+    // Near-match does not suggest discovery command
     expect(whatToType).not.toContain("list profiles");
   });
 
-  test("without a clear match, displays available Profiles and offers discovery command", () => {
+  test("without a clear match, displays your Profiles and offers discovery command", () => {
     const error = new MissingProfileError("completely-unrelated", ["engineering", "example", "writing"]);
     const parts = formatMissingProfileErrorDiagnostic(error);
-    const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).not.toContain("Did you mean");
-    expect(why).toContain("Available Profiles: engineering, example, writing.");
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).not.toContain("Did you mean");
+    expect(whatToType).toContain("Your Profiles: engineering, example, writing");
     expect(whatToType).toContain("Run apkit list profiles to inspect available Profiles.");
   });
 
-  test("caps available Profiles list at 10 items with explicit count and offers discovery command", () => {
+  test("caps your Profiles list at 10 items with explicit count and offers discovery command", () => {
     const manyProfiles = Array.from({ length: 15 }, (_, index) => `profile-${String(index + 1).padStart(2, "0")}`);
     const error = new MissingProfileError("nonexistent", manyProfiles);
     const parts = formatMissingProfileErrorDiagnostic(error);
-    const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).toContain("Available Profiles: profile-01, profile-02, profile-03, profile-04, profile-05, profile-06, profile-07, profile-08, profile-09, profile-10 (and 5 more).");
-    expect(why).not.toContain("profile-11");
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Your Profiles: profile-01, profile-02, profile-03, profile-04, profile-05, profile-06, profile-07, profile-08, profile-09, profile-10 (and 5 more)");
+    expect(whatToType).not.toContain("profile-11");
     expect(whatToType).toContain("Run apkit list profiles to inspect available Profiles.");
   });
 
-  test("plain-text MissingProfileError includes suggestion when near-match is found", () => {
+  test("plain-text MissingProfileError keeps its machine wording (DEC-004)", () => {
     const error = new MissingProfileError("enginering", ["engineering", "writing"]);
     const text = flatInlineText(formatMissingProfileError(error));
     expect(text).toContain("Available Profiles: engineering, writing. Did you mean 'engineering'?");
+    expect(text).not.toContain("There's no Profile called");
   });
 
   test("suggests a plausible near-match for a mistyped Host with consistent sentence capitalization", () => {
@@ -180,19 +179,19 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     reason: Omit<Extract<ProjectTargetErrorReason, { case: "missing-target" }>, "case">,
   ): ProjectTargetErrorReason => ({ case: "missing-target", ...reason });
 
-  test("a missing target leads with the target and cause, without command or noun fragments", () => {
+  test("a missing target says the folder doesn't exist and how to fix it (screen 09)", () => {
     const parts = formatProjectTargetErrorDiagnostic(
       targetReason({ command: "update", target: "/projects/nope" }),
     );
     const happened = flatInlineText(parts.happened);
-    expect(happened).toBe("Project target '/projects/nope' must be an existing directory");
+    expect(happened).toBe("The folder /projects/nope doesn't exist.");
     // AC-2: no repeated command echo (the Usage node carries the command) and
     // no repeated target noun.
     expect(happened).not.toContain("apkit update");
-    expect(happened).not.toContain("Project target project");
+    expect(happened).not.toContain("Project target");
     // AC-2: a runnable recovery matching the failed lifecycle operation.
     const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
-    expect(whatToType).toContain("Run apkit list projects to see configured Projects.");
+    expect(whatToType).toContain("Create it first, or pick a folder that exists.");
   });
 
   test("a relative target keeps the shape cause first and offers the discovery recovery", () => {

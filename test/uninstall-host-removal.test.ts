@@ -621,7 +621,7 @@ describe("uninstall --host partial removal", () => {
       const outcome = await pending;
       expect(outcome.exitCode).toBe(0);
       expect(plain(streams.humanText())).toContain("Removed agent codex from 1 Project");
-      expect(plain(streams.humanText())).toContain("Details: apkit details");
+      expect(plain(streams.humanText())).not.toContain("Details:");
       expect(bindingHosts(home, project)).toEqual(["pi"]);
     } finally {
       cleanup();

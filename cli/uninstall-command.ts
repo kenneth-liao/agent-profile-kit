@@ -277,7 +277,10 @@ import {
   uninstallRecording,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
-import { writeLifecycleReport } from "./operation-history-presentation.js";
+import {
+  localHumanTimeContext,
+  writeLifecycleReport,
+} from "./operation-history-presentation.js";
 import type { OperationHistoryScope } from "../installer/operation-history.js";
 import { displayProjectPath } from "./display-path.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
@@ -954,6 +957,7 @@ async function runInteractiveUninstall(
           ...uninstallProjects({ completed, skipped, unattempted: [], warnings: [] }),
           ...unattemptedProjectsFromPreview(remaining.map((entry) => entry.preview)),
         ],
+        hasWarnings: warnings.length > 0,
         failure,
       });
     };
@@ -1215,6 +1219,7 @@ export async function runUninstallCommand(
   const recording = beginLifecycleOperationRecording();
   const outcome = await runUninstallCommandWithRecording(request, recording);
   await finishLifecycleOperationRecording({
+    time: localHumanTimeContext(),
     recording,
     home: request.home,
     command: "uninstall",

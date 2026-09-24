@@ -58,6 +58,7 @@ import {
   type CommandArg,
   type CommandNode,
   type InlineContent,
+  type InlineItemElement,
   type NoticeSeverity,
   type PartNode,
   type PresentationDocument,
@@ -1898,6 +1899,13 @@ export function uninstallReceiptDocument(
  * failure stopped further work. Completed Projects stay completed, the
  * failed Project carries its restoration evidence, unattempted Projects
  * remain untouched, and the retry preserves the original scope. */
+/**
+ * The partial-run recovery screen (US-007, OOS-004, review screen 28): what
+ * happened to the failed Project, then every recovery group — done, put back
+ * (or couldn't put back), and not touched — then the same command to retry.
+ * No Project and no recovery fact is dropped. `writeLifecycleReport` adds the
+ * details route after a failure or partial run (DEC-007).
+ */
 export function uninstallExecutionFailureDocument(input: {
   readonly failed: UninstallFailedProject;
   readonly completed: readonly UninstallCompletedProject[];
@@ -1905,27 +1913,36 @@ export function uninstallExecutionFailureDocument(input: {
   readonly retryArguments: readonly CommandArg[];
 }): PresentationDocument {
   const { failed, completed, unattempted, retryArguments } = input;
-  const restoration = failed.restoreError !== undefined
-    ? `Previous selection/output restore failed: ${failed.restoreError}`
-    : failed.selectionRestored
-      ? "The previous selection and output were restored where possible."
-      : "The previous selection could not be restored.";
-  return diagnosticDocument({
-    happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
-    why: [[
-      completed.length === 0
-        ? "No Project was completed before the failure."
-        : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`,
-      ` ${restoration}`,
-      unattempted.length === 0
-        ? ""
-        : ` Unattempted Projects remain untouched: ${unattempted.map((entry) => entry.project).join(", ")}.`,
-    ]],
-    whatToType: [[
-      "After resolving the cause, retry the same scope with ",
-      commandPart(COMMAND_NAME, retryArguments),
-    ]],
-  });
+  const doneNames = completed.map((entry) => entry.project).join(", ");
+  const untouchedNames = unattempted.map((entry) => entry.project).join(", ");
+  const putBack = failed.selectionRestored
+    ? `Put back as it was, where possible: ${failed.project}`
+    : failed.restoreError === undefined
+      ? `Couldn't put back: ${failed.project}`
+      : `Couldn't put back: ${failed.project} (${failed.restoreError})`;
+  const recovery: (readonly InlineItemElement[])[] = [];
+  if (completed.length > 0) recovery.push([`Done: ${doneNames}`]);
+  recovery.push([putBack]);
+  if (unattempted.length > 0) recovery.push([`Not touched: ${untouchedNames}`]);
+  return [
+    part({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "sentence", parts: ["Uninstall stopped partway."] }],
+    }),
+    part({
+      kind: "prose",
+      parts: [`Couldn't write to ${failed.project} (${failed.detail})`],
+    }),
+    part(list(recovery)),
+    part({
+      kind: "prose",
+      parts: [
+        "Fix the cause, then run the same command again: ",
+        commandPart(COMMAND_NAME, retryArguments),
+      ],
+    }),
+  ];
 }
 
 /** The scope-changed diagnostic (INT-2): the selection moved between
@@ -2657,6 +2674,8 @@ export interface WarningPresentationGroup {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: ReconciliationWarning["kind"];
+  /** The typed cause class (US-007), when the warning declares one. */
+  readonly reason?: "missing-executable" | "version-floor";
   readonly parts: readonly InlineContent[];
   readonly problem?: readonly InlineContent[];
   readonly remedy?: readonly InlineContent[];
@@ -2732,6 +2751,7 @@ function groupWarnings(
     consequence?: string;
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
+    reason?: "missing-executable" | "version-floor";
     parts: readonly InlineContent[];
     problem?: readonly InlineContent[];
     remedy?: readonly InlineContent[];
@@ -2757,6 +2777,7 @@ function groupWarnings(
             ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
             copyableValues: [...warning.copyableValues],
             kind: warning.kind,
+            ...(warning.reason === undefined ? {} : { reason: warning.reason }),
             parts: warning.parts,
             ...(warning.problem === undefined ? {} : { problem: warning.problem }),
             ...(warning.remedy === undefined ? {} : { remedy: warning.remedy }),
@@ -2787,6 +2808,7 @@ function groupWarnings(
       ...(group.consequence === undefined ? {} : { consequence: group.consequence }),
       copyableValues: group.copyableValues,
       kind: group.kind,
+      ...(group.reason === undefined ? {} : { reason: group.reason }),
       parts: group.parts,
       ...(group.problem === undefined ? {} : { problem: group.problem }),
       ...(group.remedy === undefined ? {} : { remedy: group.remedy }),
@@ -5361,7 +5383,9 @@ function formatWarningGroupParts(
   return shortenInlineProjectReferences(group.parts, groups, scope, display);
 }
 
-/** How one warning names its affected Projects inside its view (DEC-006). */
+/**
+ * How one warning names its affected Projects inside its view (DEC-006).
+ */
 type WarningProjectNaming = "identity" | "stable";
 
 function warningProjectName(
@@ -5373,6 +5397,17 @@ function warningProjectName(
     return displayProjectPath(project.canonicalProject, project.project, "fleet");
   }
   return identities(project);
+}
+
+/**
+ * The shared affected-Project list rule (US-007, D6): every Project up to 10,
+ * then "… and N more" — and never hiding just one, so a list of 11 shows all
+ * 11 and only 12 elides two behind the marker.
+ */
+export function usedByNames(names: readonly string[]): string {
+  const limit = 10;
+  if (names.length <= limit + 1) return names.join(", ");
+  return `${names.slice(0, limit).join(", ")}, … and ${names.length - limit} more`;
 }
 
 /**
@@ -5395,11 +5430,13 @@ function warningProjectClause(
 }
 
 /**
- * One warning group as typed nodes (US-011): a ⚠ statement that names the
- * affected Projects, then its consequence, requirement, and remedy as
- * separate default-colored lines. Remedies stay Adapter-authored (DEC-009);
- * a structurally marked command inside a remedy stays an atomic command part
- * (#651), while a plain string is left unparsed.
+ * One warning group as typed nodes (US-007, US-011): a missing agent (typed
+ * `missing-executable`) reads as review screen 27 — the plain statement, every
+ * affected Project under `Used by:`, and the Adapter-authored fix. Every other
+ * warning keeps its ⚠ statement with the affected-Project clause and its
+ * consequence, requirement, and remedy lines. Remedies stay Adapter-authored
+ * (DEC-009); a structurally marked command inside a remedy stays an atomic
+ * command part (#651), while a plain string is left unparsed.
  */
 function warningGroupNodes(
   group: WarningPresentationGroup,
@@ -5413,6 +5450,25 @@ function warningGroupNodes(
   const statement = group.problem === undefined
     ? formatWarningGroupParts(group, groups, scope, display)
     : shortenInlineProjectReferences(group.problem, groups, scope, display);
+  if (group.reason === "missing-executable") {
+    const names = group.projects.map((project) =>
+      warningProjectName(project, identities, naming)
+    );
+    const nodes: PresentationNode[] = [
+      list([[...statement]], "warning"),
+      { kind: "prose", parts: ["  Used by: ", usedByNames(names)] },
+    ];
+    if (group.remedy !== undefined) {
+      nodes.push({
+        kind: "prose",
+        parts: [
+          "  Fix: ",
+          ...shortenInlineProjectReferences(group.remedy, groups, scope, display),
+        ],
+      });
+    }
+    return [part(...nodes)];
+  }
   const nodes: PresentationNode[] = [list([[
     ...statement,
     warningProjectClause(group.projects, identities, naming, verbose),

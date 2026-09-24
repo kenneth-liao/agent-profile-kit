@@ -1,5 +1,11 @@
 import type { SupportedHost } from "../schemas/local-configuration.js";
-import { flatInlineText, type InlineContent } from "./project-plan.js";
+import { hostDisplayName } from "./host-catalog.js";
+import {
+  commandPart,
+  flatInlineText,
+  type CommandArg,
+  type InlineContent,
+} from "./project-plan.js";
 
 /** The affected-item evidence an Adapter capability failure can carry: a Host or a path. */
 export type AdapterCapabilityAffectedItemKind = "host" | "path";
@@ -16,6 +22,12 @@ export interface AdapterCapabilityAffectedItem {
  */
 export type AdapterCapabilityScope = "host" | "project";
 
+/**
+ * The typed cause class of one capability failure (US-007): presentation
+ * chooses its screen shape from this fact, never from rendered copy.
+ */
+export type AdapterCapabilityReason = "missing-executable" | "version-floor";
+
 /** Host-specific evidence raised by an Adapter before the Installer boundary. */
 export interface AdapterCapabilityFailure {
   readonly affectedItems: readonly AdapterCapabilityAffectedItem[];
@@ -31,6 +43,8 @@ export interface AdapterCapabilityFailure {
   readonly requirementParts?: readonly InlineContent[];
   /** Whether the failure is machine-level or bound to one Project's surface. */
   readonly scope: AdapterCapabilityScope;
+  /** The typed cause class, when the Adapter declared one. */
+  readonly reason?: AdapterCapabilityReason;
   /** The normalized Host CLI floor the failure names, when it names one. */
   readonly requiredVersion?: string;
 }
@@ -50,6 +64,7 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
   readonly remedyParts?: readonly InlineContent[];
   readonly requirementParts?: readonly InlineContent[];
   readonly scope: AdapterCapabilityScope;
+  readonly reason?: AdapterCapabilityReason;
   readonly requiredVersion?: string;
 
   constructor(failure: AdapterCapabilityFailure) {
@@ -62,6 +77,7 @@ export class AdapterCapabilityError extends Error implements AdapterCapabilityFa
     this.requirement = failure.requirement;
     this.scope = failure.scope;
     this.parts = failure.parts;
+    if (failure.reason !== undefined) this.reason = failure.reason;
     if (failure.requiredVersion !== undefined) this.requiredVersion = failure.requiredVersion;
     if (failure.problemParts !== undefined) this.problemParts = failure.problemParts;
     if (failure.remedyParts !== undefined) this.remedyParts = failure.remedyParts;
@@ -123,6 +139,47 @@ export function capabilityFailure(
 }
 
 /**
+ * Create the canonical typed evidence for one missing Host CLI (US-007,
+ * review screen 27). The human problem and fix come from the Host catalog
+ * displayName (the one name home) and the Adapter's own version-check
+ * command, while `machineProblem`/`machineRemedy` keep the Adapter's machine
+ * message for JSON byte-identity (DEC-004).
+ */
+export function missingExecutableFailure(
+  host: SupportedHost,
+  versionCheck: {
+    readonly program: string;
+    readonly args: readonly CommandArg[];
+  },
+  machineProblem: string,
+  machineRemedy: string,
+): AdapterCapabilityError {
+  const name = hostDisplayName(host);
+  const problem = `${name} isn't installed, or isn't on your PATH.`;
+  const checkText = [versionCheck.program, ...versionCheck.args.map((one) =>
+    one.kind === "text" ? one.value : ""
+  )].join(" ");
+  const remedy = `install ${name}, then check that \`${checkText}\` works.`;
+  return new AdapterCapabilityError({
+    affectedItems: [{ kind: "host", value: host }],
+    host,
+    message: `${machineProblem}; ${machineRemedy}`,
+    parts: [`${machineProblem}; ${machineRemedy}`],
+    problem,
+    problemParts: [problem],
+    remedy,
+    remedyParts: [
+      `install ${name}, then check that `,
+      commandPart(versionCheck.program, versionCheck.args),
+      " works.",
+    ],
+    requirement: capabilityRequirement(host),
+    scope: "host",
+    reason: "missing-executable",
+  });
+}
+
+/**
  * Create the typed evidence for one Host CLI version-floor failure: a
  * machine-level failure whose message names the normalized floor the Adapter
  * requires, so the Installer can keep the strictest floor per Host.
@@ -149,6 +206,7 @@ export function versionFloorCapabilityFailure(
     remedy,
     requirement: capabilityRequirement(host),
     scope: "host",
+    reason: "version-floor",
   });
 }
 

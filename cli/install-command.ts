@@ -74,7 +74,10 @@ import {
   recordProjectedOutcome,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
-import { writeLifecycleReport } from "./operation-history-presentation.js";
+import {
+  localHumanTimeContext,
+  writeLifecycleReport,
+} from "./operation-history-presentation.js";
 import { detectInstalledHosts, SUPPORTED_HOSTS } from "../adapters/registry.js";
 import {
   executeInstall,
@@ -388,6 +391,7 @@ export async function runInstallCommand(
   const recording = beginLifecycleOperationRecording();
   const outcome = await runInstallCommandWithRecording(request, recording);
   await finishLifecycleOperationRecording({
+    time: localHumanTimeContext(),
     recording,
     home: request.home,
     command: "install",

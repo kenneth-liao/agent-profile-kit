@@ -6730,7 +6730,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(renderPresentationDocument(noMatch, defaultRenderContext)).toContain("docs");
   });
 
-  test("uninstall execution failure distinguishes completed, failed, and unattempted work", () => {
+  test("an uninstall stopped partway lists done, put-back, and not-touched Projects and the retry (screen 28)", () => {
     const document = uninstallExecutionFailureDocument({
       failed: {
         canonicalProject: "/project-b",
@@ -6745,10 +6745,58 @@ describe("standalone view presentation documents (#389)", () => {
       retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext);
-    expect(rendered).toContain("/project-b");
-    expect(rendered).toContain("/project-a");
-    expect(rendered).toContain("/project-c");
+    expect(rendered).toStartWith("✖ Uninstall stopped partway.");
+    expect(rendered).toContain("Couldn't write to /project-b (injected Installation State fault)");
+    // No Project and no recovery fact is dropped (OOS-004).
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Put back as it was, where possible: /project-b");
+    expect(rendered).toContain("- Not touched: /project-c");
+    expect(rendered).toContain("Fix the cause, then run the same command again:");
     expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+
+  test("a failed put-back names that Project and its restore error (OOS-004)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected Installation State fault",
+        selectionRestored: false,
+        restoreError: "restore denied",
+        concurrentSelectionChange: false,
+      },
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      unattempted: [{ project: "/project-c", profile: "engineering" }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Couldn't put back: /project-b (restore denied)");
+    expect(rendered).toContain("- Not touched: /project-c");
+    expect(rendered).not.toContain("Put back as it was");
+    expect(rendered).toContain("apkit uninstall --all");
+  });
+
+  test("a stopped run with no completed Project still names every group it has", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected fault",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [],
+      unattempted: [],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Put back as it was, where possible: /project-b");
+    expect(rendered).not.toContain("Done:");
+    expect(rendered).not.toContain("Not touched:");
+    expect(rendered).toContain("apkit uninstall --all");
   });
 
   test("temporary installation receipts present identity fields and a typed removal command", () => {
@@ -9899,18 +9947,20 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 });
 
-describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
+describe("missing-agent warnings (US-007, US-011, DEC-007, DEC-009)", () => {
   const codexMissing = {
-    problem: "Codex CLI was not found on PATH",
-    remedy: "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
+    problem: "Codex isn't installed, or isn't on your PATH.",
+    remedy: "install Codex, then check that `codex --version` works.",
     requirement: "The selected Profile requires Codex project delivery",
     copyableValues: ["codex"],
+    reason: "missing-executable" as const,
   };
   const claudeMissing = {
-    problem: "Claude Code CLI was not found on PATH",
-    remedy: "install Claude Code and ensure `claude --version` works before checking status or updating the Profile",
-    requirement: "The selected Profile requires Claude Code project delivery",
+    problem: "Claude isn't installed, or isn't on your PATH.",
+    remedy: "install Claude, then check that `claude --version` works.",
+    requirement: "The selected Profile requires Claude project delivery",
     copyableValues: ["claude"],
+    reason: "missing-executable" as const,
   };
 
   function hostAttentionWarning(input: {
@@ -9921,6 +9971,7 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     readonly problemParts?: readonly InlineContent[];
     readonly remedyParts?: readonly InlineContent[];
     readonly requirementParts?: readonly InlineContent[];
+    readonly reason?: "missing-executable" | "version-floor";
   }): ReconciliationWarning {
     return {
       kind: "host-attention",
@@ -9929,10 +9980,11 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       problem: input.problemParts ?? [input.problem],
       remedy: input.remedyParts ?? [input.remedy],
       requirement: input.requirementParts ?? [input.requirement],
+      ...(input.reason === undefined ? {} : { reason: input.reason }),
     };
   }
 
-  test("a single Project missing one Host names that Project and keeps the outcome successful", () => {
+  test("a missing agent says it isn't installed, lists Used by, and gives the fix (screen 27)", () => {
     const report = machineReport([
       machineProject("~/projects/demo", {
         warnings: [hostAttentionWarning(codexMissing)],
@@ -9963,21 +10015,122 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
 
     for (const document of [install, update]) {
       const rendered = renderBoundary(document);
-      // US-011: the completed outcome stays truthful and separate.
+      // US-007: the plain statement, the affected Projects and the fix.
       expect(rendered).toStartWith("✔ ");
-      expect(rendered).toContain("Codex CLI was not found on PATH (~/projects/demo)");
-      expect(rendered).not.toContain("(1 Project)");
-      expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
-      expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
-      // Never claim Host loading or that the missing Host failed the update.
+      expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+      expect(rendered).toContain("Used by: ~/projects/demo");
+      expect(rendered).toContain("Fix: install Codex, then check that `codex --version` works.");
+      // Never claim Host loading or that the missing agent failed the update.
       expect(rendered).not.toMatch(/proved Host loading|Host loaded the material|update failed because/i);
+      expect(rendered).not.toContain("Codex CLI was not found on PATH");
     }
     expect(renderBoundary(install)).toContain("Installed the coding Profile");
     expect(renderBoundary(install)).toContain("Project: ~/projects/demo");
     expect(renderBoundary(update)).toContain("Updated 1 Project (1 file)");
   });
 
-  test("one Host missing across several Projects names every Project once with one remedy", () => {
+  test("Used by lists up to 10 Projects and never hides just one (D6)", () => {
+    // The shared limit rule, asserted once at 10, 11 and 12 Projects
+    // (TEST-003): 10 and 11 show every Project; 12 shows 10 plus "… and 2
+    // more" — a list never elides exactly one Project.
+    const warning = hostAttentionWarning({
+      problem: "Pi isn't installed, or isn't on your PATH.",
+      remedy: "install Pi, then check that `pi --version` works.",
+      requirement: "The selected Profile requires Pi project delivery",
+      copyableValues: ["pi"],
+      reason: "missing-executable",
+    });
+    const usedByFor = (count: number): string => {
+      const projects = Array.from({ length: count }, (_, index) => `/fleet/project-${String(index + 1).padStart(2, "0")}`);
+      const report = machineReport(
+        projects.map((project) => machineProject(project, { warnings: [warning] })),
+      );
+      const rendered = renderBoundary(applyReportDocument({
+        receipt: emptyReport({
+          desired: projects.map((project) => ({
+            canonicalProject: project,
+            context: "composed",
+            outputs: ["a.md"],
+            profile: "coding",
+            project,
+            resolvedArtifacts: [],
+          })),
+          items: projects.map((project) => ({ kind: "addition" as const, project })),
+          outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+        }),
+        resultingState: report,
+      }));
+      return rendered.slice(rendered.indexOf("Used by:"), rendered.indexOf("Fix:"));
+    };
+
+    const ten = usedByFor(10);
+    for (let index = 1; index <= 10; index += 1) {
+      expect(ten).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(ten).not.toContain("more");
+
+    const eleven = usedByFor(11);
+    for (let index = 1; index <= 11; index += 1) {
+      expect(eleven).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(eleven).not.toContain("more");
+
+    const twelve = usedByFor(12);
+    for (let index = 1; index <= 10; index += 1) {
+      expect(twelve).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(twelve).not.toContain("project-11");
+    expect(twelve).not.toContain("project-12");
+    expect(twelve).toContain("… and 2 more");
+  });
+
+  test("a fleet-scale generic warning names Projects and points at --verbose instead of dropping any (INT-B-1)", () => {
+    // The non-missing-agent path keeps the affected-Project clause (cap 4
+    // plus a see-all pointer): a version-floor warning is its fleet-scale
+    // case, asserted here so both warning shapes stay covered.
+    const warning = hostAttentionWarning({
+      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+      remedy: "upgrade Codex before checking status or updating the Profile",
+      requirement: "The selected Profile requires Codex project delivery",
+      copyableValues: ["codex"],
+      reason: "version-floor",
+    });
+    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
+    const report = machineReport(
+      projects.map((project) => machineProject(project, { warnings: [warning] })),
+    );
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: projects.map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: projects.map((project) => ({ kind: "addition" as const, project })),
+        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    // Canonical sort keeps the see-all pointer truthful and deterministic.
+    expect(rendered).toContain(
+      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+) (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)",
+    );
+    expect(rendered).not.toContain("(12 Projects)");
+    const verbose = renderBoundary(applyReportDocument({
+      receipt: emptyReport(),
+      resultingState: report,
+    }, { verbose: true }));
+    for (const project of projects) {
+      expect(verbose).toContain(project);
+    }
+    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
+  });
+
+  test("one agent missing across several Projects lists every Project once with one fix", () => {
     const warning = hostAttentionWarning(codexMissing);
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [warning] }),
@@ -10001,14 +10154,14 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     });
     const rendered = renderBoundary(document);
     expect(rendered).toStartWith("✔ Updated 3 Projects (3 files)");
-    // One warning statement names every affected Project (view identity).
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta, gamma)");
-    expect(rendered).not.toContain("(3 Projects)");
-    // The identical Adapter-authored remedy appears once.
-    expect(rendered.split("Remedy: install Codex").length - 1).toBe(1);
+    // One warning statement lists every affected Project (view identity).
+    expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: alpha, beta, gamma");
+    // The identical Adapter-authored fix appears once.
+    expect(rendered.split("Fix: install Codex").length - 1).toBe(1);
   });
 
-  test("a warning that survived installer host-scope dedup names every affected Project once (#668)", () => {
+  test("a warning that survived installer host-scope dedup lists every affected Project under Used by (#668)", () => {
     // The installer keeps one host-attention warning per Host on the first
     // Project in canonical order; the carrying record's Project is one of the
     // affectedProjects, so the seed must be the only home for the set (no
@@ -10038,18 +10191,18 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/my-app, beta/my-app, hello)");
-    expect(rendered.split("(alpha/my-app, beta/my-app, hello)").length - 1).toBe(1);
+    expect(rendered).toContain("Used by: alpha/my-app, beta/my-app, hello");
+    expect(rendered.split("Used by: alpha/my-app, beta/my-app, hello").length - 1).toBe(1);
   });
 
-  test("two Hosts keep separate warning lines with their own remedy and requirement", () => {
+  test("two agents keep separate warning blocks with their own fix (screen 27)", () => {
     const report = machineReport([
       machineProject("/work/alpha", {
-        warnings: [hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" })],
+        warnings: [hostAttentionWarning({ ...codexMissing, problem: "Codex isn't installed, or isn't on your PATH." })],
       }),
       machineProject("/work/beta", {
         warnings: [
-          hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" }),
+          hostAttentionWarning({ ...codexMissing, problem: "Codex isn't installed, or isn't on your PATH." }),
           hostAttentionWarning(claudeMissing),
         ],
       }),
@@ -10071,58 +10224,18 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     });
     const rendered = renderBoundary(document);
     expect(rendered).toStartWith("✔ Updated 2 Projects (2 files)");
-    // Different Hosts: each keeps its own Adapter-authored remedy and requirement.
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta)");
-    expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
-    expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
-    expect(rendered).toContain("Claude Code CLI was not found on PATH (beta)");
-    expect(rendered).toContain("Remedy: install Claude Code and ensure `claude --version` works");
-    expect(rendered).toContain("Requirement: The selected Profile requires Claude Code project delivery");
-    // No synthesized merge of two Host remedies.
-    expect(rendered).not.toContain("install Codex and Claude Code");
+    // Different agents: each keeps its own Adapter-authored fix.
+    expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: alpha, beta");
+    expect(rendered).toContain("Fix: install Codex, then check that `codex --version` works.");
+    expect(rendered).toContain("Claude isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: beta");
+    expect(rendered).toContain("Fix: install Claude, then check that `claude --version` works.");
+    // No synthesized merge of two agent fixes.
+    expect(rendered).not.toContain("install Codex and Claude");
   });
 
-  test("a fleet-scale missing-Host list names Projects and points at --verbose instead of dropping any", () => {
-    const warning = hostAttentionWarning({
-      problem: "Pi CLI was not found on PATH",
-      remedy: "install Pi and ensure `pi --version` works before checking status or updating the Profile",
-      requirement: "The selected Profile requires Pi project delivery",
-      copyableValues: ["pi"],
-    });
-    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
-    const report = machineReport(
-      projects.map((project) => machineProject(project, { warnings: [warning] })),
-    );
-    const document = applyReportDocument({
-      receipt: emptyReport({
-        desired: projects.map((project) => ({
-          canonicalProject: project,
-          context: "composed",
-          outputs: ["a.md"],
-          profile: "coding",
-          project,
-          resolvedArtifacts: [],
-        })),
-        items: projects.map((project) => ({ kind: "addition" as const, project })),
-        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
-      }),
-      resultingState: report,
-    });
-    const rendered = renderBoundary(document);
-    // Canonical sort keeps the see-all pointer truthful and deterministic.
-    expect(rendered).toContain("Pi CLI was not found on PATH (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)");
-    expect(rendered).not.toContain("(12 Projects)");
-    const verbose = renderBoundary(applyReportDocument({
-      receipt: emptyReport(),
-      resultingState: report,
-    }, { verbose: true }));
-    for (const project of projects) {
-      expect(verbose).toContain(project);
-    }
-    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
-  });
-
-  test("remedy stays default-colored while the warning statement carries the warning role", () => {
+  test("the fix stays default-colored while the warning statement carries the warning role", () => {
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
     ]);
@@ -10143,23 +10256,23 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     });
     const items = listPartsIn(document).filter((item) => item.length > 0);
     expect(items).toHaveLength(1);
-    expect(flatInlineText(items[0]!)).toContain("Codex CLI was not found on PATH");
-    const remedies = flattenPresentationNodes(document).filter((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    expect(flatInlineText(items[0]!)).toContain("Codex isn't installed, or isn't on your PATH.");
+    const fixes = flattenPresentationNodes(document).filter((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Fix: ")
     );
-    expect(remedies).toHaveLength(1);
-    expect((remedies[0] as { category?: string }).category).toBeUndefined();
+    expect(fixes).toHaveLength(1);
+    expect((fixes[0] as { category?: string }).category).toBeUndefined();
   });
 
-  test("a structurally marked remedy command renders as an atomic command part", () => {
+  test("a structurally marked fix command renders as an atomic command part", () => {
     const report = machineReport([
       machineProject("/work/alpha", {
         warnings: [hostAttentionWarning({
           ...codexMissing,
           remedyParts: [
-            "install Codex and ensure ",
+            "install Codex, then check that ",
             commandPart("codex", [{ kind: "text", value: "--version" }]),
-            " works",
+            " works.",
           ],
         })],
       }),
@@ -10167,26 +10280,26 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     const nodes = flattenPresentationNodes([
       ...installWarningNodes(report),
     ]);
-    const remedy = nodes.find((node) =>
-      node.kind === "prose" && nodeText(node).includes("Remedy:")
+    const fix = nodes.find((node) =>
+      node.kind === "prose" && nodeText(node).includes("Fix:")
     ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
-    expect(remedy).toBeDefined();
-    expect(remedy!.parts.some((part) =>
+    expect(fix).toBeDefined();
+    expect(fix!.parts.some((part) =>
       typeof part !== "string" && part.kind === "command" && part.program === "codex"
     )).toBe(true);
   });
 
-  test("a plain-string remedy with markdown backticks is left unparsed", () => {
+  test("a plain-string fix with markdown backticks is left unparsed", () => {
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
     ]);
-    const remedy = flattenPresentationNodes(installWarningNodes(report)).find((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    const fix = flattenPresentationNodes(installWarningNodes(report)).find((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Fix: ")
     ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
-    expect(remedy).toBeDefined();
+    expect(fix).toBeDefined();
     // Correction: do not parse markdown backticks out of a plain string.
-    expect(flatInlineText(remedy!.parts)).toContain("`codex --version`");
-    expect(remedy!.parts.some((part) => typeof part !== "string" && part.kind === "command")).toBe(false);
+    expect(flatInlineText(fix!.parts)).toContain("`codex --version`");
+    expect(fix!.parts.some((part) => typeof part !== "string" && part.kind === "command")).toBe(false);
   });
 
   test("capabilityWarning carries typed problem, remedy, and requirement for presentation", () => {
@@ -10216,9 +10329,9 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       machineProject("/teams/beta/tools"),
     ]);
     const rendered = renderBoundary(applyReportDocument({ receipt, resultingState }));
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/tools)");
+    expect(rendered).toContain("Used by: alpha/tools");
     expect(rendered).not.toContain("/teams/alpha/tools");
-    expect(rendered).not.toContain("Codex CLI was not found on PATH (tools)");
+    expect(rendered).not.toContain("Used by: tools");
   });
 
   test("identical machine messages with different typed splits never merge (INT-2)", () => {

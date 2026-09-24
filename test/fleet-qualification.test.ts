@@ -256,9 +256,10 @@ describe("fleet-wide synchronization qualification", () => {
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("Updated 12 Projects (22 files)");
     // The receipt states the fleet impact once as the headline, without a
-    // per-file inventory, and points at the retained operation (US-011, ADR-0040).
+    // per-file inventory and without a details route on a normal success
+    // (US-008, D4).
     expect(humanText(apply.stdout)).toContain("Updated 12 Projects (22 files)");
-    expect(humanText(apply.stdout)).toContain("Details: apkit details");
+    expect(humanText(apply.stdout)).not.toContain("Details:");
     expect(apply.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
       .toEqual([]);
     expect(apply.stdout).not.toContain("generated file addition in");
