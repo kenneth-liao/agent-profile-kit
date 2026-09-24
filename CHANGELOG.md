@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Added guided first-Profile creation to `apkit new profile`: when run without a name on a terminal, explains what a Profile is, prompts for a Profile name, offers searchable Context and Skill multi-select pickers settling with short labels, gives guidance and writes nothing when the Workspace has no material, and writes the Profile through the single shared writer with an updated receipt pointing to configure and install (#675)
+
 - Gave every human screen the shared layout rules: the presentation renderer groups each screen into parts and joins them with exactly one blank line (never two, with headline facts, menu entries, and footer blocks kept whole), a next step can carry a short note rendered as `<command> (<note>)` with the command staying copyable at narrow widths, a list part with more than two items renders as bullets, and shared picker choices show their status (`detected`, `not found`) aligned beside the choice at every width while NO_COLOR, redirected output, and JSON stay unchanged (#674)
 
 - Replaced user-facing host terminology and flags with "agent": `install` and `uninstall` accept `--agent` instead of `--host`, `apkit list agents` replaces `apkit list hosts`, and human output, help, guides, and documentation refer to agents, while machine JSON payloads and the machine namespace (`apkit machine`) remain unchanged (#673)

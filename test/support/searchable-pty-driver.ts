@@ -29,6 +29,7 @@ import { existsSync, watch, writeFileSync } from "node:fs";
 import { runConfigureCommand } from "../../cli/configure-command.js";
 import { runInitCommand } from "../../cli/init-command.js";
 import { runInstallCommand } from "../../cli/install-command.js";
+import { runNewCommand } from "../../cli/new-command.js";
 import { runUninstallCommand } from "../../cli/uninstall-command.js";
 import {
   createSearchableMultiSelectPrompt,
@@ -118,6 +119,18 @@ if (mode === "select") {
     stderr: process.stderr,
     input: process.stdin,
     ...(cwd === undefined ? {} : { cwd }),
+  });
+  process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
+  process.exit(outcome.exitCode);
+} else if (mode === "new") {
+  const home = process.argv[3] ?? "";
+  const newArguments = process.argv.slice(4);
+  const outcome = await runNewCommand({
+    home,
+    arguments: newArguments,
+    stdout: process.stdout,
+    stderr: process.stderr,
+    input: process.stdin,
   });
   process.stdout.write(`\nRESULT exitCode=${outcome.exitCode}\n`);
   process.exit(outcome.exitCode);

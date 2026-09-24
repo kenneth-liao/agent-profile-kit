@@ -14499,7 +14499,7 @@ describe("packed CLI new context", () => {
 
     const workspaceRoot = realpathSync(workspacePath(home));
     const contextFile = join(workspaceRoot, "context", "review-standards.md");
-    expect(created.stdout).toContain(contextFile);
+    expect(created.stdout).toContain("review-standards.md");
     expect(existsSync(contextFile)).toBe(true);
 
     writeFileSync(
@@ -14523,7 +14523,7 @@ describe("packed CLI new context", () => {
     const result = await runCliInPty(home, 80, "new", "context", "prompt-check");
     expectExitCode(result, 0);
     const contextFile = join(realpathSync(workspacePath(home)), "context", "prompt-check.md");
-    expect(result.stdout).toContain(contextFile);
+    expect(result.stdout).toContain("prompt-check.md");
     expect(existsSync(contextFile)).toBe(true);
   });
 
@@ -14586,15 +14586,12 @@ describe("packed CLI new profile", () => {
 
     const workspaceRoot = realpathSync(workspacePath(home));
     const profileFile = join(workspaceRoot, "profiles", "engineering.yaml");
-    // The receipt prints the actual full path of the created file (US-046).
-    expect(created.stdout).toContain(profileFile);
+    expect(created.stdout).toContain("Created the engineering Profile");
     expect(existsSync(profileFile)).toBe(true);
-    // The receipt names the selected material and the available names as
-    // guidance (US-045).
     expect(created.stdout).toContain("example-context");
     expect(created.stdout).toContain("review-pr");
-    expect(created.stdout).toContain("Available Context Modules: example-context");
-    expect(created.stdout).toContain("Available Skills: review-pr");
+    expect(created.stdout).toContain("apkit configure profile engineering");
+    expect(created.stdout).toContain("apkit install engineering (run it inside a Project folder)");
 
     // The created Profile is valid and bindable end to end (TEST-017 chain).
     expectExitCode(await runCli(home, "validate"), 0);
@@ -14615,8 +14612,93 @@ describe("packed CLI new profile", () => {
     const result = await runCliInPty(home, 80, "new", "profile", "pty-profile", "--context", "example-context");
     expectExitCode(result, 0);
     const profileFile = join(realpathSync(workspacePath(home)), "profiles", "pty-profile.yaml");
-    expect(result.stdout).toContain(profileFile);
+    expect(result.stdout).toContain("Created the pty-profile Profile");
     expect(existsSync(profileFile)).toBe(true);
+  });
+
+  test("guided and explicit Profile creation write identical files and each printed next step runs (TEST-001, #675)", async () => {
+    const home = isolatedHome();
+    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
+
+    // 1. Create Context and Skill
+    const contextResult = await runCli(home, "new", "context", "team-conventions");
+    expectExitCode(contextResult, 0);
+    expect(contextResult.stdout).toContain("Open it and write the rules every agent session should follow.");
+    expect(contextResult.stdout).toContain("apkit new profile (make a Profile that uses it)");
+
+    const skillResult = await runCli(home, "new", "skill", "code-review");
+    expectExitCode(skillResult, 0);
+
+    // 2. Explicit Profile creation
+    const explicitResult = await runCli(
+      home,
+      "new",
+      "profile",
+      "explicit-profile",
+      "--context",
+      "team-conventions",
+      "--skill",
+      "code-review",
+    );
+    expectExitCode(explicitResult, 0);
+    expect(explicitResult.stdout).toContain("Created the explicit-profile Profile");
+    expect(explicitResult.stdout).toContain("apkit configure profile explicit-profile");
+    expect(explicitResult.stdout).toContain("apkit install explicit-profile (run it inside a Project folder)");
+
+    // 3. Guided Profile creation in PTY
+    const guidedResult = await runCliInPtyWithInput(
+      home,
+      100,
+      ["guided-profile\r", " \r", " \r"],
+      "new",
+      "profile",
+    );
+    expectExitCode(guidedResult, 0);
+    expect(guidedResult.stdout).toContain("Created the guided-profile Profile");
+    expect(guidedResult.stdout).toContain("Context: team-conventions");
+    expect(guidedResult.stdout).toContain("Skills: code-review");
+    expect(guidedResult.stdout).toContain("apkit configure profile guided-profile");
+    expect(guidedResult.stdout).toContain("apkit install guided-profile (run it inside a Project folder)");
+
+    // 4. Verify that guided and explicit creation write identical files
+    const explicitFile = join(realpathSync(workspacePath(home)), "profiles", "explicit-profile.yaml");
+    const guidedFile = join(realpathSync(workspacePath(home)), "profiles", "guided-profile.yaml");
+    expect(existsSync(explicitFile)).toBe(true);
+    expect(existsSync(guidedFile)).toBe(true);
+    const explicitContent = readFileSync(explicitFile, "utf8");
+    const guidedContent = readFileSync(guidedFile, "utf8");
+    expect(guidedContent).toBe(explicitContent);
+
+    // 5. Each printed next step runs
+    // 5a. Configure profile next step runs
+    const configureResult = await runCli(
+      home,
+      "configure",
+      "profile",
+      "guided-profile",
+      "--context",
+      "team-conventions",
+      "--skill",
+      "code-review",
+      "--auto-confirm",
+    );
+    expectExitCode(configureResult, 0);
+
+    // 5b. Install next step runs inside a Project folder
+    const projectPath = gitRepository();
+    mkdirSync(join(home, ".codex"), { recursive: true });
+    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    const installResult = await runCli(
+      home,
+      "install",
+      "guided-profile",
+      projectPath,
+      "--agent",
+      "codex",
+      "--auto-confirm",
+    );
+    expectExitCode(installResult, 0);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
   test("fresh setup prints a runnable Profile-creation chain that the packed journey executes (TEST-001, #646)", async () => {
@@ -14891,7 +14973,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
     const context = await runCli(home, "new", "context", "review-standards");
     expectExitCode(context, 0);
     expect(context.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: select it into a Profile with apkit configure profile",
+      "Next: apkit new profile (make a Profile that uses it)",
     );
   });
 
@@ -14910,7 +14992,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
     );
     expectExitCode(profile, 0);
     expect(profile.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: from the project you want to try, run apkit install shipping",
+      "Next: apkit install shipping (run it inside a Project folder)",
     );
     // The old sentence ended in a vague prose action without naming the
     // created Profile.

@@ -2034,7 +2034,7 @@ describe("project-bound release candidate", () => {
     // install command naming the Profile actually created (US-016, #509), the
     // same handoff shape the initialization completion carries (#511).
     expect(creations[2]!.stdout.replace(/\n\s+/g, " ")).toContain(
-      "Next: from the project you want to try, run apkit install real-profile",
+      "Next: apkit install real-profile (run it inside a Project folder)",
     );
     // The vague validate-then-prose sentence is gone from the receipt.
     expect(creations[2]!.stdout).not.toContain("install the Profile into a Project");

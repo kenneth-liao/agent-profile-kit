@@ -95,6 +95,8 @@ export interface SearchableMultiChoice<T> {
 export interface SearchableSelectOptions {
   /** Maximum visible suggestions. */
   readonly limit?: number;
+  /** Short settled label replacing questionText on success/neutral. */
+  readonly settledLabel?: string;
   /**
    * Injectable choice filter (TEST-002 / #542 causal discrimination). The
    * product path always uses `searchableSuggest`; tests gate that same
@@ -117,12 +119,20 @@ export type MultiSelectAnswer<T> =
 export interface MultiSelectOptions {
   /** Minimum number of selected choices before submit is accepted. */
   readonly min?: number;
+  /** Short settled label replacing questionText on success/neutral. */
+  readonly settledLabel?: string;
 }
 
 export interface SearchableMultiSelectOptions extends MultiSelectOptions {
   readonly limit?: number;
   readonly suggest?: SearchableSelectOptions["suggest"];
 }
+
+export interface TextPromptOptions {
+  /** Short settled label replacing questionText on success/neutral. */
+  readonly settledLabel?: string;
+}
+
 
 /** Raw-mode capability the prompt dependency probes on TTY-shaped inputs. */
 type RawModeInput = Readable & {
@@ -670,7 +680,7 @@ export function createMultiSelectPrompt(options: ConfirmPromptOptions) {
         context,
       ),
     );
-    return finishMulti(questionText, choices, result, output);
+    return finishMulti(questionText, choices, result, output, selection.settledLabel);
   };
 }
 
@@ -679,13 +689,15 @@ function finishMulti<T>(
   choices: readonly (PromptChoice<T> | SearchableMultiChoice<T>)[],
   result: PickerResult | undefined,
   output: Writable,
+  settledLabel?: string,
 ): MultiSelectAnswer<T> {
+  const label = settledLabel ?? questionText;
   if (result === undefined || result.kind === "cancelled") {
-    writeSettledLine(output, questionText, "neutral");
+    writeSettledLine(output, label, "neutral");
     return { kind: "cancelled" };
   }
   if (result.kind !== "selected-multi") {
-    writeSettledLine(output, questionText, "neutral");
+    writeSettledLine(output, label, "neutral");
     return { kind: "cancelled" };
   }
   const values = result.indices
@@ -693,7 +705,7 @@ function finishMulti<T>(
     .filter((choice) => choice !== undefined);
   writeSettledLine(
     output,
-    questionText,
+    label,
     "success",
     values.map((choice) => choice.title).join(", "),
   );
@@ -706,17 +718,19 @@ function finishSingle<T>(
   choices: readonly PromptChoice<T>[],
   result: PickerResult | undefined,
   output: Writable,
+  settledLabel?: string,
 ): SelectAnswer<T> {
+  const label = settledLabel ?? questionText;
   if (result === undefined || result.kind !== "selected") {
-    writeSettledLine(output, questionText, "neutral");
+    writeSettledLine(output, label, "neutral");
     return { kind: "cancelled" };
   }
   const choice = choices[result.index];
   if (choice === undefined) {
-    writeSettledLine(output, questionText, "neutral");
+    writeSettledLine(output, label, "neutral");
     return { kind: "cancelled" };
   }
-  writeSettledLine(output, questionText, "success", choice.title);
+  writeSettledLine(output, label, "success", choice.title);
   return { kind: "selected", value: choice.value };
 }
 
@@ -728,16 +742,20 @@ export function createTextPrompt(options: ConfirmPromptOptions) {
   const input = options.input as RawModeInput;
   const output = options.output;
 
-  return async (questionText: string): Promise<TextAnswer> => {
+  return async (
+    questionText: string,
+    promptOptions: TextPromptOptions = {},
+  ): Promise<TextAnswer> => {
     const { width, color } = outputPresentation(output);
     const answer = await askQuestion(input, output, (context) =>
       textPrompt({ message: questionText, width, color }, context),
     );
+    const label = promptOptions.settledLabel ?? questionText;
     if (answer === undefined) {
-      writeSettledLine(output, questionText, "neutral");
+      writeSettledLine(output, label, "neutral");
       return { kind: "cancelled" };
     }
-    writeSettledLine(output, questionText, "success", answer);
+    writeSettledLine(output, label, "success", answer);
     return { kind: "answered", value: answer };
   };
 }
@@ -924,7 +942,7 @@ export function createSearchableSelectPrompt(options: ConfirmPromptOptions) {
         context,
       ),
     );
-    return finishSingle(questionText, choices, result, output);
+    return finishSingle(questionText, choices, result, output, search.settledLabel);
   };
 }
 
@@ -974,6 +992,6 @@ export function createSearchableMultiSelectPrompt(options: ConfirmPromptOptions)
         context,
       ),
     );
-    return finishMulti(questionText, choices, result, output);
+    return finishMulti(questionText, choices, result, output, selection.settledLabel);
   };
 }

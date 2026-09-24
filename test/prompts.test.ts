@@ -722,4 +722,50 @@ describe("searchable multiselect prompt seam", () => {
     input.write("\r");
     expect(await pending).toEqual({ kind: "selected", values: ["claude"] });
   });
+
+  test("settles with custom settledLabel instead of questionText when provided", async () => {
+    // 1. Text prompt with settledLabel
+    const textInput = fakeInteractiveInput();
+    const textOutput = collectingOutput(80);
+    const textPromptSeam = createTextPrompt({ input: textInput, output: textOutput });
+    const textPending = textPromptSeam("Name your Profile", { settledLabel: "Name" });
+    textInput.write("engineering\r");
+    await textPending;
+    const textWritten = written(textOutput);
+    expect(textWritten).toContain("Name › engineering");
+    expect(textWritten).not.toContain("Name your Profile ›");
+
+    // 2. Searchable select with settledLabel
+    const selectInput = fakeInteractiveInput();
+    const selectOutput = collectingOutput(80);
+    const select = createSearchableSelectPrompt({ input: selectInput, output: selectOutput });
+    const selectPending = select(
+      "Which Profile?",
+      [{ title: "engineering", value: "engineering" }],
+      { settledLabel: "Profile" },
+    );
+    await waitForFrame(selectOutput, "engineering");
+    selectInput.write("\r");
+    await selectPending;
+    const selectWritten = written(selectOutput);
+    expect(selectWritten).toContain("Profile › engineering");
+    expect(selectWritten).not.toContain("Which Profile? ›");
+
+    // 3. Searchable multi select with settledLabel
+    const multiInput = fakeInteractiveInput();
+    const multiOutput = collectingOutput(80);
+    const multi = createSearchableMultiSelectPrompt({ input: multiInput, output: multiOutput });
+    const multiPending = multi(
+      "Which Context?",
+      [{ title: "team", value: "team" }],
+      { settledLabel: "Context" },
+    );
+    await waitForFrame(multiOutput, "team");
+    multiInput.write(" \r");
+    await multiPending;
+    const multiWritten = written(multiOutput);
+    expect(multiWritten).toContain("Context › team");
+    expect(multiWritten).not.toContain("Which Context? ›");
+  });
 });
+
