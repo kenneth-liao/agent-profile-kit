@@ -254,10 +254,10 @@ describe("fleet-wide synchronization qualification", () => {
     // current-Project matrix; the resulting state is verified current.
     const apply = await runCli(home, pathWithHosts, "update");
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Update complete");
-    // The receipt states the fleet impact once, without a per-file inventory,
-    // and points at the retained operation (US-011, ADR-0040).
-    expect(humanText(apply.stdout)).toContain("Updated 12 Projects (22 generated files).");
+    expect(apply.stdout).toContain("Updated 12 Projects (22 files)");
+    // The receipt states the fleet impact once as the headline, without a
+    // per-file inventory, and points at the retained operation (US-011, ADR-0040).
+    expect(humanText(apply.stdout)).toContain("Updated 12 Projects (22 files)");
     expect(humanText(apply.stdout)).toContain("Details: apkit details");
     expect(apply.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
       .toEqual([]);
@@ -265,9 +265,9 @@ describe("fleet-wide synchronization qualification", () => {
     expect(apply.stdout).not.toContain("Skill review-pr");
     expect(apply.stdout).not.toContain("Project Binding");
     // Invocation-wide next-use instruction appears once (US-012).
-    expect(humanText(apply.stdout).match(/Start a new agent session from the Project root/g)).toHaveLength(1);
+    expect(humanText(apply.stdout).match(/Start a new agent session in a Project/g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain(
-      humanText("Start a new agent session from the Project root to use the updated material."),
+      humanText("Start a new agent session in a Project to use the changes."),
     );
     // First fleet delivery offers one short optional check (ADR-0043).
     expect(humanText(apply.stdout).match(/Try it: /g)).toHaveLength(1);
@@ -277,9 +277,9 @@ describe("fleet-wide synchronization qualification", () => {
     expectExitCode(status, 0);
     // Deliberate exact frame: headline, Workspace, and one up-to-date row per
     // checked Project (US-007). Never loosened to a bare headline match.
-    expect(status.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (12 Projects)");
+    expect(status.stdout.split("\n")[0]).toBe("✔ Everything is up to date (12 Projects)");
     expect(status.stdout).toContain("Workspace:");
-    expect(status.stdout).toContain("Primary Cause");
+    expect(status.stdout).toContain("Status");
     expect((status.stdout.match(/up to date/g) ?? []).length).toBe(13);
     for (const project of projects) expect(status.stdout).toContain(basename(project));
     // Clean concise status stays quiet: no standing reminder and no next action.
@@ -469,7 +469,7 @@ describe("fleet-wide synchronization qualification", () => {
 
     const nextRead = await runCli(home, fixture.pathWithHosts, "status");
     expectExitCode(nextRead, 0);
-    expect(nextRead.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (14 Projects)");
+    expect(nextRead.stdout.split("\n")[0]).toBe("✔ Everything is up to date (14 Projects)");
     expect(nextRead.stdout).toContain("Workspace:");
     expect((nextRead.stdout.match(/up to date/g) ?? []).length).toBe(15);
     expectExitCode(await runCli(home, fixture.pathWithHosts, "update"), 0);
@@ -756,7 +756,7 @@ describe("integrated fleet recovery qualification", () => {
 
     // The committed Apply Receipt evidence and the blocked Project's evidence
     // render in one view without concealing either.
-    expect(humanText(partialApply.stdout)).toMatch(/Updated \d+ Projects? \(\d+ generated files?\)\./);
+    expect(humanText(partialApply.stdout)).toMatch(/Updated \d+ Projects? \(\d+ files?\)\./);
     expect(partialApply.stdout).toContain("are tracked by Git");
 
     // The freshly-current evidence names the committed Projects and excludes
@@ -925,9 +925,9 @@ describe("integrated fleet recovery qualification", () => {
 
     const settled = await runCli(home, pathWithHosts, "status");
     expectExitCode(settled, 0);
-    expect(settled.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (30 Projects)");
+    expect(settled.stdout.split("\n")[0]).toBe("✔ Everything is up to date (30 Projects)");
     expect(settled.stdout).toContain("Workspace:");
-    expect(settled.stdout).toContain("Primary Cause");
+    expect(settled.stdout).toContain("Status");
     expect((settled.stdout.match(/up to date/g) ?? []).length).toBe(31);
     expect(settled.stdout).not.toContain("Next:");
   }, 240_000);

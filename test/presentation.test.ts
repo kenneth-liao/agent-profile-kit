@@ -705,7 +705,7 @@ describe("lifecycle status document", () => {
       "row",
     ]);
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (2 Projects)\n");
     expect(rendered).toContain("up to date");
     expect(rendered).not.toContain("Next:");
     expect(rendered).not.toContain("Details:");
@@ -728,6 +728,7 @@ describe("lifecycle status document", () => {
         kind: "command",
         program: "apkit",
         args: [{ kind: "text", value: "update" }],
+        note: "bring your Projects up to date",
       },
       {
         kind: "command",
@@ -2339,7 +2340,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding"));
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session in a Project to use the changes."
     )).toBe(true);
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" && nodeText(node).includes("will load the next time")
@@ -2373,7 +2374,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     // guidance.
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session in a Project to use the changes."
     )).toBe(true);
   });
 
@@ -3609,7 +3610,7 @@ describe("status concise terminology", () => {
     const concise = applyReportDocument(applyResult(receipt, emptyReport()));
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(flattenPresentationNodes(concise).map(nodeText))
-      .toContain("Updated 1 Project (1 generated file).");
+      .toContain("Updated 1 Project (1 file)");
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && nodeText(node).includes("receipt-project")
     )).toBe(false);
@@ -3679,7 +3680,7 @@ describe("status concise terminology", () => {
 
     // The receipt states the affected Project and changed-file counts once
     // (US-011, DEC-007).
-    expect(texts.filter((text) => text === "Updated 6 Projects (16 generated files)."))
+    expect(texts.filter((text) => text === "Updated 6 Projects (16 files)"))
       .toHaveLength(1);
 
     // No per-file, per-Project, per-operation, or Profile inventory in the
@@ -3709,7 +3710,7 @@ describe("status concise terminology", () => {
 
     const texts = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())))
       .map(nodeText);
-    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts).toContain("Updated 1 Project (12 files)");
     expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
   });
 
@@ -3737,7 +3738,7 @@ describe("status concise terminology", () => {
 
     // Routine committed work stays a count; the approved changed-file
     // replacement and deletion keep their actionable identities (US-011).
-    expect(texts).toContain("Updated 1 Project (4 generated files).");
+    expect(texts).toContain("Updated 1 Project (4 files)");
     expect(headingsIn(document)).toContain("Replaced changed generated files:");
     expect(texts).toContain("  ~ a.md (/project-a)");
     expect(headingsIn(document)).toContain("Removed changed generated files:");
@@ -3794,7 +3795,7 @@ describe("status concise terminology", () => {
       // The receipt proves committed work; every projection stayed
       // byte-identical, so the file count is truthfully zero while the
       // affected Project is still stated once (US-011, ADR-0040).
-      expect(texts).toContain("Updated 1 Project (0 generated files).");
+      expect(texts).toContain("Updated 1 Project (0 files)");
       expect(texts.some((text) => text.includes("a.md"))).toBe(false);
     }
   });
@@ -3822,7 +3823,7 @@ describe("status concise terminology", () => {
     const document = applyReportDocument(applyResult(receipt, emptyReport()));
     const texts = flattenPresentationNodes(document).map(nodeText);
 
-    expect(texts).toContain("Updated 1 Project (0 generated files).");
+    expect(texts).toContain("Updated 1 Project (0 files)");
     // Routine Git exclusion bookkeeping stays out of the default view.
     expect(texts.some((text) => text.includes(".git/info/exclude"))).toBe(false);
   });
@@ -3876,7 +3877,7 @@ describe("status concise terminology", () => {
     });
     const texts = flattenPresentationNodes(document).map(nodeText);
     // Committed work is summarized once; the failed Project keeps its identity.
-    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts).toContain("Updated 1 Project (12 files).");
     expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
     expect(texts.some((text) => text.includes("/project-b"))).toBe(true);
   });
@@ -3893,7 +3894,7 @@ describe("status concise terminology", () => {
     // statement, no status-style Changes summary.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const conciseNodes = flattenPresentationNodes(concise);
-    expect(conciseNodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(conciseNodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(conciseNodes.some((node) =>
       node.kind === "prose"
@@ -4796,7 +4797,7 @@ describe("status concise terminology", () => {
     // gain no receipt block.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(flattenPresentationNodes(concise).map(nodeText))
-      .toContain("Updated 1 Project (1 generated file).");
+      .toContain("Updated 1 Project (1 file)");
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(keyValuesIn(concise, "Project")).toEqual([]);
   });
@@ -4911,7 +4912,7 @@ describe("status concise terminology", () => {
     const nodes = flattenPresentationNodes(concise);
     // The compact receipt follows the error notice: committed work is
     // summarized once and the message remains the only outcome claim.
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file).");
     // A failure view carries no success-claim notice.
     expect(noticesIn(concise).every((notice) => notice.severity === "error")).toBe(true);
   });
@@ -5699,15 +5700,14 @@ describe("standalone view presentation documents (#389)", () => {
       "row",
       "spacer",
       "list",
-      "prose",
-      "prose",
+      "key-value:Next(command)",
     ]);
     const heading = document[0] as Extract<PresentationNode, { kind: "heading" }>;
-    expect(heading.text).toBe("Projects:");
+    expect(heading.text).toBe("Your Projects (1)");
     const row = document.find((node) => node.kind === "row") as Extract<PresentationNode, { kind: "row" }>;
     expect(row).toBeDefined();
     expect(row.cells).toHaveLength(4);
-    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Agents", "State"]);
+    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Agents", "Status"]);
     expect(row.cells[0]!.content).toEqual({
       kind: "path",
       canonicalPath: project,
@@ -5744,10 +5744,10 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain(
       "⚠ a-very-long-project-identity: Configured project root does not exist on this machine and cannot be",
     );
-    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(summary)).toBe("1 Project: 1 problem.");
-    const guidance = document[6] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(guidance)).toContain("apkit status");
+    const footer = document[5] as Extract<PresentationNode, { kind: "part" }>;
+    const next = footer.nodes[0] as Extract<PresentationNode, { kind: "key-value" }>;
+    expect(next.key).toBe("Next");
+    expect(next.value).toMatchObject({ kind: "command", note: "check whether they're up to date" });
   });
 
   test("project inventory presents clean Projects with configured state and summary count", () => {
@@ -5774,23 +5774,20 @@ describe("standalone view presentation documents (#389)", () => {
       "spacer",
       "row",
       "row",
-      "spacer",
-      "prose",
-      "prose",
+      "key-value:Next(command)",
     ]);
+    const heading = document[0] as Extract<PresentationNode, { kind: "heading" }>;
+    expect(heading.text).toBe("Your Projects (2)");
     const rows = document.filter((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.cells[3]!.content).toEqual({
       kind: "identifier",
-      value: "configured",
+      value: "ok",
     });
     expect(rows[1]!.cells[3]!.content).toEqual({
       kind: "identifier",
-      value: "configured",
+      value: "ok",
     });
-
-    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(summary)).toBe("2 Projects configured.");
   });
 
   test("project inventory aligns columns across records of differing lengths", () => {
@@ -5820,9 +5817,9 @@ describe("standalone view presentation documents (#389)", () => {
   }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
-    // lines: [ "Projects:", "", "<header>", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
-    expect(lines[0]).toBe("Projects:");
-    expect(lines[2]).toMatch(/^Project\s+Profile\s+Agents\s+State$/);
+    // lines: [ "Your Projects (2)", "", "<header>", "<row1>", "<row2>" ]
+    expect(lines[0]).toBe("Your Projects (2)");
+    expect(lines[2]).toMatch(/^Project\s+Profile\s+Agents\s+Status$/);
     const row1 = lines[3]!;
     const row2 = lines[4]!;
     expect(row1).toBeDefined();
@@ -5840,8 +5837,8 @@ describe("standalone view presentation documents (#389)", () => {
     const hosts2Index = row2.indexOf("claude, codex, opencode");
     expect(hosts1Index).toBe(hosts2Index);
 
-    const state1Index = row1.indexOf("configured");
-    const state2Index = row2.indexOf("configured");
+    const state1Index = row1.indexOf("ok");
+    const state2Index = row2.indexOf("ok");
     expect(state1Index).toBe(state2Index);
   });
 
@@ -5877,16 +5874,15 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("Project: alpha");
     expect(rendered).toContain("Profile: engineering");
     expect(rendered).toContain("Agents: codex");
-    expect(rendered).toContain("State: configured");
+    expect(rendered).toContain("Status: ok");
     expect(rendered).toContain("Project: beta");
     expect(rendered).toContain("Profile: devops");
     expect(rendered).toContain("Agents: claude");
-    expect(rendered).toContain("2 Projects configured.");
     const records = rendered.split("\n\n");
     expect(records[1]).toContain("Project: alpha");
     expect(records[1]).toContain("Profile: engineering");
     expect(records[1]).toContain("Agents: codex");
-    expect(records[1]).toContain("State: configured");
+    expect(records[1]).toContain("Status: ok");
     expect(records[2]).toContain("Project: beta");
     expect(Math.max(...rendered.split("\n").map((line) => line.length))).toBeLessThanOrEqual(40);
   });
@@ -5915,10 +5911,10 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     const wideLines = wide.split("\n");
-    expect(wideLines[0]).toBe("Projects:");
-    expect(wideLines[2]).toBe("Project  Profile  Agents  State");
-    expect(wideLines[3]).toBe("demo     example  codex   configured");
-    expect(wideLines[4]).toBe("other    example  codex   configured");
+    expect(wideLines[0]).toBe("Your Projects (2)");
+    expect(wideLines[2]).toBe("Project  Profile  Agents  Status");
+    expect(wideLines[3]).toBe("demo     example  codex   ok");
+    expect(wideLines[4]).toBe("other    example  codex   ok");
 
     const narrow = renderPresentationDocument(
       projectInventoryDocument(projects, "/home", "/home"),
@@ -5926,14 +5922,14 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     const records = narrow.split("\n\n");
-    expect(records[0]).toBe("Projects:");
+    expect(records[0]).toBe("Your Projects (2)");
     for (const record of records.slice(1, 3)) {
       const recordLines = record.split("\n");
       expect(recordLines.length).toBeLessThanOrEqual(2);
       expect(recordLines.join(" ")).toContain("Project:");
       expect(recordLines.join(" ")).toContain("Profile:");
       expect(recordLines.join(" ")).toContain("Agents:");
-      expect(recordLines.join(" ")).toContain("State:");
+      expect(recordLines.join(" ")).toContain("Status:");
     }
     expect(records[1]).toContain("demo");
     expect(records[2]).toContain("other");
@@ -5979,7 +5975,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(narrow).toContain("Profile: devops");
     expect(narrow).toContain("Agents: codex");
     expect(narrow).toContain("Agents: claude, codex");
-    expect(narrow).toContain("State: configured");
+    expect(narrow).toContain("Status: ok");
     expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
     for (const record of narrow.split("\n\n").slice(1, 3)) {
       expect(record.split("\n").length).toBeLessThanOrEqual(3);
@@ -6333,7 +6329,7 @@ describe("standalone view presentation documents (#389)", () => {
       ],
       ["codex"],
     );
-    expect(shapes(document)).toEqual(["heading", "prose", "prose", "spacer", "prose", "prose"]);
+    expect(shapes(document)).toEqual(["heading", "prose", "prose", "spacer", "prose"]);
     const hostLines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
       .map((node) => nodeText(node));
@@ -6341,15 +6337,15 @@ describe("standalone view presentation documents (#389)", () => {
     // `installed` beside a Host is ambiguous — in this kit installing means
     // installing into a Project. Literal bytes pin the wording end-to-end;
     // the constant checks pin that the literals read the one shared home.
-    expect(hostLines[0]).toContain("codex — detected");
-    expect(hostLines[0]).toContain(`codex — ${HOST_DETECTION_LABELS.detected}`);
-    expect(hostLines[1]).toContain(`claude — ${HOST_DETECTION_LABELS.notFound}`);
+    // The status sits beside its agent on the same line (review screen 22);
+    // agent ids stay as typed.
+    expect(hostLines[0]).toBe(`  codex   ${HOST_DETECTION_LABELS.detected}`);
+    expect(hostLines[1]).toBe(`  claude  ${HOST_DETECTION_LABELS.notFound}`);
     expect(hostLines.join("\n")).not.toContain("— installed");
     // The advisory sentence quotes the shared not-found wording itself.
     expect(hostLines).toContain(
-      `"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`,
+      `"${HOST_DETECTION_LABELS.notFound}" means apkit couldn't find it on this machine. You can still pick it when you install.`,
     );
-    expect(inlineCommandTexts(document)).toContain("apkit install");
   });
 
   test("host inventory keeps an undetected Host listed with the advisory loading distinction", () => {
@@ -6364,11 +6360,9 @@ describe("standalone view presentation documents (#389)", () => {
     expect(hostLines[0]).toContain("not found");
     // The advisory wording distinguishes executable presence from Profile
     // loading and keeps every Host an available installation choice.
-    const advice = hostLines.filter((line) => line.includes("not detected") || line.includes("selectable"));
-    expect(advice).toHaveLength(2);
-    expect(advice[0]).toContain("not detected");
-    expect(advice[1]).toContain("selectable");
-    expect(inlineCommandTexts(document)).toContain("apkit install");
+    const advice = hostLines.filter((line) => line.includes("couldn't find it on this machine"));
+    expect(advice).toHaveLength(1);
+    expect(advice[0]).toContain("You can still pick it when you install.");
   });
 
   test("temporary inventory presents each installation as typed identity fields", () => {
@@ -6428,14 +6422,16 @@ describe("standalone view presentation documents (#389)", () => {
         "This is an unusually long validation warning that must wrap cleanly at a narrow terminal measure.",
       ],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     expect(shapes(document)).toEqual([
       "notice",
       "list",
       "key-value:Workspace",
-      "key-value:Profiles found",
-      "key-value:Agents bound",
+      "key-value:Settings",
+      "key-value:Profiles",
+      "key-value:Projects",
+      "key-value:Agents in use",
       "key-value:Next(command)",
     ]);
     const next = keyValuesIn(document, "Next")[0]!;
@@ -6443,10 +6439,21 @@ describe("standalone view presentation documents (#389)", () => {
       kind: "command",
       program: "apkit",
       args: [{ kind: "text", value: "status" }],
+      note: "check your Projects",
     });
-    expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
+    expect(keyValuesIn(document, "Profiles")[0]!.value).toEqual({
       kind: "prose",
       parts: ["engineering"],
+    });
+    expect(keyValuesIn(document, "Projects")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["2"],
+    });
+    expect(keyValuesIn(document, "Settings")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: "/Users/example/.agents/agent-profile-kit/config.yaml",
+      authoredPath: "/Users/example/.agents/agent-profile-kit/config.yaml",
+      scope: "fleet",
     });
   });
 
@@ -6458,7 +6465,7 @@ describe("standalone view presentation documents (#389)", () => {
       profiles: [],
       warnings: [],
       workspace,
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
     const pathForm = workspaceValidationDocument(
       { outcome: "valid", path: workspace.canonical, contexts: [], profiles: [], skills: [] },
       workspace.authored,
@@ -6482,29 +6489,26 @@ describe("standalone view presentation documents (#389)", () => {
       profiles: [],
       warnings: [],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
       args: [{ kind: "text", value: "install <profile> --agent <agent>" }],
+      note: "install a Profile into a Project",
     });
-    expect(keyValuesIn(document, "Profiles found")[0]!.value).toMatchObject({ kind: "prose" });
-    // The count clause is protected report material: it never wraps (US-010).
-    const rendered = renderPresentationDocument(
-      validationResultDocument({
-        bindings: 0,
-        hosts: [],
-        profiles: [],
-        warnings: [],
-      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-      }),
-      context(40),
-    );
-    const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
-    const count = inlineIdentifiers(notice.nodes)[0]!;
-    expect(count).toBeDefined();
-    expect(rendered.split("\n").filter((line) => line.includes(count))).toHaveLength(1);
+    expect(keyValuesIn(document, "Profiles")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["none"],
+    });
+    expect(keyValuesIn(document, "Projects")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["0"],
+    });
+    expect(keyValuesIn(document, "Agents in use")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["none"],
+    });
   });
 
   test("uninstall receipt reports the removed count once without inventories", () => {
@@ -7055,7 +7059,7 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = lifecycleStatusDocument(report);
 
-    // The ready summary notice leads; scope rows carry each Project's Primary Cause.
+    // The ready summary notice leads; scope rows carry each Project's cause.
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     expect(renderBoundary(concise)).toContain("source changed");
     expect(headingsIn(concise)).not.toContain("Project changes:");
@@ -7124,6 +7128,7 @@ describe("operation-first multi-Project presentation", () => {
         { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
+      note: "bring your Projects up to date",
     });
     const details = keyValuesIn(concise, "Details")[0]!.value;
     expect(details).toEqual({
@@ -7178,7 +7183,7 @@ describe("operation-first multi-Project presentation", () => {
     // selected-setup detail stay out of the receipt section.
     const apply = applyReportDocument({ receipt, resultingState });
     const nodes = flattenPresentationNodes(apply);
-    expect(nodes.map(nodeText)).toContain("Updated 3 Projects (3 generated files).");
+    expect(nodes.map(nodeText)).toContain("Updated 3 Projects (3 files)");
     expect(nodes.some((node) => node.kind === "heading" && nodeText(node) === "Updated:")).toBe(false);
     expect(nodes.some((node) =>
       node.kind === "key-value" && node.key === "  State"
@@ -7269,6 +7274,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
+      note: "bring your Projects up to date",
     });
     expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -7385,7 +7391,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(apply)).not.toContain("Updated:");
     expect(keyValuesIn(apply, "Project")).toEqual([]);
     expect(keyValuesIn(apply, "  State")).toEqual([]);
@@ -7460,7 +7466,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(stateNodes).toHaveLength(1);
     expect(stateNodes[0]!.value).toMatchObject({ kind: "prose" });
     expect(nodeText(stateNodes[0]!.value)).toContain("a.md");
-    const impact = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Updated 1 Project (1 generated file).");
+    const impact = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Updated 1 Project (1 file).");
     expect(impact).toBeGreaterThan(-1);
     expect(nodes.findIndex((node) => node.kind === "key-value" && node.key === "  State"))
       .toBeGreaterThan(impact);
@@ -7512,7 +7518,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nodes.map(nodeText)).toContain("Updated 2 Projects (2 generated files).");
+    expect(nodes.map(nodeText)).toContain("Updated 2 Projects (2 files).");
     expect(headingsIn(apply)).not.toContain("Updated:");
     const projectNodes = keyValuesIn(apply, "Project");
     expect(projectNodes).toHaveLength(1);
@@ -7658,8 +7664,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // the trailing prose node; the composed readiness wording (and any
     // Project list) is golden-covered.
     expect(shapes(concise)).toEqual([
-      "notice", "spacer", "prose",
-      "spacer", "heading", "list",
+      "notice", "spacer", "heading", "list",
       "spacer", "prose", "prose",
     ]);
   });
@@ -7720,7 +7725,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     expect(shapes(concise)).toEqual([
-      "notice", "spacer", "prose", "spacer", "prose", "prose",
+      "notice", "spacer", "prose", "prose",
     ]);
   });
 
@@ -7794,8 +7799,6 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // (spec #491 US-017, #515): the receipt proves no first delivery.
     expect(shapes(concise)).toEqual([
       "notice",
-      "spacer",
-      "prose",
       "spacer",
       "prose",
     ]);
@@ -7916,32 +7919,25 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
       });
 
     const zeroProjects = validationDocument(0, [], ["engineering"]);
-    // Severity is the validity fact; the count clause is its carried value,
-    // authored as an atomic identifier so it never wraps (US-010).
+    // Severity is the validity fact; the fact rows carry the counts.
     expect(noticesIn(zeroProjects)).toHaveLength(1);
     expect(noticesIn(zeroProjects)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(zeroProjects)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
-    expect(keyValuesIn(zeroProjects, "Profiles found")[0]!.value).toEqual({
+    expect(keyValuesIn(zeroProjects, "Profiles")[0]!.value).toEqual({
       kind: "prose",
       parts: ["engineering"],
     });
-    expect(keyValuesIn(zeroProjects, "Agents bound")[0]!.value).toMatchObject({ kind: "prose" });
+    expect(keyValuesIn(zeroProjects, "Agents in use")[0]!.value).toMatchObject({ kind: "prose" });
     expect(commandTexts(zeroProjects)).toContain("apkit install <profile> --agent <agent>");
     expectUserFacingVocabulary(renderBoundary(zeroProjects));
 
     const oneProject = validationDocument(1, ["codex"], ["engineering"]);
     expect(noticesIn(oneProject)).toHaveLength(1);
     expect(noticesIn(oneProject)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(oneProject)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
     expectUserFacingVocabulary(renderBoundary(oneProject));
 
     const multiProjects = validationDocument(3, ["codex", "claude"], ["engineering", "design"]);
     expect(noticesIn(multiProjects)).toHaveLength(1);
     expect(noticesIn(multiProjects)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(multiProjects)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
     expectUserFacingVocabulary(renderBoundary(multiProjects));
   });
 
@@ -8150,7 +8146,7 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toHaveLength(1);
     expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "success" });
     const nodes = flattenPresentationNodes(document);
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(document)).not.toContain("Updated:");
     expect(nodes.at(-1)).toMatchObject({ kind: "prose" });
     expect(commandsIn(document)).toEqual([]);
@@ -8235,7 +8231,7 @@ describe("update presentation documents", () => {
     expect(nodes.slice(0, 4).map((node) => shape(node))).toEqual(["notice:error", "prose", "prose", "prose"]);
     expect(nodeText(nodes[1]!)).toContain("/project-a");
     // The compact receipt evidence follows the locator and pending scope.
-    expect(nodes.map((node) => nodeText(node))).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map((node) => nodeText(node))).toContain("Updated 1 Project (1 file).");
   });
 
   test("verification failure carries the task message as an error notice and receipt evidence", () => {
@@ -8256,7 +8252,7 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toEqual([
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Verification failed."] }] },
     ]);
-    expect(flattenPresentationNodes(document).map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(flattenPresentationNodes(document).map(nodeText)).toContain("Updated 1 Project (1 file).");
   });
 });
 
@@ -9939,7 +9935,7 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     }
     expect(renderBoundary(install)).toContain("Installed the coding Profile");
     expect(renderBoundary(install)).toContain("Project: ~/projects/demo");
-    expect(renderBoundary(update)).toContain("Update complete");
+    expect(renderBoundary(update)).toContain("Updated 1 Project (1 file)");
   });
 
   test("one Host missing across several Projects names every Project once with one remedy", () => {
@@ -9965,7 +9961,7 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ Update complete");
+    expect(rendered).toStartWith("✔ Updated 3 Projects (3 files)");
     // One warning statement names every affected Project (view identity).
     expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta, gamma)");
     expect(rendered).not.toContain("(3 Projects)");
@@ -10035,7 +10031,7 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ Update complete");
+    expect(rendered).toStartWith("✔ Updated 2 Projects (2 files)");
     // Different Hosts: each keeps its own Adapter-authored remedy and requirement.
     expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta)");
     expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
@@ -11217,7 +11213,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+      expect(rendered).toStartWith("✔ Everything is up to date (2 Projects)\n");
       expect(rendered).toContain("up to date");
       expect(rendered).toContain("/project-1");
       expect(rendered).toContain("/project-2");
@@ -12495,7 +12491,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
 
     const doc = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     const rendered = renderBoundary(doc);
-    expect(rendered).toStartWith("✔ All Projects are up to date (3 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (3 Projects)\n");
     expect(rendered).toContain("up to date");
     expect(rendered).not.toContain("Next:");
   });
@@ -12716,10 +12712,10 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const document = lifecycleStatusDocument(healthyFleet(), { workspace });
     const rendered = renderBoundary(document, context(100));
 
-    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (4 Projects)\n");
     expect(rendered).toContain("Workspace: ~/apkit-workspace");
     expect(rendered).toContain("Project");
-    expect(rendered).toContain("Primary Cause");
+    expect(rendered).toContain("Status");
     for (const project of ["alpha", "beta", "gamma", "delta"]) {
       expect(rendered).toContain(project);
       expect(rendered).toContain("up to date");
@@ -12918,9 +12914,9 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const rendered = renderBoundary(document, context(60));
     const lines = rendered.trimEnd().split("\n");
 
-    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
-    // #649's packer: Project + Primary Cause share one line when they fit the measure.
-    const packed = lines.filter((line) => line.includes("Primary Cause:") && line.includes("Project:"));
+    expect(rendered).toStartWith("✔ Everything is up to date (4 Projects)\n");
+    // #649's packer: Project + Status share one line when they fit the measure.
+    const packed = lines.filter((line) => line.includes("Status:") && line.includes("Project:"));
     expect(packed.length).toBeGreaterThanOrEqual(4);
     for (const line of packed) {
       expect(line.length).toBeLessThanOrEqual(60);
@@ -12952,7 +12948,7 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const document = lifecycleStatusDocument(healthyFleet(), { workspace });
     const rendered = renderBoundary(document, context(100));
     const lines = rendered.trimEnd().split("\n");
-    const header = lines.find((line) => line.startsWith("Project") && line.includes("Primary Cause"));
+    const header = lines.find((line) => line.startsWith("Project") && line.includes("Status"));
     expect(header).toBeDefined();
   });
 });

@@ -84,6 +84,7 @@ import {
   ProjectTargetError,
   type ProjectBindingSelection,
   type ProjectSelectionFilter,
+  localConfigurationPath,
 } from "../installer/local-configuration.js";
 import { StateReadFailureError } from "../installer/installation-state.js";
 import {
@@ -986,7 +987,11 @@ async function main(): Promise<void> {
     if (parsed === undefined) return;
     if (parsed.workspace === undefined) {
       const result = await validateApplication(home);
-      writeHumanDocument(process.stdout, validationResultDocument(result), stdoutPresentationContext);
+      writeHumanDocument(
+        process.stdout,
+        validationResultDocument(result, localConfigurationPath(home)),
+        stdoutPresentationContext,
+      );
       return;
     }
     try {

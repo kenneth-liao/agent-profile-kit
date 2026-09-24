@@ -195,7 +195,7 @@ describe("update replacement confirmation command", () => {
     expect(exitCode).toBe(0);
     const stdout = humanText(invocation.stdout.text());
     expect(stdout).not.toContain("(y/N)");
-    expect(stdout).toContain("Updated 1 Project (1 generated file).");
+    expect(stdout).toContain("Updated 1 Project (1 file)");
     expect(readFileSync(fleet.driftedOutputPath, "utf8")).toContain("Confirmation fixture.");
   });
 

@@ -892,7 +892,7 @@ test("keeps the details route on a no-op report that carries warnings", () => {
   stream.isTTY = false;
   const context = terminalPresentationContext(stream);
   const document = [
-    ...neutralStatementDocument(["All Projects were already current."]),
+    ...neutralStatementDocument(["Everything is already up to date."]),
     {
       kind: "list" as const,
       items: [["Grok inspect --json output is not valid JSON."]],
@@ -903,7 +903,7 @@ test("keeps the details route on a no-op report that carries warnings", () => {
   const retained = beginLifecycleOperationRecording();
   retained.collect({ outcome: "no-op", scope: { selection: "all" }, projects: [] });
   writeLifecycleReport(stream, document, context, retained);
-  expect(stream.text()).toContain("All Projects were already current.");
+  expect(stream.text()).toContain("Everything is already up to date.");
   expect(stream.text()).toContain("Details: apkit details");
 });
 

@@ -99,6 +99,18 @@ where they conflict with US-007. Operation receipts (`install`/`update`/
 that cannot fit a row stays in the default view. Machine schemas and exit codes
 are unchanged.
 
+### Amendment: everyday-screen wording (spec #672 US-006, ticket #678)
+
+The whole-fleet settled headline reads `Everything is up to date (N Projects)`
+(review screens 06/16) instead of `All Projects are up to date (N Projects)`;
+scoped outcomes keep the shapes above. The scope-row column heading reads
+`Status`; each row still carries its canonical Primary Cause label unchanged,
+and the concept name and labels stay as defined here and in `CONTEXT.md`. A
+clean no-op `update` reads `● Everything is already up to date.`, and a clean
+changed update leads with its committed receipt impact as the headline
+(`✔ Updated N Projects (M files)`). Machine schemas and exit codes are
+unchanged.
+
 ## Superseded decisions
 
 This ADR supersedes only the conflicting default-view rules below; the remaining

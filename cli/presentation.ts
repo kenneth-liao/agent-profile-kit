@@ -41,6 +41,7 @@ export {
   formatProjectTargetErrorForHuman,
 } from "./error-wording.js";
 import {
+  commandNode,
   commandPart,
   flatInlineText,
   footerNodes,
@@ -533,7 +534,7 @@ function statusScopeRows(
         ),
       },
       {
-        column: "Primary Cause",
+        column: "Status",
         content: { kind: "identifier" as const, value: primaryCauseLabel(project) },
       },
     ],
@@ -936,23 +937,14 @@ function inventoryTopicNodes(
 }
 
 
+/** The one reader for an inventory row's state word (review screen 15):
+ * a healthy Project reads `ok`; a Project with a problem still reads
+ * `problem`. */
 function projectInventoryStateNode(problem: InstallerToolErrorFact | null): PresentationNode {
   if (problem === null) {
-    return { kind: "identifier", value: "configured" };
+    return { kind: "identifier", value: "ok" };
   }
   return { kind: "identifier", value: "problem", category: "warning" };
-}
-
-function projectInventorySummary(projects: readonly ProjectInventoryRecord[]): string {
-  const problemCount = projects.filter((project) => project.problem !== null).length;
-  if (problemCount === 0) {
-    return `${plural(projects.length, "Project")} configured.`;
-  }
-  const configuredCount = projects.length - problemCount;
-  if (configuredCount === 0) {
-    return `${plural(projects.length, "Project")}: ${plural(problemCount, "problem")}.`;
-  }
-  return `${plural(projects.length, "Project")}: ${configuredCount} configured, ${plural(problemCount, "problem")}.`;
 }
 
 /** The Project inventory listing as a presentation document. */
@@ -985,8 +977,9 @@ export function projectInventoryDocument(
   });
   const identities = projectIdentityLookup(projects.map(location), cwd, home);
   const nodes: PresentationNode[] = [
-    // The count lives once, in the summary below (US-013).
-    { kind: "heading", text: "Projects:" },
+    // The count lives in the heading; the next step is the footer (US-013,
+    // review screen 15).
+    { kind: "heading", text: `Your Projects (${projects.length})` },
     spacerNode(),
   ];
   for (const project of projects) {
@@ -1011,13 +1004,12 @@ export function projectInventoryDocument(
           content: { kind: "identifier", value: project.hosts.join(", ") },
         },
         {
-          column: "State",
+          column: "Status",
           content: projectInventoryStateNode(project.problem),
         },
       ],
     });
   }
-  nodes.push(spacerNode());
   // A configuration problem renders its complete typed sentence and repair
   // locator once, after the rows, under the same identity the row carries.
   const problems: readonly (readonly InlineContent[])[] = projects
@@ -1027,21 +1019,16 @@ export function projectInventoryDocument(
       ": ",
       ...formatInstallerToolError(project.problem!),
     ]);
-  if (problems.length > 0) nodes.push(list(problems, "warning"));
-  nodes.push(
-    {
-      kind: "prose",
-      parts: [projectInventorySummary(projects)],
+  if (problems.length > 0) nodes.push(spacerNode(), list(problems, "warning"));
+  nodes.push(footerNodes({
+    next: {
+      kind: "command",
+      value: notedCommand(
+        commandNode(COMMAND_NAME, [arg("status")]),
+        "check whether they're up to date",
+      ),
     },
-    {
-      kind: "prose",
-      parts: [
-        "Use ",
-        commandPart(COMMAND_NAME, [arg("status")]),
-        " to inspect Project lifecycle diagnostics.",
-      ],
-    },
-  );
+  }));
   return nodes;
 }
 
@@ -1317,31 +1304,29 @@ export function hostInventoryDocument(
   hosts: readonly HostInventoryRecord[],
   detected: readonly SupportedHost[],
 ): PresentationDocument {
+  // The status sits beside its agent on the same line (review screen 22),
+  // aligned over the typed agent ids; agent ids stay as typed (US-002).
+  const width = Math.max(...hosts.map(({ host }) => host.length));
   return [
+    part({ kind: "heading", text: "Supported agents" }),
     part(
-      { kind: "heading", text: "Supported agents:" },
       ...hosts.map(({ host }) => ({
         kind: "prose" as const,
         parts: [
           "  ",
           identifierPart(host),
+          textPart(" ".repeat(width - host.length + 2)),
           detected.includes(host)
-            ? ` — ${HOST_DETECTION_LABELS.detected}`
-            : ` — ${HOST_DETECTION_LABELS.notFound}`,
+            ? HOST_DETECTION_LABELS.detected
+            : HOST_DETECTION_LABELS.notFound,
         ],
       })),
     ),
     spacerNode(),
     {
       kind: "prose",
-      parts: [`"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`],
-    },
-    {
-      kind: "prose",
       parts: [
-        "Every agent stays selectable with ",
-        commandPart(COMMAND_NAME, [arg("install")]),
-        ".",
+        `"${HOST_DETECTION_LABELS.notFound}" means apkit couldn't find it on this machine. You can still pick it when you install.`,
       ],
     },
   ];
@@ -1510,15 +1495,6 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled output kind: ${String(value)}`);
 }
 
-/** The one home for the validation count clause: document and protector share it. */
-function validationCountClause(result: ValidationResult): string {
-  return `(${plural(result.profiles.length, "Profile")}, ${plural(
-    result.bindings,
-    DEFAULT_VIEW_LEXICON.projectBinding.singular,
-    DEFAULT_VIEW_LEXICON.projectBinding.plural,
-  )})`;
-}
-
 /**
  * The one row that names the checked Workspace (#629): both `validate` forms
  * state what they checked through the same key and path presentation.
@@ -1536,57 +1512,64 @@ function checkedWorkspaceRow(canonical: string, authored: string): PresentationN
   };
 }
 
-/** The validation result view as a presentation document. */
-export function validationResultDocument(result: ValidationResult): PresentationDocument {
-  const profileCount = result.profiles.length;
-  const countClause = validationCountClause(result);
+/** One labelled fact row for the validation screen. */
+function validationRow(key: string, value: string): PresentationNode {
+  return {
+    kind: "key-value",
+    key,
+    value: { kind: "prose", parts: [value] },
+  };
+}
+
+/** The validation result view as a presentation document (review screen 07).
+ * The settings path stays on this screen (#676): one remaining hand edit of
+ * the Local Configuration file needs it, so it renders as a plain labelled
+ * row. */
+export function validationResultDocument(
+  result: ValidationResult,
+  settingsPath?: string,
+): PresentationDocument {
   return [part(
     // Severity is the validation outcome fact: the view only renders valid results.
     {
       kind: "notice",
       severity: "success",
-      nodes: [{
-        kind: "prose",
-        parts: [
-          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid `,
-          identifierPart(countClause),
-        ],
-      }],
+      nodes: [{ kind: "prose", parts: ["Your Workspace looks good"] }],
     },
     // Warnings stay directly beside the outcome notice (DEC-011); the checked
     // Workspace follows them as the first fact row.
     ...(result.warnings.length === 0
       ? []
       : [list(result.warnings.map((warning): readonly InlineContent[] => [warning]), "warning")]),
-    checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
-    {
-      kind: "key-value",
-      key: "Profiles found",
-      value: {
-        kind: "prose",
-        parts: [profileCount === 0 ? "none" : result.profiles.join(", ")],
-      },
-    },
-    {
-      kind: "key-value",
-      key: "Agents bound",
-      value: {
-        kind: "prose",
-        parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
-      },
-    },
   ),
+    part(
+      checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
+      ...(settingsPath === undefined
+        ? []
+        : [{
+            kind: "key-value" as const,
+            key: "Settings",
+            value: {
+              kind: "path" as const,
+              canonicalPath: settingsPath,
+              authoredPath: settingsPath,
+              scope: "fleet" as const,
+            },
+          }]),
+      validationRow("Profiles", result.profiles.length === 0 ? "none" : result.profiles.join(", ")),
+      validationRow("Projects", String(result.bindings)),
+      validationRow("Agents in use", result.hosts.length === 0 ? "none" : result.hosts.join(", ")),
+    ),
     footerNodes({
       next: {
         kind: "command",
-        value: {
-          kind: "command",
-          program: COMMAND_NAME,
-          args: [{
+        value: notedCommand(
+          commandNode(COMMAND_NAME, [{
             kind: "text",
             value: result.bindings === 0 ? "install <profile> --agent <agent>" : "status",
-          }],
-        },
+          }]),
+          result.bindings === 0 ? "install a Profile into a Project" : "check your Projects",
+        ),
       },
     })];
 }
@@ -2607,8 +2590,8 @@ export function settledStatusOutcomeLine(
   if (selection?.filter !== undefined) {
     return `Selected Projects are up to date (${plural(currentProjects, "Project")})`;
   }
-  const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-  return `All ${projects} are up to date (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
+  const projects = plural(currentProjects, "Project");
+  return `Everything is up to date (${projects})`;
 }
 
 function outcomeLine(
@@ -2636,6 +2619,17 @@ function outcomeLine(
   }
   if (reportItems(report).length > 0) return "Ready to update";
   return `No ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} are configured`;
+}
+
+/** Whether the clean changed-update headline already carries the committed
+ * receipt's impact (screen 17), so the body does not repeat it. */
+function updateHeadlineCarriesReceipt(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport | undefined,
+): boolean {
+  return receipt !== undefined &&
+    outcomeLine("update", report, true) === "Update complete" &&
+    committedReceiptCounts(receipt) !== undefined;
 }
 
 function aggregateLine(
@@ -3192,7 +3186,7 @@ function readinessLines(
   receipt: ReconciliationReport,
 ): readonly string[] {
   if (appliedProfiles(report, receipt).length === 0) return [];
-  return ["Start a new agent session from the Project root to use the updated material."];
+  return ["Start a new agent session in a Project to use the changes."];
 }
 
 function nextActionScope(
@@ -3672,10 +3666,43 @@ function changedOutputExceptionNodes(
  * completed run's evidence is retained by `apkit details` — never by re-running
  * the command.
  */
+/** The committed Apply Receipt's affected-Project and changed-file counts:
+ * the one reader shared by the changed-update headline and the compact
+ * receipt line (US-011, DEC-007; ADR-0040). Undefined when the receipt proves
+ * no committed work. */
+function committedReceiptCounts(
+  receipt: ReconciliationReport,
+): { readonly projects: number; readonly files: number } | undefined {
+  const committed = receipt.projects.filter((project) => receiptProjectHasWork(project));
+  if (committed.length === 0) return undefined;
+  const files = committed.reduce(
+    (count, project) =>
+      count + project.outputs.filter((output) => isPlannedOutputOperation(output.kind)).length,
+    0,
+  );
+  return { projects: committed.length, files };
+}
+
+/** The one compact receipt statement, with the affected Project and
+ * changed-file counts stated once. */
+function committedReceiptSummaryLine(receipt: ReconciliationReport): string {
+  const counts = committedReceiptCounts(receipt)!;
+  return `Updated ${plural(counts.projects, "Project")} (${plural(counts.files, "file")}).`;
+}
+
+/** The one changed-update receipt headline (review screen 17): the committed
+ * impact is the headline. Undefined when the receipt proves no work. */
+function committedReceiptHeadline(receipt: ReconciliationReport): string | undefined {
+  const counts = committedReceiptCounts(receipt);
+  if (counts === undefined) return undefined;
+  return `Updated ${plural(counts.projects, "Project")} (${plural(counts.files, "file")})`;
+}
+
 function compactReceiptNodes(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
   identities?: ProjectIdentityLookup,
+  includeSummaryLine = true,
 ): PresentationNode[] {
   const committed: readonly CommittedReceiptProject[] = receipt.projects
     .slice()
@@ -3689,15 +3716,10 @@ function compactReceiptNodes(
     }))
     .filter(({ project }) => receiptProjectHasWork(project));
   if (committed.length === 0) return [];
-  const fileCount = committed.reduce((count, entry) => count + entry.outputs.length, 0);
   return [
-    {
-      kind: "prose",
-      parts: [
-        `Updated ${plural(committed.length, "Project")} ` +
-        `(${plural(fileCount, DEFAULT_VIEW_LEXICON.generatedOutput.singular)}).`,
-      ],
-    },
+    ...(includeSummaryLine
+      ? [{ kind: "prose" as const, parts: [committedReceiptSummaryLine(receipt)] }]
+      : []),
     ...changedOutputExceptionNodes(committed, "replace", "Replaced changed generated files:", scope, identities),
     ...changedOutputExceptionNodes(committed, "remove", "Removed changed generated files:", scope, identities),
   ];
@@ -3733,15 +3755,22 @@ export function delimitedContext(context: string): string {
 }
 
 
-/** The apply outcome notice: severity derives from report facts, never copy. */
+/** The apply outcome notice: severity derives from report facts, never copy.
+ * A clean changed update leads with the committed receipt's impact as the
+ * headline (review screen 17); every other outcome keeps its outcome line. */
 function applyOutcomeNotice(
   report: ReconciliationReport,
   applyCompleted: boolean,
+  receipt?: ReconciliationReport,
 ): PresentationNode {
+  const counts = applyCompleted && receipt !== undefined &&
+      outcomeLine("update", report, applyCompleted) === "Update complete"
+    ? committedReceiptHeadline(receipt)
+    : undefined;
   return {
     kind: "notice",
     severity: reportBlockers(report).length > 0 ? "error" : "success",
-    nodes: [{ kind: "prose", parts: [outcomeLine("update", report, applyCompleted)] }],
+    nodes: [{ kind: "prose", parts: [counts ?? outcomeLine("update", report, applyCompleted)] }],
   };
 }
 
@@ -3974,7 +4003,6 @@ function conciseApplyDocument(
   const blocked = reportBlockers(report).length > 0;
   const noOpApply = isNoOpApply("update", report, receipt);
 
-  const nodes: PresentationNode[] = [];
   const warnings = warningNodes(
     receipt ? [report, receipt] : report,
     groups,
@@ -3986,23 +4014,26 @@ function conciseApplyDocument(
     grouped.viewProjectCount === 1 ? "stable" : "identity",
   );
   if (noOpApply) {
-    // One neutral statement (US-003, US-010): a clean no-op invents no next
-    // action and omits the details hint; history retention is unchanged.
-    // Warnings still carry recovery evidence beside the statement.
+    // One neutral statement (US-003, US-010; review screen 05): a clean no-op
+    // invents no next action and omits the details hint; history retention is
+    // unchanged. Warnings still carry recovery evidence beside the statement.
     return [
-      ...neutralStatementDocument([
-        `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
-      ]),
+      ...neutralStatementDocument(["Everything is already up to date."]),
       ...warnings,
     ];
   }
+  const nodes: PresentationNode[] = [];
+  // The receipt's committed impact leads as the headline only when the
+  // resulting state is clean; attention and blocked views keep their outcome
+  // headline and state the compact receipt as a body line.
+  const headlineCarriesReceipt = updateHeadlineCarriesReceipt(report, receipt);
   nodes.push(part(
-    applyOutcomeNotice(report, receipt !== undefined),
+    applyOutcomeNotice(report, receipt !== undefined, receipt),
     ...warnings,
   ));
 
   if (!blocked && !noOpApply && receipt !== undefined) {
-    const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities);
+    const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities, !headlineCarriesReceipt);
     if (appliedNodes.length > 0) nodes.push(spacerNode(), ...appliedNodes);
   }
 
@@ -4130,7 +4161,7 @@ function verboseApplyDocument(
   const grouped = groupProjects(result.resultingState, result.receipt);
   const groups = grouped.groups;
   const nodes: PresentationNode[] = [
-    applyOutcomeNotice(result.resultingState, true),
+    applyOutcomeNotice(result.resultingState, true, result.receipt),
     ...verboseWarningNodes([result.resultingState, result.receipt], groups, scope, grouped.identities),
     { kind: "heading", text: "Pending:" },
     ...verboseLifecycleSections(result.resultingState, {
@@ -5242,11 +5273,15 @@ function readyStatusGuidanceNodes(
   options: LifecycleHumanOptions,
 ): PartNode {
   // One footer block: the action list and its secondary details route
-  // (US-010). Healthy settled status never reaches this helper.
+  // (US-010). Healthy settled status never reaches this helper. The next step
+  // carries its note (US-001, review rule 6).
   return footerNodes({
     next: {
       kind: "command",
-      value: statusLifecycleCommand("update", report, options),
+      value: notedCommand(
+        statusLifecycleCommand("update", report, options),
+        "bring your Projects up to date",
+      ),
     },
     details: statusLifecycleCommand("status", report, options, [
       { kind: "text", value: "--verbose" },

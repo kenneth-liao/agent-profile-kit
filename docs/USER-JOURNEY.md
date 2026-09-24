@@ -173,21 +173,21 @@ deterministic close-match suggestion when available, otherwise only point to
 
 `list` is the read-only inventory entrypoint: without a topic it names each
 available inventory topic once with one human description. `list projects`
-prints the `Projects:` heading and one row per Project carrying the view's
-shortest-unambiguous identity, Profile, Agents, and configuration state; the
-count appears once, in the summary footer (US-013, ADR-0042). Aligned tables
-print a header row labeling each column (US-008):
+prints the `Your Projects (N)` heading and one row per Project carrying the
+view's shortest-unambiguous identity, Profile, Agents, and state — a healthy
+Project reads `ok`, one with a problem still reads `problem` (US-006, review
+screen 15). Aligned tables print a header row labeling each column (US-008),
+and the next step carries its note (US-001):
 
 ```
 $ apkit list projects
-Projects:
+Your Projects (2)
 
-Project  Profile  Agents  State
-demo     example  codex   configured
-other    example  claude  configured
+Project  Profile  Agents  Status
+demo     example  codex   ok
+other    example  claude  ok
 
-2 Projects configured.
-Use apkit status to inspect Project lifecycle diagnostics.
+Next: apkit status (check whether they're up to date)
 ```
 
 Each Project is named by the shortest trailing path segments no other Project
@@ -198,7 +198,8 @@ measure, the same fields render as compact labeled records of about two lines
 when the values fit, with one blank line between Projects and no fact dropped.
 A configured binding that cannot be resolved shows the short `problem` state in
 its row, and its complete sentence with the repair locator renders once after
-the entries. `--verbose`, `apkit details`, and `--json` keep the full
+the entries. A healthy Project reads `ok`, so a problem is always visible in
+place (US-006). `--verbose`, `apkit details`, and `--json` keep the full
 home-relative or absolute path.
 
 `list profiles` reads Profile selections from the selected Workspace, and
@@ -211,16 +212,17 @@ from `PATH` stays listed and selectable:
 
 ```
 $ apkit list agents
-Supported agents:
-  antigravity — detected
-  claude — detected
-  codex — not found
-  grok — not found
-  opencode — detected
-  pi — detected
+Supported agents
 
-"not found" means the agent executable was not detected here.
-Every agent stays selectable with apkit install.
+  antigravity  detected
+  claude       detected
+  codex        not found
+  grok         not found
+  opencode     detected
+  pi           detected
+
+"not found" means apkit couldn't find it on this machine. You can still pick
+  it when you install.
 ```
 
 Executable detection is advisory: a "not found" label reports the executable
@@ -544,18 +546,24 @@ specified bind never prompts.
 
 ```
 $ apkit validate
-Workspace and settings valid (2 Profiles, 6 configured Projects)
+✔ Your Workspace looks good
+
 Workspace: ~/apkit-workspace
-Profiles found: example, release
-Agents bound: claude, codex, grok
-Next: apkit status
+Settings: ~/.agents/agent-profile-kit/config.yaml
+Profiles: example, release
+Projects: 3
+Agents in use: claude, codex, grok
+
+Next: apkit status (check your Projects)
 ```
 
 Successful validation names the connected Workspace it checked, so a pass
 read from inside another folder cannot be mistaken for a pass of that folder
-(#629); it derives its next action from the configured Project
-count: zero points to `apkit install`, while one or more points to `apkit
-status`. Validation remains read-only. Invalid Workspaces report every violation in
+(#629); it states each fact as a labelled row — including the settings path,
+because one remaining hand edit of that file needs it (#676) — and derives its
+next action from the configured Project count: zero points to `apkit install`,
+while one or more points to `apkit status (check your Projects)` (US-006,
+review screen 07). Validation remains read-only. Invalid Workspaces report every violation in
 one run (#604, DEC-009), each naming its path and the change that fixes it,
 with a nearest-name suggestion when one exists (US-025, US-026, DEC-017),
 and failed output points to the Workspace contract:
@@ -587,9 +595,10 @@ including `.`, name the folder the command runs from.
 
 `status` defaults to the complete fleet and names the selected Workspace plus
 one compact row per checked Project, including healthy Projects (US-007,
-spec #640). Each row keeps that Project's canonical Primary Cause — needs
+spec #640). Each row carries that Project's canonical Primary Cause — needs
 attention, generated files changed, generated files missing, not installed yet,
-source changed, or up to date — through the shared row-group seam (US-008).
+source changed, or up to date — under the `Status` column through the shared
+row-group seam (US-008, US-006).
 The headline opens with its state glyph: `✔` when every checked Project is up
 to date, `⚠` when any Project has pending work or a Blocker, and `●` for an
 empty scope. A Project with several causes at once appears once, under its
@@ -603,7 +612,7 @@ $ apkit status
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project   Primary Cause
+Project   Status
 <project> needs attention
 <project> generated files changed
 <project> generated files missing
@@ -640,11 +649,11 @@ $ apkit status
 ⚠ Ready to update
 Workspace: ~/apkit-workspace
 
-Project   Primary Cause
+Project   Status
 <project> not installed yet
 <project> up to date
 
-Next: apkit update
+Next: apkit update (bring your Projects up to date)
 Details: apkit status --verbose
 ```
 
@@ -738,27 +747,27 @@ the Workspace; it does not upgrade the `apkit` executable itself.
 
 The Apply Receipt is the authoritative record of what update actually did,
 distinct from the resulting-state report (ADR-0040, US-011, DEC-007): the
-default view states the affected Project and changed-file counts once, keeps
-only the actionable exception identities — failures, skipped or preserved
-files, remaining work, cleanup problems, and any approved changed-file
-replacement or deletion — and closes with one footer block carrying the
-`apkit details` route to the run's retained evidence as its secondary line
-(US-010). A clean no-op prints one neutral statement and omits that hint;
-retention is unchanged. Per-file, per-Project, and per-operation inventories belong
-to `--verbose` and to `apkit details`: it never suggests re-running update to
-retrieve an earlier run.
+default view leads with the committed impact as its headline (`✔ Updated N
+Projects (M files)`, review screen 17), keeps only the actionable exception
+identities — failures, skipped or preserved files, remaining work, cleanup
+problems, and any approved changed-file replacement or deletion — and closes
+with one footer block carrying the `apkit details` route to the run's retained
+evidence as its secondary line (US-010). A clean no-op prints one neutral
+statement (`● Everything is already up to date.`) and omits that hint;
+retention is unchanged. Per-file, per-Project, and per-operation inventories
+belong to `--verbose` and to `apkit details`: it never suggests re-running
+update to retrieve an earlier run.
 
 ```
 $ apkit update
-Update complete
-Updated 2 Projects (3 generated files).
+✔ Updated 2 Projects (3 files)
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Start a new agent session from the Project root to use the updated material.
+Start a new agent session in a Project to use the changes.
 Try it: start a new Codex session in <project> and ask what Profile material
   it loaded.
 
@@ -790,8 +799,7 @@ the exception the user authorized:
 
 ```
 $ apkit update <project> --replace-changed
-Update complete
-Updated 1 Project (1 generated file).
+✔ Updated 1 Project (1 file)
 
 Replaced changed generated files:
   ~ .agent-profile-kit/codex/context.md (<project>)
@@ -885,7 +893,7 @@ before Project inspection. The tool's best-working loop: `stale source` is
 detected accurately, the cause group names the Project, and the next action is
 correct. A fully-synchronized single Project states that fact once
 (`This Project is up to date` for `--here`, `<identity> is up to date` for an explicit target);
-a fully-synchronized fleet uses the whole-fleet shape (`All Projects are up to date (N Projects)`),
+a fully-synchronized fleet uses the whole-fleet shape (`Everything is up to date (N Projects)`),
 and a selected subset uses `Selected Projects are up to date (N Projects)` (US-014, DEC-009).
 Every checked Project — healthy included — is named as a scope row under the
 selected Workspace (US-007, superseding #491 US-013/014's settled-count-only
@@ -922,18 +930,16 @@ heading, no empty warning section — and never changes the exit code
 
 ```
 $ apkit update <project>
-✔ Update complete
+✔ Updated 1 Project (1 file)
 ⚠ Codex CLI was not found on PATH (demo)
   Requirement: The selected Profile requires Codex project delivery
   Remedy: install Codex and ensure `codex --version` works before checking
   status or updating Profiles that require Codex Host capabilities.
 
-Updated 1 Project (1 generated file).
-
 Details: apkit details
 ```
 
-The completed outcome stays truthful and separate (`✔ Update complete` /
+The completed outcome stays truthful and separate (`✔ Updated N Projects (M files)` /
 `✔ Installed the … Profile`); each missing-Host warning is its own `⚠` line that
 names the affected Project or Projects rather than only a count. A genuinely
 shared identical Adapter-authored remedy appears once with its Project list;
