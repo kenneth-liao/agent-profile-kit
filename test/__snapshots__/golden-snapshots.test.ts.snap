@@ -44,14 +44,17 @@ Common commands:
       or one run by identity
 
 More commands:
+
   Inventory:
   list
     List read-only inventory for Projects, Profiles, or agents
+
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection;
       a lone --profile reaches that Profile's installations fleet-wide; --agent
       removes only those agents within the scope
+
   Machine details:
   info
     Show the engine version and selected application locations
@@ -1092,7 +1095,7 @@ Written:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.230.0
+Engine version: 0.231.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1122,6 +1125,7 @@ demo     example  codex   configured
 other    example  codex   configured
 
 2 Projects configured.
+
 Use apkit status to inspect Project lifecycle diagnostics.
 --- stderr ---
 "
@@ -1152,6 +1156,7 @@ Supported agents:
   pi — detected
 
 "not found" means the agent executable was not detected here.
+
 Every agent stays selectable with apkit install.
 --- stderr ---
 "
@@ -1169,6 +1174,7 @@ Inventory topics:
 exports[`golden snapshots of every human view machine list temporary: machine-list-temporary 1`] = `
 "--- stdout ---
 ✔ No temporary Profiles are active.
+
 Create one with apkit machine install-temp <profile> <project> --host <host>.
 --- stderr ---
 "
@@ -1180,10 +1186,13 @@ exports[`golden snapshots of every human view init: init 1`] = `
   ~/apkit-workspace
 settings: ~/.agents/agent-profile-kit/config.yaml
 Added workspace.yaml, context/, skills/ and profiles/.
+
 A Profile is a named selection of Context and Skills suited to a kind of work
   and reusable across projects.
+
 Context is always-loaded facts, preferences, and standing rules a Profile
   selects.
+
 Detected agents: antigravity, claude, codex, grok, opencode, pi
 
 Next:
@@ -1203,6 +1212,7 @@ exports[`golden snapshots of every human view new skill: new-skill 1`] = `
 "--- stdout ---
 ✔ Created Skill review-pr at
   /private/tmp/apkit-golden-xxxx/apkit-workspace/skills/review-pr/SKILL.md
+
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
@@ -1212,6 +1222,7 @@ exports[`golden snapshots of every human view new context: new-context 1`] = `
 "--- stdout ---
 ✔ Created Context Module review-standards at
   /private/tmp/apkit-golden-xxxx/apkit-workspace/context/review-standards.md
+
 Next: select it into a Profile with apkit configure profile
 --- stderr ---
 "
@@ -1222,6 +1233,7 @@ exports[`golden snapshots of every human view install success: install-success 1
 ✔ Installed for ~/projects/demo
   Profile: example
   Agents: codex
+
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
   Profile can load.
@@ -1242,6 +1254,7 @@ exports[`golden snapshots of every human view validate: validate 1`] = `
 Workspace: ~/apkit-workspace
 Profiles found: example
 Agents bound: codex
+
 Next: apkit status
 --- stderr ---
 "
@@ -1262,6 +1275,7 @@ Saves only to the reusable Profile definition; installations update
   Context: example-context
   Skills: (none) → review-pr
 Equivalent: apkit configure profile example --context example-context --skill review-pr --auto-confirm
+
 Next: apkit update
 --- stderr ---
 "
@@ -1521,11 +1535,14 @@ Next:
 exports[`golden snapshots of every human view status verbose: status-verbose 1`] = `
 "--- stdout ---
 ✔ demo is up to date
+
 Projects:
 ~/projects/demo: up to date
+
 Agent setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
+
 Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
@@ -1580,6 +1597,7 @@ First use:
 - Launch Codex from the exact bound project root so the Profile can load.
 
 Start a new agent session from the Project root to use the updated material.
+
 Optional check: start a new Codex session in ~/projects/demo and ask what
   Profile material it loaded.
 
@@ -1607,6 +1625,7 @@ exports[`golden snapshots of every human view update blocked: update-blocked 1`]
 Project: blocked
   Profile: example
   Agents: codex
+
   ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
     write to it.
     Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1649,11 +1668,13 @@ exports[`golden snapshots of every human view install-temp: install-temp 1`] = `
   Host: codex
   Project: temporary
   Temporary installation: 00000000-0000-4000-8000-000000000000
+
 Codex setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
+
 Next: apkit machine remove-temp 00000000-0000-4000-8000-000000000000
 --- stderr ---
 "
@@ -1673,6 +1694,7 @@ exports[`golden snapshots of every human view blocked temp: blocked-temp 1`] = `
 --- stderr ---
 ✖ apkit: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot write
   to it.
+
 Remedy: Choose one. To let Agent Profile Kit manage these files, run
   git --literal-pathspecs -C '/private/tmp/apkit-golden-xxxx/projects/temporary-blocked' rm -r --cached -- '.codex/hooks.json'
   — it stages their removal from the Git index while the files stay on disk;
@@ -1759,10 +1781,12 @@ Common commands:
       list, or one run by identity
 
 More commands:
+
   Inventory:
   list
     List read-only inventory for
       Projects, Profiles, or agents
+
   Teardown:
   uninstall
     Remove selected Project
@@ -1772,6 +1796,7 @@ More commands:
       installations fleet-wide; --agent
       removes only those agents within
       the scope
+
   Machine details:
   info
     Show the engine version and
@@ -1850,10 +1875,12 @@ Agent Profile Kit composes reusable
       list, or one run by identity
 
 \x1B[1mMore commands:\x1B[0m
+
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for
       Projects, Profiles, or agents
+
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project
@@ -1863,6 +1890,7 @@ Agent Profile Kit composes reusable
       installations fleet-wide; --agent
       removes only those agents within
       the scope
+
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and
@@ -1919,14 +1947,17 @@ Common commands:
       identity
 
 More commands:
+
   Inventory:
   list
     List read-only inventory for Projects, Profiles, or agents
+
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection; a lone --profile
       reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
+
   Machine details:
   info
     Show the engine version and selected application locations
@@ -1981,14 +2012,17 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
       identity
 
 \x1B[1mMore commands:\x1B[0m
+
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for Projects, Profiles, or agents
+
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project installations and forget their recorded selection; a lone --profile
       reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
+
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and selected application locations
@@ -2001,7 +2035,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.230.0
+Engine version: 0.231.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2011,7 +2045,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.230.0\x1B[0m
+\x1B[1mEngine version: 0.231.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2021,7 +2055,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.230.0
+Engine version: 0.231.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2031,7 +2065,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.230.0\x1B[0m
+\x1B[1mEngine version: 0.231.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2050,6 +2084,7 @@ Project: other  Profile: example
 Agents: codex  State: configured
 
 2 Projects configured.
+
 Use apkit status to inspect Project
   lifecycle diagnostics.
 --- stderr ---
@@ -2067,6 +2102,7 @@ Project: other  Profile: example
 Agents: codex  State: configured
 
 2 Projects configured.
+
 Use \x1B[36mapkit status\x1B[0m to inspect Project
   lifecycle diagnostics.
 --- stderr ---
@@ -2082,6 +2118,7 @@ demo     example  codex   configured
 other    example  codex   configured
 
 2 Projects configured.
+
 Use apkit status to inspect Project lifecycle diagnostics.
 --- stderr ---
 "
@@ -2096,6 +2133,7 @@ demo     example  codex   configured
 other    example  codex   configured
 
 2 Projects configured.
+
 Use \x1B[36mapkit status\x1B[0m to inspect Project lifecycle diagnostics.
 --- stderr ---
 "
@@ -2240,14 +2278,17 @@ blocked:
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
 ✔ demo is up to date
+
 Projects:
 ~/projects/demo: up to date
+
 Agent setup:
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
+
 Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does
@@ -2265,14 +2306,17 @@ Standing agent setup:
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-narrow-color 1`] = `
 "--- stdout ---
 \x1B[32m✔ demo is up to date\x1B[0m
+
 \x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
+
 \x1B[1mAgent setup:\x1B[0m
 - Review and approve the generated
   SessionStart hook when Codex asks.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
+
 \x1B[1mStanding agent setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does
@@ -2290,11 +2334,14 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-nocolor 1`] = `
 "--- stdout ---
 ✔ demo is up to date
+
 Projects:
 ~/projects/demo: up to date
+
 Agent setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
+
 Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
@@ -2307,11 +2354,14 @@ Standing agent setup:
 exports[`rendering matrix for a representative subset status verbose matrix: status-verbose-interactive-wide-color 1`] = `
 "--- stdout ---
 \x1B[32m✔ demo is up to date\x1B[0m
+
 \x1B[1mProjects:\x1B[0m
 ~/projects/demo: up to date
+
 \x1B[1mAgent setup:\x1B[0m
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
+
 \x1B[1mStanding agent setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.

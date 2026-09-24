@@ -20,9 +20,11 @@ import {
   footerNodes,
   identifierPart,
   type InlineContent,
+  type ListNode,
   neutralStatementDocument,
   pathPart,
   renderPresentationDocument,
+  stateHeadline,
 } from "../cli/presentation-document.js";
 
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -784,9 +786,7 @@ test("renders the completed-operation detail route as one copyable command", () 
   const document = operationDetailsDocument();
 
   const plain = renderPresentationDocument(document, redirected);
-  // The route is separated from the receipt above it by one blank line.
-  expect(plain.startsWith("\n")).toBe(true);
-  expect(plain.trim()).toBe("Details: apkit details");
+  expect(plain).toBe("Details: apkit details");
   expect(plain).not.toMatch(/\u001b/);
 
   const colored = renderPresentationDocument(document, {
@@ -1306,4 +1306,132 @@ test("history rows pack into compact labeled records at 60 columns", () => {
   expect(rendered).toContain("op-000001");
   expect(rendered).toContain("op-000002");
   expect(Math.max(...rendered.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
+});
+
+test("separates screen parts with exactly one blank line and keeps headline with its facts", () => {
+  const document = [
+    stateHeadline(["Installed for /tmp/project"], "success"),
+    {
+      kind: "key-value" as const,
+      key: "  Profile",
+      value: { kind: "identifier" as const, value: "engineering" },
+    },
+    {
+      kind: "key-value" as const,
+      key: "  Agents",
+      value: { kind: "identifier" as const, value: "codex" },
+    },
+    {
+      kind: "prose" as const,
+      parts: ["Note: Context is autoloaded by agents."],
+    },
+    {
+      kind: "prose" as const,
+      parts: ["Optional check: start a new Codex session."],
+    },
+    ...footerNodes({
+      next: {
+        kind: "command",
+        value: { kind: "command", program: "apkit", args: [arg("status")] },
+        note: "see installed profiles and projects",
+      },
+      details: { kind: "command", program: "apkit", args: [arg("details")] },
+    }),
+  ];
+
+  const rendered = renderPresentationDocument(document, {
+    color: false,
+    interactive: false,
+    width: 100,
+    rows: undefined,
+  });
+
+  const expected = [
+    "✔ Installed for /tmp/project",
+    "  Profile: engineering",
+    "  Agents: codex",
+    "",
+    "Note: Context is autoloaded by agents.",
+    "",
+    "Optional check: start a new Codex session.",
+    "",
+    "Next: apkit status (see installed profiles and projects)",
+    "Details: apkit details",
+  ].join("\n");
+
+  expect(rendered).toBe(expected);
+  // Never two blank lines in a row invariant
+  expect(rendered).not.toContain("\n\n\n");
+});
+
+test("makes two blank lines in a row impossible by construction even with spacer nodes", () => {
+  const document = [
+    { kind: "prose" as const, parts: ["Part 1"] },
+    { kind: "verbatim" as const, text: "" },
+    { kind: "verbatim" as const, text: "" },
+    { kind: "prose" as const, parts: ["Part 2"] },
+    { kind: "verbatim" as const, text: "" },
+    { kind: "prose" as const, parts: ["Part 3"] },
+  ];
+
+  const rendered = renderPresentationDocument(document, redirected);
+  expect(rendered).toBe("Part 1\n\nPart 2\n\nPart 3");
+  expect(rendered).not.toContain("\n\n\n");
+});
+
+test("renders next-step command with note on one line at 100 columns and copyable at 60 columns", () => {
+  const longNoteCommand = {
+    kind: "command" as const,
+    program: "apkit",
+    args: [arg("install"), arg("engineering")],
+    note: "run it inside a Project folder",
+  };
+
+  const wide = renderPresentationDocument(
+    footerNodes({ next: { kind: "command", value: longNoteCommand } }),
+    { color: false, interactive: false, width: 100, rows: undefined },
+  );
+  expect(wide).toBe("Next: apkit install engineering (run it inside a Project folder)");
+
+  const narrow = renderPresentationDocument(
+    footerNodes({ next: { kind: "command", value: longNoteCommand } }),
+    { color: false, interactive: false, width: 60, rows: undefined },
+  );
+  const narrowLines = narrow.split("\n");
+  expect(narrowLines[0]!).toBe("Next: apkit install engineering");
+  expect(narrowLines[1]!).toBe("  (run it inside a Project folder)");
+  expect(narrowLines[0]!).not.toContain("(");
+  expect(narrowLines[0]!.length).toBeLessThanOrEqual(60);
+  expect(narrowLines[1]!.length).toBeLessThanOrEqual(60);
+});
+
+test("ListNode renders bullets when items > 2 and omits bullets when items <= 2", () => {
+  const threeItems: ListNode = {
+    kind: "list",
+    items: [["first"], ["second"], ["third"]],
+  };
+  const renderedThree = renderPresentationDocument([threeItems], redirected);
+  expect(renderedThree).toBe("- first\n- second\n- third");
+
+  const twoItems: ListNode = {
+    kind: "list",
+    items: [["first"], ["second"]],
+  };
+  const renderedTwo = renderPresentationDocument([twoItems], redirected);
+  expect(renderedTwo).toBe("first\nsecond");
+
+  const oneItem: ListNode = {
+    kind: "list",
+    items: [["single item"]],
+  };
+  const renderedOne = renderPresentationDocument([oneItem], redirected);
+  expect(renderedOne).toBe("single item");
+
+  const stateList: ListNode = {
+    kind: "list",
+    items: [["first warning"], ["second warning"]],
+    category: "warning",
+  };
+  const renderedState = renderPresentationDocument([stateList], redirected);
+  expect(renderedState).toBe("⚠ first warning\n⚠ second warning");
 });

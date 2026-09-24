@@ -549,6 +549,10 @@ const createPickerPrompt = createPrompt<PickerResult, PickerConfig>((config, don
   if (window.length === 0) {
     lines.push(tint("no matches", "muted", color));
   }
+  const annotatedRows = config.rows.filter((row) => row.annotation !== undefined);
+  const maxTitleLength = annotatedRows.length > 0
+    ? Math.max(...annotatedRows.map((row) => row.title.length))
+    : 0;
   for (const row of window) {
     const isFocus = visible[cursor]?.index === row.index;
     const prefix = config.multi
@@ -556,6 +560,15 @@ const createPickerPrompt = createPrompt<PickerResult, PickerConfig>((config, don
       : `${isFocus ? focusMark(color) : blankMark()}`;
     // `❯ ` plus `◻ ` is four glyph cells in multi; two in single.
     const prefixCells = config.multi ? 4 : 2;
+    if (row.annotation !== undefined) {
+      const gap = Math.max(2, maxTitleLength + 2 - row.title.length);
+      const titleWithGap = `${row.title}${" ".repeat(gap)}`;
+      const plainLength = prefixCells + titleWithGap.length + row.annotation.length;
+      if (plainLength <= width) {
+        lines.push(`${prefix}${tint(titleWithGap, undefined, color)}${tint(row.annotation, "muted", color)}`);
+        continue;
+      }
+    }
     const titleLines = wrapRowTitle(row.title, Math.max(1, width - prefixCells));
     titleLines.forEach((titleLine, lineIndex) => {
       const head = lineIndex === 0 ? prefix : " ".repeat(prefixCells);

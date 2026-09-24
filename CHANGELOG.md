@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Gave every human screen the shared layout rules: the presentation renderer groups each screen into parts and joins them with exactly one blank line (never two, with headline facts, menu entries, and footer blocks kept whole), a next step can carry a short note rendered as `<command> (<note>)` with the command staying copyable at narrow widths, a list part with more than two items renders as bullets, and shared picker choices show their status (`detected`, `not found`) aligned beside the choice at every width while NO_COLOR, redirected output, and JSON stay unchanged (#674)
+
 - Replaced user-facing host terminology and flags with "agent": `install` and `uninstall` accept `--agent` instead of `--host`, `apkit list agents` replaces `apkit list hosts`, and human output, help, guides, and documentation refer to agents, while machine JSON payloads and the machine namespace (`apkit machine`) remain unchanged (#673)
 
 - Made `apkit list hosts` use the same Host-detection wording as the install Host picker: a found Host is `detected` and a missing one `not found` from one shared definition (`HOST_DETECTION_LABELS`), replacing the ambiguous `installed` label beside a Host while machine JSON and every installing-into-a-Project use of the word stay unchanged (#669)

@@ -32,6 +32,7 @@ export type CommandPart = {
   readonly kind: "command";
   readonly program: string;
   readonly args: readonly CommandArg[];
+  readonly note?: string;
 };
 
 /** One inline location: atomic, rendered as its authored display string. */
@@ -66,8 +67,11 @@ export function textPart(value: string): TextPart {
 export function commandPart(
   program: string,
   args: readonly CommandArg[],
+  note?: string,
 ): CommandPart {
-  return { kind: "command", program, args };
+  return note !== undefined
+    ? { kind: "command", program, args, note }
+    : { kind: "command", program, args };
 }
 
 export function pathPart(
@@ -138,8 +142,10 @@ function flatInlinePart(part: InlineContent): string {
   switch (part.kind) {
     case "text":
       return part.value;
-    case "command":
-      return [part.program, ...part.args.map(flatCommandArg)].join(" ");
+    case "command": {
+      const base = [part.program, ...part.args.map(flatCommandArg)].join(" ");
+      return part.note !== undefined ? `${base} (${part.note})` : base;
+    }
     case "path":
       return part.authoredPath ?? part.canonicalPath;
     case "identifier":

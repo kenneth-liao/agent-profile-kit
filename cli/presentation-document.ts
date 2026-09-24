@@ -107,6 +107,7 @@ export type CommandNode = {
   readonly program: string;
   readonly args: readonly CommandArg[];
   readonly category?: SemanticCategory;
+  readonly note?: string;
 };
 
 export type KeyValueNode = {
@@ -119,6 +120,12 @@ export type KeyValueNode = {
 export type ListItemNode = {
   readonly kind: "list-item";
   readonly parts: readonly InlineContent[];
+  readonly category?: SemanticCategory;
+};
+
+export type ListNode = {
+  readonly kind: "list";
+  readonly items: readonly (readonly InlineContent[])[];
   readonly category?: SemanticCategory;
 };
 
@@ -158,6 +165,7 @@ export type PresentationNode =
   | CommandNode
   | KeyValueNode
   | ListItemNode
+  | ListNode
   | NoticeNode
   | RowNode
   | ColumnGroupNode
@@ -202,7 +210,11 @@ export function neutralStatementDocument(
 
 /** The one footer action list (US-010): a single command, or explicit items. */
 export type FooterNext =
-  | { readonly kind: "command"; readonly value: CommandNode }
+  | {
+      readonly kind: "command";
+      readonly value: CommandNode;
+      readonly note?: string;
+    }
   | {
       readonly kind: "actions";
       readonly items: readonly (readonly InlineContent[])[];
@@ -225,7 +237,9 @@ export function footerNodes(input: {
         ? [{
             kind: "key-value" as const,
             key: "Next",
-            value: input.next.value,
+            value: input.next.note !== undefined && input.next.value.note === undefined
+              ? { ...input.next.value, note: input.next.note }
+              : input.next.value,
             category: "command" as const,
           }]
         : [
@@ -259,6 +273,13 @@ function prependStateGlyph(node: PresentationNode, role: StateRole): Presentatio
     case "sentence":
     case "list-item":
       return { ...node, parts: [prefix, ...node.parts] };
+    case "list":
+      return {
+        ...node,
+        items: node.items.map((item, index) =>
+          index === 0 ? [prefix, ...item] : item
+        ),
+      };
     case "heading":
       return { ...node, text: `${prefix}${node.text}` };
     case "identifier":
@@ -278,16 +299,20 @@ function flatNodeText(node: PresentationNode): string {
     case "sentence":
     case "list-item":
       return flatInlineText(node.parts);
+    case "list":
+      return node.items.map((item) => flatInlineText(item)).join("\n");
     case "heading":
       return node.text;
     case "identifier":
       return node.value;
     case "path":
       return node.identity ?? node.authoredPath ?? node.canonicalPath;
-    case "command":
-      return [node.program, ...node.args.map((arg) =>
+    case "command": {
+      const base = [node.program, ...node.args.map((arg) =>
         arg.kind === "text" ? arg.value : arg.authoredPath ?? arg.canonicalPath
       )].join(" ");
+      return node.note !== undefined ? `${base} (${node.note})` : base;
+    }
     case "key-value":
       return `${node.key}: ${flatNodeText(node.value)}`;
     case "notice":
@@ -303,6 +328,410 @@ function flatNodeText(node: PresentationNode): string {
       throw new Error(`Unknown presentation node ${(exhaustive as PresentationNode).kind}`);
     }
   }
+}
+
+function wrapPlainRun(text: string, measure: number): readonly string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (current.length === 0) {
+      current = word;
+    } else if (current.length + 1 + word.length <= measure) {
+      current += ` ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current.length > 0) {
+    lines.push(current);
+  }
+  return lines;
+}
+
+function renderCommandWithNote(
+  node: CommandNode,
+  environment: RenderEnvironment,
+  prefix = "",
+): readonly string[] {
+  const rendered = renderCommand(node, environment);
+  if (rendered === undefined) {
+    return styleLines(
+      "Manual recovery is required: this command cannot be printed safely.",
+      undefined,
+      environment.context.color,
+    );
+  }
+  const category = node.category ?? "command";
+  if (node.note === undefined || node.note.length === 0) {
+    return [styleSemanticText(`${prefix}${rendered}`, category, environment.context.color)];
+  }
+
+  const noteText = `(${node.note})`;
+  const singleLine = `${prefix}${rendered} ${noteText}`;
+  if (singleLine.length <= environment.context.width) {
+    return [styleSemanticText(singleLine, category, environment.context.color)];
+  }
+
+  const commandLine = styleSemanticText(`${prefix}${rendered}`, category, environment.context.color);
+  const indent = "  ";
+  const noteMeasure = Math.max(1, environment.context.width - indent.length);
+  const noteLines = wrapPlainRun(noteText, noteMeasure);
+  return [
+    commandLine,
+    ...noteLines.map((line) =>
+      styleSemanticText(`${indent}${line}`, category, environment.context.color)
+    ),
+  ];
+}
+
+function isSpacerNode(node: PresentationNode): boolean {
+  return node.kind === "verbatim" && node.text.trim().length === 0;
+}
+
+function isStateHeadlineNode(node: PresentationNode): boolean {
+  if (node.kind === "sentence" || node.kind === "prose") {
+    if (node.category !== undefined && STATE_ROLES.includes(node.category as StateRole)) {
+      return true;
+    }
+    const firstPart = node.parts[0];
+    if (typeof firstPart === "string") {
+      return STATE_ROLES.some((role) => firstPart.startsWith(stateHeadlinePrefix(role)));
+    }
+  }
+  return false;
+}
+
+function isFooterNode(node: PresentationNode): boolean {
+  if (node.kind === "key-value" && (node.key === "Next" || node.key === "Details")) {
+    return true;
+  }
+  if (node.kind === "heading" && node.text === "Next:") {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * One authored continuation line: a sentence or prose whose text opens
+ * indented (help entries, fact lines under a headline) or with an inline
+ * bullet dash. Continuation lines belong to the part they follow — they are
+ * the facts of a headline, the entries of a menu, or the items of a list —
+ * so the renderer never separates them from their anchor with a blank line.
+ */
+function isContinuationTextNode(node: PresentationNode): boolean {
+  if (node.kind !== "sentence" && node.kind !== "prose") return false;
+  const text = flatInlineText(node.parts);
+  return text.startsWith("  ") || text.startsWith("- ");
+}
+
+/**
+ * A state headline's own facts (plan for #674, review screen 04): keyed
+ * facts, indented continuations, inline bullets, and the setup receipt's
+ * added-parts sentence. A blank line never splits a headline from its facts.
+ */
+function isHeadlineFactNode(node: PresentationNode): boolean {
+  if (node.kind === "key-value" && !isFooterNode(node)) return true;
+  if (isContinuationTextNode(node)) return true;
+  if (node.kind === "sentence") {
+    return flatInlineText(node.parts).startsWith("Added ");
+  }
+  return false;
+}
+
+function isIntroducingNode(node: PresentationNode): boolean {
+  if (node.kind === "heading") {
+    return node.text.trimEnd().endsWith(":");
+  }
+  if (node.kind === "sentence" || node.kind === "prose") {
+    const text = flatInlineText(node.parts).trimEnd();
+    return text.endsWith(":");
+  }
+  return false;
+}
+
+/**
+ * Split a document into its screen parts (US-001, DEC-002): blank-line
+ * grouping is a rule of the shared layer, so the renderer — one reader, not
+ * every screen — decides which nodes form one part. Authoring marks the
+ * unambiguous boundaries with spacer nodes; everything else groups by node
+ * structure: a headline keeps its facts, a heading or introduction keeps its
+ * list, and an indented or bulleted line is a continuation of the part it
+ * follows. renderPresentationDocument joins the parts with exactly one blank
+ * line, so a document cannot represent two blank lines in a row: spacers
+ * become part boundaries and parts never carry leading or trailing blanks.
+ */
+function partitionDocument(
+  document: PresentationDocument,
+): readonly (readonly PresentationNode[])[] {
+  const parts: PresentationNode[][] = [];
+  let currentPart: PresentationNode[] = [];
+  const flush = (): void => {
+    if (currentPart.length > 0) {
+      parts.push(currentPart);
+      currentPart = [];
+    }
+  };
+
+  let index = 0;
+  while (index < document.length) {
+    const node = document[index]!;
+    if (isSpacerNode(node)) {
+      flush();
+      index += 1;
+      continue;
+    }
+
+    if (isFooterNode(node)) {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isSpacerNode(next)) {
+          index += 1;
+          continue;
+        }
+        if (next.kind === "key-value" && next.key === "Details") {
+          currentPart.push(next);
+          index += 1;
+          continue;
+        }
+        if (
+          currentPart.some((n) => n.kind === "heading" && n.text === "Next:") &&
+          (next.kind === "list-item" || next.kind === "list" || isContinuationTextNode(next))
+        ) {
+          currentPart.push(next);
+          index += 1;
+          continue;
+        }
+        break;
+      }
+      flush();
+      continue;
+    }
+
+    if (isStateHeadlineNode(node)) {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isHeadlineFactNode(next)) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "notice") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isSpacerNode(next)) {
+          break;
+        }
+        // The notice keeps its facts beside its headline (plan for #674):
+        // usage lines and keyed facts like Time, Scope, and Outcome.
+        if (
+          next.kind === "sentence" ||
+          (next.kind === "key-value" && !isFooterNode(next))
+        ) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "heading") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isSpacerNode(next)) {
+          break;
+        }
+        if (
+          next.kind === "key-value" && !isFooterNode(next) ||
+          next.kind === "list-item" ||
+          next.kind === "list" ||
+          next.kind === "row" ||
+          next.kind === "notice" ||
+          next.kind === "sentence" ||
+          next.kind === "prose"
+        ) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (isIntroducingNode(node)) {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isSpacerNode(next)) {
+          break;
+        }
+        if (
+          next.kind === "list-item" ||
+          next.kind === "list" ||
+          next.kind === "row" ||
+          isContinuationTextNode(next)
+        ) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (isContinuationTextNode(node)) {
+      // An unanchored continuation line opens a part that keeps the rest of
+      // its run (machine help entries, indented command + summary pairs).
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (isContinuationTextNode(next)) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "row") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind === "row") {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "list" || node.kind === "list-item") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind === "list-item") {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "key-value") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind === "key-value" && !isFooterNode(next)) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "verbatim") {
+      flush();
+      currentPart.push(node);
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind === "verbatim" && !isSpacerNode(next)) {
+          currentPart.push(next);
+          index += 1;
+        } else {
+          break;
+        }
+      }
+      flush();
+      continue;
+    }
+
+    if (node.kind === "column-group") {
+      flush();
+      parts.push([node]);
+      index += 1;
+      continue;
+    }
+
+    // One standalone idea (sentence, prose): its own part, keeping any
+    // indented or bulleted lines authored after it as continuations.
+    flush();
+    currentPart.push(node);
+    index += 1;
+    while (index < document.length) {
+      const next = document[index]!;
+      if (isContinuationTextNode(next)) {
+        currentPart.push(next);
+        index += 1;
+      } else {
+        break;
+      }
+    }
+    flush();
+  }
+
+  flush();
+  return parts;
+}
+
+function trimPartLines(lines: readonly string[]): string[] {
+  let start = 0;
+  while (start < lines.length && lines[start]!.trim().length === 0) {
+    start += 1;
+  }
+  let end = lines.length;
+  while (end > start && lines[end - 1]!.trim().length === 0) {
+    end -= 1;
+  }
+  return lines.slice(start, end);
 }
 
 type RenderEnvironment = {
@@ -321,7 +750,11 @@ export function renderPresentationDocument(
     cwd: options.cwd ?? process.cwd(),
     home: options.home ?? homedir(),
   };
-  return renderNodes(document, environment).join("\n");
+  const parts = partitionDocument(document);
+  const renderedParts = parts
+    .map((part) => trimPartLines(renderNodes(part, environment)))
+    .filter((lines) => lines.length > 0);
+  return renderedParts.map((lines) => lines.join("\n")).join("\n\n");
 }
 
 function renderNodes(
@@ -394,24 +827,27 @@ function renderNode(
       return lines.map((line) => styleSemanticText(line, category, context.color));
     }
     case "command": {
-      const rendered = renderCommand(node, environment);
-      // Fail closed (PROD-1): never print a refused argument in a copyable
-      // command; fall back to non-copyable manual-recovery prose. Recovery is
-      // actionable guidance, so it stays in the default colour (ORCH-1).
-      if (rendered === undefined) {
-        return styleLines(
-          "Manual recovery is required: this command cannot be printed safely.",
-          undefined,
-          context.color,
-        );
-      }
-      return styleLines(
-        rendered,
-        node.category ?? inheritedCategory ?? "command",
-        context.color,
+      return renderCommandWithNote(
+        { ...node, category: node.category ?? inheritedCategory ?? "command" },
+        environment,
       );
     }
     case "key-value": {
+      if (node.value.kind === "command") {
+        // The value keeps its own command styling (INT-1); the key re-styles
+        // the whole line with the key's category (DEC-001). Notes wrap inside
+        // the width that remains after the key (INT-2).
+        const commandCategory = node.value.category ?? inheritedCategory ?? "command";
+        const valueLines = renderCommandWithNote(
+          { ...node.value, category: commandCategory },
+          withWidth(environment, Math.max(1, context.width - node.key.length - 2)),
+        );
+        const head = `${node.key}: ${valueLines[0] ?? ""}`;
+        const lines = [head, ...valueLines.slice(1)];
+        return lines.map((line) =>
+          styleSemanticText(line, node.category ?? inheritedCategory, context.color)
+        );
+      }
       const valueLines = renderNode(
         node.value,
         // The rendered prefix is part of the line: values such as commands
@@ -427,6 +863,25 @@ function renderNode(
       return lines.map((line) =>
         styleSemanticText(line, node.category ?? inheritedCategory, context.color)
       );
+    }
+    case "list": {
+      const category = node.category ?? inheritedCategory;
+      const isState = category !== undefined && STATE_ROLES.includes(category as StateRole);
+      const useBullets = isState || node.items.length > 2;
+      const bullet = isState ? stateHeadlinePrefix(category as StateRole) : "- ";
+      const lines: string[] = [];
+      for (const item of node.items) {
+        const parts = useBullets ? [bullet, ...item] : item;
+        lines.push(
+          ...wrapInlineNode(
+            parts,
+            environment,
+            "lifecycle",
+            category,
+          ),
+        );
+      }
+      return lines;
     }
     case "list-item": {
       const category = node.category ?? inheritedCategory;

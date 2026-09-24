@@ -556,14 +556,49 @@ describe("shared picker chrome (US-004)", () => {
       { min: 0 },
     );
     await waitForFrame(output, "not found");
-    expect(lastPickerFrame(output)).toContain("not found");
-    expect(lastPickerFrame(output)).toContain("installed");
+    const frame = lastPickerFrame(output);
+    expect(frame).toContain("not found");
+    expect(frame).toContain("installed");
+    expect(frame).toMatch(/codex {2}not found/);
+    expect(frame).toMatch(/pi {5}installed/);
     // Filtering on the annotation text must not match any choice.
     input.write("found");
     await waitForFrame(output, "no matches");
     expect(lastPickerFrame(output)).toContain("no matches");
     input.end();
     await pending;
+  });
+
+  test("picker choices show status on the same line at 100 and 60 columns", async () => {
+    for (const columns of [100, 60]) {
+      const input = fakeInteractiveInput();
+      const output = collectingOutput(columns);
+      const multi = createSearchableMultiSelectPrompt({ input, output });
+      const pending = multi(
+        "Which agents?",
+        [
+          { title: "claude", value: "claude", annotation: "detected" },
+          { title: "codex", value: "codex", annotation: "detected" },
+          { title: "antigravity", value: "antigravity", annotation: "not found" },
+          { title: "pi", value: "pi", annotation: "not found" },
+        ],
+        { min: 0 },
+      );
+      await waitForFrame(output, "not found");
+      const frame = lastPickerFrame(output);
+      const lines = frame.split("\n");
+      const claudeLine = lines.find((l) => l.includes("claude"))!;
+      const codexLine = lines.find((l) => l.includes("codex"))!;
+      const antigravityLine = lines.find((l) => l.includes("antigravity"))!;
+      const piLine = lines.find((l) => l.includes("pi"))!;
+
+      expect(claudeLine).toMatch(/claude {7}detected/);
+      expect(codexLine).toMatch(/codex {8}detected/);
+      expect(antigravityLine).toMatch(/antigravity {2}not found/);
+      expect(piLine).toMatch(/pi {11}not found/);
+      input.end();
+      await pending;
+    }
   });
 });
 
