@@ -23,11 +23,8 @@ import {
   initReceiptDocument,
 } from "./receipts.js";
 import {
-  initCancelledDocument,
-  initDeclinedDocument,
-} from "./presentation.js";
-import {
   writeHumanDocument,
+  cancelledDocument,
   type PresentationDocument,
   type PresentationRenderOptions,
 } from "./presentation-document.js";
@@ -197,7 +194,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     );
     const currentFolder = await prompts.yesNo(LOCATION_QUESTION);
     if (currentFolder === "cancelled") {
-      writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
+      writeHumanDocument(request.stderr, cancelledDocument(), stderrContext, renderOptions);
       return { exitCode: 1 };
     }
     if (currentFolder === "accepted") {
@@ -205,7 +202,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
     } else {
       const folderAnswer = await prompts.text(FOLDER_QUESTION);
       if (folderAnswer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, initCancelledDocument(), stderrContext, renderOptions);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext, renderOptions);
         return { exitCode: 1 };
       }
       const typed = folderAnswer.value.trim();
@@ -260,7 +257,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       if (confirmed === "cancelled") {
         writeHumanDocument(
           request.stderr,
-          initCancelledDocument(),
+          cancelledDocument(),
           stderrContext,
           renderOptions,
         );
@@ -269,7 +266,7 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
       if (confirmed === "declined") {
         writeHumanDocument(
           request.stdout,
-          initDeclinedDocument(),
+          cancelledDocument(),
           stdoutContext,
           renderOptions,
         );

@@ -1094,7 +1094,7 @@ Written:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.233.0
+Engine version: 0.234.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1229,20 +1229,19 @@ Next: apkit new profile (make a Profile that uses it)
 
 exports[`golden snapshots of every human view install success: install-success 1`] = `
 "--- stdout ---
-✔ Installed for ~/projects/demo
-  Profile: example
+✔ Installed the example Profile
+  Project: ~/projects/demo
   Agents: codex
 
-First use:
-- Review and approve the generated SessionStart hook when Codex asks so the
-  Profile can load.
-- Trust the bound project in Codex so the Profile can load.
-- Launch Codex from the exact bound project root so the Profile can load.
+Before your agents can load it:
+- Start your agents from this Project folder, not a subfolder.
+- Codex: Review and approve the generated SessionStart hook when Codex asks;
+  Trust the bound project in Codex.
 
-Optional check: start a new Codex session in ~/projects/demo and ask what
-  Profile material it loaded.
+Try it: start a new Codex session in ~/projects/demo and ask what Profile
+  material it loaded.
 
-Next: apkit status
+Next: apkit status (see installed Profiles and whether they're up to date)
 Details: apkit details
 --- stderr ---
 "
@@ -1546,9 +1545,6 @@ Agent setup:
 Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
-- Launch Codex from the exact bound project root: ~/projects/demo
-  Consequence: Launching from a descendant prevents Profile Context from
-    loading.
 --- stderr ---
 "
 `;
@@ -1594,12 +1590,11 @@ First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
-- Launch Codex from the exact bound project root so the Profile can load.
 
 Start a new agent session from the Project root to use the updated material.
 
-Optional check: start a new Codex session in ~/projects/demo and ask what
-  Profile material it loaded.
+Try it: start a new Codex session in ~/projects/demo and ask what Profile
+  material it loaded.
 
 Now author your own:
   apkit new skill <skill>
@@ -2024,7 +2019,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.233.0
+Engine version: 0.234.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2034,7 +2029,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.233.0\x1B[0m
+\x1B[1mEngine version: 0.234.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2044,7 +2039,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.233.0
+Engine version: 0.234.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2054,7 +2049,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.233.0\x1B[0m
+\x1B[1mEngine version: 0.234.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2283,11 +2278,6 @@ Standing agent setup:
   Consequence: Profile Context does
     not load until the project is
     trusted.
-- Launch Codex from the exact bound
-  project root: ~/projects/demo
-  Consequence: Launching from a
-    descendant prevents Profile Context
-    from loading.
 --- stderr ---
 "
 `;
@@ -2311,11 +2301,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
   Consequence: Profile Context does
     not load until the project is
     trusted.
-- Launch Codex from the exact bound
-  project root: ~/projects/demo
-  Consequence: Launching from a
-    descendant prevents Profile Context
-    from loading.
 --- stderr ---
 "
 `;
@@ -2334,8 +2319,6 @@ Agent setup:
 Standing agent setup:
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
-- Launch Codex from the exact bound project root: ~/projects/demo
-  Consequence: Launching from a descendant prevents Profile Context from loading.
 --- stderr ---
 "
 `;
@@ -2354,8 +2337,6 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 \x1B[1mStanding agent setup:\x1B[0m
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
-- Launch Codex from the exact bound project root: ~/projects/demo
-  Consequence: Launching from a descendant prevents Profile Context from loading.
 --- stderr ---
 "
 `;

@@ -194,11 +194,51 @@ describe("guided install under a real PTY", () => {
       const cancelOffset = session.transcriptLength();
       session.write("\x03");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
-      expect(plain(text)).toContain("cancelled");
+      // Screen 14: the one shared cancellation statement.
+      expect(plain(text)).toContain("Cancelled. Nothing was changed.");
       const teardown = await session.close();
       // The driver's own nonzero outcome propagates through the controller —
       // never a false 0 (INT-B-1).
       expect(teardown.exitCode).toBe(1);
+    } finally {
+      await session.close();
+    }
+
+    expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
+    expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
+  });
+
+  test("declining the confirmation changes nothing (TEST-002, spec #677 screen 14)", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const session = await startPtySession(["install", home, projectPath, ""], 100, { expectedExitCode: 1 });
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Which Profile?");
+      const filterOffset = session.transcriptLength();
+      session.write("cod");
+      await session.waitForTranscript("›cod", { after: filterOffset });
+      const profileEnterOffset = session.transcriptLength();
+      session.write("\r");
+      await session.waitForTranscript("Which agents?", { after: profileEnterOffset });
+      // Nothing is detected here, so nothing is preselected: filter to Codex
+      // and toggle it explicitly (deterministic on any machine).
+      const hostFilterOffset = session.transcriptLength();
+      session.write("codex");
+      await session.waitForTranscript("› codex", { after: hostFilterOffset });
+      const toggleOffset = session.transcriptLength();
+      session.write(" ");
+      await session.waitForTranscript("◼codex", { after: toggleOffset });
+      const hostEnterOffset = session.transcriptLength();
+      session.write("\r");
+      // No summary block precedes the confirmation (spec #677 screen 13).
+      const { text: confirmation } = await session.waitForTranscript("(y/N)", { after: hostEnterOffset });
+      expect(plain(confirmation)).toContain("Install now?");
+      expect(plain(confirmation)).not.toContain("Agents:");
+      const declineOffset = session.transcriptLength();
+      session.write("n\r");
+      const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: declineOffset });
+      expect(plain(text)).toContain("Cancelled. Nothing was changed.");
     } finally {
       await session.close();
     }
@@ -223,16 +263,17 @@ describe("guided install under a real PTY", () => {
       const profileEnterOffset = session.transcriptLength();
       session.write("\r");
       await session.waitForTranscript("Which agents?", { after: profileEnterOffset });
-      await session.waitForTranscript("Selecting an agent does not install it.");
+      await session.waitForTranscript("apkit doesn't install the agents themselves.");
       // Focus starts on the first (detected) Host, which is preselected;
       // undetected rows carry the not-found annotation in the same frame.
       await session.waitForTranscript("❯◼codex");
       await session.waitForTranscript("not found");
       await session.waitForTranscript("detected");
       const enterOffset = session.transcriptLength();
-      // Submitting immediately keeps only the preselected detected Host.
+      // Submitting immediately keeps only the preselected detected Host. No
+      // summary block precedes the confirmation (spec #677 screen 13).
       session.write("\r");
-      await session.waitForTranscript("Agents: codex", { after: enterOffset });
+      await session.waitForTranscript("(y/N)", { after: enterOffset });
       const confirmOffset = session.transcriptLength();
       session.write("y\r");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });

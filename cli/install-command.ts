@@ -17,7 +17,9 @@ import type { Readable, Writable } from "node:stream";
 
 import {
   footerNodes,
+  notedCommand,
   writeHumanDocument,
+  cancelledDocument,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
@@ -31,12 +33,9 @@ import {
   applyReviewStaleDocument,
   installBlockedDocument,
   installBrokenProfileNodes,
-  installConfirmationDocument,
   installConfirmationRequiredDocument,
-  installDeclinedDocument,
   installHostSelectionNoteDocument,
   installExecutionFailureDocument,
-  installProfileSelectionNoteDocument,
   installRecoveryAddendum,
   installReplacementCommandDocument,
   installTargetDocument,
@@ -59,7 +58,7 @@ import {
   type ChangedOutputConfirmer,
 } from "./changed-output-confirm.js";
 import { installReceiptDocument, type InstallReceiptInput } from "./receipts.js";
-import { hostLoadingVerificationNodes, installHostSetupNodes } from "./presentation.js";
+import { hostLoadingVerificationNodes, installSetupGuidanceNodes } from "./presentation.js";
 import {
   terminalPresentationContext,
   type TerminalPresentationContext,
@@ -302,7 +301,9 @@ async function collectMissingInstallChoices(
       );
       return undefined;
     }
-    writeHumanDocument(request.stdout, installProfileSelectionNoteDocument(), stdoutContext);
+    // No concept explanation here (spec #677 screen 10): the Profile picker
+    // trusts a user who already made one; setup and `apkit new profile`
+    // explain the concept where the word is first met.
     const answer = await createSearchableSelectPrompt(promptOptions)(
       INSTALL_PROFILE_QUESTION,
       profiles.map((entry) => ({ title: entry.id, value: entry.id })),
@@ -310,7 +311,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled"),
+        cancelledDocument(),
         stderrContext,
       );
       return undefined;
@@ -356,7 +357,7 @@ async function collectMissingInstallChoices(
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        installDeclinedDocument("cancelled"),
+        cancelledDocument(),
         stderrContext,
       );
       return undefined;
@@ -486,13 +487,15 @@ async function runInstallCommandWithRecording(
   if (!parsed.autoConfirm) {
     // Interactive human input only: every other case refused above. The
     // general confirmation answers no missing choice and no changed-file
-    // scope (DEC-004/DEC-005); declining leaves everything untouched.
+    // scope (DEC-004/DEC-005); declining leaves everything untouched. No
+    // separate summary is written (spec #677 screen 13): the two settled
+    // answers above — or the explicit command's stated arguments — already
+    // carry the proposed scope.
     const prompt = createTextPrompt({
       input: request.input,
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
     });
-    writeHumanDocument(request.stdout, installConfirmationDocument(preview), stdoutContext);
     const answer = await prompt(INSTALL_CONFIRMATION_QUESTION);
     const previewIdentity = {
       canonicalProject: preview.canonicalProject,
@@ -504,7 +507,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("cancelled", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument("cancelled"),
+        cancelledDocument(),
         stderrContext,
         recording,
       );
@@ -515,7 +518,7 @@ async function runInstallCommandWithRecording(
       recording.collect(installCancelledRecording("declined", previewIdentity));
       writeLifecycleReport(
         request.stderr,
-        installDeclinedDocument(normalized === "" ? "default" : "declined"),
+        cancelledDocument(),
         stderrContext,
         recording,
       );
@@ -564,10 +567,12 @@ async function runInstallCommandWithRecording(
         // sequence; they never block and never change the outcome.
         ...installWarningNodes(result.applied.resultingState),
         ...installBrokenProfileNodes(result.applied.resultingState),
-        // US-012: relevant required Adapter-authored Host Setup Steps on the
-        // receipt that created them, through the shared concise First-use
-        // renderer (DEC-009). The one-footer rule keeps them in the body.
-        ...installHostSetupNodes(
+        // US-012, US-005 (spec #677 screens 04/26): the host-neutral
+        // start-folder line on first delivery, then relevant required
+        // Adapter-authored Host Setup Steps, one line per agent, through the
+        // one first-delivery reader (DEC-006, DEC-009). The one-footer rule
+        // keeps them in the body.
+        ...installSetupGuidanceNodes(
           result.applied.resultingState,
           result.applied.receipt,
           result.binding.hosts,
@@ -603,11 +608,10 @@ async function runInstallCommandWithRecording(
         reportDocument.push(footerNodes({
           next: {
             kind: "command",
-            value: {
-              kind: "command",
-              program: COMMAND_NAME,
-              args: [{ kind: "text", value: "status" }],
-            },
+            value: notedCommand(
+              { kind: "command", program: COMMAND_NAME, args: [{ kind: "text", value: "status" }] },
+              "see installed Profiles and whether they're up to date",
+            ),
           },
         }));
       }

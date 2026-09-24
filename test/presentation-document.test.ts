@@ -856,10 +856,10 @@ test("footerNodes carries one action list with an optional secondary details rou
 
 test("neutralStatementDocument is one statement without an apkit: prefix", () => {
   const document = neutralStatementDocument([
-    "Install was declined; nothing was written.",
+    "Cancelled. Nothing was changed.",
   ]);
   const plain = renderPresentationDocument(document, redirected);
-  expect(plain).toBe("● Install was declined; nothing was written.");
+  expect(plain).toBe("● Cancelled. Nothing was changed.");
   expect(plain).not.toContain("apkit:");
   expect(document).toHaveLength(1);
 });
@@ -1324,7 +1324,7 @@ test("history rows pack into compact labeled records at 60 columns", () => {
 test("separates screen parts with exactly one blank line and keeps headline with its facts", () => {
   const document = [
     part(
-      stateHeadline(["Installed for /tmp/project"], "success"),
+      stateHeadline(["Installed the engineering Profile"], "success"),
       {
         kind: "key-value" as const,
         key: "  Profile",
@@ -1342,7 +1342,7 @@ test("separates screen parts with exactly one blank line and keeps headline with
     },
     {
       kind: "prose" as const,
-      parts: ["Optional check: start a new Codex session."],
+      parts: ["Try it: start a new Codex session."],
     },
     footerNodes({
       next: {
@@ -1361,13 +1361,13 @@ test("separates screen parts with exactly one blank line and keeps headline with
   });
 
   const expected = [
-    "✔ Installed for /tmp/project",
+    "✔ Installed the engineering Profile",
     "  Profile: engineering",
     "  Agents: codex",
     "",
     "Note: Context is autoloaded by agents.",
     "",
-    "Optional check: start a new Codex session.",
+    "Try it: start a new Codex session.",
     "",
     "Next: apkit status (see installed profiles and projects)",
     "Details: apkit details",

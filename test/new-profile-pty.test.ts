@@ -140,7 +140,7 @@ describe("guided Profile creation under a real PTY (TEST-002)", () => {
       await session.waitForTranscript("Name your Profile");
       const cancelOffset = session.transcriptLength();
       session.write("\x03");
-      await session.waitForTranscript("Profile creation was cancelled; nothing was written.", {
+      await session.waitForTranscript("Cancelled. Nothing was changed.", {
         after: cancelOffset,
       });
       await session.waitForTranscript("RESULT exitCode=1");

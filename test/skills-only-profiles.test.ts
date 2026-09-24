@@ -340,6 +340,9 @@ describe("Skills-only Profiles", () => {
     expect(paths).toContain(".agent-profile-kit/codex/context.md");
     expect(paths).toContain(".codex/hooks.json");
     expect(paths).toContain(".agents/skills/review-pr");
+    // DEC-006 (spec #677): the Adapter-authored bound-root launch step is
+    // removed; the host-neutral start-folder line on the install receipt
+    // covers launching from the Project folder for every agent.
     expect(plannedInstallation(installation!).setupSteps).toEqual([
       {
         consequence: "Declining the hook prevents Profile Context from loading.",
@@ -354,14 +357,6 @@ describe("Skills-only Profiles", () => {
         host: "codex",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
-        provenance: "standing",
-      },
-      {
-        consequence: "Launching from a descendant prevents Profile Context from loading.",
-        host: "codex",
-        kind: "launch-constraint",
-        message: "Launch Codex from the exact bound project root:",
-        path: "bound-project",
         provenance: "standing",
       },
     ]);

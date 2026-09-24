@@ -222,7 +222,7 @@ export function parseUninstallArguments(
 
 import type { Readable, Writable } from "node:stream";
 
-import { writeHumanDocument } from "./presentation-document.js";
+import { cancelledDocument, writeHumanDocument } from "./presentation-document.js";
 import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
@@ -233,7 +233,6 @@ import {
   formatUninstallToolErrorJson,
   uninstallConfirmationDocument,
   uninstallConfirmationRequiredDocument,
-  uninstallDeclinedDocument,
   uninstallExecutionFailureDocument,
   uninstallInteractiveCommandsDocument,
   uninstallInteractiveDeclinedDocument,
@@ -1393,7 +1392,7 @@ async function runUninstallCommandWithRecording(
       ));
       writeLifecycleReport(
         request.stderr,
-        uninstallDeclinedDocument("cancelled"),
+        cancelledDocument(),
         stderrContext,
         recording,
       );
@@ -1408,7 +1407,7 @@ async function runUninstallCommandWithRecording(
       ));
       writeLifecycleReport(
         request.stderr,
-        uninstallDeclinedDocument(normalized === "" ? "default" : "declined"),
+        cancelledDocument(),
         stderrContext,
         recording,
       );

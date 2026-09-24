@@ -211,7 +211,7 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
 
     const outcome = await pending;
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("Profile creation was cancelled; nothing was written.");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
   });
 
   test("cancelling at the Context prompt writes nothing and exits 1", async () => {
@@ -235,7 +235,7 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
 
     const outcome = await pending;
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("Profile creation was cancelled; nothing was written.");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
   });
 
   test("cancelling at the Skill prompt writes nothing and exits 1", async () => {
@@ -262,7 +262,7 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
 
     const outcome = await pending;
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("Profile creation was cancelled; nothing was written.");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
   });
 
   test("invalid name in guided flow fails with diagnostic and writes nothing", async () => {

@@ -60,18 +60,11 @@ import {
   hostInventoryDocument,
   infoDocument,
   installBlockedDocument,
-  installConfirmationDocument,
   INSTALL_CONFIRMATION_QUESTION,
-  installDeclinedDocument,
   installHostSelectionNoteDocument,
-  installHostSetupNodes,
-  installProfileSelectionNoteDocument,
+  installSetupGuidanceNodes,
   installWarningNodes,
   installTargetDocument,
-  configureDeclinedDocument,
-  configurePickerCancelledDocument,
-  initCancelledDocument,
-  initDeclinedDocument,
   uninstallInteractiveDeclinedDocument,
   inventoryIndexDocument,
   lifecycleStatusDocument as rawLifecycleStatusDocument,
@@ -87,7 +80,6 @@ import {
   uninstallReceiptDocument,
   formatUninstallJson,
   uninstallConfirmationDocument,
-  uninstallDeclinedDocument,
   uninstallConfirmationRequiredDocument,
   uninstallMissingScopeDocument,
   uninstallNoMatchDocument,
@@ -118,6 +110,7 @@ import type {
   PresentationDocument,
   PresentationNode,
 } from "../cli/presentation-document.js";
+import { CANCELLED_STATEMENT, cancelledDocument } from "../cli/presentation-document.js";
 import type { ApplicationInfo } from "../installer/info.js";
 
 /**
@@ -2323,7 +2316,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
   /** Every prose line of the document that carries the optional check. */
   const verificationLines = (document: PresentationDocument): readonly string[] =>
     flattenPresentationNodes(document)
-      .filter((node) => node.kind === "prose" && nodeText(node).startsWith("Optional check: "))
+      .filter((node) => node.kind === "prose" && nodeText(node).startsWith("Try it: "))
       .map((line) => nodeText(line));
 
   test("a first delivery offers one short optional check on the stable Project path", () => {
@@ -2335,7 +2328,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     // Project, and ask what material loaded — no unverifiable appearance
     // claim (OOS-001).
     expect(instruction).toBe(
-      "Optional check: start a new Codex session in /project-a and ask what Profile material it loaded.",
+      "Try it: start a new Codex session in /project-a and ask what Profile material it loaded.",
     );
     expect(instruction).not.toContain("installed material should appear");
     expect(instruction).not.toContain("Agent Profile Kit");
@@ -2459,7 +2452,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     });
     const instruction = verificationLines(applyReportDocument(applyResult(receipt, resultingState)))[0];
     expect(instruction).toBe(
-      "Optional check: start a new Pi session in /project-a and ask what Profile material it loaded.",
+      "Try it: start a new Pi session in /project-a and ask what Profile material it loaded.",
     );
     expect(instruction).not.toContain("Codex");
   });
@@ -2469,7 +2462,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding", ["codex", "claude"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toBe(
-      "Optional check: start new Claude and Codex sessions in /project-a and ask what Profile material each loaded.",
+      "Try it: start new Claude and Codex sessions in /project-a and ask what Profile material each loaded.",
     );
   });
 
@@ -2477,7 +2470,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding", ["codex"], ["/project-a", "/project-b"]));
     const instruction = verificationLines(document)[0];
     expect(instruction).toBe(
-      "Optional check: start a new Codex session in each updated Project and ask what Profile material each loaded.",
+      "Try it: start a new Codex session in each updated Project and ask what Profile material each loaded.",
     );
     expect(instruction).not.toContain("/project-a");
     expect(instruction).not.toContain("/project-b");
@@ -2529,12 +2522,12 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const spaced = "/projects/My Demo Space/project one  two";
     const document = applyReportDocument(changedApply("coding", ["codex"], [spaced]));
     const trailing = flattenPresentationNodes(document).find((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("Optional check: ")
+      node.kind === "prose" && nodeText(node).startsWith("Try it: ")
     );
     expect(trailing).toMatchObject({ kind: "prose" });
     const trailingParts = trailing?.kind === "prose" ? trailing.parts : [];
     expect(trailingParts).toEqual([
-      "Optional check: start a new Codex session in ",
+      "Try it: start a new Codex session in ",
       expect.objectContaining({ kind: "path", canonicalPath: spaced }),
       " and ask what Profile material it loaded.",
     ]);
@@ -2563,7 +2556,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
         home,
         cwd: home,
       });
-      expect(rendered).toContain("Optional check: start a new Codex session in ~/projects/demo");
+      expect(rendered).toContain("Try it: start a new Codex session in ~/projects/demo");
       expect(rendered).not.toContain("session in demo ");
     } finally {
       rmSync(home, { recursive: true, force: true });
@@ -2596,7 +2589,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     );
     const nodes = flattenPresentationNodes(document);
     const checkIndex = nodes.findIndex((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("Optional check: ")
+      node.kind === "prose" && nodeText(node).startsWith("Try it: ")
     );
     const handoffIndex = nodes.findIndex((node) => node.kind === "heading" && nodeText(node) === "Now author your own:");
     expect(checkIndex).toBeGreaterThan(-1);
@@ -2655,31 +2648,43 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     return { receipt, resultingState };
   };
 
-  test("a first install surfaces relevant required Adapter-authored steps as First use", () => {
+  test("a first install surfaces the start-folder line plus one Adapter-authored line per agent", () => {
     const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
-    const nodes = installHostSetupNodes(resultingState, receipt, ["codex", "grok"]);
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex", "grok"]);
     const flattened = flattenPresentationNodes(nodes);
-    const firstUse = indexWhere(flattened, (node) => node.kind === "heading" && nodeText(node) === "First use:");
-    expect(firstUse).toBeGreaterThan(-1);
-    expect(listItemsFrom(flattened, firstUse + 1)).toEqual([
-      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
-      expect.stringContaining("Trust the bound project in Codex"),
+    const section = indexWhere(flattened, (node) =>
+      node.kind === "heading" && nodeText(node) === "Before your agents can load it:"
+    );
+    expect(section).toBeGreaterThan(-1);
+    // The host-neutral start-folder line comes first (DEC-006); the agent's
+    // two Adapter-authored messages render as one prefixed line (spec #677).
+    expect(listItemsFrom(flattened, section + 1)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      expect.stringContaining("Codex: Review and approve the generated SessionStart hook when Codex asks"),
     ]);
-    // Shared-path stays out of the concise receipt; longer explanation is
-    // focused guidance and verbose/JSON evidence.
+    // The agent line joins the Adapter-authored messages mechanically; it is
+    // never reworded and never drops a non-standard consequence.
+    const agentLine = listItemsIn(nodes).find((text) => text.startsWith("Codex: "));
+    expect(agentLine).toBe(
+      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
+    );
+    // Shared-path stays off the receipt; longer explanation is focused
+    // guidance and verbose/JSON evidence.
     expect(listItemsIn(nodes).some((text) => text.includes("shared rule path"))).toBe(false);
-    // Adapter text is presented through the concise rewriter; the unshortened
-    // consequence is not dumped on the default receipt.
+    // Standard load consequences live once in the heading, not per step.
     expect(documentText(nodes)).not.toContain("Declining the hook prevents Profile Context from loading.");
   });
 
-  test("steps for Hosts outside the installed selection never appear", () => {
-    const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
-    const nodes = installHostSetupNodes(resultingState, receipt, ["claude"]);
-    expect(headingsIn(nodes)).not.toContain("First use:");
+  test("a Claude-only install with no steps shows only the start-folder line", () => {
+    const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()], ["claude"]);
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["claude"]);
+    expect(headingsIn(nodes)).toEqual(["Before your agents can load it:"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+    ]);
   });
 
-  test("an unchanged install renders no First use section", () => {
+  test("an unchanged install renders no setup section (no repeated start-folder line)", () => {
     const receipt = emptyReport({
       desired: [{
         canonicalProject: "/project-a",
@@ -2694,8 +2699,8 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
       items: [{ kind: "current", project: "/project-a" }],
       outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
     });
-    const nodes = installHostSetupNodes(receipt, receipt, ["codex"]);
-    expect(headingsIn(nodes)).not.toContain("First use:");
+    const nodes = installSetupGuidanceNodes(receipt, receipt, ["codex"]);
+    expect(nodes).toEqual([]);
   });
 });
 
@@ -6576,75 +6581,17 @@ describe("standalone view presentation documents (#389)", () => {
     expect((document[0] as Extract<PresentationNode, { kind: "notice" }>).nodes[0]).toMatchObject({ kind: "prose" });
   });
 
-  test("install Host selection note states that selecting a Host does not install it", () => {
+  test("install agent selection note states that apkit doesn't install the agents themselves", () => {
     const document = installHostSelectionNoteDocument();
     const rendered = renderPresentationDocument(document, defaultRenderContext);
-    expect(rendered).toContain("Selecting an agent does not install it.");
+    expect(rendered).toContain("apkit doesn't install the agents themselves.");
   });
 
-  test("install confirmation names the stable Project path, Profile once, and Hosts before any write", () => {
-    const document = installConfirmationDocument({
-      canonicalProject: "/project-a",
-      authoredProject: "~/project-a",
-      profile: "coding",
-      hosts: ["claude", "codex"],
-      previous: { profile: "coding", hosts: ["claude"] },
-    });
-    const rendered = renderPresentationDocument(document, defaultRenderContext, {
-      home: "/home",
-      cwd: "/home",
-    });
-    expect(rendered).toContain("Install into ~/project-a");
-    expect(rendered).toContain("Profile: coding");
-    expect(rendered).toContain("Agents: claude → claude, codex");
-    // US-006: installing into that Project, with no selection/verification jargon.
-    expect(rendered).not.toMatch(/selection|verified/i);
-    expect(INSTALL_CONFIRMATION_QUESTION).toBe("Install into this Project? (y/N)");
-  });
-
-  test("install confirmation shows delta arrows only when an existing installation changes", () => {
-    const fresh = renderPresentationDocument(
-      installConfirmationDocument({
-        canonicalProject: "/home/projects/demo",
-        authoredProject: "~/projects/demo",
-        profile: "coding",
-        hosts: ["codex"],
-      }),
-      defaultRenderContext,
-      { home: "/home", cwd: "/home" },
-    );
-    expect(fresh).toContain("Profile: coding");
-    expect(fresh).toContain("Agents: codex");
-    expect(fresh).not.toContain("→");
-
-    const changed = renderPresentationDocument(
-      installConfirmationDocument({
-        canonicalProject: "/home/projects/demo",
-        authoredProject: "~/projects/demo",
-        profile: "ops",
-        hosts: ["codex", "claude"],
-        previous: { profile: "coding", hosts: ["codex"] },
-      }),
-      defaultRenderContext,
-      { home: "/home", cwd: "/home" },
-    );
-    expect(changed).toContain("Profile: coding → ops");
-    expect(changed).toContain("Agents: codex → codex, claude");
-  });
-
-  test("install confirmation never prints a basename-only Project action location", () => {
-    const rendered = renderPresentationDocument(
-      installConfirmationDocument({
-        canonicalProject: "/home/projects/my-app",
-        authoredProject: "~/projects/my-app",
-        profile: "coding",
-        hosts: ["codex"],
-      }),
-      defaultRenderContext,
-      { home: "/home", cwd: "/home" },
-    );
-    expect(rendered).toContain("~/projects/my-app");
-    expect(rendered).not.toContain("Install into my-app");
+  test("the install confirmation keeps the default-No question and writes no separate summary", () => {
+    // Spec #677 screen 13: the two settled answers (the echoed picker answers,
+    // or the explicit command's stated arguments) already carry the proposed
+    // scope, so the confirmation prints only its default-No question.
+    expect(INSTALL_CONFIRMATION_QUESTION).toBe("Install now? (y/N)");
   });
 
   test("uninstall confirmation review names every selected Project on its stable path before any write", () => {
@@ -6723,8 +6670,9 @@ describe("standalone view presentation documents (#389)", () => {
 
   test("uninstall declined and confirmation-required diagnostics name the explicit equivalent", () => {
     const args = [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }];
-    // A plain decline carries no remedy command (US-010).
-    const declined = uninstallDeclinedDocument("declined");
+    // A plain decline is the one shared cancellation statement (spec #677)
+    // and carries no remedy command (US-010).
+    const declined = cancelledDocument();
     expect(inlineCommandTexts(declined)).toEqual([]);
     const required = uninstallConfirmationRequiredDocument(args);
     expect(inlineCommandTexts(required)).toEqual(["apkit uninstall --all"]);
@@ -9651,27 +9599,37 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex", "pi"],
     });
-    // The `Next:` action list is the one footer, appended by the install
-    // command after body guidance (US-010).
+    // Spec #677 screen 04: the headline names the Profile; the Project path
+    // and the agents follow as facts. The `Next:` action list is the one
+    // footer, appended by the install command after body guidance (US-010).
     expect(shapes(document)).toEqual([
       "sentence(success)",
-      "key-value:Profile(path)",
+      "key-value:Project(path)",
       "key-value:Agents",
     ]);
     const installNodes = flattenPresentationNodes(document);
+    // The shown value is the full stable display, never elided (spec #677,
+    // #647); the wrap rule renders it whole at any width.
     expect(installNodes[1]).toEqual({
       kind: "key-value",
-      key: "  Profile",
-      value: { kind: "identifier", value: "coding" },
+      key: "  Project",
+      value: {
+        kind: "path",
+        canonicalPath: projectPath,
+        scope: "fleet",
+        authoredPath: projectPath,
+        identity: "~/projects/demo",
+      },
       category: "path",
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext, {
       home,
       cwd: home,
     });
-    expect(rendered).toContain("Installed for ~/projects/demo");
+    expect(rendered).toContain("Installed the coding Profile");
+    expect(rendered).toContain("Project: ~/projects/demo");
     expect(rendered).not.toContain("Installed coding for");
-    // Profile is stated once across the headline and body (US-006).
+    // Profile is stated once in the headline (US-006).
     expect(rendered.split("coding").length - 1).toBe(1);
     expect(rendered).toContain("Agents: codex, pi");
     expect(rendered).not.toMatch(/generated files:|outputs:|Removed /i);
@@ -9750,19 +9708,24 @@ describe("authoring and teardown receipt documents (#390)", () => {
       profile: "coding",
       hosts: ["codex"],
     });
+    // Spec #677: the created headline names the Profile; the Project path is
+    // the first fact line, still rendered by its stable path.
     expect(flattenPresentationNodes(created)[0]).toEqual({
       kind: "sentence",
-      parts: [
-        "✔ ",
-        "Installed for ",
-        {
-          kind: "path",
-          canonicalPath: projectPath,
-          scope: "fleet",
-          authoredPath: ".",
-        },
-      ],
+      parts: ["✔ ", "Installed the ", { kind: "identifier", value: "coding" }, " Profile"],
       category: "success",
+    });
+    expect(flattenPresentationNodes(created)[1]).toEqual({
+      kind: "key-value",
+      key: "  Project",
+      value: {
+        kind: "path",
+        canonicalPath: projectPath,
+        scope: "fleet",
+        authoredPath: ".",
+        identity: "~/projects/demo",
+      },
+      category: "path",
     });
 
     const unchanged = installReceiptDocument({
@@ -9930,7 +9893,8 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       // Never claim Host loading or that the missing Host failed the update.
       expect(rendered).not.toMatch(/proved Host loading|Host loaded the material|update failed because/i);
     }
-    expect(renderBoundary(install)).toContain("Installed for ~/projects/demo");
+    expect(renderBoundary(install)).toContain("Installed the coding Profile");
+    expect(renderBoundary(install)).toContain("Project: ~/projects/demo");
     expect(renderBoundary(update)).toContain("Update complete");
   });
 
@@ -12138,7 +12102,7 @@ const CONCEPT_DEFINITION_MARKERS = [
   { concept: "Profile", markers: ["Profiles group Context and Skills", "A Profile is a named selection"] },
   { concept: "Skills", markers: ["Skills are the skills you already use"] },
   { concept: "Context", markers: ["Context is plain Markdown", "Context is always-loaded"] },
-  { concept: "agent", markers: ["An agent is a tool"] },
+  { concept: "agent", markers: ["An agent is a tool", "apkit doesn't install the agents themselves."] },
 ] as const;
 
 /** Which kit concepts a rendered first-use block newly explains. */
@@ -12229,28 +12193,22 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
   });
 
-  test("install target and Profile note stay within the two-concept pre-picker budget", () => {
-    // Direct install prints the target and the Profile note on one screen
-    // before the first picker (US-001, DEC-003): Project + Profile only.
-    const prePicker = [
-      ...installTargetDocument({
-        canonicalProject: join(home, "projects", "demo"),
-        authoredProject: "~/projects/demo",
-      }),
-      ...installProfileSelectionNoteDocument(),
-    ];
+  test("the Profile picker drops its concept explanation (spec #677 screen 10)", () => {
+    // The pre-picker screen carries only the Project concept: a user choosing
+    // among existing Profiles already met the word at setup and
+    // `apkit new profile` (US-005).
+    const prePicker = installTargetDocument({
+      canonicalProject: join(home, "projects", "demo"),
+      authoredProject: "~/projects/demo",
+    });
     const text = documentText(prePicker);
-    expect(explainedConcepts(text).sort()).toEqual(["Profile", "Project"]);
-    expect(explainedConcepts(text).length).toBeLessThanOrEqual(2);
+    expect(explainedConcepts(text)).toEqual(["Project"]);
     expect(text).toContain(
       "A Project is one working folder that receives the installed material.",
     );
-    expect(text).toContain(
-      "A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects.",
+    expect(text).not.toContain(
+      "A Profile is a named selection",
     );
-    // Choosing a Profile does not require understanding Context: the Profile
-    // sentence may name Context, but Context is not defined here.
-    expect(text).toContain("Context and Skills");
     expect(text).not.toContain("Context is always-loaded");
     expect(text).not.toMatch(/A Skill is |Skill is a /);
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
@@ -12271,13 +12229,12 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     expect(rendered).toContain(PROJECT_EXPLANATION_SENTENCE);
   });
 
-  test("the install Host note explains agent without claiming full Workspace loading", () => {
+  test("the install agent note says in one sentence that apkit doesn't install the agents", () => {
     const text = documentText(installHostSelectionNoteDocument());
-    expect(explainedConcepts(text)).toEqual(["agent"]);
     expect(text).toContain(
-      "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.",
+      "Pick the agents that should use this Profile here. apkit doesn't install the agents themselves.",
     );
-    expect(text).toContain("Selecting an agent does not install it.");
+    expect(explainedConcepts(text)).toEqual(["agent"]);
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
     expect(text).not.toMatch(/A Skill is |Skill is a /);
   });
@@ -12288,53 +12245,45 @@ const textArg = (value: string): { readonly kind: "text"; readonly value: string
   value,
 });
 
-describe("one useful footer and neutral cancellation (US-003, US-010)", () => {
-  test("plain decline and picker cancel print one neutral statement with no remedy or details hint", () => {
-    for (const document of [
-      installDeclinedDocument("declined"),
-      installDeclinedDocument("cancelled"),
-      installDeclinedDocument("default"),
-      uninstallDeclinedDocument("declined"),
-      uninstallDeclinedDocument("cancelled"),
-      configureDeclinedDocument("declined"),
-      configureDeclinedDocument("cancelled"),
-      configurePickerCancelledDocument(),
-      initCancelledDocument(),
-      initDeclinedDocument(),
-      uninstallPickerNoopDocument("cancelled"),
-      uninstallPickerNoopDocument("empty-projects"),
-      uninstallPickerNoopDocument("empty-hosts"),
-    ]) {
-      const rendered = renderBoundary(document);
-      expect(rendered).not.toContain("apkit:");
-      expect(rendered).not.toContain("Details:");
-      expect(rendered).not.toContain("Next:");
-      expect(rendered).not.toContain("To proceed without asking");
-      expect(rendered).not.toContain("To choose again");
-      expect(rendered.startsWith("● ")).toBe(true);
-      // One neutral statement: a single rendered line of outcome copy.
-      expect(rendered.trim().split("\n")).toHaveLength(1);
-    }
+describe("one useful footer and the one shared cancellation line (US-003, US-010, spec #677)", () => {
+  test("the shared cancellation builder prints exactly one neutral statement", () => {
+    // Screen 14: every interactive command's plain cancel or decline reads
+    // exactly this, through the one builder (cancelledDocument). Exit codes
+    // are command-owned and unchanged.
+    const rendered = renderBoundary(cancelledDocument());
+    expect(rendered).toBe("● Cancelled. Nothing was changed.\n");
+    expect(CANCELLED_STATEMENT).toBe("Cancelled. Nothing was changed.");
   });
 
-  test("plain decline and picker cancel state preservation exactly once", () => {
+  test("plain cancel and decline outcomes route through the shared builder", () => {
+    // The command-level documents a user can reach for a plain cancel or
+    // decline all render the one shared line; the empty-selection variants
+    // keep their distinct fact (nothing was selected) instead.
     for (const document of [
-      installDeclinedDocument("cancelled"),
-      uninstallDeclinedDocument("declined"),
-      configureDeclinedDocument("default"),
-      initCancelledDocument(),
+      cancelledDocument(),
       uninstallPickerNoopDocument("cancelled"),
     ]) {
       const rendered = renderBoundary(document);
-      const preservationClaims = [
-        /\bnothing was written\b/,
-        /\bnothing was initialized or created\b/,
-        /\bNo Project or setting was changed\b/,
-        /\bkept the current state\b/,
-        /\bbefore any write\b/,
-      ].filter((claim) => claim.test(rendered));
-      expect(preservationClaims.length).toBe(1);
+      expect(rendered.startsWith("● ")).toBe(true);
+      expect(rendered.trim().split("\n")).toHaveLength(1);
+      expect(rendered).toContain("Cancelled. Nothing was changed.");
     }
+    // Distinct facts stay distinct: nothing selected is not "nothing changed".
+    expect(renderBoundary(uninstallPickerNoopDocument("empty-projects"))).toContain(
+      "no Projects selected",
+    );
+    expect(renderBoundary(uninstallPickerNoopDocument("empty-hosts"))).toContain(
+      "no agents selected",
+    );
+  });
+
+  test("the shared cancellation statement carries no remedy or details hint", () => {
+    const rendered = renderBoundary(cancelledDocument());
+    expect(rendered).not.toContain("apkit:");
+    expect(rendered).not.toContain("Details:");
+    expect(rendered).not.toContain("Next:");
+    expect(rendered).not.toContain("To proceed without asking");
+    expect(rendered).not.toContain("To choose again");
   });
 
   test("a declined changed-file gate keeps one Next footer for the explicit flag command", () => {

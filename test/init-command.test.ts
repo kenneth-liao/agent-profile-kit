@@ -571,7 +571,7 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(existsSync(configPath(home))).toBe(false);
     expect(fileTreeSnapshot(cwd).size).toBe(0);
     expect(plain(first.streams.errorText())).toContain(
-      "Setup was cancelled; nothing was initialized or created.",
+      "Cancelled. Nothing was changed.",
     );
     // A plain cancel prints only the neutral statement (US-003, US-010).
     expect(plain(first.streams.errorText())).not.toContain("apkit init");
@@ -593,7 +593,7 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     expect(existsSync(configPath(home))).toBe(false);
     expect(fileTreeSnapshot(cwd).size).toBe(0);
     expect(plain(streams.errorText())).toContain(
-      "Setup was cancelled; nothing was initialized or created.",
+      "Cancelled. Nothing was changed.",
     );
   }, 20_000);
 
@@ -909,7 +909,7 @@ describe("connect a different Workspace (#607)", () => {
     expect(exitCode).toBe(0);
     expect(readFileSync(cfg, "utf8")).toBe(initialConfig);
     expect(streams.errorText()).toBe("");
-    expect(plain(streams.humanText())).toContain("Setup was declined; nothing was initialized or created.");
+    expect(plain(streams.humanText())).toContain("Cancelled. Nothing was changed.");
   }, 20_000);
 
   test("an invalid requested Workspace is refused with the complete validation report, and Local Configuration is unchanged", async () => {
