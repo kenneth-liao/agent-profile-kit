@@ -1,4 +1,4 @@
-import type { PresentationDocument, PresentationNode } from "./presentation-document.js";
+import { list, type PresentationDocument, type PresentationNode } from "./presentation-document.js";
 import { textPart, type InlineContent } from "./inline-content.js";
 
 /**
@@ -248,10 +248,7 @@ function bulletNodes(lines: readonly string[]): readonly PresentationNode[] {
     assertSupportedLine(line.trim());
     itemTexts[itemTexts.length - 1] = `${itemTexts.at(-1)!} ${line.trim()}`.trim();
   }
-  return itemTexts.map((text) => ({
-    kind: "list-item" as const,
-    parts: inlineContent(text),
-  }));
+  return [list(itemTexts.map((text) => inlineContent(text)))];
 }
 
 /** One pipe table as row-group nodes through the existing responsive row

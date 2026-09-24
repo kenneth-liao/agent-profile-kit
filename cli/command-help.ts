@@ -310,9 +310,10 @@ import {
   type CommandArg,
   type InlineContent,
 } from "./inline-content.js";
-import type {
-  PresentationDocument,
-  PresentationNode,
+import {
+  part,
+  type PresentationDocument,
+  type PresentationNode,
 } from "./presentation-document.js";
 
 const ROOT_INTRO =
@@ -411,43 +412,53 @@ export function rootHelpDocument(wordmark: readonly string[]): PresentationDocum
   }
   if (wordmark.length > 0) nodes.push(spacer());
   nodes.push(
-    { kind: "sentence", parts: [ROOT_INTRO] },
+    part({ kind: "sentence", parts: [ROOT_INTRO] }),
     spacer(),
-    usageNode("<command> [arguments]"),
+    part(usageNode("<command> [arguments]")),
     spacer(),
-    { kind: "heading", text: "First run:" },
   );
-  for (const command of QUICK_START_COMMANDS) {
-    nodes.push({
+  // The quick-start menu is one part: its heading keeps its command entries.
+  nodes.push(part(
+    { kind: "heading", text: "First run:" },
+    ...QUICK_START_COMMANDS.map((command): PresentationNode => ({
       kind: "sentence",
       parts: ["  ", invocation(...command.split(/\s+/))],
       category: "command",
-    });
-  }
+    })),
+  ));
   nodes.push(
     spacer(),
-    { kind: "sentence", parts: ROOT_DISCOVERY_PARTS },
+    part({ kind: "sentence", parts: ROOT_DISCOVERY_PARTS }),
     spacer(),
-    { kind: "heading", text: "Common commands:" },
   );
-  for (const command of defaultCommands().filter((entry) => entry.group === "common")) {
-    nodes.push(commandNameNode(command), summaryNode(command));
-  }
-  nodes.push(spacer(), { kind: "heading", text: "More commands:" });
+  // The command groups are one part each: heading, entries, and summaries.
+  nodes.push(part(
+    { kind: "heading", text: "Common commands:" },
+    ...defaultCommands()
+      .filter((entry) => entry.group === "common")
+      .flatMap((command) => [commandNameNode(command), summaryNode(command)]),
+  ));
+  const secondary: PresentationNode[] = [{ kind: "heading", text: "More commands:" }];
   for (const [group, label] of COMMAND_GROUPS) {
     if (group === "common") continue;
     const listed = defaultCommands().filter((entry) => entry.group === group);
     if (listed.length === 0) continue;
-    nodes.push({ kind: "heading", text: `  ${label}:` });
-    for (const command of listed) {
-      nodes.push(commandNameNode(command), summaryNode(command));
-    }
+    secondary.push(
+      part(
+        { kind: "heading", text: `  ${label}:` },
+        ...listed.flatMap((command) => [commandNameNode(command), summaryNode(command)]),
+      ),
+    );
   }
-  nodes.push(spacer(), {
-    kind: "sentence",
-    parts: ROOT_GUIDANCE_PARTS,
-    category: "muted",
-  });
+  nodes.push(part(...secondary));
+  nodes.push(
+    spacer(),
+    part({
+      kind: "sentence",
+      parts: ROOT_GUIDANCE_PARTS,
+      category: "muted" as const,
+    }),
+  );
   return nodes;
 }
 
@@ -467,44 +478,45 @@ export function machineHelpDocument(): PresentationDocument {
     usageNode("machine <command> [arguments]"),
     spacer(),
   ];
-  for (const command of machineCommands()) {
-    nodes.push(syntaxNodes(command), summaryNode(command));
-  }
+  nodes.push(part(
+    ...machineCommands().flatMap((command) => [syntaxNodes(command), summaryNode(command)]),
+  ));
   return nodes;
 }
 
 /** Focused help for one command: purpose, usage, examples, writes, and next. */
 export function commandHelpDocument(command: CommandHelp): PresentationDocument {
   const nodes: PresentationNode[] = [
-    { kind: "sentence", parts: [`Purpose: ${command.summary}`], category: "heading" },
+    part({ kind: "sentence", parts: [`Purpose: ${command.summary}`], category: "heading" }),
     spacer(),
-    ...commandSyntaxLines(command.syntax).map(usageNode),
+    part(...commandSyntaxLines(command.syntax).map(usageNode)),
     spacer(),
-    { kind: "heading", text: "Examples:" },
   ];
-  for (const example of command.examples) {
-    nodes.push({
+  // The examples menu is one part: the heading keeps its command lines.
+  nodes.push(part(
+    { kind: "heading", text: "Examples:" },
+    ...command.examples.map((example): PresentationNode => ({
       kind: "sentence",
       parts: ["  ", invocation(...example.split(/\s+/))],
       category: "command",
-    });
-  }
+    })),
+  ));
   if (command.supportedHosts !== undefined) {
     const label = command.namespace === "machine" ? "Supported Hosts" : "Supported agents";
     nodes.push(
       spacer(),
-      {
+      part({
         kind: "sentence",
         parts: [`${label}: ${command.supportedHosts.join(", ")}`],
         category: "heading",
-      },
+      }),
     );
   }
   nodes.push(
     spacer(),
-    { kind: "sentence", parts: [`Writes: ${command.writes}`], category: "heading" },
+    part({ kind: "sentence", parts: [`Writes: ${command.writes}`], category: "heading" }),
     spacer(),
-    { kind: "sentence", parts: ["Next: ", ...command.next], category: "command" },
+    part({ kind: "sentence", parts: ["Next: ", ...command.next], category: "command" }),
   );
   return nodes;
 }

@@ -44,17 +44,14 @@ Common commands:
       or one run by identity
 
 More commands:
-
   Inventory:
   list
     List read-only inventory for Projects, Profiles, or agents
-
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection;
       a lone --profile reaches that Profile's installations fleet-wide; --agent
       removes only those agents within the scope
-
   Machine details:
   info
     Show the engine version and selected application locations
@@ -1057,8 +1054,10 @@ visibility.
 exports[`golden snapshots of every human view details empty: details-empty 1`] = `
 "--- stdout ---
 ● No lifecycle operations are recorded yet.
+
 Install, update, and uninstall record automatically; run one, then run
   apkit details
+
 History: ~/.agents/agent-profile-kit/operation-history.json
 --- stderr ---
 "
@@ -1239,6 +1238,7 @@ First use:
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 - Launch Codex from the exact bound project root so the Profile can load.
+
 Optional check: start a new Codex session in ~/projects/demo and ask what
   Profile material it loaded.
 
@@ -1625,7 +1625,6 @@ exports[`golden snapshots of every human view update blocked: update-blocked 1`]
 Project: blocked
   Profile: example
   Agents: codex
-
   ✖ Blocker: .codex/hooks.json is tracked by Git, so Agent Profile Kit cannot
     write to it.
     Requirement: Agent Profile Kit must exclusively manage its generated
@@ -1709,8 +1708,10 @@ exports[`golden snapshots of every human view unbound-directory error: unbound-d
 --- stderr ---
 ✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
+
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
+
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 "
 `;
@@ -1781,12 +1782,10 @@ Common commands:
       list, or one run by identity
 
 More commands:
-
   Inventory:
   list
     List read-only inventory for
       Projects, Profiles, or agents
-
   Teardown:
   uninstall
     Remove selected Project
@@ -1796,7 +1795,6 @@ More commands:
       installations fleet-wide; --agent
       removes only those agents within
       the scope
-
   Machine details:
   info
     Show the engine version and
@@ -1875,12 +1873,10 @@ Agent Profile Kit composes reusable
       list, or one run by identity
 
 \x1B[1mMore commands:\x1B[0m
-
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for
       Projects, Profiles, or agents
-
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project
@@ -1890,7 +1886,6 @@ Agent Profile Kit composes reusable
       installations fleet-wide; --agent
       removes only those agents within
       the scope
-
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and
@@ -1947,17 +1942,14 @@ Common commands:
       identity
 
 More commands:
-
   Inventory:
   list
     List read-only inventory for Projects, Profiles, or agents
-
   Teardown:
   uninstall
     Remove selected Project installations and forget their recorded selection; a lone --profile
       reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
-
   Machine details:
   info
     Show the engine version and selected application locations
@@ -2012,17 +2004,14 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
       identity
 
 \x1B[1mMore commands:\x1B[0m
-
 \x1B[1m  Inventory:\x1B[0m
 \x1B[36m  list\x1B[0m
     List read-only inventory for Projects, Profiles, or agents
-
 \x1B[1m  Teardown:\x1B[0m
 \x1B[36m  uninstall\x1B[0m
     Remove selected Project installations and forget their recorded selection; a lone --profile
       reaches that Profile's installations fleet-wide; --agent removes only those agents within the
       scope
-
 \x1B[1m  Machine details:\x1B[0m
 \x1B[36m  info\x1B[0m
     Show the engine version and selected application locations
@@ -2376,10 +2365,12 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 ✖ apkit: Directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
+
 Run apkit install to configure this
   directory as a Project.
 Run apkit list projects to see
   configured Projects.
+
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
@@ -2390,10 +2381,12 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 \x1B[31m✖ apkit: Directory\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31m'/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31mis not configured as a Project\x1B[0m
+
 Run \x1B[36mapkit install\x1B[0m to configure this
   directory as a Project.
 Run \x1B[36mapkit list projects\x1B[0m to see
   configured Projects.
+
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "
@@ -2403,8 +2396,10 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 "--- stdout ---
 ✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a
   Project
+
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
+
 Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 --- stderr ---
 "
@@ -2414,8 +2409,10 @@ exports[`rendering matrix for a representative subset unbound error matrix: unbo
 "--- stdout ---
 \x1B[31m✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31mProject\x1B[0m
+
 Run \x1B[36mapkit install\x1B[0m to configure this directory as a Project.
 Run \x1B[36mapkit list projects\x1B[0m to see configured Projects.
+
 Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]\x1B[0m
 --- stderr ---
 "

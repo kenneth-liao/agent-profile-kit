@@ -2183,7 +2183,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(help, 0);
     expect(help.stdout).toContain("First run:\n  apkit init <path>\n  apkit install <profile> --agent <agent>\n  apkit status\n  apkit update");
     expect(help.stdout).toContain("Common commands:\n  init");
-    expect(help.stdout).toContain("More commands:\n\n  Inventory:");
+    expect(help.stdout).toContain("More commands:\n  Inventory:");
 
     // 2. Initialize the user-given Workspace folder and settings; setup
     // adds only the required parts (spec #593 DEC-003, #599, #601).

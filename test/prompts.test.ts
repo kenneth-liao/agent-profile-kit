@@ -600,6 +600,38 @@ describe("shared picker chrome (US-004)", () => {
       await pending;
     }
   });
+
+  test("a choice too long for its status keeps the status on the first line at 60 columns", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput(60);
+    const multi = createSearchableMultiSelectPrompt({ input, output });
+    const pending = multi(
+      "Which agents?",
+      [
+        {
+          title: "acme internal analytics pipeline v2 with a long expansion",
+          value: "acme",
+          annotation: "detected",
+        },
+        { title: "codex", value: "codex", annotation: "detected" },
+      ],
+      { min: 0 },
+    );
+    await waitForFrame(output, "detected");
+    const frame = lastPickerFrame(output);
+    const lines = frame.split("\n");
+    // The status sits beside the first title line; the rest of the title
+    // hangs indented under the choice prefix (INT-4).
+    const firstLine = lines.findIndex((line) =>
+      line.includes("acme internal analytics"))!;
+    expect(firstLine).toBeGreaterThan(-1);
+    expect(lines[firstLine]!).toMatch(/acme internal.* {2}detected$/);
+    const hangLines = lines.slice(firstLine + 1, firstLine + 3);
+    expect(hangLines.some((line) => line.startsWith("    ") && line.trim().length > 0)).toBe(true);
+    expect(lines[firstLine]!.length).toBeLessThanOrEqual(60);
+    input.end();
+    await pending;
+  });
 });
 
 describe("searchable multiselect prompt seam", () => {

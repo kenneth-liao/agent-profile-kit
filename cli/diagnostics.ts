@@ -1,10 +1,11 @@
 import { COMMAND_NAME } from "../installer/version.js";
 import { commandSyntaxLines } from "./command-help.js";
-import type {
-  CommandArg,
-  NoticeSeverity,
-  PresentationDocument,
-  PresentationNode,
+import {
+  part,
+  type CommandArg,
+  type NoticeSeverity,
+  type PresentationDocument,
+  type PresentationNode,
 } from "./presentation-document.js";
 import type { InlineContent } from "./inline-content.js";
 import { splitInlineLines } from "./inline-content.js";
@@ -31,10 +32,13 @@ export interface DiagnosticDocumentParts {
   readonly severity?: NoticeSeverity;
 }
 
-/** The presentation document for one CLI-boundary diagnostic (DEC-018). */
+/** The presentation document for one CLI-boundary diagnostic (DEC-018): the
+ * notice states what happened and why, each what-to-type run is its own part
+ * (the carried empty line separates runs), and the usage reference is its
+ * own part — the renderer joins them with one blank line (US-001). */
 export function diagnosticDocument(parts: DiagnosticDocumentParts): PresentationDocument {
   const nodes: PresentationNode[] = [
-    {
+    part({
       kind: "notice",
       severity: parts.severity ?? "error",
       nodes: [
@@ -44,25 +48,27 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
           parts: line,
         })),
       ],
-    },
+    }),
   ];
+  const whatToTypeRuns: PresentationNode[][] = [[]];
   for (const line of parts.whatToType ?? []) {
-    nodes.push(
-      line.length === 0
-        ? { kind: "verbatim", text: "" }
-        : { kind: "sentence", parts: line },
-    );
+    if (line.length === 0) {
+      whatToTypeRuns.push([]);
+      continue;
+    }
+    whatToTypeRuns.at(-1)!.push({ kind: "sentence", parts: line });
+  }
+  for (const run of whatToTypeRuns) {
+    if (run.length > 0) nodes.push(part(...run));
   }
   if (parts.usage !== undefined) {
     // One Usage line per valid form (US-016, #509), split by the one home
     // for that rule in cli/command-help.ts.
-    for (const line of commandSyntaxLines(parts.usage)) {
-      nodes.push({
-        kind: "key-value",
-        key: "Usage",
-        value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(line) },
-      });
-    }
+    nodes.push(part(...commandSyntaxLines(parts.usage).map((line): PresentationNode => ({
+      kind: "key-value",
+      key: "Usage",
+      value: { kind: "command", program: COMMAND_NAME, args: usageCommandArgs(line) },
+    }))));
   }
   return nodes;
 }

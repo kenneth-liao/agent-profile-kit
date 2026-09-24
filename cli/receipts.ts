@@ -15,6 +15,7 @@ import {
   footerNodes,
   identifierPart,
   neutralStatementDocument,
+  part,
   pathPart,
   stateHeadline,
   type InlineContent,
@@ -327,30 +328,33 @@ function appendMissingProfileBindings(
   nodes: PresentationNode[],
   missingProfileBindings: readonly MissingProfileBindingReport[],
 ): void {
-  nodes.push(stateHeadline([
+  const section: PresentationNode[] = [stateHeadline([
     "Project Bindings whose Profile this Workspace lacks:",
-  ], "warning"));
+  ], "warning")];
   for (const missing of missingProfileBindings) {
-    nodes.push({
-      kind: "sentence",
-      parts: [
-        `- `,
-        pathPart(missing.project, "fleet"),
-        `: Profile '${missing.profile}' does not exist in this Workspace.`,
-      ],
-    });
-    nodes.push({
-      kind: "sentence",
-      parts: [
-        `  Next: create it with `,
-        commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
-        `, or install an available Profile with `,
-        commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
-        `.`,
-      ],
-      category: "command",
-    });
+    section.push(
+      {
+        kind: "sentence",
+        parts: [
+          `- `,
+          pathPart(missing.project, "fleet"),
+          `: Profile '${missing.profile}' does not exist in this Workspace.`,
+        ],
+      },
+      {
+        kind: "sentence",
+        parts: [
+          `  Next: create it with `,
+          commandPart(COMMAND_NAME, [arg("new"), arg("profile"), arg(missing.profile)]),
+          `, or install an available Profile with `,
+          commandPart(COMMAND_NAME, [arg("install"), arg(missing.profile), arg(missing.project)]),
+          `.`,
+        ],
+        category: "command",
+      },
+    );
   }
+  nodes.push(part(...section));
 }
 
 /** The settings path when Local Configuration was written, home-relative (DEC-005). */
@@ -390,16 +394,16 @@ function addedPartsNode(addedParts: readonly string[]): PresentationNode | undef
  */
 function setupHandoffFooter(input: InitReceiptInput): PresentationNode[] {
   if (input.profileCount > 0) {
-    return footerNodes({
+    return [footerNodes({
       next: { kind: "command", value: guidedInstallRouting() },
-    });
+    })];
   }
-  return footerNodes({
+  return [footerNodes({
     next: {
       kind: "actions",
       items: newProfileCreationCommands(input.hasContexts),
     },
-  });
+  })];
 }
 
 /** The receipt document for one `init` invocation. */
@@ -417,25 +421,29 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     ]);
   }
   const nodes: PresentationNode[] = [];
+  // The receipt states what happened as one part: the headline keeps its
+  // keyed facts (settings when written) and its added-parts sentence.
+  const facts: PresentationNode[] = [];
   if (input.outcome === "connected") {
-    nodes.push(stateHeadline(input.folderCreated === true
+    facts.push(stateHeadline(input.folderCreated === true
       ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
       : [`Connected Agent Profile Kit Workspace at `, workspace], "success"));
   } else if (input.outcome === "migrated") {
-    nodes.push(stateHeadline([
+    facts.push(stateHeadline([
       `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
       workspace,
     ], "success"));
   } else {
-    nodes.push(stateHeadline(input.folderCreated === true
+    facts.push(stateHeadline(input.folderCreated === true
       ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace at ", workspace]
       : ["Initialized Agent Profile Kit Workspace at ", workspace], "success"));
   }
   if (input.configurationWritten) {
-    nodes.push(settingsPathNode(input.configurationPath));
+    facts.push(settingsPathNode(input.configurationPath));
   }
   const added = addedPartsNode(input.addedParts ?? []);
-  if (added !== undefined) nodes.push(added);
+  if (added !== undefined) facts.push(added);
+  nodes.push(part(...facts));
   if (input.outcome === "created") {
     // Concept sentences from spec #645 stay on the creation receipt (DEC-003).
     nodes.push(
@@ -498,35 +506,37 @@ export function installReceiptDocument(
       ".",
     ]);
   }
-  nodes.push(stateHeadline([
+  const facts: PresentationNode[] = [stateHeadline([
     `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} for `,
     project,
-  ], "success"));
+  ], "success")];
   if (input.outcome === "replaced") {
     const { profile: previousProfile, hosts: previousHosts } = input.previous;
-    nodes.push({
-      kind: "key-value",
-      key: "  Profile",
-      value: {
-        kind: "identifier",
-        value: previousProfile !== input.profile
-          ? `${previousProfile} → ${input.profile}`
-          : input.profile,
+    facts.push(
+      {
+        kind: "key-value",
+        key: "  Profile",
+        value: {
+          kind: "identifier",
+          value: previousProfile !== input.profile
+            ? `${previousProfile} → ${input.profile}`
+            : input.profile,
+        },
+        category: "path",
       },
-      category: "path",
-    });
-    nodes.push({
-      kind: "key-value",
-      key: "  Agents",
-      value: {
-        kind: "identifier",
-        value: hostsEqual(previousHosts, input.hosts)
-          ? input.hosts.join(", ")
-          : `${previousHosts.join(", ")} → ${input.hosts.join(", ")}`,
+      {
+        kind: "key-value",
+        key: "  Agents",
+        value: {
+          kind: "identifier",
+          value: hostsEqual(previousHosts, input.hosts)
+            ? input.hosts.join(", ")
+            : `${previousHosts.join(", ")} → ${input.hosts.join(", ")}`,
+        },
       },
-    });
+    );
   } else {
-    nodes.push(
+    facts.push(
       {
         kind: "key-value",
         key: "  Profile",
@@ -540,6 +550,7 @@ export function installReceiptDocument(
       },
     );
   }
+  nodes.push(part(...facts));
   // The install `Next:` action list is the one footer (US-010) and is
   // appended by the command after body guidance (loading checks and the
   // equivalent command), so no output prints two footers.
@@ -569,10 +580,11 @@ export function configureReceiptDocument(
     const after = next.length === 0 ? "(none)" : next.join(", ");
     return before === after ? after : `${before} → ${after}`;
   };
-  const nodes: PresentationNode[] = [stateHeadline([input.changed
-    ? `Updated reusable Profile '${input.profile}'.`
-    : `Reusable Profile '${input.profile}' already has exactly this membership.`], "success")];
-  nodes.push(
+  const nodes: PresentationNode[] = [];
+  nodes.push(part(
+    stateHeadline([input.changed
+      ? `Updated reusable Profile '${input.profile}'.`
+      : `Reusable Profile '${input.profile}' already has exactly this membership.`], "success"),
     {
       kind: "key-value",
       key: "  Context",
@@ -591,7 +603,7 @@ export function configureReceiptDocument(
       value: { kind: "command", program: COMMAND_NAME, args: [...input.equivalent] },
       category: "command",
     },
-  );
+  ));
   nodes.push(nextCommandNode("update"));
   return nodes;
 }

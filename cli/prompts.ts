@@ -568,17 +568,24 @@ const createPickerPrompt = createPrompt<PickerResult, PickerConfig>((config, don
         lines.push(`${prefix}${tint(titleWithGap, undefined, color)}${tint(row.annotation, "muted", color)}`);
         continue;
       }
+      // Tight width: the status still sits on the first line (INT-4). The
+      // title hangs: it wraps at the measure that leaves a two-space gap
+      // plus the status, and later title lines indent under the prefix.
+      const tightMeasure = Math.max(1, width - prefixCells - 2 - row.annotation.length);
+      const tightLines = wrapRowTitle(row.title, tightMeasure);
+      lines.push(
+        `${prefix}${tint(tightLines[0] ?? "", undefined, color)}${tint("  ", undefined, color)}${tint(row.annotation, "muted", color)}`,
+      );
+      tightLines.slice(1).forEach((titleLine) => {
+        lines.push(`${" ".repeat(prefixCells)}${tint(titleLine, undefined, color)}`);
+      });
+      continue;
     }
     const titleLines = wrapRowTitle(row.title, Math.max(1, width - prefixCells));
     titleLines.forEach((titleLine, lineIndex) => {
       const head = lineIndex === 0 ? prefix : " ".repeat(prefixCells);
       lines.push(`${head}${tint(titleLine, undefined, color)}`);
     });
-    if (row.annotation !== undefined) {
-      lines.push(
-        `${" ".repeat(prefixCells)}${tint(row.annotation, "muted", color)}`,
-      );
-    }
   }
 
   return lines.join("\n");

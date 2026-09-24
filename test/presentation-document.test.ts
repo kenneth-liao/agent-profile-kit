@@ -17,11 +17,14 @@ import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
   type CommandArg,
   commandPart,
+  flatInlineText,
   footerNodes,
   identifierPart,
   type InlineContent,
-  type ListNode,
+  list,
   neutralStatementDocument,
+  notedCommand,
+  part,
   pathPart,
   renderPresentationDocument,
   stateHeadline,
@@ -39,16 +42,18 @@ test("renders a prose document to text for a terminal presentation context", () 
   expect(text).toBe("Ready to update.");
 });
 
-test("renders heading, key-value, identifier, and list-item nodes as distinct lines", () => {
+test("renders heading, key-value, identifier, and list nodes as distinct lines", () => {
   const text = renderPresentationDocument(
     [
-      { kind: "heading", text: "Projects (1)" },
-      {
-        kind: "key-value",
-        key: "Workspace",
-        value: { kind: "identifier", value: "engineering" },
-      },
-      { kind: "list-item", parts: ["status reads the selected Project"] },
+      part(
+        { kind: "heading", text: "Projects (1)" },
+        {
+          kind: "key-value",
+          key: "Workspace",
+          value: { kind: "identifier", value: "engineering" },
+        },
+        { kind: "list", items: [["status reads the selected Project"]] },
+      ),
     ],
     redirected,
   );
@@ -63,12 +68,14 @@ test("renders heading, key-value, identifier, and list-item nodes as distinct li
 
 test("styles a notice by its severity rather than as a heading", () => {
   const document = [
-    { kind: "heading" as const, text: "Projects (1)" },
-    {
-      kind: "notice" as const,
-      severity: "error" as const,
-      nodes: [{ kind: "prose" as const, parts: ["2 Blockers"] }],
-    },
+    part(
+      { kind: "heading" as const, text: "Projects (1)" },
+      {
+        kind: "notice" as const,
+        severity: "error" as const,
+        nodes: [{ kind: "prose" as const, parts: ["2 Blockers"] }],
+      },
+    ),
   ];
 
   const colored = renderPresentationDocument(document, {
@@ -150,12 +157,15 @@ test("renders actionable guidance in the default color with commands in the acce
     rows: undefined,
   });
   const lines = colored.split("\n");
+  // The why line stays beside the headline inside the notice part; the
+  // what-to-type run follows after one blank line (US-001).
   expect(lines[0]).toBe("\u001b[31m✖ apkit: Profile 'codng' was not found\u001b[0m");
   expect(lines[1]).toBe("Available Profiles: coding, writing");
   expect(lines[1]).not.toMatch(/\u001b\[2m/);
   expect(lines[1]).not.toMatch(/\u001b\[31m/);
-  expect(lines[2]).toContain("\u001b[36mapkit list profiles\u001b[0m");
-  expect(lines[2]).not.toMatch(/\u001b\[2m/);
+  expect(lines[2]).toBe("");
+  expect(lines[3]).toContain("\u001b[36mapkit list profiles\u001b[0m");
+  expect(lines[3]).not.toMatch(/\u001b\[2m/);
   expect(colored).not.toContain("Did you mean");
 });
 
@@ -578,12 +588,12 @@ test("fail-closed manual-recovery prose is actionable default colour (ORCH-1)", 
 test("moves trailing sentence punctuation off a promoted command line", () => {
   const text = renderPresentationDocument(
     [{
-      kind: "list-item",
-      parts: [
+      kind: "list" as const,
+      items: [[
         "Run ",
         commandPart("apkit", [arg("update"), { kind: "path", canonicalPath: "/projects/alpha/with/a/long/copyable/path", scope: "fleet" }]),
         ".",
-      ],
+      ]],
     }],
     { color: false, interactive: false, width: 40, rows: undefined },
   );
@@ -668,12 +678,15 @@ test("renders a diagnostic document as what happened, why, and what to type", ()
     { color: false, interactive: false, width: 80 , rows: undefined },
   );
   const lines = text.split("\n");
-  // Structural shape, not unstructured string: happened in notice, then
-  // whatToType lines, and usage last as one whole command line.
+  // Structural shape, not unstructured string: the notice states what
+  // happened as one part, the what-to-type run is its own part, and the
+  // usage reference is its own part — one blank line between each (US-001).
   expect(lines[0]).toBe("✖ apkit: something failed");
-  expect(lines[1]).toBe("Run apkit first-recovery to recover.");
-  expect(lines[2]).toBe("Run apkit second-recovery as an alternative.");
-  expect(lines[3]).toBe("Usage: apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]");
+  expect(lines[1]).toBe("");
+  expect(lines[2]).toBe("Run apkit first-recovery to recover.");
+  expect(lines[3]).toBe("Run apkit second-recovery as an alternative.");
+  expect(lines[4]).toBe("");
+  expect(lines[5]).toBe("Usage: apkit status [project | --all] [--stale | --blocked] [--verbose] [--json]");
 });
 
 test("renders diagnostic cause lines after what happened and before what to type", () => {
@@ -807,7 +820,7 @@ test("footerNodes carries one action list with an optional secondary details rou
   const both = renderPresentationDocument(
     [
       { kind: "prose", parts: ["Body."] },
-      ...footerNodes({ next: { kind: "command", value: command("status") }, details: command("details") }),
+      footerNodes({ next: { kind: "command", value: command("status") }, details: command("details") }),
     ],
     redirected,
   );
@@ -818,7 +831,7 @@ test("footerNodes carries one action list with an optional secondary details rou
   const actions = renderPresentationDocument(
     [
       { kind: "prose", parts: ["Body."] },
-      ...footerNodes({
+      footerNodes({
         next: { kind: "actions", items: [["Run ", command("update"), " again."]] },
         details: command("details"),
       }),
@@ -832,13 +845,13 @@ test("footerNodes carries one action list with an optional secondary details rou
   const detailsOnly = renderPresentationDocument(
     [
       { kind: "prose", parts: ["Body."] },
-      ...footerNodes({ details: command("details") }),
+      footerNodes({ details: command("details") }),
     ],
     redirected,
   );
   expect(detailsOnly).toBe("Body.\n\nDetails: apkit details");
 
-  expect(footerNodes({})).toEqual([]);
+  expect(footerNodes({})).toEqual({ kind: "part", nodes: [] });
 });
 
 test("neutralStatementDocument is one statement without an apkit: prefix", () => {
@@ -881,8 +894,8 @@ test("keeps the details route on a no-op report that carries warnings", () => {
   const document = [
     ...neutralStatementDocument(["All Projects were already current."]),
     {
-      kind: "list-item" as const,
-      parts: ["Grok inspect --json output is not valid JSON."],
+      kind: "list" as const,
+      items: [["Grok inspect --json output is not valid JSON."]],
       category: "warning" as const,
     },
   ];
@@ -981,7 +994,7 @@ test("attaches the details route to an existing Next footer as one block", () =>
   const context = terminalPresentationContext(stream);
   const document = [
     { kind: "prose" as const, parts: ["Report."] },
-    ...footerNodes({
+    footerNodes({
       next: {
         kind: "command",
         value: { kind: "command", program: "apkit", args: [arg("status")] },
@@ -1064,8 +1077,8 @@ test("wraps an inline identity at segment boundaries", () => {
   const identity = "group-b/nested-nested-nested/app";
   const text = renderPresentationDocument(
     [{
-      kind: "list-item",
-      parts: [{ kind: "path", canonicalPath: "/tmp/places/app", scope: "fleet", identity }],
+      kind: "list",
+      items: [[{ kind: "path", canonicalPath: "/tmp/places/app", scope: "fleet", identity }]],
     }],
     { color: false, interactive: true, width: 20, rows: undefined },
   );
@@ -1310,17 +1323,19 @@ test("history rows pack into compact labeled records at 60 columns", () => {
 
 test("separates screen parts with exactly one blank line and keeps headline with its facts", () => {
   const document = [
-    stateHeadline(["Installed for /tmp/project"], "success"),
-    {
-      kind: "key-value" as const,
-      key: "  Profile",
-      value: { kind: "identifier" as const, value: "engineering" },
-    },
-    {
-      kind: "key-value" as const,
-      key: "  Agents",
-      value: { kind: "identifier" as const, value: "codex" },
-    },
+    part(
+      stateHeadline(["Installed for /tmp/project"], "success"),
+      {
+        kind: "key-value" as const,
+        key: "  Profile",
+        value: { kind: "identifier" as const, value: "engineering" },
+      },
+      {
+        kind: "key-value" as const,
+        key: "  Agents",
+        value: { kind: "identifier" as const, value: "codex" },
+      },
+    ),
     {
       kind: "prose" as const,
       parts: ["Note: Context is autoloaded by agents."],
@@ -1329,11 +1344,10 @@ test("separates screen parts with exactly one blank line and keeps headline with
       kind: "prose" as const,
       parts: ["Optional check: start a new Codex session."],
     },
-    ...footerNodes({
+    footerNodes({
       next: {
         kind: "command",
-        value: { kind: "command", program: "apkit", args: [arg("status")] },
-        note: "see installed profiles and projects",
+        value: notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "see installed profiles and projects"),
       },
       details: { kind: "command", program: "apkit", args: [arg("details")] },
     }),
@@ -1380,21 +1394,19 @@ test("makes two blank lines in a row impossible by construction even with spacer
 });
 
 test("renders next-step command with note on one line at 100 columns and copyable at 60 columns", () => {
-  const longNoteCommand = {
-    kind: "command" as const,
-    program: "apkit",
-    args: [arg("install"), arg("engineering")],
-    note: "run it inside a Project folder",
-  };
+  const longNoteCommand = notedCommand(
+    { kind: "command", program: "apkit", args: [arg("install"), arg("engineering")] },
+    "run it inside a Project folder",
+  );
 
   const wide = renderPresentationDocument(
-    footerNodes({ next: { kind: "command", value: longNoteCommand } }),
+    [footerNodes({ next: { kind: "command", value: longNoteCommand } })],
     { color: false, interactive: false, width: 100, rows: undefined },
   );
   expect(wide).toBe("Next: apkit install engineering (run it inside a Project folder)");
 
   const narrow = renderPresentationDocument(
-    footerNodes({ next: { kind: "command", value: longNoteCommand } }),
+    [footerNodes({ next: { kind: "command", value: longNoteCommand } })],
     { color: false, interactive: false, width: 60, rows: undefined },
   );
   const narrowLines = narrow.split("\n");
@@ -1405,33 +1417,52 @@ test("renders next-step command with note on one line at 100 columns and copyabl
   expect(narrowLines[1]!.length).toBeLessThanOrEqual(60);
 });
 
-test("ListNode renders bullets when items > 2 and omits bullets when items <= 2", () => {
-  const threeItems: ListNode = {
-    kind: "list",
-    items: [["first"], ["second"], ["third"]],
-  };
+test("a list part renders every item as a bullet; state categories keep their glyph", () => {
+  // More than two items: the shared rule makes the list the obvious authoring
+  // shape (US-001, review rule 4), and the renderer owns the bullets.
+  const threeItems = list([["first"], ["second"], ["third"]]);
   const renderedThree = renderPresentationDocument([threeItems], redirected);
   expect(renderedThree).toBe("- first\n- second\n- third");
 
-  const twoItems: ListNode = {
-    kind: "list",
-    items: [["first"], ["second"]],
-  };
+  // A two-item part authored as a list keeps its bullets (review screen 01).
+  const twoItems = list([["apkit init <path>"], ["apkit init ."]]);
   const renderedTwo = renderPresentationDocument([twoItems], redirected);
-  expect(renderedTwo).toBe("first\nsecond");
+  expect(renderedTwo).toBe("- apkit init <path>\n- apkit init .");
 
-  const oneItem: ListNode = {
-    kind: "list",
-    items: [["single item"]],
-  };
-  const renderedOne = renderPresentationDocument([oneItem], redirected);
-  expect(renderedOne).toBe("single item");
-
-  const stateList: ListNode = {
-    kind: "list",
-    items: [["first warning"], ["second warning"]],
-    category: "warning",
-  };
+  const stateList = list([["first warning"], ["second warning"]], "warning");
   const renderedState = renderPresentationDocument([stateList], redirected);
   expect(renderedState).toBe("⚠ first warning\n⚠ second warning");
+});
+
+test("the one next-step note home: one normalization point, display-only (DEC-004)", () => {
+  // The note is attached to the command through the one converter and
+  // normalizes surrounding whitespace.
+  expect(
+    notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "  see installed Profiles  "),
+  ).toEqual({
+    kind: "command",
+    program: "apkit",
+    args: [arg("status")],
+    note: "see installed Profiles",
+  });
+  // An empty note carries no note field at all.
+  expect(notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "   ")).toEqual({
+    kind: "command",
+    program: "apkit",
+    args: [arg("status")],
+  });
+
+  // Display: the human render carries the note.
+  const noted = footerNodes({
+    next: { kind: "command", value: notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "see installed Profiles") },
+  });
+  expect(renderPresentationDocument([noted], redirected)).toBe("Next: apkit status (see installed Profiles)");
+
+  // Machine: notes are display-only (DEC-004, INT-3). The inline command part
+  // — the only command model machine projections consume (warning and blocker
+  // messages) — carries no note at all, and the document command's flat
+  // projection excludes the note.
+  const notedCommandNode = notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "see installed Profiles");
+  expect(flatInlineText([{ kind: "command" as const, program: "apkit", args: [arg("status")] } as InlineContent])).toBe("apkit status");
+  expect(flatInlineText([notedCommandNode as unknown as InlineContent])).toBe("apkit status");
 });

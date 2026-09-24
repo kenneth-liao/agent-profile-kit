@@ -117,12 +117,10 @@ export type KeyValueNode = {
   readonly category?: SemanticCategory;
 };
 
-export type ListItemNode = {
-  readonly kind: "list-item";
-  readonly parts: readonly InlineContent[];
-  readonly category?: SemanticCategory;
-};
-
+/** One list part: every item renders as a bullet (US-001, review rule 4).
+ * A screen part with more than two items is authored as a list, so the
+ * renderer — one reader, not N screens — owns the bullet shape; state
+ * categories keep their DEC-001 glyph bullets, everything else renders `- `. */
 export type ListNode = {
   readonly kind: "list";
   readonly items: readonly (readonly InlineContent[])[];
@@ -156,6 +154,18 @@ export type VerbatimNode = {
   readonly text: string;
 };
 
+/**
+ * One screen part authored explicitly (US-001, DEC-002): the document model
+ * states its parts, so a builder groups the nodes that belong together — a
+ * headline with its facts, a heading with its list, two adjacent sentences —
+ * instead of the renderer guessing. The renderer joins parts with exactly one
+ * blank line; a part never carries leading or trailing blanks.
+ */
+export type PartNode = {
+  readonly kind: "part";
+  readonly nodes: readonly PresentationNode[];
+};
+
 export type PresentationNode =
   | ProseNode
   | SentenceNode
@@ -164,11 +174,11 @@ export type PresentationNode =
   | PathNode
   | CommandNode
   | KeyValueNode
-  | ListItemNode
   | ListNode
   | NoticeNode
   | RowNode
   | ColumnGroupNode
+  | PartNode
   | VerbatimNode;
 
 export type PresentationDocument = readonly PresentationNode[];
@@ -208,12 +218,49 @@ export function neutralStatementDocument(
   return [stateHeadline(parts, "neutral")];
 }
 
+/**
+ * One screen part authored explicitly (US-001, DEC-002): the obvious way to
+ * write "these nodes belong together". The renderer joins parts with exactly
+ * one blank line, so a headline keeps its facts and two adjacent sentences
+ * share one part only when the screen says so here.
+ */
+export function part(...nodes: readonly PresentationNode[]): PartNode {
+  return { kind: "part", nodes };
+}
+
+/**
+ * One list part (US-001, review rule 4): the one list constructor. Author a
+ * list when a screen part has more than two items; every item renders as a
+ * bullet — the state category's DEC-001 glyph, or `- ` otherwise.
+ */
+export function list(
+  items: readonly (readonly InlineContent[])[],
+  category?: SemanticCategory,
+): ListNode {
+  return category === undefined ? { kind: "list", items } : { kind: "list", items, category };
+}
+
+/**
+ * The one home for a next-step note (US-001, review rule 6): the note is
+ * display-only, attached to the command it describes, and rendered as
+ * `<command> (<note>)` with the command staying copyable at any width. This
+ * converter is the one normalization point; notes never live anywhere else.
+ */
+export function notedCommand(command: CommandNode, note: string): CommandNode {
+  const normalized = note.trim();
+  if (normalized.length === 0) {
+    return command.category === undefined
+      ? { kind: "command", program: command.program, args: command.args }
+      : { kind: "command", program: command.program, args: command.args, category: command.category };
+  }
+  return { ...command, note: normalized };
+}
+
 /** The one footer action list (US-010): a single command, or explicit items. */
 export type FooterNext =
   | {
       readonly kind: "command";
       readonly value: CommandNode;
-      readonly note?: string;
     }
   | {
       readonly kind: "actions";
@@ -224,12 +271,13 @@ export type FooterNext =
  * The one shared footer block (US-010, DEC-002): at most one action list,
  * with an optional secondary details route in the same block. Next actions
  * never split between body guidance and this footer; failure remedies stay in
- * the failure body as recovery evidence.
+ * the failure body as recovery evidence. The footer is one screen part: the
+ * renderer separates it from the body with exactly one blank line.
  */
 export function footerNodes(input: {
   readonly next?: FooterNext;
   readonly details?: CommandNode;
-}): PresentationNode[] {
+}): PartNode {
   const nextNodes: PresentationNode[] =
     input.next === undefined
       ? []
@@ -237,17 +285,12 @@ export function footerNodes(input: {
         ? [{
             kind: "key-value" as const,
             key: "Next",
-            value: input.next.note !== undefined && input.next.value.note === undefined
-              ? { ...input.next.value, note: input.next.note }
-              : input.next.value,
+            value: input.next.value,
             category: "command" as const,
           }]
         : [
             { kind: "heading" as const, text: "Next:" },
-            ...input.next.items.map((parts): PresentationNode => ({
-              kind: "list-item" as const,
-              parts,
-            })),
+            list(input.next.items),
           ];
   const detailsNodes: PresentationNode[] =
     input.details === undefined
@@ -258,12 +301,8 @@ export function footerNodes(input: {
           value: input.details,
           category: "command" as const,
         }];
-  if (nextNodes.length === 0 && detailsNodes.length === 0) return [];
-  return [
-    { kind: "verbatim", text: "" },
-    ...nextNodes,
-    ...detailsNodes,
-  ];
+  if (nextNodes.length === 0 && detailsNodes.length === 0) return part();
+  return part(...nextNodes, ...detailsNodes);
 }
 
 function prependStateGlyph(node: PresentationNode, role: StateRole): PresentationNode {
@@ -271,7 +310,6 @@ function prependStateGlyph(node: PresentationNode, role: StateRole): Presentatio
   switch (node.kind) {
     case "prose":
     case "sentence":
-    case "list-item":
       return { ...node, parts: [prefix, ...node.parts] };
     case "list":
       return {
@@ -293,12 +331,18 @@ function prependStateGlyph(node: PresentationNode, role: StateRole): Presentatio
   }
 }
 
+/**
+ * The one flat document projection: the text form machine-relevant consumers
+ * read. Notes are display-only (DEC-004) and never appear here, so a noted
+ * command projects exactly like the same command without one.
+ */
 function flatNodeText(node: PresentationNode): string {
   switch (node.kind) {
     case "prose":
     case "sentence":
-    case "list-item":
       return flatInlineText(node.parts);
+    case "part":
+      return node.nodes.map(flatNodeText).join("\n");
     case "list":
       return node.items.map((item) => flatInlineText(item)).join("\n");
     case "heading":
@@ -307,12 +351,12 @@ function flatNodeText(node: PresentationNode): string {
       return node.value;
     case "path":
       return node.identity ?? node.authoredPath ?? node.canonicalPath;
-    case "command": {
-      const base = [node.program, ...node.args.map((arg) =>
+    case "command":
+      // The note is display-only: the flat projection that machine surfaces
+      // consume excludes it, so JSON stays byte-identical (INT-3, PROD-1).
+      return [node.program, ...node.args.map((arg) =>
         arg.kind === "text" ? arg.value : arg.authoredPath ?? arg.canonicalPath
       )].join(" ");
-      return node.note !== undefined ? `${base} (${node.note})` : base;
-    }
     case "key-value":
       return `${node.key}: ${flatNodeText(node.value)}`;
     case "notice":
@@ -390,335 +434,72 @@ function isSpacerNode(node: PresentationNode): boolean {
   return node.kind === "verbatim" && node.text.trim().length === 0;
 }
 
-function isStateHeadlineNode(node: PresentationNode): boolean {
-  if (node.kind === "sentence" || node.kind === "prose") {
-    if (node.category !== undefined && STATE_ROLES.includes(node.category as StateRole)) {
-      return true;
-    }
-    const firstPart = node.parts[0];
-    if (typeof firstPart === "string") {
-      return STATE_ROLES.some((role) => firstPart.startsWith(stateHeadlinePrefix(role)));
-    }
-  }
-  return false;
-}
-
-function isFooterNode(node: PresentationNode): boolean {
-  if (node.kind === "key-value" && (node.key === "Next" || node.key === "Details")) {
-    return true;
-  }
-  if (node.kind === "heading" && node.text === "Next:") {
-    return true;
-  }
-  return false;
-}
-
 /**
- * One authored continuation line: a sentence or prose whose text opens
- * indented (help entries, fact lines under a headline) or with an inline
- * bullet dash. Continuation lines belong to the part they follow — they are
- * the facts of a headline, the entries of a menu, or the items of a list —
- * so the renderer never separates them from their anchor with a blank line.
- */
-function isContinuationTextNode(node: PresentationNode): boolean {
-  if (node.kind !== "sentence" && node.kind !== "prose") return false;
-  const text = flatInlineText(node.parts);
-  return text.startsWith("  ") || text.startsWith("- ");
-}
-
-/**
- * A state headline's own facts (plan for #674, review screen 04): keyed
- * facts, indented continuations, inline bullets, and the setup receipt's
- * added-parts sentence. A blank line never splits a headline from its facts.
- */
-function isHeadlineFactNode(node: PresentationNode): boolean {
-  if (node.kind === "key-value" && !isFooterNode(node)) return true;
-  if (isContinuationTextNode(node)) return true;
-  if (node.kind === "sentence") {
-    return flatInlineText(node.parts).startsWith("Added ");
-  }
-  return false;
-}
-
-function isIntroducingNode(node: PresentationNode): boolean {
-  if (node.kind === "heading") {
-    return node.text.trimEnd().endsWith(":");
-  }
-  if (node.kind === "sentence" || node.kind === "prose") {
-    const text = flatInlineText(node.parts).trimEnd();
-    return text.endsWith(":");
-  }
-  return false;
-}
-
-/**
- * Split a document into its screen parts (US-001, DEC-002): blank-line
- * grouping is a rule of the shared layer, so the renderer — one reader, not
- * every screen — decides which nodes form one part. Authoring marks the
- * unambiguous boundaries with spacer nodes; everything else groups by node
- * structure: a headline keeps its facts, a heading or introduction keeps its
- * list, and an indented or bulleted line is a continuation of the part it
- * follows. renderPresentationDocument joins the parts with exactly one blank
- * line, so a document cannot represent two blank lines in a row: spacers
- * become part boundaries and parts never carry leading or trailing blanks.
+ * Split a document into its screen parts (US-001, DEC-002): the renderer —
+ * one reader, not every screen — joins the parts with exactly one blank
+ * line. The model states its parts; no content is inspected:
+ *
+ * - an authored {@link part} node is one screen part, exactly as the screen
+ *   says;
+ * - a spacer node is a part boundary — the mechanical conversion for
+ *   documents authored before explicit parts;
+ * - a list node is one part (its items render as bullets);
+ * - consecutive rows and verbatim blocks keep their structural runs (a table
+ *   and authored verbatim blocks are never split by a blank line);
+ * - every other loose node is a part of one node.
  */
 function partitionDocument(
   document: PresentationDocument,
 ): readonly (readonly PresentationNode[])[] {
   const parts: PresentationNode[][] = [];
-  let currentPart: PresentationNode[] = [];
-  const flush = (): void => {
-    if (currentPart.length > 0) {
-      parts.push(currentPart);
-      currentPart = [];
-    }
+  let index = 0;
+  const push = (nodes: readonly PresentationNode[]): void => {
+    if (nodes.length > 0) parts.push([...nodes]);
   };
 
-  let index = 0;
   while (index < document.length) {
     const node = document[index]!;
     if (isSpacerNode(node)) {
-      flush();
       index += 1;
       continue;
     }
-
-    if (isFooterNode(node)) {
-      flush();
-      currentPart.push(node);
+    if (node.kind === "part") {
+      push(node.nodes);
       index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isSpacerNode(next)) {
-          index += 1;
-          continue;
-        }
-        if (next.kind === "key-value" && next.key === "Details") {
-          currentPart.push(next);
-          index += 1;
-          continue;
-        }
-        if (
-          currentPart.some((n) => n.kind === "heading" && n.text === "Next:") &&
-          (next.kind === "list-item" || next.kind === "list" || isContinuationTextNode(next))
-        ) {
-          currentPart.push(next);
-          index += 1;
-          continue;
-        }
-        break;
-      }
-      flush();
       continue;
     }
-
-    if (isStateHeadlineNode(node)) {
-      flush();
-      currentPart.push(node);
+    if (node.kind === "list") {
+      push([node]);
       index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isHeadlineFactNode(next)) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
       continue;
     }
-
-    if (node.kind === "notice") {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isSpacerNode(next)) {
-          break;
-        }
-        // The notice keeps its facts beside its headline (plan for #674):
-        // usage lines and keyed facts like Time, Scope, and Outcome.
-        if (
-          next.kind === "sentence" ||
-          (next.kind === "key-value" && !isFooterNode(next))
-        ) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (node.kind === "heading") {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isSpacerNode(next)) {
-          break;
-        }
-        if (
-          next.kind === "key-value" && !isFooterNode(next) ||
-          next.kind === "list-item" ||
-          next.kind === "list" ||
-          next.kind === "row" ||
-          next.kind === "notice" ||
-          next.kind === "sentence" ||
-          next.kind === "prose"
-        ) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (isIntroducingNode(node)) {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isSpacerNode(next)) {
-          break;
-        }
-        if (
-          next.kind === "list-item" ||
-          next.kind === "list" ||
-          next.kind === "row" ||
-          isContinuationTextNode(next)
-        ) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (isContinuationTextNode(node)) {
-      // An unanchored continuation line opens a part that keeps the rest of
-      // its run (machine help entries, indented command + summary pairs).
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (isContinuationTextNode(next)) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
     if (node.kind === "row") {
-      flush();
-      currentPart.push(node);
+      const run: PresentationNode[] = [node];
       index += 1;
       while (index < document.length) {
         const next = document[index]!;
-        if (next.kind === "row") {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (node.kind === "list" || node.kind === "list-item") {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (next.kind === "list-item") {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (node.kind === "key-value") {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (next.kind === "key-value" && !isFooterNode(next)) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (node.kind === "verbatim") {
-      flush();
-      currentPart.push(node);
-      index += 1;
-      while (index < document.length) {
-        const next = document[index]!;
-        if (next.kind === "verbatim" && !isSpacerNode(next)) {
-          currentPart.push(next);
-          index += 1;
-        } else {
-          break;
-        }
-      }
-      flush();
-      continue;
-    }
-
-    if (node.kind === "column-group") {
-      flush();
-      parts.push([node]);
-      index += 1;
-      continue;
-    }
-
-    // One standalone idea (sentence, prose): its own part, keeping any
-    // indented or bulleted lines authored after it as continuations.
-    flush();
-    currentPart.push(node);
-    index += 1;
-    while (index < document.length) {
-      const next = document[index]!;
-      if (isContinuationTextNode(next)) {
-        currentPart.push(next);
+        if (next.kind !== "row") break;
+        run.push(next);
         index += 1;
-      } else {
-        break;
       }
+      push(run);
+      continue;
     }
-    flush();
+    if (node.kind === "verbatim") {
+      const run: PresentationNode[] = [node];
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind !== "verbatim" || isSpacerNode(next)) break;
+        run.push(next);
+        index += 1;
+      }
+      push(run);
+      continue;
+    }
+    push([node]);
+    index += 1;
   }
-
-  flush();
   return parts;
 }
 
@@ -865,16 +646,19 @@ function renderNode(
       );
     }
     case "list": {
+      // The one list rule (US-001): every item renders as a bullet — the
+      // state category's DEC-001 glyph, or `- ` otherwise. A part with more
+      // than two items is authored as a list, so the renderer owns the
+      // bullet shape and no screen calls a helper.
       const category = node.category ?? inheritedCategory;
-      const isState = category !== undefined && STATE_ROLES.includes(category as StateRole);
-      const useBullets = isState || node.items.length > 2;
-      const bullet = isState ? stateHeadlinePrefix(category as StateRole) : "- ";
+      const bullet = category !== undefined && STATE_ROLES.includes(category as StateRole)
+        ? stateHeadlinePrefix(category as StateRole)
+        : "- ";
       const lines: string[] = [];
       for (const item of node.items) {
-        const parts = useBullets ? [bullet, ...item] : item;
         lines.push(
           ...wrapInlineNode(
-            parts,
+            [bullet, ...item],
             environment,
             "lifecycle",
             category,
@@ -883,19 +667,8 @@ function renderNode(
       }
       return lines;
     }
-    case "list-item": {
-      const category = node.category ?? inheritedCategory;
-      // A state list item opens with its DEC-001 glyph instead of a dash.
-      const bullet = category !== undefined && STATE_ROLES.includes(category as StateRole)
-        ? stateHeadlinePrefix(category as StateRole)
-        : "- ";
-      return wrapInlineNode(
-        [bullet, ...node.parts],
-        environment,
-        "lifecycle",
-        category,
-      );
-    }
+    case "part":
+      return renderNodes(node.nodes, environment, inheritedCategory);
     case "notice": {
       const role = NOTICE_ROLE[node.severity];
       const [headline, ...body] = node.nodes;

@@ -158,13 +158,16 @@ describe("Host capability probing", () => {
       schemaVersion: 9,
     });
     const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
-    const warningItem = (document as PresentationNode[]).find(
-      (node): node is Extract<PresentationNode, { readonly kind: "list-item" }> =>
-        node.kind === "list-item" &&
-        node.parts.some((part) => typeof part === "object" && "kind" in part && part.kind === "identifier" && part.value === ".agents"),
-    );
+    const visit = (nodes: readonly PresentationNode[]): readonly PresentationNode[] =>
+      nodes.flatMap((node) =>
+        node.kind === "part" ? visit(node.nodes) : node.kind === "notice" ? visit(node.nodes) : [node]);
+    const warningItem = visit(document)
+      .flatMap((node) => node.kind === "list" ? node.items : [])
+      .find((item) =>
+        item.some((part) => typeof part === "object" && "kind" in part && part.kind === "identifier" && part.value === ".agents"),
+      );
     expect(warningItem).toBeDefined();
-    expect(warningItem?.parts).toContainEqual({
+    expect(warningItem).toContainEqual({
       kind: "identifier",
       value: ".agents",
     });

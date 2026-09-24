@@ -606,7 +606,7 @@ async function runInstallCommandWithRecording(
       // line by writeLifecycleReport. A clean unchanged install invents no
       // next action.
       if (receiptInput.outcome !== "unchanged") {
-        reportDocument.push(...footerNodes({
+        reportDocument.push(footerNodes({
           next: {
             kind: "command",
             value: {
