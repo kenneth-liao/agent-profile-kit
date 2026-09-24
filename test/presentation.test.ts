@@ -2710,11 +2710,12 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
-    // The agent prefix uses the one canonical capitalization rule (the same
-    // rule the loading check renders); only the line shape is presentation-owned.
+    // ORCH-1 (spec #677): the agent prefix reads the catalog displayName, so
+    // the agent is never spelled two ways on one line — the product casing
+    // "OpenCode:" beside the Adapter-authored message's own "OpenCode".
     expect(listItemsIn(nodes)).toEqual([
       "Start your agents from this Project folder, not a subfolder.",
-      "Opencode: Restart OpenCode to load changed configuration (A running OpenCode session keeps its previously loaded configuration until restarted).",
+      "OpenCode: Restart OpenCode to load changed configuration (A running OpenCode session keeps its previously loaded configuration until restarted).",
     ]);
   });
 

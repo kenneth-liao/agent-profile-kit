@@ -6,31 +6,37 @@
 export const HOST_CATALOG = [
   {
     adapterVersion: "antigravity-project-v2",
+    displayName: "Antigravity",
     host: "antigravity",
     supportsTemporaryProfileInstallation: false,
   },
   {
     adapterVersion: "claude-project-v1",
+    displayName: "Claude",
     host: "claude",
     supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "codex-project-v3",
+    displayName: "Codex",
     host: "codex",
     supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "grok-project-v1",
+    displayName: "Grok",
     host: "grok",
     supportsTemporaryProfileInstallation: false,
   },
   {
     adapterVersion: "opencode-project-v1",
+    displayName: "OpenCode",
     host: "opencode",
     supportsTemporaryProfileInstallation: true,
   },
   {
     adapterVersion: "pi-project-v2",
+    displayName: "Pi",
     host: "pi",
     supportsTemporaryProfileInstallation: true,
   },
@@ -50,6 +56,16 @@ export const TEMPORARY_INSTALLATION_HOSTS = HOST_CATALOG
   .map((entry) => entry.host) as readonly TemporaryInstallationHost[];
 
 const CATALOG_BY_HOST = new Map(HOST_CATALOG.map((entry) => [entry.host, entry]));
+
+/**
+ * How a user sees the agent's name in human prose (spec #677 ORCH-1): the one
+ * home per Host, so one agent is never spelled two ways on one screen (the
+ * canonical `host` id stays lowercase for commands, flags, pickers, and
+ * machine JSON). Mechanical rendering reads this; it never derives wording.
+ */
+export function hostDisplayName(host: SupportedHost): string {
+  return hostCatalogEntryFor(host).displayName;
+}
 
 export function isSupportedHost(value: unknown): value is SupportedHost {
   return typeof value === "string" && CATALOG_BY_HOST.has(value as SupportedHost);

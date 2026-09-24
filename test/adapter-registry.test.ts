@@ -7,6 +7,7 @@ import { fileTree } from "./support/file-tree.js";
 
 import { DEFAULT_ADAPTER_PLANNING_MATERIALS } from "../adapters/skill-package.js";
 
+import { HOST_CATALOG, hostDisplayName } from "../adapters/host-catalog.js";
 import {
   HOST_REGISTRY,
   SUPPORTED_HOSTS,
@@ -32,6 +33,24 @@ function temporaryDirectory(prefix: string): string {
 }
 
 describe("canonical Host registry", () => {
+  test("every Host carries one display name for human prose, while ids stay lowercase", () => {
+    // ORCH-1 (spec #677): the display name is the one home for how a user
+    // sees the agent's name — one agent never reads two ways on one screen.
+    // Ids stay lowercase for commands, flags, pickers, and machine JSON.
+    expect(HOST_CATALOG.map((entry) => [entry.host, entry.displayName])).toEqual([
+      ["antigravity", "Antigravity"],
+      ["claude", "Claude"],
+      ["codex", "Codex"],
+      ["grok", "Grok"],
+      ["opencode", "OpenCode"],
+      ["pi", "Pi"],
+    ]);
+    for (const entry of HOST_CATALOG) {
+      expect(entry.host).not.toBe(entry.displayName);
+      expect(entry.displayName.length).toBeGreaterThan(0);
+    }
+  });
+
   test("owns supported Host order, lookup, Adapter versions, temporary eligibility, and inventory metadata", () => {
     expect(SUPPORTED_HOSTS).toEqual([
       "antigravity",

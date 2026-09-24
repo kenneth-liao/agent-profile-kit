@@ -72,7 +72,7 @@ import {
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
-import type { SupportedHost } from "../adapters/host-catalog.js";
+import { hostDisplayName, type SupportedHost } from "../adapters/host-catalog.js";
 import type { ChangedOutputComparison } from "../installer/changed-output-review.js";
 import {
   changedOutputDiscard,
@@ -3805,12 +3805,12 @@ function readinessNodes(
 function firstDeliveryHosts(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
-): readonly string[] {
+): readonly SupportedHost[] {
   const changedProjects = new Set(statusAffectedProjects(receipt));
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
-  const newlyDelivering: string[] = [];
+  const newlyDelivering: SupportedHost[] = [];
   for (const record of changed) {
     const changeProject = receipt.projects.find((candidate) =>
       candidate.canonicalProject === record.canonicalProject
@@ -3846,7 +3846,7 @@ const START_FOLDER_GUIDANCE =
  * standard load reason lives once in the section heading, so per-step
  * standard consequences are dropped here; non-standard consequences stay in
  * parentheses because they carry a fact the heading does not. */
-function perAgentSetupLine(host: string, steps: readonly HostSetupStep[]): string {
+function perAgentSetupLine(host: SupportedHost, steps: readonly HostSetupStep[]): string {
   const actions = steps.map((step) => {
     const base = step.message.replace(/[:.]\s*$/, "");
     const consequence =
@@ -3855,7 +3855,7 @@ function perAgentSetupLine(host: string, steps: readonly HostSetupStep[]): strin
         : step.consequence.replace(/[.:]+$/, "");
     return consequence === undefined ? base : `${base} (${consequence})`;
   });
-  return `${capitalize(host)}: ${actions.join("; ")}.`;
+  return `${hostDisplayName(host)}: ${actions.join("; ")}.`;
 }
 
 /**
@@ -3880,7 +3880,7 @@ export function installSetupGuidanceNodes(
   const startFolder = firstDeliveryHosts(report, receipt).length > 0;
   if (!startFolder && presented.length === 0) return [];
   // One line per agent, in canonical Host order over the presented steps.
-  const byHost = new Map<string, HostSetupStep[]>();
+  const byHost = new Map<SupportedHost, HostSetupStep[]>();
   for (const item of presented) {
     const steps = byHost.get(item.step.host) ?? [];
     if (steps.length === 0) byHost.set(item.step.host, steps);
@@ -3924,7 +3924,7 @@ export function hostLoadingVerificationNodes(
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
-  const hostNames = hosts.map((host) => capitalize(host));
+  const hostNames = hosts.map((host) => hostDisplayName(host));
   const hostList = hostNames.length === 1
     ? hostNames[0]
     : hostNames.length === 2
@@ -6087,7 +6087,8 @@ export interface TemporaryInstallationReceiptView {
   readonly adapterVersion?: string;
   readonly completionState: "installed" | "removed";
   readonly engineVersion?: string;
-  readonly host?: string;
+  /** A supported Host id; human prose renders its catalog display name. */
+  readonly host?: SupportedHost;
   readonly hostVersion?: string;
   readonly outputs: readonly string[];
   readonly profileId?: string;
@@ -6215,7 +6216,7 @@ export function temporaryInstallationDocument(
     ];
     if (receipt.setupSteps.length > 0) {
       const section: PresentationNode[] = [
-        { kind: "heading", text: `${capitalize(receipt.host!)} setup:` },
+        { kind: "heading", text: `${hostDisplayName(receipt.host!)} setup:` },
       ];
       for (const step of [...receipt.setupSteps].sort((left, right) =>
         HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
