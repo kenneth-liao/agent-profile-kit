@@ -251,28 +251,20 @@ export function createdProfileInstallRouting(profile: string): ReturnType<typeof
 
 /**
  * The Profile-creation next action for a Workspace with zero Profiles
- * (spec #640 US-002, DEC-005): the handoff comes from the resulting content.
- * With no Context Module the chain starts by authoring one; with existing
- * Context it is only the Profile command, and no existing Context is named.
+ * (spec #640 US-002, spec #672 DEC-003, #676): with zero Profiles,
+ * the next step is guided Profile creation.
  * One home so help and receipts cannot route differently.
  */
-export function newProfileCreationCommands(
-  hasContexts: boolean,
-): readonly (readonly InlineContent[])[] {
-  return hasContexts
-    ? [[invocation("new", "profile", "<name>", "--context", "<context>")]]
-    : [
-        [invocation("new", "context", "<context>")],
-        [invocation("new", "profile", "<name>", "--context", "<context>")],
-      ];
+export function newProfileCreationCommands(): readonly (readonly InlineContent[])[] {
+  return [[notedCommand(invocation("new", "profile"), "create your first Profile, step by step")]];
 }
 
 /**
  * The install next action after setup when Profiles already exist (spec
- * #640 US-002): names no Profile — the user chooses in the picker.
+ * #640 US-002, spec #672, #676): points to running install inside a Project folder.
  */
-export function guidedInstallRouting(): ReturnType<typeof invocation> {
-  return invocation("install");
+export function guidedInstallRouting(): ReturnType<typeof notedCommand> {
+  return notedCommand(invocation("install"), "run it inside a Project folder");
 }
 
 /**
@@ -311,6 +303,7 @@ import {
   type InlineContent,
 } from "./inline-content.js";
 import {
+  notedCommand,
   part,
   type PresentationDocument,
   type PresentationNode,

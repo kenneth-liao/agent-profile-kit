@@ -246,12 +246,15 @@ export function list(
  * `<command> (<note>)` with the command staying copyable at any width. This
  * converter is the one normalization point; notes never live anywhere else.
  */
-export function notedCommand(command: CommandNode, note: string): CommandNode {
+export function notedCommand(command: CommandNode, note: string): CommandNode;
+export function notedCommand(command: CommandPart, note: string): CommandPart;
+export function notedCommand(
+  command: CommandNode | CommandPart,
+  note: string,
+): CommandNode | CommandPart {
   const normalized = note.trim();
   if (normalized.length === 0) {
-    return command.category === undefined
-      ? { kind: "command", program: command.program, args: command.args }
-      : { kind: "command", program: command.program, args: command.args, category: command.category };
+    return command;
   }
   return { ...command, note: normalized };
 }
@@ -973,9 +976,10 @@ function renderInlinePart(part: InlinePart, environment: RenderEnvironment): str
         { kind: "command", program: part.program, args: part.args },
         environment,
       );
-      // Fail closed (PROD-1): an unquotable argument never becomes raw text
-      // inside a copyable command.
-      return rendered ?? "";
+      if (rendered === undefined) return "";
+      return part.note !== undefined && part.note.length > 0
+        ? `${rendered} (${part.note})`
+        : rendered;
     }
     case "path":
       return part.identity ?? displayPath(
@@ -1146,6 +1150,35 @@ function inlineRuns(
           });
         }
         chunkStart = chunkEnd;
+      }
+      return;
+    }
+    if (part.kind === "command" && part.note !== undefined && part.note.length > 0) {
+      const noteText = `(${part.note})`;
+      const commandText = text.endsWith(` ${noteText}`)
+        ? text.slice(0, -(noteText.length + 1))
+        : text;
+      if (start + commandText.length > prefixLength) {
+        tokens.push({
+          text: start < prefixLength ? commandText.slice(prefixLength - start) : commandText,
+          atomic: true,
+          command: true,
+          glued: start > prefixLength && start > 0 && !/\s/.test(line.charAt(start - 1)),
+          glue: false,
+        });
+      }
+      const noteStart = start + commandText.length + 1;
+      for (const match of noteText.matchAll(/\S+/g)) {
+        const tokenStart = noteStart + (match.index ?? 0);
+        const tokenEnd = tokenStart + match[0].length;
+        if (tokenEnd <= prefixLength) continue;
+        tokens.push({
+          text: match[0],
+          atomic: false,
+          command: false,
+          glued: tokenStart > prefixLength && tokenStart > 0 && !/\s/.test(line.charAt(tokenStart - 1)),
+          glue: false,
+        });
       }
       return;
     }

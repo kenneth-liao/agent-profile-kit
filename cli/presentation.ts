@@ -67,7 +67,6 @@ import {
   PROJECT_EXPLANATION_SENTENCE,
   PROFILE_EXPLANATION_SENTENCE,
   WORKSPACE_EXPLANATION_SENTENCE,
-  WORKSPACE_SCOPE_EXPLANATION_SENTENCE,
 } from "./concept-explanations.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
@@ -824,32 +823,21 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
       // lines (DEC-009).
       return [
         ...prefix,
-        part(
-          {
-            kind: "notice",
-            severity: "warning",
-            nodes: [{ kind: "prose", parts: happened }],
-          },
-          {
-            kind: "prose",
-            parts: [WORKSPACE_EXPLANATION_SENTENCE],
-          },
-          {
-            kind: "prose",
-            parts: [WORKSPACE_SCOPE_EXPLANATION_SENTENCE],
-          },
-          {
-            kind: "prose",
-            parts: [PROJECT_EXPLANATION_SENTENCE],
-          },
-          {
-            kind: "prose",
-            category: "muted",
-            parts: [
-              "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
-            ],
-          },
-        ),
+        part({
+          kind: "notice",
+          severity: "warning",
+          nodes: [{ kind: "prose", parts: happened }],
+        }),
+        part({
+          kind: "prose",
+          parts: [WORKSPACE_EXPLANATION_SENTENCE],
+        }),
+        part({
+          kind: "prose",
+          parts: [
+            "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
+          ],
+        }),
         footerNodes({
           next: {
             kind: "actions",

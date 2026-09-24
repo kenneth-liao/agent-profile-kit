@@ -210,7 +210,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       expect(session.transcript()).not.toContain("Use the current folder as your Workspace?");
       // The typed (missing) folder is created by setup, as the confirmation
       // states.
-      expect(plain(session.transcript())).toContain("The folder does not exist yet; setup will create it.");
+      expect(plain(session.transcript())).toContain("This folder doesn't exist yet. Setup will create it and add:");
       await session.waitForTranscript("Set up this folder as your Workspace?");
       const confirmOffset = session.transcriptLength();
       session.write("y");
@@ -253,7 +253,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       await session.waitForTranscript("Current Workspace:");
       expect(plain(session.transcript())).toContain("Current Workspace: ~/first-workspace");
       expect(plain(session.transcript())).toContain("Requested Workspace: ~/second-workspace");
-      await session.waitForTranscript("Set up this folder as your Workspace?");
+      await session.waitForTranscript("Use this folder as your Workspace?");
       const confirmOffset = session.transcriptLength();
       session.write("y");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
@@ -295,7 +295,7 @@ describe("interactive Workspace setup under a real PTY (#603, TEST-002)", () => 
       await session.waitForTranscript("Current Workspace:");
       expect(squash(session.transcript())).toContain(squash("Current Workspace: ~/current-long-named-workspace-folder"));
       expect(squash(session.transcript())).toContain(squash("Requested Workspace: ~/requested-long-named-workspace-folder"));
-      await session.waitForTranscript("Set up this folder as your Workspace?");
+      await session.waitForTranscript("Use this folder as your Workspace?");
       const confirmOffset = session.transcriptLength();
       session.write("n");
       const { text } = await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });

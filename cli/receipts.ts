@@ -9,7 +9,7 @@ import {
   newProfileCreationCommands,
 } from "./command-help.js";
 import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
-import { displayPath } from "./display-path.js";
+import { displayPath, workspaceSubfolderDisplay } from "./display-path.js";
 import {
   commandPart,
   footerNodes,
@@ -27,10 +27,12 @@ import {
   type PresentationNode,
 } from "./presentation-document.js";
 import {
-  CONTEXT_EXPLANATION_SENTENCE,
+  PROFILE_EXPLANATION_PARAGRAPH,
   PROFILE_EXPLANATION_SENTENCE,
   WORKSPACE_EXPLANATION_SENTENCE,
   WORKSPACE_SCOPE_EXPLANATION_SENTENCE,
+  contextExplanationParagraph,
+  skillExplanationParagraph,
 } from "./concept-explanations.js";
 
 /** One carried command argument. */
@@ -142,7 +144,13 @@ export function newArtifactCreatedNodes(input: NewArtifactReceiptInput): Present
  * Screen P1): explains what a Profile needs, shows how to add material, and
  * creates nothing.
  */
-export function emptyWorkspaceProfileCreationDocument(): PresentationDocument {
+export function emptyWorkspaceProfileCreationDocument(
+  workspacePath?: string,
+  authoredPath?: string,
+): PresentationDocument {
+  const skillsFolder = workspacePath !== undefined
+    ? workspaceSubfolderDisplay(workspacePath, "skills", authoredPath)
+    : "skills/";
   const part1 = part({
     kind: "sentence",
     parts: ["A Profile needs at least one Context file or Skill, and your Workspace has none yet."],
@@ -150,10 +158,12 @@ export function emptyWorkspaceProfileCreationDocument(): PresentationDocument {
   const part2 = part(
     { kind: "sentence", parts: ["Add some first:"] },
     list([
-      ["Put skill folders in workspace/skills/"],
+      [`Put skill folders in ${skillsFolder}`],
       [
-        commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<name>")]),
-        " (create a Context file to fill in)",
+        notedCommand(
+          commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<name>")]),
+          "create a Context file to fill in",
+        ),
       ],
     ]),
   );
@@ -414,10 +424,10 @@ function orderedSetupParts(missingParts: readonly string[]): readonly string[] {
  */
 export function initConfirmationDocument(input: InitConfirmationInput): PresentationDocument {
   const workspace = initSetupPathPart(input.destinationPath, input.authoredPath);
-  const nodes: PresentationNode[] = [];
+  const part1Nodes: PresentationNode[] = [];
   if (input.currentDestinationPath !== undefined) {
     const currentWorkspace = initSetupPathPart(input.currentDestinationPath, input.currentAuthoredPath);
-    nodes.push(
+    part1Nodes.push(
       {
         kind: "sentence",
         parts: ["Current Workspace: ", currentWorkspace],
@@ -428,31 +438,32 @@ export function initConfirmationDocument(input: InitConfirmationInput): Presenta
       },
     );
   }
-  nodes.push({
+  part1Nodes.push({
     kind: "sentence",
-    parts: ["Context and Skill files will be stored in and loaded from ", workspace, "."],
+    parts: ["Context, Skills, and Profiles will be stored in and loaded from ", workspace, "."],
   });
-  if (input.folderMissing) {
-    nodes.push({
-      kind: "sentence",
-      parts: ["The folder does not exist yet; setup will create it."],
-    });
-  }
+  const part1 = part(...part1Nodes);
+
+  let part2: PresentationNode;
   if (input.missingParts.length === 0) {
-    nodes.push({
+    part2 = part({
       kind: "sentence",
-      parts: ["Nothing needs to be added — ", workspace, " already satisfies the Workspace contract."],
+      parts: ["This folder already has everything it needs."],
     });
   } else {
     const ordered = orderedSetupParts(input.missingParts);
-    const partParts: InlineContent[] = [];
-    ordered.forEach((label, index) => {
-      if (index > 0) partParts.push(index === ordered.length - 1 ? " and " : ", ");
-      partParts.push(identifierPart(label));
-    });
-    nodes.push({ kind: "sentence", parts: ["Setup will add ", ...partParts, "."] });
+    const prefix = input.folderMissing
+      ? "This folder doesn't exist yet. Setup will create it and add:"
+      : "Setup will add:";
+    part2 = part(
+      {
+        kind: "sentence",
+        parts: [prefix],
+      },
+      list(ordered.map((part) => [identifierPart(part)])),
+    );
   }
-  return nodes;
+  return [part1, part2];
 }
 
 /**
@@ -514,43 +525,21 @@ function appendMissingProfileBindings(
   nodes.push(part(...section));
 }
 
-/** The settings path when Local Configuration was written, home-relative (DEC-005). */
-function settingsPathNode(configurationPath: string): PresentationNode {
-  return {
-    kind: "key-value",
-    key: localConfiguration,
-    value: {
-      kind: "path",
-      canonicalPath: configurationPath,
-      authoredPath: displayPath(configurationPath, configurationPath, "fleet"),
-      scope: "fleet",
-    },
-    category: "path",
-  };
-}
-
-/** Only the Workspace parts this setup actually added, in presentation order. */
-function addedPartsNode(addedParts: readonly string[]): PresentationNode | undefined {
-  if (addedParts.length === 0) return undefined;
-  const ordered = orderedSetupParts([...addedParts]);
-  const partParts: InlineContent[] = [];
-  ordered.forEach((label, index) => {
-    if (index > 0) partParts.push(index === ordered.length - 1 ? " and " : ", ");
-    partParts.push(identifierPart(label));
-  });
-  return { kind: "sentence", parts: ["Added ", ...partParts, "."] };
+/**
+ * Single authority for whether a Workspace already has Profiles (US-002, spec #672 DEC-003, #676).
+ * Routes setup receipt concept explanations and next step guidance.
+ */
+export function hasProfiles(input: { readonly profileCount: number }): boolean {
+  return input.profileCount > 0;
 }
 
 /**
- * The one setup handoff footer (spec #640 US-002, DEC-005): it comes from the
- * resulting content. Zero Profiles lead to Profile creation — a Context first
- * when the Workspace has none, otherwise the Profile command alone, never
- * naming an existing Context. Existing Profiles lead to bare install, which
- * names no Profile (the user chooses in the picker). Never `apkit validate`
- * after this run's own successful validation.
+ * The one setup handoff footer (spec #640 US-002, DEC-005, spec #672 DEC-003, #676):
+ * routes from the resulting content. Zero Profiles lead to guided Profile creation;
+ * existing Profiles lead to bare install.
  */
 function setupHandoffFooter(input: InitReceiptInput): PresentationNode[] {
-  if (input.profileCount > 0) {
+  if (hasProfiles(input)) {
     return [footerNodes({
       next: { kind: "command", value: guidedInstallRouting() },
     })];
@@ -558,12 +547,12 @@ function setupHandoffFooter(input: InitReceiptInput): PresentationNode[] {
   return [footerNodes({
     next: {
       kind: "actions",
-      items: newProfileCreationCommands(input.hasContexts),
+      items: newProfileCreationCommands(),
     },
   })];
 }
 
-/** The receipt document for one `init` invocation. */
+/** The receipt document for one `init` invocation (spec #672, #676). */
 export function initReceiptDocument(input: InitReceiptInput): PresentationDocument {
   const workspace = pathPart(
     input.path,
@@ -578,46 +567,34 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     ]);
   }
   const nodes: PresentationNode[] = [];
-  // The receipt states what happened as one part: the headline keeps its
-  // keyed facts (settings when written) and its added-parts sentence.
-  const facts: PresentationNode[] = [];
-  if (input.outcome === "connected") {
-    facts.push(stateHeadline(input.folderCreated === true
-      ? [`Created the Workspace folder and connected Agent Profile Kit Workspace at `, workspace]
-      : [`Connected Agent Profile Kit Workspace at `, workspace], "success"));
-  } else if (input.outcome === "migrated") {
-    facts.push(stateHeadline([
-      `Migrated ${localConfiguration} and validated the Agent Profile Kit Workspace at `,
-      workspace,
-    ], "success"));
-  } else {
-    facts.push(stateHeadline(input.folderCreated === true
-      ? ["Created the Workspace folder and initialized Agent Profile Kit Workspace at ", workspace]
-      : ["Initialized Agent Profile Kit Workspace at ", workspace], "success"));
-  }
-  if (input.configurationWritten) {
-    facts.push(settingsPathNode(input.configurationPath));
-  }
-  const added = addedPartsNode(input.addedParts ?? []);
-  if (added !== undefined) facts.push(added);
-  nodes.push(part(...facts));
-  if (input.outcome === "created") {
-    // Concept sentences from spec #645 stay on the creation receipt (DEC-003).
+  const headline = input.outcome === "migrated"
+    ? stateHeadline(["Migrated Local Configuration and connected your Workspace at ", workspace], "success")
+    : input.outcome === "connected"
+      ? stateHeadline(["Connected your Workspace at ", workspace], "success")
+      : stateHeadline(["Created your Workspace at ", workspace], "success");
+  nodes.push(part(headline));
+
+  if (!hasProfiles(input)) {
+    const skillsFolder = workspaceSubfolderDisplay(input.path, "skills", input.authoredPath);
+    const contextFolder = workspaceSubfolderDisplay(input.path, "context", input.authoredPath);
     nodes.push(
-      { kind: "sentence", parts: [PROFILE_EXPLANATION_SENTENCE] },
-      { kind: "sentence", parts: [CONTEXT_EXPLANATION_SENTENCE] },
+      part({ kind: "prose", parts: [PROFILE_EXPLANATION_PARAGRAPH] }),
+      part({ kind: "prose", parts: [skillExplanationParagraph(skillsFolder)] }),
+      part({ kind: "prose", parts: [contextExplanationParagraph(contextFolder)] }),
     );
   }
-  if (input.outcome === "created") {
-    const detectedHosts = input.detectedHosts ?? [];
-    nodes.push({
+
+  if (input.detectedHosts !== undefined) {
+    const detectedHosts = input.detectedHosts;
+    nodes.push(part({
       kind: "sentence",
       parts:
         detectedHosts.length > 0
-          ? ["Detected agents: ", identifierPart(detectedHosts.join(", "))]
-          : ["Detected agents: none"],
-    });
+          ? ["Agents found: ", identifierPart(detectedHosts.join(", "))]
+          : ["Agents found: none"],
+    }));
   }
+
   if (input.missingProfileBindings && input.missingProfileBindings.length > 0) {
     appendMissingProfileBindings(nodes, input.missingProfileBindings);
   }

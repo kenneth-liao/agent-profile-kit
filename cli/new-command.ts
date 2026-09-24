@@ -225,7 +225,7 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
     if (availableContexts.length === 0 && availableSkills.length === 0) {
       writeHumanDocument(
         request.stdout,
-        emptyWorkspaceProfileCreationDocument(),
+        emptyWorkspaceProfileCreationDocument(workspace.path),
         stdoutContext,
       );
       return { exitCode: 0 };

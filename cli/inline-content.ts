@@ -27,11 +27,11 @@ export type TextPart = {
   readonly value: string;
 };
 
-/** One inline command invocation: atomic, never split or folded. */
 export type CommandPart = {
   readonly kind: "command";
   readonly program: string;
   readonly args: readonly CommandArg[];
+  readonly note?: string;
 };
 
 /** One inline location: atomic, rendered as its authored display string. */
@@ -66,8 +66,11 @@ export function textPart(value: string): TextPart {
 export function commandPart(
   program: string,
   args: readonly CommandArg[],
+  note?: string,
 ): CommandPart {
-  return { kind: "command", program, args };
+  return note === undefined || note.trim().length === 0
+    ? { kind: "command", program, args }
+    : { kind: "command", program, args, note: note.trim() };
 }
 
 export function pathPart(
