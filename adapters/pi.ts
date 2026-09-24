@@ -10,6 +10,7 @@ import { type ContextModuleSource } from "./context-envelope.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
@@ -211,18 +212,11 @@ async function resolvePiCliVersion(options: PiCapabilityOptions): Promise<string
     return parsePiCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "pi",
-        "host",
+        { program: "pi", args: [{ kind: "text", value: "--version" }] },
         "Pi CLI was not found on PATH",
         "install Pi and ensure `pi --version` works before checking status or updating the Profile",
-        [],
-        undefined,
-        [
-          "install Pi and ensure ",
-          commandPart("pi", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating the Profile",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

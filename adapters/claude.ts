@@ -7,6 +7,7 @@ import { type ContextModuleSource } from "./context-envelope.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
@@ -180,18 +181,11 @@ async function resolveClaudeCliVersion(
     return parseClaudeCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "claude",
-        "host",
+        { program: "claude", args: [{ kind: "text", value: "--version" }] },
         "Claude Code CLI was not found on PATH",
         "install Claude Code and ensure `claude --version` works before checking status or updating the Profile",
-        [],
-        undefined,
-        [
-          "install Claude Code and ensure ",
-          commandPart("claude", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating the Profile",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

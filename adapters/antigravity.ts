@@ -14,6 +14,7 @@ import { generatedMarkdownNotice } from "./generated-notice.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   isAdapterCapabilityError,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
@@ -158,18 +159,11 @@ async function resolveAntigravityCliVersion(
     return parseAntigravityCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "antigravity",
-        "host",
+        { program: "agy", args: [{ kind: "text", value: "--version" }] },
         "Antigravity CLI was not found on PATH",
         `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure \`agy --version\` works before checking status or updating the Profile`,
-        [],
-        undefined,
-        [
-          `install Antigravity CLI ${ANTIGRAVITY_MINIMUM_CLI_VERSION}+ and ensure `,
-          commandPart("agy", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating the Profile",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

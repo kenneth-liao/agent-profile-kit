@@ -2285,7 +2285,8 @@ describe("project-bound release candidate", () => {
     );
     expectExitCode(apply, 0);
     expect(apply.stdout).toMatch(/✔ Updated 1 Project \(\d+ files?\)/);
-    expect(humanText(apply.stdout)).toContain("Details: apkit details");
+    // D4 (US-008): a normal success prints no details route.
+    expect(humanText(apply.stdout)).not.toContain("Details:");
     const humanApply = humanText(apply.stdout);
     // US-012 (#648): this drifted update is an ordinary repeated content
     // update — the receipt proves no first delivery — so it offers no

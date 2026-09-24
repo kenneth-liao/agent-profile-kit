@@ -6,6 +6,7 @@ export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
@@ -197,18 +198,11 @@ async function resolveCodexCliVersion(
     return parseCodexCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "codex",
-        "host",
+        { program: "codex", args: [{ kind: "text", value: "--version" }] },
         "Codex CLI was not found on PATH",
         "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
-        [],
-        undefined,
-        [
-          "install Codex and ensure ",
-          commandPart("codex", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating Profiles that require Codex Host capabilities",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {

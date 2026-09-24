@@ -308,15 +308,15 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
       expect(rendered.exitCode).toBe(0);
       const renderedText = humanText(rendered.output);
       expect(renderedText).toContain("failed");
-      expect(renderedText).toContain("Failed:");
+      expect(renderedText).toContain("What went wrong:");
       expect(renderedText).not.toContain("up to date");
 
       // The compact invocation output reports the failure on the run itself:
       // what stopped, the restoration evidence, and the same-scope retry.
       const compactText = plain(uninstall.streams.errorText());
-      expect(compactText).toContain("uninstall stopped at");
+      expect(compactText).toContain("Uninstall stopped partway.");
       expect(compactText).toContain(projectPath);
-      expect(compactText).toContain("were restored where possible");
+      expect(compactText).toContain("Put back as it was, where possible");
       expect(compactText).toContain("apkit uninstall --all --auto-confirm");
       expect(compactText).not.toContain("up to date");
     } finally {
@@ -368,6 +368,7 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
         command: "uninstall",
         startedAt: Date.now(),
         finishedAt: Date.now(),
+      time: { nowMs: Date.now(), timeZone: "UTC" },
         stderr: finishStreams.stderr as Writable & { isTTY?: boolean },
       });
       expect(finished).toBe("saved");
@@ -408,7 +409,8 @@ describe("integrated completed-operation evidence across later attempts (AC2)", 
       output.on("data", (chunk: Buffer) => chunks.push(chunk));
       writeHumanDocument(output, document, terminalPresentationContext(output));
       const compactText = humanText(Buffer.concat(chunks).toString());
-      expect(compactText).toContain("Previous selection/output restore failed: injected Local Configuration fault");
+      expect(compactText).toContain("Couldn't put back:");
+      expect(compactText).toContain("injected Local Configuration fault");
       expect(compactText).toContain("uninstall --all --auto-confirm");
       expect(compactText).not.toContain("up to date");
     } finally {

@@ -583,8 +583,8 @@ describe("uninstall confirmation matrix", () => {
   });
 });
 
-describe("uninstall completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
-  test("a successful full uninstall prints the count once and the retained route", async () => {
+describe("uninstall completed-operation detail route (US-008, DEC-007, ADR-0040)", () => {
+  test("a successful full uninstall prints the count once and omits the details route (D4)", async () => {
     const { home, first, firstOutput } = await setupInstalledPair();
 
     const result = await runUninstall(
@@ -597,7 +597,7 @@ describe("uninstall completed-operation detail route (US-011, DEC-007, ADR-0040)
     expect(existsSync(firstOutput)).toBe(false);
     const text = plain(result.streams.humanText());
     expect(text).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
-    expect(text).toContain("Details: apkit details");
+    expect(text).not.toContain("Details:");
   });
 
   test("a zero-match scope prints no detail route", async () => {

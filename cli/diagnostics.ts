@@ -14,7 +14,7 @@ import { splitInlineLines } from "./inline-content.js";
  * The carried parts of one CLI-boundary diagnostic, in presentation order:
  * what happened, why, and what to type. Every part is carried inline content —
  * this module gives the error surface its structural shape; it never rewrites
- * a message. The `apkit:` label prefixes the first line only.
+ * a message (US-007: errors carry no `apkit:` prefix).
  */
 export interface DiagnosticDocumentParts {
   /** What happened: the carried error sentence. */
@@ -42,7 +42,7 @@ export function diagnosticDocument(parts: DiagnosticDocumentParts): Presentation
       kind: "notice",
       severity: parts.severity ?? "error",
       nodes: [
-        { kind: "sentence", parts: [`${COMMAND_NAME}: `, ...parts.happened] },
+        { kind: "sentence", parts: [...parts.happened] },
         ...(parts.why ?? []).map((line): PresentationNode => ({
           kind: "sentence",
           parts: line,

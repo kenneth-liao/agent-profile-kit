@@ -23,9 +23,12 @@ import {
   type TerminalStream,
 } from "./terminal-presentation.js";
 import {
+  commandNode,
   commandPart,
   footerNodes,
   identifierPart,
+  list,
+  notedCommand,
   part,
   pathPart,
   writeHumanDocument,
@@ -43,49 +46,62 @@ const arg = (value: string): CommandArg => ({ kind: "text", value });
 export const DETAILS_MACHINE_SCHEMA_VERSION = 1;
 
 /**
- * The completed-operation detail route (US-011, DEC-007; ADR-0040): one
+ * The completed-operation detail route (US-008, DEC-007; ADR-0040): one
  * discoverable `Details: apkit details` line that retrieves the run's retained
  * evidence. It names the read-only history command, never a re-run of the
- * lifecycle command, and the write helper below emits it exactly when this run
- * retained an entry and the outcome is not a clean no-op or neutral
- * cancellation (US-010, DEC-010).
+ * lifecycle command, and it carries the one short note saying what the run
+ * shows (`notedCommand`, review rule 6). The write helper below emits it
+ * exactly when the recorded facts say something went wrong (DEC-007, D4).
  */
-export function operationDetailsDocument(): PresentationDocument {
-  return [footerNodes({ details: operationDetailsCommand() })];
+export function operationDetailsDocument(note: string): PresentationDocument {
+  return [footerNodes({ details: operationDetailsCommand(note) })];
 }
 
-/** The typed completed-operation details command. */
-export function operationDetailsCommand(): CommandNode {
-  return { kind: "command", program: COMMAND_NAME, args: [arg("details")] };
+/** The typed completed-operation details command, with its display-only note. */
+export function operationDetailsCommand(note: string): CommandNode {
+  return notedCommand(
+    { kind: "command", program: COMMAND_NAME, args: [arg("details")] },
+    note,
+  );
 }
 
 /**
- * Clean no-ops and neutral cancellations omit the completed-operation details
- * hint (US-010, DEC-010) only when they carry no warnings: warnings keep
- * actionable guidance and recovery evidence, so they keep the route. History
- * retention is unchanged: the run is still retrievable through `apkit details`
- * and `apkit details --list`. Failures, remaining work, and history-write
- * failures always keep the route.
+ * The recorded facts the one details-route rule reads (US-008, DEC-007).
+ * Never rendered copy: `hasWarnings` is the lifecycle report's warning fact,
+ * and `hasFileWork` is the recorded operation's committed-or-attempted file
+ * work.
  */
-export function omitsOperationDetailsHint(
-  outcome: OperationHistoryOutcome,
-  hasWarnings: boolean,
-): boolean {
-  return (outcome === "no-op" || outcome === "cancelled") && !hasWarnings;
+export interface DetailsRouteFacts {
+  readonly outcome: OperationHistoryOutcome;
+  readonly hasWarnings: boolean;
+  readonly hasFileWork: boolean;
 }
 
-/** Whether this report body carries warning evidence beside its outcome. */
-export function documentHasWarnings(document: PresentationDocument): boolean {
-  return document.some(nodeHasWarningCategory);
+export interface DetailsRouteDecision {
+  readonly show: boolean;
+  readonly note: string;
 }
 
-function nodeHasWarningCategory(node: PresentationNode): boolean {
-  if (node.kind === "part") return node.nodes.some(nodeHasWarningCategory);
-  if (node.kind === "list") return node.category === "warning";
-  if ("category" in node && node.category === "warning") return true;
-  if (node.kind === "notice") return node.nodes.some(nodeHasWarningCategory);
-  if (node.kind === "column-group") return node.columns.some(documentHasWarnings);
-  return false;
+/**
+ * The one shared details-route rule (US-008, DEC-007, D4): the route appears
+ * only after a failure, a warning or a partial run. Normal successes — a clean
+ * success, a clean no-op, a neutral cancellation — omit it. Decided from
+ * recorded facts only; presentation never reads its own output to choose
+ * what to show. The note says what the run shows: file work reads "changed";
+ * a run that only checked reads "checked" (review screens 27 and 28).
+ * History retention and explicit `apkit details` retrieval are unchanged.
+ */
+export function detailsRouteDecision(facts: DetailsRouteFacts): DetailsRouteDecision {
+  const wentWrong =
+    facts.outcome === "failed" ||
+    facts.outcome === "partial" ||
+    facts.outcome === "blocked";
+  return {
+    show: wentWrong || facts.hasWarnings,
+    note: facts.hasFileWork
+      ? "see exactly what changed"
+      : "see exactly what this run checked",
+  };
 }
 
 function documentHasFooterAction(document: PresentationDocument): boolean {
@@ -102,11 +118,22 @@ function flattenDocumentNodes(document: PresentationDocument): readonly Presenta
     node.kind === "part" ? node.nodes : [node]);
 }
 
+/** Whether the recorded operation committed or attempted any file work. */
+function projectsHaveFileWork(projects: readonly OperationHistoryProject[]): boolean {
+  return projects.some(
+    (project) =>
+      (project.written !== undefined && project.written.length > 0) ||
+      (project.removed !== undefined && project.removed.length > 0) ||
+      project.outputCommitted === true ||
+      project.result === "failed",
+  );
+}
+
 /**
  * Write one run's terminal human report and, exactly when the run retained an
- * operation-history entry whose outcome still wants the hint, its
- * completed-operation detail route (US-011, DEC-007; ADR-0040; US-010). The
- * route is the secondary line of the report's one footer block: when the
+ * operation-history entry and the one details-route rule says this run went
+ * wrong (US-008, DEC-007; ADR-0040), its completed-operation detail route.
+ * The route is the secondary line of the report's one footer block: when the
  * report already carries a `Next` action list the details line follows it with
  * no second blank line, so no output prints two footers. The route follows the
  * stream that carries the report, so a declined or failed run keeps its
@@ -136,18 +163,23 @@ export function writeLifecycleReport(
       "lifecycle terminal report written before the run's operation-history decision",
     );
   }
-  const showDetails =
-    route &&
-    collected !== undefined &&
-    !omitsOperationDetailsHint(collected.outcome, documentHasWarnings(document));
-  if (!showDetails) {
+  const decision =
+    collected === undefined
+      ? undefined
+      : detailsRouteDecision({
+          outcome: collected.outcome,
+          hasWarnings: collected.hasWarnings,
+          hasFileWork: projectsHaveFileWork(collected.projects),
+        });
+  const showDetails = route && decision !== undefined && decision.show;
+  if (!showDetails || decision === undefined) {
     writeHumanDocument(stream, document, context);
     return;
   }
   const details: PresentationNode = {
     kind: "key-value",
     key: "Details",
-    value: operationDetailsCommand(),
+    value: operationDetailsCommand(decision.note),
     category: "command",
   };
   const last = document.at(-1);
@@ -159,7 +191,7 @@ export function writeLifecycleReport(
       ? [...document.slice(0, -1), { ...last, nodes: [...last.nodes, details] }]
       : documentHasFooterAction(document)
         ? [...document, details]
-        : [...document, footerNodes({ details: operationDetailsCommand() })],
+        : [...document, footerNodes({ details: operationDetailsCommand(decision.note) })],
     context,
   );
 }
@@ -198,6 +230,66 @@ export function formatOperationTime(iso: string): string {
 }
 
 /**
+ * The injected clock and time zone every human time reads (US-008): tests
+ * pass both explicitly and never read the ambient TZ or locale; the CLI edge
+ * resolves the machine's zone once and passes it in.
+ */
+export interface HumanTimeContext {
+  readonly nowMs: number;
+  readonly timeZone: string;
+}
+
+/**
+ * The machine's local zone, resolved at the CLI edge and injected from there
+ * (US-008): this is the one reader of the ambient zone; presentation and its
+ * tests never read it themselves.
+ */
+export function localTimeZone(): string {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone;
+}
+
+/** The CLI edge's human time: the injected clock beside the machine's zone. */
+export function localHumanTimeContext(nowMs: number = Date.now()): HumanTimeContext {
+  return { nowMs, timeZone: localTimeZone() };
+}
+
+/**
+ * Local human time for one run's details (US-008, review screens 19 and 29):
+ * `Today at 9:45 AM`, `Yesterday at …`, or a dated form. The day words and
+ * the wall clock come from the injected zone against the injected now; the
+ * spelling is fixed `en-US` and never the ambient locale. Exact timestamps
+ * stay in `--json` (DEC-009).
+ */
+export function formatLocalHumanTime(iso: string, time: HumanTimeContext): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const clock = new Intl.DateTimeFormat("en-US", {
+    timeZone: time.timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed);
+  const dayKey = (instant: number): string =>
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: time.timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(instant);
+  const day = dayKey(parsed.getTime());
+  const today = dayKey(time.nowMs);
+  const yesterday = dayKey(time.nowMs - 24 * 60 * 60 * 1000);
+  if (day === today) return `Today at ${clock}`;
+  if (day === yesterday) return `Yesterday at ${clock}`;
+  const dated = new Intl.DateTimeFormat("en-US", {
+    timeZone: time.timeZone,
+    month: "short",
+    day: "numeric",
+    ...(day.slice(0, 4) === today.slice(0, 4) ? {} : { year: "numeric" as const }),
+  }).format(parsed);
+  return `${dated} at ${clock}`;
+}
+
+/**
  * Compact human time for the history list (US-008): UTC and locale-free
  * buckets from an injected `now`, so tests are deterministic across runners.
  * Exact timestamps stay in operation details through `formatOperationTime`.
@@ -216,35 +308,54 @@ export function formatCompactOperationTime(iso: string, nowMs: number): string {
   return parsed.toISOString().slice(0, 10);
 }
 
+/** How one run's outcome reads in its headline (US-008, review screens 19/29). */
+const OUTCOME_PHRASES: Readonly<Record<OperationHistoryOutcome, string>> = {
+  blocked: "was blocked",
+  cancelled: "cancelled",
+  failed: "failed",
+  "no-op": "changed nothing",
+  partial: "stopped partway",
+  succeeded: "succeeded",
+};
+
 /**
- * Details time uses the human display identity (UTC, second precision) and
- * never claims a duration (US-008): when start and end display the same
- * second they are one `Time` line — including a real sub-second interval,
- * which at this precision is not a user-meaningful duration. Only a visible
- * second-level interval shows `Started` and `Finished`. Millisecond endpoints
- * stay in `--json` and `--verbose` evidence unchanged (DEC-007).
+ * The run's headline facts: the outcome in the headline, then one line with
+ * the local human time and scope (US-008). Exact timestamps stay in `--json`.
  */
-function detailTimeNodes(entry: OperationHistoryEvidence): readonly PresentationNode[] {
-  const started = formatOperationTime(entry.startedAt);
-  const finished = formatOperationTime(entry.finishedAt);
-  if (started === finished) {
-    return [{
-      kind: "key-value",
-      key: "Time",
-      value: { kind: "identifier", value: started },
-    }];
+function headlineNodes(
+  entry: OperationHistoryEvidence,
+  time: HumanTimeContext,
+): readonly PresentationNode[] {
+  const title: PresentationNode = {
+    kind: "sentence",
+    parts: [
+      `${entry.command.charAt(0).toUpperCase()}${entry.command.slice(1)} `,
+      ...(hasStoredId(entry) ? [identifierPart(entry.id)] : ["(not saved)"]),
+      ` ${OUTCOME_PHRASES[entry.outcome]}`,
+    ],
+    category: OUTCOME_CATEGORY[entry.outcome],
+  };
+  const scopeBits = [operationScopeText(entry.scope)];
+  if (entry.scope.profile !== undefined) {
+    scopeBits.push(`Profile ${entry.scope.profile}`);
+  }
+  if (entry.scope.hosts !== undefined && entry.scope.hosts.length > 0) {
+    scopeBits.push(`Agents ${entry.scope.hosts.join(", ")}`);
   }
   return [
     {
-      kind: "key-value",
-      key: "Started",
-      value: { kind: "identifier", value: started },
+      kind: "notice",
+      severity: OUTCOME_SEVERITY[entry.outcome],
+      nodes: [title],
     },
     {
-      kind: "key-value",
-      key: "Finished",
-      value: { kind: "identifier", value: finished },
+      kind: "prose",
+      parts: [`  ${formatLocalHumanTime(entry.startedAt, time)} · ${scopeBits.join(" · ")}`],
     },
+    ...(entry.cancelledReason === undefined ? [] : [{
+      kind: "prose",
+      parts: [`  Cancelled: ${entry.cancelledReason}`],
+    }] as PresentationNode[]),
   ];
 }
 
@@ -305,11 +416,8 @@ function committedNodes(projects: readonly OperationHistoryProject[]): readonly 
     (project.removed?.length ?? 0) > 0 ||
     project.outputCommitted === true
   );
-  const section: PresentationNode[] = [{ kind: "heading", text: "Written:" }];
-  if (committed.length === 0) {
-    section.push({ kind: "prose", parts: ["  none"] });
-    return [part(...section)];
-  }
+  if (committed.length === 0) return [];
+  const section: PresentationNode[] = [{ kind: "heading", text: "Changed files:" }];
   for (const project of committed) {
     section.push(projectLine(project));
     if (
@@ -341,21 +449,57 @@ function committedNodes(projects: readonly OperationHistoryProject[]): readonly 
   return [part(...section)];
 }
 
-function outcomeGroupNodes(
-  title: string,
-  projects: readonly OperationHistoryProject[],
-  category: SemanticCategory,
-): readonly PresentationNode[] {
-  if (projects.length === 0) return [];
+/**
+ * What went wrong (US-008, review screen 29): each failed Project with its
+ * failure detail, or the run-level failure when no Project carries one.
+ */
+function wentWrongNodes(entry: OperationHistoryEvidence): readonly PresentationNode[] {
+  const failed = entry.projects.filter((project) => project.result === "failed");
+  const section: PresentationNode[] = [{ kind: "heading", text: "What went wrong:" }];
+  if (failed.length === 0) {
+    if (entry.failure === undefined) return [];
+    section.push({
+      kind: "sentence",
+      parts: ["  ", entry.failure],
+      category: "error",
+    });
+    return [part(...section)];
+  }
+  for (const project of failed) {
+    section.push(projectLine(project));
+    section.push({
+      kind: "sentence",
+      parts: ["    ", entry.failure ?? project.failure ?? "not completed"],
+      category: "error",
+    });
+    if (project.outputCommitted === true) {
+      section.push({
+        kind: "sentence",
+        parts: ["    generated output was committed"],
+        category: "warning",
+      });
+    }
+  }
+  return [part(...section)];
+}
+
+/**
+ * Not done (US-008, review screen 29): every Project the run left behind,
+ * skipped or unattempted, with its reason when one was recorded (OOS-004).
+ */
+function notDoneNodes(projects: readonly OperationHistoryProject[]): readonly PresentationNode[] {
+  const remaining = projects.filter(
+    (project) => project.result === "skipped" || project.result === "unattempted",
+  );
+  if (remaining.length === 0) return [];
   return [
-    { kind: "heading", text: title },
-    ...projects.map((project) => ({
-      ...projectLine(project, [
-        project.failure ?? "not completed",
-        ...(project.outputCommitted === true ? ["generated output was committed"] : []),
-      ].join("; ")),
-      category,
-    })),
+    part(
+      { kind: "heading", text: "Not done:" },
+      list(remaining.map((project) => [
+        projectIdentity(project),
+        ...(project.failure === undefined ? [] : [`: ${project.failure}`]),
+      ])),
+    ),
   ];
 }
 
@@ -364,108 +508,63 @@ function reviewNodes(
 ): readonly PresentationNode[] {
   if (reviews === undefined || reviews.length === 0) return [];
   return [
-    { kind: "heading", text: "Reviewed changed generated files:" },
-    ...reviews.map((review): PresentationNode => ({
-      kind: "sentence",
-      parts: [
-        "  ",
-        review.operation === "replace" ? "replace " : "remove ",
-        identifierPart(review.path),
-        " in ",
-        pathPart(review.project, "fleet"),
-      ],
-      category: "warning",
-    })),
+    part(
+      { kind: "heading", text: "Reviewed changed generated files:" },
+      ...reviews.map((review): PresentationNode => ({
+        kind: "sentence",
+        parts: [
+          "  ",
+          review.operation === "replace" ? "replace " : "remove ",
+          identifierPart(review.path),
+          " in ",
+          pathPart(review.project, "fleet"),
+        ],
+        category: "warning",
+      })),
+    ),
   ];
 }
 
 /**
- * The complete evidence of one run: identity, command, time, scope, outcome,
- * written file work, failed work, skipped work, and pending work. The same
- * document serves `apkit details` and, unsaved, the run whose entry could not
- * be published (DEC-008).
+ * The complete evidence of one run (US-008, review screens 19 and 29): the
+ * outcome in the headline, a local human time and scope, then `Changed files`,
+ * `What went wrong` and `Not done` as they apply. The same document serves
+ * `apkit details` and, unsaved, the run whose entry could not be published
+ * (DEC-008). Exact timestamps stay in `--json` (DEC-009).
  */
 export function operationHistoryEntryDocument(
   entry: OperationHistoryEvidence,
+  time: HumanTimeContext,
 ): PresentationDocument {
-  const title: PresentationNode = {
-    kind: "sentence",
-    parts: [
-      `${entry.command.charAt(0).toUpperCase()}${entry.command.slice(1)} `,
-      ...(hasStoredId(entry) ? [identifierPart(entry.id)] : ["(not saved)"]),
-    ],
-    category: OUTCOME_CATEGORY[entry.outcome],
-  };
-  // The run's headline keeps its keyed facts (review screen 19): identity,
-  // time, scope, outcome, and any failure or cancellation reason.
-  const nodes: PresentationNode[] = [part(
-    {
-      kind: "notice",
-      severity: OUTCOME_SEVERITY[entry.outcome],
-      nodes: [title],
-    },
-    ...detailTimeNodes(entry),
-    ...scopeNodes(entry.scope),
-    {
-      kind: "key-value",
-      key: "Outcome",
-      value: { kind: "identifier", value: entry.outcome },
-      category: OUTCOME_CATEGORY[entry.outcome],
-    },
-    ...(entry.cancelledReason === undefined ? [] : [{
-      kind: "key-value",
-      key: "Cancelled",
-      value: { kind: "identifier", value: entry.cancelledReason },
-    }] as PresentationNode[]),
-    ...(entry.failure === undefined ? [] : [{
-      kind: "key-value",
-      key: "Failure",
-      value: { kind: "identifier", value: entry.failure },
-      category: "error",
-    }] as PresentationNode[]),
-  )];
+  const nodes: PresentationNode[] = [...headlineNodes(entry, time)];
   nodes.push(
-    { kind: "verbatim", text: "" },
     ...committedNodes(entry.projects),
-    ...outcomeGroupNodes(
-      "Failed:",
-      entry.projects.filter((project) => project.result === "failed"),
-      "error",
-    ),
-    ...outcomeGroupNodes(
-      "Skipped:",
-      entry.projects.filter((project) => project.result === "skipped"),
-      "warning",
-    ),
-    ...outcomeGroupNodes(
-      "Pending:",
-      entry.projects.filter((project) => project.result === "unattempted"),
-      "muted",
-    ),
+    ...wentWrongNodes(entry),
+    ...notDoneNodes(entry.projects),
     ...reviewNodes(entry.reviewedChangedOutputs),
   );
   if (entry.projects.length === 0) {
-    nodes.push({ kind: "prose", parts: ["  No Projects were selected."] });
+    nodes.push(part({ kind: "prose", parts: ["No Projects were selected."] }));
   }
   return nodes;
 }
 
-/** The compact retained list, newest first (US-012). */
+/** The compact retained list, newest first (US-008, review screen 18). */
 export function operationHistoryListDocument(
   entries: readonly OperationHistoryEntry[],
   nowMs: number = Date.now(),
 ): PresentationDocument {
   const nodes: PresentationNode[] = [
-    { kind: "heading", text: `Operation history (${entries.length}):` },
+    { kind: "heading", text: `Recent runs (${entries.length})` },
     { kind: "verbatim", text: "" },
   ];
   for (const entry of entries) {
     nodes.push({
       kind: "row",
       cells: [
-        { column: "Operation", content: { kind: "identifier", value: entry.id } },
+        { column: "Run", content: { kind: "identifier", value: entry.id } },
         {
-          column: "Time",
+          column: "When",
           content: {
             kind: "identifier",
             value: formatCompactOperationTime(entry.startedAt, nowMs),
@@ -473,7 +572,7 @@ export function operationHistoryListDocument(
         },
         { column: "Command", content: { kind: "identifier", value: entry.command } },
         {
-          column: "Outcome",
+          column: "Result",
           content: {
             kind: "identifier",
             value: entry.outcome,
@@ -488,16 +587,15 @@ export function operationHistoryListDocument(
     });
   }
   nodes.push(
-    { kind: "verbatim", text: "" },
-    {
-      kind: "sentence",
-      parts: [
-        "Run ",
-        commandPart(COMMAND_NAME, [arg("details"), arg("<operation-id>")]),
-        " for one operation's complete evidence.",
-      ],
-      category: "command",
-    },
+    footerNodes({
+      next: {
+        kind: "command",
+        value: notedCommand(
+          commandNode(COMMAND_NAME, [arg("details"), arg("<run>")]),
+          "see exactly what one run changed",
+        ),
+      },
+    }),
   );
   return nodes;
 }

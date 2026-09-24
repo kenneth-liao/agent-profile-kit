@@ -532,14 +532,14 @@ describe("update replacement confirmation command", () => {
   });
 });
 
-describe("completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
-  test("a successful update prints the retained-operation route once", async () => {
+describe("completed-operation detail route (US-008, DEC-007, ADR-0040)", () => {
+  test("a successful update omits the route and never suggests re-running as evidence (D4)", async () => {
     const fleet = await prepareDriftedFleet("agent-profile-kit-cmd-route");
     const invocation = invoke(fleet, [fleet.driftedProject, "--replace-changed"]);
     const { exitCode } = await invocation.outcome;
     expect(exitCode).toBe(0);
     const output = invocation.stdout.text();
-    expect(humanText(output)).toContain("Details: apkit details");
+    expect(humanText(output)).not.toContain("Details:");
     // The route never suggests re-running update as historical evidence.
     expect(humanText(output)).not.toContain("update --verbose");
   });

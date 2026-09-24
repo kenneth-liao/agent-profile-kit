@@ -2022,8 +2022,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
-        message: "does not exist in this Workspace",
-        detail: "Available Profiles: coding",
+        message: "There's no Profile called 'missing'",
+        detail: "Your Profiles: coding",
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: coding\n    hosts: [cursor]\n`,
@@ -2449,10 +2449,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const cases = [
       { cwd: undefined, target: unbound, pattern: /not configured as a Project/i },
-      { cwd: undefined, target: missing, pattern: /must be an existing directory/i },
+      { cwd: undefined, target: missing, pattern: /doesn't exist/i },
       { cwd: undefined, target: "relative/project", pattern: /absolute path or\s+home-relative/i },
       { cwd: undefined, target: "~/projects/*", pattern: /without\s+wildcards/i },
-      { cwd: undefined, target: invalid, pattern: /must be an existing directory/i },
+      { cwd: undefined, target: invalid, pattern: /doesn't exist/i },
       { cwd: nested, target: undefined, pattern: /ambiguous.*multiple configured Projects/i },
     ] as const;
 
@@ -2506,7 +2506,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // the internal Local Configuration path (US-015, review S10).
     expect(humanText(failed.stderr)).toBe(
       humanText(
-        `✖ apkit: Project target '${missing}' must be an existing directory\n` +
+        `✖ Project target '${missing}' must be an existing directory\n` +
           "Create it or pass an existing Project directory.",
       ),
     );
@@ -2533,7 +2533,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // AC-1: target and cause first; the internal configuration path moved to
     // the why line instead of leading.
     expect(humanText(failed.stderr)).toContain(
-      humanText(`apkit: Project target '${stale}' must be an existing directory`),
+      humanText(`Project target '${stale}' must be an existing directory`),
     );
     expect(humanText(failed.stderr)).toContain(
       humanText(`Recorded in Local Configuration ${configPath(home)} bindings[0].`),
@@ -2571,10 +2571,10 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(failed, 1);
     expect(humanText(failed.stderr)).toContain(
-      humanText(`apkit: Project target '${notAProject}' must be an existing directory`),
+      humanText(`The folder ${notAProject} doesn't exist.`),
     );
     expect(failed.stderr).not.toContain("Project target project");
-    expect(failed.stderr).toContain("Run apkit list projects to see configured Projects.");
+    expect(failed.stderr).toContain("Create it first, or pick a folder that exists.");
     expect(failed.stderr).toContain(`Usage: apkit uninstall`);
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
   });
@@ -2953,7 +2953,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
     expectExitCode(apply, 0);
     expect(humanText(apply.stdout)).toContain("Updated 12 Projects (12 files)");
-    expect(humanText(apply.stdout)).toContain("Details: apkit details");
+    expect(humanText(apply.stdout)).not.toContain("Details:");
     expect(apply.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
       .toEqual([]);
     expect(apply.stdout).not.toContain("Skill review-pr");
@@ -3023,7 +3023,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(failed, 1);
     const lines = failed.stderr.split("\n");
     // What happened: Directory is not configured as a Project (DEC-016: does not name unmatched Project target)
-    expect(lines[0]).toMatch(/^✖ apkit: Directory/);
+    expect(lines[0]).toMatch(/^✖ Directory/);
     expect(failed.stderr).toContain("is not configured as a Project");
     // What to type: recovery commands
     expect(failed.stderr).toContain("Run apkit install to configure this directory as a Project.");
@@ -3244,17 +3244,21 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // Every Project each missing Host affects, named exactly once through the
     // view identity — colliding basenames keep their disambiguating segment.
     expect(flattened).toContain(
-      "⚠CodexCLIwasnotfoundonPATH(acme-internal-analytics-pipeline-v2,alpha/my-app,beta/my-app,hello)",
+      "⚠Codexisn'tinstalled,orisn'tonyourPATH." +
+        "Usedby:acme-internal-analytics-pipeline-v2,alpha/my-app,beta/my-app,hello" +
+        "Fix:installCodex,thencheckthatcodex--versionworks.",
     );
     expect(flattened).toContain(
-      "⚠ClaudeCodeCLIwasnotfoundonPATH(alpha/my-app,beta/my-app,hello)",
+      "⚠Claudeisn'tinstalled,orisn'tonyourPATH." +
+        "Usedby:alpha/my-app,beta/my-app,hello" +
+        "Fix:installClaude,thencheckthatclaude--versionworks.",
     );
     expect(apply.stdout).not.toContain("(alpha)");
-    expect(apply.stdout.split("⚠ Codex CLI was not found on PATH").length - 1).toBe(1);
-    expect(apply.stdout.split("⚠ Claude Code CLI was not found on PATH").length - 1).toBe(1);
-    // One Adapter remedy per Host, still default-colored in the same group.
-    expect(apply.stdout.split("Remedy: install Codex").length - 1).toBe(1);
-    expect(apply.stdout.split("Remedy: install Claude Code").length - 1).toBe(1);
+    expect(apply.stdout.split("⚠ Codex isn't installed, or isn't on your PATH.").length - 1).toBe(1);
+    expect(apply.stdout.split("⚠ Claude isn't installed, or isn't on your PATH.").length - 1).toBe(1);
+    // One Adapter fix per agent, still default-colored in the same group.
+    expect(apply.stdout.split("Fix: install Codex").length - 1).toBe(1);
+    expect(apply.stdout.split("Fix: install Claude").length - 1).toBe(1);
 
     // Machine JSON is unchanged: one host-attention message per Host.
     const jsonApply = await runCliWithPath(home, emptyBin, "update", "--all", "--json");
@@ -3466,7 +3470,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
         `Try it: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
       ),
     );
-    expect(humanText(result.stdout)).toEndWith("Details: apkit details");
+    expect(humanText(result.stdout)).not.toContain("Details:");
     expect(result.stdout).not.toContain("Selected setup:");
     const contextPath = join(projectPath, ".agent-profile-kit", "codex", "context.md");
     const hookPath = join(projectPath, ".codex", "hooks.json");
@@ -8630,7 +8634,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const command of ["plan", "run"]) {
       const result = await runCli(home, command);
       expectExitCode(result, 1);
-      expect(result.stderr).toContain(`apkit: unknown command '${command}'`);
+      expect(result.stderr).toContain(`unknown command '${command}'`);
       expect(result.stderr).toContain("Run apkit --help for available commands.");
       expect(result.stderr).not.toContain("Commands:");
     }
@@ -8641,13 +8645,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const arguments_ of [["apply"], ["apply", "--here"], ["apply", "--json"]]) {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
-      expect(result.stderr).toContain("apkit: apply was replaced by update");
+      expect(result.stderr).toContain("apply was replaced by update");
       expect(result.stderr).toContain("apkit update");
     }
     for (const arguments_ of [["apply", "--help"], ["help", "apply"]]) {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
-      expect(result.stderr).toContain("apkit: apply was replaced by update");
+      expect(result.stderr).toContain("apply was replaced by update");
       expect(result.stderr).toContain("apkit update");
     }
   });
@@ -8657,13 +8661,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     for (const arguments_ of [["bind"], ["bind", "coding", "--agent", "codex"], ["bind", "--help"]]) {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
-      expect(result.stderr).toContain("apkit: bind was replaced by install");
+      expect(result.stderr).toContain("bind was replaced by install");
       expect(result.stderr).toContain("apkit install");
     }
     for (const arguments_ of [["help", "bind"]]) {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
-      expect(result.stderr).toContain("apkit: bind was replaced by install");
+      expect(result.stderr).toContain("bind was replaced by install");
       expect(result.stderr).toContain("apkit install");
     }
   });
@@ -9767,7 +9771,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expectExitCode(unknownProfile, 1);
     expect(unknownProfile.stderr).toMatch(/does not exist|profile/i);
     expect(unknownProfile.stderr.replace(/\s+/g, " ")).toContain(
-      "Available Profiles: coding, writing",
+      "Your Profiles: coding, writing",
     );
     expect(unknownProfile.stderr).not.toContain(configPath(home));
     expect(unknownProfile.stderr).not.toContain(realpathSync(workspacePath(home)));
@@ -10357,8 +10361,7 @@ describe("shared presentation boundary", () => {
     expect(longErrorOutput).toContain("apkit init");
 
     // A blocked temporary-installation diagnostic must wrap the complete
-    // prefixed line: the "apkit: " prefix counts toward the measure and the
-    // Project identity stays whole.
+    // error line: the Project identity stays whole inside the measure.
     const tempHome = isolatedHome();
     await initialize(tempHome);
     removeScaffoldedExample(tempHome);
@@ -10601,13 +10604,13 @@ describe("apkit root help", () => {
       const result = await runCli(home, ...arguments_);
       expectExitCode(result, 1);
       expect(result.stdout).toBe("");
-      expect(result.stderr).toContain("apkit: unknown command 'preview'");
+      expect(result.stderr).toContain("unknown command 'preview'");
       expect(result.stderr).not.toContain("apkit preview was removed");
     }
     const helpPreview = await runCli(home, "help", "preview");
     expectExitCode(helpPreview, 1);
     expect(helpPreview.stdout).toBe("");
-    expect(helpPreview.stderr).toContain("apkit: unknown command 'preview'");
+    expect(helpPreview.stderr).toContain("unknown command 'preview'");
     expect(helpPreview.stderr).not.toContain("apkit preview was removed");
     expect(COMMANDS.some((command) => command.name === "preview")).toBe(false);
     const root = await sharedReadOnlyCapture("--help");
@@ -10840,7 +10843,7 @@ describe("apkit root help", () => {
 
     expectExitCode(result, 1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("apkit: unknown command 'help'");
+    expect(result.stderr).toContain("unknown command 'help'");
     expect(result.stderr).not.toContain("Did you mean: apkit status?");
   });
 
@@ -11177,7 +11180,7 @@ describe("apkit root help", () => {
 
     expectExitCode(close, 1);
     expect(close.stdout).toBe("");
-    expect(close.stderr).toContain("apkit: unknown command 'stats'");
+    expect(close.stderr).toContain("unknown command 'stats'");
     expect(close.stderr).toContain("Did you mean: apkit status?");
     expect(close.stderr.match(/Did you mean:/g)).toHaveLength(1);
     expect(close.stderr).toContain("Run apkit --help for available commands.");
@@ -11185,13 +11188,13 @@ describe("apkit root help", () => {
 
     expectExitCode(distant, 1);
     expect(distant.stdout).toBe("");
-    expect(distant.stderr).toContain("apkit: unknown command 'frobnicate'");
+    expect(distant.stderr).toContain("unknown command 'frobnicate'");
     expect(distant.stderr).not.toContain("Did you mean:");
     expect(distant.stderr).toContain("Run apkit --help for available commands.");
     expect(distant.stderr).not.toContain("Commands:");
 
     expectExitCode(tied, 1);
-    expect(tied.stderr).toContain("apkit: unknown command 'inf'");
+    expect(tied.stderr).toContain("unknown command 'inf'");
     expect(tied.stderr).toContain("Did you mean: apkit info?");
     expect(tied.stderr.match(/Did you mean:/g)).toHaveLength(1);
     expect(tied.stderr).not.toContain("Commands:");
@@ -11203,9 +11206,9 @@ describe("apkit root help", () => {
       expect(result.stderr).not.toContain("Commands:");
       for (const term of INTERNAL_ONLY_DEFAULT_TERMS) expect(result.stderr).not.toMatch(term);
     }
-    expect(unknownHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownHelp.stderr).toContain("unknown command 'stats'");
     expect(unknownHelp.stderr).toContain("Did you mean: apkit status?");
-    expect(unknownShortHelp.stderr).toContain("apkit: unknown command 'stats'");
+    expect(unknownShortHelp.stderr).toContain("unknown command 'stats'");
     expect(unknownShortHelp.stderr).toContain("Did you mean: apkit status?");
     expect(unsafe.stderr).not.toContain("\u001b");
   });
@@ -11908,8 +11911,8 @@ describe("apkit list", () => {
 
     expectExitCode(human, 1);
     expect(human.stdout).toBe("");
-    expect(human.stderr).toContain("Profile 'nope' does not exist in this Workspace");
-    expect(human.stderr).toContain("Available Profiles: coding");
+    expect(human.stderr).toContain("There's no Profile called 'nope'.");
+    expect(human.stderr).toContain("Your Profiles: coding");
     expect(human.stderr).not.toContain("Did you mean");
     expectExitCode(machine, 1);
     expect(machine.stderr).toBe("");
@@ -11934,7 +11937,7 @@ describe("apkit list", () => {
 
     expectExitCode(human, 1);
     expect(human.stdout).toBe("");
-    expect(human.stderr).toContain("Profile 'codng' does not exist in this Workspace");
+    expect(human.stderr).toContain("There's no Profile called 'codng'.");
     expect(human.stderr.replace(/\s+/g, " ")).toContain("Did you mean 'coding'?");
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -11948,7 +11951,7 @@ describe("apkit list", () => {
 
     expectExitCode(result, 1);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Profile 'coding' does not exist in this Workspace");
+    expect(result.stderr).toContain("There's no Profile called 'coding'.");
     expect(result.stderr).toContain("No Profiles exist in the Workspace.");
     expect(existsSync(statePath(home))).toBe(false);
   });
@@ -15493,7 +15496,7 @@ describe("apkit details (retained operation history)", () => {
 
     const list = await runCli(home, "details", "--list");
     expectExitCode(list, 0);
-    expect(humanText(list.stdout)).toContain("Operation history (2)");
+    expect(humanText(list.stdout)).toContain("Recent runs (2)");
     const listPayload = JSON.parse((await runCli(home, "details", "--list", "--json")).stdout) as {
       entries: readonly { readonly id: string }[];
     };
@@ -15579,13 +15582,13 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
       "--auto-confirm",
     );
     expectExitCode(install, 0);
-    // Ruling: install already states its outcome compactly and offers the
-    // same completed-operation route as update and uninstall.
-    expect(humanText(install.stdout)).toContain("Details: apkit details");
+    // D4 (US-008): a normal success prints no details route; retention is
+    // unchanged and `apkit details` still retrieves the run.
+    expect(humanText(install.stdout)).not.toContain("Details:");
     return { home, projectPath };
   }
 
-  test("a successful update states the impact once, omits the per-file inventory, and offers retained evidence", async () => {
+  test("a successful update states the impact once, omits the per-file inventory and the details route", async () => {
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
@@ -15602,8 +15605,9 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expect(update.stdout.split("\n").map((line) => line.trim()).filter((line) => /^[+~-] /.test(line)))
       .toEqual([]);
     expect(text).not.toContain("generated file update in");
-    // The completed operation is retrieved without repeating its write.
-    expect(text).toContain("Details: apkit details");
+    // D4: a normal success omits the route; the retained run is still one
+    // command away (US-008).
+    expect(text).not.toContain("Details:");
     const details = await runCli(home, "details", "--json");
     expectExitCode(details, 0);
     const payload = JSON.parse(details.stdout) as {
@@ -15644,13 +15648,13 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expect(text).toContain("Removed proven Agent Profile Kit-owned output from 1 Project");
     expect(text).not.toContain("Git exclusion");
     expect(text).not.toContain(".git/info/exclude");
-    expect(text).toContain("Details: apkit details");
+    expect(text).not.toContain("Details:");
     // The outcome count renders once.
     expect(uninstall.stdout.split("Removed proven Agent Profile Kit-owned output from 1 Project"))
       .toHaveLength(2);
   });
 
-  test("NO_COLOR keeps the compact receipt and its route free of control bytes", async () => {
+  test("NO_COLOR keeps the compact receipt free of control bytes", async () => {
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
       join(workspacePath(home), "context", "team-rules.md"),
@@ -15662,7 +15666,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expectExitCode(update, 0);
     expect(update.stdout).not.toMatch(/\u001b/);
     expect(humanText(update.stdout)).toContain("Updated 1 Project (1 file)");
-    expect(humanText(update.stdout)).toContain("Details: apkit details");
+    expect(humanText(update.stdout)).not.toContain("Details:");
   });
 
   test("the verbose update keeps the complete receipt and omits the default route", async () => {
@@ -16082,7 +16086,7 @@ describe("packed CLI everyday screens", () => {
   /** The printed copyable command of one labelled footer line: the display-only
    * bracketed note after it never runs. */
   const printedCommand = (line: string): string =>
-    line.replace(/^[A-Za-z]+: /, "").replace(/ \([^()]*\)$/, "");
+    line.replace(/^[A-Za-z]+: /, "").replace(/ \([^()]*\)$/, "").trim();
 
   /** A bin directory whose `apkit` resolves to the packed CLI, so printed
    * next steps execute verbatim through a shell (TEST-001). */
@@ -16277,4 +16281,178 @@ describe("packed CLI everyday screens", () => {
     expect(validateNarrow.stdout).toContain("Projects: 3");
     expect(validateNarrow.stdout).toContain("Agents in use: codex");
   }, 120_000);
+});
+
+describe("packed CLI problem screens", () => {
+  /** The printed copyable command of one labelled footer line: the display-only
+   * bracketed note after it never runs (TEST-001). */
+  const printedCommand = (line: string): string =>
+    line.replace(/^[A-Za-z]+: /, "").replace(/ \([^()]*\)$/, "").trim();
+
+  /** A bin directory whose `apkit` resolves to the packed CLI, so printed
+   * next steps execute verbatim through a shell (TEST-001). */
+  const apkitBin = (home: string): string => {
+    const bin = controlledAllowlistBin(home, ["git"]);
+    const shim = join(bin, "apkit");
+    if (!existsSync(shim)) {
+      writeFileSync(
+        shim,
+        `#!/bin/sh${"\n"}exec '${controlledToolPath("node")}' '${cliPath}' "$@"${"\n"}`,
+      );
+      execFileSync("chmod", ["+x", shim]);
+    }
+    return bin;
+  };
+
+  const runPrinted = async (home: string, line: string, substitutions: readonly string[] = []) => {
+    let command = printedCommand(line.trim());
+    for (const value of substitutions) {
+      command = command.replace(/<run>/, value);
+    }
+    return await runProcess({
+      executable: "/bin/sh",
+      arguments_: ["-c", command],
+      environment: controlledEnvironment({ home, path: apkitBin(home) }),
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "printed command via shell",
+    });
+  };
+
+  test("failures, a missing agent, a partial uninstall, and details read plain and run each printed next action (TEST-001, spec #672 US-007, US-008)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    removeScaffoldedExample(home);
+    writeContextProfile(home);
+    const alpha = homeGitRepository(home, "problem-a");
+    const beta = homeGitRepository(home, "problem-b");
+    const gamma = homeGitRepository(home, "problem-c");
+    writeFileSync(
+      configPath(home),
+      `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n` +
+        `  - project: ${alpha}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${beta}\n    profile: coding\n    hosts: [codex]\n` +
+        `  - project: ${gamma}\n    profile: coding\n    hosts: [codex]\n`,
+    );
+    const delivered = await runCli(home, "update", "--all");
+    expectExitCode(delivered, 0);
+    expect(delivered.stdout.split("\n")[0]).toBe("✔ Updated 3 Projects (6 files)");
+
+    // Screen 08: an unknown Profile says so plainly and lists the user's
+    // Profiles (US-007); errors carry no `apkit:` prefix.
+    const unknownProfile = await runCli(home, "list", "profiles", "enginering");
+    expectExitCode(unknownProfile, 1);
+    expect(unknownProfile.stderr).toContain("There's no Profile called 'enginering'.");
+    expect(unknownProfile.stderr).toContain("Your Profiles: coding");
+    expect(unknownProfile.stderr).not.toContain("apkit:");
+    expect(unknownProfile.stderr).not.toContain("Details:");
+
+    // Screen 09: a missing Project folder says so and how to fix it.
+    const missingFolder = await runCli(home, "update", join(home, "missing-folder"));
+    expectExitCode(missingFolder, 1);
+    expect(missingFolder.stderr).toContain("doesn't exist.");
+    expect(missingFolder.stderr).toContain("Create it first, or pick a folder that exists.");
+    expect(missingFolder.stderr).not.toContain("apkit:");
+    expect(missingFolder.stderr).not.toContain("Details:");
+
+    // Screen 27: a missing agent on a no-op update names it, lists Used by,
+    // gives the fix, and closes with the noted details route (D4). The PATH
+    // keeps git but carries no Codex executable.
+    const missingAgent = await runCliWithPath(home, apkitBin(home), "update", "--all");
+    expectExitCode(missingAgent, 0);
+    expect(missingAgent.stdout).toContain("● Everything is already up to date.");
+    expect(missingAgent.stdout).toContain("⚠ Codex isn't installed, or isn't on your PATH.");
+    expect(missingAgent.stdout.replace(/\s+/g, " ")).toContain("Used by:");
+    expect(missingAgent.stdout).toContain("problem-a");
+    expect(missingAgent.stdout).toContain("problem-c");
+    expect(missingAgent.stdout).toContain("Fix: install Codex, then check that codex --version works.");
+    expect(missingAgent.stdout).toContain("Details: apkit details (see exactly what this run checked)");
+    // The printed route runs and retrieves the run.
+    const routed = await runPrinted(
+      home,
+      "Details: apkit details (see exactly what this run checked)",
+    );
+    expectExitCode(routed, 0);
+    expect(routed.stdout).toContain("changed nothing");
+
+    // Screen 28: a partial uninstall names every recovery group and the
+    // retry, keeps the completed work, and its details route runs.
+    chmodSync(beta, 0o555);
+    const stopped = await runCli(home, "uninstall", "--all", "--auto-confirm");
+    chmodSync(beta, 0o755);
+    expectExitCode(stopped, 1);
+    const stoppedText = stopped.stderr.replace(/\s+/g, " ");
+    expect(stoppedText).toContain("Uninstall stopped partway.");
+    expect(stoppedText).toContain("Couldn't write to");
+    // No Project and no recovery fact is dropped (OOS-004).
+    const recovery = stoppedText.slice(stoppedText.indexOf("Done:"));
+    expect(recovery).toContain("Done:");
+    expect(recovery).toContain("problem-a");
+    expect(recovery).toContain("Put back as it was, where possible:");
+    expect(recovery).toContain("problem-b");
+    expect(recovery).toContain("Not touched:");
+    expect(recovery).toContain("problem-c");
+    expect(stoppedText).toContain("Fix the cause, then run the same command again:");
+    expect(stopped.stderr).toContain("Details: apkit details (see exactly what changed)");
+    // The completed Project's generated files are gone; the rest is untouched.
+    expect(existsSync(join(alpha, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(alpha, ".codex", "hooks.json"))).toBe(false);
+    expect(existsSync(join(beta, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+    expect(existsSync(join(gamma, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // The printed details route runs and shows what changed, what went wrong
+    // and what is not done (screen 29).
+    const stoppedDetails = await runPrinted(
+      home,
+      "Details: apkit details (see exactly what changed)",
+    );
+    expectExitCode(stoppedDetails, 0);
+    expect(stoppedDetails.stdout).toContain("stopped partway");
+    expect(stoppedDetails.stdout).toContain("Changed files:");
+    expect(stoppedDetails.stdout).toContain("What went wrong:");
+    expect(stoppedDetails.stdout).toContain("Not done:");
+    expect(stoppedDetails.stdout).toContain("problem-c");
+
+    // The printed retry command runs and finishes the work.
+    const retryLine = stopped.stderr.split("\n")
+      .find((line) => line.trim().startsWith("apkit uninstall"))!;
+    const retried = await runPrinted(home, retryLine);
+    expectExitCode(retried, 0);
+    expect(existsSync(join(beta, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+    expect(existsSync(join(gamma, ".agent-profile-kit", "codex", "context.md"))).toBe(false);
+
+    // Screens 18 and 19 at 100 and 60 columns: recent runs with labelled
+    // columns, and one run's local time and sections; the printed list next
+    // step runs.
+    for (const columns of [100, 60] as const) {
+      const list = await runCliInPty(home, columns, "details", "--list");
+      expectExitCode(list, 0);
+      expect(list.stdout).toContain("Recent runs");
+      expect(list.stdout).toContain("Run");
+      expect(list.stdout).toContain("When");
+      expect(list.stdout).toContain("Command");
+      expect(list.stdout).toContain("Result");
+      expect(list.stdout).toContain("Scope");
+      expect(list.stdout).toContain("op-000001");
+    }
+    const listNext = (await runCli(home, "details", "--list")).stdout
+      .split("\n").find((line) => line.startsWith("Next: apkit details"))!;
+    expect(listNext).toContain("(see exactly what one run changed)");
+    const followed = await runPrinted(home, listNext, ["op-000001"]);
+    expectExitCode(followed, 0);
+    expect(followed.stdout).toContain("Update op-000001 succeeded");
+
+    for (const columns of [100, 60] as const) {
+      const oneRun = await runCliInPty(home, columns, "details", "op-000001");
+      expectExitCode(oneRun, 0);
+      expect(oneRun.stdout).toContain("Update op-000001 succeeded");
+      expect(oneRun.stdout).toMatch(/Today at \d{1,2}:\d{2} [AP]M · all Projects/);
+      expect(oneRun.stdout).toContain("Changed files:");
+      // Exact timestamps stay in --json only (US-008, DEC-009).
+      expect(oneRun.stdout).not.toContain("T00:00:00");
+      const machine = JSON.parse((await runCli(home, "details", "op-000001", "--json")).stdout) as {
+        entries: readonly { readonly startedAt: string }[];
+      };
+      expect(machine.entries[0]!.startedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    }
+  }, 180_000);
 });

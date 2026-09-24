@@ -76,7 +76,10 @@ import {
   updateVerificationFailureRecording,
   type LifecycleOperationRecording,
 } from "./operation-recording.js";
-import { writeLifecycleReport } from "./operation-history-presentation.js";
+import {
+  localHumanTimeContext,
+  writeLifecycleReport,
+} from "./operation-history-presentation.js";
 
 export interface ApplyCommandRequest {
   readonly home: string;
@@ -144,6 +147,7 @@ export async function runApplyCommand(request: ApplyCommandRequest): Promise<App
   const recording = beginLifecycleOperationRecording();
   const outcome = await runApplyCommandWithRecording(request, recording);
   await finishLifecycleOperationRecording({
+    time: localHumanTimeContext(),
     recording,
     home: request.home,
     command: "update",

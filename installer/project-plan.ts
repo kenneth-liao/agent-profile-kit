@@ -135,6 +135,11 @@ export interface HostCapabilityWarning {
   /** The normalized Host CLI floor the failure names, when it names one. */
   readonly requiredVersion?: string;
   /**
+   * The typed cause class (US-007): presentation chooses its warning shape
+   * from this fact, never from rendered copy.
+   */
+  readonly reason?: "missing-executable" | "version-floor";
+  /**
    * Typed Adapter-authored sentences for human presentation (US-011).
    * `warning.parts` remains the machine message. Remedies and requirements
    * stay Adapter-authored; presentation never synthesizes them (DEC-009).
@@ -176,6 +181,7 @@ export function capabilityWarning(
     ...(failure.requiredVersion === undefined
       ? {}
       : { requiredVersion: failure.requiredVersion }),
+    ...(failure.reason === undefined ? {} : { reason: failure.reason }),
     problem: failure.problem,
     remedy: failure.remedy,
     requirement: failure.requirement,

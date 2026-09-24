@@ -353,6 +353,16 @@ function formatAvailableChoices(label: string, items: readonly string[]): string
   return `Available ${label}s: ${visible.join(", ")} (and ${remaining} more).`;
 }
 
+/** The user's Profile list on a missing-Profile screen (US-007, screen 08). */
+function formatYourProfiles(items: readonly string[]): string {
+  if (items.length <= MAX_DISPLAYED_AVAILABLE_CHOICES) {
+    return `Your Profiles: ${items.join(", ")}`;
+  }
+  const visible = items.slice(0, MAX_DISPLAYED_AVAILABLE_CHOICES);
+  const remaining = items.length - MAX_DISPLAYED_AVAILABLE_CHOICES;
+  return `Your Profiles: ${visible.join(", ")} (and ${remaining} more)`;
+}
+
 /**
  * The single canonical did-you-mean suggestion sentence shared across
  * diagnostics (DEC-017, US-015): nearest name within edit distance 2. Context
@@ -808,33 +818,39 @@ export function formatMissingProfileError(error: MissingProfileError): readonly 
   return [...heading, ` ${choicesText}${suggestionText}`, ...recovery];
 }
 
-/** Structured diagnostic for Missing Profile (DEC-014). */
+/**
+ * Structured diagnostic for Missing Profile (DEC-014; US-007 screen 08): one
+ * plain headline, then the near-match and the user's Profiles as guidance.
+ */
 export function formatMissingProfileErrorDiagnostic(error: MissingProfileError): DiagnosticDocumentParts {
-  const heading = [`${missingProfileSentence(error.profile)}.`];
-  const why: (readonly InlineContent[])[] = error.availableProfiles.length === 0
-    ? [["No Profiles exist in the Workspace."]]
-    : [[formatAvailableChoices("Profile", error.availableProfiles)]];
+  const heading = [`There's no Profile called '${error.profile}'.`];
+  if (error.availableProfiles.length === 0) {
+    return {
+      happened: heading,
+      why: [["No Profiles exist in the Workspace."]],
+      whatToType: [[
+        "Run ",
+        commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]),
+        " to learn how to add a Profile.",
+      ]],
+    };
+  }
+  const guidance: (readonly InlineContent[])[] = [];
   const suggestion = nameSuggestionSentence(error.profile, error.availableProfiles);
   if (suggestion !== undefined) {
-    why.push([suggestion]);
+    guidance.push([suggestion]);
   }
-  const whatToType: (readonly InlineContent[])[] = [];
+  guidance.push([formatYourProfiles(error.availableProfiles)]);
   if (error.recoverByEditingLocalConfiguration) {
-    whatToType.push(["Edit Local Configuration directly if this stale binding must be removed."]);
-  } else if (error.availableProfiles.length === 0) {
-    whatToType.push(["Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."]);
+    guidance.push(["Edit Local Configuration directly if this stale binding must be removed."]);
   } else if (suggestion === undefined) {
-    whatToType.push([
+    guidance.push([
       "Run ",
       commandPart(COMMAND_NAME, [arg("list"), arg("profiles")]),
       " to inspect available Profiles.",
     ]);
   }
-  return {
-    happened: heading,
-    why,
-    ...(whatToType.length > 0 ? { whatToType } : {}),
-  };
+  return { happened: heading, whatToType: guidance };
 }
 
 /** The carried sentence parts for one typed Installer tool-error fact. */
@@ -1338,8 +1354,8 @@ export function formatProjectTargetErrorDiagnostic(
       };
     case "missing-target":
       return {
-        happened: [`Project target '${reason.target}' must be an existing directory`],
-        whatToType: [listProjectsRecovery()],
+        happened: [`The folder ${reason.target} doesn't exist.`],
+        whatToType: [["Create it first, or pick a folder that exists."]],
       };
     case "relative-target":
       return {

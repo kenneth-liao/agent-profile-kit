@@ -106,7 +106,7 @@ Next: Run apkit update for pending work after resolving any blockers.
 exports[`golden snapshots of every human view unknown command: unknown-command 1`] = `
 "--- stdout ---
 --- stderr ---
-✖ apkit: unknown command 'nosuch'
+✖ unknown command 'nosuch'
 
 Run apkit --help for available commands.
 "
@@ -115,7 +115,7 @@ Run apkit --help for available commands.
 exports[`golden snapshots of every human view unknown machine command: unknown-machine-command 1`] = `
 "--- stdout ---
 --- stderr ---
-✖ apkit: unknown machine command 'nosuch'
+✖ unknown machine command 'nosuch'
 
 Run apkit machine --help for available machine commands.
 "
@@ -1065,26 +1065,23 @@ History: ~/.agents/agent-profile-kit/operation-history.json
 
 exports[`golden snapshots of every human view details list: details-list 1`] = `
 "--- stdout ---
-Operation history (1):
+Recent runs (1)
 
-Operation  Time        Command  Outcome    Scope
+Run        When        Command  Result     Scope
 op-000001  2020-01-01  install  succeeded  one Project
 
-Run apkit details <operation-id> for one operation's complete evidence.
+Next: apkit details <run> (see exactly what one run changed)
 --- stderr ---
 "
 `;
 
 exports[`golden snapshots of every human view details latest: details-latest 1`] = `
 "--- stdout ---
-✔ Install op-000001
-Time: 2026-01-01T00:00:00Z
-Scope: one Project
-Profile: example
-Hosts: codex
-Outcome: succeeded
+✔ Install op-000001 succeeded
 
-Written:
+  Today at 9:45 AM · one Project · Profile example · Agents codex
+
+Changed files:
   ~/projects/demo
     + .agent-profile-kit/codex/context.md
     + .codex/hooks.json
@@ -1240,7 +1237,6 @@ Try it: start a new Codex session in ~/projects/demo and ask what Profile
   material it loaded.
 
 Next: apkit status (see installed Profiles and whether they're up to date)
-Details: apkit details
 --- stderr ---
 "
 `;
@@ -1599,8 +1595,6 @@ Now author your own:
   apkit new skill <skill>
   apkit new context <context>
   apkit new profile <profile> --context <context> --skill <skill>
-
-Details: apkit details
 --- stderr ---
 "
 `;
@@ -1639,7 +1633,7 @@ Git exclusions: 2 entries to add.
 Next:
 - Resolve the reported blocker, then run apkit update ~/'projects/blocked'
   again.
-Details: apkit details
+Details: apkit details (see exactly what this run checked)
 --- stderr ---
 "
 `;
@@ -1648,8 +1642,6 @@ exports[`golden snapshots of every human view uninstall: uninstall 1`] = `
 "--- stdout ---
 ✔ Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
   recorded selection.
-
-Details: apkit details
 --- stderr ---
 "
 `;
@@ -1700,7 +1692,7 @@ Remedy: Choose one. To let Agent Profile Kit manage these files, run
 exports[`golden snapshots of every human view unbound-directory error: unbound-directory-error 1`] = `
 "--- stdout ---
 --- stderr ---
-✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
+✖ Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not
   configured as a Project
 
 Run apkit install to configure this directory as a Project.
@@ -2336,7 +2328,7 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-✖ apkit: Directory
+✖ Directory
   '/private/tmp/apkit-golden-xxxx/projects/unbound'
   is not configured as a Project
 
@@ -2352,7 +2344,7 @@ Usage: apkit status [project | --here | --all | --project <path>] [--stale | --b
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[31m✖ apkit: Directory\x1B[0m
+\x1B[31m✖ Directory\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31m'/private/tmp/apkit-golden-xxxx/projects/unbound'\x1B[0m
 \x1B[31m  \x1B[0m\x1B[31mis not configured as a Project\x1B[0m
 
@@ -2368,8 +2360,7 @@ Usage: \x1B[36mapkit status [project | --here | --all | --project <path>] [--sta
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a
-  Project
+✖ Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project
 
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
@@ -2381,8 +2372,7 @@ Usage: apkit status [project | --here | --all | --project <path>] [--stale | --b
 
 exports[`rendering matrix for a representative subset unbound error matrix: unbound-directory-error-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[31m✖ apkit: Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a\x1B[0m
-\x1B[31m  \x1B[0m\x1B[31mProject\x1B[0m
+\x1B[31m✖ Directory '/private/tmp/apkit-golden-xxxx/projects/unbound' is not configured as a Project\x1B[0m
 
 Run \x1B[36mapkit install\x1B[0m to configure this directory as a Project.
 Run \x1B[36mapkit list projects\x1B[0m to see configured Projects.
