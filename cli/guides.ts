@@ -13,6 +13,7 @@ import {
 } from "./guide-markdown.js";
 import {
   commandPart,
+  part,
   pathPart,
   type CommandArg,
   type InlineContent,
@@ -135,44 +136,47 @@ function spacer(): PresentationNode {
 /** The guide index as a presentation document. */
 export function guideIndexDocument(): PresentationDocument {
   const nodes: PresentationNode[] = [
-    guideHeadingNode("Agent Profile Kit guide"),
+    part(guideHeadingNode("Agent Profile Kit guide")),
     spacer(),
-    {
+    part({
       kind: "sentence",
       parts: [
         "Choose a focused authoring topic, read the Workspace contract, the complete human guide, or the agent workflow reference.",
       ],
-    },
+    }),
     spacer(),
-    { kind: "heading", text: "Topics:" },
   ];
-  for (const topic of GUIDE_TOPICS) {
-    const guide = TOPIC_GUIDES[topic];
-    nodes.push(
-      routeLine(["guide", topic]),
-      { kind: "sentence", parts: [`    ${guide.title}: ${guide.introduction}`] },
-    );
-  }
-  nodes.push(spacer(), { kind: "heading", text: "Complete references:" });
-  for (const [route, description] of [
-    [["guide", "--contract"], "The Workspace contract: every rule validation enforces"],
-    [["guide", "--full"], "Complete human Workspace guide"],
-    [["guide", "--agent"], "Agent workflow reference"],
-  ] as const) {
-    nodes.push(
+  // Each index section is one part: its heading keeps its route entries.
+  nodes.push(part(
+    { kind: "heading", text: "Topics:" },
+    ...GUIDE_TOPICS.flatMap((topic): PresentationNode[] => {
+      const guide = TOPIC_GUIDES[topic];
+      return [
+        routeLine(["guide", topic]),
+        { kind: "sentence", parts: [`    ${guide.title}: ${guide.introduction}`] },
+      ];
+    }),
+  ));
+  nodes.push(spacer(), part(
+    { kind: "heading", text: "Complete references:" },
+    ...([
+      [["guide", "--contract"], "The Workspace contract: every rule validation enforces"],
+      [["guide", "--full"], "Complete human Workspace guide"],
+      [["guide", "--agent"], "Agent workflow reference"],
+    ] as const).flatMap(([route, description]): PresentationNode[] => [
       routeLine(route),
       { kind: "sentence", parts: [`    ${description}`] },
-    );
-  }
-  nodes.push(spacer(), { kind: "heading", text: "Examples:" });
-  for (const args of [
-    ["init", "<path>"],
-    ["new", "skill", "<skill>"],
-    ["guide", "profile"],
-    ["install", AUTHORING_EXAMPLES.profile.id, "--agent", "codex"],
-  ] as const) {
-    nodes.push(routeLine(args));
-  }
+    ]),
+  ));
+  nodes.push(spacer(), part(
+    { kind: "heading", text: "Examples:" },
+    ...([
+      ["init", "<path>"],
+      ["new", "skill", "<skill>"],
+      ["guide", "profile"],
+      ["install", AUTHORING_EXAMPLES.profile.id, "--agent", "codex"],
+    ] as const).map((args): PresentationNode => routeLine(args)),
+  ));
   return nodes;
 }
 
@@ -202,7 +206,7 @@ function exampleNodes(
   example: { readonly path: string; readonly contents: string },
 ): readonly PresentationNode[] {
   return [
-    { kind: "sentence", parts: [`An example ${example.path}:`] },
+    part({ kind: "sentence", parts: [`An example ${example.path}:`] }),
     spacer(),
     guideCodeBlockNode(example.contents),
   ];
@@ -212,8 +216,10 @@ function exampleNodes(
 function scaffoldNodes(guide: (typeof TOPIC_GUIDES)[GuideTopic]): readonly PresentationNode[] {
   return [
     spacer(),
-    { kind: "sentence", parts: [guide.scaffoldLead] },
-    ...guide.scaffoldCommands.map((args) => routeLine([...args])),
+    part(
+      { kind: "sentence", parts: [guide.scaffoldLead] },
+      ...guide.scaffoldCommands.map((args) => routeLine([...args])),
+    ),
   ];
 }
 
@@ -272,9 +278,9 @@ export function focusedGuideDocument(
 ): PresentationDocument {
   const guide = TOPIC_GUIDES[topic];
   const nodes: PresentationNode[] = [
-    guideHeadingNode(guide.title),
+    part(guideHeadingNode(guide.title)),
     spacer(),
-    { kind: "sentence", parts: [guide.introduction] },
+    part({ kind: "sentence", parts: [guide.introduction] }),
     spacer(),
     focusedGuideWorkspaceNode(workspace),
     ...scaffoldNodes(guide),
@@ -286,15 +292,15 @@ export function focusedGuideDocument(
   }
   nodes.push(
     spacer(),
-    {
+    part({
       kind: "sentence",
       // Prose reflows and commands stay atomic; a promoted command line
       // carries no trailing sentence punctuation (US-009, #651).
       parts: [...guide.next],
       category: "command",
-    },
+    }),
     spacer(),
-    FULL_GUIDE_POINTER,
+    part(FULL_GUIDE_POINTER),
   );
   return nodes;
 }

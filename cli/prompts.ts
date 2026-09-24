@@ -549,6 +549,10 @@ const createPickerPrompt = createPrompt<PickerResult, PickerConfig>((config, don
   if (window.length === 0) {
     lines.push(tint("no matches", "muted", color));
   }
+  const annotatedRows = config.rows.filter((row) => row.annotation !== undefined);
+  const maxTitleLength = annotatedRows.length > 0
+    ? Math.max(...annotatedRows.map((row) => row.title.length))
+    : 0;
   for (const row of window) {
     const isFocus = visible[cursor]?.index === row.index;
     const prefix = config.multi
@@ -556,16 +560,32 @@ const createPickerPrompt = createPrompt<PickerResult, PickerConfig>((config, don
       : `${isFocus ? focusMark(color) : blankMark()}`;
     // `❯ ` plus `◻ ` is four glyph cells in multi; two in single.
     const prefixCells = config.multi ? 4 : 2;
+    if (row.annotation !== undefined) {
+      const gap = Math.max(2, maxTitleLength + 2 - row.title.length);
+      const titleWithGap = `${row.title}${" ".repeat(gap)}`;
+      const plainLength = prefixCells + titleWithGap.length + row.annotation.length;
+      if (plainLength <= width) {
+        lines.push(`${prefix}${tint(titleWithGap, undefined, color)}${tint(row.annotation, "muted", color)}`);
+        continue;
+      }
+      // Tight width: the status still sits on the first line (INT-4). The
+      // title hangs: it wraps at the measure that leaves a two-space gap
+      // plus the status, and later title lines indent under the prefix.
+      const tightMeasure = Math.max(1, width - prefixCells - 2 - row.annotation.length);
+      const tightLines = wrapRowTitle(row.title, tightMeasure);
+      lines.push(
+        `${prefix}${tint(tightLines[0] ?? "", undefined, color)}${tint("  ", undefined, color)}${tint(row.annotation, "muted", color)}`,
+      );
+      tightLines.slice(1).forEach((titleLine) => {
+        lines.push(`${" ".repeat(prefixCells)}${tint(titleLine, undefined, color)}`);
+      });
+      continue;
+    }
     const titleLines = wrapRowTitle(row.title, Math.max(1, width - prefixCells));
     titleLines.forEach((titleLine, lineIndex) => {
       const head = lineIndex === 0 ? prefix : " ".repeat(prefixCells);
       lines.push(`${head}${tint(titleLine, undefined, color)}`);
     });
-    if (row.annotation !== undefined) {
-      lines.push(
-        `${" ".repeat(prefixCells)}${tint(row.annotation, "muted", color)}`,
-      );
-    }
   }
 
   return lines.join("\n");

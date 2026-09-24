@@ -11413,7 +11413,7 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
-      "✔ No temporary Profiles are active.\n" +
+      "✔ No temporary Profiles are active.\n\n" +
         "Create one with apkit machine install-temp <profile> <project> --host <host>.\n",
     );
     expect(result.stdout).not.toContain("Next:");
@@ -11432,7 +11432,7 @@ describe("apkit list", () => {
     expect(result.stdout).toBe(
       "Supported agents:\n" +
         SUPPORTED_HOSTS.map((host) => `  ${host} — not found\n`).join("") +
-        "\n\"not found\" means the agent executable was not detected here.\nEvery agent stays selectable with apkit install.\n",
+        "\n\"not found\" means the agent executable was not detected here.\n\nEvery agent stays selectable with apkit install.\n",
     );
     expect(result.stdout).not.toContain("Next:");
     expect(result.stdout).not.toContain("Temporary Profile Installation");
@@ -11454,7 +11454,7 @@ describe("apkit list", () => {
     expect(result.stdout).toBe(
       "Supported agents:\n" +
         SUPPORTED_HOSTS.map((host) => `  ${host} — detected\n`).join("") +
-        "\n\"not found\" means the agent executable was not detected here.\nEvery agent stays selectable with apkit install.\n",
+        "\n\"not found\" means the agent executable was not detected here.\n\nEvery agent stays selectable with apkit install.\n",
     );
   });
 
@@ -11510,7 +11510,7 @@ describe("apkit list", () => {
     expect(result.stdout).toBe(
       "Supported agents:\n" +
         SUPPORTED_HOSTS.map((host) => `  ${host} — detected\n`).join("") +
-        "\n\"not found\" means the agent executable was not detected here.\nEvery agent stays selectable with apkit install.\n",
+        "\n\"not found\" means the agent executable was not detected here.\n\nEvery agent stays selectable with apkit install.\n",
     );
     // No Host executable was started and the command wrote nothing.
     expect(readdirSync(markers)).toEqual([]);
@@ -12210,7 +12210,7 @@ describe("apkit list", () => {
     expectExitCode(result, 0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
-      "✔ No Projects are configured.\n" +
+      "✔ No Projects are configured.\n\n" +
         "Use apkit install <profile> --agent <agent> to install a Project.\n",
     );
     expect(result.stdout).not.toContain("Next:");

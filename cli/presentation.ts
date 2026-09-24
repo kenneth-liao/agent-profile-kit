@@ -45,7 +45,9 @@ import {
   flatInlineText,
   footerNodes,
   identifierPart,
+  list,
   neutralStatementDocument,
+  part,
   pathPart,
   stateHeadlinePrefix,
   textPart,
@@ -53,6 +55,7 @@ import {
   type CommandNode,
   type InlineContent,
   type NoticeSeverity,
+  type PartNode,
   type PresentationDocument,
   type PresentationNode,
 } from "./presentation-document.js";
@@ -489,11 +492,9 @@ export function partitionFleet(report: ReconciliationReport): FleetPartition {
   };
 }
 
-export function settledCountNode(count: number): PresentationNode {
-  return {
-    kind: "list-item",
-    parts: [`settled (${count})`],
-  };
+/** One settled-count fact line for the shared list part. */
+export function settledCountParts(count: number): readonly InlineContent[] {
+  return [`settled (${count})`];
 }
 
 /** The canonical Primary Cause label for one Project (spec #640 US-007).
@@ -551,12 +552,14 @@ function statusScopeEvidenceNodes(
   for (const project of report.projects) {
     const needsEvidence = project.blockers.length > 0 || project.state.kind === "removal";
     if (!needsEvidence) continue;
-    nodes.push({
+    // One Project's evidence is one part: its locator keeps the Blocker
+    // blocks and the removal note authored after it.
+    const section: PresentationNode[] = [{
       kind: "prose",
       parts: [projectLocationPart(project, scope, identities), ":"],
-    });
+    }];
     for (const blocker of project.blockers) {
-      nodes.push(...conciseBlockerNodes(
+      section.push(...conciseBlockerNodes(
         blocker,
         identities(project),
         groups,
@@ -565,11 +568,12 @@ function statusScopeEvidenceNodes(
       ));
     }
     if (project.state.kind === "removal") {
-      nodes.push({
+      section.push({
         kind: "prose",
         parts: ["  Update will remove generated files for unbound projects."],
       });
     }
+    nodes.push(part(...section));
   }
   return nodes;
 }
@@ -650,7 +654,7 @@ export function infoDocument(
         })`,
       ] }
       : { kind: "path", canonicalPath: info.workspace.canonical, authoredPath: info.workspace.authored, scope: "fleet" };
-  return [
+  return [part(
     {
       kind: "key-value",
       key: "Engine version",
@@ -678,7 +682,7 @@ export function infoDocument(
         scope: "fleet",
       },
     },
-  ];
+  )];
 }
 
 
@@ -820,31 +824,33 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
       // lines (DEC-009).
       return [
         ...prefix,
-        {
-          kind: "notice",
-          severity: "warning",
-          nodes: [{ kind: "prose", parts: happened }],
-        },
-        {
-          kind: "prose",
-          parts: [WORKSPACE_EXPLANATION_SENTENCE],
-        },
-        {
-          kind: "prose",
-          parts: [WORKSPACE_SCOPE_EXPLANATION_SENTENCE],
-        },
-        {
-          kind: "prose",
-          parts: [PROJECT_EXPLANATION_SENTENCE],
-        },
-        {
-          kind: "prose",
-          category: "muted",
-          parts: [
-            "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
-          ],
-        },
-        ...footerNodes({
+        part(
+          {
+            kind: "notice",
+            severity: "warning",
+            nodes: [{ kind: "prose", parts: happened }],
+          },
+          {
+            kind: "prose",
+            parts: [WORKSPACE_EXPLANATION_SENTENCE],
+          },
+          {
+            kind: "prose",
+            parts: [WORKSPACE_SCOPE_EXPLANATION_SENTENCE],
+          },
+          {
+            kind: "prose",
+            parts: [PROJECT_EXPLANATION_SENTENCE],
+          },
+          {
+            kind: "prose",
+            category: "muted",
+            parts: [
+              "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
+            ],
+          },
+        ),
+        footerNodes({
           next: {
             kind: "actions",
             items: [
@@ -894,13 +900,14 @@ export function bareInvocationDocument(options: BareInvocationOptions): Presenta
       }],
     });
   } else {
-    for (const cause of PRIMARY_CAUSE_ORDER) {
-      const count = partition.groups[cause].length;
-      if (count > 0) {
-        nodes.push({ kind: "list-item", parts: [`${PRIMARY_CAUSE_LABELS[cause]} (${count})`] });
-      }
+    const causes: readonly (readonly InlineContent[])[] = PRIMARY_CAUSE_ORDER
+      .filter((cause) => partition.groups[cause].length > 0)
+      .map((cause) => [`${PRIMARY_CAUSE_LABELS[cause]} (${partition.groups[cause].length})`]);
+    if (partition.settledCount > 0) {
+      nodes.push(list([...causes, settledCountParts(partition.settledCount)]));
+    } else if (causes.length > 0) {
+      nodes.push(list(causes));
     }
-    if (partition.settledCount > 0) nodes.push(settledCountNode(partition.settledCount));
   }
   nodes.push(
     { kind: "verbatim", text: "" },
@@ -928,16 +935,15 @@ function inventoryTopicNodes(
   topics: readonly { readonly description: string; readonly name: string }[],
   command: (topic: { readonly description: string; readonly name: string }) => readonly CommandArg[],
 ): PresentationDocument {
-  const nodes: PresentationNode[] = [{ kind: "heading", text: "Inventory topics:" }];
-  for (const topic of topics) {
-    nodes.push(
+  return [part(
+    { kind: "heading", text: "Inventory topics:" },
+    ...topics.flatMap((topic): PresentationNode[] => [
       // Indented command invocations are prose lines with an authored command
       // category: the command node kind cannot carry the two-space indent.
       { kind: "prose", parts: ["  ", commandPart(COMMAND_NAME, command(topic))], category: "command" },
       { kind: "prose", parts: [`    ${topic.description}`] },
-    );
-  }
-  return nodes;
+    ]),
+  )];
 }
 
 
@@ -1025,18 +1031,14 @@ export function projectInventoryDocument(
   nodes.push(spacerNode());
   // A configuration problem renders its complete typed sentence and repair
   // locator once, after the rows, under the same identity the row carries.
-  for (const project of projects) {
-    if (project.problem === null) continue;
-    nodes.push({
-      kind: "list-item",
-      parts: [
-        projectLocationPart(location(project), "fleet", identities),
-        ": ",
-        ...formatInstallerToolError(project.problem),
-      ],
-      category: "warning",
-    });
-  }
+  const problems: readonly (readonly InlineContent[])[] = projects
+    .filter((project) => project.problem !== null)
+    .map((project): readonly InlineContent[] => [
+      projectLocationPart(location(project), "fleet", identities),
+      ": ",
+      ...formatInstallerToolError(project.problem!),
+    ]);
+  if (problems.length > 0) nodes.push(list(problems, "warning"));
   nodes.push(
     {
       kind: "prose",
@@ -1156,10 +1158,9 @@ export function profileInventoryDocument(
     ];
   }
 
-  const nodes: PresentationNode[] = [{ kind: "heading", text: `Profiles (${profiles.length}):` }];
+  const nodes: PresentationNode[] = [part({ kind: "heading", text: `Profiles (${profiles.length}):` })];
   for (const profile of profiles) {
-    nodes.push(
-      spacerNode(),
+    nodes.push(part(
       {
         kind: "key-value",
         key: "Profile",
@@ -1176,7 +1177,7 @@ export function profileInventoryDocument(
         key: "  Skills",
         value: { kind: "identifier", value: String(profile.skills) },
       },
-    );
+    ));
   }
   nodes.push(
     spacerNode(),
@@ -1200,7 +1201,7 @@ export function profileInventoryDocument(
 export function profileDetailDocument(
   profile: ProfileDetailInventoryRecord,
 ): PresentationDocument {
-  return [
+  return [part(
     { kind: "heading", text: `Profile '${profile.id}':` },
     {
       kind: "key-value",
@@ -1223,7 +1224,7 @@ export function profileDetailDocument(
         " to select it for a Project.",
       ],
     },
-  ];
+  )];
 }
 
 
@@ -1328,17 +1329,19 @@ export function hostInventoryDocument(
   detected: readonly SupportedHost[],
 ): PresentationDocument {
   return [
-    { kind: "heading", text: "Supported agents:" },
-    ...hosts.map(({ host }) => ({
-      kind: "prose" as const,
-      parts: [
-        "  ",
-        identifierPart(host),
-        detected.includes(host)
-          ? ` — ${HOST_DETECTION_LABELS.detected}`
-          : ` — ${HOST_DETECTION_LABELS.notFound}`,
-      ],
-    })),
+    part(
+      { kind: "heading", text: "Supported agents:" },
+      ...hosts.map(({ host }) => ({
+        kind: "prose" as const,
+        parts: [
+          "  ",
+          identifierPart(host),
+          detected.includes(host)
+            ? ` — ${HOST_DETECTION_LABELS.detected}`
+            : ` — ${HOST_DETECTION_LABELS.notFound}`,
+        ],
+      })),
+    ),
     spacerNode(),
     {
       kind: "prose",
@@ -1548,7 +1551,7 @@ function checkedWorkspaceRow(canonical: string, authored: string): PresentationN
 export function validationResultDocument(result: ValidationResult): PresentationDocument {
   const profileCount = result.profiles.length;
   const countClause = validationCountClause(result);
-  return [
+  return [part(
     // Severity is the validation outcome fact: the view only renders valid results.
     {
       kind: "notice",
@@ -1563,11 +1566,9 @@ export function validationResultDocument(result: ValidationResult): Presentation
     },
     // Warnings stay directly beside the outcome notice (DEC-011); the checked
     // Workspace follows them as the first fact row.
-    ...result.warnings.map((warning) => ({
-      kind: "list-item" as const,
-      parts: [warning],
-      category: "warning" as const,
-    })),
+    ...(result.warnings.length === 0
+      ? []
+      : [list(result.warnings.map((warning): readonly InlineContent[] => [warning]), "warning")]),
     checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
     {
       kind: "key-value",
@@ -1585,19 +1586,20 @@ export function validationResultDocument(result: ValidationResult): Presentation
         parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
       },
     },
-    {
-      kind: "key-value",
-      key: "Next",
-      value: {
+  ),
+    footerNodes({
+      next: {
         kind: "command",
-        program: COMMAND_NAME,
-        args: [{
-          kind: "text",
-          value: result.bindings === 0 ? "install <profile> --agent <agent>" : "status",
-        }],
+        value: {
+          kind: "command",
+          program: COMMAND_NAME,
+          args: [{
+            kind: "text",
+            value: result.bindings === 0 ? "install <profile> --agent <agent>" : "status",
+          }],
+        },
       },
-    },
-  ];
+    })];
 }
 
 /**
@@ -1613,7 +1615,7 @@ export function workspaceValidationDocument(
     result.contexts.length,
     "Context Module",
   )}, ${plural(result.skills.length, "Skill")}`;
-  return [
+  return [part(
     // Severity is the validation outcome fact: the view only renders valid results.
     {
       kind: "notice",
@@ -1648,7 +1650,7 @@ export function workspaceValidationDocument(
         parts: [result.skills.length === 0 ? "none" : result.skills.join(", ")],
       },
     },
-  ];
+  )];
 }
 
 /**
@@ -1895,12 +1897,11 @@ export function uninstallReceiptDocument(
         : outcomeLines.join(" ")],
     }],
   }];
-  for (const warning of result.warnings) {
-    nodes.push({
-      kind: "list-item" as const,
-      parts: [warning],
-      category: "warning" as const,
-    });
+  if (result.warnings.length > 0) {
+    nodes.push(list(
+      result.warnings.map((warning): readonly InlineContent[] => [warning]),
+      "warning",
+    ));
   }
   if (skippedCount > 0) {
     nodes.push(
@@ -2304,13 +2305,12 @@ function stateExplanationNodes(
 ): PresentationNode[] {
   const kinds = presentPrimaryCauses(projects);
   if (kinds.length === 0) return [];
-  return [
+  return [part(
     { kind: "heading", text: "State explanations:" },
-    ...kinds.map((kind) => ({
-      kind: "list-item" as const,
-      parts: [`${PRIMARY_CAUSE_LABELS[kind]}: ${CAUSE_EXPLANATIONS[kind]}`],
-    })),
-  ];
+    list(kinds.map((kind): readonly InlineContent[] => [
+      `${PRIMARY_CAUSE_LABELS[kind]}: ${CAUSE_EXPLANATIONS[kind]}`,
+    ])),
+  )];
 }
 
 function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly NonCurrentKind[] {
@@ -2324,13 +2324,10 @@ function presentNonCurrentKinds(items: readonly ReconciliationItem[]): readonly 
 function stateExplanationNodesLegacy(items: readonly ReconciliationItem[]): PresentationNode[] {
   const kinds = presentNonCurrentKinds(items);
   if (kinds.length === 0) return [];
-  return [
+  return [part(
     { kind: "heading", text: "State explanations:" },
-    ...kinds.map((kind) => ({
-      kind: "list-item" as const,
-      parts: [`${kind}: ${STATE_EXPLANATIONS[kind]}`],
-    })),
-  ];
+    list(kinds.map((kind): readonly InlineContent[] => [`${kind}: ${STATE_EXPLANATIONS[kind]}`])),
+  )];
 }
 
 function blockerProject(blocker: ReconciliationBlocker): string | undefined {
@@ -3122,13 +3119,12 @@ function conciseFirstUseNodes(
 ): PresentationNode[] {
   const groups = conciseFirstUseGroups(presented);
   if (groups.length === 0) return [];
-  return [
+  return [part(
     { kind: "heading", text: "First use:" },
-    ...groups.map((group) => ({
-      kind: "list-item" as const,
-      parts: [conciseFirstUseActionLine(group, changeEvidence)],
-    })),
-  ];
+    list(groups.map((group): readonly InlineContent[] => [
+      conciseFirstUseActionLine(group, changeEvidence),
+    ])),
+  )];
 }
 
 /**
@@ -3344,13 +3340,10 @@ function nextActionNodes(
   });
 
   if (items.length === 0) return [];
-  return [
+  return [part(
     { kind: "heading", text: "Next:" },
-    ...items.map((parts) => ({
-      kind: "list-item" as const,
-      parts,
-    })),
-  ];
+    list(items),
+  )];
 }
 
 /** Observable output operations included in concise fleet summaries. */
@@ -3954,10 +3947,10 @@ function conciseApplyDocument(
       ...warnings,
     ];
   }
-  nodes.push(
+  nodes.push(part(
     applyOutcomeNotice(report, receipt !== undefined),
     ...warnings,
-  );
+  ));
 
   if (!blocked && !noOpApply && receipt !== undefined) {
     const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities);
@@ -3970,17 +3963,16 @@ function conciseApplyDocument(
 
   if (!noOpApply) {
     for (const group of activeGroups) {
-      nodes.push(
-        spacerNode(),
-        {
-          kind: "key-value",
-          key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
-          value: projectPathNode(group.canonicalProject, group.project, scope, group.displayIdentity),
-        },
-      );
+      // One installation's evidence is one part: the Project locator keeps
+      // its Profile, agents, state, and file facts authored after it.
+      const section: PresentationNode[] = [{
+        kind: "key-value",
+        key: capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular),
+        value: projectPathNode(group.canonicalProject, group.project, scope, group.displayIdentity),
+      }];
       const desired = desiredInstallation(report, group.canonicalProject);
       if (desired) {
-        nodes.push(
+        section.push(
           {
             kind: "key-value",
             key: "  Profile",
@@ -3995,14 +3987,15 @@ function conciseApplyDocument(
         );
       }
       if (blocked) {
-        nodes.push(...group.blockers.flatMap((blocker) =>
+        section.push(...group.blockers.flatMap((blocker) =>
           conciseBlockerNodes(blocker, group.displayIdentity, groups, "  ", scope),
         ));
+        nodes.push(spacerNode(), part(...section));
         continue;
       }
       for (const item of group.items) {
         if (item.kind !== "current") {
-          nodes.push({
+          section.push({
             kind: "key-value",
             key: "  State",
             value: { kind: "prose", parts: [itemText(item)] },
@@ -4012,12 +4005,13 @@ function conciseApplyDocument(
       }
       const outputLines = outputPathLines(group.outputs);
       if (outputLines.length > 0) {
-        nodes.push({ kind: "prose", parts: ["  Files:"] });
-        nodes.push(...outputLines.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })));
+        section.push({ kind: "prose", parts: ["  Files:"] });
+        section.push(...outputLines.map((line) => ({ kind: "prose" as const, parts: [`  ${line}`] })));
       }
       for (const blocker of group.blockers) {
-        nodes.push(...conciseBlockerNodes(blocker, group.displayIdentity, groups, "  ", scope));
+        section.push(...conciseBlockerNodes(blocker, group.displayIdentity, groups, "  ", scope));
       }
+      nodes.push(spacerNode(), part(...section));
     }
   }
 
@@ -4150,18 +4144,20 @@ function applyAuthoringHandoffNodes(): PresentationNode[] {
   });
   return [
     spacerNode(),
-    { kind: "heading", text: "Now author your own:" },
-    authoringCommand(["new", "skill", "<skill>"]),
-    authoringCommand(["new", "context", "<context>"]),
-    authoringCommand([
-      "new",
-      "profile",
-      "<profile>",
-      "--context",
-      "<context>",
-      "--skill",
-      "<skill>",
-    ]),
+    part(
+      { kind: "heading", text: "Now author your own:" },
+      authoringCommand(["new", "skill", "<skill>"]),
+      authoringCommand(["new", "context", "<context>"]),
+      authoringCommand([
+        "new",
+        "profile",
+        "<profile>",
+        "--context",
+        "<context>",
+        "--skill",
+        "<skill>",
+      ]),
+    ),
   ];
 }
 
@@ -4494,7 +4490,7 @@ export function applyReplacementDeclinedDocument(
         : `${command} kept the changed generated files; nothing was written (you answered no).`;
   return [
     ...neutralStatementDocument([statement]),
-    ...footerNodes({
+    footerNodes({
       next: {
         kind: "command",
         value: {
@@ -4536,7 +4532,7 @@ export function uninstallInteractiveDeclinedDocument(input: {
         : `Uninstall was declined; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted${answer}.`;
   return [
     ...neutralStatementDocument([statement]),
-    ...footerNodes({
+    footerNodes({
       next: {
         kind: "actions",
         items: input.commands.map(
@@ -4780,7 +4776,7 @@ export function configureChangingDocument(input: {
   readonly contexts: readonly string[];
   readonly skills: readonly string[];
 }): PresentationDocument {
-  return [
+  return [part(
     { kind: "heading", text: "Configure:" },
     {
       kind: "prose",
@@ -4795,7 +4791,7 @@ export function configureChangingDocument(input: {
       parts: [membershipChangeLine("Skills", input.previousSkills, input.skills)],
     },
     { kind: "prose", parts: ["Saves only to the reusable Profile definition; installations update separately."] },
-  ];
+  )];
 }
 
 /** How the general-confirmation answer was given: an explicit no, the
@@ -5137,7 +5133,7 @@ function conciseBlockerNodes(
     }
     const paths = outputOwnershipConflictPaths(blocker);
     const wording = humanBlockerWording(blocker);
-    return [
+    return [part(
       {
         kind: "prose",
         parts: shortenInlineProjectReferences(
@@ -5157,10 +5153,10 @@ function conciseBlockerNodes(
           parts: [line],
         })),
       ]),
-    ];
+    )];
   }
   const wording = humanBlockerWording(blocker);
-  return [
+  return [part(
     {
       kind: "prose",
       parts: shortenInlineProjectReferences(
@@ -5177,7 +5173,7 @@ function conciseBlockerNodes(
       kind: "prose" as const,
       parts: [`${indent}  ${affectedItemLabel(item)}`],
     })),
-  ];
+  )];
 }
 
 /** The typed verbose Blocker evidence for one Blocker. */
@@ -5192,7 +5188,7 @@ function verboseBlockerNodes(
     : undefined;
   const wording = humanBlockerWording(blocker);
   const nodes: PresentationNode[] = [
-    { kind: "list-item", parts: shortenInlineProjectReferences(wording.problem, groups, scope, "stable") },
+    list([shortenInlineProjectReferences(wording.problem, groups, scope, "stable")]),
     { kind: "prose", parts: ["  Requirement: ", ...wording.requirement] },
     { kind: "prose", parts: ["  Remedy: ", ...wording.remedy] },
     { kind: "prose", parts: [`  Scope: ${blockerScopeText(blocker, project)}`] },
@@ -5203,7 +5199,7 @@ function verboseBlockerNodes(
       : item.value;
     nodes.push({ kind: "prose", parts: [`  ${affectedItemLabel({ ...item, value })}`] });
   }
-  return nodes;
+  return [part(...nodes)];
 }
 
 /** The every-broken-Profile section (spec #593 US-007, #606): one bullet per
@@ -5291,7 +5287,7 @@ function statusLifecycleCommand(
 function readyStatusGuidanceNodes(
   report: ReconciliationReport,
   options: LifecycleHumanOptions,
-): PresentationNode[] {
+): PartNode {
   // One footer block: the action list and its secondary details route
   // (US-010). Healthy settled status never reaches this helper.
   return footerNodes({
@@ -5415,14 +5411,10 @@ function warningGroupNodes(
   const statement = group.problem === undefined
     ? formatWarningGroupParts(group, groups, scope, display)
     : shortenInlineProjectReferences(group.problem, groups, scope, display);
-  const nodes: PresentationNode[] = [{
-    kind: "list-item" as const,
-    parts: [
-      ...statement,
-      warningProjectClause(group.projects, identities, naming, verbose),
-    ],
-    category: "warning" as const,
-  }];
+  const nodes: PresentationNode[] = [list([[
+    ...statement,
+    warningProjectClause(group.projects, identities, naming, verbose),
+  ]], "warning")];
   if (group.consequence !== undefined) {
     nodes.push({ kind: "prose", parts: [`  Consequence: ${group.consequence}`] });
   }
@@ -5444,7 +5436,7 @@ function warningGroupNodes(
       ],
     });
   }
-  return nodes;
+  return [part(...nodes)];
 }
 
 function warningNodes(
@@ -5592,10 +5584,10 @@ function verboseDetailNodes(
   const items = reportItems(report);
   const outputs = reportOutputs(report).filter((output) => output.kind !== "unchanged");
   const exclusions = changedRepositoryExclusions(report);
-  const nodes: PresentationNode[] = [
+  const nodes: PresentationNode[] = [part(
     { kind: "heading", text: "Projects:" },
     ...(report.projects.length === 0
-      ? [{ kind: "prose" as const, parts: ["(no projects)"] }]
+      ? [{ kind: "prose" as const, parts: ["(no projects)"] } as PresentationNode]
       : (command === "status"
         ? report.projects.map((project) => ({
             kind: "prose" as const,
@@ -5613,7 +5605,7 @@ function verboseDetailNodes(
               }`,
             ],
           })))),
-  ];
+  )];
   if (includeStateExplanations) {
     if (command === "status") {
       nodes.push(...stateExplanationNodes(report.projects));
@@ -5636,9 +5628,9 @@ function verboseDetailNodes(
     );
   }
   if (exclusions.length > 0) {
-    nodes.push(
+    nodes.push(part(
       { kind: "heading", text: "Git exclusions:" },
-      ...exclusions.map((change) => {
+      list(exclusions.map((change) => {
         const delta = exclusionDelta(change);
         const parts: InlineContent[] = [identifierPart(shorten(change.target)), ": "];
         const deltaClauses: InlineContent[] = [];
@@ -5649,12 +5641,9 @@ function verboseDetailNodes(
           if (deltaClauses.length > 0) deltaClauses.push("; ");
           deltaClauses.push("remove ", ...delta.removals.flatMap((e, i) => (i === 0 ? [identifierPart(e)] : [", ", identifierPart(e)])));
         }
-        return {
-          kind: "list-item" as const,
-          parts: [...parts, ...deltaClauses],
-        };
-      }),
-    );
+        return [...parts, ...deltaClauses];
+      })),
+    ));
   }
   return nodes;
 }
@@ -5679,16 +5668,16 @@ function verboseHostSetupNodes(
     ["Standing agent setup:", standing],
   ] as const) {
     if (sectionGroups.length === 0) continue;
-    nodes.push({ kind: "heading", text: heading });
+    const section: PresentationNode[] = [{ kind: "heading", text: heading }];
     for (const group of sectionGroups) {
-      nodes.push({
-        kind: "list-item",
-        parts: [`${group.message}${setupProjectScope(group.projects, true, scope)}`],
-      });
+      section.push(list([
+        [`${group.message}${setupProjectScope(group.projects, true, scope)}`],
+      ]));
       if (group.step.consequence !== undefined) {
-        nodes.push({ kind: "prose", parts: [`  Consequence: ${group.step.consequence}`] });
+        section.push({ kind: "prose", parts: [`  Consequence: ${group.step.consequence}`] });
       }
     }
+    nodes.push(part(...section));
   }
   return nodes;
 }
@@ -5721,12 +5710,14 @@ function conciseStatusDocument(
       ];
     }
     return [
-      {
-        kind: "notice",
-        severity: "neutral",
-        nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
-      },
-      ...workspaceRow,
+      part(
+        {
+          kind: "notice",
+          severity: "neutral",
+          nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
+        },
+        ...workspaceRow,
+      ),
       {
         kind: "prose",
         category: "command",
@@ -5742,11 +5733,13 @@ function conciseStatusDocument(
     ];
   }
 
-  const nodes: PresentationNode[] = [
+  // The outcome states what happened as one part: the notice keeps its
+  // warnings and the checked Workspace fact row (review screen 04).
+  const nodes: PresentationNode[] = [part(
     statusOutcomeNotice(report, options.selection, grouped.identities),
     ...warningNodes(report, groups, scope, grouped.identities),
     ...workspaceRow,
-  ];
+  )];
   if (report.projects.length > 0) {
     nodes.push(spacerNode(), ...statusScopeRows(report, scope, grouped.identities));
     const evidence = statusScopeEvidenceNodes(report, groups, scope, grouped.identities);
@@ -5786,7 +5779,7 @@ function conciseStatusDocument(
   if (brokenProfiles.length > 0) {
     nodes.push(spacerNode(), ...brokenProfiles);
   }
-  nodes.push(...readyStatusGuidanceNodes(report, options));
+  nodes.push(readyStatusGuidanceNodes(report, options));
   return nodes;
 }
 
@@ -6230,69 +6223,67 @@ export function temporaryInstallationDocument(
   if (command === "install-temp") {
     const nodes: PresentationNode[] = [
       // Severity is the receipt outcome fact: the temporary Profile was installed.
-      {
-        kind: "notice",
-        severity: "success",
-        nodes: [{
-          kind: "prose",
-          parts: [`Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
-        }],
-      },
-      ...receipt.warnings.map((warning, index) => ({
-        kind: "list-item" as const,
-        parts: receipt.warningParts?.[index] ?? [warning],
-        category: "warning" as const,
-      })),
-      {
-        kind: "key-value",
-        key: "  Profile",
-        value: { kind: "identifier", value: receipt.profileId! },
-        category: "path",
-      },
-      {
-        kind: "key-value",
-        key: "  Host",
-        value: { kind: "identifier", value: receipt.host! },
-        category: "path",
-      },
-      { kind: "key-value", key: "  Project", value: projectValue! },
-      {
-        kind: "key-value",
-        key: "  Temporary installation",
-        value: { kind: "identifier", value: receipt.temporaryInstallationId },
-        category: "path",
-      },
+      part(
+        {
+          kind: "notice",
+          severity: "success",
+          nodes: [{
+            kind: "prose",
+            parts: [`Installed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
+          }],
+        },
+        ...(receipt.warnings.length === 0
+          ? []
+          : [list(
+            receipt.warnings.map((warning, index): readonly InlineContent[] =>
+              receipt.warningParts?.[index] ?? [warning]),
+            "warning",
+          )]),
+        {
+          kind: "key-value",
+          key: "  Profile",
+          value: { kind: "identifier", value: receipt.profileId! },
+          category: "path",
+        },
+        {
+          kind: "key-value",
+          key: "  Host",
+          value: { kind: "identifier", value: receipt.host! },
+          category: "path",
+        },
+        { kind: "key-value", key: "  Project", value: projectValue! },
+        {
+          kind: "key-value",
+          key: "  Temporary installation",
+          value: { kind: "identifier", value: receipt.temporaryInstallationId },
+          category: "path",
+        },
+      ),
     ];
     if (receipt.setupSteps.length > 0) {
-      nodes.push(
+      const section: PresentationNode[] = [
         { kind: "heading", text: `${capitalize(receipt.host!)} setup:` },
-        ...[...receipt.setupSteps]
-          .sort((left, right) =>
-            HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
-              HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
-            left.message.localeCompare(right.message)
-          )
-          .flatMap((step) => {
-            // A Host setup instruction names an exact filesystem location to
-            // act on, so it keeps the stable path rather than a scanning alias.
-            const message = setupStepMessage(step, displayProjectPath(
-              receipt.project!,
-              receipt.project!,
-              "fleet",
-              cwd,
-              home,
-            ));
-            return [
-              {
-                kind: "list-item" as const,
-                parts: [message],
-              },
-              ...(step.consequence === undefined
-                ? []
-                : [{ kind: "prose" as const, parts: [`  Consequence: ${step.consequence}`] }]),
-            ];
-          }),
-      );
+      ];
+      for (const step of [...receipt.setupSteps].sort((left, right) =>
+        HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
+          HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
+        left.message.localeCompare(right.message)
+      )) {
+        // A Host setup instruction names an exact filesystem location to
+        // act on, so it keeps the stable path rather than a scanning alias.
+        const message = setupStepMessage(step, displayProjectPath(
+          receipt.project!,
+          receipt.project!,
+          "fleet",
+          cwd,
+          home,
+        ));
+        section.push(list([[message]]));
+        if (step.consequence !== undefined) {
+          section.push({ kind: "prose", parts: [`  Consequence: ${step.consequence}`] });
+        }
+      }
+      nodes.push(part(...section));
     }
     nodes.push({
       kind: "key-value",
@@ -6311,28 +6302,35 @@ export function temporaryInstallationDocument(
   }
   const nodes: PresentationNode[] = [
     // Severity is the receipt outcome fact: the temporary Profile was removed.
-    {
-      kind: "notice",
-      severity: "success",
-      nodes: [{
-        kind: "prose",
-        parts: [`Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
-      }],
-    },
-    ...receipt.warnings.map((warning, index) => ({
-      kind: "list-item" as const,
-      parts: receipt.warningParts?.[index] ?? [warning],
-      category: "warning" as const,
-    })),
-    {
-      kind: "key-value",
-      key: "  Temporary installation",
-      value: { kind: "identifier", value: receipt.temporaryInstallationId },
-      category: "path",
-    },
+    part(
+      {
+        kind: "notice",
+        severity: "success",
+        nodes: [{
+          kind: "prose",
+          parts: [`Removed ${DEFAULT_VIEW_LEXICON.temporaryProfileInstallation.singular}`],
+        }],
+      },
+      ...(receipt.warnings.length === 0
+        ? []
+        : [list(
+          receipt.warnings.map((warning, index): readonly InlineContent[] =>
+            receipt.warningParts?.[index] ?? [warning]),
+          "warning",
+        )]),
+      {
+        kind: "key-value",
+        key: "  Temporary installation",
+        value: { kind: "identifier", value: receipt.temporaryInstallationId },
+        category: "path",
+      },
+    ),
   ];
   if (projectValue !== undefined) {
-    nodes.push({ kind: "key-value", key: "  Project", value: projectValue });
+    nodes[0] = part(
+      ...(nodes[0] as PartNode).nodes,
+      { kind: "key-value", key: "  Project", value: projectValue },
+    );
   }
   return nodes;
 }

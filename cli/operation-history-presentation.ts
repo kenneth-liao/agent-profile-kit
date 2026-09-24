@@ -26,6 +26,7 @@ import {
   commandPart,
   footerNodes,
   identifierPart,
+  part,
   pathPart,
   writeHumanDocument,
   type CommandArg,
@@ -50,7 +51,7 @@ export const DETAILS_MACHINE_SCHEMA_VERSION = 1;
  * cancellation (US-010, DEC-010).
  */
 export function operationDetailsDocument(): PresentationDocument {
-  return footerNodes({ details: operationDetailsCommand() });
+  return [footerNodes({ details: operationDetailsCommand() })];
 }
 
 /** The typed completed-operation details command. */
@@ -79,6 +80,8 @@ export function documentHasWarnings(document: PresentationDocument): boolean {
 }
 
 function nodeHasWarningCategory(node: PresentationNode): boolean {
+  if (node.kind === "part") return node.nodes.some(nodeHasWarningCategory);
+  if (node.kind === "list") return node.category === "warning";
   if ("category" in node && node.category === "warning") return true;
   if (node.kind === "notice") return node.nodes.some(nodeHasWarningCategory);
   if (node.kind === "column-group") return node.columns.some(documentHasWarnings);
@@ -86,11 +89,17 @@ function nodeHasWarningCategory(node: PresentationNode): boolean {
 }
 
 function documentHasFooterAction(document: PresentationDocument): boolean {
-  return document.some(
+  return flattenDocumentNodes(document).some(
     (node) =>
       (node.kind === "key-value" && node.key === "Next") ||
       (node.kind === "heading" && node.text === "Next:"),
   );
+}
+
+/** The document's nodes with authored parts flattened, in order. */
+function flattenDocumentNodes(document: PresentationDocument): readonly PresentationNode[] {
+  return document.flatMap((node) =>
+    node.kind === "part" ? node.nodes : [node]);
 }
 
 /**
@@ -141,11 +150,16 @@ export function writeLifecycleReport(
     value: operationDetailsCommand(),
     category: "command",
   };
+  const last = document.at(-1);
   writeHumanDocument(
     stream,
-    documentHasFooterAction(document)
-      ? [...document, details]
-      : [...document, ...footerNodes({ details: operationDetailsCommand() })],
+    // The details route joins the trailing footer part when one exists, so
+    // the footer stays one screen part with no second blank line (US-010).
+    documentHasFooterAction(document) && last?.kind === "part"
+      ? [...document.slice(0, -1), { ...last, nodes: [...last.nodes, details] }]
+      : documentHasFooterAction(document)
+        ? [...document, details]
+        : [...document, footerNodes({ details: operationDetailsCommand() })],
     context,
   );
 }
@@ -291,40 +305,40 @@ function committedNodes(projects: readonly OperationHistoryProject[]): readonly 
     (project.removed?.length ?? 0) > 0 ||
     project.outputCommitted === true
   );
-  const nodes: PresentationNode[] = [{ kind: "heading", text: "Written:" }];
+  const section: PresentationNode[] = [{ kind: "heading", text: "Written:" }];
   if (committed.length === 0) {
-    nodes.push({ kind: "prose", parts: ["  none"] });
-    return nodes;
+    section.push({ kind: "prose", parts: ["  none"] });
+    return [part(...section)];
   }
   for (const project of committed) {
-    nodes.push(projectLine(project));
+    section.push(projectLine(project));
     if (
       (project.written?.length ?? 0) === 0 &&
       (project.removed?.length ?? 0) === 0 &&
       project.outputCommitted === true
     ) {
-      nodes.push({
+      section.push({
         kind: "sentence",
         parts: ["    + committed generated output (paths not enumerated)"],
         category: "success",
       });
     }
     for (const path of project.written ?? []) {
-      nodes.push({
+      section.push({
         kind: "sentence",
         parts: ["    + ", identifierPart(path)],
         category: "success",
       });
     }
     for (const path of project.removed ?? []) {
-      nodes.push({
+      section.push({
         kind: "sentence",
         parts: ["    - ", identifierPart(path)],
         category: "warning",
       });
     }
   }
-  return nodes;
+  return [part(...section)];
 }
 
 function outcomeGroupNodes(
@@ -382,7 +396,9 @@ export function operationHistoryEntryDocument(
     ],
     category: OUTCOME_CATEGORY[entry.outcome],
   };
-  const nodes: PresentationNode[] = [
+  // The run's headline keeps its keyed facts (review screen 19): identity,
+  // time, scope, outcome, and any failure or cancellation reason.
+  const nodes: PresentationNode[] = [part(
     {
       kind: "notice",
       severity: OUTCOME_SEVERITY[entry.outcome],
@@ -396,22 +412,18 @@ export function operationHistoryEntryDocument(
       value: { kind: "identifier", value: entry.outcome },
       category: OUTCOME_CATEGORY[entry.outcome],
     },
-  ];
-  if (entry.cancelledReason !== undefined) {
-    nodes.push({
+    ...(entry.cancelledReason === undefined ? [] : [{
       kind: "key-value",
       key: "Cancelled",
       value: { kind: "identifier", value: entry.cancelledReason },
-    });
-  }
-  if (entry.failure !== undefined) {
-    nodes.push({
+    }] as PresentationNode[]),
+    ...(entry.failure === undefined ? [] : [{
       kind: "key-value",
       key: "Failure",
       value: { kind: "identifier", value: entry.failure },
       category: "error",
-    });
-  }
+    }] as PresentationNode[]),
+  )];
   nodes.push(
     { kind: "verbatim", text: "" },
     ...committedNodes(entry.projects),

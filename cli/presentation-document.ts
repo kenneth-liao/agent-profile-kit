@@ -107,6 +107,7 @@ export type CommandNode = {
   readonly program: string;
   readonly args: readonly CommandArg[];
   readonly category?: SemanticCategory;
+  readonly note?: string;
 };
 
 export type KeyValueNode = {
@@ -116,9 +117,13 @@ export type KeyValueNode = {
   readonly category?: SemanticCategory;
 };
 
-export type ListItemNode = {
-  readonly kind: "list-item";
-  readonly parts: readonly InlineContent[];
+/** One list part: every item renders as a bullet (US-001, review rule 4).
+ * A screen part with more than two items is authored as a list, so the
+ * renderer — one reader, not N screens — owns the bullet shape; state
+ * categories keep their DEC-001 glyph bullets, everything else renders `- `. */
+export type ListNode = {
+  readonly kind: "list";
+  readonly items: readonly (readonly InlineContent[])[];
   readonly category?: SemanticCategory;
 };
 
@@ -149,6 +154,18 @@ export type VerbatimNode = {
   readonly text: string;
 };
 
+/**
+ * One screen part authored explicitly (US-001, DEC-002): the document model
+ * states its parts, so a builder groups the nodes that belong together — a
+ * headline with its facts, a heading with its list, two adjacent sentences —
+ * instead of the renderer guessing. The renderer joins parts with exactly one
+ * blank line; a part never carries leading or trailing blanks.
+ */
+export type PartNode = {
+  readonly kind: "part";
+  readonly nodes: readonly PresentationNode[];
+};
+
 export type PresentationNode =
   | ProseNode
   | SentenceNode
@@ -157,10 +174,11 @@ export type PresentationNode =
   | PathNode
   | CommandNode
   | KeyValueNode
-  | ListItemNode
+  | ListNode
   | NoticeNode
   | RowNode
   | ColumnGroupNode
+  | PartNode
   | VerbatimNode;
 
 export type PresentationDocument = readonly PresentationNode[];
@@ -200,9 +218,50 @@ export function neutralStatementDocument(
   return [stateHeadline(parts, "neutral")];
 }
 
+/**
+ * One screen part authored explicitly (US-001, DEC-002): the obvious way to
+ * write "these nodes belong together". The renderer joins parts with exactly
+ * one blank line, so a headline keeps its facts and two adjacent sentences
+ * share one part only when the screen says so here.
+ */
+export function part(...nodes: readonly PresentationNode[]): PartNode {
+  return { kind: "part", nodes };
+}
+
+/**
+ * One list part (US-001, review rule 4): the one list constructor. Author a
+ * list when a screen part has more than two items; every item renders as a
+ * bullet — the state category's DEC-001 glyph, or `- ` otherwise.
+ */
+export function list(
+  items: readonly (readonly InlineContent[])[],
+  category?: SemanticCategory,
+): ListNode {
+  return category === undefined ? { kind: "list", items } : { kind: "list", items, category };
+}
+
+/**
+ * The one home for a next-step note (US-001, review rule 6): the note is
+ * display-only, attached to the command it describes, and rendered as
+ * `<command> (<note>)` with the command staying copyable at any width. This
+ * converter is the one normalization point; notes never live anywhere else.
+ */
+export function notedCommand(command: CommandNode, note: string): CommandNode {
+  const normalized = note.trim();
+  if (normalized.length === 0) {
+    return command.category === undefined
+      ? { kind: "command", program: command.program, args: command.args }
+      : { kind: "command", program: command.program, args: command.args, category: command.category };
+  }
+  return { ...command, note: normalized };
+}
+
 /** The one footer action list (US-010): a single command, or explicit items. */
 export type FooterNext =
-  | { readonly kind: "command"; readonly value: CommandNode }
+  | {
+      readonly kind: "command";
+      readonly value: CommandNode;
+    }
   | {
       readonly kind: "actions";
       readonly items: readonly (readonly InlineContent[])[];
@@ -212,12 +271,13 @@ export type FooterNext =
  * The one shared footer block (US-010, DEC-002): at most one action list,
  * with an optional secondary details route in the same block. Next actions
  * never split between body guidance and this footer; failure remedies stay in
- * the failure body as recovery evidence.
+ * the failure body as recovery evidence. The footer is one screen part: the
+ * renderer separates it from the body with exactly one blank line.
  */
 export function footerNodes(input: {
   readonly next?: FooterNext;
   readonly details?: CommandNode;
-}): PresentationNode[] {
+}): PartNode {
   const nextNodes: PresentationNode[] =
     input.next === undefined
       ? []
@@ -230,10 +290,7 @@ export function footerNodes(input: {
           }]
         : [
             { kind: "heading" as const, text: "Next:" },
-            ...input.next.items.map((parts): PresentationNode => ({
-              kind: "list-item" as const,
-              parts,
-            })),
+            list(input.next.items),
           ];
   const detailsNodes: PresentationNode[] =
     input.details === undefined
@@ -244,12 +301,8 @@ export function footerNodes(input: {
           value: input.details,
           category: "command" as const,
         }];
-  if (nextNodes.length === 0 && detailsNodes.length === 0) return [];
-  return [
-    { kind: "verbatim", text: "" },
-    ...nextNodes,
-    ...detailsNodes,
-  ];
+  if (nextNodes.length === 0 && detailsNodes.length === 0) return part();
+  return part(...nextNodes, ...detailsNodes);
 }
 
 function prependStateGlyph(node: PresentationNode, role: StateRole): PresentationNode {
@@ -257,8 +310,14 @@ function prependStateGlyph(node: PresentationNode, role: StateRole): Presentatio
   switch (node.kind) {
     case "prose":
     case "sentence":
-    case "list-item":
       return { ...node, parts: [prefix, ...node.parts] };
+    case "list":
+      return {
+        ...node,
+        items: node.items.map((item, index) =>
+          index === 0 ? [prefix, ...item] : item
+        ),
+      };
     case "heading":
       return { ...node, text: `${prefix}${node.text}` };
     case "identifier":
@@ -272,12 +331,20 @@ function prependStateGlyph(node: PresentationNode, role: StateRole): Presentatio
   }
 }
 
+/**
+ * The one flat document projection: the text form machine-relevant consumers
+ * read. Notes are display-only (DEC-004) and never appear here, so a noted
+ * command projects exactly like the same command without one.
+ */
 function flatNodeText(node: PresentationNode): string {
   switch (node.kind) {
     case "prose":
     case "sentence":
-    case "list-item":
       return flatInlineText(node.parts);
+    case "part":
+      return node.nodes.map(flatNodeText).join("\n");
+    case "list":
+      return node.items.map((item) => flatInlineText(item)).join("\n");
     case "heading":
       return node.text;
     case "identifier":
@@ -285,6 +352,8 @@ function flatNodeText(node: PresentationNode): string {
     case "path":
       return node.identity ?? node.authoredPath ?? node.canonicalPath;
     case "command":
+      // The note is display-only: the flat projection that machine surfaces
+      // consume excludes it, so JSON stays byte-identical (INT-3, PROD-1).
       return [node.program, ...node.args.map((arg) =>
         arg.kind === "text" ? arg.value : arg.authoredPath ?? arg.canonicalPath
       )].join(" ");
@@ -305,6 +374,147 @@ function flatNodeText(node: PresentationNode): string {
   }
 }
 
+function wrapPlainRun(text: string, measure: number): readonly string[] {
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (current.length === 0) {
+      current = word;
+    } else if (current.length + 1 + word.length <= measure) {
+      current += ` ${word}`;
+    } else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current.length > 0) {
+    lines.push(current);
+  }
+  return lines;
+}
+
+function renderCommandWithNote(
+  node: CommandNode,
+  environment: RenderEnvironment,
+  prefix = "",
+): readonly string[] {
+  const rendered = renderCommand(node, environment);
+  if (rendered === undefined) {
+    return styleLines(
+      "Manual recovery is required: this command cannot be printed safely.",
+      undefined,
+      environment.context.color,
+    );
+  }
+  const category = node.category ?? "command";
+  if (node.note === undefined || node.note.length === 0) {
+    return [styleSemanticText(`${prefix}${rendered}`, category, environment.context.color)];
+  }
+
+  const noteText = `(${node.note})`;
+  const singleLine = `${prefix}${rendered} ${noteText}`;
+  if (singleLine.length <= environment.context.width) {
+    return [styleSemanticText(singleLine, category, environment.context.color)];
+  }
+
+  const commandLine = styleSemanticText(`${prefix}${rendered}`, category, environment.context.color);
+  const indent = "  ";
+  const noteMeasure = Math.max(1, environment.context.width - indent.length);
+  const noteLines = wrapPlainRun(noteText, noteMeasure);
+  return [
+    commandLine,
+    ...noteLines.map((line) =>
+      styleSemanticText(`${indent}${line}`, category, environment.context.color)
+    ),
+  ];
+}
+
+function isSpacerNode(node: PresentationNode): boolean {
+  return node.kind === "verbatim" && node.text.trim().length === 0;
+}
+
+/**
+ * Split a document into its screen parts (US-001, DEC-002): the renderer —
+ * one reader, not every screen — joins the parts with exactly one blank
+ * line. The model states its parts; no content is inspected:
+ *
+ * - an authored {@link part} node is one screen part, exactly as the screen
+ *   says;
+ * - a spacer node is a part boundary — the mechanical conversion for
+ *   documents authored before explicit parts;
+ * - a list node is one part (its items render as bullets);
+ * - consecutive rows and verbatim blocks keep their structural runs (a table
+ *   and authored verbatim blocks are never split by a blank line);
+ * - every other loose node is a part of one node.
+ */
+function partitionDocument(
+  document: PresentationDocument,
+): readonly (readonly PresentationNode[])[] {
+  const parts: PresentationNode[][] = [];
+  let index = 0;
+  const push = (nodes: readonly PresentationNode[]): void => {
+    if (nodes.length > 0) parts.push([...nodes]);
+  };
+
+  while (index < document.length) {
+    const node = document[index]!;
+    if (isSpacerNode(node)) {
+      index += 1;
+      continue;
+    }
+    if (node.kind === "part") {
+      push(node.nodes);
+      index += 1;
+      continue;
+    }
+    if (node.kind === "list") {
+      push([node]);
+      index += 1;
+      continue;
+    }
+    if (node.kind === "row") {
+      const run: PresentationNode[] = [node];
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind !== "row") break;
+        run.push(next);
+        index += 1;
+      }
+      push(run);
+      continue;
+    }
+    if (node.kind === "verbatim") {
+      const run: PresentationNode[] = [node];
+      index += 1;
+      while (index < document.length) {
+        const next = document[index]!;
+        if (next.kind !== "verbatim" || isSpacerNode(next)) break;
+        run.push(next);
+        index += 1;
+      }
+      push(run);
+      continue;
+    }
+    push([node]);
+    index += 1;
+  }
+  return parts;
+}
+
+function trimPartLines(lines: readonly string[]): string[] {
+  let start = 0;
+  while (start < lines.length && lines[start]!.trim().length === 0) {
+    start += 1;
+  }
+  let end = lines.length;
+  while (end > start && lines[end - 1]!.trim().length === 0) {
+    end -= 1;
+  }
+  return lines.slice(start, end);
+}
+
 type RenderEnvironment = {
   readonly context: TerminalPresentationContext;
   readonly cwd: string;
@@ -321,7 +531,11 @@ export function renderPresentationDocument(
     cwd: options.cwd ?? process.cwd(),
     home: options.home ?? homedir(),
   };
-  return renderNodes(document, environment).join("\n");
+  const parts = partitionDocument(document);
+  const renderedParts = parts
+    .map((part) => trimPartLines(renderNodes(part, environment)))
+    .filter((lines) => lines.length > 0);
+  return renderedParts.map((lines) => lines.join("\n")).join("\n\n");
 }
 
 function renderNodes(
@@ -394,24 +608,27 @@ function renderNode(
       return lines.map((line) => styleSemanticText(line, category, context.color));
     }
     case "command": {
-      const rendered = renderCommand(node, environment);
-      // Fail closed (PROD-1): never print a refused argument in a copyable
-      // command; fall back to non-copyable manual-recovery prose. Recovery is
-      // actionable guidance, so it stays in the default colour (ORCH-1).
-      if (rendered === undefined) {
-        return styleLines(
-          "Manual recovery is required: this command cannot be printed safely.",
-          undefined,
-          context.color,
-        );
-      }
-      return styleLines(
-        rendered,
-        node.category ?? inheritedCategory ?? "command",
-        context.color,
+      return renderCommandWithNote(
+        { ...node, category: node.category ?? inheritedCategory ?? "command" },
+        environment,
       );
     }
     case "key-value": {
+      if (node.value.kind === "command") {
+        // The value keeps its own command styling (INT-1); the key re-styles
+        // the whole line with the key's category (DEC-001). Notes wrap inside
+        // the width that remains after the key (INT-2).
+        const commandCategory = node.value.category ?? inheritedCategory ?? "command";
+        const valueLines = renderCommandWithNote(
+          { ...node.value, category: commandCategory },
+          withWidth(environment, Math.max(1, context.width - node.key.length - 2)),
+        );
+        const head = `${node.key}: ${valueLines[0] ?? ""}`;
+        const lines = [head, ...valueLines.slice(1)];
+        return lines.map((line) =>
+          styleSemanticText(line, node.category ?? inheritedCategory, context.color)
+        );
+      }
       const valueLines = renderNode(
         node.value,
         // The rendered prefix is part of the line: values such as commands
@@ -428,19 +645,30 @@ function renderNode(
         styleSemanticText(line, node.category ?? inheritedCategory, context.color)
       );
     }
-    case "list-item": {
+    case "list": {
+      // The one list rule (US-001): every item renders as a bullet — the
+      // state category's DEC-001 glyph, or `- ` otherwise. A part with more
+      // than two items is authored as a list, so the renderer owns the
+      // bullet shape and no screen calls a helper.
       const category = node.category ?? inheritedCategory;
-      // A state list item opens with its DEC-001 glyph instead of a dash.
       const bullet = category !== undefined && STATE_ROLES.includes(category as StateRole)
         ? stateHeadlinePrefix(category as StateRole)
         : "- ";
-      return wrapInlineNode(
-        [bullet, ...node.parts],
-        environment,
-        "lifecycle",
-        category,
-      );
+      const lines: string[] = [];
+      for (const item of node.items) {
+        lines.push(
+          ...wrapInlineNode(
+            [bullet, ...item],
+            environment,
+            "lifecycle",
+            category,
+          ),
+        );
+      }
+      return lines;
     }
+    case "part":
+      return renderNodes(node.nodes, environment, inheritedCategory);
     case "notice": {
       const role = NOTICE_ROLE[node.severity];
       const [headline, ...body] = node.nodes;

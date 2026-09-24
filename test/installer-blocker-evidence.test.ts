@@ -157,13 +157,15 @@ describe("structured Installer blocker evidence", () => {
     }
 
     const human = lifecycleStatusDocument(report, { selection: { kind: "all" } });
-    expect(human.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Global blockers:");
-    expect(human.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
+    const humanNodes = human.flatMap((node) => node.kind === "part" ? node.nodes : [node]);
+    expect(humanNodes.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Global blockers:");
+    expect(humanNodes.filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     const verbose = lifecycleStatusDocument(report, { selection: { kind: "all" }, verbose: true });
-    expect(verbose.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Blockers:");
-    const blockersAt = verbose.findIndex((node) => node.kind === "heading" && node.text === "Blockers:");
-    const nextSection = verbose.findIndex((node, index) => index > blockersAt && node.kind === "heading");
-    expect(verbose.slice(blockersAt + 1, nextSection).filter((node) => node.kind === "list-item")).toHaveLength(1);
+    const verboseNodes = verbose.flatMap((node) => node.kind === "part" ? node.nodes : [node]);
+    expect(verboseNodes.filter((node) => node.kind === "heading").map((node) => node.text)).toContain("Blockers:");
+    const blockersAt = verboseNodes.findIndex((node) => node.kind === "heading" && node.text === "Blockers:");
+    const nextSection = verboseNodes.findIndex((node, index) => index > blockersAt && node.kind === "heading");
+    expect(verboseNodes.slice(blockersAt + 1, nextSection).filter((node) => node.kind === "list")).toHaveLength(1);
 
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly globalBlockers: readonly Record<string, unknown>[];
