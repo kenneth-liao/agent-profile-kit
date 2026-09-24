@@ -270,7 +270,7 @@ describe("fleet-wide synchronization qualification", () => {
       humanText("Start a new agent session from the Project root to use the updated material."),
     );
     // First fleet delivery offers one short optional check (ADR-0043).
-    expect(humanText(apply.stdout).match(/Optional check: /g)).toHaveLength(1);
+    expect(humanText(apply.stdout).match(/Try it: /g)).toHaveLength(1);
     expect(humanText(apply.stdout)).toContain("in each updated Project");
 
     const status = await runCli(home, pathWithHosts, "status");
@@ -316,10 +316,12 @@ describe("fleet-wide synchronization qualification", () => {
     // rules are the two qualified compositions reused across the fleet.
     expect(instrumentation.counts.composeContext).toBe(2);
     // Unique Host budget: Host projections scale with unique Host/topology
-    // keys, never with Projects × Hosts (the naive sum is 28).
+    // keys, never with Projects × Hosts (the naive sum is 28). Since DEC-006
+    // (spec #677) removed Codex's bound-root launch step, the Git-rooted and
+    // plain-rooted Codex projections are byte-identical and share one key.
     const naivePlans = FLEET_HOSTS.reduce((total, hosts) => total + hosts.length, 0);
     expect(naivePlans).toBe(28);
-    expect(instrumentation.counts.planHost).toBe(6);
+    expect(instrumentation.counts.planHost).toBe(5);
     // Unique Project budget: each Project resolves Git topology once.
     expect(instrumentation.counts.findGitProject).toBe(12);
     expect(desired.installations).toHaveLength(12);

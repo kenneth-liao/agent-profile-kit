@@ -29,8 +29,8 @@ The single boundary that owns all host-specific knowledge for one Agent Host and
 _Avoid_: Installer, canonical source, duplicate implementation
 
 **Host Setup Step**:
-A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Every step is classified once at the Adapter boundary as transition-triggered (caused by the current lifecycle transition and tied to the generated output that makes it relevant) or standing (a persistent constraint); presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files.
-_Avoid_: Activation, generated output, Installer-derived Host guidance
+A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Every step is classified once at the Adapter boundary as transition-triggered (caused by the current lifecycle transition and tied to the generated output that makes it relevant) or standing (a persistent constraint); presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files. One line of presentation-owned host-neutral guidance sits beside Adapter-authored steps: the install receipt's start-folder line ("Start your agents from this Project folder, not a subfolder.") renders on first delivery for every agent because launching from the Project folder is always correct, and it replaces the former Codex Adapter-authored bound-root `launch-constraint` step (ADR-0014, DEC-006 of spec #672); other Host Setup Steps stay Adapter-authored and may render one line per agent over their own text.
+_Avoid_: Activation, generated output, Installer-derived Host guidance, presentation-invented Host requirements
 
 **Capability Contract**:
 The machine-readable set of behaviors an Adapter can preserve for a detected Agent Host version and surface. The Installer compares artifact requirements against this contract before installation.

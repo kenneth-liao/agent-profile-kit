@@ -54,12 +54,3 @@ export const PROFILE_EXPLANATION_SENTENCE =
  * where authoring starts — not on the install Profile note, so a direct
  * install's pre-picker screen stays within the two-concept budget.
  */
-export const CONTEXT_EXPLANATION_SENTENCE =
-  "Context is always-loaded facts, preferences, and standing rules a Profile selects.";
-
-/**
- * The Agent Host concept (US-001). Never claims every Host loads every
- * Workspace artifact: a Host can use the material installed into a Project.
- */
-export const AGENT_HOST_EXPLANATION_SENTENCE =
-  "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.";

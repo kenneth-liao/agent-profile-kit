@@ -156,7 +156,7 @@ describe("interactive uninstall under a real PTY", () => {
       const cancelOffset = session.transcriptLength();
       session.write("\x03");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: cancelOffset });
-      expect(plain(text)).toContain("cancelled");
+      expect(plain(text)).toContain("Cancelled. Nothing was changed.");
     } finally {
       await session.close();
     }

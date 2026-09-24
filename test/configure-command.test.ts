@@ -511,7 +511,7 @@ describe("interactive configure profile", () => {
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
-    expect(diagnostic).toContain("nothing was written (you answered no)");
+    expect(diagnostic).toContain("Cancelled. Nothing was changed.");
     // A plain decline needs no remedy and no details hint (US-010).
     expect(diagnostic).not.toContain("apkit configure");
     expect(diagnostic).not.toContain("Details:");
@@ -613,7 +613,7 @@ describe("interactive configure profile", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
-    expect(plain(streams.errorText())).toContain("nothing was written (default answer no)");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
   });
 
   test("cancelling at a picker writes nothing", async () => {
@@ -636,7 +636,7 @@ describe("interactive configure profile", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
-    expect(plain(streams.errorText())).toContain("Configure was cancelled; nothing was written.");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
   });
 });
 

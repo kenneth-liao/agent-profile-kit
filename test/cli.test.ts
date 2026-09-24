@@ -729,7 +729,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     const install = await runCli(home, "install", "example", projectPath, "--agent", "codex", "--auto-confirm");
     expectExitCode(install, 0);
-    expect(install.stdout).toContain("Installed for");
+    expect(install.stdout).toContain("Installed the example Profile");
+    // The Project path wraps at segment boundaries at this width; the
+    // assertion stays whitespace-insensitive and elision would fail it.
+    expect(install.stdout).not.toContain("…");
+    expect(install.stdout.replace(/\s+/g, "")).toContain(
+      `Project: ${projectPath}`.replace(/\s+/g, ""),
+    );
 
     mkdirSync(join(home, ".codex"), { recursive: true });
     writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
@@ -2587,8 +2593,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Always preserve the project boundary.");
     expect(result.stdout).not.toContain("<!-- Context Module:");
     expect(result.stdout).toContain(".codex/hooks.json");
-    expect(humanText(result.stdout)).toContain(
-      humanText(`Launch Codex from the exact bound project root: ${projectPath}`),
+    expect(humanText(result.stdout)).not.toContain(
+      "Launch Codex from the exact bound project root",
     );
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
     expect(existsSync(join(projectPath, ".codex"))).toBe(false);
@@ -2609,9 +2615,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const apply = await runCli(home, "update");
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("First use:");
-    expect(humanText(apply.stdout)).toContain(
-      humanText("Launch Codex from the exact bound project root so the Profile can load."),
-    );
+    // DEC-006 (spec #677): the Codex bound-root step is gone everywhere; the
+    // host-neutral start-folder line lives on the install receipt.
+    expect(apply.stdout).not.toContain("Launch Codex from the exact bound project root");
   });
 
   test("status leads with a concise ready-to-update outcome and grouped change counts", async () => {
@@ -3121,7 +3127,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     });
     // US-060/US-041: machine JSON is untouched by the post-apply verification
     // instruction; it stays on the human surface only.
-    expect(apply.stdout).not.toContain("Optional check: ");
+    expect(apply.stdout).not.toContain("Try it: ");
     expect(
       readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"),
     ).toContain("Always preserve the project boundary.");
@@ -3445,9 +3451,8 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(humanText(result.stdout)).toContain(
       humanText("Trust the bound project in Codex so the Profile can load."),
     );
-    expect(humanText(result.stdout)).toContain(
-      humanText(`Launch Codex from the exact bound project root so the Profile can load.`),
-    );
+    // DEC-006 (spec #677): the Codex bound-root step no longer renders.
+    expect(result.stdout).not.toContain("Launch Codex from the exact bound project root");
     expect(humanText(result.stdout)).toContain(
       humanText(
         "Start a new agent session from the Project root to use the updated material.",
@@ -3457,7 +3462,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // short optional check on the stable Project action path.
     expect(humanText(result.stdout)).toContain(
       humanText(
-        `Optional check: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
+        `Try it: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
       ),
     );
     expect(humanText(result.stdout)).toEndWith("Details: apkit details");
@@ -3596,7 +3601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // offers no optional loading check. The direct behavioral pin against
     // this same captured output; the identity negative below is the
     // unchanged-US-013 side effect, not the check's own evidence.
-    expect(humanText(result.stdout)).not.toContain("Optional check: ");
+    expect(humanText(result.stdout)).not.toContain("Try it: ");
     expect(humanText(result.stdout)).not.toContain(basename(changedProject));
   });
 
@@ -6384,7 +6389,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(await runCli(home, "uninstall", "--all", "--auto-confirm"), 0);
     const rebound = await runCli(home, "install", "coding", projectPath, "--agent", "codex", "--auto-confirm");
     expectExitCode(rebound, 0);
-    expect(rebound.stdout).toContain("Installed for");
+    expect(rebound.stdout).toContain("Installed the coding Profile");
 
     const status = await runCli(home, "status");
 
@@ -9320,10 +9325,10 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     );
 
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Installed for ~/projects/sample\n");
-    expect(result.stdout).not.toContain("Installed for .");
+    expect(result.stdout).toContain("Installed the coding Profile");
+    expect(result.stdout).toContain("Project: ~/projects/sample\n");
+    expect(result.stdout).not.toContain(`Project: .`);
     expect(result.stdout).not.toContain(realpathSync(projectPath));
-    expect(result.stdout).toContain("Profile: coding");
     expect(result.stdout).toContain("Agents: codex");
     expect(result.stdout).not.toContain(configPath(home));
     expect(result.stdout).toContain("apkit status");
@@ -9355,8 +9360,9 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(bindCreated, 0);
-    expect(humanText(bindCreated.stdout)).toContain("Installed for ~/projects/my-app");
-    expect(bindCreated.stdout).not.toContain("Installed for .");
+    expect(humanText(bindCreated.stdout)).toContain("Installed the coding Profile");
+    expect(humanText(bindCreated.stdout)).toContain("Project: ~/projects/my-app");
+    expect(bindCreated.stdout).not.toContain("Project: .");
     expect(bindCreated.stdout).not.toContain(realpathSync(projectPath));
 
     // Stored project in config.yaml preserves canonical path
@@ -10129,7 +10135,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
 
     const result = await runCli(home, "install", "coding", projectPath, "--agent", "codex", "--auto-confirm");
     expectExitCode(result, 0);
-    expect(result.stdout).toContain("Installed for");
+    expect(result.stdout).toContain("Installed the coding Profile");
     expect(existsSync(lockPath)).toBe(false);
     expect(readFileSync(configPath(home), "utf8")).toContain(projectPath);
   });
@@ -14563,6 +14569,91 @@ describe("packed CLI new context", () => {
     expectExitCode(unknownKind, 1);
     expect(unknownKind.stderr).toMatch(/supported kinds: skill, context,\s*profile/);
   });
+});
+
+describe("packed CLI install flow (TEST-001, spec #677 US-005)", () => {
+  test("the packed install flow completes explicit and guided journeys, records the picked scope, and runs each printed next step", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    writeContextProfile(home);
+    const explicitProject = homeGitRepository(home, "install-journey-explicit");
+    const guidedProject = homeGitRepository(home, "install-journey-guided");
+
+    // 1. Explicit install: the receipt names the Profile, the full Project
+    // path, and the agents (screen 04); first delivery renders the
+    // host-neutral start-folder line and the per-agent Adapter-authored line.
+    const explicit = await runCli(
+      home,
+      "install",
+      "coding",
+      explicitProject,
+      "--agent",
+      "codex",
+      "--auto-confirm",
+    );
+    expectExitCode(explicit, 0);
+    expect(explicit.stdout).toContain("Installed the coding Profile");
+    // The receipt names the full Project path — the stable home-relative
+    // display, whole (never middle-elided) at any width (spec #677, #647).
+    expect(explicit.stdout).toContain("Project: ~/projects/install-journey-explicit");
+    expect(explicit.stdout).toContain("Agents: codex");
+    expect(explicit.stdout).toContain("Before your agents can load it:");
+    expect(explicit.stdout).toContain("Start your agents from this Project folder, not a subfolder.");
+    expect(explicit.stdout).toContain("Codex: Review and approve the generated SessionStart hook when Codex asks");
+    expect(explicit.stdout).toContain("Try it: start a new Codex session in");
+    expect(explicit.stdout).toContain("Next: apkit status (see installed Profiles and whether they're up to date)");
+    // Actual writes match the selected scope.
+    expect(readFileSync(configPath(home), "utf8")).toContain(`profile: coding`);
+    expect(readFileSync(
+      join(explicitProject, ".agent-profile-kit", "codex", "context.md"),
+      "utf8",
+    )).toContain("Always preserve the project boundary.");
+    expect(existsSync(join(explicitProject, ".codex", "hooks.json"))).toBe(true);
+
+    // The printed next step runs (TEST-001).
+    const explicitStatus = await runCliAt(home, explicitProject, "status");
+    expectExitCode(explicitStatus, 0);
+    expect(explicitStatus.stdout).toContain("up to date");
+
+    // 2. Guided install through a real PTY: the target is named first, the
+    // Profile picker carries no concept explanation (screen 10), the agent
+    // picker notes in one sentence that apkit doesn't install the agents
+    // themselves (screen 11/12), the confirmation prints no separate summary
+    // (screen 13), and the receipt repeats the first-delivery guidance with
+    // the fully specified equivalent.
+    const guided = await runCliInPtyWithInput(
+      home,
+      100,
+      ["cod\r", "\r", "y\r"],
+      "install",
+      "--project",
+      guidedProject,
+    );
+    expectExitCode(guided, 0);
+    expect(guided.stdout).toContain("Installing into");
+    expect(guided.stdout).not.toContain("A Profile is a named selection");
+    expect(guided.stdout).toContain("apkit doesn't install the agents themselves.");
+    expect(guided.stdout).toContain("✔ Which Profile? › coding");
+    expect(guided.stdout).toContain("✔ Which agents? › codex");
+    expect(guided.stdout).toContain("Install now? (y/N)");
+    expect(guided.stdout).not.toMatch(/Install into .*\n\s*Profile: /);
+    expect(guided.stdout).toContain("Installed the coding Profile");
+    expect(guided.stdout).toContain("Start your agents from this Project folder, not a subfolder.");
+    expect(guided.stdout).toContain("Run the same install without the prompt:");
+    // The picked scope is what was written.
+    const guidedConfig = readFileSync(configPath(home), "utf8");
+    expect(guidedConfig).toContain(`profile: coding`);
+    expect(guidedConfig).toContain("- codex");
+    expect(readFileSync(
+      join(guidedProject, ".agent-profile-kit", "codex", "context.md"),
+      "utf8",
+    )).toContain("Always preserve the project boundary.");
+
+    // The guided receipt's printed next step runs in the picked Project.
+    const guidedStatus = await runCliAt(home, guidedProject, "status");
+    expectExitCode(guidedStatus, 0);
+    expect(guidedStatus.stdout).toContain("up to date");
+  }, 120_000);
 });
 
 describe("packed CLI new profile", () => {

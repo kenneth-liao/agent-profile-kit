@@ -456,19 +456,19 @@ side effect.
 
 ```
 $ apkit install example <project> --agent codex --auto-confirm
-Installed for <project>
-  Profile: example
+✔ Installed the example Profile
+  Project: <project>
   Agents: codex
 
-First use:
-- Review and approve the generated SessionStart hook when Codex asks so the
-  Profile can load.
-- Trust the bound project in Codex so the Profile can load.
+Before your agents can load it:
+- Start your agents from this Project folder, not a subfolder.
+- Codex: Review and approve the generated SessionStart hook when Codex asks;
+  Trust the bound project in Codex.
 
-Optional check: start a new Codex session in <project> and ask what Profile
-  material it loaded.
+Try it: start a new Codex session in <project> and ask what Profile material
+  it loaded.
 
-Next: apkit status
+Next: apkit status (see installed Profiles and whether they're up to date)
 Details: apkit details
 ```
 
@@ -478,46 +478,47 @@ Replaced installation for <project>
   Profile: example
   Agents: codex → claude, codex
 
-Optional check: start a new Claude session in <project> and ask what Profile
-  material it loaded.
+Try it: start a new Claude session in <project> and ask what Profile material
+  it loaded.
 
-Next: apkit status
+Next: apkit status (see installed Profiles and whether they're up to date)
 Details: apkit details
 ```
 
 A first installation and an agent addition offer the short optional agent-loading
 check beside the receipt for the agents whose delivery began (US-012,
 ADR-0043); re-running the same selection commits nothing and renders no check.
-Required Adapter-authored agent Setup Steps appear as concise `First use:` body
-guidance under the one footer, through the shared relevance policy; longer
-loading explanation stays behind `apkit guide --full`.
+On first delivery the receipt also shows one host-neutral start-folder line
+(spec #677, DEC-006): "Start your agents from this Project folder, not a
+subfolder." — always safe, and required for Codex in a Project without Git —
+followed by one line per agent whose Adapter authored extra Host Setup Steps;
+agents with nothing extra are left out, so a Claude-only install shows no
+per-agent line, and routine updates do not repeat the start-folder line. Each
+per-agent line is a rendering rule over Adapter-authored step text, never
+agent-specific text the CLI invented (ADR-0012); longer loading explanation
+stays behind `apkit guide --full`.
 
-An interactive `install` shows the proposed scope and asks for confirmation
-before any write; `--auto-confirm` answers that confirmation. The default-No
-confirmation names the Project by its home-relative or absolute path, the
-Profile once and the agents, with delta arrows only when an existing
-installation changes (US-006, DEC-006; ADR-0042 as amended), and the question
-is `Install into this Project? (y/N)`:
-
-```
-Install into <project>
-  Profile: example
-  Agents: codex
-? Install into this Project? (y/N)
-```
+An interactive `install` collects the Profile and agents through the two
+searchable pickers and confirms with one default-No question before any write;
+`--auto-confirm` answers that confirmation. The two settled answers — the
+echoed picker answers, or the explicit command's stated arguments — already
+carry the proposed scope, so the confirmation prints no separate summary
+block (spec #677 screen 13) and the question is `Install now? (y/N)`. The
+replaced receipt states old → new deltas on the Profile and Agents lines.
 
 On an interactive terminal a bare `install` names the current-directory Project
-target first by that same stable path — explaining Project and Profile before
-the first picker, and agent at the agent picker, within the two-concept
-first-use budget (spec #640 US-001, DEC-003) — and collects only its missing Profile/agents
+target first by that same stable path — explaining Project before the first
+picker (spec #640 US-001, DEC-003), with no Profile concept explanation on the
+picker itself (spec #677 screen 10: setup and `apkit new profile` explain the
+word where it is first met) — and collects only its missing Profile/agents
 through searchable pickers — a new installation lists detected agents first,
-preselects and marks them `detected`, marks undetected agents `not found` with
-one note that selecting an agent does not install it, and selects none when
-nothing is detected, while an existing installation starts from its remembered
-selection without adding newly detected agents (spec #640 US-005, superseding
-spec #491 US-001's no-preselect rule; ADR-0034) — and a completed guided
+preselects and marks them `detected`, marks undetected agents `not found` on
+the same line as each choice, and carries one note that apkit doesn't install
+the agents themselves, while an existing installation starts from its
+remembered selection without adding newly detected agents (spec #677 US-005,
+superseding spec #491 US-001's no-preselect rule; ADR-0034) — and a completed guided
 install prints the executable fully specified equivalent. The confirmation
-shows the final agent selection before any write. Replacing or
+relies on the two settled answers before any write. Replacing or
 deleting independently changed generated files additionally needs
 `--replace-changed`/`--remove-changed`. On failure the previous selection is
 restored where possible and the retry is printed.
@@ -758,8 +759,8 @@ First use:
 - Trust the bound project in Codex so the Profile can load.
 
 Start a new agent session from the Project root to use the updated material.
-Optional check: start a new Codex session in <project> and ask what Profile
-  material it loaded.
+Try it: start a new Codex session in <project> and ask what Profile material
+  it loaded.
 
 Details: apkit details
 ```
@@ -830,7 +831,7 @@ Changed generated files:
 Replacing overwrites these files with current Workspace content.
 Type d to view the current on-disk versus planned diff before deciding (d again for more pages).
 ? Replace or delete these generated files as listed? (y/N)
-● update was cancelled; nothing was written.
+● update kept the changed generated files; nothing was written (you answered no).
 Next: apkit update <project> --replace-changed
 ```
 
@@ -933,7 +934,7 @@ Details: apkit details
 ```
 
 The completed outcome stays truthful and separate (`✔ Update complete` /
-`✔ Installed for …`); each missing-Host warning is its own `⚠` line that
+`✔ Installed the … Profile`); each missing-Host warning is its own `⚠` line that
 names the affected Project or Projects rather than only a count. A genuinely
 shared identical Adapter-authored remedy appears once with its Project list;
 different Hosts keep their own remedy and requirement. The remedy stays in

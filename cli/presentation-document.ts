@@ -219,6 +219,22 @@ export function stateHeadline(
   };
 }
 
+/** The one shared cancellation statement (spec #677 scope note, screen 14):
+ * every interactive command's plain cancel or decline reads exactly this.
+ * How the answer was given stays in recorded operation evidence, never on
+ * screen. Variants that carry a distinct fact (for example a partial run's
+ * completed Projects) keep their own evidence sentence and never reuse this
+ * one, because "nothing was changed" would be false there. */
+export const CANCELLED_STATEMENT = "Cancelled. Nothing was changed.";
+
+/** The one shared cancellation document (spec #677 scope note, screen 14):
+ * the one neutral statement every interactive command's plain cancel or
+ * decline prints. There is no per-command wrapper: call sites use this
+ * builder directly. Exit codes are unchanged and owned by each command. */
+export function cancelledDocument(): PresentationDocument {
+  return neutralStatementDocument([CANCELLED_STATEMENT]);
+}
+
 /**
  * One neutral outcome statement (US-003, US-010): a clean no-op or a plain
  * decline/cancel ending. It carries no error-like `apkit:` prefix, states

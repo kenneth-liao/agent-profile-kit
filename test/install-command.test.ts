@@ -332,7 +332,8 @@ describe("install beside a broken Profile (#606)", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("cancelled");
+    // The one shared cancellation statement (spec #677 screen 14).
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
   });
 });
@@ -351,22 +352,35 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
 
     expect(exitCode).toBe(0);
     const human = plain(streams.humanText());
-    // US-012: the receipt that created the Codex SessionStart hook surfaces
-    // its required approval step (DEC-009, ADR-0012).
-    expect(human).toContain("First use:");
+    // Spec #677 screen 04: the receipt names the Profile, the Project path,
+    // and the agents.
+    expect(human).toContain("Installed the coding Profile");
+    // The receipt names the full Project path (spec #677, #647) — home-
+    // relative or absolute, never middle-elided. The path may wrap at a
+    // path-segment boundary, so the complete-path assertion is
+    // whitespace-insensitive; elision would fail it.
+    const raw = streams.humanText();
+    expect(raw).not.toContain("…");
+    expect(raw.replace(/\s+/g, "")).toContain(
+      `Project: ${projectPath}`.replace(/\s+/g, ""),
+    );
+    expect(human).toContain("Agents: codex");
+    // First delivery renders the host-neutral start-folder line (DEC-006)
+    // plus one Adapter-authored line per agent with extra steps.
+    expect(human).toContain("Before your agents can load it:");
+    expect(human).toContain("Start your agents from this Project folder, not a subfolder.");
     expect(human).toContain(
-      "Review and approve the generated SessionStart hook when Codex asks",
+      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
     );
     // The optional check is one short action on the stable Project path
     // (US-006); it never claims loading was observed (OOS-001).
     expect(human).toContain(
-      `Optional check: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
+      `Try it: start a new Codex session in ${projectPath} and ask what Profile material it loaded.`,
     );
     expect(human).not.toContain("installed material should appear");
-    expect(human).toContain(`Installed for ${projectPath}`);
   });
 
-  test("an unchanged install offers no loading check and no First use", async () => {
+  test("an unchanged install offers no loading check and no setup section", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     const env = { PATH: hermeticCodexPath() };
@@ -385,9 +399,11 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     );
 
     expect(exitCode).toBe(0);
-    // Nothing was committed, so no handoff guidance follows the receipt.
-    expect(plain(streams.humanText())).not.toContain("Optional check: ");
-    expect(plain(streams.humanText())).not.toContain("First use:");
+    // Nothing was committed, so no handoff guidance follows the receipt and
+    // the start-folder line does not repeat (spec #677).
+    expect(plain(streams.humanText())).not.toContain("Try it: ");
+    expect(plain(streams.humanText())).not.toContain("Before your agents can load it:");
+    expect(plain(streams.humanText())).not.toContain("Start your agents from this Project folder");
   });
 
   test("adding a Host offers the loading check only for the newly added Host", async () => {
@@ -412,15 +428,15 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     const human = plain(streams.humanText());
     // codex was already established; only claude's delivery began (US-012).
     expect(human).toContain(
-      `Optional check: start a new Claude session in ${projectPath} and ask what Profile material it loaded.`,
+      `Try it: start a new Claude session in ${projectPath} and ask what Profile material it loaded.`,
     );
-    expect(human).not.toContain("Optional check: start new Claude and Codex");
+    expect(human).not.toContain("Try it: start new Claude and Codex");
     expect(human).not.toContain("start a new Codex session");
   });
 });
 
 describe("install general confirmation", () => {
-  test("an interactive yes answer installs after showing the proposed scope", async () => {
+  test("an interactive yes answer installs after the two settled answers, with no separate summary", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     const input = fakeInteractiveInput();
@@ -431,8 +447,11 @@ describe("install general confirmation", () => {
     );
 
     await waitForOutput(streams.humanText, "(y/N)");
-    expect(plain(streams.humanText())).toContain("coding");
-    expect(plain(streams.humanText())).toContain("codex");
+    // Spec #677 screen 13: the confirmation relies on the two settled
+    // answers above; no separate summary block is written.
+    expect(plain(streams.humanText())).toContain("Install now? (y/N)");
+    expect(plain(streams.humanText())).not.toContain("Install into ");
+    expect(plain(streams.humanText())).not.toMatch(/Profile: |Agents: /);
     input.write("y\n");
     const { exitCode } = await pending;
 
@@ -459,9 +478,10 @@ describe("install general confirmation", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("you answered no");
-    // A plain decline prints one neutral statement and omits the details
-    // hint (US-003, US-010); retention is unchanged.
+    // A plain decline is the one shared cancellation line (spec #677 screen
+    // 14); how the answer was given stays in recorded evidence only.
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
+    // It omits the details hint (US-003, US-010); retention is unchanged.
     expect(plain(streams.errorText())).not.toContain("Details:");
     expect(plain(streams.humanText())).not.toContain("Details:");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
@@ -483,7 +503,8 @@ describe("install general confirmation", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("default answer no");
+    // The default no reads the one shared cancellation line too (spec #677).
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -503,7 +524,7 @@ describe("install general confirmation", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("cancelled");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -842,7 +863,7 @@ describe("install failures report truthfully", () => {
 });
 
 describe("install changed-installation scope", () => {
-  test("a changed installation shows the previous-to-new scope before confirmation", async () => {
+  test("a changed installation relies on the two settled answers and shows no summary scope", async () => {
     const home = await setupHome("coding");
     writeProfile(home, "ops");
     const projectPath = projectDirectory();
@@ -858,9 +879,13 @@ describe("install changed-installation scope", () => {
     );
 
     await waitForOutput(streams.humanText, "(y/N)");
+    // Spec #677 screen 13: no separate summary block; the scope the command
+    // states is the scope confirmed. The old → new deltas render on the
+    // replaced receipt instead.
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("ops → coding");
-    expect(proposed).toContain("claude → codex");
+    expect(proposed).toContain("Install now? (y/N)");
+    expect(proposed).not.toContain("ops → coding");
+    expect(proposed).not.toContain("claude → codex");
     input.write("y\n");
     const { exitCode } = await pending;
 

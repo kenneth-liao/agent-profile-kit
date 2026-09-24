@@ -174,21 +174,33 @@ describe("Codex project Skill packages", () => {
     ]);
   });
 
-  test("keeps non-Git launch paths typed for the presentation boundary", async () => {
+  test("authors no bound-root launch step (DEC-006, spec #677)", async () => {
+    // The Adapter-authored `launch-constraint` step is removed: the
+    // host-neutral start-folder line on the install receipt covers launching
+    // from the Project folder for every agent, so Codex's step would
+    // duplicate it. OpenCode's restart step keeps the same kind.
     const plan = await planCodexProject(
       "coding",
       [{ id: "team-rules", content: "rules\n" }],
       [],
-      { requiresBoundRootLaunch: true },
     );
 
-    expect(plan.setupSteps).toContainEqual({
-      consequence: "Launching from a descendant prevents Profile Context from loading.",
-      kind: "launch-constraint",
-      message: "Launch Codex from the exact bound project root:",
-      path: "bound-project",
-      provenance: "standing",
-    });
+    expect(plan.setupSteps.some((step) => step.kind === "launch-constraint")).toBe(false);
+    expect(plan.setupSteps).toEqual([
+      {
+        consequence: "Declining the hook prevents Profile Context from loading.",
+        kind: "approval-required",
+        message: "Review and approve the generated SessionStart hook when Codex asks.",
+        output: ".codex/hooks.json",
+        provenance: "transition",
+      },
+      {
+        consequence: "Profile Context does not load until the project is trusted.",
+        kind: "trust-required",
+        message: "Trust the bound project in Codex.",
+        provenance: "standing",
+      },
+    ]);
   });
 
   test("installs each Profile-listed Skill once by Artifact ID and omits unselected Skills", async () => {

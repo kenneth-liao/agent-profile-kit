@@ -47,10 +47,13 @@ import {
   identifierPart,
   list,
   neutralStatementDocument,
+  notedCommand,
   part,
   pathPart,
   stateHeadlinePrefix,
   textPart,
+  CANCELLED_STATEMENT,
+  cancelledDocument,
   type CommandArg,
   type CommandNode,
   type InlineContent,
@@ -63,15 +66,13 @@ import {
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 import {
-  AGENT_HOST_EXPLANATION_SENTENCE,
   PROJECT_EXPLANATION_SENTENCE,
-  PROFILE_EXPLANATION_SENTENCE,
   WORKSPACE_EXPLANATION_SENTENCE,
 } from "./concept-explanations.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
 import type { HostSetupProvenance, HostSetupStep, HostSetupStepKind } from "../adapters/project-plan.js";
-import type { SupportedHost } from "../adapters/host-catalog.js";
+import { hostDisplayName, type SupportedHost } from "../adapters/host-catalog.js";
 import type { ChangedOutputComparison } from "../installer/changed-output-review.js";
 import {
   changedOutputDiscard,
@@ -1776,19 +1777,9 @@ export function uninstallConfirmationDocument(preview: {
 }
 
 /** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
- * US-010): one neutral statement only. A plain decline or cancel needs no
- * remedy and no details hint. */
-export function uninstallDeclinedDocument(
-  reason: ApplyDeclinedAnswer,
-): PresentationDocument {
-  return neutralStatementDocument([
-    reason === "cancelled"
-      ? "Uninstall was cancelled; nothing was written."
-      : reason === "default"
-        ? "Uninstall was declined; nothing was written (default answer no)."
-        : "Uninstall was declined; nothing was written (you answered no).",
-  ]);
-}
+ * US-010, spec #677): the one shared cancellation statement
+ * (`cancelledDocument`). No per-command builder exists; uninstall call sites
+ * use the shared builder directly. */
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
  * non-interactive (or machine-JSON) uninstall without `--auto-confirm`
@@ -1974,19 +1965,21 @@ export function uninstallScopeChangedDocument(
 
 /**
  * How an interactive uninstall pick ended with no removal (DEC-003, US-003,
- * US-010): one neutral statement only. Empty never widens to all Projects, and
- * a picker cancel or empty selection needs no remedy.
+ * US-010, spec #677): a picker cancel is the one shared cancellation
+ * statement (`cancelledDocument`). The empty-selection cases keep their own
+ * sentences: they carry the distinct fact that the run ended with nothing
+ * selected, which "Cancelled. Nothing was changed." does not state.
  */
 export function uninstallPickerNoopDocument(
   kind: "cancelled" | "empty-projects" | "empty-hosts",
 ): PresentationDocument {
-  return neutralStatementDocument([
-    kind === "cancelled"
-      ? "Uninstall was cancelled; nothing was written."
-      : kind === "empty-projects"
-        ? "Uninstall was declined (no Projects selected); nothing was written."
-        : "Uninstall was declined (no agents selected); nothing was written.",
-  ]);
+  return kind === "cancelled"
+    ? cancelledDocument()
+    : neutralStatementDocument([
+        kind === "empty-projects"
+          ? "Uninstall was declined (no Projects selected); nothing was written."
+          : "Uninstall was declined (no agents selected); nothing was written.",
+      ]);
 }
 
 /** The picked-Project notice (ticket #499, US-005): the selected count
@@ -3800,49 +3793,24 @@ function readinessNodes(
 }
 
 /**
- * Required Host Setup Steps for one install receipt (US-012, DEC-009):
- * Adapter-authored steps selected by the shared relevance policy and
- * rendered through the concise First-use rewriter. Only relevant required
- * steps for the installed Hosts appear; shared-path explanations and complete
- * provenance stay in focused guidance and verbose/JSON evidence. The CLI
- * never invents Host-specific step text (ADR-0012).
+ * The one first-delivery reader (ADR-0043, spec #677): the Hosts whose
+ * Profile delivery begins in this invocation, derived once from the Apply
+ * Receipt — a committed Project gains output for a desired Host that had no
+ * prior delivery. Shared outputs carry no per-Host delivery history, so
+ * prior-delivery evidence keeps only exclusively consumed outputs. Both
+ * consumers — the install receipt's start-folder line and the optional
+ * loading check — derive their visibility here; no surface decides
+ * first-delivery independently and no second relevance policy is authored.
  */
-export function installHostSetupNodes(
+function firstDeliveryHosts(
   report: ReconciliationReport,
   receipt: ReconciliationReport,
-  hosts: readonly SupportedHost[],
-  scope: LocationDisplayScope = "fleet",
-): PresentationNode[] {
-  const selected = new Set<string>(hosts);
-  const presented = presentedSetupSteps("install", report, receipt, false, scope)
-    .filter((item) => selected.has(item.step.host));
-  return conciseFirstUseNodes(presented, receipt);
-}
-
-/**
- * The optional Host-loading check (US-012, ADR-0043): one short sentence
- * naming only the Hosts whose delivery began in this invocation, with a
- * stable Project action location (US-006). It is an optional user action and
- * never claims loading was observed or that material appeared in an answer
- * (OOS-001). Longer loading explanation lives behind focused guidance
- * (`apkit guide --full`). It never renders on a no-op, blocked, declined, or
- * failed path, and never on machine JSON (US-060).
- */
-export function hostLoadingVerificationNodes(
-  report: ReconciliationReport,
-  receipt: ReconciliationReport,
-): PresentationNode[] {
+): readonly SupportedHost[] {
   const changedProjects = new Set(statusAffectedProjects(receipt));
   const changed = report.projects.filter((record) =>
     changedProjects.has(record.canonicalProject)
   );
-  // Delivery begins exactly when a committed Project gains output for a Host
-  // that had no prior delivery (ADR-0043). Name only those Hosts: an
-  // established Host that merely received a content refresh is not offered
-  // the check again. Shared outputs prove nothing about when one Host's
-  // delivery began, so prior-delivery evidence keeps only exclusively
-  // consumed outputs.
-  const newlyDelivering: string[] = [];
+  const newlyDelivering: SupportedHost[] = [];
   for (const record of changed) {
     const changeProject = receipt.projects.find((candidate) =>
       candidate.canonicalProject === record.canonicalProject
@@ -3860,10 +3828,103 @@ export function hostLoadingVerificationNodes(
       }
     }
   }
-  if (newlyDelivering.length === 0) return [];
   // Canonical Host order, matching every other canonical Host rendering.
-  const hosts = [...newlyDelivering].sort(compareCanonicalStrings);
-  const hostNames = hosts.map((host) => capitalize(host));
+  return [...newlyDelivering].sort(compareCanonicalStrings);
+}
+
+/** The host-neutral start-folder line (spec #677 US-005, DEC-006, D5):
+ * presentation-owned guidance — never Adapter-authored — because starting
+ * from the Project folder is always correct for every agent. It renders on
+ * first delivery only, so routine updates never repeat it. */
+const START_FOLDER_GUIDANCE =
+  "Start your agents from this Project folder, not a subfolder.";
+
+/** One per-agent setup line over Adapter-authored step text (spec #677 US-005,
+ * D5): the agent name prefixes the messages its Adapter authored, joined as
+ * one line. The rule is mechanical rendering — it never derives agent
+ * requirements and never rewords Adapter text (CONTEXT.md, ADR-0012). The
+ * standard load reason lives once in the section heading, so per-step
+ * standard consequences are dropped here; non-standard consequences stay in
+ * parentheses because they carry a fact the heading does not. */
+function perAgentSetupLine(host: SupportedHost, steps: readonly HostSetupStep[]): string {
+  const actions = steps.map((step) => {
+    const base = step.message.replace(/[:.]\s*$/, "");
+    const consequence =
+      step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
+        ? undefined
+        : step.consequence.replace(/[.:]+$/, "");
+    return consequence === undefined ? base : `${base} (${consequence})`;
+  });
+  return `${hostDisplayName(host)}: ${actions.join("; ")}.`;
+}
+
+/**
+ * The install receipt's required setup guidance (US-005, US-012, DEC-006,
+ * DEC-009, spec #677 screens 04/26): the host-neutral start-folder line on
+ * first delivery, then one line per agent whose Adapter-authored steps the
+ * shared relevance policy selects. Agents with nothing to do are left out —
+ * a Claude-only install shows no per-agent line. Routine updates do not
+ * repeat the start-folder line. The CLI never invents agent-specific step
+ * text (ADR-0012); shared-path explanations and complete provenance stay in
+ * focused guidance and verbose/JSON evidence.
+ */
+export function installSetupGuidanceNodes(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+  hosts: readonly SupportedHost[],
+  scope: LocationDisplayScope = "fleet",
+): PresentationNode[] {
+  const selected = new Set<string>(hosts);
+  const presented = presentedSetupSteps("install", report, receipt, false, scope)
+    .filter((item) => selected.has(item.step.host));
+  const startFolder = firstDeliveryHosts(report, receipt).length > 0;
+  if (!startFolder && presented.length === 0) return [];
+  // One line per agent, in canonical Host order over the presented steps.
+  const byHost = new Map<SupportedHost, HostSetupStep[]>();
+  for (const item of presented) {
+    const steps = byHost.get(item.step.host) ?? [];
+    if (steps.length === 0) byHost.set(item.step.host, steps);
+    if (!steps.some((step) =>
+      step.kind === item.step.kind && step.message === item.step.message &&
+      step.provenance === item.step.provenance && step.consequence === item.step.consequence
+    )) {
+      steps.push(item.step);
+    }
+  }
+  const agentLines = [...byHost.entries()]
+    .sort(([left], [right]) => compareCanonicalStrings(left, right))
+    .map(([host, steps]) => perAgentSetupLine(host, steps));
+  return [part(
+    { kind: "heading", text: "Before your agents can load it:" },
+    list([
+      ...(startFolder ? [[textPart(START_FOLDER_GUIDANCE)]] : []),
+      ...agentLines.map((line): readonly InlineContent[] => [textPart(line)]),
+    ]),
+  )];
+}
+
+/**
+ * The optional Host-loading check (US-012, ADR-0043, spec #677 screen 04):
+ * one short sentence naming only the Hosts whose delivery began in this
+ * invocation, with a stable Project action location (US-006). It is an
+ * optional user action and never claims loading was observed or that
+ * material appeared in an answer (OOS-001). Longer loading explanation lives
+ * behind focused guidance (`apkit guide --full`). It never renders on a
+ * no-op, blocked, declined, or failed path, and never on machine JSON
+ * (US-060).
+ */
+export function hostLoadingVerificationNodes(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport,
+): PresentationNode[] {
+  // The one first-delivery reader (ADR-0043) decides visibility here too.
+  const hosts = firstDeliveryHosts(report, receipt);
+  if (hosts.length === 0) return [];
+  const changedProjects = new Set(statusAffectedProjects(receipt));
+  const changed = report.projects.filter((record) =>
+    changedProjects.has(record.canonicalProject)
+  );
+  const hostNames = hosts.map((host) => hostDisplayName(host));
   const hostList = hostNames.length === 1
     ? hostNames[0]
     : hostNames.length === 2
@@ -3885,7 +3946,7 @@ export function hostLoadingVerificationNodes(
     return [{
       kind: "prose",
       parts: [
-        `Optional check: ${session} in `,
+        `Try it: ${session} in `,
         pathPart(firstChanged.canonicalProject, "fleet", firstChanged.project),
         ` and ${ask}.`,
       ],
@@ -3894,7 +3955,7 @@ export function hostLoadingVerificationNodes(
   return [{
     kind: "prose",
     parts: [
-      `Optional check: ${session} in each updated Project and ${ask}.`,
+      `Try it: ${session} in each updated Project and ${ask}.`,
     ],
   }];
 }
@@ -4398,22 +4459,10 @@ export function uninstallReplacementCommandDocument(
   return promptedEquivalentCommandDocument("uninstall", commandArguments);
 }
 
-/** The cancelled guided-init statement (DEC-033, US-003): one neutral
- * statement that nothing was initialized or created. A picker cancel or plain
- * decline needs no remedy (US-010). */
-export function initCancelledDocument(): PresentationDocument {
-  return neutralStatementDocument([
-    "Setup was cancelled; nothing was initialized or created.",
-  ]);
-}
-
-/** The declined setup confirmation (spec #593 #603, ISC-27.3, US-003): one
- * neutral statement, never an error. */
-export function initDeclinedDocument(): PresentationDocument {
-  return neutralStatementDocument([
-    "Setup was declined; nothing was initialized or created.",
-  ]);
-}
+/** The cancelled guided-init and the declined setup confirmation (spec #593
+ * #603, ISC-27.3, US-003, spec #677): the one shared cancellation statement
+ * (`cancelledDocument`). No per-command builders exist; the call sites use
+ * the shared builder directly. */
 
 /** How the declined answer was given: an explicit no, or the default no. */
 export type ApplyDeclinedAnswer = "cancelled" | "declined" | "default";
@@ -4492,11 +4541,12 @@ export function applyReplacementDeclinedDocument(
 }
 
 /**
- * An interactive uninstall decline or cancel (DEC-004, US-003, US-010,
- * INT-1): one neutral statement, then the one Next footer carrying the
- * per-Project retry commands as its action list. A plain decline needs no
- * prose remedy and no details hint; when earlier Projects already committed,
- * the statement keeps that evidence beside the untouched remainder.
+ * How an interactive uninstall pick ended with no removal (DEC-003, US-003,
+ * US-010, spec #677): the one shared cancellation statement when nothing was
+ * removed. The completed-Projects variants keep their evidence sentences —
+ * something was changed, so the shared statement would be false. The footer
+ * of per-Project retry commands stays: it is the distinct fact the run owes
+ * (the removal still available), not part of the cancellation line.
  */
 export function uninstallInteractiveDeclinedDocument(input: {
   readonly reason: ApplyDeclinedAnswer;
@@ -4510,14 +4560,9 @@ export function uninstallInteractiveDeclinedDocument(input: {
       : input.reason === "default"
         ? " (default answer no)"
         : " (you answered no)";
-  const statement =
-    completed.length === 0
-      ? input.reason === "cancelled"
-        ? "Uninstall was cancelled; nothing was written."
-        : `Uninstall was declined; nothing was written${answer}.`
-      : input.reason === "cancelled"
-        ? `Uninstall was cancelled; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted.`
-        : `Uninstall was declined; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted${answer}.`;
+  const statement = completed.length === 0
+    ? CANCELLED_STATEMENT
+    : `Uninstall was ${input.reason === "cancelled" ? "cancelled" : "declined"}; completed Projects stay completed (${completed.join(", ")}) and remaining Projects were not attempted${answer}.`;
   return [
     ...neutralStatementDocument([statement]),
     footerNodes({
@@ -4585,30 +4630,20 @@ export function applyConsentRequiredDocument(
   });
 }
 
-export const INSTALL_CONFIRMATION_QUESTION = "Install into this Project? (y/N)";
+/** The general-confirmation question for one interactive install (spec #677
+ * screen 13): default-No; the Profile and agents were answered above (the
+ * screen relies on the two settled answers, and an explicit install names
+ * them on the command line), so the question stays self-contained. */
+export const INSTALL_CONFIRMATION_QUESTION = "Install now? (y/N)";
 
-/**
- * The guided-install Profile selection note (US-001, DEC-003): the Profile
- * concept at the first action that needs it. Names Context and Skills without
- * defining them — Context is explained on the init receipt, so a direct
- * install's pre-picker screen stays within the two-concept budget with the
- * Project sentence on the target notice.
- */
-export function installProfileSelectionNoteDocument(): PresentationDocument {
-  return [{
-    kind: "prose",
-    parts: [PROFILE_EXPLANATION_SENTENCE],
-  }];
-}
-
-/** The guided-install Host selection note (US-005, DEC-004, US-001): the
- * Agent Host concept and the one statement that selection never installs a
- * Host (OOS-001). Detection marks live on each choice (`detected` /
- * `not found`). Never claims every Host loads every Workspace artifact. */
+/** The guided-install agent-selection note (US-005, DEC-004, US-001, spec
+ * #677 screen 11/12): the one sentence the picker owes — selecting an agent
+ * never installs it. Detection marks stay on each choice (`detected` /
+ * `not found`). Never claims every agent loads every Workspace artifact. */
 export function installHostSelectionNoteDocument(): PresentationDocument {
   return [{
     kind: "prose",
-    parts: [AGENT_HOST_EXPLANATION_SENTENCE, " Selecting an agent does not install it."],
+    parts: ["Pick the agents that should use this Profile here. apkit doesn't install the agents themselves."],
   }];
 }
 /** The guided-install target notice (US-001, DEC-002, US-006): names the
@@ -4642,57 +4677,14 @@ export function installTargetDocument(target: {
   ];
 }
 
-/** The interactive general-confirmation review (DEC-004, US-006): the
- * proposed scope — the Project's stable path, previous-to-new Profile and
- * Hosts — before any write. Delta arrows appear only when an existing
- * installation changes. No internal selection or verification wording. */
-export function installConfirmationDocument(preview: {
-  readonly canonicalProject: string;
-  readonly authoredProject: string;
-  readonly profile: string;
-  readonly hosts: readonly string[];
-  readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
-}): PresentationDocument {
-  const profileLine =
-    preview.previous !== undefined && preview.previous.profile !== preview.profile
-      ? `  Profile: ${preview.previous.profile} → ${preview.profile}`
-      : `  Profile: ${preview.profile}`;
-  const hostsLine =
-    preview.previous !== undefined &&
-    preview.previous.hosts.join(", ") !== preview.hosts.join(", ")
-      ? `  Agents: ${preview.previous.hosts.join(", ")} → ${preview.hosts.join(", ")}`
-      : `  Agents: ${preview.hosts.join(", ")}`;
-  return [
-    {
-      kind: "sentence",
-      parts: [
-        "Install into ",
-        pathPart(preview.canonicalProject, "fleet", preview.authoredProject),
-      ],
-    },
-    { kind: "prose", parts: [profileLine] },
-    { kind: "prose", parts: [hostsLine] },
-  ];
-}
+/** The interactive general-confirmation review is gone (spec #677 screen 13,
+ * US-005): the two settled answers — the echoed picker answers, or the
+ * explicit command's stated arguments — already carry the proposed scope, so
+ * the confirmation writes nothing before its default-No question. */
 
 /** How the general-confirmation answer was given: an explicit no, the
  * default no, or cancellation. Shared with the changed-output gate. */
 export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
-
-/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
- * US-010): one neutral statement only. A plain decline or cancel needs no
- * remedy and no details hint. */
-export function installDeclinedDocument(
-  reason: InstallDeclinedAnswer,
-): PresentationDocument {
-  return neutralStatementDocument([
-    reason === "cancelled"
-      ? "Install was cancelled; nothing was written."
-      : reason === "default"
-        ? "Install was declined; nothing was written (default answer no)."
-        : "Install was declined; nothing was written (you answered no).",
-  ]);
-}
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
  * non-interactive (or machine-JSON) install without `--auto-confirm` refuses
@@ -4780,33 +4772,6 @@ export function configureChangingDocument(input: {
     },
     { kind: "prose", parts: ["Saves only to the reusable Profile definition; installations update separately."] },
   )];
-}
-
-/** How the general-confirmation answer was given: an explicit no, the
- * default no, or cancellation. */
-export type ConfigureDeclinedAnswer = "cancelled" | "default" | "declined";
-
-/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
- * US-010): one neutral statement only. A plain decline or cancel needs no
- * remedy and no details hint. */
-export function configureDeclinedDocument(
-  reason: ConfigureDeclinedAnswer,
-): PresentationDocument {
-  return neutralStatementDocument([
-    reason === "cancelled"
-      ? "Configure was cancelled; nothing was written."
-      : reason === "default"
-        ? "Configure was declined; nothing was written (default answer no)."
-        : "Configure was declined; nothing was written (you answered no).",
-  ]);
-}
-
-/** A picker cancelled before the membership resolved (DEC-004, US-003,
- * US-010): one neutral statement only. */
-export function configurePickerCancelledDocument(): PresentationDocument {
-  return neutralStatementDocument([
-    "Configure was cancelled; nothing was written.",
-  ]);
 }
 
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
@@ -6122,7 +6087,8 @@ export interface TemporaryInstallationReceiptView {
   readonly adapterVersion?: string;
   readonly completionState: "installed" | "removed";
   readonly engineVersion?: string;
-  readonly host?: string;
+  /** A supported Host id; human prose renders its catalog display name. */
+  readonly host?: SupportedHost;
   readonly hostVersion?: string;
   readonly outputs: readonly string[];
   readonly profileId?: string;
@@ -6250,7 +6216,7 @@ export function temporaryInstallationDocument(
     ];
     if (receipt.setupSteps.length > 0) {
       const section: PresentationNode[] = [
-        { kind: "heading", text: `${capitalize(receipt.host!)} setup:` },
+        { kind: "heading", text: `${hostDisplayName(receipt.host!)} setup:` },
       ];
       for (const step of [...receipt.setupSteps].sort((left, right) =>
         HOST_SETUP_STEP_ORDER.indexOf(left.kind) -

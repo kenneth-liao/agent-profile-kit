@@ -123,7 +123,8 @@ export interface TemporaryInstallationReceipt {
   readonly adapterVersion?: string;
   readonly completionState: "installed" | "removed";
   readonly engineVersion?: string;
-  readonly host?: string;
+  /** A supported Host id; human prose renders its catalog display name. */
+  readonly host?: SupportedHost;
   readonly hostVersion?: string;
   readonly outputs: readonly string[];
   readonly profileId?: string;

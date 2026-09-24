@@ -264,7 +264,7 @@ describe("uninstall confirmation matrix", () => {
     input.end();
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("cancelled");
+    expect(plain(started.streams.errorText())).toContain("Cancelled. Nothing was changed.");
     snapshotUntouched(home, first, firstOutput);
   });
 
@@ -276,7 +276,7 @@ describe("uninstall confirmation matrix", () => {
     input.write("n\n");
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("nothing was written");
+    expect(plain(started.streams.errorText())).toContain("Cancelled. Nothing was changed.");
     // A plain decline prints one neutral statement and omits the details
     // hint (US-003, US-010); retention is unchanged.
     expect(plain(started.streams.errorText())).not.toContain("Details:");

@@ -418,8 +418,8 @@ function hooks(contextPath: string): string {
   )}\n`;
 }
 
-function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHostSetupStep[] {
-  const steps: AdapterHostSetupStep[] = [
+function contextSetupSteps(): readonly AdapterHostSetupStep[] {
+  return [
     {
       consequence: "Declining the hook prevents Profile Context from loading.",
       kind: "approval-required",
@@ -435,16 +435,6 @@ function contextSetupSteps(requiresBoundRootLaunch = false): readonly AdapterHos
       provenance: "standing",
     },
   ];
-  if (requiresBoundRootLaunch) {
-    steps.push({
-      consequence: "Launching from a descendant prevents Profile Context from loading.",
-      kind: "launch-constraint",
-      message: "Launch Codex from the exact bound project root:",
-      path: "bound-project",
-      provenance: "standing",
-    });
-  }
-  return steps;
 }
 
 export const codexAdapter = {
@@ -484,15 +474,17 @@ export const codexAdapter = {
       "codex",
       "context.md",
     ].filter((part) => part.length > 0).join("/");
-    const requiresBoundRootLaunch =
-      input.projectRelativeToGitRoot === undefined && requireContext;
+    // DEC-006 (spec #677): Codex's Adapter-authored bound-root launch step is
+    // removed; the host-neutral start-folder line on the install receipt
+    // ("Start your agents from this Project folder, not a subfolder.")
+    // covers the non-Git discovery requirement for every agent.
     // Projection refusals (for example an unrepresentable Skill package) throw:
     // an Adapter that cannot plan valid output must fail the invocation rather
     // than return a partial plan.
     const plan = await services.planProjection(
       {
         host: "codex",
-        options: { contextPath, requiresBoundRootLaunch },
+        options: { contextPath },
         profileId: input.profileId,
         resolvedContexts: input.resolvedContexts,
         resolvedSkills: input.resolvedSkills,
@@ -504,7 +496,6 @@ export const codexAdapter = {
         {
           contextPath,
           materials: services.materials,
-          ...(requiresBoundRootLaunch ? { requiresBoundRootLaunch: true } : {}),
         },
       ),
     );
@@ -519,7 +510,6 @@ export async function planCodexProject(
   options: {
     readonly contextPath?: string;
     readonly materials?: AdapterPlanningMaterials;
-    readonly requiresBoundRootLaunch?: boolean;
   } = {},
 ): Promise<CodexProjectPlan> {
   const materials = options.materials ?? DEFAULT_ADAPTER_PLANNING_MATERIALS;
@@ -574,9 +564,7 @@ export async function planCodexProject(
         ? CODEX_HOST_VERSION
         : CODEX_SKILLS_HOST_VERSION,
     outputs,
-    setupSteps: modules.length > 0
-      ? contextSetupSteps(options.requiresBoundRootLaunch)
-      : [],
+    setupSteps: modules.length > 0 ? contextSetupSteps() : [],
   };
 }
 

@@ -300,8 +300,12 @@ describe("bare interactive uninstall Project selection", () => {
     input.write("\r");
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("no Projects selected");
-    expect(plain(started.streams.errorText())).toContain("nothing was written");
+    // The empty-selection variant keeps its distinct fact (nothing was
+    // selected); it is deliberately not the shared cancellation line.
+    expect(plain(started.streams.errorText())).toContain(
+      "Uninstall was declined (no Projects selected); nothing was written.",
+    );
+    expect(plain(started.streams.errorText())).not.toContain("Cancelled. Nothing was changed.");
     expect(plain(started.streams.errorText())).not.toContain("--all");
     expect(readFileSync(configPath(home), "utf8")).toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
@@ -317,7 +321,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.end();
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("cancelled");
+    expect(plain(started.streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain(first);
     expect(readFileSync(configPath(home), "utf8")).toContain(second);
     expect(existsSync(firstOutput)).toBe(true);
@@ -338,7 +342,7 @@ describe("bare interactive uninstall Project selection", () => {
     input.write("n\n");
     const result = await started.pending;
     expect(result.exitCode).toBe(1);
-    expect(plain(started.streams.errorText())).toContain("nothing was written");
+    expect(plain(started.streams.errorText())).toContain("Cancelled. Nothing was changed.");
     // One runnable retry per picked Project — no combined widening line.
     expect(plain(started.streams.errorText()).match(/--project/g)?.length).toBe(2);
     expect(readFileSync(configPath(home), "utf8")).toContain(first);

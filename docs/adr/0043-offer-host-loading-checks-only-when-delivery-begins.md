@@ -71,3 +71,14 @@ refreshed material the Host already consumes.
   naming only the Hosts whose delivery began, on a stable Project action path, with no
   appearance-of-material claim. The routine-update closer is the next-use instruction above,
   not a forward claim that a Host will load.
+
+## Amendments
+
+- **2026-09-24 (spec #677 US-005, DEC-006).** The first-delivery derivation is now the one
+  reader (`firstDeliveryHosts` in `cli/presentation.ts`) and gates a second consumer: the
+  install receipt's host-neutral start-folder line ("Start your agents from this Project
+  folder, not a subfolder.") renders on first delivery and is not repeated by routine
+  updates. The line is presentation-owned guidance, never Adapter-authored (DEC-006), and
+  the Codex bound-root `launch-constraint` step it replaces is removed (ADR-0014 amendment).
+  The optional check's visibility rule, one-sentence form, and no-observation guarantee are
+  unchanged.

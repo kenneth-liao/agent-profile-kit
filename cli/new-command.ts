@@ -5,7 +5,6 @@ import { errorDiagnosticDocument } from "./error-wording.js";
 import {
   emptyWorkspaceProfileCreationDocument,
   newArtifactReceiptDocument,
-  newProfileCancelledDocument,
   newProfileContextNoteDocument,
   newProfileExplanationDocument,
   newProfileSkillsNoteDocument,
@@ -16,7 +15,7 @@ import {
   isInteractiveInput,
   type PromptClock,
 } from "./prompts.js";
-import { writeHumanDocument } from "./presentation-document.js";
+import { cancelledDocument, writeHumanDocument } from "./presentation-document.js";
 import {
   terminalPresentationContext,
   type TerminalStream,
@@ -240,7 +239,7 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
     });
     const nameAnswer = await namePrompt("Name your Profile", { settledLabel: "Name" });
     if (nameAnswer.kind === "cancelled") {
-      writeHumanDocument(request.stderr, newProfileCancelledDocument(), stderrContext);
+      writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
       return { exitCode: 1 };
     }
 
@@ -279,7 +278,7 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
         },
       );
       if (contextAnswer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, newProfileCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
         return { exitCode: 1 };
       }
       selectedContexts = [...contextAnswer.values];
@@ -303,7 +302,7 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
         },
       );
       if (skillAnswer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, newProfileCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
         return { exitCode: 1 };
       }
       selectedSkills = [...skillAnswer.values];

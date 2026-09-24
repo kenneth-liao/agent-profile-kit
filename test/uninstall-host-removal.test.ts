@@ -514,7 +514,7 @@ describe("uninstall --host partial removal", () => {
       const outcome = await pending;
 
       expect(outcome.exitCode).toBe(1);
-      expect(plain(streams.errorText())).toContain("cancelled");
+      expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
       expect(bindingHosts(home, project)).toEqual(["codex", "pi"]);
       expect(existsSync(codexOutput)).toBe(true);
     } finally {

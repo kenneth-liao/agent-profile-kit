@@ -11,7 +11,7 @@
  */
 import type { Readable, Writable } from "node:stream";
 
-import { writeHumanDocument, type PresentationDocument } from "./presentation-document.js";
+import { cancelledDocument, writeHumanDocument, type PresentationDocument } from "./presentation-document.js";
 import { errorDiagnosticDocument } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
@@ -22,10 +22,8 @@ import {
   configureChangingDocument,
   configureConfirmationRequiredDocument,
   configureCurrentMembershipDocument,
-  configureDeclinedDocument,
   configureMembershipRequiredDocument,
   configureNameRequiredDocument,
-  configurePickerCancelledDocument,
   formatConfigureJson,
   formatConfigureToolErrorJson,
 } from "./presentation.js";
@@ -289,7 +287,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     );
     if (answer.kind === "cancelled") {
       if (!parsed.json) {
-        writeHumanDocument(request.stderr, configurePickerCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
       }
       return { exitCode: 1 };
     }
@@ -344,7 +342,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
         })),
       );
       if (answer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, configurePickerCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
         return { exitCode: 1 };
       }
       contexts = [...answer.values];
@@ -364,7 +362,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
         })),
       );
       if (answer.kind === "cancelled") {
-        writeHumanDocument(request.stderr, configurePickerCancelledDocument(), stderrContext);
+        writeHumanDocument(request.stderr, cancelledDocument(), stderrContext);
         return { exitCode: 1 };
       }
       skills = [...answer.values];
@@ -466,7 +464,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     if (answer.kind === "cancelled") {
       writeHumanDocument(
         request.stderr,
-        configureDeclinedDocument("cancelled"),
+        cancelledDocument(),
         stderrContext,
       );
       return { exitCode: 1 };
@@ -475,7 +473,7 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     if (normalized !== "y" && normalized !== "yes") {
       writeHumanDocument(
         request.stderr,
-        configureDeclinedDocument(normalized === "" ? "default" : "declined"),
+        cancelledDocument(),
         stderrContext,
       );
       return { exitCode: 1 };

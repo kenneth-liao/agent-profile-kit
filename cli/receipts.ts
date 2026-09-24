@@ -9,7 +9,7 @@ import {
   newProfileCreationCommands,
 } from "./command-help.js";
 import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
-import { displayPath, workspaceSubfolderDisplay } from "./display-path.js";
+import { displayPath, stableProjectDisplay, workspaceSubfolderDisplay } from "./display-path.js";
 import {
   commandNode,
   commandPart,
@@ -209,13 +209,6 @@ export function newProfileSkillsNoteDocument(): PresentationDocument {
       parts: ["Agents load Skills only when they need them."],
     }),
   ];
-}
-
-/** Neutral statement when Profile creation is cancelled (US-004). */
-export function newProfileCancelledDocument(): PresentationDocument {
-  return neutralStatementDocument([
-    "Profile creation was cancelled; nothing was written.",
-  ]);
 }
 
 /**
@@ -620,10 +613,11 @@ export type InstallReceiptInput = {
   };
 };
 
-/** The receipt document for one `install` invocation: the installed
- * selection and its verified outcome in one action (US-001, US-006). The
- * Project is named by its stable home-relative or absolute path (DEC-006);
- * the Profile is stated once beside the Hosts, with no routine file
+/** The receipt document for one `install` invocation (US-001, US-005, US-006,
+ * spec #677 screen 04): the installed selection and its verified outcome in
+ * one action. The created receipt names the Profile in its headline, then the
+ * full Project path (stable home-relative or absolute, DEC-006) and the
+ * agents; a replaced receipt keeps the old → new deltas. No routine file
  * inventory. */
 export function installReceiptDocument(
   input: InstallReceiptInput,
@@ -639,10 +633,12 @@ export function installReceiptDocument(
       ".",
     ]);
   }
-  const facts: PresentationNode[] = [stateHeadline([
-    `${input.outcome === "replaced" ? "Replaced installation" : "Installed"} for `,
-    project,
-  ], "success")];
+  const facts: PresentationNode[] = [stateHeadline(
+    input.outcome === "replaced"
+      ? ["Replaced installation for ", project]
+      : ["Installed the ", identifierPart(input.profile), " Profile"],
+    "success",
+  )];
   if (input.outcome === "replaced") {
     const { profile: previousProfile, hosts: previousHosts } = input.previous;
     facts.push(
@@ -672,8 +668,23 @@ export function installReceiptDocument(
     facts.push(
       {
         kind: "key-value",
-        key: "  Profile",
-        value: { kind: "identifier", value: input.profile },
+        key: "  Project",
+        value: {
+          kind: "path",
+          canonicalPath: input.canonicalProject,
+          authoredPath: input.project,
+          scope: "fleet",
+          // The receipt names the full Project path (US-005, #647, spec #677
+          // screen 04): the stable home-relative or absolute display is the
+          // shown value, rendered whole — it wraps at path-segment boundaries
+          // and is never middle-elided, exactly like the former "Installed
+          // for <path>" headline. ADR-0042's shortest-alias rule governs
+          // scanning views, not this single-Project action location.
+          identity: stableProjectDisplay({
+            canonicalProject: input.canonicalProject,
+            project: input.project,
+          }),
+        },
         category: "path",
       },
       {

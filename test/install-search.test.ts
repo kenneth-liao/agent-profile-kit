@@ -142,15 +142,13 @@ describe("guided install collects only missing choices", () => {
     await waitForOutput(streams.humanText, basename(projectPath));
     // Searchable Profile choice: filter and submit.
     await waitForOutput(streams.humanText, "Which Profile?");
-    // Combined pre-picker copy stays within the two-concept budget (US-001,
-    // DEC-003): Project and Profile, with Context named but not defined.
+    // The Profile picker drops its concept explanation (spec #677 screen 10):
+    // only the Project concept precedes the picker.
     const prePicker = plain(streams.humanText());
     expect(prePicker).toContain(
       "A Project is one working folder that receives the installed material.",
     );
-    expect(prePicker).toContain(
-      "A Profile is a named selection of Context and Skills suited to a kind of work",
-    );
+    expect(prePicker).not.toContain("A Profile is a named selection");
     expect(prePicker).not.toContain("Context is always-loaded");
     input.write("cod");
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -158,10 +156,7 @@ describe("guided install collects only missing choices", () => {
     // Searchable Host choices: filter, toggle, submit.
     await waitForOutput(streams.humanText, "Which agents?");
     const hostPicker = plain(streams.humanText());
-    expect(hostPicker).toContain(
-      "An agent is a tool such as Claude Code or Codex that can use the material you install into a Project.",
-    );
-    expect(hostPicker).toContain("Selecting an agent does not install it.");
+    expect(hostPicker).toContain("apkit doesn't install the agents themselves.");
     input.write("codex");
     await new Promise((resolve) => setTimeout(resolve, 100));
     input.write(" ");
@@ -246,8 +241,8 @@ describe("guided install skips supplied choices", () => {
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("ops");
-    expect(proposed).toContain("codex");
+    expect(proposed).toContain("Install now? (y/N)");
+    expect(proposed).not.toMatch(/Profile: |Agents: /);
     input.write("y\n");
     const outcome = await pending;
 
@@ -314,8 +309,8 @@ describe("guided install Host defaults", () => {
     await waitForOutput(streams.humanText, "Which agents?");
     await waitForOutput(streams.humanText, "detected");
     const picker = plain(streams.humanText());
-    // One concise note replaces the Detected Agent Hosts summary.
-    expect(picker).toContain("Selecting an agent does not install it.");
+    // One concise note: apkit doesn't install the agents themselves (spec #677).
+    expect(picker).toContain("apkit doesn't install the agents themselves.");
     expect(picker).not.toContain("Detected Agent Hosts:");
     // Titles stay bare; evidence is the annotation slot.
     expect(picker).toContain("detected");
@@ -326,7 +321,8 @@ describe("guided install Host defaults", () => {
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("Agents: codex");
+    expect(proposed).toContain("Install now? (y/N)");
+    expect(proposed).not.toContain("Agents: codex");
     input.write("y\n");
     const outcome = await pending;
 
@@ -360,7 +356,8 @@ describe("guided install Host defaults", () => {
     await waitForOutput(streams.humanText, "(y/N)");
     expect(plain(streams.humanText())).not.toContain("Which agents?");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("Agents: claude");
+    expect(proposed).toContain("Install now? (y/N)");
+    expect(proposed).not.toContain("Agents: claude");
     input.write("y\n");
     const outcome = await pending;
 
@@ -397,9 +394,10 @@ describe("guided install Host defaults", () => {
     input.write("\r");
     await waitForOutput(streams.humanText, "(y/N)");
     const proposed = plain(streams.humanText());
-    expect(proposed).toContain("ops → coding");
-    expect(proposed).toContain("claude");
-    // The existing selection was shown before any picker opened.
+    // No separate summary block (spec #677 screen 13); the existing
+    // selection was still shown before any picker opened.
+    expect(proposed).toContain("Install now? (y/N)");
+    expect(proposed).not.toContain("ops → coding");
     expect(proposed).toContain("Current selection");
     expect(proposed).toContain("Profile ops");
     input.write("y\n");
@@ -434,7 +432,7 @@ describe("guided install cancellation", () => {
     const outcome = await pending;
 
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("cancelled");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -459,7 +457,7 @@ describe("guided install cancellation", () => {
     const outcome = await pending;
 
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("cancelled");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -494,7 +492,7 @@ describe("guided install cancellation", () => {
     const outcome = await pending;
 
     expect(outcome.exitCode).toBe(1);
-    expect(plain(streams.errorText())).toContain("you answered no");
+    expect(plain(streams.errorText())).toContain("Cancelled. Nothing was changed.");
     expect(readFileSync(configPath(home), "utf8")).toContain("bindings: []");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });
@@ -529,7 +527,7 @@ describe("guided install Host detection", () => {
     await waitForOutput(streams.humanText, "not found");
     const picker = plain(streams.humanText());
     // Titles stay bare; evidence is the annotation slot.
-    expect(picker).toContain("Selecting an agent does not install it.");
+    expect(picker).toContain("apkit doesn't install the agents themselves.");
     expect(picker).toContain("detected");
     expect(picker).toContain("not found");
     // An undetected Host remains selectable through the same picker.
