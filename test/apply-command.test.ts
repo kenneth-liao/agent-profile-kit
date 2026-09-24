@@ -11,6 +11,7 @@ import {
   prepareDriftedFleet,
   type DriftedFleetFixture,
 } from "./support/apply-confirmation-fixture.js";
+import { installControlledHosts } from "./support/fleet-fixture.js";
 
 afterAll(cleanupTemporaryDirectories);
 
@@ -66,6 +67,9 @@ function invoke(
     stdout,
     stderr,
     input,
+    // Hermetic agent detection (CI-1): the controlled stubs, never the host
+    // machine's PATH, so a run is a clean success on every machine.
+    env: { PATH: installControlledHosts(fleet.home) },
   });
   feed?.(input);
   if (feedAfterQuestion && feed !== undefined) {

@@ -84,12 +84,13 @@ export interface DetailsRouteDecision {
 
 /**
  * The one shared details-route rule (US-008, DEC-007, D4): the route appears
- * only after a failure, a warning or a partial run. Normal successes — a clean
- * success, a clean no-op, a neutral cancellation — omit it. Decided from
- * recorded facts only; presentation never reads its own output to choose
- * what to show. The note says what the run shows: file work reads "changed";
- * a run that only checked reads "checked" (review screens 27 and 28).
- * History retention and explicit `apkit details` retrieval are unchanged.
+ * only after a failure, a blocked run, a warning or a partial run. Normal
+ * successes — a clean success, a clean no-op, a neutral cancellation — omit
+ * it. Decided from recorded facts only; presentation never reads its own
+ * output to choose what to show. The note says what the run shows: file work
+ * (the same paths the `Changed files` section renders) reads "changed"; a run
+ * that only checked reads "checked" (review screens 27 and 28). History
+ * retention and explicit `apkit details` retrieval are unchanged.
  */
 export function detailsRouteDecision(facts: DetailsRouteFacts): DetailsRouteDecision {
   const wentWrong =
@@ -118,15 +119,23 @@ function flattenDocumentNodes(document: PresentationDocument): readonly Presenta
     node.kind === "part" ? node.nodes : [node]);
 }
 
-/** Whether the recorded operation committed or attempted any file work. */
-function projectsHaveFileWork(projects: readonly OperationHistoryProject[]): boolean {
-  return projects.some(
-    (project) =>
-      (project.written !== undefined && project.written.length > 0) ||
-      (project.removed !== undefined && project.removed.length > 0) ||
-      project.outputCommitted === true ||
-      project.result === "failed",
+/**
+ * Whether one recorded Project carries file work — the exact predicate the
+ * `Changed files` section renders (US-008): written or removed paths, or
+ * committed output whose paths were not enumerated. A failed attempt with no
+ * such paths is not file work.
+ */
+function projectHasChangedFiles(project: OperationHistoryProject): boolean {
+  return (
+    (project.written !== undefined && project.written.length > 0) ||
+    (project.removed !== undefined && project.removed.length > 0) ||
+    project.outputCommitted === true
   );
+}
+
+/** Whether the recorded operation committed any file work. */
+function projectsHaveFileWork(projects: readonly OperationHistoryProject[]): boolean {
+  return projects.some(projectHasChangedFiles);
 }
 
 /**
@@ -277,7 +286,12 @@ export function formatLocalHumanTime(iso: string, time: HumanTimeContext): strin
     }).format(instant);
   const day = dayKey(parsed.getTime());
   const today = dayKey(time.nowMs);
-  const yesterday = dayKey(time.nowMs - 24 * 60 * 60 * 1000);
+  // Yesterday is the previous calendar day in the injected zone: date-part
+  // arithmetic (UTC midnight minus one day), never a fixed 24h subtract,
+  // which mislabels across DST transitions (INT-A-3).
+  const [year, month, date] = today.split("-").map(Number);
+  const yesterday = new Date(Date.UTC(year!, month! - 1, date!) - 24 * 60 * 60 * 1000)
+    .toISOString().slice(0, 10);
   if (day === today) return `Today at ${clock}`;
   if (day === yesterday) return `Yesterday at ${clock}`;
   const dated = new Intl.DateTimeFormat("en-US", {
@@ -411,11 +425,7 @@ function projectLine(
 }
 
 function committedNodes(projects: readonly OperationHistoryProject[]): readonly PresentationNode[] {
-  const committed = projects.filter((project) =>
-    (project.written?.length ?? 0) > 0 ||
-    (project.removed?.length ?? 0) > 0 ||
-    project.outputCommitted === true
-  );
+  const committed = projects.filter(projectHasChangedFiles);
   if (committed.length === 0) return [];
   const section: PresentationNode[] = [{ kind: "heading", text: "Changed files:" }];
   for (const project of committed) {

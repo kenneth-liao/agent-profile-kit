@@ -898,6 +898,40 @@ test("the details-route rule is decided from recorded facts only (US-008, DEC-00
   expect(detailsRouteDecision({ outcome: "failed", hasWarnings: false, hasFileWork: true }).note).toBe(
     "see exactly what changed",
   );
+  // A failure with no changed paths only checked (INT-A-1).
+  expect(detailsRouteDecision({ outcome: "failed", hasWarnings: false, hasFileWork: false }).note).toBe(
+    "see exactly what this run checked",
+  );
+});
+
+test("a failed run with no written or removed paths reads the checked note (INT-A-1)", () => {
+  class Sink extends Writable {
+    readonly chunks: Buffer[] = [];
+    override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+      this.chunks.push(chunk);
+      callback();
+    }
+    text(): string {
+      return Buffer.concat(this.chunks).toString();
+    }
+  }
+  const stream: Sink & { isTTY?: boolean } = new Sink();
+  stream.isTTY = false;
+  const context = terminalPresentationContext(stream);
+  const document = [{ kind: "prose" as const, parts: ["Report."] }];
+
+  const failed = beginLifecycleOperationRecording();
+  failed.collect({
+    outcome: "failed",
+    scope: { selection: "all" },
+    projects: [{ project: "/p", canonicalProject: "/p", result: "failed", failure: "injected fault" }],
+    hasWarnings: false,
+  });
+  writeLifecycleReport(stream, document, context, failed);
+  // The note comes from the same predicate the Changed files section reads:
+  // no written or removed paths means the run only checked.
+  expect(stream.text()).toContain("Details: apkit details (see exactly what this run checked)");
+  expect(stream.text()).not.toContain("see exactly what changed");
 });
 
 test("keeps the details route on a no-op run that carries warning facts", () => {
@@ -1234,6 +1268,13 @@ test("formatLocalHumanTime is deterministic from an injected clock and time zone
   // A zone change moves the wall clock without changing the facts.
   expect(formatLocalHumanTime("2026-01-01T17:45:00.000Z", { nowMs: now, timeZone: "UTC" }))
     .toBe("Today at 5:45 PM");
+  // Yesterday is the previous calendar day in the injected zone, not a fixed
+  // 24h subtract: on the US spring-forward day (2026-03-08, 23 hours) the
+  // 24h-before instant lands two calendar days back (INT-A-3).
+  expect(formatLocalHumanTime("2026-03-08T18:00:00.000Z", {
+    nowMs: Date.parse("2026-03-09T07:30:00.000Z"),
+    timeZone: zone,
+  })).toBe("Yesterday at 11:00 AM");
   expect(formatLocalHumanTime("not-a-time", { nowMs: now, timeZone: zone })).toBe("not-a-time");
 });
 

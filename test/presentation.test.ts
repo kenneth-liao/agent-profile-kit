@@ -10084,6 +10084,52 @@ describe("missing-agent warnings (US-007, US-011, DEC-007, DEC-009)", () => {
     expect(twelve).toContain("… and 2 more");
   });
 
+  test("a fleet-scale generic warning names Projects and points at --verbose instead of dropping any (INT-B-1)", () => {
+    // The non-missing-agent path keeps the affected-Project clause (cap 4
+    // plus a see-all pointer): a version-floor warning is its fleet-scale
+    // case, asserted here so both warning shapes stay covered.
+    const warning = hostAttentionWarning({
+      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+      remedy: "upgrade Codex before checking status or updating the Profile",
+      requirement: "The selected Profile requires Codex project delivery",
+      copyableValues: ["codex"],
+      reason: "version-floor",
+    });
+    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
+    const report = machineReport(
+      projects.map((project) => machineProject(project, { warnings: [warning] })),
+    );
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: projects.map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: projects.map((project) => ({ kind: "addition" as const, project })),
+        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    // Canonical sort keeps the see-all pointer truthful and deterministic.
+    expect(rendered).toContain(
+      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+) (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)",
+    );
+    expect(rendered).not.toContain("(12 Projects)");
+    const verbose = renderBoundary(applyReportDocument({
+      receipt: emptyReport(),
+      resultingState: report,
+    }, { verbose: true }));
+    for (const project of projects) {
+      expect(verbose).toContain(project);
+    }
+    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
+  });
+
   test("one agent missing across several Projects lists every Project once with one fix", () => {
     const warning = hostAttentionWarning(codexMissing);
     const report = machineReport([

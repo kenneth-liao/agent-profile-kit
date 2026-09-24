@@ -33,6 +33,7 @@ import {
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type { InteractiveExecution } from "../cli/pager.js";
 import { humanText } from "./support/human-text.js";
+import { installControlledHosts } from "./support/fleet-fixture.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -152,6 +153,9 @@ function invokeInstall(
       stdout: streams.output,
       stderr: streams.stderr,
       input,
+      // Hermetic agent detection (CI-1): the controlled stubs, never the
+      // host machine's PATH, so a run is a clean success everywhere.
+      env: { PATH: installControlledHosts(home) },
     }),
     streams,
   };
@@ -213,6 +217,9 @@ function invokeUpdate(
       verbose: false,
       stdout: streams.output,
       stderr: streams.stderr,
+      // Hermetic agent detection (CI-1): the controlled stubs, never the
+      // host machine's PATH.
+      env: { PATH: installControlledHosts(home) },
       input,
     }),
     streams,

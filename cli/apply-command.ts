@@ -97,6 +97,8 @@ export interface ApplyCommandRequest {
   /** Injectable prompt input stream; TTY evidence is read here (DEC-035). */
   readonly input: Readable;
   readonly clock?: PromptClock;
+  /** Injectable process environment for Host capability probes. */
+  readonly env?: NodeJS.ProcessEnv;
 }
 
 export interface ApplyCommandOutcome {
@@ -208,6 +210,7 @@ async function runApplyCommandWithRecording(
   try {
     const applied = await applyApplication(request.home, {
       selection: request.selection,
+      ...(request.env === undefined ? {} : { env: request.env }),
       ...(request.replaceChanged ? { replaceChanged: true as const } : {}),
       ...(request.removeChanged ? { removeChanged: true as const } : {}),
       ...(confirmChangedOutputReplacement === undefined

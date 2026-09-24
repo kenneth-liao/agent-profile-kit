@@ -43,7 +43,9 @@ route for every lifecycle receipt.
   completed.
 - **One completed-operation detail route.** A default receipt closes with
   `Details: apkit details` exactly when its run went wrong — a failure, a
-  warning, or a partial run (spec #672 US-008, DEC-007; review D4) — with a
+  blocked run, a warning, or a partial run (`blocked` is named explicitly: it
+  is a distinct outcome, not a kind of failure; spec #672 US-008, DEC-007;
+  review D4) — with a
   short note saying what that run shows (`notedCommand`). It is the secondary
   line of the report's one footer block (US-010): when the footer already
   carries a `Next` action list the details route follows it with no second
@@ -90,8 +92,8 @@ route for every lifecycle receipt.
 - **Spec #640 US-010's remaining details-hint breadth** — the hint after every
   recorded run that changed something — is superseded by spec #672 US-008
   (DEC-007, DEC-009, ticket #679): the route appears only after a failure, a
-  warning or a partial run. Normal successes omit it; retention and explicit
-  `apkit details` retrieval stay unchanged (review decision D4).
+  blocked run, a warning or a partial run. Normal successes omit it; retention
+  and explicit `apkit details` retrieval stay unchanged (review decision D4).
 - **ADR-0020** already requires concise output to omit routine generated paths
   and Repository Exclusion bookkeeping, and reserves `--verbose` and JSON for
   complete evidence. This record fixes the receipt's concrete default shape and
@@ -119,7 +121,7 @@ route for every lifecycle receipt.
   content and the default receipt's `Updated:`/`Pending:` verbose structure
   are unchanged.
 - **Spec #672 US-008 (ticket #679, DEC-007/DEC-009).** The details route is
-  narrowed to failures, warnings and partial runs and carries one short note
+  narrowed to failures, blocked runs, warnings and partial runs and carries one short note
   (`notedCommand`) saying what the run shows; normal successes omit it
   (superseding #640 US-010's hint after every changed run, review D4). The
   route is decided from recorded facts only. `apkit details --list` reads as
