@@ -76,10 +76,10 @@ export const COMMANDS: readonly CommandHelp[] = [
     // Separate valid lines (US-016, #509): each usage line is one complete
     // invocation shape, so no line joins two forms behind a pipe or repeats
     // the verb.
-    syntax: "new skill <skill>\nnew context <context>\nnew profile <profile> [--context <context>]... [--skill <skill>]...",
+    syntax: "new skill <skill>\nnew context <context>\nnew profile\nnew profile <profile> [--context <context>]... [--skill <skill>]...",
     summary: "Create a Skill, Context Module, or Profile scaffold in the configured Workspace",
     examples: COMMAND_EXAMPLES.new,
-    writes: "Creates one new Skill directory with SKILL.md, one Context Module file, or one Profile file selecting existing material, in the Workspace; never overwrites or edits existing material.",
+    writes: "Creates one new Skill directory with SKILL.md, one Context Module file, or one Profile file selecting existing material, in the Workspace; without a name, guides Profile creation interactively; never overwrites or edits existing material.",
     next: [
       "Select a new Skill or Context Module into a Profile with ",
       configureProfileRouting(),

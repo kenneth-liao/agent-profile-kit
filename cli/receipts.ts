@@ -14,7 +14,9 @@ import {
   commandPart,
   footerNodes,
   identifierPart,
+  list,
   neutralStatementDocument,
+  notedCommand,
   part,
   pathPart,
   stateHeadline,
@@ -135,27 +137,182 @@ export function newArtifactCreatedNodes(input: NewArtifactReceiptInput): Present
   return nodes;
 }
 
-/** The receipt document for one `apkit new` invocation (US-042–US-046,
- * #509): a new Skill or Context Module is selected into a Profile with
- * configure, and a new Profile is installed — the same routing the `new`
- * help entry carries, derived from one home in cli/command-help.ts. */
+/**
+ * Guidance document when creating a Profile in an empty Workspace (US-004,
+ * Screen P1): explains what a Profile needs, shows how to add material, and
+ * creates nothing.
+ */
+export function emptyWorkspaceProfileCreationDocument(): PresentationDocument {
+  const part1 = part({
+    kind: "sentence",
+    parts: ["A Profile needs at least one Context file or Skill, and your Workspace has none yet."],
+  });
+  const part2 = part(
+    { kind: "sentence", parts: ["Add some first:"] },
+    list([
+      ["Put skill folders in workspace/skills/"],
+      [
+        commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<name>")]),
+        " (create a Context file to fill in)",
+      ],
+    ]),
+  );
+  const part3 = part({
+    kind: "sentence",
+    parts: [
+      "Then run ",
+      commandPart(COMMAND_NAME, [arg("new"), arg("profile")]),
+      " again.",
+    ],
+  });
+  return [part1, part2, part3];
+}
+
+/** One concept sentence explaining what a Profile is (US-004, Screen P2). */
+export function newProfileExplanationDocument(): PresentationDocument {
+  return [
+    part({
+      kind: "sentence",
+      parts: [
+        'A Profile groups Context and Skills for one kind of work, like "engineering" or "writing".',
+      ],
+    }),
+  ];
+}
+
+/** Note before Context selection (US-004, Screen P3). */
+export function newProfileContextNoteDocument(): PresentationDocument {
+  return [
+    part({
+      kind: "sentence",
+      parts: ["Context is loaded in every agent session that uses this Profile."],
+    }),
+  ];
+}
+
+/** Note before Skill selection (US-004, Screen P4). */
+export function newProfileSkillsNoteDocument(): PresentationDocument {
+  return [
+    part({
+      kind: "sentence",
+      parts: ["Agents load Skills only when they need them."],
+    }),
+  ];
+}
+
+/** Neutral statement when Profile creation is cancelled (US-004). */
+export function newProfileCancelledDocument(): PresentationDocument {
+  return neutralStatementDocument([
+    "Profile creation was cancelled; nothing was written.",
+  ]);
+}
+
+/**
+ * The receipt document for Profile creation (US-004, Screen P5): states the
+ * created Profile, its Context and Skills, how to change it later with
+ * configure, and installs it as the next step.
+ */
+export function newProfileReceiptDocument(input: {
+  readonly id: string;
+  readonly selectedContexts?: readonly string[] | undefined;
+  readonly selectedSkills?: readonly string[] | undefined;
+}): PresentationDocument {
+  const headline = stateHeadline([
+    "Created the ",
+    identifierPart(input.id),
+    " Profile",
+  ], "success");
+  const membershipNodes: PresentationNode[] = [];
+  const selectedContexts = input.selectedContexts ?? [];
+  const selectedSkills = input.selectedSkills ?? [];
+  if (selectedContexts.length > 0) {
+    membershipNodes.push({
+      kind: "key-value",
+      key: "  Context",
+      value: { kind: "identifier", value: selectedContexts.join(", ") },
+      category: "path",
+    });
+  }
+  if (selectedSkills.length > 0) {
+    membershipNodes.push({
+      kind: "key-value",
+      key: "  Skills",
+      value: { kind: "identifier", value: selectedSkills.join(", ") },
+    });
+  }
+  const part1 = part(headline, ...membershipNodes);
+  const part2 = part({
+    kind: "sentence",
+    parts: [
+      "Change it later with ",
+      commandPart(COMMAND_NAME, [arg("configure"), arg("profile"), arg(input.id)]),
+      ".",
+    ],
+  });
+  const part3 = footerNodes({
+    next: {
+      kind: "command",
+      value: notedCommand(
+        commandPart(COMMAND_NAME, [arg("install"), arg(input.id)]),
+        "run it inside a Project folder",
+      ),
+    },
+  });
+  return [part1, part2, part3];
+}
+
+/**
+ * The receipt document for Context Module creation (US-004, Screen P6): states
+ * the created file, instructs what to write in it, and points to
+ * `apkit new profile`.
+ */
+export function newContextReceiptDocument(input: {
+  readonly path: string;
+}): PresentationDocument {
+  const part1 = part(
+    stateHeadline([
+      "Created ",
+      pathPart(input.path, "fleet"),
+    ], "success"),
+  );
+  const part2 = part({
+    kind: "sentence",
+    parts: ["Open it and write the rules every agent session should follow."],
+  });
+  const part3 = footerNodes({
+    next: {
+      kind: "command",
+      value: notedCommand(
+        commandPart(COMMAND_NAME, [arg("new"), arg("profile")]),
+        "make a Profile that uses it",
+      ),
+    },
+  });
+  return [part1, part2, part3];
+}
+
+/** The receipt document for one `apkit new` invocation (US-004, US-042–US-046). */
 export function newArtifactReceiptDocument(input: NewArtifactReceiptInput): PresentationDocument {
-  if (input.selectedContexts === undefined && input.selectedSkills === undefined) {
-    return [
-      ...newArtifactCreatedNodes(input),
-      {
-        kind: "sentence",
-        parts: [
-          "Next: select it into a Profile with ",
-          configureProfileRouting(),
-        ],
-        category: "command",
-      },
-    ];
+  if (input.artifactType === "Profile") {
+    return newProfileReceiptDocument({
+      id: input.id,
+      selectedContexts: input.selectedContexts,
+      selectedSkills: input.selectedSkills,
+    });
+  }
+  if (input.artifactType === "Context Module") {
+    return newContextReceiptDocument({ path: input.path });
   }
   return [
     ...newArtifactCreatedNodes(input),
-    ...createdProfileInstallNextActionDocument(input.id),
+    {
+      kind: "sentence",
+      parts: [
+        "Next: select it into a Profile with ",
+        configureProfileRouting(),
+      ],
+      category: "command",
+    },
   ];
 }
 
