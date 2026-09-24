@@ -66,6 +66,7 @@ import { runInstallCommand } from "./install-command.js";
 import { runUninstallCommand } from "./uninstall-command.js";
 import { runInitCommand } from "./init-command.js";
 import { runNewCommand } from "./new-command.js";
+import { positionalArgument, sanitizeCommandToken } from "./command-arguments.js";
 import {
   renderPresentationDocument,
   writeHumanDocument,
@@ -349,10 +350,6 @@ function suggestedCommand(unknown: string): string | undefined {
   return nearestName(unknown, defaultCommands().map((command) => command.name));
 }
 
-function sanitizeCommandToken(token: string): string {
-  return token.replace(/[\u0000-\u001F\u007F-\u009F]/g, "").replaceAll("'", "\\'");
-}
-
 /** The diagnostic for one public command replaced by a new name (DEC-001). */
 function removedPublicCommandDiagnostic(from: string, to: string): PresentationDocument {
   return diagnosticDocument({
@@ -417,13 +414,6 @@ function parseOrExit<T>(command: string, parse: () => T): T | undefined {
     process.exitCode = 1;
     return undefined;
   }
-}
-
-function positionalArgument(command: string, description: string, value: string): string {
-  if (value.startsWith("-")) {
-    throw new Error(`${command} does not accept flag '${value}' as ${description}`);
-  }
-  return value;
 }
 
 export function parseInstallTempArguments(

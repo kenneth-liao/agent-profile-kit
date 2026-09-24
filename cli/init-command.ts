@@ -16,6 +16,7 @@
 import { join, resolve } from "node:path";
 import type { Readable, Writable } from "node:stream";
 
+import { positionalArgument } from "./command-arguments.js";
 import {
   initConfirmationDocument,
   initLocationDocument,
@@ -64,13 +65,6 @@ export function parseInitArguments(arguments_: readonly string[]): ParsedInitArg
   return arguments_.length === 0
     ? {}
     : { workspace: positionalArgument("init", "a Workspace path", arguments_[0]!) };
-}
-
-function positionalArgument(command: string, description: string, value: string): string {
-  if (value.startsWith("-")) {
-    throw new Error(`${command} does not accept flag '${value}' as ${description}`);
-  }
-  return value;
 }
 
 export interface InitCommandRequest {

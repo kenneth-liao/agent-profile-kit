@@ -21,6 +21,7 @@ import {
   terminalPresentationContext,
   type TerminalStream,
 } from "./terminal-presentation.js";
+import { positionalArgument, sanitizeCommandToken } from "./command-arguments.js";
 import { createContextModule } from "../installer/create-context-module.js";
 import { createProfile } from "../installer/create-profile.js";
 import { createSkill } from "../installer/create-skill.js";
@@ -43,17 +44,6 @@ export interface NewCommandOutcome {
 
 const newCommandSyntax = COMMANDS.find((command) => command.name === "new")!.syntax;
 const newProfileExplicitSyntax = "new profile <profile> [--context <context>]... [--skill <skill>]...";
-
-function sanitizeCommandToken(token: string): string {
-  return token.replace(/[\r\n\t]/g, " ").trim();
-}
-
-function positionalArgument(command: string, description: string, value: string): string {
-  if (value.startsWith("-")) {
-    throw new Error(`${command} does not accept flag '${value}' as ${description}`);
-  }
-  return value;
-}
 
 function parseNewProfileSelections(
   arguments_: readonly string[],
@@ -206,11 +196,9 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
   }
 
   // Profile creation
-  const hasNameArgument = arguments_.length >= 2 && !arguments_[1]!.startsWith("--");
-  const interactive = isInteractiveInput(request.input);
-
-  if (!hasNameArgument) {
-    if (!interactive) {
+  // Bare `new profile` has exactly one argument (["profile"]).
+  if (arguments_.length === 1) {
+    if (!isInteractiveInput(request.input)) {
       writeHumanDocument(
         request.stderr,
         errorDiagnosticDocument(new Error("new profile requires a Profile name"), {
@@ -349,10 +337,34 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
     }
   }
 
+  // INT-1: Flags without a name (e.g. `apkit new profile --context x`) are rejected as on main
+  if (arguments_[1]!.startsWith("--")) {
+    writeHumanDocument(
+      request.stderr,
+      errorDiagnosticDocument(new Error("new profile requires a Profile name"), {
+        usage: newCommandSyntax,
+      }),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+
   // Explicit Profile creation form
+  let name: string;
+  let selections: { readonly contexts: readonly string[]; readonly skills: readonly string[] };
   try {
-    const name = positionalArgument("new profile", "a Profile name", arguments_[1]!);
-    const selections = parseNewProfileSelections(arguments_.slice(2));
+    name = positionalArgument("new profile", "a Profile name", arguments_[1]!);
+    selections = parseNewProfileSelections(arguments_.slice(2));
+  } catch (error) {
+    writeHumanDocument(
+      request.stderr,
+      errorDiagnosticDocument(error, { usage: newCommandSyntax }),
+      stderrContext,
+    );
+    return { exitCode: 1 };
+  }
+
+  try {
     const result = await createProfile({
       home: request.home,
       name,
@@ -374,11 +386,7 @@ export async function runNewCommand(request: NewCommandRequest): Promise<NewComm
     );
     return { exitCode: 0 };
   } catch (error) {
-    writeHumanDocument(
-      request.stderr,
-      errorDiagnosticDocument(error, { usage: newCommandSyntax }),
-      stderrContext,
-    );
+    writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
     return { exitCode: 1 };
   }
 }

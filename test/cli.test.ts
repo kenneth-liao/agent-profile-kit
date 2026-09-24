@@ -14617,52 +14617,57 @@ describe("packed CLI new profile", () => {
   });
 
   test("guided and explicit Profile creation write identical files and each printed next step runs (TEST-001, #675)", async () => {
-    const home = isolatedHome();
-    expectExitCode(await runCli(home, "init", "~/apkit-workspace"), 0);
+    const homeExplicit = isolatedHome();
+    expectExitCode(await runCli(homeExplicit, "init", "~/apkit-workspace"), 0);
+    expectExitCode(await runCli(homeExplicit, "new", "context", "team-conventions"), 0);
+    expectExitCode(await runCli(homeExplicit, "new", "skill", "code-review"), 0);
+
+    const homeGuided = isolatedHome();
+    expectExitCode(await runCli(homeGuided, "init", "~/apkit-workspace"), 0);
 
     // 1. Create Context and Skill
-    const contextResult = await runCli(home, "new", "context", "team-conventions");
+    const contextResult = await runCli(homeGuided, "new", "context", "team-conventions");
     expectExitCode(contextResult, 0);
     expect(contextResult.stdout).toContain("Open it and write the rules every agent session should follow.");
     expect(contextResult.stdout).toContain("apkit new profile (make a Profile that uses it)");
 
-    const skillResult = await runCli(home, "new", "skill", "code-review");
+    const skillResult = await runCli(homeGuided, "new", "skill", "code-review");
     expectExitCode(skillResult, 0);
 
-    // 2. Explicit Profile creation
+    // 2. Explicit Profile creation in homeExplicit
     const explicitResult = await runCli(
-      home,
+      homeExplicit,
       "new",
       "profile",
-      "explicit-profile",
+      "engineering",
       "--context",
       "team-conventions",
       "--skill",
       "code-review",
     );
     expectExitCode(explicitResult, 0);
-    expect(explicitResult.stdout).toContain("Created the explicit-profile Profile");
-    expect(explicitResult.stdout).toContain("apkit configure profile explicit-profile");
-    expect(explicitResult.stdout).toContain("apkit install explicit-profile (run it inside a Project folder)");
+    expect(explicitResult.stdout).toContain("Created the engineering Profile");
+    expect(explicitResult.stdout).toContain("apkit configure profile engineering");
+    expect(explicitResult.stdout).toContain("apkit install engineering (run it inside a Project folder)");
 
-    // 3. Guided Profile creation in PTY
+    // 3. Guided Profile creation in PTY in homeGuided
     const guidedResult = await runCliInPtyWithInput(
-      home,
+      homeGuided,
       100,
-      ["guided-profile\r", " \r", " \r"],
+      ["engineering\r", " \r", " \r"],
       "new",
       "profile",
     );
     expectExitCode(guidedResult, 0);
-    expect(guidedResult.stdout).toContain("Created the guided-profile Profile");
+    expect(guidedResult.stdout).toContain("Created the engineering Profile");
     expect(guidedResult.stdout).toContain("Context: team-conventions");
     expect(guidedResult.stdout).toContain("Skills: code-review");
-    expect(guidedResult.stdout).toContain("apkit configure profile guided-profile");
-    expect(guidedResult.stdout).toContain("apkit install guided-profile (run it inside a Project folder)");
+    expect(guidedResult.stdout).toContain("apkit configure profile engineering");
+    expect(guidedResult.stdout).toContain("apkit install engineering (run it inside a Project folder)");
 
-    // 4. Verify that guided and explicit creation write identical files
-    const explicitFile = join(realpathSync(workspacePath(home)), "profiles", "explicit-profile.yaml");
-    const guidedFile = join(realpathSync(workspacePath(home)), "profiles", "guided-profile.yaml");
+    // 4. Verify that guided and explicit creation write identical files across isolated homes
+    const explicitFile = join(realpathSync(workspacePath(homeExplicit)), "profiles", "engineering.yaml");
+    const guidedFile = join(realpathSync(workspacePath(homeGuided)), "profiles", "engineering.yaml");
     expect(existsSync(explicitFile)).toBe(true);
     expect(existsSync(guidedFile)).toBe(true);
     const explicitContent = readFileSync(explicitFile, "utf8");
@@ -14672,10 +14677,10 @@ describe("packed CLI new profile", () => {
     // 5. Each printed next step runs
     // 5a. Configure profile next step runs
     const configureResult = await runCli(
-      home,
+      homeGuided,
       "configure",
       "profile",
-      "guided-profile",
+      "engineering",
       "--context",
       "team-conventions",
       "--skill",
@@ -14686,12 +14691,12 @@ describe("packed CLI new profile", () => {
 
     // 5b. Install next step runs inside a Project folder
     const projectPath = gitRepository();
-    mkdirSync(join(home, ".codex"), { recursive: true });
-    writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+    mkdirSync(join(homeGuided, ".codex"), { recursive: true });
+    writeFileSync(join(homeGuided, ".codex", "config.toml"), "[features]\nhooks = true\n");
     const installResult = await runCli(
-      home,
+      homeGuided,
       "install",
-      "guided-profile",
+      "engineering",
       projectPath,
       "--agent",
       "codex",
@@ -14937,6 +14942,7 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
     expectExitCode(result, 0);
     expect(result.stdout).toContain("Usage: apkit new skill <skill>");
     expect(result.stdout).toContain("Usage: apkit new context <context>");
+    expect(result.stdout).toContain("Usage: apkit new profile");
     expect(result.stdout).toContain(
       "Usage: apkit new profile <profile> [--context <context>]... [--skill <skill>]...",
     );
@@ -15004,6 +15010,8 @@ describe("authoring lifecycle teaching (#509, US-016)", () => {
     const result = await runCli(home, "new", "--bogus");
     expectExitCode(result, 1);
     expect(result.stderr).toContain("Usage: apkit new skill <skill>");
+    expect(result.stderr).toContain("Usage: apkit new context <context>");
+    expect(result.stderr).toContain("Usage: apkit new profile");
     expect(result.stderr).toContain(
       "Usage: apkit new profile <profile> [--context <context>]... [--skill <skill>]...",
     );

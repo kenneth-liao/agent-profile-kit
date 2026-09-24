@@ -333,16 +333,17 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
     expect(errorOutput).toContain("apkit new profile <profile> [--context <context>]... [--skill <skill>]...");
   });
 
-  test("explicit and guided Profile creation write identical YAML files through the one writer", async () => {
-    const home = await setupHomeWithMaterial();
+  test("explicit and guided Profile creation write identical YAML files through the one writer across isolated homes (INT-5)", async () => {
+    const homeExplicit = await setupHomeWithMaterial();
+    const homeGuided = await setupHomeWithMaterial();
 
-    // 1. Explicit creation
+    // 1. Explicit creation in homeExplicit
     const explicitStreams = capturedStreams();
     const explicitOutcome = await runNewCommand({
-      home,
+      home: homeExplicit,
       arguments: [
         "profile",
-        "explicit-prof",
+        "engineering",
         "--context",
         "team-rules",
         "--skill",
@@ -354,11 +355,11 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
     });
     expect(explicitOutcome.exitCode).toBe(0);
 
-    // 2. Guided creation
+    // 2. Guided creation in homeGuided
     const input = fakeInteractiveInput();
     const guidedStreams = capturedStreams();
     const guidedPending = runNewCommand({
-      home,
+      home: homeGuided,
       arguments: ["profile"],
       stdout: guidedStreams.output as Writable & { isTTY?: boolean },
       stderr: guidedStreams.stderr as Writable & { isTTY?: boolean },
@@ -366,7 +367,7 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
     });
 
     await waitForOutput(guidedStreams.humanText, "Name your Profile");
-    input.write("guided-prof\r");
+    input.write("engineering\r");
 
     await waitForOutput(guidedStreams.humanText, "Which Context?");
     input.write(" \r");
@@ -378,16 +379,80 @@ describe("guided Profile creation (ticket #675, US-004)", () => {
     expect(guidedOutcome.exitCode).toBe(0);
 
     const explicitContent = readFileSync(
-      join(workspacePath(home), "profiles", "explicit-prof.yaml"),
+      join(workspacePath(homeExplicit), "profiles", "engineering.yaml"),
       "utf8",
     );
     const guidedContent = readFileSync(
-      join(workspacePath(home), "profiles", "guided-prof.yaml"),
+      join(workspacePath(homeGuided), "profiles", "engineering.yaml"),
       "utf8",
     );
 
-    // Both files must have identical content
+    // Both files must have byte-identical content across isolated homes
     expect(guidedContent).toBe(explicitContent);
+  });
+
+  test("new profile with flag but no name on TTY is rejected with parse error and does not enter guided flow (INT-1)", async () => {
+    const home = await setupHomeWithMaterial();
+    const input = fakeInteractiveInput();
+    const streams = capturedStreams();
+    const outcome = await runNewCommand({
+      home,
+      arguments: ["profile", "--context", "team-rules"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input,
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    const errorOutput = plain(streams.errorText());
+    expect(errorOutput).toContain("new profile requires a Profile name");
+    expect(errorOutput).toContain("Usage: apkit new");
+    // Guided prompt was not shown
+    expect(streams.humanText()).not.toContain("Name your Profile");
+  });
+
+  test("creation error during explicit creation omits the Usage block (INT-2)", async () => {
+    const home = await setupHomeWithMaterial();
+    // 1. Create Profile initially
+    const streams1 = capturedStreams();
+    const firstOutcome = await runNewCommand({
+      home,
+      arguments: ["profile", "duplicate-prof", "--context", "team-rules"],
+      stdout: streams1.output as Writable & { isTTY?: boolean },
+      stderr: streams1.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(firstOutcome.exitCode).toBe(0);
+
+    // 2. Attempt duplicate creation
+    const streams2 = capturedStreams();
+    const secondOutcome = await runNewCommand({
+      home,
+      arguments: ["profile", "duplicate-prof", "--context", "team-rules"],
+      stdout: streams2.output as Writable & { isTTY?: boolean },
+      stderr: streams2.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(secondOutcome.exitCode).toBe(1);
+    const errorOutput = plain(streams2.errorText());
+    expect(errorOutput).toContain("A Profile named 'duplicate-prof' already exists");
+    expect(errorOutput).not.toContain("Usage:");
+  });
+
+  test("parse error during explicit creation includes the Usage block (INT-2)", async () => {
+    const home = await setupHomeWithMaterial();
+    const streams = capturedStreams();
+    const outcome = await runNewCommand({
+      home,
+      arguments: ["profile", "test-prof", "--bogus-flag"],
+      stdout: streams.output as Writable & { isTTY?: boolean },
+      stderr: streams.stderr as Writable & { isTTY?: boolean },
+      input: nonInteractiveInput(),
+    });
+    expect(outcome.exitCode).toBe(1);
+    const errorOutput = plain(streams.errorText());
+    expect(errorOutput).toContain("new profile does not accept argument '--bogus-flag'");
+    expect(errorOutput).toContain("Usage:");
   });
 
   test("when only Context exists, Context prompt enforces min:1 and Skill prompt is skipped", async () => {

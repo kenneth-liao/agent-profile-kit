@@ -24,6 +24,7 @@ import {
 import { COMMAND_NAME } from "../installer/version.js";
 import { errorDiagnosticDocument } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
+import { positionalArgument } from "./command-arguments.js";
 import {
   applyConsentRequiredDocument,
   applyReplacementDeclinedDocument,
@@ -195,13 +196,6 @@ export function parseInstallArguments(
     removeChanged,
     json,
   };
-}
-
-function positionalArgument(command: string, description: string, value: string): string {
-  if (value.startsWith("-")) {
-    throw new Error(`${command} does not accept flag '${value}' as ${description}`);
-  }
-  return value;
 }
 
 export interface InstallCommandRequest {
