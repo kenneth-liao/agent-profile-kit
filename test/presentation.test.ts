@@ -2675,6 +2675,49 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     expect(documentText(nodes)).not.toContain("Declining the hook prevents Profile Context from loading.");
   });
 
+  test("a non-standard consequence renders in parentheses on the agent's one line", () => {
+    // OpenCode-style restart step (transition-triggered on its own config
+    // output): the heading carries the standard load reason, so this
+    // step's non-standard consequence — a distinct Adapter-authored fact —
+    // stays on the line in parentheses (spec #677, INT-2).
+    const configPath = ".opencode/opencode.jsonc";
+    const restart = (): HostSetupStep => ({
+      host: "opencode",
+      kind: "launch-constraint",
+      message: "Restart OpenCode to load changed configuration.",
+      consequence:
+        "A running OpenCode session keeps its previously loaded configuration until restarted.",
+      output: configPath,
+      provenance: "transition",
+    });
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts: ["opencode"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps: [restart()],
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: configPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
+    // The agent prefix uses the one canonical capitalization rule (the same
+    // rule the loading check renders); only the line shape is presentation-owned.
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "Opencode: Restart OpenCode to load changed configuration (A running OpenCode session keeps its previously loaded configuration until restarted).",
+    ]);
+  });
+
   test("a Claude-only install with no steps shows only the start-folder line", () => {
     const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()], ["claude"]);
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["claude"]);

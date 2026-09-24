@@ -4774,33 +4774,6 @@ export function configureChangingDocument(input: {
   )];
 }
 
-/** How the general-confirmation answer was given: an explicit no, the
- * default no, or cancellation. */
-export type ConfigureDeclinedAnswer = "cancelled" | "default" | "declined";
-
-/** The declined-or-cancelled general-confirmation statement (DEC-004, US-003,
- * US-010): one neutral statement only. A plain decline or cancel needs no
- * remedy and no details hint. */
-export function configureDeclinedDocument(
-  reason: ConfigureDeclinedAnswer,
-): PresentationDocument {
-  return neutralStatementDocument([
-    reason === "cancelled"
-      ? "Configure was cancelled; nothing was written."
-      : reason === "default"
-        ? "Configure was declined; nothing was written (default answer no)."
-        : "Configure was declined; nothing was written (you answered no).",
-  ]);
-}
-
-/** A picker cancelled before the membership resolved (DEC-004, US-003,
- * US-010): one neutral statement only. */
-export function configurePickerCancelledDocument(): PresentationDocument {
-  return neutralStatementDocument([
-    "Configure was cancelled; nothing was written.",
-  ]);
-}
-
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
  * non-interactive (or machine-JSON) configure without `--auto-confirm`
  * refuses before any Profile write, with the runnable command that
