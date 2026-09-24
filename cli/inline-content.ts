@@ -27,7 +27,6 @@ export type TextPart = {
   readonly value: string;
 };
 
-/** One inline command invocation: atomic, never split or folded. */
 export type CommandPart = {
   readonly kind: "command";
   readonly program: string;

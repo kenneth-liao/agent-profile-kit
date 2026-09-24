@@ -51,6 +51,15 @@ import {
 export type { SemanticCategory, StateRole };
 export { stateHeadlinePrefix };
 
+/**
+ * One list-item element (US-001, review rule 4 and 6): plain inline content,
+ * or a command node — the one inline context whose command may carry a note
+ * (CommandNode.note). {@link notedCommand} is the one normalizer; the flat and
+ * machine projections read only inline content, so a note can never reach
+ * them (DEC-004).
+ */
+export type InlineItemElement = InlineContent | CommandNode;
+
 export type NoticeSeverity = "error" | "neutral" | "success" | "warning";
 
 export type PresentationRenderOptions = {
@@ -120,10 +129,13 @@ export type KeyValueNode = {
 /** One list part: every item renders as a bullet (US-001, review rule 4).
  * A screen part with more than two items is authored as a list, so the
  * renderer — one reader, not N screens — owns the bullet shape; state
- * categories keep their DEC-001 glyph bullets, everything else renders `- `. */
+ * categories keep their DEC-001 glyph bullets, everything else renders `- `.
+ * A list item element may also be a command node: the one inline context whose
+ * command may carry a note (CommandNode.note), so a note can never reach the
+ * flat or machine projections, which read only inline content (DEC-004). */
 export type ListNode = {
   readonly kind: "list";
-  readonly items: readonly (readonly InlineContent[])[];
+  readonly items: readonly (readonly InlineItemElement[])[];
   readonly category?: SemanticCategory;
 };
 
@@ -231,29 +243,41 @@ export function part(...nodes: readonly PresentationNode[]): PartNode {
 /**
  * One list part (US-001, review rule 4): the one list constructor. Author a
  * list when a screen part has more than two items; every item renders as a
- * bullet — the state category's DEC-001 glyph, or `- ` otherwise.
+ * bullet — the state category's DEC-001 glyph, or `- ` otherwise. An item
+ * element may be a command node carrying a note through {@link notedCommand}.
  */
 export function list(
-  items: readonly (readonly InlineContent[])[],
+  items: readonly (readonly InlineItemElement[])[],
   category?: SemanticCategory,
 ): ListNode {
   return category === undefined ? { kind: "list", items } : { kind: "list", items, category };
 }
 
 /**
+ * One command node (US-001, review rule 6): the node-model command for footer
+ * and list-item contexts. It is the only inline-adjacent command whose
+ * optional note — attached through {@link notedCommand} — renders beside it.
+ */
+export function commandNode(
+  program: string,
+  args: readonly CommandArg[],
+  category?: SemanticCategory,
+): CommandNode {
+  return category === undefined
+    ? { kind: "command", program, args }
+    : { kind: "command", program, args, category };
+}
+
+/**
  * The one home for a next-step note (US-001, review rule 6): the note is
  * display-only, attached to the command it describes, and rendered as
  * `<command> (<note>)` with the command staying copyable at any width. This
- * converter is the one normalization point; notes never live anywhere else.
+ * converter is the one normalization point; notes live nowhere else, and the
+ * flat and machine projections never read them (DEC-004).
  */
 export function notedCommand(command: CommandNode, note: string): CommandNode {
   const normalized = note.trim();
-  if (normalized.length === 0) {
-    return command.category === undefined
-      ? { kind: "command", program: command.program, args: command.args }
-      : { kind: "command", program: command.program, args: command.args, category: command.category };
-  }
-  return { ...command, note: normalized };
+  return normalized.length === 0 ? command : { ...command, note: normalized };
 }
 
 /** The one footer action list (US-010): a single command, or explicit items. */
@@ -264,7 +288,7 @@ export type FooterNext =
     }
   | {
       readonly kind: "actions";
-      readonly items: readonly (readonly InlineContent[])[];
+      readonly items: readonly (readonly InlineItemElement[])[];
     };
 
 /**
@@ -658,7 +682,7 @@ function renderNode(
       for (const item of node.items) {
         lines.push(
           ...wrapInlineNode(
-            [bullet, ...item],
+            [bullet, ...item.flatMap(inlineItemParts)],
             environment,
             "lifecycle",
             category,
@@ -957,6 +981,20 @@ function wrapInlineNode(
   return wrapInlineParts(normalizeParts(parts), environment, policy, category);
 }
 
+/**
+ * One list-item element becomes inline content (DEC-004, review rule 6): a
+ * command node's note — the one note home, `CommandNode.note`, normalized
+ * through {@link notedCommand} — renders as breakable text beside the atomic
+ * command (`<command> (<note>)`), exactly like the footer's noted command. A
+ * command node without a note renders as its bare inline command.
+ */
+function inlineItemParts(element: InlineItemElement): readonly InlineContent[] {
+  if (typeof element === "string" || element.kind !== "command") return [element];
+  if (!("note" in element)) return [element];
+  if (element.note === undefined || element.note.length === 0) return [element];
+  return [element, textPart(` (${element.note})`)];
+}
+
 function normalizeParts(content: readonly InlineContent[]): readonly InlinePart[] {
   return content.map((part) =>
     typeof part === "string" ? textPart(part) : part
@@ -973,8 +1011,6 @@ function renderInlinePart(part: InlinePart, environment: RenderEnvironment): str
         { kind: "command", program: part.program, args: part.args },
         environment,
       );
-      // Fail closed (PROD-1): an unquotable argument never becomes raw text
-      // inside a copyable command.
       return rendered ?? "";
     }
     case "path":

@@ -116,12 +116,13 @@ explicit commands that change it:
 ```
 $ apkit
 Agent Profile Kit is not set up on this machine.
-Your Workspace is one folder that holds your Profiles, Context, and Skills.
-  One Workspace can serve several Projects, and setup may add those folders
-  and files.
-A Project is one working folder that receives the installed material.
+
+Your Workspace folder holds your Context, Skills, and Profiles. You only need
+one Workspace for all of your Projects.
+
 Start by naming the folder that will hold the Workspace. The second command
-  uses the current folder instead.
+uses the current folder instead.
+
 Next:
 - apkit init <path>
 - apkit init .
@@ -257,19 +258,22 @@ Project lifecycle diagnostic.
 
 ```
 $ apkit init ~/apkit-workspace
-Created the Workspace folder and initialized Agent Profile Kit Workspace at
+Created your Workspace at
   ~/apkit-workspace
-  settings: ~/.agents/agent-profile-kit/config.yaml
-Added workspace.yaml, context/, skills/ and profiles/.
-A Profile is a named selection of Context and Skills suited to a kind of work
-  and reusable across projects.
-Context is always-loaded facts, preferences, and standing rules a Profile
-  selects.
-Detected agents: claude, codex, opencode
+
+Profiles group Context and Skills for one kind of work. You can reuse them
+across Projects.
+
+Skills are the skills you already use (open standard). Drop skill folders into
+~/apkit-workspace/skills/ to use them in a Profile.
+
+Context is plain Markdown in ~/apkit-workspace/context/. Every agent session
+loads the Context in its Profile.
+
+Agents found: claude, codex, opencode
 
 Next:
-- apkit new context <context>
-- apkit new profile <name> --context <context>
+- apkit new profile (create your first Profile, step by step)
 ```
 
 Setup requires a path the user gives: there is no default Workspace location
@@ -278,9 +282,10 @@ selected Workspace writes nothing and prints the explicit forms
 (`apkit init <path>`, `apkit init .`). With a terminal, `init` asks whether
 to use the current folder — shown as its full path — or another path, and
 before any write confirms the chosen folder: it shows the full path, states
-that Context and Skill files will be stored in and loaded from that folder,
-and lists exactly the parts setup will add (or that nothing needs to be
-added). Declining or cancelling writes nothing (spec #593 #603, US-001,
+that Context, Skills, and Profiles will be stored in and loaded from that folder,
+and lists the parts setup will add as bullets (or that nothing needs to be
+added). If nothing is missing, it asks whether to use the folder as the Workspace.
+Declining or cancelling writes nothing (spec #593 #603, US-001,
 ISC-24): declining exits 0 with a neutral note; cancelling exits 1 with a
 cancelled diagnostic. Adds exactly the missing required
 parts — `workspace.yaml`, `context/`,
@@ -292,37 +297,40 @@ nothing is added. Re-running is safe: it does not overwrite any valid existing
 Workspace or restore removed optional entries.
 
 On a machine that already selects a Workspace, `apkit init <workspace>` connects
-to that Workspace after interactive confirmation (or unconditional `--yes`). The
-confirmation displays the current and requested Workspace paths. Connecting
-validates the target first, adds any missing required parts following the same
-setup plan, updates Local Configuration's `workspace` field while preserving
-every existing Project Binding, never changes existing Workspace files, and
-reports any bound Profiles that do not exist in the newly connected Workspace
-along with actionable authoring and installation commands (spec #593 DEC-002,
-ticket #607).
+to that Workspace after interactive confirmation (or unconditional `--yes`). When
+nothing is missing, the confirmation asks `Use this folder as your Workspace?`; if
+missing parts exist, it lists them. The confirmation displays the current and
+requested Workspace paths. Connecting validates the target first, adds any
+missing required parts following the same setup plan, updates Local
+Configuration's `workspace` field while preserving every existing Project
+Binding, never changes existing Workspace files, and reports any bound Profiles
+that do not exist in the newly connected Workspace along with actionable
+authoring and installation commands (spec #593 DEC-002, ticket #607). A
+connected Workspace receipt prints `Connected your Workspace at <path>` with the
+agents found, and points directly to `apkit install` without repeating concept
+explanations.
 
-The Workspace location is stated in actionable home-relative form (US-036), and
-Local Configuration is named at `~/.agents/agent-profile-kit/config.yaml` when
-this run wrote it (spec #640 US-002, DEC-005). The receipt lists only the
-Workspace parts that were actually missing and added. First
+The Workspace location is stated in actionable home-relative form (US-036). The
+receipt drops the settings path (retained in `validate` and `--help`). First
 use explains Workspace before asking the user to choose one, leads with one
 recommended setup command with the alternative as secondary guidance, and
 explains Context, Profile, Agent Host and Project briefly at the action that
 first needs them — including direct `init` and `install` entry — without a
 glossary dump, a Skill definition, or a persistent seen-terms record
-(spec #640 US-001, DEC-003). Detection is advisory: it names the supported
-Agent Hosts found on the machine (US-037) and never blocks.
+(spec #640 US-001, DEC-003). As a bounded exception to the two-concept budget,
+the setup receipt explains Profiles, Skills, and Context in one short paragraph
+each, pointing newcomers to where existing material belongs (spec #672
+DEC-005, #676). Detection is advisory: it names the supported agents found on
+the machine (US-037) and never blocks.
 
 An init that finds everything already in place is a clean no-op: it prints one
 neutral statement and no handoff (#642). Setup and connection that actually
-write route the handoff from the resulting content and never
-create or guide a first Profile (spec #640 US-002, OOS-002). With zero Profiles
-and no Context, the next action is `apkit new context <context>` then
-`apkit new profile <name> --context <context>`; with zero Profiles and existing
-Context, only the Profile command prints and no existing Context is named; with
-one or more Profiles, the next action is bare `apkit install`, which names no
-Profile (the user chooses in the picker). After this run's own successful
-validation, the receipt never recommends `apkit validate`.
+write route the handoff from the resulting content (spec #640 US-002, spec #672
+DEC-003, #676). With zero Profiles, the next action is `apkit new profile
+(create your first Profile, step by step)`; with one or more Profiles, the
+concepts are not explained again and the next action is `apkit install (run it
+inside a Project folder)`. After this run's own successful validation, the
+receipt never recommends `apkit validate`.
 
 ### 3. Learn the format
 

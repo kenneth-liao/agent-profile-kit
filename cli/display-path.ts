@@ -161,6 +161,26 @@ export function displayPath(
   return maxWidth === undefined ? displayed : elideDisplayedPath(displayed, maxWidth);
 }
 
+/**
+ * Names an artifact subfolder ('skills/' or 'context/') inside a Workspace
+ * through the canonical display-path rule (home-relative where it applies,
+ * with a trailing slash).
+ */
+export function workspaceSubfolderDisplay(
+  workspacePath: string,
+  subfolder: "skills" | "context",
+  authoredPath?: string,
+  cwd = process.cwd(),
+  home = homedir(),
+): string {
+  const base = displayPath(workspacePath, authoredPath ?? workspacePath, "fleet", cwd, home);
+  const trimmed = base.replace(/\/+$/, "");
+  if (trimmed === "." || trimmed === "") {
+    return `${subfolder}/`;
+  }
+  return `${trimmed}/${subfolder}/`;
+}
+
 function displayPathIdentity(
   canonicalPath: string,
   authoredPath: string,

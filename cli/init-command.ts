@@ -122,7 +122,7 @@ async function initializeAndReport(
       renderOptions,
     );
   }
-  const detectedHosts = result.outcome === "created"
+  const detectedHosts = result.outcome !== "unchanged"
     ? await detectInstalledHosts({ env: request.env ?? process.env })
     : undefined;
   writeHumanDocument(
@@ -255,7 +255,8 @@ export async function runInitCommand(request: InitCommandRequest): Promise<InitC
         stdoutContext,
         renderOptions,
       );
-      const confirmed = await prompts.yesNo(CONFIRM_QUESTION);
+      const question = plan.missingParts.length === 0 ? "Use this folder as your Workspace?" : CONFIRM_QUESTION;
+      const confirmed = await prompts.yesNo(question);
       if (confirmed === "cancelled") {
         writeHumanDocument(
           request.stderr,

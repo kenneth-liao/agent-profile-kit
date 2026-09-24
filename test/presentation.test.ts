@@ -8,12 +8,16 @@ import type { SupportedHost } from "../adapters/host-catalog.js";
 import { capabilityFailure } from "../adapters/capability.js";
 import { appendDiagnosticWarnings, capabilityWarning } from "../installer/project-plan.js";
 import {
+  emptyWorkspaceProfileCreationDocument,
+  hasProfiles,
+  initConfirmationDocument,
   initLocationDocument,
   initReceiptDocument,
   installReceiptDocument,
   newArtifactCreatedNodes,
 } from "../cli/receipts.js";
 import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
+import { workspaceSubfolderDisplay } from "../cli/display-path.js";
 import {
   commandPart,
   flatInlineText,
@@ -3484,6 +3488,38 @@ describe("status concise terminology", () => {
     } finally {
       rmSync(logicalHome, { force: true });
       rmSync(physicalHome, { force: true, recursive: true });
+    }
+  });
+
+  test("workspaceSubfolderDisplay names the actual Workspace's skills/ and context/ folders (INT-2)", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-subfolder-"));
+    try {
+      const workspace = join(home, "my-kit");
+      // A Workspace under home displays home-relative with a trailing slash.
+      expect(workspaceSubfolderDisplay(workspace, "skills", "~/my-kit", workspace, home))
+        .toBe("~/my-kit/skills/");
+      expect(workspaceSubfolderDisplay(workspace, "context", "~/my-kit", workspace, home))
+        .toBe("~/my-kit/context/");
+      // A trailing-slash authored spelling keeps the subfolder single.
+      expect(workspaceSubfolderDisplay(workspace, "skills", "~/my-kit/", workspace, home))
+        .toBe("~/my-kit/skills/");
+      // The Workspace folder itself is home: fleet displays `~`, so the
+      // subfolder hangs directly off it.
+      expect(workspaceSubfolderDisplay(home, "skills", "~", home, home)).toBe("~/skills/");
+      // The fleet scope never returns `.` or an empty string: a relative
+      // authored spelling resolves through the canonical path instead.
+      const resolvedWorkspace = join(home, "resolved-kit");
+      expect(workspaceSubfolderDisplay(resolvedWorkspace, "skills", "./resolved-kit", workspace, home))
+        .toBe("~/resolved-kit/skills/");
+      // A Workspace outside home displays absolute.
+      const outside = join(home, "..", "outside-kit");
+      expect(workspaceSubfolderDisplay(outside, "context", outside, workspace, home))
+        .toBe(`${outside}/context/`);
+      // The filesystem-root edge: fleet displays `/`, whose trailing-slash
+      // trim leaves the subfolder alone.
+      expect(workspaceSubfolderDisplay("/", "skills", "/", "/", home)).toBe("skills/");
+    } finally {
+      rmSync(home, { force: true, recursive: true });
     }
   });
 
@@ -9287,7 +9323,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
   const home = homedir();
   const projectPath = join(home, "projects", "demo");
 
-  test("the created receipt names the Workspace, settings when written, only added parts, and the zero-Profile creation chain", () => {
+  test("the created receipt names the Workspace, concept explanations, and the zero-Profile creation next step", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, "apkit-workspace"),
@@ -9298,74 +9334,43 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
-    // Success headline (Workspace), settings path, added parts, Profile and
-    // Context sentences, detection, then the one footer (US-010).
+    // Success headline (Workspace), 3 concept paragraphs, agents found, then Next actions footer.
     expect(shapes(document)).toEqual([
       "sentence(success)",
-      "key-value:settings(path)",
-      "sentence",
-      "sentence",
-      "sentence",
+      "prose",
+      "prose",
+      "prose",
       "sentence",
       "heading",
       "list",
     ]);
     const receiptNodes = flattenPresentationNodes(document);
     expect(receiptNodes[0]).toMatchObject({ kind: "sentence", category: "success" });
-    expect(receiptNodes[1]).toMatchObject({
-      kind: "key-value",
-      key: "settings",
-      category: "path",
-    });
-    // Only the Workspace parts that were actually missing and added.
-    const added = receiptNodes
-      .filter((node) => node.kind === "sentence")
-      .map((node) => nodeText(node))
-      .find((text) => text.startsWith("Added ")) ?? "";
-    expect(added).toContain("workspace.yaml");
-    expect(added).toContain("context/");
-    expect(added).toContain("skills/");
-    expect(added).toContain("profiles/");
-    // Concept sentences stay (spec #645).
-    expect(receiptNodes).toContainEqual({
-      kind: "sentence",
-      parts: ["A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects."],
-    });
-    expect(receiptNodes).toContainEqual({
-      kind: "sentence",
-      parts: ["Context is always-loaded facts, preferences, and standing rules a Profile selects."],
-    });
-    expect(receiptNodes).toContainEqual({
-      kind: "sentence",
-      parts: ["Detected agents: ", { kind: "identifier", value: "codex" }],
-    });
     const text = documentText(document);
+    // Settings and added parts are dropped from the setup receipt (spec #672, #676).
+    expect(text).not.toContain("settings:");
+    expect(text).not.toContain("Added ");
+    // Concept paragraphs (DEC-005 exception).
+    expect(receiptNodes).toContainEqual({
+      kind: "prose",
+      parts: ["Profiles group Context and Skills for one kind of work. You can reuse them across Projects."],
+    });
+    expect(text).toContain("Skills are the skills you already use (open standard). Drop skill folders into");
+    expect(text).toContain("Context is plain Markdown in");
+    expect(receiptNodes).toContainEqual({
+      kind: "sentence",
+      parts: ["Agents found: ", { kind: "identifier", value: "codex" }],
+    });
     // Setup just validated; never recommend `apkit validate` (spec #640 US-002).
     expect(text).not.toContain("apkit validate");
-    // Zero Profiles and no Context: the creation chain starts with a Context
-    // Module (spec #640 US-002, DEC-005).
-    const commands = flattenPresentationNodes(document).flatMap((node) => {
-      if (node.kind === "command") return [node];
-      if (node.kind === "key-value" && node.value.kind === "command") return [node.value];
-      if (node.kind === "list") {
-        return node.items.flatMap((item) =>
-          item.flatMap((part) => typeof part !== "string" && part.kind === "command" ? [part] : []));
-      }
-      if (node.kind === "sentence" || node.kind === "prose") {
-        return node.parts.flatMap((part) =>
-          typeof part !== "string" && part.kind === "command" ? [part] : []);
-      }
-      return [];
-    });
-    expect(commands.map((command) => [command.program, ...command.args.map((argument) => argument.kind === "text" ? argument.value : argument.canonicalPath)])).toEqual([
-      ["apkit", "new", "context", "<context>"],
-      ["apkit", "new", "profile", "<name>", "--context", "<context>"],
-    ]);
+    // Zero Profiles: guided Profile creation next step with note.
+    expect(text).toContain("apkit new profile");
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("apkit new profile (create your first Profile, step by step)");
   });
 
-  test("zero Profiles with existing Context show only the Profile creation command and name no Context", () => {
+  test("zero Profiles with existing Context route to guided Profile creation with note", () => {
     const document = initReceiptDocument({
       outcome: "connected",
       path: join(home, "apkit-workspace"),
@@ -9374,20 +9379,21 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["profiles"],
       profileCount: 0,
-      hasContexts: true,
     });
     expect(shapes(document)).toEqual([
       "sentence(success)",
-      "key-value:settings(path)",
-      "sentence",
+      "prose",
+      "prose",
+      "prose",
       "heading",
       "list",
     ]);
     const text = documentText(document);
     expect(text).not.toContain("apkit new context");
-    expect(text).toContain("apkit new profile <name> --context <context>");
-    // Never invent or pick an existing Context (spec #640 US-002).
-    expect(text).not.toContain("--context team-rules");
+    expect(text).toContain("apkit new profile");
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(text).not.toContain("settings:");
     expect(text).not.toContain("apkit validate");
   });
 
@@ -9401,12 +9407,9 @@ describe("authoring and teardown receipt documents (#390)", () => {
         configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
         addedParts: ["workspace.yaml"],
         profileCount,
-        hasContexts: true,
       });
       expect(shapes(document)).toEqual([
         "sentence(success)",
-        "key-value:settings(path)",
-        "sentence",
         "key-value:Next(command)",
       ]);
       expect(keyValuesIn(document, "Next")).toEqual([{
@@ -9417,77 +9420,30 @@ describe("authoring and teardown receipt documents (#390)", () => {
           kind: "command",
           program: "apkit",
           args: [{ kind: "text", value: "install" }],
+          note: "run it inside a Project folder",
         },
       }]);
       const text = documentText(document);
       expect(text).not.toContain("apkit validate");
       expect(text).not.toContain("apkit new profile");
+      expect(text).not.toContain("settings:");
     }
   });
 
-  test("the receipt lists only the Workspace parts that were actually missing and added", () => {
+  test("the receipt drops the settings path and added parts", () => {
     const document = initReceiptDocument({
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
       addedParts: ["context", "profiles"],
       profileCount: 0,
-      hasContexts: true,
-      configurationWritten: false,
-      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
-    });
-    expect(shapes(document)).toEqual([
-      "sentence(success)",
-      "sentence",
-      "heading",
-      "list",
-    ]);
-    const added = nodeText(flattenPresentationNodes(document)[1]!);
-    expect(added).toContain("context/");
-    expect(added).toContain("profiles/");
-    expect(added).not.toContain("workspace.yaml");
-    expect(added).not.toContain("skills/");
-  });
-
-  test("Local Configuration is named only when it was written", () => {
-    const written = initReceiptDocument({
-      outcome: "connected",
-      path: join(home, "apkit-workspace"),
-      authoredPath: "~/apkit-workspace",
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
-      addedParts: [],
-      profileCount: 1,
-      hasContexts: true,
     });
-    expect(shapes(written)).toEqual([
-      "sentence(success)",
-      "key-value:settings(path)",
-      "key-value:Next(command)",
-    ]);
-    // Home-relative `~` display (DEC-005).
-    expect(flattenPresentationNodes(written)[1]).toMatchObject({
-      kind: "key-value",
-      key: "settings",
-      value: {
-        kind: "path",
-        authoredPath: join("~", ".agents", "agent-profile-kit", "config.yaml"),
-      },
-    });
-    const unwritten = initReceiptDocument({
-      outcome: "connected",
-      path: join(home, "apkit-workspace"),
-      authoredPath: "~/apkit-workspace",
-      addedParts: [],
-      profileCount: 1,
-      hasContexts: true,
-      configurationWritten: false,
-      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
-    });
-    expect(shapes(unwritten)).toEqual([
-      "sentence(success)",
-      "key-value:Next(command)",
-    ]);
+    const text = documentText(document);
+    expect(text).not.toContain("settings:");
+    expect(text).not.toContain("config.yaml");
+    expect(text).not.toContain("Added ");
   });
 
   test("no detected Hosts states so and still routes the handoff", () => {
@@ -9501,12 +9457,11 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     expect(flattenPresentationNodes(document).some((node) =>
-      node.kind === "sentence" && nodeText(node) === "Detected agents: none",
+      node.kind === "sentence" && nodeText(node) === "Agents found: none",
     )).toBe(true);
-    expect(documentText(document)).toContain("apkit new context <context>");
+    expect(documentText(document)).toContain("apkit new profile");
   });
 
   test("several detected Hosts never enter the handoff", () => {
@@ -9518,15 +9473,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       detectedHosts: ["antigravity", "claude", "codex"],
       addedParts: [],
       profileCount: 1,
-      hasContexts: true,
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
-    const detected = document.find((node) =>
-      node.kind === "sentence" && node.parts[0] === "Detected agents: ");
+    const detected = document.flatMap((partNode) => partNode.kind === "part" ? partNode.nodes : [partNode])
+      .find((node) => node.kind === "sentence" && node.parts[0] === "Agents found: ");
     expect(detected).toMatchObject({
       kind: "sentence",
-      parts: ["Detected agents: ", { kind: "identifier", value: "antigravity, claude, codex" }],
+      parts: ["Agents found: ", { kind: "identifier", value: "antigravity, claude, codex" }],
     });
     const text = documentText(document);
     expect(text).not.toContain("--host");
@@ -9534,7 +9488,8 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "key-value" && node.value.kind === "command" &&
       node.value.args.length === 1 && node.value.args[0]!.kind === "text" &&
-      node.value.args[0]!.value === "install"
+      node.value.args[0]!.value === "install" &&
+      node.value.note === "run it inside a Project folder"
     )).toBe(true);
   });
 
@@ -9547,13 +9502,14 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
       addedParts: ["skills"],
       profileCount: 0,
-      hasContexts: true,
       missingProfileBindings: [{ project: "/projects/demo", profile: "coding" }],
     });
     const text = documentText(document);
     expect(text).toContain("Project Bindings whose Profile this Workspace lacks:");
     expect(text).toContain("apkit new profile coding");
-    expect(text).toContain("apkit new profile <name> --context <context>");
+    expect(text).toContain("apkit new profile");
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("apkit new profile (create your first Profile, step by step)");
     expect(text).not.toContain("apkit validate");
   });
 
@@ -9563,13 +9519,128 @@ describe("authoring and teardown receipt documents (#390)", () => {
       path: `/test/workspace`,
       authoredPath: `/test/workspace`,
       profileCount: 2,
-      hasContexts: true,
       configurationWritten: false,
       configurationPath: `/home/test/.agents/agent-profile-kit/config.yaml`,
     });
     expect(shapes(unchanged)).toEqual(["sentence(neutral)"]);
     expect(documentText(unchanged)).not.toContain("Next:");
     expect(documentText(unchanged)).not.toContain("apkit validate");
+  });
+
+  test("hasProfiles is the single authority for zero-Profile vs with-Profile routing", () => {
+    expect(hasProfiles({ profileCount: 0 })).toBe(false);
+    expect(hasProfiles({ profileCount: 1 })).toBe(true);
+    expect(hasProfiles({ profileCount: 5 })).toBe(true);
+  });
+
+  test("initConfirmationDocument with missing folder lists parts as bullets", () => {
+    const document = initConfirmationDocument({
+      destinationPath: "/private/tmp/apkit-session/workspace",
+      authoredPath: "./workspace",
+      folderMissing: true,
+      missingParts: ["workspace.yaml", "context", "skills", "profiles"],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Context, Skills, and Profiles will be stored in and loaded from");
+    expect(rendered).toContain("This folder doesn't exist yet. Setup will create it and add:");
+    expect(rendered).toContain("- workspace.yaml");
+    expect(rendered).toContain("- context/");
+    expect(rendered).toContain("- skills/");
+    expect(rendered).toContain("- profiles/");
+  });
+
+  test("initConfirmationDocument with complete existing folder states it has everything", () => {
+    const document = initConfirmationDocument({
+      destinationPath: "/private/tmp/apkit-session/workspace",
+      authoredPath: "./workspace",
+      folderMissing: false,
+      missingParts: [],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Context, Skills, and Profiles will be stored in and loaded from");
+    expect(rendered).toContain("This folder already has everything it needs.");
+    expect(rendered).not.toContain("Setup will add");
+  });
+
+  test("initConfirmationDocument renders cleanly at 100 and 60 columns", () => {
+    const document = initConfirmationDocument({
+      destinationPath: "/private/tmp/apkit-session/workspace",
+      authoredPath: "~/workspace",
+      folderMissing: true,
+      missingParts: ["workspace.yaml", "context", "skills", "profiles"],
+    });
+    for (const width of [100, 60] as const) {
+      const rendered = renderPresentationDocument(document, { ...defaultRenderContext, width });
+      // Narrow widths wrap the sentence across lines; compare on squashed text.
+      const squashed = rendered.replace(/\s+/g, " ");
+      expect(squashed).toContain(
+        "Context, Skills, and Profiles will be stored in and loaded from",
+      );
+      expect(squashed).toContain("This folder doesn't exist yet. Setup will create it and add:");
+      expect(rendered).toContain("- workspace.yaml");
+      for (const line of rendered.split("\n")) {
+        expect(line.length).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  test("setup receipt names actual Workspace skills/ and context/ folders, never literal 'workspace/'", () => {
+    const customWorkspace = join(home, "my-team-kit");
+    const document = initReceiptDocument({
+      outcome: "created",
+      path: customWorkspace,
+      authoredPath: "~/my-team-kit",
+      folderCreated: true,
+      detectedHosts: ["claude", "codex"],
+      configurationWritten: true,
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: ["workspace.yaml", "context", "skills", "profiles"],
+      profileCount: 0,
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Created your Workspace at");
+    expect(rendered).toContain("Profiles group Context and Skills for one kind of work.");
+    // Mentions actual display path of skills and context subfolders, not literal 'workspace/skills/'
+    expect(rendered).toContain("~/my-team-kit/skills/");
+    expect(rendered).toContain("~/my-team-kit/context/");
+    expect(rendered).not.toContain("workspace/skills/");
+    expect(rendered).not.toContain("workspace/context/");
+    expect(rendered).toContain("Agents found: claude, codex");
+    expect(rendered).toContain("Next:\n- apkit new profile (create your first Profile, step by step)");
+  });
+
+  test("reconnect setup receipt with Profiles does not explain concepts again", () => {
+    const customWorkspace = join(home, "my-team-kit");
+    const document = initReceiptDocument({
+      outcome: "connected",
+      path: customWorkspace,
+      authoredPath: "~/my-team-kit",
+      folderCreated: false,
+      detectedHosts: ["claude", "codex"],
+      configurationWritten: true,
+      configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+      addedParts: [],
+      profileCount: 2,
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Connected your Workspace at");
+    expect(rendered).not.toContain("Profiles group Context and Skills");
+    expect(rendered).not.toContain("Skills are the skills you already use");
+    expect(rendered).not.toContain("Context is plain Markdown");
+    expect(rendered).toContain("Agents found: claude, codex");
+    expect(rendered).toContain("Next: apkit install (run it inside a Project folder)");
+  });
+
+  test("emptyWorkspaceProfileCreationDocument uses workspaceSubfolderDisplay and notedCommand", () => {
+    const customWorkspace = join(home, "custom-agent-folder");
+    const document = emptyWorkspaceProfileCreationDocument(customWorkspace, "~/custom-agent-folder");
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("A Profile needs at least one Context file or Skill, and your Workspace has none yet.");
+    expect(rendered).toContain("Add some first:");
+    expect(rendered).toContain("Put skill folders in ~/custom-agent-folder/skills/");
+    expect(rendered).not.toContain("workspace/skills/");
+    expect(rendered).toContain("apkit new context <name> (create a Context file to fill in)");
+    expect(rendered).toContain("Then run apkit new profile again.");
   });
 
   test("the created install receipt states the stable Project path, Profile once, and Hosts", () => {
@@ -12062,17 +12133,18 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
  * use to explain. Skill is deliberately absent: it is never defined.
  */
 const CONCEPT_DEFINITION_MARKERS = [
-  { concept: "Workspace", marker: "Your Workspace is one folder that holds" },
-  { concept: "Project", marker: "A Project is one working folder" },
-  { concept: "Profile", marker: "A Profile is a named selection" },
-  { concept: "Context", marker: "Context is always-loaded" },
-  { concept: "agent", marker: "An agent is a tool" },
+  { concept: "Workspace", markers: ["Your Workspace folder holds", "Your Workspace is one folder that holds"] },
+  { concept: "Project", markers: ["A Project is one working folder"] },
+  { concept: "Profile", markers: ["Profiles group Context and Skills", "A Profile is a named selection"] },
+  { concept: "Skills", markers: ["Skills are the skills you already use"] },
+  { concept: "Context", markers: ["Context is plain Markdown", "Context is always-loaded"] },
+  { concept: "agent", markers: ["An agent is a tool"] },
 ] as const;
 
 /** Which kit concepts a rendered first-use block newly explains. */
 function explainedConcepts(text: string): string[] {
   return CONCEPT_DEFINITION_MARKERS
-    .filter((entry) => text.includes(entry.marker))
+    .filter((entry) => entry.markers.some((marker) => text.includes(marker)))
     .map((entry) => entry.concept);
 }
 
@@ -12085,7 +12157,7 @@ function documentText(document: PresentationDocument): string {
 describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
   const home = homedir();
 
-  test("bare apkit explains Workspace and Project before the recommended setup route", () => {
+  test("bare apkit explains Workspace before the recommended setup route", () => {
     const document = bareInvocationDocument({
       info: {
         configurationState: "not-configured",
@@ -12096,15 +12168,12 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
       },
     });
     const text = documentText(document);
-    expect(explainedConcepts(text).sort()).toEqual(["Project", "Workspace"]);
+    expect(explainedConcepts(text).sort()).toEqual(["Workspace"]);
     expect(text).toContain(
-      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
+      "Your Workspace folder holds your Context, Skills, and Profiles. You only need one Workspace for all of your Projects.",
     );
     expect(text).toContain(
-      "One Workspace can serve several Projects, and setup may add those folders and files.",
-    );
-    expect(text).toContain(
-      "A Project is one working folder that receives the installed material.",
+      "Start by naming the folder that will hold the Workspace. The second command uses the current folder instead.",
     );
     // Recommended route leads; the current-folder form is secondary.
     expect(text.indexOf("apkit init <path>")).toBeGreaterThan(0);
@@ -12117,8 +12186,7 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     for (const line of commandLines) {
       expect(line.trim()).toMatch(/^apkit init (<path>|\.)$/);
     }
-    // Skill is never defined; no Host-loads-everything claim.
-    expect(text).not.toMatch(/A Skill is |Skill is a /);
+    // No Host-loads-everything claim.
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
   });
 
@@ -12130,12 +12198,12 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     const text = documentText(document);
     expect(explainedConcepts(text)).toEqual(["Workspace"]);
     expect(text).toContain(
-      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
+      "Your Workspace folder holds your Context, Skills, and Profiles. You only need one Workspace for all of your Projects.",
     );
     expect(text).toContain("Current folder: ");
   });
 
-  test("the init receipt explains Profile and Context", () => {
+  test("the init receipt explains Profile, Skills, and Context (spec #672 DEC-005, #676)", () => {
     const document = initReceiptDocument({
       outcome: "created",
       path: join(home, "apkit-workspace"),
@@ -12146,17 +12214,18 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     const text = documentText(document);
-    expect(explainedConcepts(text).sort()).toEqual(["Context", "Profile"]);
+    expect(explainedConcepts(text).sort()).toEqual(["Context", "Profile", "Skills"]);
     expect(text).toContain(
-      "A Profile is a named selection of Context and Skills suited to a kind of work and reusable across projects.",
+      "Profiles group Context and Skills for one kind of work. You can reuse them across Projects.",
     );
     expect(text).toContain(
-      "Context is always-loaded facts, preferences, and standing rules a Profile selects.",
+      "Skills are the skills you already use (open standard). Drop skill folders into",
     );
-    expect(text).not.toMatch(/A Skill is |Skill is a /);
+    expect(text).toContain(
+      "Context is plain Markdown in",
+    );
     expect(text).not.toMatch(/loads (every|all|your) Workspace/i);
   });
 

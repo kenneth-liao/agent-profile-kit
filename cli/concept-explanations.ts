@@ -8,7 +8,30 @@
 
 /** What a Workspace holds, that it serves several Projects, and that setup may add files. */
 export const WORKSPACE_EXPLANATION_SENTENCE =
-  "Your Workspace is one folder that holds your Profiles, Context, and Skills.";
+  "Your Workspace folder holds your Context, Skills, and Profiles. You only need one Workspace for all of your Projects.";
+
+/**
+ * Profile concept paragraph for the setup receipt (spec #672, #676).
+ * Explains grouping and multi-project reuse without technical jargon.
+ */
+export const PROFILE_EXPLANATION_PARAGRAPH =
+  "Profiles group Context and Skills for one kind of work. You can reuse them across Projects.";
+
+/**
+ * Skill concept paragraph for the setup receipt (spec #672, #676).
+ * Names the open standard and points to the actual Workspace skills folder.
+ */
+export function skillExplanationParagraph(skillsFolder: string): string {
+  return `Skills are the skills you already use (open standard). Drop skill folders into ${skillsFolder} to use them in a Profile.`;
+}
+
+/**
+ * Context concept paragraph for the setup receipt (spec #672, #676).
+ * Explains Markdown format and session loading, pointing to the actual context folder.
+ */
+export function contextExplanationParagraph(contextFolder: string): string {
+  return `Context is plain Markdown in ${contextFolder}. Every agent session loads the Context in its Profile.`;
+}
 
 /** The multi-Project and setup-write facets of a Workspace (US-001). */
 export const WORKSPACE_SCOPE_EXPLANATION_SENTENCE =

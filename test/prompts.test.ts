@@ -39,6 +39,12 @@ function written(output: { chunks: Buffer[] }): string {
   return Buffer.concat(output.chunks).toString();
 }
 
+/** The written output with ANSI styling removed: assertions read content, not
+ * color, so the seam stays hermetic against the runner's ambient TERM. */
+function plain(output: { chunks: Buffer[] }): string {
+  return written(output).replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
 /** Wait until the live picker frame contains `fragment` (never a fixed sleep). */
 async function waitForFrame(
   output: { frames: string[] },
@@ -731,7 +737,7 @@ describe("searchable multiselect prompt seam", () => {
     const textPending = textPromptSeam("Name your Profile", { settledLabel: "Name" });
     textInput.write("engineering\r");
     await textPending;
-    const textWritten = written(textOutput);
+    const textWritten = plain(textOutput);
     expect(textWritten).toContain("Name › engineering");
     expect(textWritten).not.toContain("Name your Profile ›");
 
@@ -747,7 +753,7 @@ describe("searchable multiselect prompt seam", () => {
     await waitForFrame(selectOutput, "engineering");
     selectInput.write("\r");
     await selectPending;
-    const selectWritten = written(selectOutput);
+    const selectWritten = plain(selectOutput);
     expect(selectWritten).toContain("Profile › engineering");
     expect(selectWritten).not.toContain("Which Profile? ›");
 
@@ -763,7 +769,7 @@ describe("searchable multiselect prompt seam", () => {
     await waitForFrame(multiOutput, "team");
     multiInput.write(" \r");
     await multiPending;
-    const multiWritten = written(multiOutput);
+    const multiWritten = plain(multiOutput);
     expect(multiWritten).toContain("Context › team");
     expect(multiWritten).not.toContain("Which Context? ›");
   });

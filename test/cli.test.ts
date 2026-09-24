@@ -255,7 +255,7 @@ async function runCliInPtyWithInput(
       ...withHistoricalFleetScope(arguments_),
     ].map(shellQuote),
   ].join(" ");
-  const feed = answers.map((answer) => `printf ${shellQuote(answer)}; sleep 0.3;`).join(" ");
+  const feed = (answers.length === 0 ? ["sleep 0.5;"] : answers.map((answer) => `printf ${shellQuote(answer)}; sleep 0.3;`)).join("");
   return cleanPtyResult(
     await runProcess({
       executable: "sh",
@@ -765,9 +765,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(help, 0);
     expectExitCode(init, 0);
-    // Zero Profiles and no Context: the creation chain (spec #640 US-002).
-    expect(init.stdout).toContain("apkit new context <context>");
-    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    // Zero Profiles: the guided next step (spec #672 DEC-003, #676).
+    expect(init.stdout).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(init.stdout).not.toContain("apkit new context");
     expect(init.stdout).not.toContain("apkit validate");
     // Setup adds no example material (spec #593 DEC-003, #599).
     expect(init.stdout).not.toContain("install example");
@@ -1487,7 +1487,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const result = await runCli(home, "init", custom);
 
     expectExitCode(result, 0);
-    expect(result.stdout).toMatch(/Connected Agent Profile Kit Workspace at\s+~\/other-workspace/i);
+    expect(result.stdout).toMatch(/Connected your Workspace at\s+~\/other-workspace/i);
     expect(parse(readFileSync(configPath(home), "utf8")).workspace).toBe(custom);
     expect(readdirSync(custom).sort()).toEqual(["NOTES.md", "context", "profiles", "skills", "workspace.yaml"].sort());
     expect(readFileSync(join(custom, "NOTES.md"), "utf8")).toBe("user-owned source\n");
@@ -14706,27 +14706,46 @@ describe("packed CLI new profile", () => {
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
   });
 
-  test("fresh setup prints a runnable Profile-creation chain that the packed journey executes (TEST-001, #646)", async () => {
+  test("fresh setup prints a runnable guided Profile-creation next step that the packed journey executes (TEST-001, #676)", async () => {
     const home = isolatedHome();
     const init = await runCli(home, "init", "~/apkit-workspace");
     expectExitCode(init, 0);
-    // Zero Profiles and no Context (spec #640 US-002, DEC-005).
-    expect(init.stdout).toContain("apkit new context <context>");
-    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    // The setup receipt explains Profiles, Skills, and Context (spec #672 DEC-005)
+    // and names the agents found; the settings path stays off the receipt.
+    expect(init.stdout).toContain("Created your Workspace at");
+    expect(init.stdout).toContain("Profiles group Context and Skills for one kind of work.");
+    expect(init.stdout).toContain("Skills are the skills you already use (open standard).");
+    expect(init.stdout).toContain("Context is plain Markdown");
+    expect(init.stdout).toContain("Agents found:");
+    expect(init.stdout).not.toContain("settings:");
+    // Zero Profiles: the guided next step (spec #672 DEC-003, #676).
+    expect(init.stdout).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(init.stdout).not.toContain("apkit new context");
     expect(init.stdout).not.toContain("apkit validate");
     expect(init.stdout).not.toContain("Set up your first Profile now?");
 
-    // Execute the printed chain with supplied names.
+    // Run the printed next step (TEST-001): bare `apkit new profile` guides on a
+    // terminal; on this empty Workspace it explains how to add material and
+    // creates nothing.
+    const guidedEmpty = await runCliInPtyWithInput(home, 100, [], "new", "profile");
+    expectExitCode(guidedEmpty, 0);
+    expect(guidedEmpty.stdout).toContain("A Profile needs at least one Context file or Skill");
+    expect(guidedEmpty.stdout).toContain("Then run apkit new profile again.");
+    expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(false);
+
+    // Follow the printed guidance, then run `apkit new profile` again: the
+    // guided flow creates the Profile.
     const createContext = await runCli(home, "new", "context", "starter");
     expectExitCode(createContext, 0);
-    const createProfile = await runCli(home, "new", "profile", "coding", "--context", "starter");
-    expectExitCode(createProfile, 0);
+    const guidedResult = await runCliInPtyWithInput(home, 100, ["coding\r", " \r"], "new", "profile");
+    expectExitCode(guidedResult, 0);
+    expect(guidedResult.stdout).toContain("Created the coding Profile");
     expect(existsSync(join(workspacePath(home), "context", "starter.md"))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "coding.yaml"))).toBe(true);
     expectExitCode(await runCli(home, "validate"), 0);
   });
 
-  test("setup with existing Context and no Profiles prints only the Profile command and runs it (TEST-001, #646)", async () => {
+  test("setup with existing Context and no Profiles prints the guided next step and runs it (TEST-001, #676)", async () => {
     const home = isolatedHome();
     const workspace = join(home, "material");
     mkdirSync(join(workspace, "context"), { recursive: true });
@@ -14737,15 +14756,17 @@ describe("packed CLI new profile", () => {
 
     const init = await runCli(home, "init", workspace);
     expectExitCode(init, 0);
-    // Existing Context: drop the new-context step; name no Context (US-002).
-    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    // Zero Profiles: guided Profile creation; no existing Context is named (US-002).
+    expect(init.stdout).toContain("apkit new profile (create your first Profile, step by step)");
     expect(init.stdout).not.toContain("apkit new context");
     expect(init.stdout).not.toContain("team-rules");
     expect(init.stdout).not.toContain("apkit validate");
 
-    // Execute the printed command with supplied names.
-    const createProfile = await runCli(home, "new", "profile", "coding", "--context", "team-rules");
-    expectExitCode(createProfile, 0);
+    // Run the printed next step (TEST-001): the guided flow picks the
+    // Workspace's existing Context in the shared picker.
+    const guidedResult = await runCliInPtyWithInput(home, 100, ["coding\r", " \r"], "new", "profile");
+    expectExitCode(guidedResult, 0);
+    expect(guidedResult.stdout).toContain("Created the coding Profile");
     expect(existsSync(join(workspace, "profiles", "coding.yaml"))).toBe(true);
   });
 
@@ -14767,12 +14788,15 @@ describe("packed CLI new profile", () => {
 
       const init = await runCli(home, "init", workspace);
       expectExitCode(init, 0);
-      // Bare install: the user chooses the Profile in the picker (US-002).
+      // With Profiles, the concepts are not explained again and the next step
+      // points to install inside a Project folder (spec #672, #676).
       expect(init.stdout).toContain("Next:");
-      expect(init.stdout).toContain("apkit install");
+      expect(init.stdout).toContain("apkit install (run it inside a Project folder)");
       expect(init.stdout).not.toContain("apkit install one");
       expect(init.stdout).not.toContain("apkit install two");
       expect(init.stdout).not.toContain("apkit new profile");
+      expect(init.stdout).not.toContain("Profiles group Context and Skills");
+      expect(init.stdout).toContain("Agents found:");
       expect(init.stdout).not.toContain("apkit validate");
 
       // Execute the printed `apkit install` with valid supplied inputs

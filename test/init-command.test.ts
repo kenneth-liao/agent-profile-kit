@@ -164,20 +164,22 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     expect(existsSync(configPath(home))).toBe(true);
     expect(existsSync(join(workspacePath(home), "profiles", "my-profile.yaml"))).toBe(false);
     const human = plain(streams.humanText());
-    // Names the Workspace and Local Configuration when written.
+    // Names the Workspace when written; drops the settings path.
     expect(human).toContain("apkit-workspace");
-    expect(human).toContain("config.yaml");
-    // Lists only the parts actually missing and added.
+    expect(human).not.toContain("config.yaml");
+    // Lists only the parts actually missing and added in confirmation.
     expect(human).toContain("workspace.yaml");
     expect(human).toContain("context/");
     expect(human).toContain("skills/");
     expect(human).toContain("profiles/");
-    // Concept sentences stay (spec #645).
-    expect(human).toContain("A Profile is a named selection of Context and Skills");
-    expect(human).toContain("Context is always-loaded facts");
-    // Zero Profiles, no Context: the creation chain (spec #640 US-002).
-    expect(human).toContain("apkit new context <context>");
-    expect(human).toContain("apkit new profile <name> --context <context>");
+    // Concept paragraphs (spec #672, #676).
+    expect(human).toContain("Profiles group Context and Skills for one kind of work.");
+    expect(human).toContain("Skills are the skills you already use (open standard).");
+    expect(human).toContain("Context is plain Markdown");
+    expect(human).toContain("Agents found:");
+    // Zero Profiles: guided next step (spec #672, #676).
+    expect(human).toContain("apkit new profile");
+    expect(human).not.toContain("apkit new context");
     // Setup just validated; never recommend `apkit validate` (US-002).
     expect(human).not.toContain("apkit validate");
     expect(human).not.toContain("Set up your first Profile now?");
@@ -203,7 +205,8 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     const human = plain(streams.humanText());
     expect(human).not.toContain("Set up your first Profile now?");
     expect(human).not.toContain("apkit new context");
-    expect(human).toContain("apkit new profile <name> --context <context>");
+    expect(human).toContain("apkit new profile");
+    expect(human).not.toContain("--context");
     // Never invent or pick an existing Context (US-002).
     expect(human).not.toContain("team-rules");
     expect(human).not.toContain("apkit validate");
@@ -264,8 +267,9 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
 
     expect(exitCode).toBe(0);
     const human = plain(streams.humanText());
-    expect(human).toContain("Connected Agent Profile Kit Workspace");
-    expect(human).toContain("apkit new profile <name> --context <context>");
+    expect(human).toContain("Connected your Workspace at");
+    expect(human).toContain("apkit new profile");
+    expect(human).not.toContain("--context");
     expect(human).not.toContain("apkit new context");
     expect(human).not.toContain("apkit validate");
     expect(human).not.toContain("ops-rules");
@@ -295,7 +299,7 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
 
     expect(exitCode).toBe(0);
     const human = plain(streams.humanText());
-    expect(human).toContain("Connected Agent Profile Kit Workspace");
+    expect(human).toContain("Connected your Workspace at");
     expect(human).toContain("apkit install");
     expect(human).not.toContain("apkit install one");
     expect(human).not.toContain("apkit install two");
@@ -540,9 +544,9 @@ describe("interactive setup asks and confirms the Workspace folder (#603)", () =
     input.write("n");
     await waitForOutput(streams.humanText, "Which folder should be your Workspace?");
     input.write("~/apkit-workspace\r");
-    await waitForOutput(streams.humanText, "Setup will add");
+    await waitForOutput(streams.humanText, "This folder doesn't exist yet. Setup will create it and add:");
     // The typed folder does not exist yet; setup will create it.
-    expect(plain(streams.humanText())).toContain("The folder does not exist yet; setup will create it.");
+    expect(plain(streams.humanText())).toContain("This folder doesn't exist yet. Setup will create it and add:");
     input.write("y");
     const { exitCode } = await pending;
 
@@ -653,7 +657,7 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(confirmation).toContain("skills/");
     expect(confirmation).toContain("profiles/");
     // The current folder exists; setup never creates it.
-    expect(confirmation).not.toContain("The folder does not exist yet");
+    expect(confirmation).not.toContain("This folder doesn't exist yet");
     expect(confirmation).toContain(cwd);
     input.write("y");
     const { exitCode } = await pending;
@@ -684,7 +688,7 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(confirmation).toContain("context/");
     expect(confirmation).toContain("skills/");
     expect(confirmation).toContain("profiles/");
-    expect(confirmation).not.toContain("The folder does not exist yet");
+    expect(confirmation).not.toContain("This folder doesn't exist yet");
     input.write("y");
     const { exitCode } = await pending;
 
@@ -714,8 +718,8 @@ describe("the setup confirmation content and scope (#603)", () => {
     const input = fakeInteractiveInput();
     const { pending, streams } = startInit(home, [workspace], input);
 
-    // The confirmation states that nothing needs to be added (ISC-33).
-    await waitForOutput(streams.humanText, "Nothing needs to be added");
+    // The confirmation states that nothing needs to be added (ISC-33, spec #676).
+    await waitForOutput(streams.humanText, "This folder already has everything it needs.");
     expect(fileTreeSnapshot(workspace)).toEqual(before);
     input.write("y");
     const { exitCode } = await pending;
@@ -725,9 +729,9 @@ describe("the setup confirmation content and scope (#603)", () => {
     // Connecting never changes the Workspace's files (ISC-33).
     expect(fileTreeSnapshot(workspace)).toEqual(before);
     // A first connection at a fully valid folder writes the configuration
-    // and nothing else (US-002, ISC-27.2).
-    expect(plain(streams.humanText())).toContain("Initialized Agent Profile Kit Workspace at");
-    expect(plain(streams.humanText())).toContain("settings:");
+    // and nothing else (US-002, ISC-27.2, spec #676).
+    expect(plain(streams.humanText())).toContain("Created your Workspace at");
+    expect(plain(streams.humanText())).not.toContain("settings:");
     expect(existsSync(join(workspace, "profiles", "example.yaml"))).toBe(false);
   }, 20_000);
 
@@ -803,7 +807,8 @@ describe("the setup confirmation content and scope (#603)", () => {
     expect(existsSync(join(workspace, "profiles", "my-profile.yaml"))).toBe(false);
     const human = plain(streams.humanText());
     expect(human).not.toContain("Set up your first Profile now?");
-    expect(human).toContain("apkit new profile <name> --context <context>");
+    expect(human).toContain("apkit new profile");
+    expect(human).not.toContain("--context");
     expect(human).not.toContain("apkit new context");
     expect(human).not.toContain("apkit validate");
   }, 20_000);
@@ -873,7 +878,7 @@ describe("connect a different Workspace (#607)", () => {
     // Workspaces are unchanged
     expect(fileTreeSnapshot(wsA)).toEqual(beforeA);
     expect(fileTreeSnapshot(wsB)).toEqual(beforeB);
-    expect(plain(streams.humanText())).toContain("Connected Agent Profile Kit Workspace");
+    expect(plain(streams.humanText())).toContain("Connected your Workspace at");
   }, 20_000);
 
   test("interactively, current and requested Workspace are shown before confirmation, and declining changes nothing", async () => {
@@ -895,7 +900,7 @@ describe("connect a different Workspace (#607)", () => {
     expect(human).toContain("~/ws-a");
     expect(human).toContain("Requested Workspace:");
     expect(human).toContain("~/ws-b");
-    expect(human).toContain("Set up this folder as your Workspace?");
+    expect(human).toContain("Use this folder as your Workspace?");
 
     // Declining changes nothing
     input.write("n");
@@ -1039,8 +1044,9 @@ describe("connect a different Workspace (#607)", () => {
     expect(readFileSync(configPath(home), "utf8")).toContain(`workspace: ${wsB}`);
     const receipt = plain(streams.humanText());
     expect(receipt).not.toContain("Set up your first Profile now?");
-    // Zero Profiles and existing Context: Profile creation only.
-    expect(receipt).toContain("apkit new profile <name> --context <context>");
+    // Zero Profiles: Profile creation.
+    expect(receipt).toContain("apkit new profile");
+    expect(receipt).not.toContain("--context");
     expect(receipt).not.toContain("apkit new context");
     expect(receipt).not.toContain("apkit validate");
   }, 20_000);

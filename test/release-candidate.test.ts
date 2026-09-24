@@ -1917,13 +1917,7 @@ describe("project-bound release candidate", () => {
     expect(bare.stdout).toContain("Agent Profile Kit is not set up on this machine.");
     const barePlain = bare.stdout.replace(/\n\s+/g, " ");
     expect(barePlain).toContain(
-      "Your Workspace is one folder that holds your Profiles, Context, and Skills.",
-    );
-    expect(barePlain).toContain(
-      "One Workspace can serve several Projects, and setup may add those folders and files.",
-    );
-    expect(barePlain).toContain(
-      "A Project is one working folder that receives the installed material.",
+      "Your Workspace folder holds your Context, Skills, and Profiles. You only need one Workspace for all of your Projects.",
     );
     // One recommended setup route leads; the current-folder form is secondary
     // in the same footer (US-001, DEC-003). Commands stay on their own lines.
@@ -1940,26 +1934,27 @@ describe("project-bound release candidate", () => {
     expectExitCode(init, 0);
     expect(init.stdout).toContain("~/apkit-workspace");
     expect(init.stdout).toContain(
-      "A Profile is a named selection of Context and Skills suited to a kind of work",
+      "Profiles group Context and Skills for one kind of work.",
     );
-    // Present and absent Hosts: detection names exactly what is installed
-    // (US-037) and never invents an absent Host (US-038, TEST-016).
-    expect(init.stdout).toContain("Detected agents: claude, codex, opencode");
+    // Present and absent agents: detection names exactly what is installed
+    // (US-037) and never invents an absent agent (US-038, TEST-016).
+    expect(init.stdout).toContain("Agents found: claude, codex, opencode");
     for (const absentHost of ["antigravity", "grok", "pi"]) {
       expect(init.stdout).not.toContain(`--agent ${absentHost}`);
     }
-    // The handoff comes from the resulting content (spec #640 US-002): fresh
-    // setup has zero Profiles and no Context, so it leads to Profile creation
+    // The handoff comes from the resulting content (spec #640 US-002, #676):
+    // fresh setup has zero Profiles, so it leads to guided Profile creation
     // and never recommends validate. Agent choice stays with install.
-    expect(init.stdout).toContain("apkit new context <context>");
-    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(init.stdout).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(init.stdout).not.toContain("apkit new context");
     expect(init.stdout).not.toContain("apkit validate");
     expect(init.stdout).not.toContain("--agent");
     expect(init.stdout).not.toContain("--host");
 
-    // 3. Execute the printed creation chain with supplied names, then author
-    // the canonical example pair and install it. Pipes add --auto-confirm
-    // for the interactive general confirmation.
+    // 3. Execute the printed Profile-creation route with supplied names
+    // (the guided prompt flow itself is qualified at the PTY boundary),
+    // then author the canonical example pair and install it. Pipes add
+    // --auto-confirm for the interactive general confirmation.
     const createdContext = await runCli(
       home,
       ["new", "context", "starter"],
@@ -2092,8 +2087,8 @@ describe("project-bound release candidate", () => {
     });
     const freshInit = await runCli(freshHome, ["init", "~/apkit-workspace"], { path: freshPath });
     expectExitCode(freshInit, 0);
-    expect(freshInit.stdout).toContain("apkit new context <context>");
-    expect(freshInit.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(freshInit.stdout).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(freshInit.stdout).not.toContain("apkit new context");
     expect(freshInit.stdout).not.toContain("apkit validate");
     expectExitCode(await runCli(freshHome, ["new", "context", "starter"], { path: freshPath }), 0);
     expectExitCode(
@@ -2118,7 +2113,7 @@ describe("project-bound release candidate", () => {
     writeFileSync(join(material, "context", "team-rules.md"), "Team rules.\n");
     const connectZero = await runCli(connectZeroHome, ["init", material], { path: connectZeroPath });
     expectExitCode(connectZero, 0);
-    expect(connectZero.stdout).toContain("apkit new profile <name> --context <context>");
+    expect(connectZero.stdout).toContain("apkit new profile (create your first Profile, step by step)");
     expect(connectZero.stdout).not.toContain("apkit new context");
     expect(connectZero.stdout).not.toContain("team-rules");
     expect(connectZero.stdout).not.toContain("apkit validate");
@@ -2189,13 +2184,14 @@ describe("project-bound release candidate", () => {
     // adds only the required parts (spec #593 DEC-003, #599, #601).
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: pathWithHosts });
     expectExitCode(init, 0);
-    expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created the Workspace folder and initialized Agent Profile Kit Workspace at");
+    expect(init.stdout.replace(/\n\s+/g, " ")).toContain("Created your Workspace at");
     expect(init.stdout).toContain("~/apkit-workspace");
-    expect(init.stdout).toContain("settings:");
-    expect(init.stdout).toContain("A Profile is a named selection of Context and Skills suited to a kind of work");
-    expect(init.stdout).toContain("Detected agents: antigravity, claude, codex, grok, opencode, pi");
-    expect(init.stdout).toContain("apkit new context <context>");
-    expect(init.stdout).toContain("apkit new profile <name> --context <context>");
+    // The setup receipt drops the settings path; `validate` and `--help` keep it.
+    expect(init.stdout).not.toContain("settings:");
+    expect(init.stdout).toContain("Profiles group Context and Skills for one kind of work.");
+    expect(init.stdout).toContain("Agents found: antigravity, claude, codex, grok, opencode, pi");
+    expect(init.stdout).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(init.stdout).not.toContain("apkit new context");
     expect(init.stdout).not.toContain("apkit validate");
     expect(existsSync(workspacePath(home))).toBe(true);
     expect(existsSync(configPath(home))).toBe(true);
@@ -2421,8 +2417,8 @@ describe("project-bound release candidate", () => {
     const allPath = `${allBin}:${allowlistBin(allHome)}`;
     const allInit = await runCli(allHome, ["init", "~/apkit-workspace"], { path: allPath });
     expectExitCode(allInit, 0);
-    expect(allInit.stdout).toContain("Detected agents: antigravity, claude, codex, grok, opencode, pi");
-    expect(allInit.stdout).toContain("apkit new context <context>");
+    expect(allInit.stdout).toContain("Agents found: antigravity, claude, codex, grok, opencode, pi");
+    expect(allInit.stdout).toContain("apkit new profile");
 
     // 2. Single host present (only codex): still no Host in init guidance
     const codexHome = isolatedHome();
@@ -2436,8 +2432,8 @@ describe("project-bound release candidate", () => {
     const codexPath = `${codexBin}:${allowlistBin(codexHome)}`;
     const codexInit = await runCli(codexHome, ["init", "~/apkit-workspace"], { path: codexPath });
     expectExitCode(codexInit, 0);
-    expect(codexInit.stdout).toContain("Detected agents: codex");
-    expect(codexInit.stdout).toContain("apkit new context <context>");
+    expect(codexInit.stdout).toContain("Agents found: codex");
+    expect(codexInit.stdout).toContain("apkit new profile");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(codexInit.stdout).not.toContain("--host");
 
@@ -2453,8 +2449,8 @@ describe("project-bound release candidate", () => {
     const claudePath = `${claudeBin}:${allowlistBin(claudeHome)}`;
     const claudeInit = await runCli(claudeHome, ["init", "~/apkit-workspace"], { path: claudePath });
     expectExitCode(claudeInit, 0);
-    expect(claudeInit.stdout).toContain("Detected agents: claude");
-    expect(claudeInit.stdout).toContain("apkit new context <context>");
+    expect(claudeInit.stdout).toContain("Agents found: claude");
+    expect(claudeInit.stdout).toContain("apkit new profile");
     // Discriminating negative: the old output contained "--host claude" here.
     expect(claudeInit.stdout).not.toContain("--host");
 
@@ -2466,8 +2462,8 @@ describe("project-bound release candidate", () => {
     const emptyPath = `${emptyBin}:${allowlistBin(noHostsHome)}`;
     const noHostsInit = await runCli(noHostsHome, ["init", "~/apkit-workspace"], { path: emptyPath });
     expectExitCode(noHostsInit, 0);
-    expect(noHostsInit.stdout).toContain("Detected agents: none");
-    expect(noHostsInit.stdout).toContain("apkit new context <context>");
+    expect(noHostsInit.stdout).toContain("Agents found: none");
+    expect(noHostsInit.stdout).toContain("apkit new profile");
     expect(noHostsInit.stdout).not.toContain("--host");
   }, 30_000);
 
@@ -2492,8 +2488,8 @@ describe("project-bound release candidate", () => {
     // 1. init reports the present executable without starting it.
     const init = await runCli(home, ["init", "~/apkit-workspace"], { path: stubPath });
     expectExitCode(init, 0);
-    expect(init.stdout).toContain("Detected agents: codex");
-    expect(init.stdout).toContain("apkit new context <context>");
+    expect(init.stdout).toContain("Agents found: codex");
+    expect(init.stdout).toContain("apkit new profile");
     // Discriminating negative: the old output contained "--host codex" here.
     expect(init.stdout).not.toContain("--host");
 
@@ -2604,7 +2600,7 @@ describe("project-bound release candidate", () => {
     expectExitCode(calm, 0);
     const calmDetection = calm.stdout
       .split("\n")
-      .find((line) => line.startsWith("Detected agents:"))!;
+      .find((line) => line.startsWith("Agents found:"))!;
     expect(calmDetection).toBeDefined();
 
     // Hostile ambient window: trap executables stand in for every Host name
@@ -2626,7 +2622,7 @@ describe("project-bound release candidate", () => {
       });
       expectExitCode(varied, 0);
       expect(
-        varied.stdout.split("\n").find((line) => line.startsWith("Detected agents:")),
+        varied.stdout.split("\n").find((line) => line.startsWith("Agents found:")),
       ).toBe(calmDetection);
       expect(hostile.trapLog(), "no unselected Host-named executable may run").toEqual([]);
     } finally {
