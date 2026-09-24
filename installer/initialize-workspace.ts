@@ -58,8 +58,6 @@ export interface InitializationResult {
   readonly addedParts: readonly string[];
   /** Profiles present in the resulting Workspace (spec #640 US-002). */
   readonly profileCount: number;
-  /** Whether the resulting Workspace has any Context Module (spec #640 US-002). */
-  readonly hasContexts: boolean;
   /**
    * True when this run wrote Local Configuration (created, replaced, or
    * migrated it). Set at each commit site — never derived from `outcome`.
@@ -460,7 +458,6 @@ async function initializeConfiguredWorkspace(
     warnings: [],
     addedParts: [],
     profileCount: workspace.profiles.size,
-    hasContexts: workspace.contexts.size > 0,
     configurationWritten: false,
     configurationPath: configPath,
   };
@@ -526,7 +523,6 @@ async function connectWorkspace(
           warnings: [],
           addedParts: [],
           profileCount: plan.profiles.length,
-          hasContexts: plan.contexts.length > 0,
           configurationWritten: false,
           configurationPath: configPath,
         };
@@ -558,7 +554,6 @@ async function connectWorkspace(
         warnings: [],
         addedParts: structuralAddedParts(added),
         profileCount: plan.profiles.length,
-        hasContexts: plan.contexts.length > 0,
         configurationWritten: true,
         configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),
@@ -604,7 +599,6 @@ async function connectFromPlan(
     warnings: [],
     addedParts: structuralAddedParts(added),
     profileCount: plan.profiles.length,
-    hasContexts: plan.contexts.length > 0,
     configurationWritten: configurationCreated,
     configurationPath,
   };
@@ -694,7 +688,6 @@ async function migrateLegacyConfiguration(
         warnings: workspaceResult.warnings,
         addedParts: workspaceResult.addedParts,
         profileCount: isConnecting ? plan!.profiles.length : workspaceResult.profileCount,
-        hasContexts: isConnecting ? plan!.contexts.length > 0 : workspaceResult.hasContexts,
         configurationWritten: true,
         configurationPath: configPath,
         ...(missingProfileBindings.length > 0 ? { missingProfileBindings } : {}),

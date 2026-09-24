@@ -11,6 +11,7 @@ import {
 import { capitalize, DEFAULT_VIEW_LEXICON } from "./presentation.js";
 import { displayPath, workspaceSubfolderDisplay } from "./display-path.js";
 import {
+  commandNode,
   commandPart,
   footerNodes,
   identifierPart,
@@ -161,7 +162,7 @@ export function emptyWorkspaceProfileCreationDocument(
       [`Put skill folders in ${skillsFolder}`],
       [
         notedCommand(
-          commandPart(COMMAND_NAME, [arg("new"), arg("context"), arg("<name>")]),
+          commandNode(COMMAND_NAME, [arg("new"), arg("context"), arg("<name>")]),
           "create a Context file to fill in",
         ),
       ],
@@ -263,7 +264,7 @@ export function newProfileReceiptDocument(input: {
     next: {
       kind: "command",
       value: notedCommand(
-        commandPart(COMMAND_NAME, [arg("install"), arg(input.id)]),
+        commandNode(COMMAND_NAME, [arg("install"), arg(input.id)]),
         "run it inside a Project folder",
       ),
     },
@@ -293,7 +294,7 @@ export function newContextReceiptDocument(input: {
     next: {
       kind: "command",
       value: notedCommand(
-        commandPart(COMMAND_NAME, [arg("new"), arg("profile")]),
+        commandNode(COMMAND_NAME, [arg("new"), arg("profile")]),
         "make a Profile that uses it",
       ),
     },
@@ -359,8 +360,6 @@ export interface InitReceiptInput {
   readonly configurationPath: string;
   /** Profiles present in the resulting Workspace; routes the handoff (US-002). */
   readonly profileCount: number;
-  /** Whether the resulting Workspace has any Context Module (US-002). */
-  readonly hasContexts: boolean;
 }
 
 export interface InitConfirmationInput {

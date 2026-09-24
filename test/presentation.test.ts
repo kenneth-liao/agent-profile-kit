@@ -17,6 +17,7 @@ import {
   newArtifactCreatedNodes,
 } from "../cli/receipts.js";
 import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
+import { workspaceSubfolderDisplay } from "../cli/display-path.js";
 import {
   commandPart,
   flatInlineText,
@@ -3487,6 +3488,38 @@ describe("status concise terminology", () => {
     } finally {
       rmSync(logicalHome, { force: true });
       rmSync(physicalHome, { force: true, recursive: true });
+    }
+  });
+
+  test("workspaceSubfolderDisplay names the actual Workspace's skills/ and context/ folders (INT-2)", () => {
+    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-subfolder-"));
+    try {
+      const workspace = join(home, "my-kit");
+      // A Workspace under home displays home-relative with a trailing slash.
+      expect(workspaceSubfolderDisplay(workspace, "skills", "~/my-kit", workspace, home))
+        .toBe("~/my-kit/skills/");
+      expect(workspaceSubfolderDisplay(workspace, "context", "~/my-kit", workspace, home))
+        .toBe("~/my-kit/context/");
+      // A trailing-slash authored spelling keeps the subfolder single.
+      expect(workspaceSubfolderDisplay(workspace, "skills", "~/my-kit/", workspace, home))
+        .toBe("~/my-kit/skills/");
+      // The Workspace folder itself is home: fleet displays `~`, so the
+      // subfolder hangs directly off it.
+      expect(workspaceSubfolderDisplay(home, "skills", "~", home, home)).toBe("~/skills/");
+      // The fleet scope never returns `.` or an empty string: a relative
+      // authored spelling resolves through the canonical path instead.
+      const resolvedWorkspace = join(home, "resolved-kit");
+      expect(workspaceSubfolderDisplay(resolvedWorkspace, "skills", "./resolved-kit", workspace, home))
+        .toBe("~/resolved-kit/skills/");
+      // A Workspace outside home displays absolute.
+      const outside = join(home, "..", "outside-kit");
+      expect(workspaceSubfolderDisplay(outside, "context", outside, workspace, home))
+        .toBe(`${outside}/context/`);
+      // The filesystem-root edge: fleet displays `/`, whose trailing-slash
+      // trim leaves the subfolder alone.
+      expect(workspaceSubfolderDisplay("/", "skills", "/", "/", home)).toBe("skills/");
+    } finally {
+      rmSync(home, { force: true, recursive: true });
     }
   });
 
@@ -9301,7 +9334,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     // Success headline (Workspace), 3 concept paragraphs, agents found, then Next actions footer.
     expect(shapes(document)).toEqual([
@@ -9347,7 +9379,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["profiles"],
       profileCount: 0,
-      hasContexts: true,
     });
     expect(shapes(document)).toEqual([
       "sentence(success)",
@@ -9376,7 +9407,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
         configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
         addedParts: ["workspace.yaml"],
         profileCount,
-        hasContexts: true,
       });
       expect(shapes(document)).toEqual([
         "sentence(success)",
@@ -9407,7 +9437,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       authoredPath: "~/apkit-workspace",
       addedParts: ["context", "profiles"],
       profileCount: 0,
-      hasContexts: true,
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
@@ -9428,7 +9457,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "sentence" && nodeText(node) === "Agents found: none",
@@ -9445,7 +9473,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       detectedHosts: ["antigravity", "claude", "codex"],
       addedParts: [],
       profileCount: 1,
-      hasContexts: true,
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
     });
@@ -9475,7 +9502,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
       addedParts: ["skills"],
       profileCount: 0,
-      hasContexts: true,
       missingProfileBindings: [{ project: "/projects/demo", profile: "coding" }],
     });
     const text = documentText(document);
@@ -9493,7 +9519,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       path: `/test/workspace`,
       authoredPath: `/test/workspace`,
       profileCount: 2,
-      hasContexts: true,
       configurationWritten: false,
       configurationPath: `/home/test/.agents/agent-profile-kit/config.yaml`,
     });
@@ -9571,7 +9596,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext);
     expect(rendered).toContain("Created your Workspace at");
@@ -9597,7 +9621,6 @@ describe("authoring and teardown receipt documents (#390)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: [],
       profileCount: 2,
-      hasContexts: true,
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext);
     expect(rendered).toContain("Connected your Workspace at");
@@ -12191,7 +12214,6 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["workspace.yaml", "context", "skills", "profiles"],
       profileCount: 0,
-      hasContexts: false,
     });
     const text = documentText(document);
     expect(explainedConcepts(text).sort()).toEqual(["Context", "Profile", "Skills"]);

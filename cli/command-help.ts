@@ -213,9 +213,9 @@ export const COMMANDS: readonly CommandHelp[] = [
   },
 ];
 
-/** One `apkit …` invocation as one atomic inline command part. */
-function invocation(...tokens: readonly string[]): ReturnType<typeof commandPart> {
-  return commandPart(
+/** One `apkit …` invocation as one atomic inline command node. */
+function invocation(...tokens: readonly string[]): CommandNode {
+  return commandNode(
     COMMAND_NAME,
     tokens.map((value): CommandArg => ({ kind: "text", value })),
   );
@@ -255,7 +255,7 @@ export function createdProfileInstallRouting(profile: string): ReturnType<typeof
  * the next step is guided Profile creation.
  * One home so help and receipts cannot route differently.
  */
-export function newProfileCreationCommands(): readonly (readonly InlineContent[])[] {
+export function newProfileCreationCommands(): readonly (readonly InlineItemElement[])[] {
   return [[notedCommand(invocation("new", "profile"), "create your first Profile, step by step")]];
 }
 
@@ -263,7 +263,7 @@ export function newProfileCreationCommands(): readonly (readonly InlineContent[]
  * The install next action after setup when Profiles already exist (spec
  * #640 US-002, spec #672, #676): points to running install inside a Project folder.
  */
-export function guidedInstallRouting(): ReturnType<typeof notedCommand> {
+export function guidedInstallRouting(): CommandNode {
   return notedCommand(invocation("install"), "run it inside a Project folder");
 }
 
@@ -303,10 +303,13 @@ import {
   type InlineContent,
 } from "./inline-content.js";
 import {
+  commandNode,
   notedCommand,
   part,
+  type CommandNode,
   type PresentationDocument,
   type PresentationNode,
+  type InlineItemElement,
 } from "./presentation-document.js";
 
 const ROOT_INTRO =

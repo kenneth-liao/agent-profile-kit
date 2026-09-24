@@ -1465,4 +1465,13 @@ test("the one next-step note home: one normalization point, display-only (DEC-00
   const notedCommandNode = notedCommand({ kind: "command", program: "apkit", args: [arg("status")] }, "see installed Profiles");
   expect(flatInlineText([{ kind: "command" as const, program: "apkit", args: [arg("status")] } as InlineContent])).toBe("apkit status");
   expect(flatInlineText([notedCommandNode as unknown as InlineContent])).toBe("apkit status");
+
+  // The list-item path (INT-1): a list item that holds a noted command
+  // projects flat as the bare command — the note rides CommandNode.note, the
+  // one home, and the flat projection reads only inline content.
+  const notedListItem = list([[notedCommandNode]]);
+  expect(flatInlineText(notedListItem.items[0]!)).toBe("apkit status");
+  // Display: the same item renders the note beside the atomic command.
+  expect(renderPresentationDocument([notedListItem], redirected))
+    .toBe("- apkit status (see installed Profiles)");
 });
