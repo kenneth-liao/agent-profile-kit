@@ -189,9 +189,9 @@ describe("issue #673 agent wording & flag changes", () => {
         profiles: ["coding"],
         warnings: [],
         workspace: { authored: "~/apkit-workspace", canonical: "/home/apkit-workspace" },
-      });
+      }, "/home/.agents/agent-profile-kit/config.yaml");
       const renderedValidation = renderPresentationDocument(validationDoc, defaultRenderContext);
-      expect(renderedValidation).toContain("Agents bound: codex");
+      expect(renderedValidation).toContain("Agents in use: codex");
       expect(renderedValidation).not.toContain("Hosts bound");
 
       const inventoryDoc = inventoryIndexDocument();

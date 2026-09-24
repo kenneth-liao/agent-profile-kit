@@ -1004,7 +1004,9 @@ describe("rendered atomicity mutation evidence from real captures", () => {
     const spellings = new Set(collectSpellings(stabilized, corpus));
     const nextLine = stabilized.split("\n").find((line) => line.startsWith("Next: apkit update "));
     expect(nextLine).toBeDefined();
-    const command = nextLine!.slice("Next: ".length).trim();
+    // The next step's bracketed note is display-only; the copyable command
+    // ends before it.
+    const command = nextLine!.slice("Next: ".length).trim().replace(/ \([^()]*\)$/, "");
     expect(spellings).toContain(command);
     const detailsLine = stabilized.split("\n").find((line) => line.startsWith("Details: apkit status "));
     expect(detailsLine).toBeDefined();

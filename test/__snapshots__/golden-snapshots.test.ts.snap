@@ -1094,7 +1094,7 @@ Written:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.234.0
+Engine version: 0.235.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1117,15 +1117,13 @@ Inventory topics:
 
 exports[`golden snapshots of every human view list projects: list-projects 1`] = `
 "--- stdout ---
-Projects:
+Your Projects (2)
 
-Project  Profile  Agents  State
-demo     example  codex   configured
-other    example  codex   configured
+Project  Profile  Agents  Status
+demo     example  codex   ok
+other    example  codex   ok
 
-2 Projects configured.
-
-Use apkit status to inspect Project lifecycle diagnostics.
+Next: apkit status (check whether they're up to date)
 --- stderr ---
 "
 `;
@@ -1146,17 +1144,17 @@ Use <profile> with apkit install to select it for a Project, or run
 
 exports[`golden snapshots of every human view list agents: list-agents 1`] = `
 "--- stdout ---
-Supported agents:
-  antigravity — detected
-  claude — detected
-  codex — detected
-  grok — detected
-  opencode — detected
-  pi — detected
+Supported agents
 
-"not found" means the agent executable was not detected here.
+  antigravity  detected
+  claude       detected
+  codex        detected
+  grok         detected
+  opencode     detected
+  pi           detected
 
-Every agent stays selectable with apkit install.
+"not found" means apkit couldn't find it on this machine. You can still pick
+  it when you install.
 --- stderr ---
 "
 `;
@@ -1249,12 +1247,15 @@ Details: apkit details
 
 exports[`golden snapshots of every human view validate: validate 1`] = `
 "--- stdout ---
-✔ Workspace and settings valid (1 Profile, 1 configured Project)
-Workspace: ~/apkit-workspace
-Profiles found: example
-Agents bound: codex
+✔ Your Workspace looks good
 
-Next: apkit status
+Workspace: ~/apkit-workspace
+Settings: ~/.agents/agent-profile-kit/config.yaml
+Profiles: example
+Projects: 1
+Agents in use: codex
+
+Next: apkit status (check your Projects)
 --- stderr ---
 "
 `;
@@ -1285,7 +1286,7 @@ exports[`golden snapshots of every human view status current: status-current 1`]
 ✔ demo is up to date
 Workspace: ~/apkit-workspace
 
-Project  Primary Cause
+Project  Status
 demo     up to date
 --- stderr ---
 "
@@ -1296,10 +1297,10 @@ exports[`golden snapshots of every human view status pending: status-pending 1`]
 ⚠ Ready to update
 Workspace: ~/apkit-workspace
 
-Project  Primary Cause
+Project  Status
 demo     not installed yet
 
-Next: apkit update ~/'projects/demo'
+Next: apkit update ~/'projects/demo' (bring your Projects up to date)
 Details: apkit status ~/'projects/demo' --verbose
 --- stderr ---
 "
@@ -1310,7 +1311,7 @@ exports[`golden snapshots of every human view status blocked: status-blocked 1`]
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project  Primary Cause
+Project  Status
 blocked  needs attention
 
 blocked:
@@ -1341,7 +1342,7 @@ exports[`golden snapshots of every human view status tracked counts grouped-twel
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1374,7 +1375,7 @@ exports[`golden snapshots of every human view status tracked counts eleven-no-ca
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1405,7 +1406,7 @@ exports[`golden snapshots of every human view status tracked counts root-immedia
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1438,7 +1439,7 @@ exports[`golden snapshots of every human view status tracked counts overlapping-
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1470,7 +1471,7 @@ exports[`golden snapshots of every human view status tracked counts deterministi
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1503,7 +1504,7 @@ exports[`golden snapshots of every human view status tracked counts large-60-60-
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project         Primary Cause
+Project         Status
 tracked-counts  needs attention
 
 tracked-counts:
@@ -1554,7 +1555,7 @@ exports[`golden snapshots of every human view status blocked filter: status-bloc
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project  Primary Cause
+Project  Status
 blocked  needs attention
 
 blocked:
@@ -1582,16 +1583,14 @@ Next:
 
 exports[`golden snapshots of every human view update receipt: update-receipt 1`] = `
 "--- stdout ---
-✔ Update complete
-
-Updated 1 Project (2 generated files).
+✔ Updated 1 Project (2 files)
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
   Profile can load.
 - Trust the bound project in Codex so the Profile can load.
 
-Start a new agent session from the Project root to use the updated material.
+Start a new agent session in a Project to use the changes.
 
 Try it: start a new Codex session in ~/projects/demo and ask what Profile
   material it loaded.
@@ -1608,7 +1607,7 @@ Details: apkit details
 
 exports[`golden snapshots of every human view update no-op: update-noop 1`] = `
 "--- stdout ---
-● All Projects were already current.
+● Everything is already up to date.
 --- stderr ---
 "
 `;
@@ -2019,7 +2018,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.234.0
+Engine version: 0.235.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2029,7 +2028,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.234.0\x1B[0m
+\x1B[1mEngine version: 0.235.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2039,7 +2038,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.234.0
+Engine version: 0.235.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2049,7 +2048,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.234.0\x1B[0m
+\x1B[1mEngine version: 0.235.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2059,66 +2058,60 @@ Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Projects:
+Your Projects (2)
 
 Project: demo  Profile: example
-Agents: codex  State: configured
+Agents: codex  Status: ok
 
 Project: other  Profile: example
-Agents: codex  State: configured
+Agents: codex  Status: ok
 
-2 Projects configured.
-
-Use apkit status to inspect Project
-  lifecycle diagnostics.
+Next: apkit status
+  (check whether they're up to
+  date)
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mProjects:\x1B[0m
+\x1B[1mYour Projects (2)\x1B[0m
 
 Project: demo  Profile: example
-Agents: codex  State: configured
+Agents: codex  Status: ok
 
 Project: other  Profile: example
-Agents: codex  State: configured
+Agents: codex  Status: ok
 
-2 Projects configured.
-
-Use \x1B[36mapkit status\x1B[0m to inspect Project
-  lifecycle diagnostics.
+\x1B[36mNext: \x1B[36mapkit status\x1B[0m\x1B[0m
+\x1B[36m\x1B[36m  (check whether they're up to\x1B[0m\x1B[0m
+\x1B[36m\x1B[36m  date)\x1B[0m\x1B[0m
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Projects:
+Your Projects (2)
 
-Project  Profile  Agents  State
-demo     example  codex   configured
-other    example  codex   configured
+Project  Profile  Agents  Status
+demo     example  codex   ok
+other    example  codex   ok
 
-2 Projects configured.
-
-Use apkit status to inspect Project lifecycle diagnostics.
+Next: apkit status (check whether they're up to date)
 --- stderr ---
 "
 `;
 
 exports[`rendering matrix for a representative subset list projects matrix: list-projects-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mProjects:\x1B[0m
+\x1B[1mYour Projects (2)\x1B[0m
 
-\x1B[1mProject  Profile  Agents  State\x1B[0m
-demo     example  codex   configured
-other    example  codex   configured
+\x1B[1mProject  Profile  Agents  Status\x1B[0m
+demo     example  codex   ok
+other    example  codex   ok
 
-2 Projects configured.
-
-Use \x1B[36mapkit status\x1B[0m to inspect Project lifecycle diagnostics.
+\x1B[36mNext: \x1B[36mapkit status (check whether they're up to date)\x1B[0m\x1B[0m
 --- stderr ---
 "
 `;
@@ -2129,7 +2122,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 Workspace: ~/apkit-workspace
 
 Project: blocked
-Primary Cause: needs attention
+Status: needs attention
 
 blocked:
   ✖ Blocker: .codex/hooks.json is
@@ -2169,7 +2162,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 
 Project: blocked
-Primary Cause: needs attention
+Status: needs attention
 
 blocked:
 \x1B[31m  ✖ \x1B[0m\x1B[31mBlocker: .codex/hooks.json is\x1B[0m
@@ -2208,7 +2201,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 ⚠ Cannot update
 Workspace: ~/apkit-workspace
 
-Project  Primary Cause
+Project  Status
 blocked  needs attention
 
 blocked:
@@ -2236,7 +2229,7 @@ exports[`rendering matrix for a representative subset blocked status matrix: sta
 \x1B[33m⚠ Cannot update\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 
-\x1B[1mProject  Primary Cause\x1B[0m
+\x1B[1mProject  Status\x1B[0m
 blocked  needs attention
 
 blocked:

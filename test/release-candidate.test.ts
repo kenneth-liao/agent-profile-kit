@@ -955,7 +955,7 @@ describe("project-bound release candidate", () => {
     writeFileSync(join(projectPath, ".pi", "settings.json"), dynamicSettings);
     const resolvedStatus = await runCli(home, ["status"], { path: supportedPath });
     expectExitCode(resolvedStatus, 0);
-    expect(resolvedStatus.stdout).toContain("All Projects are up to date");
+    expect(resolvedStatus.stdout).toContain("Everything is up to date");
     expect(`${resolvedStatus.stdout}${resolvedStatus.stderr}`).not.toMatch(/dynamic\.ts|blocked/i);
     expect(readFileSync(join(projectPath, ".pi", "settings.json"), "utf8")).toBe(dynamicSettings);
     expect(readFileSync(join(projectPath, ".agents", "skills", "review-pr", "SKILL.md"), "utf8")).toContain(
@@ -1371,7 +1371,7 @@ describe("project-bound release candidate", () => {
 
     const minimalValidate = await runCli(home, ["validate"]);
     expectExitCode(minimalValidate, 0);
-    expect(minimalValidate.stdout).toContain("Workspace and settings valid");
+    expect(minimalValidate.stdout).toContain("Your Workspace looks good");
 
     // Re-init must not restore optional scaffolding.
     expectExitCode(await runCli(home, ["init", "~/apkit-workspace"]), 0);
@@ -1442,7 +1442,7 @@ describe("project-bound release candidate", () => {
     // Inventory: supported Hosts and available Profiles from canonical sources.
     const hosts = await runCli(home, ["list", "agents"]);
     expectExitCode(hosts, 0);
-    expect(hosts.stdout).toContain("  codex — detected\n");
+    expect(hosts.stdout).toContain("  codex        detected\n");
 
     const profiles = await runCli(home, ["list", "profiles"]);
     expectExitCode(profiles, 0);
@@ -1473,11 +1473,11 @@ describe("project-bound release candidate", () => {
 
     const apply = await runCli(home, ["update"], { path: pathWithHosts });
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Update complete");
+    expect(apply.stdout).toMatch(/✔ Updated \d+ Projects? \(\d+ files?\)/);
 
     const status = await runCli(home, ["status"], { path: pathWithHosts });
     expectExitCode(status, 0);
-    expect(status.stdout).toMatch(/All Projects are up to date/);
+    expect(status.stdout).toMatch(/Everything is up to date/);
     const appliedState = JSON.parse(readFileSync(statePath(home), "utf8")) as {
       readonly receipts: readonly { readonly hosts: Readonly<Record<string, unknown>> }[];
     };
@@ -1804,8 +1804,8 @@ describe("project-bound release candidate", () => {
       { path: gitOnlyPath },
     );
     expectExitCode(staleApply, 0);
-    expect(staleApply.stdout).toContain("Update complete");
-    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
+    expect(staleApply.stdout).toMatch(/✔ Updated 4 Projects \(\d+ files?\)/);
+    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ files?\)/);
     // The approved changed replacements keep their Project identities; the
     // routine restored and source-updated Projects stay a count on the impact
     // line. Missing-Host warnings may name every affected Project (US-011).
@@ -1813,7 +1813,7 @@ describe("project-bound release candidate", () => {
     for (const replaced of [changed, multi]) {
       expect(staleApply.stdout).toContain(basename(replaced));
     }
-    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ generated files?\)\./);
+    expect(humanText(staleApply.stdout)).toMatch(/Updated 4 Projects \(\d+ files?\)/);
     expect(staleApply.stdout).not.toMatch(/Updated .*agent-profile-kit-rc-loop-missing/);
     // The receipt names the replaced changed generated file without wording
     // that infers who changed it (US-028, TEST-013).
@@ -1840,7 +1840,7 @@ describe("project-bound release candidate", () => {
     const fleetApply = await runCliDefaultScope(home, ["update"], { path: gitOnlyPath });
     expectExitCode(fleetApply, 2);
     expect(fleetApply.stdout).toContain("Update complete");
-    expect(humanText(fleetApply.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(humanText(fleetApply.stdout)).toMatch(/Updated 1 Project \(\d+ files?\)/);
     expect(existsSync(join(neverInstalled, ".agent-profile-kit/codex/context.md"))).toBe(true);
     // The Blocked Project was left untouched: its tracked generated files are
     // still on disk and its Installation State stays machine-local.
@@ -1859,9 +1859,9 @@ describe("project-bound release candidate", () => {
     // (US-004, US-007, TEST-004).
     const settledStatus = await runCliDefaultScope(home, ["status"], { path: gitOnlyPath });
     expectExitCode(settledStatus, 0);
-    expect(settledStatus.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (7 Projects)");
+    expect(settledStatus.stdout.split("\n")[0]).toBe("✔ Everything is up to date (7 Projects)");
     expect(settledStatus.stdout).toContain("Workspace:");
-    expect(settledStatus.stdout).toContain("Primary Cause");
+    expect(settledStatus.stdout).toContain("Status");
     expect((settledStatus.stdout.match(/up to date/g) ?? []).length).toBe(8);
     expect(settledStatus.stdout).not.toContain("Next:");
 
@@ -2066,9 +2066,9 @@ describe("project-bound release candidate", () => {
     // current, and the bare invocation summarizes the settled fleet.
     const finalStatus = await runCliDefaultScope(home, ["status"], { path: journeyPath });
     expectExitCode(finalStatus, 0);
-    expect(finalStatus.stdout.split("\n")[0]).toBe("✔ All Projects are up to date (3 Projects)");
+    expect(finalStatus.stdout.split("\n")[0]).toBe("✔ Everything is up to date (3 Projects)");
     expect(finalStatus.stdout).toContain("Workspace:");
-    expect(finalStatus.stdout).toContain("Primary Cause");
+    expect(finalStatus.stdout).toContain("Status");
     expect((finalStatus.stdout.match(/up to date/g) ?? []).length).toBe(4);
     const bareConfigured = await runCli(home, [], { path: journeyPath });
     expectExitCode(bareConfigured, 0);
@@ -2200,11 +2200,10 @@ describe("project-bound release candidate", () => {
     // 3. Validate: check the empty initial state points to authoring.
     const validate = await runCli(home, ["validate"], { path: pathWithHosts });
     expectExitCode(validate, 0);
-    expect(validate.stdout).toContain(
-      "Workspace and settings valid (0 Profiles, 0 configured Projects)",
-    );
-    expect(validate.stdout).toContain("Profiles found: none");
-    expect(validate.stdout).toContain("Agents bound: none");
+    expect(validate.stdout).toContain("Your Workspace looks good");
+    expect(validate.stdout).toContain("Projects: 0");
+    expect(validate.stdout).toContain("Profiles: none");
+    expect(validate.stdout).toContain("Agents in use: none");
     expect(validate.stdout).toContain("Next: apkit install <profile> --agent <agent>");
 
     // 4. Author the canonical example pair, then install it into the
@@ -2285,8 +2284,7 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(apply, 0);
-    expect(apply.stdout).toContain("Update complete");
-    expect(humanText(apply.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(apply.stdout).toMatch(/✔ Updated 1 Project \(\d+ files?\)/);
     expect(humanText(apply.stdout)).toContain("Details: apkit details");
     const humanApply = humanText(apply.stdout);
     // US-012 (#648): this drifted update is an ordinary repeated content
@@ -2294,7 +2292,7 @@ describe("project-bound release candidate", () => {
     // optional loading check; the next-use instruction remains.
     expect(humanApply).not.toContain("Try it: ");
     expect(humanApply).toContain(
-      "Start a new agent session from the Project root to use the updated material.",
+      "Start a new agent session in a Project to use the changes.",
     );
     expect(apply.stdout).not.toContain("already current");
     expect(apply.stdout).not.toContain("Now author your own:");
@@ -2322,12 +2320,12 @@ describe("project-bound release candidate", () => {
       { path: pathWithHosts },
     );
     expectExitCode(restore, 0);
-    expect(humanText(restore.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(humanText(restore.stdout)).toMatch(/Updated 1 Project \(\d+ files?\)/);
     // Discriminating negative against the same output: the routine restore
     // offers no optional loading check (US-012).
     expect(restore.stdout).not.toContain("Try it: ");
     expect(humanText(restore.stdout)).toContain(
-      "Start a new agent session from the Project root to use the updated material.",
+      "Start a new agent session in a Project to use the changes.",
     );
     expect(restore.stdout).not.toContain("Now author your own:");
     expect(restore.stdout).not.toContain("apkit new ");
@@ -2356,10 +2354,10 @@ describe("project-bound release candidate", () => {
     );
     const maintenance = await runCli(home, ["update", boundProject, "--replace-changed"], { path: pathWithHosts });
     expectExitCode(maintenance, 0);
-    expect(humanText(maintenance.stdout)).toMatch(/Updated 1 Project \(\d+ generated files?\)\./);
+    expect(humanText(maintenance.stdout)).toMatch(/Updated 1 Project \(\d+ files?\)/);
     expect(maintenance.stdout).not.toContain("Try it: ");
     expect(humanText(maintenance.stdout)).toContain(
-      "Start a new agent session from the Project root to use the updated material.",
+      "Start a new agent session in a Project to use the changes.",
     );
     expect(maintenance.stdout).not.toContain("apkit new ");
 
@@ -2500,7 +2498,7 @@ describe("project-bound release candidate", () => {
     const cwdBefore = fileTree(cwd);
     const hosts = await runCli(home, ["list", "agents"], { path: stubPath, cwd });
     expectExitCode(hosts, 0);
-    expect(hosts.stdout).toContain("codex — detected");
+    expect(hosts.stdout).toContain("codex        detected");
     expect(fileTree(home)).toEqual(homeBefore);
     expect(fileTree(cwd)).toEqual(cwdBefore);
 
@@ -2573,7 +2571,7 @@ describe("project-bound release candidate", () => {
       commandLabel: "printed Next command via shell",
     });
     expectExitCode(applied, 0);
-    expect(applied.stdout).toContain("Update complete");
+    expect(applied.stdout).toMatch(/✔ Updated 1 Project \(\d+ files?\)/);
     expect(existsSync(join(spacedProject, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
 
     // The Details route executes as printed too.
@@ -2689,10 +2687,8 @@ describe("project-bound release candidate", () => {
     // Validate empty workspace
     const validateEmpty = await runCli(home, ["validate"]);
     expectExitCode(validateEmpty, 0);
-    expect(validateEmpty.stdout).toContain(
-      "Workspace and settings valid (0 Profiles, 0 configured Projects)",
-    );
-    expect(validateEmpty.stdout).toContain("Profiles found: none");
+    expect(validateEmpty.stdout).toContain("Your Workspace looks good");
+    expect(validateEmpty.stdout).toContain("Profiles: none");
 
     // -----------------------------------------------------------------------
     // Starting Point 2: Scattered material
@@ -2860,7 +2856,7 @@ describe("project-bound release candidate", () => {
     // Validate reflects the connected existing workspace
     const validateExisting = await runCli(existingHome, ["validate"]);
     expectExitCode(validateExisting, 0);
-    expect(validateExisting.stdout).toContain("Profiles found: standard");
+    expect(validateExisting.stdout).toContain("Profiles: standard");
 
     // Switching an existing configured machine to a different Workspace preserves Project Bindings
     // and reports missing Profile bindings (#607)
