@@ -1306,7 +1306,7 @@ export function hostInventoryDocument(
 ): PresentationDocument {
   // The status sits beside its agent on the same line (review screen 22),
   // aligned over the typed agent ids; agent ids stay as typed (US-002).
-  const width = Math.max(...hosts.map(({ host }) => host.length));
+  const width = Math.max(0, ...hosts.map(({ host }) => host.length));
   return [
     part({ kind: "heading", text: "Supported agents" }),
     part(
@@ -1527,7 +1527,7 @@ function validationRow(key: string, value: string): PresentationNode {
  * row. */
 export function validationResultDocument(
   result: ValidationResult,
-  settingsPath?: string,
+  settingsPath: string,
 ): PresentationDocument {
   return [part(
     // Severity is the validation outcome fact: the view only renders valid results.
@@ -1544,18 +1544,16 @@ export function validationResultDocument(
   ),
     part(
       checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
-      ...(settingsPath === undefined
-        ? []
-        : [{
-            kind: "key-value" as const,
-            key: "Settings",
-            value: {
-              kind: "path" as const,
-              canonicalPath: settingsPath,
-              authoredPath: settingsPath,
-              scope: "fleet" as const,
-            },
-          }]),
+      {
+        kind: "key-value",
+        key: "Settings",
+        value: {
+          kind: "path",
+          canonicalPath: settingsPath,
+          authoredPath: settingsPath,
+          scope: "fleet",
+        },
+      },
       validationRow("Profiles", result.profiles.length === 0 ? "none" : result.profiles.join(", ")),
       validationRow("Projects", String(result.bindings)),
       validationRow("Agents in use", result.hosts.length === 0 ? "none" : result.hosts.join(", ")),
@@ -2622,13 +2620,15 @@ function outcomeLine(
 }
 
 /** Whether the clean changed-update headline already carries the committed
- * receipt's impact (screen 17), so the body does not repeat it. */
+ * receipt's impact (screen 17), so the body does not repeat it: decided by
+ * {@link isCleanChangedUpdate} over the report's facts, with the receipt
+ * proving committed work. */
 function updateHeadlineCarriesReceipt(
   report: ReconciliationReport,
   receipt: ReconciliationReport | undefined,
 ): boolean {
   return receipt !== undefined &&
-    outcomeLine("update", report, true) === "Update complete" &&
+    isCleanChangedUpdate(report) &&
     committedReceiptCounts(receipt) !== undefined;
 }
 
@@ -3755,22 +3755,36 @@ export function delimitedContext(context: string): string {
 }
 
 
+/** Whether one completed update's resulting state is clean — no Blockers and
+ * no remaining non-current work — so the committed receipt's impact leads as
+ * the headline (review screen 17). One fact-based reader shared by the
+ * concise and verbose headlines: it decides from the report's typed facts
+ * only, never from rendered copy, so rewording the clean-update outcome line
+ * (#679 rewrites these screens' problem copy) cannot silently shift which
+ * headline renders. The receipt must additionally prove committed work
+ * ({@link committedReceiptCounts}). */
+function isCleanChangedUpdate(report: ReconciliationReport): boolean {
+  return reportBlockers(report).length === 0 &&
+    !reportItems(report).some((item) => item.kind !== "current");
+}
+
 /** The apply outcome notice: severity derives from report facts, never copy.
  * A clean changed update leads with the committed receipt's impact as the
- * headline (review screen 17); every other outcome keeps its outcome line. */
+ * headline (review screen 17) — intended for the verbose view too, which
+ * keeps its per-path sections beneath the same headline; every other outcome
+ * keeps its outcome line. */
 function applyOutcomeNotice(
   report: ReconciliationReport,
   applyCompleted: boolean,
   receipt?: ReconciliationReport,
 ): PresentationNode {
-  const counts = applyCompleted && receipt !== undefined &&
-      outcomeLine("update", report, applyCompleted) === "Update complete"
+  const headline = applyCompleted && receipt !== undefined && isCleanChangedUpdate(report)
     ? committedReceiptHeadline(receipt)
     : undefined;
   return {
     kind: "notice",
     severity: reportBlockers(report).length > 0 ? "error" : "success",
-    nodes: [{ kind: "prose", parts: [counts ?? outcomeLine("update", report, applyCompleted)] }],
+    nodes: [{ kind: "prose", parts: [headline ?? outcomeLine("update", report, applyCompleted)] }],
   };
 }
 

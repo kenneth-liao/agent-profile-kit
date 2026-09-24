@@ -7916,7 +7916,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         profiles,
         warnings: [],
         workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-      });
+      }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     const zeroProjects = validationDocument(0, [], ["engineering"]);
     // Severity is the validity fact; the fact rows carry the counts.
@@ -8150,6 +8150,45 @@ describe("update presentation documents", () => {
     expect(headingsIn(document)).not.toContain("Updated:");
     expect(nodes.at(-1)).toMatchObject({ kind: "prose" });
     expect(commandsIn(document)).toEqual([]);
+  });
+
+  test("the verbose changed-update headline carries the committed receipt impact once, by fact not by copy (ORCH-1, INT-1)", () => {
+    const receipt = identityReport("/project-a");
+    const cleanState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    // Intended: the verbose view shares the concise clean headline — the
+    // committed impact leads there too, with its per-path sections beneath.
+    const verbose = applyReportDocument(applyResult(receipt, cleanState), { verbose: true });
+    expect(renderBoundary(verbose)).toStartWith("✔ Updated 1 Project (1 file)\n");
+    expect(headingsIn(verbose)).toContain("Updated:");
+
+    // The decision comes from the report's typed facts (no Blockers, no
+    // remaining non-current work): an attention update keeps its attention
+    // headline and states the compact receipt as a body line, so rewording
+    // the clean-update outcome line (#679) cannot shift which headline
+    // renders.
+    const attentionState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "drifted output", project: "/project-a", reason: "a.md" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    const attention = applyReportDocument(applyResult(receipt, attentionState), { verbose: true });
+    expect(noticesIn(attention)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Update completed with attention"],
+    });
+    // Concise keeps the same split: the attention headline above, the compact
+    // receipt as a body line.
+    const conciseAttention = applyReportDocument(applyResult(receipt, attentionState));
+    expect(noticesIn(conciseAttention)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Update completed with attention"],
+    });
+    expect(flattenPresentationNodes(conciseAttention).map(nodeText)).toContain("Updated 1 Project (1 file).");
   });
 
   test("verbose update separates Pending and Updated sections without composed Context bodies", () => {
@@ -8677,7 +8716,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       profiles: ["engineering"],
       warnings: ["Sample validation warning"],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
     expect(flattenPresentationNodes(validationDoc)[0]).toMatchObject({ kind: "notice", severity: "success" });
     expect(warningListIn(validationDoc)).toMatchObject({ category: "warning" });
     expect(renderBoundary(validationDoc)).toContain("Sample validation warning");
