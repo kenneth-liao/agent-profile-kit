@@ -436,7 +436,7 @@ prompting or opening an editor (US-042–046, DEC-026):
 ```
 $ apkit new skill deploy-helper
 ✔ Created Skill deploy-helper at
-  ~/apkit-workspace/skills/deploy-helper/SKILL.md
+  /Users/you/apkit-workspace/skills/deploy-helper/SKILL.md
 
 Next: select it into a Profile with apkit configure profile
 
@@ -594,7 +594,7 @@ and failed output points to the Workspace contract:
 
 ```
 $ apkit validate
-✖ Workspace is invalid at ~/apkit-workspace; 2 violations found:
+✖ Workspace is invalid at /Users/you/apkit-workspace; 2 violations found:
 - Skill sidecar skills/old-flow/agent-profile-kit.yaml is no longer read. List
   the needed Context Modules and Skills in a Profile's 'context' and 'skills'
   lists, then delete the file; version control can recover it if you need the
@@ -653,11 +653,11 @@ attention:
     Requirement: Agent Profile Kit must exclusively manage its generated
       files; Git-tracked paths cannot be replaced.
     Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C ~/proj/attention rm -r --cached -- '.agent-profile-kit/codex/context.md' '.agents/skills/deploy-helper' '.codex/hooks.json'
+      git --literal-pathspecs -C '/Users/you/proj/attention' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.agents/skills/deploy-helper' '.codex/hooks.json'
       — it stages their removal from the Git index while the files stay on disk;
       commit afterwards to keep the change — then run
-      apkit update ~/proj/attention. To keep Git ownership instead, leave the
-      files in place.
+      apkit update '/Users/you/proj/attention'. To keep Git ownership instead,
+      leave the files in place.
     Affected paths (3):
       - .agent-profile-kit/codex/context.md
       - .agents/skills/deploy-helper
@@ -740,7 +740,7 @@ Scope errors remain forks in the road rather than walls (US-024, DEC-016):
 
 ```
 $ apkit status --here
-✖ Directory ~/scratch is not configured as a Project
+✖ Directory '/Users/you/scratch' is not configured as a Project
 
 Run apkit install to configure this directory as a Project.
 Run apkit list projects to see configured Projects.
@@ -848,10 +848,11 @@ selected lifecycle write and prints the runnable remedy (US-007, DEC-005):
 ```
 $ apkit update ~/proj/alpha
 ✖ update needs explicit changed-file consent before any write
-  ~ .agent-profile-kit/codex/context.md (~/proj/alpha)
+  ~ .agent-profile-kit/codex/context.md (/Users/you/proj/alpha)
 No Project or setting was changed.
 
-To proceed without asking, run apkit update ~/proj/alpha --replace-changed
+To proceed without asking, run
+  apkit update /Users/you/proj/alpha --replace-changed
 ```
 
 On an interactive terminal, update asks before replacing or deleting changed
@@ -880,7 +881,7 @@ Type d to view the current on-disk versus planned diff before deciding.
 
 ● update kept the changed generated files; nothing was written (you answered no).
 
-Next: apkit update ~/proj/alpha --replace-changed
+Next: apkit update /Users/you/proj/alpha --replace-changed
 ```
 
 Verbose update retains the complete per-Project, per-path inventory, and
