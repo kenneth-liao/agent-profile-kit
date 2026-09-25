@@ -121,10 +121,11 @@ Commands separate binding authoring from global reconciliation:
   planning: no argument shows the latest retained run, `--list` the compact
   newest-first history, one identity its complete entry, and `--json` the
   versioned details family. History rows use compact human time and a labeled
-  header when the table aligns (US-008); details keep exact timestamps (one
-  `Time` when start and end are identical, `Started`/`Finished` otherwise) and
-  user-facing file-work headings (`Written:`, `Failed:`, `Skipped:`,
-  `Pending:`) that still distinguish committed, pending and failed work. An
+  header when the table aligns (US-008); one run's details show the outcome in
+  its headline, a local human time and scope, then `Changed files`, `What went
+  wrong` and `Not done` as they apply — written, removed, failed, skipped and
+  unattempted work stay distinct — while exact timestamps live only in `--json`
+  (US-008, DEC-009). An
   absent history, an unknown or evicted identity,
   an unreadable document, and invalid arguments each report clearly, and long
   human detail pages on an interactive terminal through the shared pager.
@@ -214,10 +215,11 @@ is outcome-first (ADR-0040): it states the affected Project and changed-file
 counts once, keeps only the actionable exception identities — failures,
 skipped or preserved files, remaining work, cleanup problems, and approved
 changed-file replacements or deletions — and closes with one footer block
-whose secondary line is the
-`Details: apkit details` route to the run's retained evidence when the
-recording boundary retained an entry and the outcome is not a clean no-op or
-neutral cancellation/decline (US-010). It carries no per-file, per-Project, or
+whose optional secondary line is the
+`Details: apkit details` route to the run's retained evidence only when the run
+went wrong (US-008, DEC-007): after a failure, a warning, a blocked run or a
+partial run. A clean success, a clean no-op, or a neutral cancellation/decline
+omits the route while retention is unchanged. It carries no per-file, per-Project, or
 per-operation inventory, and re-running `update` is never offered as retrieval
 of an earlier run. It renders first-use
 Host setup as one action-grouped note with plain reasons when generated outputs
@@ -237,7 +239,8 @@ outcome-first task language (ADR-0040): `update` states the affected Project
 and changed-file counts once and names any approved changed-file replacement or
 deletion, `install` and `uninstall` keep their established installed/unchanged
 and removed-Project or removed-Host statements, and all three offer the
-retained `apkit details` route; `install` and `uninstall` receipts also name the
+retained `apkit details` route only when the run went wrong (US-008, DEC-007);
+`install` and `uninstall` receipts also name the
 short Project identity with the Profile and Hosts,
 omit the Local Configuration location and redundant canonical-path repetition
 in routine success, and retain recovery detail only for authored-path matches

@@ -3,10 +3,10 @@
 Agent Profile Kit keeps your reusable, cross-project agent material in one
 Workspace. The Workspace is the single canonical source. Profiles select a flat
 set of portable artifacts for a kind of work. The Installer installs each bound
-Profile into explicitly bound projects as disposable, Host-native output.
-Supported Hosts then load that material through ordinary project discovery.
+Profile into explicitly bound projects as disposable, agent-native output.
+Supported agents then load that material through ordinary project discovery.
 
-Keep project facts in the relevant project repository. Keep Host preferences,
+Keep project facts in the relevant project repository. Keep agent preferences,
 authentication, credentials, and machine-specific values outside the Workspace.
 Edit Workspace files and Local Configuration directly.
 
@@ -18,23 +18,23 @@ Source ownership and managed delivery are separate:
   **unselected universal** artifacts (material useful across every directory or
   kind of work, not only one Profile’s selection). Leaving an artifact unselected
   by every Profile does not make it invalid and does not move its canonical
-  source into Host configuration.
+  source into agent configuration.
 - **Profiles** select the artifacts scoped to a kind of work for Agent Profile
   Kit–managed project-bound delivery. A Project Binding selects a project root,
-  one Profile, and Hosts; only the artifacts that Profile selects enter
+  one Profile, and agents; only the artifacts that Profile selects enter
   Installation Receipts and the managed lifecycle
   (`status`, `update`, and `uninstall`).
 - Agent Profile Kit v1 does not install, project, synchronize, or remove material in
-  personal/global Host roots. Global Host delivery is not APK-owned state: it is
+  personal/global agent roots. Global agent delivery is not APK-owned state: it is
   outside Project Bindings and Installation Receipts, and `update` / `uninstall`
   never adopt, record as managed output, or mutate those paths. `status` does not
   treat global roots as managed output.
 - You may still manage native global delivery yourself—for example by symlinking
-  a Host Skill root entry to canonical Workspace source—but that delivery is
-  user-managed Host configuration, not Agent Profile Kit–owned state. Agent
+  an agent Skill root entry to canonical Workspace source—but that delivery is
+  user-managed agent configuration, not Agent Profile Kit–owned state. Agent
   Profile Kit never adopts, tracks, or uninstalls those global paths.
-- A Skill may be both universally delivered through Host configuration and
-  selected into a bound Profile. The Host owns discovery, precedence,
+- A Skill may be both universally delivered through agent configuration and
+  selected into a bound Profile. The agent owns discovery, precedence,
   deduplication, collision diagnostics, and resolution between those sources.
   Agent Profile Kit blocks only an exact planned destination it cannot safely
   own, not same-identity material elsewhere.
@@ -156,7 +156,7 @@ contract's minimal valid Workspace shows all four required parts together.
 The Workspace contract (run `apkit guide --contract`) states the complete
 authoring format: Context Module identity and delivery, the Skill package
 rules, the Profile shape, and model-invocation policy. This guide covers how
-that material reaches each Host.
+that material reaches each agent.
 
 This release supports Profile Context and Context Modules for Antigravity,
 Codex, Claude Code, Grok, OpenCode, and Pi, and portable Skills for Antigravity,
@@ -164,7 +164,7 @@ Codex, Claude Code, Grok, OpenCode, and Pi. Antigravity Context uses `.agents/ru
 Antigravity, Codex, OpenCode, and Pi Skills install through the qualified shared
 `.agents/skills/<Artifact ID>/` projection after project-surface capability checks;
 Pi and OpenCode resolve other Skills, extensions, and packages through native
-Host behavior.
+agent behavior.
 Disabled model-invocation Skills are projected with the shared
 `disable-model-invocation: true` field while explicit `/skill:<Artifact ID>`
 activation (or OpenCode `/<Artifact ID>` command activation) remains available.
@@ -172,7 +172,7 @@ Agents, Hooks, and Tools are not delivered by this release.
 
 ### Skill model-invocation policy
 
-By default, Hosts may invoke a Skill implicitly when the model matches its
+By default, agents may invoke a Skill implicitly when the model matches its
 description. To require explicit user invocation while keeping the Skill
 available on request, set the standard top-level `disable-model-invocation`
 field in `SKILL.md`:
@@ -191,20 +191,20 @@ contract states the full rule set, including the retired
 other top-level fields. The Installer never rewrites
 Workspace `SKILL.md` during validate, status, or update.
 
-Adapters translate the trusted policy only in generated Host output:
+Adapters translate the trusted policy only in generated agent output:
 
 | Canonical policy | Claude / Grok generated output | Antigravity / Codex / OpenCode / Pi shared output |
 | --- | --- | --- |
-| `allowed` (default) | No Host restriction field | No Host restriction field |
+| `allowed` (default) | No agent restriction field | No agent restriction field |
 | `disabled` | `disable-model-invocation: true` in generated `SKILL.md` | `disable-model-invocation: true` in generated `SKILL.md` plus `policy.allow_implicit_invocation: false` in generated `agents/openai.yaml` and `"permission": { "skill": { "<id>": "deny" } }` in generated `.opencode/opencode.jsonc` |
 
 Existing source `agents/openai.yaml` content is preserved. An equivalent
 invocation policy coalesces; malformed, wrong-type, or conflicting policy
 produces one structured project Blocker naming the Workspace and shared
-Host-policy authorities with a Workspace repair remedy before any project write. Generated
+Agent-policy authorities with a Workspace repair remedy before any project write. Generated
 policy fields carry short deterministic comments. When any selected Skill
 disables model invocation, update-time capability probing checks each selected
-Host's enforcement floor: Claude Code CLI
+agent's enforcement floor: Claude Code CLI
 `2.0.64+` (same floor as unscoped rules and native Skill discovery, which
 honors `disable-model-invocation`), Grok CLI `0.2.0+` (same floor as project
 rules and native Skill discovery, which honors `disable-model-invocation`),
@@ -227,10 +227,10 @@ Profiles are the only place that says what gets installed together (ADR-0045):
 list each needed Context Module and Skill explicitly. A Profile's `context`
 and `skills` lists install exactly what they name — nothing is pulled in
 transitively. The Workspace contract states the Profile shape; a
-Skills-only Profile installs only selected Skill packages for Hosts that
+Skills-only Profile installs only selected Skill packages for agents that
 support them and Installer lifecycle metadata—no Context snapshot, Codex
 SessionStart hooks, or Claude Context rule. Antigravity Skills-only bindings
-check only the shared `.agents` and `.agents/skills` surfaces. Host capability
+check only the shared `.agents` and `.agents/skills` surfaces. Agent capability
 probing is scoped to the selected categories (Skills-only does not require Context
 machinery). Renaming a Profile file renames its ID; Project Bindings select
 Profiles by that name.
@@ -295,7 +295,7 @@ disable-model-invocation: true
 Project Bindings live only in machine-local
 `~/.agents/agent-profile-kit/config.yaml`. Each binding names exactly one
 existing absolute or home-relative project root, one Profile, and a non-empty set
-of supported Hosts (`antigravity`, `codex`, `claude`, `grok`, `opencode`, `pi`). Host order
+of supported agents (`antigravity`, `codex`, `claude`, `grok`, `opencode`, `pi`). Agent order
 and duplicate entries normalize at ingestion. There are no wildcards, recursive scans,
 hidden default projects, agent auto-detection, per-session Profile selection, or
 Profile version pins. A project root may appear in only one binding.
@@ -349,13 +349,13 @@ bindings:
 
 For Codex bindings that select Context, the Adapter requires Codex CLI 0.145.0 or
 newer so the generated SessionStart handler can deliver the complete Context
-envelope without Codex's default head-and-tail spill. Host capability probing is
+envelope without Codex's default head-and-tail spill. Agent capability probing is
 advisory: during `update`, an older, missing, or unreadable Codex CLI produces a
 warning while the planned project and Installation State writes proceed
-regardless. `status` performs no Agent Host process execution and no capability
+regardless. `status` performs no agent process execution and no capability
 probing; a Project-scoped `status` or `update` plans only its
 selected binding. `update --all` writes every selected Project including any with
-Host capability warnings; global Blockers still stop every fleet write.
+agent capability warnings; global Blockers still stop every fleet write.
 Skills-only Codex bindings do
 not require this floor. Review and trust the generated project SessionStart hook
 in Codex for each bound project. Lifecycle hooks are enabled by default. Agent Profile Kit checks the effective global and project configuration
@@ -388,8 +388,8 @@ directory, one explicit existing absolute or home-relative bound Project root,
 or `--project <path>`; `--all` states the fleet scope explicitly. Scoped
 planning, Git and ownership inspection, reconciliation, reports,
 and writes exclude unrelated Projects; a shared Git exclusion file changes only
-through the selected installation's contribution-aware union. Host capability
-probing is advisory and happens only during `update`: a missing or outdated Host
+through the selected installation's contribution-aware union. Agent capability
+probing is advisory and happens only during `update`: a missing or outdated agent
 CLI produces a warning and the planned output is written regardless; capability
 problems never block application and do not mark generated files as drifted.
 
@@ -404,7 +404,7 @@ Installation output must be exclusively Installer-owned.
 Git is optional. For a Git binding, `update` installs only into the exact bound
 project directory. The Installer uses Git for tracked-path protection and local
 exclusions but does not inspect or report worktree topology. Bind any additional
-root explicitly only when Hosts must be launched directly from that root; it
+root explicitly only when agents must be launched directly from that root; it
 then follows the same lifecycle as any other binding.
 
 For every bound project root, the ordinary removal order is:
@@ -430,9 +430,9 @@ independently changed generated file only with your explicit consent. The
 claimed OpenCode configuration file carries the same generated-source notice
 with project-file guidance instead of the Workspace pointer. Supporting Skill
 resources keep their bytes. See ADR-0041. Unrelated project files,
-repository-owned instructions, global Host configuration, authentication, trust,
+repository-owned instructions, global agent configuration, authentication, trust,
 approvals, plugins, and sessions remain untouched. Agent Profile Kit does not
-merge selected fields into Host or repository configuration, install a watcher or
+merge selected fields into agent or repository configuration, install a watcher or
 Git hook, or modify shared `.gitignore` files.
 
 For a currently bound installation, `update` recreates a
@@ -442,12 +442,12 @@ still matches its recorded hash; when no recorded root matches, ownership
 continuity cannot be proven and `status` blocks until you restore or remove the
 generated files. Unexpected directory members are never overwritten.
 
-## Use Hosts natively
+## Use agents natively
 
 After `update`, launch Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi from the
 bound project the way you normally would. Agent Profile Kit does not manage their
 authentication, trust, approvals, plugins, or sessions, and does not launch
-Hosts.
+agents.
 
 ### Antigravity
 
@@ -464,7 +464,7 @@ when it has any, is delivered as written inside the rule's boundary markers and
 never replaces the generated `trigger: always_on` frontmatter.
 
 Antigravity discovers the rules from the current bound project; you do not need
-to create or select an Antigravity Project. Trust is Host-owned: after `update`,
+to create or select an Antigravity Project. Trust is agent-owned: after `update`,
 trust the bound project in Antigravity if it asks. Agent Profile Kit does not
 read or change trust, settings, authentication, plugins, Project records,
 `AGENTS.md`, or `GEMINI.md`. A standing trust reminder appears for every
@@ -477,7 +477,7 @@ each `SKILL.md` body after frontmatter (ADR-0041) — and, for disabled Skills,
 both the generated `disable-model-invocation: true` field and Codex
 `agents/openai.yaml` policy.
 Antigravity's native discovery, trust, settings, and effective inventory remain
-Host-owned.
+agent-owned.
 
 ### Codex
 
@@ -486,7 +486,7 @@ discovers selected Skills under `.agents/skills/<Artifact ID>/`. When Context is
 installed, Codex asks you to review the generated hook: review its contents and
 approve it when they match the expected SessionStart behavior, because declining
 it prevents Profile Context from loading. Before launching Codex,
-trust each bound project in Codex — project trust is Host-owned and is not
+trust each bound project in Codex — project trust is agent-owned and is not
 configured by Agent Profile Kit.
 Ordinary launches from a Git project's bound directory or its descendants receive
 that material. For a non-Git project, launch Codex from the exact bound root;
@@ -510,7 +510,7 @@ Context writes; Skill-bearing Profiles instead prove the shared `.agents` and
 package per resolved Artifact ID under `.agents/skills/<Artifact ID>/`;
 standard package bytes and modes are preserved apart from the generated-source
 notice that opens each projected `SKILL.md` body (ADR-0041). Codex and Pi co-own one normalized package when both are selected;
-the package carries every required Host policy field without adding consumer
+the package carries every required agent policy field without adding consumer
 metadata to Skill source. Pi owns Skill resolution across personal, project,
 ancestor, package, extension, and configured sources. Disabled
 model-invocation Skills receive top-level `disable-model-invocation: true` in
@@ -518,7 +518,7 @@ generated `SKILL.md` while the canonical Workspace source remains unchanged
 and explicit `/skill:<Artifact ID>` activation remains available. Malformed or
 unreadable relevant settings warn without blocking. Pi's native project trust,
 authentication, settings, prompt files, and per-session overrides remain
-Host-owned.
+agent-owned.
 
 ### OpenCode
 
@@ -530,7 +530,7 @@ user-authored slots via native additive merging, and the Project-relative
 reference continues to load Context when OpenCode is launched from any subdirectory.
 The OpenCode Adapter requires CLI 1.18.23 or newer. When configuration is planned
 (Context or disabled Skills), the Adapter emits one transition launch-constraint
-Host Setup Step tied to `.opencode/opencode.jsonc` reminding you to restart
+Agent setup step tied to `.opencode/opencode.jsonc` reminding you to restart
 running OpenCode sessions.
 
 OpenCode discovers selected Skills through the qualified shared
@@ -543,13 +543,13 @@ remains available. When Claude and OpenCode are co-selected in a Project Binding
 with Skills, OpenCode natively discovers Skills under both `.claude/skills` and
 `.agents/skills` and reports duplicate Skill names; the OpenCode Adapter emits
 one non-blocking diagnostic warning naming both roots. OpenCode's native
-discovery, configuration slots, and session commands remain Host-owned.
+discovery, configuration slots, and session commands remain agent-owned.
 
 ### Precedence and conflicts
 
 Repository-owned project instructions take precedence over Profile Context on
 conflict. Agent Profile Kit does not detect or resolve contradictions in prose;
-conflicting guidance remains visible to you and the Host. Global Host
+conflicting guidance remains visible to you and the agent. Global agent
 configuration and repository-owned files stay live and unchanged.
 
 ### Installation State compatibility and recovery
@@ -588,9 +588,9 @@ ownership you independently verify, including any
 recreate the desired Project Bindings and run `apkit update` to establish fresh
 ownership receipts. This manual path is intentionally fail-closed.
 
-### Host Resolution and project-bound Profiles
+### Agent resolution and project-bound Profiles
 
-This section is the Host-path detail for the
+This section is the agent-path detail for the
 [Universal Workspace material](#universal-workspace-material) boundary.
 
 Agent Profile Kit installs selected Skills only into the bound **project**
@@ -598,11 +598,11 @@ Agent Profile Kit installs selected Skills only into the bound **project**
 `.claude/skills/<Artifact ID>/` for Claude, `.grok/skills/<Artifact ID>/` for
 Grok). Antigravity Profile Context uses `.agents/rules/` alongside its shared
 Skill packages. It never installs into, adopts, disables, or removes
-personal/global Host Skill folders. Unselected Workspace
+personal/global agent Skill folders. Unselected Workspace
 Skills are not installed into projects either; they may remain valid Workspace
 source without any APK-managed delivery.
 
-Those global folders remain Host-owned:
+Those global folders remain agent-owned:
 
 - Codex: `~/.agents/skills/` and `~/.codex/skills/`
 - Claude Code: `~/.claude/skills/`
@@ -612,12 +612,12 @@ Those global folders remain Host-owned:
 - Pi: `~/.pi/skills/` (plus configured sources)
 
 Selected Skills may share an identity with material from these roots, packages,
-plugins, extensions, compatibility sources, or other Host-native locations.
-The Host owns discovery, precedence, deduplication, collision diagnostics, and
+plugins, extensions, compatibility sources, or other agent-native locations.
+The agent owns discovery, precedence, deduplication, collision diagnostics, and
 resolution across those sources. Agent Profile Kit neither scans an effective
 inventory nor asks you to remove same-identity material.
 
-Where a disable is detectable without reconstructing Host Resolution, the
+Where a disable is detectable without reconstructing agent resolution, the
 Adapter warns: Codex checks SessionStart hooks and Grok checks
 `[skills].disabled` and `[skills].ignore`. Malformed or unreadable
 configuration that an Adapter reads for planned output also warns; Pi's
@@ -630,12 +630,12 @@ planned project destination remain blockers.
 Use `apkit status` for the bound Project containing the current directory, pass
 one explicit Project root, or use `apkit status --all` to inspect every binding.
 It reports current, not installed, stale source, drifted output (including wholly absent
-owned output), malformed ownership, and blocked installations, while keeping Host
+owned output), malformed ownership, and blocked installations, while keeping agent
 configuration warnings visible.
 
 Use `apkit uninstall --here`, `uninstall --project <path>`, or `uninstall --all` (with `--auto-confirm` non-interactively, plus `--profile <name>`, `--agent <agent>`, and `--remove-changed` as needed) to remove selected installations and forget their recorded selection. `--agent <agent>` (repeatable) removes only those agents within the scope while the remaining agents keep working. It removes only Installation Receipt-proven output and preserves the Workspace and unselected Projects. It writes no teardown provenance. Because a fully removed Project is forgotten, the next `status` no longer selects it, rather than reporting it as unsafe unexplained missing output.
 
-To stop managing a Project but keep its Git-owned files in place, remove its entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next `update` reconciles the leftovers. Neither path modifies personal/global Host configuration or repository-owned files.
+To stop managing a Project but keep its Git-owned files in place, remove its entry from `~/.agents/agent-profile-kit/config.yaml` by hand; the next `update` reconciles the leftovers. Neither path modifies personal/global agent configuration or repository-owned files.
 
 Review personal content before publishing this Workspace. Agent Profile Kit does
 not classify private material, and credential values do not belong in a Workspace

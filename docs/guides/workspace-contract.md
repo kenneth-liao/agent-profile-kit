@@ -8,7 +8,7 @@ Workspace so you or your agent can author valid material first, without
 installing apkit.
 
 View this contract any time with `apkit guide --contract`. For authoring
-workflows and Host delivery behavior, see the complete Workspace guide
+workflows and agent delivery behavior, see the complete Workspace guide
 (`apkit guide --full`).
 
 ## Workspace structure
@@ -79,7 +79,7 @@ references, and assets stay ordinary package files.
   string of at most 500 characters, and `metadata`, when present, must be a
   YAML mapping.
 - Two Skill packages must not declare the same `name`.
-- By default, a Host may invoke a Skill when the model matches its
+- By default, an agent may invoke a Skill when the model matches its
   description. To require explicit invocation instead, set the standard
   top-level field `disable-model-invocation: true` in `SKILL.md`.
   `disable-model-invocation` must be a boolean: `true` disables model
@@ -88,7 +88,7 @@ references, and assets stay ordinary package files.
   violation; the standard top-level `disable-model-invocation` field is its
   replacement.
 - Other top-level frontmatter fields beyond those apkit reads are accepted
-  and ignored — Host-specific fields reach each Host as written, so standard
+  and ignored — agent-specific fields reach each agent as written, so standard
   Skill packages validate and install unchanged.
 - A Skill package must not contain an `agent-profile-kit.yaml` sidecar. The
   sidecar is retired: delete it and list what it declared in a Profile's
@@ -125,7 +125,7 @@ gets installed together.
 
 The file `~/.agents/agent-profile-kit/config.yaml` is where this machine
 records the selected Workspace path and its Project Bindings (each binding
-names one project root, one Profile, and the Hosts to install for). Local
+names one project root, one Profile, and the agents to install for). Local
 Configuration is machine-local, untracked, and never part of the Workspace.
 
 ## Examples
