@@ -41,7 +41,7 @@ import {
   type SemanticCategory,
   type TerminalStream,
 } from "./terminal-presentation.js";
-import { writeSettledAnswer } from "./presentation-document.js";
+import { beginLiveQuestion, writeSettledAnswer } from "./presentation-document.js";
 import { wrapProjectIdentity } from "./display-path.js";
 
 /** Terminal outcome of one confirm prompt. */
@@ -273,6 +273,12 @@ async function askQuestion<T>(
   ) {
     return undefined;
   }
+
+  // The shared writer opens this question's screen part (US-001, DEC-002,
+  // spec #699): one blank line before the question when text precedes it.
+  // Only a question that renders below announces itself — the ended-input
+  // path returns above and its settled line keeps the #696 layout.
+  beginLiveQuestion(output);
 
   input.ref?.();
   const carriage = new PassThrough() as CarriageStream;

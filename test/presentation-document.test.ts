@@ -16,6 +16,7 @@ import type { OperationHistoryEntry } from "../installer/operation-history.js";
 import { beginLifecycleOperationRecording } from "../cli/operation-recording.js";
 import { terminalPresentationContext } from "../cli/terminal-presentation.js";
 import {
+  beginLiveQuestion,
   type CommandArg,
   commandPart,
   flatInlineText,
@@ -944,6 +945,69 @@ test("redirected human output and machine JSON are unaffected by the settled-ans
   writeHumanDocument(human, [{ kind: "prose", parts: ["Receipt."] }], context);
   expect(machine.text()).toBe('{"schemaVersion":1,"outcome":"success"}\n');
   expect(human.text()).toBe("One.\nTwo.\n\n✔ Name › engineering\n\nReceipt.\n");
+});
+
+test("a live question sits one blank line under the text before it and settles where it stood (US-001, DEC-002, #699)", () => {
+  const stream = sink();
+  const context = terminalPresentationContext(stream);
+
+  // Text, then a live question: exactly one blank line between them.
+  writeHumanDocument(
+    stream,
+    [{ kind: "prose", parts: ["Context is loaded in every agent session that uses this Profile."] }],
+    context,
+  );
+  beginLiveQuestion(stream);
+  expect(stream.text()).toBe(
+    "Context is loaded in every agent session that uses this Profile.\n\n",
+  );
+
+  // The settled line keeps the question's position (no layout jump): the
+  // separator's blank is the part's blank, so the settled layout is exactly
+  // the #696 layout.
+  writeSettledAnswer(stream, "✔ Context › team");
+  expect(stream.text()).toBe(
+    "Context is loaded in every agent session that uses this Profile.\n\n✔ Context › team\n",
+  );
+});
+
+test("a live question after a settled run takes the run's blank and settles at the question's position (spec #672 screen 13, #699)", () => {
+  const stream = sink();
+
+  // The grouped settled answers (screen 13).
+  writeSettledAnswer(stream, "✔ Profile › engineering");
+  writeSettledAnswer(stream, "✔ Agents › claude, codex");
+  expect(stream.text()).toBe("\n✔ Profile › engineering\n✔ Agents › claude, codex\n");
+
+  // The live question closes the run: its one trailing blank line separates
+  // the group from the question.
+  beginLiveQuestion(stream);
+  expect(stream.text()).toBe("\n✔ Profile › engineering\n✔ Agents › claude, codex\n\n");
+
+  // The settled line keeps the question's position — the blank above it stays,
+  // never regrouping into the run (the frames 21/57/33/69 change, #699).
+  writeSettledAnswer(stream, "● Install now? (y/N) › n");
+  expect(stream.text()).toBe(
+    "\n✔ Profile › engineering\n✔ Agents › claude, codex\n\n● Install now? (y/N) › n\n",
+  );
+});
+
+test("a live question with nothing before it gets no leading blank line and settles in place (US-001, #699)", () => {
+  const stream = sink();
+  beginLiveQuestion(stream);
+  expect(stream.text()).toBe("");
+  writeSettledAnswer(stream, "✔ Install now? (y/N) › y");
+  expect(stream.text()).toBe("✔ Install now? (y/N) › y\n");
+});
+
+test("a live question never doubles the blank line before it (US-001, #699)", () => {
+  const stream = sink();
+  const context = terminalPresentationContext(stream);
+  // An empty write leaves the cursor under a blank line; the question adds none.
+  writeHumanDocument(stream, [], context);
+  expect(stream.text()).toBe("\n");
+  beginLiveQuestion(stream);
+  expect(stream.text()).toBe("\n");
 });
 
 test("the details-route rule is decided from recorded facts only (US-008, DEC-007, D4)", () => {
