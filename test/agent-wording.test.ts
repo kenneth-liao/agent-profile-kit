@@ -22,6 +22,17 @@ import { diagnosticDocument } from "../cli/diagnostics.js";
 
 const defaultRenderContext = { color: false, interactive: false, width: 80, rows: undefined };
 
+/**
+ * The user-facing prose of one shipped-guide line: the line with the frozen
+ * keys removed (DEC-004, OOS-001). Only the `hosts` binding key is masked —
+ * no agent id contains "host" — so whatever remains is prose and must carry
+ * "agent", never the internal "Host" word.
+ */
+function guideProse(line: string): string {
+  return line.replace(/^\s*hosts:/, "").replace(/`hosts:?`/g, "");
+}
+
+
 describe("issue #673 agent wording & flag changes", () => {
   describe("install command argument parsing", () => {
     test("accepts --agent flag", () => {
@@ -213,6 +224,31 @@ describe("issue #673 agent wording & flag changes", () => {
       expect(userFacingContent).not.toContain("Project  Profile  Hosts  State");
       expect(userFacingContent).not.toContain("list hosts");
       expect(userFacingContent).not.toContain("Install a Profile with Agent Hosts");
+    });
+
+    test("shipped guide prose says 'agent', never 'Host' (US-002, DEC-003, OOS-001)", () => {
+      // The shipped guides render through `apkit guide` (ADR-0044) and carry
+      // user-facing prose, so they hold the same vocabulary as help and
+      // human output. Frozen keys stay exactly as authored (DEC-004, OOS-001):
+      // `hosts` is the Local Configuration / Project Binding key and the one
+      // frozen spelling that contains "host", so each line is reduced to its
+      // prose by removing that key before the user-facing word is checked.
+      const violations: string[] = [];
+      for (const name of ["workspace.md", "agent-workflow.md", "workspace-contract.md"]) {
+        const content = readFileSync(join(import.meta.dirname, "../docs/guides", name), "utf8");
+        for (const [offset, line] of content.split("\n").entries()) {
+          const prose = guideProse(line);
+          if (/\bAgent Hosts?\b/.test(prose) || /\bHosts?\b/i.test(prose)) {
+            violations.push(`${name}:${offset + 1}: ${line}`);
+          }
+        }
+      }
+      expect(violations).toEqual([]);
+    });
+
+    test("the frozen `hosts` binding key stays exactly as authored (DEC-004, OOS-001)", () => {
+      const content = readFileSync(join(import.meta.dirname, "../docs/guides/workspace.md"), "utf8");
+      expect(content).toMatch(/^\s*hosts:$/m);
     });
   });
 });
