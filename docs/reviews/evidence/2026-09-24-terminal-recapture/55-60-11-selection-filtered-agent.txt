@@ -1,0 +1,12 @@
+Installing into
+  /private/tmp/apkit-680-session/60/projects/selection.
+
+✔ Profile › engineering
+Pick the agents that should use this Profile here. apkit
+  doesn't install the agents themselves.
+❯ Which agents?
+type to filter › ↑↓ move › space toggle › enter submit
+› cod
+2 selected
+❯ ◼ codex        detected
+  ◻ opencode     not found

@@ -1,0 +1,5 @@
+Installing into /private/tmp/apkit-680-session/100/projects/selection.
+❯ Which Profile?
+type to filter › ↑↓ move › enter select
+❯ engineering
+  writing

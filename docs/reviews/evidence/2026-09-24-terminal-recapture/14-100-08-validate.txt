@@ -1,0 +1,9 @@
+✔ Your Workspace looks good
+
+Workspace: /private/tmp/apkit-680-session/100/workspace
+Settings: ~/.agents/agent-profile-kit/config.yaml
+Profiles: engineering, writing
+Projects: 1
+Agents in use: codex
+
+Next: apkit status (check your Projects)

@@ -1,0 +1,22 @@
+⚠ Uninstall op-000010 stopped partway
+
+  Today at 7:08 PM · all Projects
+
+Changed files:
+  ~/proj/alpha
+    - .agent-profile-kit/codex/context.md
+    - .agents/skills/review-pr
+    - .claude/rules/agent-profile-kit.md
+    - .claude/skills/review-pr
+    - .codex/hooks.json
+
+What went wrong:
+  /private/tmp/apkit-680-session/100/projects/acme-internal-analytics-pipeline-v2
+    EACCES: permission denied, mkdtemp
+      '/private/tmp/apkit-680-session/100/projects/acme-internal-analytics-pipeline-v2/.agent-profil
+e-kit-remove-tVD6Y2'
+
+Not done:
+- /private/tmp/apkit-680-session/100/projects/alpha/my-app
+- /private/tmp/apkit-680-session/100/projects/beta/my-app
+- /private/tmp/apkit-680-session/100/projects/hello

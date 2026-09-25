@@ -1,0 +1,12 @@
+[1mRecent runs (7)[0m
+
+[1mRun        When      Command  Result     Scope[0m
+op-000007  just now  update   succeeded  all Projects
+op-000006  just now  install  succeeded  one Project
+op-000005  just now  install  succeeded  one Project
+op-000004  just now  install  succeeded  one Project
+op-000003  just now  install  cancelled  one Project
+op-000002  just now  update   no-op      all Projects
+op-000001  just now  install  succeeded  one Project
+
+[36mNext: [36mapkit details <run> (see exactly what one run changed)[0m[0m

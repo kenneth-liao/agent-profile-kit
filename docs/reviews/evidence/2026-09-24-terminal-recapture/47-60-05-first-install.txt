@@ -1,0 +1,17 @@
+✔ Installed the engineering Profile
+  Project: /private/tmp/apkit-680-session/60/projects/hello
+  Agents: codex
+
+Before your agents can load it:
+- Start your agents from this Project folder, not a
+  subfolder.
+- Codex: Review and approve the generated SessionStart hook
+  when Codex asks; Trust the bound project in Codex.
+
+Try it: start a new Codex session in
+  /private/tmp/apkit-680-session/60/projects/hello and ask
+  what Profile material it loaded.
+
+Next: apkit status
+  (see installed Profiles and whether they're up to
+  date)

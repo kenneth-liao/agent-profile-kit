@@ -1,0 +1,5 @@
+✔ Everything is up to date (1 Project)
+
+Workspace: /private/tmp/apkit-680-session/60/workspace
+
+Project: hello  Status: up to date

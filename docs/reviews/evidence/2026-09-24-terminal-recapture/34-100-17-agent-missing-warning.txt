@@ -1,0 +1,11 @@
+● Everything is already up to date.
+
+⚠ Claude isn't installed, or isn't on your PATH.
+  Used by: alpha, acme-internal-analytics-pipeline-v2, alpha/my-app, beta/my-app
+  Fix: install Claude, then check that claude --version works.
+
+⚠ Codex isn't installed, or isn't on your PATH.
+  Used by: alpha, acme-internal-analytics-pipeline-v2, alpha/my-app, beta/my-app, hello
+  Fix: install Codex, then check that codex --version works.
+
+Details: apkit details (see exactly what this run checked)

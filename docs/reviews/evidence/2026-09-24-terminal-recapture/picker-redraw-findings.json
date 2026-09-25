@@ -1,0 +1,58 @@
+{
+  "findings": [
+    {
+      "stream": "100-P5-new-profile-created",
+      "settledFilterLine": false,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 48,
+      "rawBytes": 2575
+    },
+    {
+      "stream": "100-11-selection",
+      "settledFilterLine": true,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 64,
+      "rawBytes": 3367
+    },
+    {
+      "stream": "60-P5-new-profile-created",
+      "settledFilterLine": false,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 48,
+      "rawBytes": 2602
+    },
+    {
+      "stream": "60-11-selection",
+      "settledFilterLine": true,
+      "oldFilteredResultsLabel": false,
+      "instructionsBlock": false,
+      "focusGlyph": true,
+      "checkboxGlyph": true,
+      "hidesCursorDuringRedraw": false,
+      "restoresCursor": true,
+      "eraseOperationCount": 64,
+      "rawBytes": 3372
+    }
+  ],
+  "summary": {
+    "settledFilterObserved": true,
+    "noOldFilteredResultsLabel": true,
+    "noInstructionsBlock": true,
+    "cursorRestoredWhereHidden": true
+  }
+}

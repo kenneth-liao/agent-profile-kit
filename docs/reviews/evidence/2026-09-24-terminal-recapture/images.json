@@ -1,0 +1,322 @@
+[
+  {
+    "frame": "01-100-01-first-use",
+    "palette": "dark",
+    "path": "images/01-100-01-first-use-dark.png"
+  },
+  {
+    "frame": "01-100-01-first-use",
+    "palette": "light",
+    "path": "images/01-100-01-first-use-light.png"
+  },
+  {
+    "frame": "03-100-02-setup",
+    "palette": "dark",
+    "path": "images/03-100-02-setup-dark.png"
+  },
+  {
+    "frame": "03-100-02-setup",
+    "palette": "light",
+    "path": "images/03-100-02-setup-light.png"
+  },
+  {
+    "frame": "04-100-P1-new-profile-empty",
+    "palette": "dark",
+    "path": "images/04-100-P1-new-profile-empty-dark.png"
+  },
+  {
+    "frame": "04-100-P1-new-profile-empty",
+    "palette": "light",
+    "path": "images/04-100-P1-new-profile-empty-light.png"
+  },
+  {
+    "frame": "05-100-P6-new-context",
+    "palette": "dark",
+    "path": "images/05-100-P6-new-context-dark.png"
+  },
+  {
+    "frame": "05-100-P6-new-context",
+    "palette": "light",
+    "path": "images/05-100-P6-new-context-light.png"
+  },
+  {
+    "frame": "07-100-P3-new-profile-context",
+    "palette": "dark",
+    "path": "images/07-100-P3-new-profile-context-dark.png"
+  },
+  {
+    "frame": "07-100-P3-new-profile-context",
+    "palette": "light",
+    "path": "images/07-100-P3-new-profile-context-light.png"
+  },
+  {
+    "frame": "08-100-P4-new-profile-skills",
+    "palette": "dark",
+    "path": "images/08-100-P4-new-profile-skills-dark.png"
+  },
+  {
+    "frame": "08-100-P4-new-profile-skills",
+    "palette": "light",
+    "path": "images/08-100-P4-new-profile-skills-light.png"
+  },
+  {
+    "frame": "09-100-P5-new-profile-created",
+    "palette": "dark",
+    "path": "images/09-100-P5-new-profile-created-dark.png"
+  },
+  {
+    "frame": "09-100-P5-new-profile-created",
+    "palette": "light",
+    "path": "images/09-100-P5-new-profile-created-light.png"
+  },
+  {
+    "frame": "11-100-05-first-install",
+    "palette": "dark",
+    "path": "images/11-100-05-first-install-dark.png"
+  },
+  {
+    "frame": "11-100-05-first-install",
+    "palette": "light",
+    "path": "images/11-100-05-first-install-light.png"
+  },
+  {
+    "frame": "13-100-07-status",
+    "palette": "dark",
+    "path": "images/13-100-07-status-dark.png"
+  },
+  {
+    "frame": "13-100-07-status",
+    "palette": "light",
+    "path": "images/13-100-07-status-light.png"
+  },
+  {
+    "frame": "18-100-11-selection-agent-picker",
+    "palette": "dark",
+    "path": "images/18-100-11-selection-agent-picker-dark.png"
+  },
+  {
+    "frame": "18-100-11-selection-agent-picker",
+    "palette": "light",
+    "path": "images/18-100-11-selection-agent-picker-light.png"
+  },
+  {
+    "frame": "19-100-11-selection-filtered-agent",
+    "palette": "dark",
+    "path": "images/19-100-11-selection-filtered-agent-dark.png"
+  },
+  {
+    "frame": "19-100-11-selection-filtered-agent",
+    "palette": "light",
+    "path": "images/19-100-11-selection-filtered-agent-light.png"
+  },
+  {
+    "frame": "25-100-15-details-list",
+    "palette": "dark",
+    "path": "images/25-100-15-details-list-dark.png"
+  },
+  {
+    "frame": "25-100-15-details-list",
+    "palette": "light",
+    "path": "images/25-100-15-details-list-light.png"
+  },
+  {
+    "frame": "33-100-20-narrow-wrap-command",
+    "palette": "dark",
+    "path": "images/33-100-20-narrow-wrap-command-dark.png"
+  },
+  {
+    "frame": "33-100-20-narrow-wrap-command",
+    "palette": "light",
+    "path": "images/33-100-20-narrow-wrap-command-light.png"
+  },
+  {
+    "frame": "34-100-17-agent-missing-warning",
+    "palette": "dark",
+    "path": "images/34-100-17-agent-missing-warning-dark.png"
+  },
+  {
+    "frame": "34-100-17-agent-missing-warning",
+    "palette": "light",
+    "path": "images/34-100-17-agent-missing-warning-light.png"
+  },
+  {
+    "frame": "35-100-21-details-partial",
+    "palette": "dark",
+    "path": "images/35-100-21-details-partial-dark.png"
+  },
+  {
+    "frame": "35-100-21-details-partial",
+    "palette": "light",
+    "path": "images/35-100-21-details-partial-light.png"
+  },
+  {
+    "frame": "36-100-21b-details-partial",
+    "palette": "dark",
+    "path": "images/36-100-21b-details-partial-dark.png"
+  },
+  {
+    "frame": "36-100-21b-details-partial",
+    "palette": "light",
+    "path": "images/36-100-21b-details-partial-light.png"
+  },
+  {
+    "frame": "37-60-01-first-use",
+    "palette": "dark",
+    "path": "images/37-60-01-first-use-dark.png"
+  },
+  {
+    "frame": "37-60-01-first-use",
+    "palette": "light",
+    "path": "images/37-60-01-first-use-light.png"
+  },
+  {
+    "frame": "39-60-02-setup",
+    "palette": "dark",
+    "path": "images/39-60-02-setup-dark.png"
+  },
+  {
+    "frame": "39-60-02-setup",
+    "palette": "light",
+    "path": "images/39-60-02-setup-light.png"
+  },
+  {
+    "frame": "40-60-P1-new-profile-empty",
+    "palette": "dark",
+    "path": "images/40-60-P1-new-profile-empty-dark.png"
+  },
+  {
+    "frame": "40-60-P1-new-profile-empty",
+    "palette": "light",
+    "path": "images/40-60-P1-new-profile-empty-light.png"
+  },
+  {
+    "frame": "41-60-P6-new-context",
+    "palette": "dark",
+    "path": "images/41-60-P6-new-context-dark.png"
+  },
+  {
+    "frame": "41-60-P6-new-context",
+    "palette": "light",
+    "path": "images/41-60-P6-new-context-light.png"
+  },
+  {
+    "frame": "43-60-P3-new-profile-context",
+    "palette": "dark",
+    "path": "images/43-60-P3-new-profile-context-dark.png"
+  },
+  {
+    "frame": "43-60-P3-new-profile-context",
+    "palette": "light",
+    "path": "images/43-60-P3-new-profile-context-light.png"
+  },
+  {
+    "frame": "44-60-P4-new-profile-skills",
+    "palette": "dark",
+    "path": "images/44-60-P4-new-profile-skills-dark.png"
+  },
+  {
+    "frame": "44-60-P4-new-profile-skills",
+    "palette": "light",
+    "path": "images/44-60-P4-new-profile-skills-light.png"
+  },
+  {
+    "frame": "45-60-P5-new-profile-created",
+    "palette": "dark",
+    "path": "images/45-60-P5-new-profile-created-dark.png"
+  },
+  {
+    "frame": "45-60-P5-new-profile-created",
+    "palette": "light",
+    "path": "images/45-60-P5-new-profile-created-light.png"
+  },
+  {
+    "frame": "47-60-05-first-install",
+    "palette": "dark",
+    "path": "images/47-60-05-first-install-dark.png"
+  },
+  {
+    "frame": "47-60-05-first-install",
+    "palette": "light",
+    "path": "images/47-60-05-first-install-light.png"
+  },
+  {
+    "frame": "49-60-07-status",
+    "palette": "dark",
+    "path": "images/49-60-07-status-dark.png"
+  },
+  {
+    "frame": "49-60-07-status",
+    "palette": "light",
+    "path": "images/49-60-07-status-light.png"
+  },
+  {
+    "frame": "54-60-11-selection-agent-picker",
+    "palette": "dark",
+    "path": "images/54-60-11-selection-agent-picker-dark.png"
+  },
+  {
+    "frame": "54-60-11-selection-agent-picker",
+    "palette": "light",
+    "path": "images/54-60-11-selection-agent-picker-light.png"
+  },
+  {
+    "frame": "55-60-11-selection-filtered-agent",
+    "palette": "dark",
+    "path": "images/55-60-11-selection-filtered-agent-dark.png"
+  },
+  {
+    "frame": "55-60-11-selection-filtered-agent",
+    "palette": "light",
+    "path": "images/55-60-11-selection-filtered-agent-light.png"
+  },
+  {
+    "frame": "61-60-15-details-list",
+    "palette": "dark",
+    "path": "images/61-60-15-details-list-dark.png"
+  },
+  {
+    "frame": "61-60-15-details-list",
+    "palette": "light",
+    "path": "images/61-60-15-details-list-light.png"
+  },
+  {
+    "frame": "69-60-20-narrow-wrap-command",
+    "palette": "dark",
+    "path": "images/69-60-20-narrow-wrap-command-dark.png"
+  },
+  {
+    "frame": "69-60-20-narrow-wrap-command",
+    "palette": "light",
+    "path": "images/69-60-20-narrow-wrap-command-light.png"
+  },
+  {
+    "frame": "70-60-17-agent-missing-warning",
+    "palette": "dark",
+    "path": "images/70-60-17-agent-missing-warning-dark.png"
+  },
+  {
+    "frame": "70-60-17-agent-missing-warning",
+    "palette": "light",
+    "path": "images/70-60-17-agent-missing-warning-light.png"
+  },
+  {
+    "frame": "71-60-21-details-partial",
+    "palette": "dark",
+    "path": "images/71-60-21-details-partial-dark.png"
+  },
+  {
+    "frame": "71-60-21-details-partial",
+    "palette": "light",
+    "path": "images/71-60-21-details-partial-light.png"
+  },
+  {
+    "frame": "72-60-21b-details-partial",
+    "palette": "dark",
+    "path": "images/72-60-21b-details-partial-dark.png"
+  },
+  {
+    "frame": "72-60-21b-details-partial",
+    "palette": "light",
+    "path": "images/72-60-21b-details-partial-light.png"
+  }
+]

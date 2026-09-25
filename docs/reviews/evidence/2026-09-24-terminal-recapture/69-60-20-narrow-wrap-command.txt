@@ -1,0 +1,29 @@
+Installing into ~/proj/alpha.
+
+✔ Profile › engineering
+Pick the agents that should use this Profile here. apkit
+  doesn't install the agents themselves.
+
+✔ Agents › claude, codex
+
+✔ Install now? (y/N) › y
+✔ Installed the engineering Profile
+  Project: ~/proj/alpha
+  Agents: claude, codex
+
+Before your agents can load it:
+- Start your agents from this Project folder, not a
+  subfolder.
+- Codex: Review and approve the generated SessionStart hook
+  when Codex asks; Trust the bound project in Codex.
+
+Try it: start new Claude and Codex sessions in
+  ~/proj/alpha and ask what Profile material each loaded.
+
+Run the same install without the prompt:
+  apkit install engineering ~/'proj/alpha' --agent claude --
+agent codex --auto-confirm
+
+Next: apkit status
+  (see installed Profiles and whether they're up to
+  date)
