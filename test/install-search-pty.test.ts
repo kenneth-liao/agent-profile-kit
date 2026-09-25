@@ -171,6 +171,14 @@ describe("guided install under a real PTY", () => {
       const confirmOffset = session.transcriptLength();
       session.write("y\r");
       await session.waitForTranscript("RESULTexitCode=0", { after: confirmOffset });
+      // The install pickers settle with their short labels at 60 columns
+      // (spec #672 US-005, screens 11–13): `✔ Profile › …` and `✔ Agents › …`,
+      // never the full question as the settled label.
+      const settled = plain(session.transcript());
+      expect(settled).toContain("✔ Profile › coding");
+      expect(settled).toContain("✔ Agents › codex");
+      expect(settled).not.toContain("Which Profile? ›");
+      expect(settled).not.toContain("Which agents? ›");
     } finally {
       await session.close();
     }
@@ -239,6 +247,11 @@ describe("guided install under a real PTY", () => {
       session.write("n\r");
       const { text } = await session.waitForTranscript("RESULTexitCode=1", { after: declineOffset });
       expect(plain(text)).toContain("Cancelled. Nothing was changed.");
+      // The declined confirmation settles neutral, never as a success (spec
+      // #672 US-005).
+      const settled = plain(session.transcript());
+      expect(settled).toContain("● Install now? (y/N)");
+      expect(settled).not.toContain("✔ Install now?");
     } finally {
       await session.close();
     }

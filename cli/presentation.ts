@@ -22,6 +22,7 @@ import type { WorkspaceFolderValidation } from "../installer/commands.js";
 import type { InfoWorkspaceLocation } from "../installer/info.js";
 import type { RowNode } from "./presentation-document.js";
 import {
+  plainSystemCause,
   workspaceContractRecovery,
   workspaceViolationBulletParts,
   workspaceViolationMessage,
@@ -68,7 +69,6 @@ import {
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 import {
-  PROJECT_EXPLANATION_SENTENCE,
   WORKSPACE_EXPLANATION_SENTENCE,
 } from "./concept-explanations.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
@@ -1932,7 +1932,10 @@ export function uninstallExecutionFailureDocument(input: {
     }),
     part({
       kind: "prose",
-      parts: [`Couldn't write to ${failed.project} (${failed.detail})`],
+      // The plain cause in words (US-007, screen 28): never the raw foreign
+      // message with its syscall and internal path. The raw detail stays in
+      // `apkit details` and JSON (DEC-004, OOS-004).
+      parts: [`Couldn't write to ${failed.project} (${plainSystemCause(failed.errorCode, failed.detail)})`],
     }),
     part(list(recovery)),
     part({
@@ -2075,6 +2078,32 @@ export function formatUninstallToolErrorJson(
   });
 }
 
+/**
+ * The machine projection of one failed removal (DEC-004): the recorded
+ * evidence fields only, in their recorded order. The human-screen cause fact
+ * is presentation-facing and never enters the payload, so JSON stays
+ * byte-identical for the same failure.
+ */
+function machineUninstallFailedProject(failed: UninstallFailedProject): {
+  readonly canonicalProject?: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly detail: string;
+  readonly selectionRestored: boolean;
+  readonly restoreError?: string;
+  readonly concurrentSelectionChange: boolean;
+} {
+  return {
+    ...(failed.canonicalProject === undefined ? {} : { canonicalProject: failed.canonicalProject }),
+    project: failed.project,
+    profile: failed.profile,
+    detail: failed.detail,
+    selectionRestored: failed.selectionRestored,
+    ...(failed.restoreError === undefined ? {} : { restoreError: failed.restoreError }),
+    concurrentSelectionChange: failed.concurrentSelectionChange,
+  };
+}
+
 /** The machine payload for one uninstall outcome: the same envelope as
  * every other lifecycle payload, carrying the completed/skipped/failed
  * evidence the human receipt carries, without rendered prose. Skipped
@@ -2092,7 +2121,7 @@ export function formatUninstallJson(result: UninstallApplicationResult): string 
     ...(result.failed === undefined ? {} : { error: result.failed.detail }),
     completed: result.completed,
     skipped: result.skipped,
-    ...(result.failed === undefined ? {} : { failed: result.failed }),
+    ...(result.failed === undefined ? {} : { failed: machineUninstallFailedProject(result.failed) }),
     unattempted: result.unattempted,
     warnings: result.warnings,
   });
@@ -4717,18 +4746,15 @@ export function installHostSelectionNoteDocument(): PresentationDocument {
  * Project target by its stable home-relative or absolute path before missing
  * choices are collected, so a bare interactive install shows which directory
  * it will act on — and states the existing selection when one is recorded, so
- * replacing it starts informed. The full proposed scope follows later in the
- * general-confirmation review. */
+ * replacing it starts informed. Screen 10 carries no concept explanation
+ * (spec #672 US-005): the Profile picker trusts a user who already made one.
+ * The full proposed scope follows later in the general-confirmation review. */
 export function installTargetDocument(target: {
   readonly canonicalProject: string;
   readonly authoredProject: string;
   readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
 }): PresentationDocument {
   return [
-    {
-      kind: "prose",
-      parts: [PROJECT_EXPLANATION_SENTENCE],
-    },
     {
       kind: "sentence",
       parts: [
@@ -5762,20 +5788,18 @@ function conciseStatusDocument(
     // inventory guidance (DEC-006).
     if (options.selection.filter !== undefined) {
       return [
-        statusOutcomeNotice(report, options.selection, grouped.identities),
-        ...workspaceRow,
+        part(statusOutcomeNotice(report, options.selection, grouped.identities)),
+        ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
         ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
       ];
     }
     return [
-      part(
-        {
-          kind: "notice",
-          severity: "neutral",
-          nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
-        },
-        ...workspaceRow,
-      ),
+      part({
+        kind: "notice",
+        severity: "neutral",
+        nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
+      }),
+      ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
       {
         kind: "prose",
         category: "command",
@@ -5792,12 +5816,15 @@ function conciseStatusDocument(
   }
 
   // The outcome states what happened as one part: the notice keeps its
-  // warnings and the checked Workspace fact row (review screen 04).
-  const nodes: PresentationNode[] = [part(
-    statusOutcomeNotice(report, options.selection, grouped.identities),
-    ...warningNodes(report, groups, scope, grouped.identities),
-    ...workspaceRow,
-  )];
+  // warnings beside it. The checked Workspace fact row is its own part, as on
+  // `validate` (review screens 06/16).
+  const nodes: PresentationNode[] = [
+    part(
+      statusOutcomeNotice(report, options.selection, grouped.identities),
+      ...warningNodes(report, groups, scope, grouped.identities),
+    ),
+    ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
+  ];
   if (report.projects.length > 0) {
     nodes.push(spacerNode(), ...statusScopeRows(report, scope, grouped.identities));
     const evidence = statusScopeEvidenceNodes(report, groups, scope, grouped.identities);

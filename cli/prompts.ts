@@ -374,6 +374,34 @@ function writeSettledLine(
   output.write(`\n${prefix}${body}${suffix}\n`);
 }
 
+/**
+ * The one confirmation classification (spec #672 US-005): an answer accepts a
+ * confirmation exactly when it is `y` or `yes`, an absent answer cancels it,
+ * and everything else declines — including the empty default no. Every
+ * confirm classifies its answer here, so a settled glyph can never disagree
+ * with the decision the caller acts on.
+ */
+function classifyConfirmation(answer: string | undefined): PromptAnswer {
+  if (answer === undefined) return "cancelled";
+  const normalized = answer.trim().toLowerCase();
+  return normalized === "y" || normalized === "yes" ? "accepted" : "declined";
+}
+
+/**
+ * The one confirmation settle rule (spec #672 US-005): only an accepted
+ * confirmation settles as a success. A declined, defaulted or cancelled
+ * confirmation settles neutral, never as a success. Every confirmation's
+ * settled line goes through here.
+ */
+function settleConfirmation(
+  output: Writable,
+  question: string,
+  outcome: PromptAnswer,
+  answer: string | undefined,
+): void {
+  writeSettledLine(output, question, outcome === "accepted" ? "success" : "neutral", answer);
+}
+
 interface PickerRow {
   readonly index: number;
   readonly title: string;
@@ -839,14 +867,14 @@ export function createConfirmPrompt(options: ConfirmPromptOptions): ConfirmPromp
     const answer = await askQuestion(input, output, (context) =>
       textPrompt({ message: questionText, width, color }, context),
     );
-    if (answer === undefined) {
-      writeSettledLine(output, questionText, "neutral");
-      return "cancelled";
-    }
-    const normalized = answer.trim().toLowerCase();
-    const accepted = normalized === "y" || normalized === "yes";
-    writeSettledLine(output, questionText, "success", accepted ? "yes" : "no");
-    return accepted ? "accepted" : "declined";
+    const outcome = classifyConfirmation(answer);
+    settleConfirmation(
+      output,
+      questionText,
+      outcome,
+      answer === undefined ? undefined : outcome === "accepted" ? "yes" : "no",
+    );
+    return outcome;
   };
 }
 
@@ -872,13 +900,45 @@ export function createYesNoPrompt(options: ConfirmPromptOptions) {
         context,
       ),
     );
-    if (answer === undefined) {
-      writeSettledLine(output, questionText, "neutral");
-      return "cancelled";
-    }
-    const accepted = answer.trim().toLowerCase() === "y";
-    writeSettledLine(output, questionText, "success", accepted ? "yes" : "no");
-    return accepted ? "accepted" : "declined";
+    const outcome = classifyConfirmation(answer);
+    settleConfirmation(
+      output,
+      questionText,
+      outcome,
+      answer === undefined ? undefined : outcome === "accepted" ? "yes" : "no",
+    );
+    return outcome;
+  };
+}
+
+/** One answered confirmation as typed text: the shared classification's
+ * outcome plus the raw answer, so a caller can record how it was given (an
+ * empty answer is the default no) or recognize an auxiliary view key. */
+export type ConfirmTextAnswer =
+  | { readonly kind: "accepted"; readonly value: string }
+  | { readonly kind: "declined"; readonly value: string }
+  | { readonly kind: "cancelled" };
+
+/**
+ * One confirmation answered as typed text (the general confirmations). It
+ * shares the one confirmation classification and settle rule with every
+ * other confirm, so a declined answer never settles as a success and no
+ * caller re-implements the yes/no decision beside the glyph it settled.
+ */
+export function createConfirmTextPrompt(options: ConfirmPromptOptions) {
+  const input = options.input as RawModeInput;
+  const output = options.output;
+
+  return async (questionText: string): Promise<ConfirmTextAnswer> => {
+    const { width, color } = outputPresentation(output);
+    const answer = await askQuestion(input, output, (context) =>
+      textPrompt({ message: questionText, width, color }, context),
+    );
+    const outcome = classifyConfirmation(answer);
+    settleConfirmation(output, questionText, outcome, answer);
+    return outcome === "cancelled" || answer === undefined
+      ? { kind: "cancelled" }
+      : { kind: outcome, value: answer };
   };
 }
 

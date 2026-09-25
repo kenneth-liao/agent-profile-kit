@@ -223,7 +223,7 @@ export function parseUninstallArguments(
 import type { Readable, Writable } from "node:stream";
 
 import { cancelledDocument, writeHumanDocument } from "./presentation-document.js";
-import { errorDiagnosticDocument, formatError } from "./error-wording.js";
+import { errorDiagnosticDocument, formatError, plainSystemCause } from "./error-wording.js";
 import { COMMANDS } from "./command-help.js";
 import {
   applyConsentRequiredDocument,
@@ -258,9 +258,9 @@ import {
   type TerminalStream,
 } from "./terminal-presentation.js";
 import {
+  createConfirmTextPrompt,
   createSearchableMultiSelectPrompt,
   createSelectPrompt,
-  createTextPrompt,
   isInteractiveInput,
   type PromptClock,
 } from "./prompts.js";
@@ -875,18 +875,17 @@ async function runInteractiveUninstall(
     // The general confirmation answers no missing choice and no
     // changed-file scope (DEC-004/DEC-005); declining leaves everything
     // untouched with neutral styling.
-    const prompt = createTextPrompt(promptOptions);
+    const prompt = createConfirmTextPrompt(promptOptions);
     writeHumanDocument(
       request.stdout,
       uninstallConfirmationDocument(reviewed),
       stdoutContext,
     );
     const answer = await prompt(UNINSTALL_CONFIRMATION_QUESTION);
-    const normalized = answer.kind === "cancelled" ? "" : answer.value.trim().toLowerCase();
-    if (answer.kind === "cancelled" || (normalized !== "y" && normalized !== "yes")) {
+    if (answer.kind !== "accepted") {
       const reason = answer.kind === "cancelled"
         ? "cancelled" as const
-        : normalized === "" ? "default" as const : "declined" as const;
+        : answer.value.trim() === "" ? "default" as const : "declined" as const;
       recording.collect(uninstallCancelledRecording(
         reason === "cancelled" ? "cancelled" : "declined",
         scope,
@@ -1049,7 +1048,7 @@ async function runInteractiveUninstall(
         writeLifecycleReport(
           request.stderr,
           uninstallInteractiveCommandsDocument({
-            happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
+            happened: [`uninstall stopped at ${failed.project}: ${plainSystemCause(failed.errorCode, failed.detail)}`],
             why: [[
               completed.length === 0 && result.completed.length === 0
                 ? "No Project was completed before the failure."
@@ -1371,7 +1370,7 @@ async function runUninstallCommandWithRecording(
     // Interactive human input only: every other case refused above. The
     // general confirmation answers no missing choice and no changed-file
     // scope (DEC-004/DEC-005); declining leaves everything untouched.
-    const prompt = createTextPrompt({
+    const prompt = createConfirmTextPrompt({
       input: request.input,
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
@@ -1389,24 +1388,9 @@ async function runUninstallCommandWithRecording(
       stdoutContext,
     );
     const answer = await prompt(UNINSTALL_CONFIRMATION_QUESTION);
-    if (answer.kind === "cancelled") {
+    if (answer.kind !== "accepted") {
       recording.collect(uninstallCancelledRecording(
-        "cancelled",
-        recordingScope,
-        unattemptedProjectsFromPreview(preview.projects),
-      ));
-      writeLifecycleReport(
-        request.stderr,
-        cancelledDocument(),
-        stderrContext,
-        recording,
-      );
-      return { exitCode: 1 };
-    }
-    const normalized = answer.value.trim().toLowerCase();
-    if (normalized !== "y" && normalized !== "yes") {
-      recording.collect(uninstallCancelledRecording(
-        "declined",
+        answer.kind === "cancelled" ? "cancelled" : "declined",
         recordingScope,
         unattemptedProjectsFromPreview(preview.projects),
       ));

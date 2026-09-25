@@ -16,7 +16,6 @@ import {
   installReceiptDocument,
   newArtifactCreatedNodes,
 } from "../cli/receipts.js";
-import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
 import { workspaceSubfolderDisplay } from "../cli/display-path.js";
 import {
   commandPart,
@@ -709,6 +708,48 @@ describe("lifecycle status document", () => {
     expect(rendered).toContain("up to date");
     expect(rendered).not.toContain("Next:");
     expect(rendered).not.toContain("Details:");
+  });
+
+  test("status separates its headline from the Workspace row with one blank line (spec #672 US-001/DEC-002, screens 06/16)", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    for (const width of [100, 60] as const) {
+      const rendered = renderBoundary(
+        lifecycleStatusDocument(report, {
+          workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+        }),
+        { ...defaultRenderContext, width },
+      );
+      const lines = rendered.split("\n");
+      // The Workspace row is its own screen part, as on `validate`.
+      expect(lines[0]).toStartWith("✔ Everything is up to date");
+      expect(lines[1]).toBe("");
+      expect(lines[2]).toStartWith("Workspace:");
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  test("empty status separates its condition from the Workspace row the same way (spec #672 US-001)", () => {
+    const rendered = renderBoundary(
+      lifecycleStatusDocument(emptyReport({}), {
+        workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+      }),
+    );
+    const lines = rendered.split("\n");
+    expect(lines[0]).toStartWith("● No Projects are configured.");
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toStartWith("Workspace:");
   });
 
   test("concise pending status is outcome, scope rows, then typed next commands in order", () => {
@@ -6697,6 +6738,71 @@ describe("standalone view presentation documents (#389)", () => {
     expect(failed.error).toContain("injected fault");
   });
 
+  test("uninstall JSON keeps the same field set and bytes for a partial failure (DEC-004, spec #672 #690)", () => {
+    const rawDetail =
+      "EACCES: permission denied, mkdtemp '/projects/b/.agent-profile-kit-remove-Abc123'";
+    const json = formatUninstallJson({
+      completed: [{
+        canonicalProject: "/projects/a",
+        project: "~/projects/a",
+        profile: "engineering",
+        outputs: [".codex/hooks.json"],
+      }],
+      skipped: [],
+      failed: {
+        canonicalProject: "/projects/b",
+        project: "~/projects/b",
+        profile: "engineering",
+        detail: rawDetail,
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      unattempted: [{ canonicalProject: "/projects/c", project: "~/projects/c", profile: "engineering" }],
+      warnings: [],
+    });
+    const payload = JSON.parse(json) as {
+      failed: Record<string, unknown>;
+    };
+    // The machine contract is unchanged: the recorded evidence fields only,
+    // in their recorded order. The human-screen cause fact never enters it.
+    expect(Object.keys(payload.failed)).toEqual([
+      "canonicalProject",
+      "project",
+      "profile",
+      "detail",
+      "selectionRestored",
+      "concurrentSelectionChange",
+    ]);
+    expect(payload.failed.errorCode).toBeUndefined();
+    expect(payload.failed.detail).toBe(rawDetail);
+    // Byte-identical to the payload this partial fixture produced before the
+    // plain-cause fact existed.
+    expect(json).toBe(`${JSON.stringify({
+      schemaVersion: 16,
+      command: "uninstall",
+      outcome: "error",
+      error: rawDetail,
+      completed: [{
+        canonicalProject: "/projects/a",
+        project: "~/projects/a",
+        profile: "engineering",
+        outputs: [".codex/hooks.json"],
+      }],
+      skipped: [],
+      failed: {
+        canonicalProject: "/projects/b",
+        project: "~/projects/b",
+        profile: "engineering",
+        detail: rawDetail,
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      unattempted: [{ canonicalProject: "/projects/c", project: "~/projects/c", profile: "engineering" }],
+      warnings: [],
+    }, null, 2)}\n`);
+  });
+
   test("uninstall confirmation names the fleet-wide reach of a Profile-only scope", () => {
     const document = uninstallConfirmationDocument(
       {
@@ -6752,6 +6858,35 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("- Put back as it was, where possible: /project-b");
     expect(rendered).toContain("- Not touched: /project-c");
     expect(rendered).toContain("Fix the cause, then run the same command again:");
+    expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+
+  test("a partial uninstall states the cause in plain words with no internal temp path (spec #672 US-007, screen 28)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "EACCES: permission denied, mkdtemp '/project-b/.agent-profile-kit-remove-Abc123'",
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      unattempted: [{ project: "/project-c", profile: "engineering" }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toStartWith("✖ Uninstall stopped partway.");
+    expect(rendered).toContain("Couldn't write to /project-b (permission denied)");
+    // The raw evidence stays in details and JSON; the screen states the cause.
+    expect(rendered).not.toContain("mkdtemp");
+    expect(rendered).not.toContain(".agent-profile-kit-remove-");
+    expect(rendered).not.toContain("EACCES:");
+    // No Project and no recovery fact is dropped (OOS-004).
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Put back as it was, where possible: /project-b");
+    expect(rendered).toContain("- Not touched: /project-c");
     expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
   });
 
@@ -9450,6 +9585,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      folderCreated: false,
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["profiles"],
@@ -9478,6 +9614,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
         outcome: "connected",
         path: join(home, "apkit-workspace"),
         authoredPath: "~/apkit-workspace",
+        folderCreated: false,
         configurationWritten: true,
         configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
         addedParts: ["workspace.yaml"],
@@ -9510,6 +9647,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      folderCreated: false,
       addedParts: ["context", "profiles"],
       profileCount: 0,
       configurationWritten: true,
@@ -9573,6 +9711,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "migrated",
       path: "/test/workspace",
       authoredPath: "/test/workspace",
+      folderCreated: false,
       configurationWritten: true,
       configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
       addedParts: ["skills"],
@@ -9593,6 +9732,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "unchanged",
       path: `/test/workspace`,
       authoredPath: `/test/workspace`,
+      folderCreated: false,
       profileCount: 2,
       configurationWritten: false,
       configurationPath: `/home/test/.agents/agent-profile-kit/config.yaml`,
@@ -9704,6 +9844,29 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(rendered).not.toContain("Context is plain Markdown");
     expect(rendered).toContain("Agents found: claude, codex");
     expect(rendered).toContain("Next: apkit install (run it inside a Project folder)");
+  });
+
+  test("the receipt's created/connected verb follows the folder fact, never the outcome (spec #672 US-003, screen 21)", () => {
+    const at = (folderCreated: boolean, outcome: "created" | "connected"): string =>
+      renderPresentationDocument(initReceiptDocument({
+        outcome,
+        path: join(home, "my-team-kit"),
+        authoredPath: "~/my-team-kit",
+        folderCreated,
+        detectedHosts: ["codex"],
+        configurationWritten: true,
+        configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+        addedParts: [],
+        profileCount: 1,
+      }), defaultRenderContext);
+
+    // Setup created the named folder: Created, whatever the outcome calls it.
+    expect(at(true, "created")).toContain("Created your Workspace at");
+    expect(at(true, "connected")).toContain("Created your Workspace at");
+    // The folder already existed and only this machine's settings were
+    // written: Connected.
+    expect(at(false, "created")).toContain("Connected your Workspace at");
+    expect(at(false, "connected")).toContain("Connected your Workspace at");
   });
 
   test("emptyWorkspaceProfileCreationDocument uses workspaceSubfolderDisplay and notedCommand", () => {
@@ -12290,7 +12453,6 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
  */
 const CONCEPT_DEFINITION_MARKERS = [
   { concept: "Workspace", markers: ["Your Workspace folder holds", "Your Workspace is one folder that holds"] },
-  { concept: "Project", markers: ["A Project is one working folder"] },
   { concept: "Profile", markers: ["Profiles group Context and Skills", "A Profile is a named selection"] },
   { concept: "Skills", markers: ["Skills are the skills you already use"] },
   { concept: "Context", markers: ["Context is plain Markdown", "Context is always-loaded"] },
@@ -12386,18 +12548,16 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
   });
 
   test("the Profile picker drops its concept explanation (spec #677 screen 10)", () => {
-    // The pre-picker screen carries only the Project concept: a user choosing
-    // among existing Profiles already met the word at setup and
-    // `apkit new profile` (US-005).
+    // US-005: the Profile picker has no concept explanation. A user choosing
+    // among existing Profiles already met the words at setup and
+    // `apkit new profile` (spec #672 US-005).
     const prePicker = installTargetDocument({
       canonicalProject: join(home, "projects", "demo"),
       authoredProject: "~/projects/demo",
     });
     const text = documentText(prePicker);
-    expect(explainedConcepts(text)).toEqual(["Project"]);
-    expect(text).toContain(
-      "A Project is one working folder that receives the installed material.",
-    );
+    expect(explainedConcepts(text)).toEqual([]);
+    expect(text).not.toContain("A Project is one working folder");
     expect(text).not.toContain(
       "A Profile is a named selection",
     );
@@ -12417,8 +12577,8 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     });
     expect(rendered).toContain("Installing into ~/projects/demo.");
     expect(rendered).not.toContain("Installing into demo");
-    // #645's Project sentence stays on this screen.
-    expect(rendered).toContain(PROJECT_EXPLANATION_SENTENCE);
+    // Screen 10 shows only the target: no concept sentence (spec #672 US-005).
+    expect(rendered).not.toContain("A Project is one working folder");
   });
 
   test("the install agent note says in one sentence that apkit doesn't install the agents", () => {

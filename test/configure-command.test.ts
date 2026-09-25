@@ -509,6 +509,11 @@ describe("interactive configure profile", () => {
     const outcome = await pending;
 
     expect(outcome.exitCode).toBe(1);
+    // The declined confirmation settles neutral, never as a success (spec
+    // #672 US-005).
+    const settled = plain(streams.humanText());
+    expect(settled).toContain("● Save these membership changes? (y/N)");
+    expect(settled).not.toContain("✔ Save these membership changes?");
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
     expect(diagnostic).toContain("Cancelled. Nothing was changed.");

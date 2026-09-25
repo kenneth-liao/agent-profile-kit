@@ -64,7 +64,7 @@ import {
   type TerminalPresentationContext,
   type TerminalStream,
 } from "./terminal-presentation.js";
-import { createTextPrompt, createSearchableMultiSelectPrompt, createSearchableSelectPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
+import { createConfirmTextPrompt, createSearchableMultiSelectPrompt, createSearchableSelectPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
 import {
   beginLifecycleOperationRecording,
   finishLifecycleOperationRecording,
@@ -251,6 +251,11 @@ function installArgumentErrorDiagnostic(error: unknown): PresentationDocument {
 
 const INSTALL_PROFILE_QUESTION = "Which Profile?";
 const INSTALL_HOSTS_QUESTION = "Which agents?";
+/** The short settled labels the install pickers leave behind (spec #672
+ * US-005, screens 11–13): `✔ Profile › …` / `✔ Agents › …`, never the full
+ * question. Same prompt-seam option guided `new profile` uses. */
+const INSTALL_PROFILE_SETTLED_LABEL = "Profile";
+const INSTALL_HOSTS_SETTLED_LABEL = "Agents";
 
 /**
  * Collect the missing Profile/Host choices for one guided install (#495,
@@ -310,6 +315,7 @@ async function collectMissingInstallChoices(
     const answer = await createSearchableSelectPrompt(promptOptions)(
       INSTALL_PROFILE_QUESTION,
       profiles.map((entry) => ({ title: entry.id, value: entry.id })),
+      { settledLabel: INSTALL_PROFILE_SETTLED_LABEL },
     );
     if (answer.kind === "cancelled") {
       writeHumanDocument(
@@ -355,7 +361,7 @@ async function collectMissingInstallChoices(
           ? HOST_DETECTION_LABELS.detected
           : HOST_DETECTION_LABELS.notFound,
       })),
-      { min: 1 },
+      { min: 1, settledLabel: INSTALL_HOSTS_SETTLED_LABEL },
     );
     if (answer.kind === "cancelled") {
       writeHumanDocument(
@@ -495,7 +501,7 @@ async function runInstallCommandWithRecording(
     // separate summary is written (spec #677 screen 13): the two settled
     // answers above — or the explicit command's stated arguments — already
     // carry the proposed scope.
-    const prompt = createTextPrompt({
+    const prompt = createConfirmTextPrompt({
       input: request.input,
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
@@ -507,19 +513,11 @@ async function runInstallCommandWithRecording(
       ...(parsed.profile === undefined ? {} : { profile: parsed.profile }),
       hosts: [...(parsed.hosts ?? [])],
     };
-    if (answer.kind === "cancelled") {
-      recording.collect(installCancelledRecording("cancelled", previewIdentity));
-      writeLifecycleReport(
-        request.stderr,
-        cancelledDocument(),
-        stderrContext,
-        recording,
-      );
-      return { exitCode: 1 };
-    }
-    const normalized = answer.value.trim().toLowerCase();
-    if (normalized !== "y" && normalized !== "yes") {
-      recording.collect(installCancelledRecording("declined", previewIdentity));
+    if (answer.kind !== "accepted") {
+      recording.collect(installCancelledRecording(
+        answer.kind === "cancelled" ? "cancelled" : "declined",
+        previewIdentity,
+      ));
       writeLifecycleReport(
         request.stderr,
         cancelledDocument(),

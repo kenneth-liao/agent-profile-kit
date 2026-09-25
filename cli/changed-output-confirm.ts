@@ -15,7 +15,7 @@ import {
   type ChangedFileAnsweringScope,
 } from "./presentation.js";
 import { writeHumanDocument } from "./presentation-document.js";
-import { createTextPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
+import { createConfirmTextPrompt, isInteractiveInput, type PromptClock } from "./prompts.js";
 import { terminalPresentationContext, type TerminalStream } from "./terminal-presentation.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type {
@@ -74,7 +74,7 @@ export function createChangedOutputConfirmer(
   // answering flags are present no review can fire, so no prompt is needed.
   const prompt = interactive && !options.json &&
       !(options.replaceChanged && options.removeChanged)
-    ? createTextPrompt({
+    ? createConfirmTextPrompt({
       input: options.input,
       output: options.output,
       ...(options.clock === undefined ? {} : { clock: options.clock }),
@@ -116,14 +116,14 @@ export function createChangedOutputConfirmer(
           writeHumanDocument(options.output, viewed.document, stdoutContext);
           continue;
         }
-        if (normalized === "y" || normalized === "yes") {
+        if (answer.kind === "accepted") {
           promptedScope = {
             remove: consentRequest.projects.some((project) => project.removedOutputs.length > 0),
             replace: consentRequest.projects.some((project) => project.changedOutputs.length > 0),
           };
           return "accepted";
         }
-        declined = normalized === "" ? "default" : "declined";
+        declined = answer.value.trim() === "" ? "default" : "declined";
         return "declined";
       }
     };

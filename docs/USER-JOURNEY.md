@@ -307,19 +307,21 @@ missing required parts following the same setup plan, updates Local
 Configuration's `workspace` field while preserving every existing Project
 Binding, never changes existing Workspace files, and reports any bound Profiles
 that do not exist in the newly connected Workspace along with actionable
-authoring and installation commands (spec #593 DEC-002, ticket #607). A
-connected Workspace receipt prints `Connected your Workspace at <path>` with the
-agents found, and points directly to `apkit install` without repeating concept
-explanations.
+authoring and installation commands (spec #593 DEC-002, ticket #607). The
+receipt's verb is the folder fact (spec #672 US-003): when setup created the
+named folder it prints `Created your Workspace at <path>`, and when the folder
+already existed and only this machine's settings were written it prints
+`Connected your Workspace at <path>` with the agents found, pointing directly
+to `apkit install` without repeating concept explanations.
 
 The Workspace location is stated in actionable home-relative form (US-036). The
 receipt drops the settings path (retained in `validate` and `--help`). First
 use explains Workspace before asking the user to choose one, leads with one
 recommended setup command with the alternative as secondary guidance, and
-explains Context, Profile, Agent Host and Project briefly at the action that
-first needs them — including direct `init` and `install` entry — without a
-glossary dump, a Skill definition, or a persistent seen-terms record
-(spec #640 US-001, DEC-003). As a bounded exception to the two-concept budget,
+explains Context, Profile and agent briefly at the action that first needs
+them — including direct `init` entry — without a glossary dump, a Skill
+definition, or a persistent seen-terms record (spec #640 US-001, DEC-003).
+The install Profile picker carries no concept explanation (spec #672 US-005). As a bounded exception to the two-concept budget,
 the setup receipt explains Profiles, Skills, and Context in one short paragraph
 each, pointing newcomers to where existing material belongs (spec #672
 DEC-005, #676). Detection is advisory: it names the supported agents found on
@@ -509,10 +511,10 @@ block (spec #677 screen 13) and the question is `Install now? (y/N)`. The
 replaced receipt states old → new deltas on the Profile and Agents lines.
 
 On an interactive terminal a bare `install` names the current-directory Project
-target first by that same stable path — explaining Project before the first
-picker (spec #640 US-001, DEC-003), with no Profile concept explanation on the
-picker itself (spec #677 screen 10: setup and `apkit new profile` explain the
-word where it is first met) — and collects only its missing Profile/agents
+target first by that same stable path — with no concept explanation before the
+first picker (spec #677 screen 10, spec #672 US-005: setup and `apkit new
+profile` explain the words where they are first met) — and collects only its
+missing Profile/agents
 through searchable pickers — a new installation lists detected agents first,
 preselects and marks them `detected`, marks undetected agents `not found` on
 the same line as each choice, and carries one note that apkit doesn't install

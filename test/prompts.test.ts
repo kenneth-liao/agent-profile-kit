@@ -3,6 +3,7 @@ import { PassThrough } from "node:stream";
 
 import {
   createConfirmPrompt,
+  createConfirmTextPrompt,
   createMultiSelectPrompt,
   createSearchableMultiSelectPrompt,
   createSearchableSelectPrompt,
@@ -174,6 +175,89 @@ describe("confirm prompt seam", () => {
     input.write("y\n");
     expect(await pending).toBe("accepted");
     expect(scheduled).toBe(0);
+  });
+
+  test("a declined confirmation settles neutral, never as a success (spec #672 US-005)", async () => {
+    // One settle rule and one answer classification cover every confirm: the
+    // typed seam, the single-key seam, and a confirmation asked as text.
+    const typedInput = fakeInteractiveInput();
+    const typedOutput = collectingOutput(80);
+    const typed = createConfirmPrompt({ input: typedInput, output: typedOutput });
+    const typedPending = typed("Install now? (y/N)");
+    typedInput.write("n\n");
+    expect(await typedPending).toBe("declined");
+    const typedText = plain(typedOutput);
+    expect(typedText).toContain(`${GLYPHS.neutral} Install now? (y/N)`);
+    expect(typedText).not.toContain(`${GLYPHS.success} Install now?`);
+
+    const yesNoInput = fakeInteractiveInput();
+    const yesNoOutput = collectingOutput(80);
+    const yesNo = createYesNoPrompt({ input: yesNoInput, output: yesNoOutput });
+    const yesNoPending = yesNo("Set up this folder as your Workspace?");
+    yesNoInput.write("n");
+    expect(await yesNoPending).toBe("declined");
+    const yesNoText = plain(yesNoOutput);
+    expect(yesNoText).toContain(`${GLYPHS.neutral} Set up this folder as your Workspace?`);
+    expect(yesNoText).not.toContain(`${GLYPHS.success} Set up this folder as your Workspace?`);
+
+    const textInput = fakeInteractiveInput();
+    const textOutput = collectingOutput(80);
+    const text = createConfirmTextPrompt({ input: textInput, output: textOutput });
+    const textPending = text("Uninstall as listed? (y/N)");
+    textInput.write("n\n");
+    expect(await textPending).toEqual({ kind: "declined", value: "n" });
+    const textWritten = plain(textOutput);
+    expect(textWritten).toContain(`${GLYPHS.neutral} Uninstall as listed? (y/N)`);
+    expect(textWritten).not.toContain(`${GLYPHS.success} Uninstall as listed?`);
+  });
+
+  test("the default answer and every non-yes answer decline through the same classification", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput(80);
+    const confirm = createConfirmTextPrompt({ input, output });
+    const pending = confirm("Install now? (y/N)");
+    input.write("\n");
+    expect(await pending).toEqual({ kind: "declined", value: "" });
+    const written = plain(output);
+    expect(written).toContain(`${GLYPHS.neutral} Install now? (y/N)`);
+    expect(written).not.toContain(`${GLYPHS.success} Install now?`);
+  });
+
+  test("an accepted confirmation still settles as a success", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput(80);
+    const confirm = createConfirmTextPrompt({ input, output });
+    const pending = confirm("Install now? (y/N)");
+    input.write("yes\n");
+    expect(await pending).toEqual({ kind: "accepted", value: "yes" });
+    const written = plain(output);
+    expect(written).toContain(`${GLYPHS.success} Install now? (y/N)`);
+    expect(written).not.toContain(`${GLYPHS.neutral} Install now?`);
+  });
+
+  test("a cancelled confirmation settles neutral with no answer echo", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput(80);
+    const confirm = createConfirmTextPrompt({ input, output });
+    const pending = confirm("Install now? (y/N)");
+    input.end();
+    expect(await pending).toEqual({ kind: "cancelled" });
+    const written = plain(output);
+    expect(written).toContain(`${GLYPHS.neutral} Install now? (y/N)`);
+    expect(written).not.toContain(`${GLYPHS.success} Install now?`);
+    expect(written).not.toContain(`${GLYPHS.actionSeparator}`);
+  });
+
+  test("a free-text answer is not a confirmation and still settles as a success", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput(80);
+    const text = createTextPrompt({ input, output });
+    const pending = text("Name your Profile", { settledLabel: "Name" });
+    input.write("n\n");
+    expect(await pending).toEqual({ kind: "answered", value: "n" });
+    const written = plain(output);
+    expect(written).toContain(`${GLYPHS.success} Name › n`);
+    expect(written).not.toContain(`${GLYPHS.neutral} Name`);
   });
 });
 
