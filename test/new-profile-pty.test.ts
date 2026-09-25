@@ -16,7 +16,7 @@ import { join } from "node:path";
 import { createContextModule } from "../installer/create-context-module.js";
 import { createSkill } from "../installer/create-skill.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
-import { startPtySession } from "./support/pty-session.js";
+import { startPtySession, plain } from "./support/pty-session.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -121,6 +121,19 @@ describe("guided Profile creation under a real PTY (TEST-002)", () => {
       await session.waitForTranscript("Change it later with apkit configure profile engineering.");
       await session.waitForTranscript("Next: apkit install engineering (run it inside a Project folder)");
       await session.waitForTranscript("RESULT exitCode=0");
+
+      // US-001/DEC-002 (#693): a settled answer is separated from the next
+      // explanation or receipt by one blank line, at 100 columns.
+      const screen = plain(session.transcript()).replace(/\r/g, "");
+      expect(screen).toContain(
+        "✔ Name › engineering\n\nContext is loaded",
+      );
+      expect(screen).toContain(
+        "✔ Context › team-rules\n\nAgents load Skills",
+      );
+      expect(screen).toContain(
+        "✔ Skills › review-pr\n\n✔ Created the engineering Profile",
+      );
     } finally {
       await session.close();
     }
@@ -130,6 +143,43 @@ describe("guided Profile creation under a real PTY (TEST-002)", () => {
     const content = readFileSync(profileFile, "utf8");
     expect(content).toContain("team-rules");
     expect(content).toContain("review-pr");
+  });
+
+  test("Screens P3-P5: settled answers are separated from the next explanation or receipt at 60 columns (US-001, DEC-002, #693)", async () => {
+    const home = await setupHomeWithMaterial();
+    const session = await startPtySession(["new", home, "profile"], 60);
+    temporaryDirectories.push(session.runDirectory);
+    try {
+      await session.waitForTranscript("Name your Profile");
+      const nameOffset = session.transcriptLength();
+      session.write("engineering\r");
+
+      await session.waitForTranscript("✔ Name › engineering", { after: nameOffset });
+      const contextOffset = session.transcriptLength();
+      session.write(" ");
+      await session.waitForTranscript("1 selected", { after: contextOffset });
+      const contextEnterOffset = session.transcriptLength();
+      session.write("\r");
+
+      await session.waitForTranscript("✔ Context › team-rules", { after: contextEnterOffset });
+      const skillOffset = session.transcriptLength();
+      session.write(" ");
+      await session.waitForTranscript("1 selected", { after: skillOffset });
+      const skillEnterOffset = session.transcriptLength();
+      session.write("\r");
+
+      await session.waitForTranscript("✔ Skills › review-pr", { after: skillEnterOffset });
+      await session.waitForTranscript("Next: apkit install engineering");
+      await session.waitForTranscript("RESULT exitCode=0");
+
+      // The same one-blank-line rule at 60 columns, where the notes wrap.
+      const screen = plain(session.transcript()).replace(/\r/g, "");
+      expect(screen).toContain("✔ Name › engineering\n\nContext is loaded");
+      expect(screen).toContain("✔ Context › team-rules\n\nAgents load Skills");
+      expect(screen).toContain("✔ Skills › review-pr\n\n✔ Created the engineering Profile");
+    } finally {
+      await session.close();
+    }
   });
 
   test("cancellation with Ctrl-C writes nothing and exits 1", async () => {

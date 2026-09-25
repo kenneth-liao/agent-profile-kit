@@ -194,6 +194,15 @@ export interface ReconciliationWarning {
    * from this fact, never from rendered copy. Machine JSON never publishes it.
    */
   readonly reason?: "missing-executable" | "version-floor";
+  /**
+   * Typed Repository Exclusion bookkeeping fact (spec #693): this warning is
+   * the exclusion clause's bookkeeping notice, never a warning the run leaves
+   * the user with. Tagged where the notice is created (`installer/
+   * git-exclusions.ts`); the one user-visible-warning reader decides from
+   * this fact, never from rendered copy. Machine JSON never publishes it —
+   * the raw message stays in `parts`.
+   */
+  readonly exclusionBookkeeping?: true;
   readonly parts: readonly InlineContent[];
   /**
    * Typed presentation facts for capability warnings (US-011). JSON keeps
@@ -1002,6 +1011,7 @@ function nestedReconciliationReport(
           copyableValues: [...warning.targets],
           kind: "diagnostic",
           parts: warning.parts,
+          ...(warning.exclusionBookkeeping === true ? { exclusionBookkeeping: true } : {}),
         });
       }
       warningsByCanonical.set(key, warnings);

@@ -1341,6 +1341,43 @@ export function writeHumanDocument(
   context: TerminalPresentationContext,
   options: PresentationRenderOptions = {},
 ): void {
+  flushSettledAnswers();
   const rendered = renderPresentationDocument(document, context, options);
   stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
+}
+
+/**
+ * The one open settled-answer run (US-001, DEC-002, spec #693): the stream a
+ * settled answer last opened its screen part on. One interactive command owns
+ * one human stream at a time, so the rule keeps its state here — in the shared
+ * writer — and no command writes blank lines of its own.
+ */
+let settledAnswerStream: Writable | undefined;
+
+/**
+ * Write one settled answer as the shared writer's screen part (US-001,
+ * DEC-002): a run of consecutive settled answers is one part — never split by
+ * a blank line — and a fresh part is preceded by the blank line that separates
+ * it from the previous output. The prompt seam renders the line; this writer
+ * owns only the part grouping.
+ */
+export function writeSettledAnswer(stream: Writable, line: string): void {
+  if (settledAnswerStream !== undefined && settledAnswerStream !== stream) {
+    flushSettledAnswers();
+  }
+  const continuing = settledAnswerStream === stream;
+  settledAnswerStream = stream;
+  stream.write(continuing ? `${line}\n` : `\n${line}\n`);
+}
+
+/**
+ * Close the open settled-answer run with the one blank line that separates it
+ * from the next human write. Only the shared human boundary calls this, so
+ * machine JSON and every other stream stay byte-identical.
+ */
+function flushSettledAnswers(): void {
+  if (settledAnswerStream === undefined) return;
+  const stream = settledAnswerStream;
+  settledAnswerStream = undefined;
+  stream.write("\n");
 }

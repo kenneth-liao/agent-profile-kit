@@ -29,6 +29,8 @@ import {
   pathPart,
   renderPresentationDocument,
   stateHeadline,
+  writeHumanDocument,
+  writeSettledAnswer,
 } from "../cli/presentation-document.js";
 
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -863,6 +865,85 @@ test("neutralStatementDocument is one statement without an apkit: prefix", () =>
   expect(plain).toBe("● Cancelled. Nothing was changed.");
   expect(plain).not.toContain("apkit:");
   expect(document).toHaveLength(1);
+});
+
+/** One collecting sink, as the write-boundary tests read it. */
+class Sink extends Writable {
+  readonly chunks: Buffer[] = [];
+  isTTY?: boolean;
+  override _write(chunk: Buffer, _encoding: string, callback: () => void): void {
+    this.chunks.push(chunk);
+    callback();
+  }
+  text(): string {
+    return Buffer.concat(this.chunks).toString();
+  }
+}
+
+function sink(): Sink {
+  return new Sink();
+}
+
+test("a settled-answer run is one screen part with one blank line after it (US-001, DEC-002, #693)", () => {
+  const stream = sink();
+  const context = terminalPresentationContext(stream);
+
+  // A fresh settled part carries its line after the blank line that separates
+  // it from the previous output (the prompt seam's settled line).
+  writeSettledAnswer(stream, "✔ Name › engineering");
+  expect(stream.text()).toBe("\n✔ Name › engineering\n");
+
+  // Consecutive settled answers stay together as one part: never a blank
+  // line between them.
+  writeSettledAnswer(stream, "✔ Context › team");
+  expect(stream.text()).toBe("\n✔ Name › engineering\n✔ Context › team\n");
+
+  // The next explanation is a separate part: exactly one blank line between
+  // the settled run and it, and the run closes there.
+  writeHumanDocument(
+    stream,
+    [{ kind: "prose", parts: ["Context is loaded in every agent session that uses this Profile."] }],
+    context,
+  );
+  expect(stream.text()).toBe(
+    "\n✔ Name › engineering\n✔ Context › team\n" +
+      "\nContext is loaded in every agent session that uses this Profile.\n",
+  );
+
+  // A settled answer after that write opens a fresh part again.
+  writeSettledAnswer(stream, "✔ Skills › review-pr");
+  writeHumanDocument(
+    stream,
+    [stateHeadline(["Created the engineering Profile"], "success")],
+    context,
+  );
+  expect(stream.text()).toBe(
+    "\n✔ Name › engineering\n✔ Context › team\n" +
+      "\nContext is loaded in every agent session that uses this Profile.\n" +
+      "\n✔ Skills › review-pr\n" +
+      "\n✔ Created the engineering Profile\n",
+  );
+});
+
+test("redirected human output and machine JSON are unaffected by the settled-answer rule (#693)", () => {
+  const human = sink();
+  const context = terminalPresentationContext(human);
+
+  // With no settled answer written, the one human boundary keeps its exact
+  // bytes: the rendered document and one terminating newline, with
+  // consecutive writes still adjacent (no invented blank line).
+  writeHumanDocument(human, [{ kind: "prose", parts: ["One."] }], context);
+  writeHumanDocument(human, [{ kind: "prose", parts: ["Two."] }], context);
+  expect(human.text()).toBe("One.\nTwo.\n");
+
+  // A machine-JSON write beside an open settled run is byte-identical: the
+  // run's one trailing blank line reaches only the human stream it belongs to.
+  const machine = sink();
+  writeSettledAnswer(human, "✔ Name › engineering");
+  machine.write('{"schemaVersion":1,"outcome":"success"}\n');
+  writeHumanDocument(human, [{ kind: "prose", parts: ["Receipt."] }], context);
+  expect(machine.text()).toBe('{"schemaVersion":1,"outcome":"success"}\n');
+  expect(human.text()).toBe("One.\nTwo.\n\n✔ Name › engineering\n\nReceipt.\n");
 });
 
 test("the details-route rule is decided from recorded facts only (US-008, DEC-007, D4)", () => {

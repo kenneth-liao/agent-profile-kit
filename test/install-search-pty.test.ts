@@ -179,6 +179,11 @@ describe("guided install under a real PTY", () => {
       expect(settled).toContain("✔ Agents › codex");
       expect(settled).not.toContain("Which Profile? ›");
       expect(settled).not.toContain("Which agents? ›");
+      // US-001/DEC-002 (#693): a settled answer is separated from the next
+      // explanation by one blank line, at 60 columns.
+      expect(plain(session.transcript()).replace(/\r/g, "")).toContain(
+        "✔ Profile › coding\n\nPick the agents",
+      );
     } finally {
       await session.close();
     }
