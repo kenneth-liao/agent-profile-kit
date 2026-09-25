@@ -115,13 +115,13 @@ explicit commands that change it:
 
 ```
 $ apkit
-Agent Profile Kit is not set up on this machine.
+⚠ Agent Profile Kit is not set up on this machine.
 
 Your Workspace folder holds your Context, Skills, and Profiles. You only need
-one Workspace for all of your Projects.
+  one Workspace for all of your Projects.
 
 Start by naming the folder that will hold the Workspace. The second command
-uses the current folder instead.
+  uses the current folder instead.
 
 Next:
 - apkit init <path>
@@ -136,21 +136,31 @@ the settled count, followed by a short task-relevant command list:
 ```
 $ apkit
 - needs attention (1)
+- generated files changed (1)
+- generated files missing (1)
 - not installed yet (1)
-- settled (4)
+- source changed (1)
+- settled (1)
 
 Common next steps:
+
   apkit status
+
     Show the complete read-only update plan for the complete fleet, the
       containing Project, or one explicit Project
+
   apkit update
+
     Sync the complete fleet, the containing Project, or one explicit Project
+
   apkit install
-    Install a Profile with agents into a Project and remember the
-      selection
+
+    Install a Profile with agents into a Project and remember the selection
+
   apkit guide
-    Show a topic index, full Workspace guidance, or one focused authoring
-      example
+
+    Show a topic index, the Workspace contract, full Workspace guidance, or
+      one focused authoring example
 
 Run apkit --help for the full command list.
 ```
@@ -237,12 +247,11 @@ choices and a near-match suggestion instead of an empty view:
 ```
 $ apkit list profiles example
 Profile 'example':
-  Context Modules: example-context
-  Skills: (none)
+Context Modules: example-context
+Skills: (none)
 
 Use apkit configure profile example to change its membership, or
-  apkit install example --agent <agent>
-  to select it for a Project.
+  apkit install example --agent <agent> to select it for a Project.
 ```
 
 Temporary-install eligibility remains available in focused `machine
@@ -260,19 +269,18 @@ Project lifecycle diagnostic.
 
 ```
 $ apkit init ~/apkit-workspace
-Created your Workspace at
-  ~/apkit-workspace
+✔ Created your Workspace at ~/apkit-workspace
 
 Profiles group Context and Skills for one kind of work. You can reuse them
-across Projects.
+  across Projects.
 
 Skills are the skills you already use (open standard). Drop skill folders into
-~/apkit-workspace/skills/ to use them in a Profile.
+  ~/apkit-workspace/skills/ to use them in a Profile.
 
 Context is plain Markdown in ~/apkit-workspace/context/. Every agent session
-loads the Context in its Profile.
+  loads the Context in its Profile.
 
-Agents found: claude, codex, opencode
+Agents found: antigravity, claude, codex, grok, opencode, pi
 
 Next:
 - apkit new profile (create your first Profile, step by step)
@@ -343,7 +351,7 @@ receipt never recommends `apkit validate`.
 
 ```
 $ apkit guide
-# Agent Profile Kit guide
+Agent Profile Kit guide
 
 Choose a focused authoring topic, read the Workspace contract, the complete
   human guide, or the agent workflow reference.
@@ -358,8 +366,8 @@ Topics:
       without `.md`, and apkit reads no frontmatter.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
-      frontmatter `name`, and its description tells an Agent Host when the
-      workflow applies.
+      frontmatter `name`, and its description tells an agent when the workflow
+      applies.
 
 Complete references:
   apkit guide --contract
@@ -385,7 +393,7 @@ anything there (US-048, DEC-028, US-016, #509):
 
 ```
 $ apkit guide profile
-# Profile
+Profile
 
 A Profile selects reusable material for a kind of work through its context and
   skills lists.
@@ -396,13 +404,23 @@ Create its Context Module, then the Profile selecting it:
   apkit new context <context>
   apkit new profile <profile> --context <context>
 
-An example `profiles/example.yaml`:
-…
+An example profiles/example.yaml:
 
-Next: from the project you want to try, run `apkit install example --agent codex`.
+context:
+  - "example-context"
+skills: []
 
-For the Workspace contract, run `apkit guide --contract`; for complete
-authoring guidance, run `apkit guide --full`.
+
+An example context/example-context.md:
+
+Keep project-specific instructions in the project repository.
+
+
+Next: from the project you want to try, run
+  apkit install example --agent codex
+
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 ```
 
 Long interactive guidance is paged through the configured pager, while
@@ -417,23 +435,26 @@ prompting or opening an editor (US-042–046, DEC-026):
 
 ```
 $ apkit new skill deploy-helper
-Created Skill deploy-helper at
-  <workspace>/skills/deploy-helper/SKILL.md
+✔ Created Skill deploy-helper at
+  ~/apkit-workspace/skills/deploy-helper/SKILL.md
+
 Next: select it into a Profile with apkit configure profile
 
 $ apkit new context review-standards
-Created Context Module review-standards at
-  <workspace>/context/review-standards.md
-Next: select it into a Profile with apkit configure profile
+✔ Created ~/apkit-workspace/context/review-standards.md
+
+Open it and write the rules every agent session should follow.
+
+Next: apkit new profile (make a Profile that uses it)
 
 $ apkit new profile release --context review-standards --skill deploy-helper
-Created Profile release at
-  <workspace>/profiles/release.yaml
+✔ Created the release Profile
   Context: review-standards
   Skills: deploy-helper
-Available Context Modules: example-context, review-standards
-Available Skills: deploy-helper
-Next: from the project you want to try, run apkit install release
+
+Change it later with apkit configure profile release.
+
+Next: apkit install release (run it inside a Project folder)
 ```
 
 Profile creation resolves every selected name through the Workspace boundary:
@@ -573,16 +594,18 @@ and failed output points to the Workspace contract:
 
 ```
 $ apkit validate
-apkit: Workspace is invalid at ~/apkit-workspace; 2 violations found:
+✖ Workspace is invalid at ~/apkit-workspace; 2 violations found:
+- Skill sidecar skills/old-flow/agent-profile-kit.yaml is no longer read. List
+  the needed Context Modules and Skills in a Profile's 'context' and 'skills'
+  lists, then delete the file; version control can recover it if you need the
+  old list.
 - Profile 'broken' in profiles/broken.yaml selects missing Context Module
-  'team-rulez'. Available Context Modules: example-context,
-  review-standards. Restore the Context Module, or remove or update Profile
-  'broken'. Correct profiles/broken.yaml, then run apkit validate.
-- Skill skills/old-flow/agent-profile-kit.yaml is no longer read. List the
-  needed Context Modules and Skills in a Profile's 'context' and 'skills'
-  lists, then delete the file.
+  'team-rulez'. Available Context Modules: review-standards. Restore the Context
+  Module, or remove or update Profile 'broken'. Correct profiles/broken.yaml,
+  then run apkit validate.
+
 The Workspace contract states every rule Workspace validation enforces; run
-apkit guide --contract to read it.
+  apkit guide --contract to read it.
 ```
 
 `validate --json <path>` publishes the same violations as the human report:
@@ -613,30 +636,34 @@ inventory:
 ```
 $ apkit status
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
-Project   Status
-<project> needs attention
-<project> generated files changed
-<project> generated files missing
-<project> not installed yet
-<project> source changed
-<project> up to date
+Project    Status
+attention  needs attention
+changed    generated files changed
+missing    generated files missing
+pending    not installed yet
+stale      source changed
+ok         up to date
 
-<project>:
-  Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
-    by Git, so Agent Profile Kit cannot write to them.
+attention:
+  ✖ Blocker: .agent-profile-kit/codex/context.md and 2 more files are tracked by
+    Git, so Agent Profile Kit cannot write to them.
     Requirement: Agent Profile Kit must exclusively manage its generated
       files; Git-tracked paths cannot be replaced.
     Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
-      — it stages their removal from the Git index while the files stay on
-      disk; commit afterwards to keep the change — then run
-      apkit update '<project>'.
-      To keep Git ownership instead, leave the files in place.
-    Affected paths (2):
+      git --literal-pathspecs -C ~/proj/attention rm -r --cached -- '.agent-profile-kit/codex/context.md' '.agents/skills/deploy-helper' '.codex/hooks.json'
+      — it stages their removal from the Git index while the files stay on disk;
+      commit afterwards to keep the change — then run
+      apkit update ~/proj/attention. To keep Git ownership instead, leave the
+      files in place.
+    Affected paths (3):
       - .agent-profile-kit/codex/context.md
+      - .agents/skills/deploy-helper
       - .codex/hooks.json
+
+✖ Projects: 6 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run apkit status again.
@@ -650,11 +677,12 @@ compact decision:
 ```
 $ apkit status
 ⚠ Ready to update
+
 Workspace: ~/apkit-workspace
 
-Project   Status
-<project> not installed yet
-<project> up to date
+Project  Status
+other    not installed yet
+demo     up to date
 
 Next: apkit update (bring your Projects up to date)
 Details: apkit status --verbose
@@ -689,11 +717,14 @@ runnable path.
 
 ```
 $ apkit status --stale
-Ready to update
-- generated files missing (1): <project>
-- source changed (1): <project>
-Next: apkit update --stale
+⚠ Ready to update
 
+Workspace: ~/apkit-workspace
+
+Project  Status
+alpha    generated files missing
+
+Next: apkit update --stale (bring your Projects up to date)
 Details: apkit status --stale --verbose
 ```
 
@@ -709,10 +740,12 @@ Scope errors remain forks in the road rather than walls (US-024, DEC-016):
 
 ```
 $ apkit status --here
-apkit: directory '/private/tmp' is not configured as a Project
+✖ Directory ~/scratch is not configured as a Project
+
 Run apkit install to configure this directory as a Project.
-Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Run apkit list projects to see configured Projects.
+
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 ```
 
 An uninitialized machine is told plainly and given the explicit
@@ -721,7 +754,8 @@ initialization command; configuration paths do not lead the explanation
 
 ```
 $ apkit status
-apkit: Agent Profile Kit is not set up on this machine
+✖ Agent Profile Kit is not set up on this machine
+
 Run apkit init <path> to set up a Workspace in the folder you name, or
   apkit init . to use the current folder.
 ```
@@ -1113,34 +1147,38 @@ A side journey for automation or one-off inspection, owned by a temporary
 installation receipt rather than a Project Binding (ADR-0015):
 
 ```
-$ apkit machine install-temp example <project> --host codex
-Installed temporary Profile
+$ apkit machine install-temp example ~/proj/alpha --host codex
+✔ Installed temporary Profile
   Profile: example
   Host: codex
-  Project: <project>
+  Project: alpha
   Temporary installation: <temporary-installation-id>
+
 Codex setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
-- Launch Codex from the exact bound project root: <project>
-  Consequence: Launching from a descendant prevents Profile Context from
-    loading.
+
 Next: apkit machine remove-temp <temporary-installation-id>
 
 $ apkit machine list temporary
 Temporary Profiles (1):
 
 Temporary installation: <temporary-installation-id>
-  Project: <project>
+
+  Project: alpha
+
   Profile: example
+
   Host: codex
 
+Use apkit machine remove-temp <temporary-installation-id> to remove one.
+
 $ apkit machine remove-temp <temporary-installation-id>
-Removed temporary Profile
+✔ Removed temporary Profile
   Temporary installation: <temporary-installation-id>
-  Project: <project>
+  Project: alpha
 ```
 
 The temporary identity survives on the receipt and in `machine list
