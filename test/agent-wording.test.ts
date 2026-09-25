@@ -15,6 +15,8 @@ import {
   formatHostInventoryJson,
   inventoryIndexDocument,
   validationResultDocument,
+  uninstallInteractiveCommandsDocument,
+  formatUninstallJson,
 } from "../cli/presentation.js";
 import { commandHelpDocument, defaultCommands } from "../cli/command-help.js";
 import { flatInlineText, renderPresentationDocument } from "../cli/presentation-document.js";
@@ -283,6 +285,42 @@ describe("issue #673 agent wording & flag changes", () => {
       expect(applyNewcomerSubstitutions("the Hosts: [codex]")).toBe("the agents: [codex]");
     });
 
+    test("the newcomer Host substitution never rewrites a path segment or a quoted path (#700, OOS-004)", () => {
+      // OOS-004 keeps raw recovery facts unchanged. A path segment named
+      // `Host` (or a Project named `Host`) is a raw fact, so the substitution
+      // skips the word when it sits next to a path separator or inside quotes.
+      expect(applyNewcomerSubstitutions("/tmp/Host/file")).toBe("/tmp/Host/file");
+      expect(applyNewcomerSubstitutions("/tmp/Host")).toBe("/tmp/Host");
+      expect(applyNewcomerSubstitutions("Host/file")).toBe("Host/file");
+      expect(applyNewcomerSubstitutions("'/tmp/Host/file'")).toBe("'/tmp/Host/file'");
+      expect(applyNewcomerSubstitutions(`"/tmp/Host/file"`)).toBe(`"/tmp/Host/file"`);
+      expect(applyNewcomerSubstitutions("apkit uninstall --project 'Host'"))
+        .toBe("apkit uninstall --project 'Host'");
+      expect(applyNewcomerSubstitutions("The folder /tmp/Host doesn't exist."))
+        .toBe("The folder /tmp/Host doesn't exist.");
+      // Prose still rewrites.
+      expect(applyNewcomerSubstitutions("surviving Host output")).toBe("surviving agent output");
+    });
+
+    test("the interactive uninstall stop path renders without 'Host' (#700, INT-2)", () => {
+      // The interactive uninstall stop path (`uninstall stopped at …`) and
+      // the interactive `formatError` happened sites route through the same
+      // newcomer substitution as the non-interactive recovery screen, so a
+      // surviving-Host detail never leaks `Host` to a user.
+      const document = uninstallInteractiveCommandsDocument({
+        happened: [
+          "uninstall stopped at /proj: surviving Host output '/tmp/x/SKILL.md' is occupied by unowned content",
+        ],
+        intro: "After resolving the cause, retry the same scope (one command per Project):",
+        commands: [[{ kind: "text" as const, value: "uninstall" }]],
+      });
+      const rendered = renderPresentationDocument(document, defaultRenderContext);
+      expect(rendered).not.toMatch(/\bHosts?\b/);
+      expect(rendered).toContain("surviving agent output");
+      // The raw path fact survives (OOS-004).
+      expect(rendered).toContain("/tmp/x/SKILL.md");
+    });
+
     test("runtime capability remedies say 'agent', never 'Host' (#700, gap 3)", () => {
       // The Adapter capability remedies are authored at the Adapter boundary
       // and render as `Remedy:` lines on public commands. Every human remedy
@@ -371,6 +409,37 @@ describe("issue #673 agent wording & flag changes", () => {
       // Raw recovery facts survive the substitution untouched (OOS-004).
       expect(rendered).toContain("/home/user/proj/alpha/.agents/skills/x/SKILL.md");
       expect(rendered).toContain("EACCES");
+    });
+
+    test("the surviving-agents uninstall machine JSON keeps the raw Host strings (#700, PROD-1)", () => {
+      // DEC-004: the machine JSON for a surviving-agents uninstall failure
+      // stays byte-identical — `skipped[].reason` and `failed.detail` keep the
+      // authored `Host` wording even though the human rendering says "agent".
+      const json = formatUninstallJson({
+        completed: [],
+        skipped: [
+          {
+            project: "/proj",
+            profile: "coding",
+            reason:
+              "cannot plan the surviving Hosts without the Workspace (unavailable); " +
+              "fix the Workspace selection or remove the whole installation instead",
+          },
+        ],
+        failed: {
+          project: "/proj",
+          profile: "coding",
+          detail:
+            "surviving Host output '/proj/.agents/skills/x/SKILL.md' is occupied by " +
+            "content written after the review; re-run uninstall to review the current state",
+          selectionRestored: true,
+          concurrentSelectionChange: false,
+        },
+        unattempted: [],
+        warnings: [],
+      });
+      expect(json).toContain("cannot plan the surviving Hosts");
+      expect(json).toContain("surviving Host output");
     });
   });
 });

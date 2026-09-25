@@ -2030,8 +2030,13 @@ export function uninstallInteractiveCommandsDocument(input: {
   readonly commands: readonly (readonly CommandArg[])[];
   readonly severity?: NoticeSeverity;
 }): PresentationDocument {
+  // The interactive stop paths carry installer `detail` and `formatError`
+  // prose through `happened`; route them through the same newcomer
+  // substitution as the non-interactive recovery screen (#700, INT-2) so a
+  // surviving-Host detail never leaks `Host`. `why` stays as authored: it
+  // names raw recovery facts (project paths) that OOS-004 keeps unchanged.
   return diagnosticDocument({
-    happened: [...input.happened],
+    happened: input.happened.map(applyNewcomerSubstitutions),
     ...(input.why === undefined ? {} : { why: [...input.why] }),
     whatToType: [
       [input.intro],

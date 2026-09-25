@@ -2499,6 +2499,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const missing = join(home, "no-such-project");
     const configBefore = readFileSync(configPath(home), "utf8");
 
+    // The positional form (screen 09, #700, INT-1).
     const failed = await runCli(home, "install", "coding", missing, "--agent", "codex", "--auto-confirm");
 
     expectExitCode(failed, 1);
@@ -2515,6 +2516,26 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // What to type: the shared creation remedy for a prospective target.
     expect(failed.stderr).toContain("Create it first, or pick a folder that exists.");
     // AC-3: invalid targets cause no lifecycle writes.
+    expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
+
+    // The `--project` form reads the same two lines (#700, INT-1).
+    const failedProjectFlag = await runCli(
+      home,
+      "install",
+      "coding",
+      "--project",
+      missing,
+      "--agent",
+      "codex",
+      "--auto-confirm",
+    );
+    expectExitCode(failedProjectFlag, 1);
+    expect(humanText(failedProjectFlag.stderr)).toBe(
+      humanText(
+        `✖ The folder ${missing} doesn't exist.\n` +
+          "Create it first, or pick a folder that exists.",
+      ),
+    );
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
   });
 

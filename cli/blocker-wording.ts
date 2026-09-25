@@ -901,14 +901,16 @@ export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
     // "Host" (US-002, DEC-003, #700): word-bounded so `localhost`,
     // `hostname`, `--host` and the frozen `hosts:` key stay untouched, and
     // case-correct so a sentence-initial "Host" becomes "Agent" while
-    // mid-sentence "Host(s)" becomes "agent(s)".
+    // mid-sentence "Host(s)" becomes "agent(s)". Path-segment safe (OOS-004):
+    // a `Host` word next to a path separator or inside quotes is a raw path
+    // fact and is never rewritten.
     replacement: (match: string, offset: number, source: string) => {
       const before = source.slice(0, offset);
       const sentenceStart = before === "" || /[.!?]\s+$/.test(before);
       if (match === "Hosts") return sentenceStart ? "Agents" : "agents";
       return sentenceStart ? "Agent" : "agent";
     },
-    term: /\bHosts?\b/g,
+    term: /(?<!['"\/\\])\bHosts?\b(?![\/\\'"])/g,
   },
 ];
 
