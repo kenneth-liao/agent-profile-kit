@@ -8952,7 +8952,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(
       /(?:does not manage|not Agent Profile Kit[-–]owned).{0,80}global|user-managed native global/i,
     );
-    expect(result.stdout).toMatch(/Host Resolution/i);
+    expect(result.stdout).toMatch(/agent resolution/i);
     expect(result.stdout).toMatch(/Output Ownership Conflict/i);
     for (const command of ["validate", "status", "update", "uninstall"]) {
       expect(result.stdout).toContain(`apkit ${command}`);
@@ -8994,10 +8994,11 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).toMatch(
       /(?:not APK-owned|outside Project Bindings).{0,80}Installation Receipt/is,
     );
+    // Terminal prose wraps: the guide renders through the sentence policy (#510).
     expect(result.stdout).toMatch(
-      /never adopt, record as managed output, or mutate those paths/i,
+      /never adopt, record as managed output, or mutate those\s+paths/i,
     );
-    expect(result.stdout).toMatch(/Host Resolution/i);
+    expect(result.stdout).toMatch(/agent resolution/i);
 
     // Bindings select Profile/Hosts; artifacts enter receipts and the managed lifecycle.
     expect(result.stdout).toMatch(

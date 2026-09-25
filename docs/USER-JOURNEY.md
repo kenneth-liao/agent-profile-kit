@@ -75,7 +75,7 @@ than duplicating it.
 | 5 | Install | `install <profile> [project] --agent <agent> [--project <path>] [--auto-confirm] [--replace-changed] [--remove-changed] [--json]` | One Project installed with one Profile and its agents in a single action: the selection is recorded and the generated output installed and verified together, after an interactive confirmation; installing a different selection for the same Project replaces it in the same action |
 | 6 | Verify | `validate` | Confidence that Workspace and configuration are well-formed, with invalid references explained down to the offending file and available names |
 | 7 | Plan | `status [project \| --here \| --all] [--stale \| --blocked] [--verbose] [--json]` | The complete read-only update plan for the selected scope, grouped by primary cause, with settled work counted, Blockers as rows in the same frame, and exactly the selected Projects named |
-| 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the retained-evidence route, and on an interactive terminal a confirmation before any changed generated file is replaced |
+| 8 | Update | `update [project \| --here \| --all] [--stale \| --blocked] [--replace-changed] [--verbose] [--json]` | Generated output for the selected Projects, one outcome-first receipt of the committed work with the details route when the run went wrong (US-008, DEC-007), and on an interactive terminal a confirmation before any changed generated file is replaced |
 | 9 | Use | *(launch Antigravity/Codex/Claude/Grok/OpenCode/Pi)* | Material loads through native agent discovery, and a first installation or agent addition states one short optional Project-local check for the agents whose delivery began (ADR-0043) |
 | 10 | Re-sync | `status` → `update` (optionally narrowed) | Notice Workspace drift, resolve predictable blockers, and reconcile the intended Project scope with unchanged unselected Projects |
 | 11 | Recover | `status`, `update`, `uninstall`, `details` | Get unstuck from drifted, missing, or blocked state through printed runnable remedies, and retrieve a retained operation's complete evidence |
@@ -115,13 +115,13 @@ explicit commands that change it:
 
 ```
 $ apkit
-Agent Profile Kit is not set up on this machine.
+⚠ Agent Profile Kit is not set up on this machine.
 
 Your Workspace folder holds your Context, Skills, and Profiles. You only need
-one Workspace for all of your Projects.
+  one Workspace for all of your Projects.
 
 Start by naming the folder that will hold the Workspace. The second command
-uses the current folder instead.
+  uses the current folder instead.
 
 Next:
 - apkit init <path>
@@ -136,21 +136,31 @@ the settled count, followed by a short task-relevant command list:
 ```
 $ apkit
 - needs attention (1)
+- generated files changed (1)
+- generated files missing (1)
 - not installed yet (1)
-- settled (4)
+- source changed (1)
+- settled (1)
 
 Common next steps:
+
   apkit status
+
     Show the complete read-only update plan for the complete fleet, the
       containing Project, or one explicit Project
+
   apkit update
+
     Sync the complete fleet, the containing Project, or one explicit Project
+
   apkit install
-    Install a Profile with agents into a Project and remember the
-      selection
+
+    Install a Profile with agents into a Project and remember the selection
+
   apkit guide
-    Show a topic index, full Workspace guidance, or one focused authoring
-      example
+
+    Show a topic index, the Workspace contract, full Workspace guidance, or
+      one focused authoring example
 
 Run apkit --help for the full command list.
 ```
@@ -237,12 +247,11 @@ choices and a near-match suggestion instead of an empty view:
 ```
 $ apkit list profiles example
 Profile 'example':
-  Context Modules: example-context
-  Skills: (none)
+Context Modules: example-context
+Skills: (none)
 
 Use apkit configure profile example to change its membership, or
-  apkit install example --agent <agent>
-  to select it for a Project.
+  apkit install example --agent <agent> to select it for a Project.
 ```
 
 Temporary-install eligibility remains available in focused `machine
@@ -260,19 +269,18 @@ Project lifecycle diagnostic.
 
 ```
 $ apkit init ~/apkit-workspace
-Created your Workspace at
-  ~/apkit-workspace
+✔ Created your Workspace at ~/apkit-workspace
 
 Profiles group Context and Skills for one kind of work. You can reuse them
-across Projects.
+  across Projects.
 
 Skills are the skills you already use (open standard). Drop skill folders into
-~/apkit-workspace/skills/ to use them in a Profile.
+  ~/apkit-workspace/skills/ to use them in a Profile.
 
 Context is plain Markdown in ~/apkit-workspace/context/. Every agent session
-loads the Context in its Profile.
+  loads the Context in its Profile.
 
-Agents found: claude, codex, opencode
+Agents found: antigravity, claude, codex, grok, opencode, pi
 
 Next:
 - apkit new profile (create your first Profile, step by step)
@@ -343,7 +351,7 @@ receipt never recommends `apkit validate`.
 
 ```
 $ apkit guide
-# Agent Profile Kit guide
+Agent Profile Kit guide
 
 Choose a focused authoring topic, read the Workspace contract, the complete
   human guide, or the agent workflow reference.
@@ -358,8 +366,8 @@ Topics:
       without `.md`, and apkit reads no frontmatter.
   apkit guide skill
     Skill: A Skill is a reusable workflow package. Profiles select it by its
-      frontmatter `name`, and its description tells an Agent Host when the
-      workflow applies.
+      frontmatter `name`, and its description tells an agent when the workflow
+      applies.
 
 Complete references:
   apkit guide --contract
@@ -385,7 +393,7 @@ anything there (US-048, DEC-028, US-016, #509):
 
 ```
 $ apkit guide profile
-# Profile
+Profile
 
 A Profile selects reusable material for a kind of work through its context and
   skills lists.
@@ -396,13 +404,23 @@ Create its Context Module, then the Profile selecting it:
   apkit new context <context>
   apkit new profile <profile> --context <context>
 
-An example `profiles/example.yaml`:
-…
+An example profiles/example.yaml:
 
-Next: from the project you want to try, run `apkit install example --agent codex`.
+context:
+  - "example-context"
+skills: []
 
-For the Workspace contract, run `apkit guide --contract`; for complete
-authoring guidance, run `apkit guide --full`.
+
+An example context/example-context.md:
+
+Keep project-specific instructions in the project repository.
+
+
+Next: from the project you want to try, run
+  apkit install example --agent codex
+
+For the Workspace contract, run apkit guide --contract; for complete authoring
+  guidance, run apkit guide --full.
 ```
 
 Long interactive guidance is paged through the configured pager, while
@@ -417,23 +435,26 @@ prompting or opening an editor (US-042–046, DEC-026):
 
 ```
 $ apkit new skill deploy-helper
-Created Skill deploy-helper at
-  <workspace>/skills/deploy-helper/SKILL.md
+✔ Created Skill deploy-helper at
+  /Users/you/apkit-workspace/skills/deploy-helper/SKILL.md
+
 Next: select it into a Profile with apkit configure profile
 
 $ apkit new context review-standards
-Created Context Module review-standards at
-  <workspace>/context/review-standards.md
-Next: select it into a Profile with apkit configure profile
+✔ Created ~/apkit-workspace/context/review-standards.md
+
+Open it and write the rules every agent session should follow.
+
+Next: apkit new profile (make a Profile that uses it)
 
 $ apkit new profile release --context review-standards --skill deploy-helper
-Created Profile release at
-  <workspace>/profiles/release.yaml
+✔ Created the release Profile
   Context: review-standards
   Skills: deploy-helper
-Available Context Modules: example-context, review-standards
-Available Skills: deploy-helper
-Next: from the project you want to try, run apkit install release
+
+Change it later with apkit configure profile release.
+
+Next: apkit install release (run it inside a Project folder)
 ```
 
 Profile creation resolves every selected name through the Workspace boundary:
@@ -459,9 +480,9 @@ side effect.
 ### 5. Install
 
 ```
-$ apkit install example <project> --agent codex --auto-confirm
+$ apkit install example ~/proj/alpha --agent codex --auto-confirm
 ✔ Installed the example Profile
-  Project: <project>
+  Project: ~/proj/alpha
   Agents: codex
 
 Before your agents can load it:
@@ -469,24 +490,25 @@ Before your agents can load it:
 - Codex: Review and approve the generated SessionStart hook when Codex asks;
   Trust the bound project in Codex.
 
-Try it: start a new Codex session in <project> and ask what Profile material
-  it loaded.
+Try it: start a new Codex session in ~/proj/alpha and ask what Profile
+  material it loaded.
 
 Next: apkit status (see installed Profiles and whether they're up to date)
-Details: apkit details
 ```
 
 ```
-$ apkit install example <project> --agent codex --agent claude --auto-confirm
-Replaced installation for <project>
+$ apkit install example ~/proj/alpha --agent codex --agent claude --auto-confirm
+✔ Replaced installation for ~/proj/alpha
   Profile: example
   Agents: codex → claude, codex
 
-Try it: start a new Claude session in <project> and ask what Profile material
-  it loaded.
+Before your agents can load it:
+- Start your agents from this Project folder, not a subfolder.
+
+Try it: start a new Claude session in ~/proj/alpha and ask what Profile
+  material it loaded.
 
 Next: apkit status (see installed Profiles and whether they're up to date)
-Details: apkit details
 ```
 
 A first installation and an agent addition offer the short optional agent-loading
@@ -572,16 +594,18 @@ and failed output points to the Workspace contract:
 
 ```
 $ apkit validate
-apkit: Workspace is invalid at ~/apkit-workspace; 2 violations found:
+✖ Workspace is invalid at /Users/you/apkit-workspace; 2 violations found:
+- Skill sidecar skills/old-flow/agent-profile-kit.yaml is no longer read. List
+  the needed Context Modules and Skills in a Profile's 'context' and 'skills'
+  lists, then delete the file; version control can recover it if you need the
+  old list.
 - Profile 'broken' in profiles/broken.yaml selects missing Context Module
-  'team-rulez'. Available Context Modules: example-context,
-  review-standards. Restore the Context Module, or remove or update Profile
-  'broken'. Correct profiles/broken.yaml, then run apkit validate.
-- Skill skills/old-flow/agent-profile-kit.yaml is no longer read. List the
-  needed Context Modules and Skills in a Profile's 'context' and 'skills'
-  lists, then delete the file.
+  'team-rulez'. Available Context Modules: review-standards. Restore the Context
+  Module, or remove or update Profile 'broken'. Correct profiles/broken.yaml,
+  then run apkit validate.
+
 The Workspace contract states every rule Workspace validation enforces; run
-apkit guide --contract to read it.
+  apkit guide --contract to read it.
 ```
 
 `validate --json <path>` publishes the same violations as the human report:
@@ -612,30 +636,34 @@ inventory:
 ```
 $ apkit status
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
-Project   Status
-<project> needs attention
-<project> generated files changed
-<project> generated files missing
-<project> not installed yet
-<project> source changed
-<project> up to date
+Project    Status
+attention  needs attention
+changed    generated files changed
+missing    generated files missing
+pending    not installed yet
+stale      source changed
+ok         up to date
 
-<project>:
-  Blocker: .agent-profile-kit/codex/context.md and 1 more files are tracked
-    by Git, so Agent Profile Kit cannot write to them.
+attention:
+  ✖ Blocker: .agent-profile-kit/codex/context.md and 2 more files are tracked by
+    Git, so Agent Profile Kit cannot write to them.
     Requirement: Agent Profile Kit must exclusively manage its generated
       files; Git-tracked paths cannot be replaced.
     Remedy: Choose one. To let Agent Profile Kit manage these files, run
-      git --literal-pathspecs -C '<project>' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.codex/hooks.json'
-      — it stages their removal from the Git index while the files stay on
-      disk; commit afterwards to keep the change — then run
-      apkit update '<project>'.
-      To keep Git ownership instead, leave the files in place.
-    Affected paths (2):
+      git --literal-pathspecs -C '/Users/you/proj/attention' rm -r --cached -- '.agent-profile-kit/codex/context.md' '.agents/skills/deploy-helper' '.codex/hooks.json'
+      — it stages their removal from the Git index while the files stay on disk;
+      commit afterwards to keep the change — then run
+      apkit update '/Users/you/proj/attention'. To keep Git ownership instead,
+      leave the files in place.
+    Affected paths (3):
       - .agent-profile-kit/codex/context.md
+      - .agents/skills/deploy-helper
       - .codex/hooks.json
+
+✖ Projects: 6 · Blockers: 1
 
 Next:
 - Resolve the reported blocker, then run apkit status again.
@@ -649,11 +677,12 @@ compact decision:
 ```
 $ apkit status
 ⚠ Ready to update
+
 Workspace: ~/apkit-workspace
 
-Project   Status
-<project> not installed yet
-<project> up to date
+Project  Status
+other    not installed yet
+demo     up to date
 
 Next: apkit update (bring your Projects up to date)
 Details: apkit status --verbose
@@ -688,11 +717,14 @@ runnable path.
 
 ```
 $ apkit status --stale
-Ready to update
-- generated files missing (1): <project>
-- source changed (1): <project>
-Next: apkit update --stale
+⚠ Ready to update
 
+Workspace: ~/apkit-workspace
+
+Project  Status
+alpha    generated files missing
+
+Next: apkit update --stale (bring your Projects up to date)
 Details: apkit status --stale --verbose
 ```
 
@@ -708,10 +740,12 @@ Scope errors remain forks in the road rather than walls (US-024, DEC-016):
 
 ```
 $ apkit status --here
-apkit: directory '/private/tmp' is not configured as a Project
+✖ Directory '/Users/you/scratch' is not configured as a Project
+
 Run apkit install to configure this directory as a Project.
-Run apkit list projects to list configured Projects.
-Usage: apkit status [project | --here | --all] [--stale | --blocked] [--verbose] [--json]
+Run apkit list projects to see configured Projects.
+
+Usage: apkit status [project | --here | --all | --project <path>] [--stale | --blocked] [--verbose] [--json]
 ```
 
 An uninitialized machine is told plainly and given the explicit
@@ -720,7 +754,8 @@ initialization command; configuration paths do not lead the explanation
 
 ```
 $ apkit status
-apkit: Agent Profile Kit is not set up on this machine
+✖ Agent Profile Kit is not set up on this machine
+
 Run apkit init <path> to set up a Workspace in the folder you name, or
   apkit init . to use the current folder.
 ```
@@ -753,16 +788,18 @@ default view leads with the committed impact as its headline (`✔ Updated N
 Projects (M files)`, review screen 17), keeps only the actionable exception
 identities — failures, skipped or preserved files, remaining work, cleanup
 problems, and any approved changed-file replacement or deletion — and closes
-with one footer block carrying the `apkit details` route to the run's retained
-evidence as its secondary line (US-010). A clean no-op prints one neutral
-statement (`● Everything is already up to date.`) and omits that hint;
-retention is unchanged. Per-file, per-Project, and per-operation inventories
-belong to `--verbose` and to `apkit details`: it never suggests re-running
-update to retrieve an earlier run.
+with one footer block whose optional secondary line is the `apkit details`
+route to the run's retained evidence only when that run went wrong (US-008,
+DEC-007): after a failure, a warning, a blocked run or a partial run. A clean
+success, a clean no-op (`● Everything is already up to date.`), or a neutral
+cancellation/decline omits the route; retention is unchanged. Per-file,
+per-Project, and per-operation inventories belong to `--verbose` and to
+`apkit details`: it never suggests re-running update to retrieve an earlier
+run.
 
 ```
 $ apkit update
-✔ Updated 2 Projects (3 files)
+✔ Updated 2 Projects (6 files)
 
 First use:
 - Review and approve the generated SessionStart hook when Codex asks so the
@@ -770,10 +807,14 @@ First use:
 - Trust the bound project in Codex so the Profile can load.
 
 Start a new agent session in a Project to use the changes.
-Try it: start a new Codex session in <project> and ask what Profile material
-  it loaded.
 
-Details: apkit details
+Try it: start a new Codex session in each updated Project and ask what Profile
+  material each loaded.
+
+Now author your own:
+  apkit new skill <skill>
+  apkit new context <context>
+  apkit new profile <profile> --context <context> --skill <skill>
 ```
 
 The sample above is a first delivery — the receipt proves the hook output is
@@ -782,17 +823,8 @@ new for its Host. The short optional Host-loading check is offered only then
 installation or Host addition offers it, whether through `install` or an
 update that installs a pending Project, while an ordinary repeated content
 update closes with the next-use instruction alone and never claims a Host
-will load:
-
-The first-run example update closes with a concrete handoff to authoring real
-material (US-040, DEC-024); routine applies do not repeat it:
-
-```
-Now author your own:
-  apkit new skill <skill>
-  apkit new context <context>
-  apkit new profile <profile> --context <context> --skill <skill>
-```
+will load. This first-run example closes with a concrete handoff to authoring
+real material (US-040, DEC-024); routine applies do not repeat it.
 
 A non-interactive update with the explicit answering flag replaces a
 hand-edited generated file and prompts nothing (US-007, DEC-005, TEST-004). The
@@ -800,25 +832,27 @@ approved replacement keeps its identity in the receipt, because that discard is
 the exception the user authorized:
 
 ```
-$ apkit update <project> --replace-changed
+$ apkit update ~/proj/alpha --replace-changed
 ✔ Updated 1 Project (1 file)
 
 Replaced changed generated files:
-  ~ .agent-profile-kit/codex/context.md (<project>)
 
-Details: apkit details
+  ~ .agent-profile-kit/codex/context.md (alpha)
+
+Start a new agent session in a Project to use the changes.
 ```
 
 Without the applicable flag, a non-interactive update refuses before any
 selected lifecycle write and prints the runnable remedy (US-007, DEC-005):
 
 ```
-$ apkit update <project>
-apkit: update needs explicit changed-file consent before any write
-  ~ .agent-profile-kit/codex/context.md (<project>)
+$ apkit update ~/proj/alpha
+✖ update needs explicit changed-file consent before any write
+  ~ .agent-profile-kit/codex/context.md (/Users/you/proj/alpha)
 No Project or setting was changed.
+
 To proceed without asking, run
-  apkit update <project> --replace-changed
+  apkit update /Users/you/proj/alpha --replace-changed
 ```
 
 On an interactive terminal, update asks before replacing or deleting changed
@@ -835,14 +869,19 @@ answering flags `--replace-changed` (replacement) and `--remove-changed`
 bypass an ownership or path-safety Blocker; `--auto-confirm` answers neither:
 
 ```
-$ apkit update <project>
+$ apkit update ~/proj/alpha
 Changed generated files:
-  ~ .agent-profile-kit/codex/context.md (<project>)
+
+  ~ .agent-profile-kit/codex/context.md (~/proj/alpha)
+
 Replacing overwrites these files with current Workspace content.
-Type d to view the current on-disk versus planned diff before deciding (d again for more pages).
-? Replace or delete these generated files as listed? (y/N)
+
+Type d to view the current on-disk versus planned diff before deciding.
+● Replace or delete these generated files as listed? (y/N) › n
+
 ● update kept the changed generated files; nothing was written (you answered no).
-Next: apkit update <project> --replace-changed
+
+Next: apkit update /Users/you/proj/alpha --replace-changed
 ```
 
 Verbose update retains the complete per-Project, per-path inventory, and
@@ -931,22 +970,23 @@ heading, no empty warning section — and never changes the exit code
 (US-017–019, DEC-010, DEC-011, US-011):
 
 ```
-$ apkit update <project>
+$ apkit update ~/proj/alpha
 ✔ Updated 1 Project (1 file)
-⚠ Codex CLI was not found on PATH (demo)
-  Requirement: The selected Profile requires Codex project delivery
-  Remedy: install Codex and ensure `codex --version` works before checking
-  status or updating Profiles that require Codex Host capabilities.
 
-Details: apkit details
+⚠ Codex isn't installed, or isn't on your PATH.
+  Used by: ~/proj/alpha
+  Fix: install Codex, then check that codex --version works.
+
+Start a new agent session in a Project to use the changes.
+
+Details: apkit details (see exactly what changed)
 ```
 
 The completed outcome stays truthful and separate (`✔ Updated N Projects (M files)` /
 `✔ Installed the … Profile`); each missing-Host warning is its own `⚠` line that
-names the affected Project or Projects rather than only a count. A genuinely
-shared identical Adapter-authored remedy appears once with its Project list;
-different Hosts keep their own remedy and requirement. The remedy stays in
-the default colour. Nothing states or implies that the update proved Host
+names the affected Project or Projects rather than only a count, under `Used by:`
+(up to 10 Projects, then "… and N more", never hiding just one), with the fix
+under `Fix:`. Nothing states or implies that the update proved Host
 loading or that the missing Host made the update fail (US-011).
 
 The historical excerpt below showed these conditions as Blockers with
@@ -990,20 +1030,80 @@ partial blocker result exits `2` and retains the committed receipt evidence
 before remaining blockers, so writes are never hidden.
 
 **Retained operation evidence.** Routine receipts stay task-focused and close
-with one footer block whose optional secondary line is `Details: apkit details`
-whenever the run retained an entry and the outcome is not a clean no-op or a
-neutral cancellation/decline (US-010), so the
-complete record of an earlier run is retrieved without repeating its writes:
+with one footer block whose optional secondary line is the details route only
+when the run went wrong (US-008, DEC-007): after a failure, a warning, a
+blocked run or a partial run. A clean success, a clean no-op, or a neutral
+cancellation/decline omits the route while retention itself is unchanged —
+those runs stay retrievable through `apkit details` and `apkit details --list`.
+The rule is one shared presentation decision read from recorded facts (outcome,
+report warnings, file work), never from rendered copy, and the route carries a
+short note saying what that run shows. It is the secondary line of the report's
+one footer block, so it follows the `Next` action list with no second blank
+line — the tail of a blocked run's report:
+
+```
+Next:
+- Resolve the reported blocker, then run apkit update again.
+Details: apkit details (see exactly what this run checked)
+```
+
 `apkit details` shows the latest retained operation, `apkit details --list` the
 compact newest-first history of the latest 200 runs, and `apkit details
 <operation-id>` one run — each naming its command, requested scope, and
-outcome, with user-facing file-work headings that keep written, failed, skipped
-and pending work distinct. The history list uses compact human time and labels
-every column when the table aligns (US-008); operation details keep exact
-timestamps, showing one `Time` line when start and end are identical and
-`Started`/`Finished` only for a real interval — never a duration claim.
-Clean no-ops and plain declines/cancels omit the printed hint while retention
-itself is unchanged. `--json` publishes the same structured evidence, and an operation that
+outcome. The history list uses compact human time and labels every column when
+the table aligns (US-008):
+
+```
+$ apkit details --list
+Recent runs (1)
+
+Run        When      Command  Result     Scope
+op-000001  just now  update   succeeded  all Projects
+
+Next: apkit details <run> (see exactly what one run changed)
+```
+
+One run's details show the outcome in its headline, a local human time and
+scope, then `Changed files`, `What went wrong` and `Not done` as they apply
+(US-008, DEC-009). Exact timestamps live in `--json`, never in the human view:
+
+```
+$ apkit details
+✔ Update op-000001 succeeded
+
+  Today at 11:55 PM · all Projects
+
+Changed files:
+  ~/proj/alpha
+    + .agent-profile-kit/codex/context.md
+    + .agents/skills/deploy-helper
+    + .codex/hooks.json
+  ~/proj/beta
+    + .agent-profile-kit/codex/context.md
+    + .agents/skills/deploy-helper
+    + .codex/hooks.json
+```
+
+A run that stopped partway names what it left behind under `Not done`, and a
+failed Project or run carries its cause under `What went wrong`:
+
+```
+$ apkit details
+⚠ Update op-000002 stopped partway
+
+  Today at 11:55 PM · all Projects
+
+Changed files:
+  ~/proj/beta
+    + .agent-profile-kit/codex/context.md
+    + .agents/skills/deploy-helper
+    + .codex/hooks.json
+
+Not done:
+- ~/proj/alpha: output-ownership-conflict
+```
+
+`--json` publishes the same structured evidence with exact timestamps, and an operation that
 stopped after committing part of its scope keeps that committed evidence. The document lives at
 `~/.agents/agent-profile-kit/operation-history.json`, holds no file contents,
 grants no ownership, and is never desired state; reading it changes nothing on
@@ -1027,21 +1127,17 @@ The removal receipt is outcome-first (ADR-0040): a successful removal states
 its removed Project count once, a partial agent removal names the removed agent
 and the affected Project count, routine Git-exclusion bookkeeping stays out of
 the default view, skipped Projects and relevant cleanup warnings keep their
-actionable identities, and the run closes with one footer block whose secondary
-line is `Details: apkit details`:
+actionable identities, and the run closes with the details route only when it
+went wrong (US-008, DEC-007):
 
 ```
-$ apkit uninstall <project> --auto-confirm
-Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
+$ apkit uninstall ~/proj/alpha --auto-confirm
+✔ Removed proven Agent Profile Kit-owned output from 1 Project and forgot its
   recorded selection.
 
-Details: apkit details
-
-$ apkit uninstall <project> --agent codex --auto-confirm
-Removed agent codex from 1 Project; the remaining agents keep working with
+$ apkit uninstall ~/proj/alpha --agent codex --auto-confirm
+✔ Removed agent codex from 1 Project; the remaining agents keep working with
   their shared output preserved.
-
-Details: apkit details
 ```
 
 Public `unbind` is retired: `apkit unbind` exits with `unbind was replaced by uninstall`.
@@ -1052,34 +1148,38 @@ A side journey for automation or one-off inspection, owned by a temporary
 installation receipt rather than a Project Binding (ADR-0015):
 
 ```
-$ apkit machine install-temp example <project> --host codex
-Installed temporary Profile
+$ apkit machine install-temp example ~/proj/alpha --host codex
+✔ Installed temporary Profile
   Profile: example
   Host: codex
-  Project: <project>
+  Project: alpha
   Temporary installation: <temporary-installation-id>
+
 Codex setup:
 - Review and approve the generated SessionStart hook when Codex asks.
   Consequence: Declining the hook prevents Profile Context from loading.
 - Trust the bound project in Codex.
   Consequence: Profile Context does not load until the project is trusted.
-- Launch Codex from the exact bound project root: <project>
-  Consequence: Launching from a descendant prevents Profile Context from
-    loading.
+
 Next: apkit machine remove-temp <temporary-installation-id>
 
 $ apkit machine list temporary
 Temporary Profiles (1):
 
 Temporary installation: <temporary-installation-id>
-  Project: <project>
+
+  Project: alpha
+
   Profile: example
+
   Host: codex
 
+Use apkit machine remove-temp <temporary-installation-id> to remove one.
+
 $ apkit machine remove-temp <temporary-installation-id>
-Removed temporary Profile
+✔ Removed temporary Profile
   Temporary installation: <temporary-installation-id>
-  Project: <project>
+  Project: alpha
 ```
 
 The temporary identity survives on the receipt and in `machine list
@@ -1106,8 +1206,9 @@ are argued from these rather than from scratch.
 5. **A next step must change something**, and must not stall work that is
    ready. Every human operation ending uses one footer in one style: at most
    one action list, with an optional secondary details route in the same
-   block. Clean no-ops and plain declines/cancels print one neutral statement
-   and invent neither a next action nor a details hint (US-010).
+   block, and that route only after a failure, a warning, a blocked run or a
+   partial run (US-008, DEC-007). Clean successes, clean no-ops and plain
+   declines/cancels print without a details hint (US-010).
 6. **Distinct concepts get distinct words.** Presentation must not overload one
    term for two of them.
 7. **Summarize routine impact; disclose actionable identity.** Exact generated
