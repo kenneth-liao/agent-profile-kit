@@ -1,0 +1,8 @@
+✔ Created
+  /private/tmp/apkit-680-session/60/workspace/context/team.m
+d
+
+Open it and write the rules every agent session should
+  follow.
+
+Next: apkit new profile (make a Profile that uses it)

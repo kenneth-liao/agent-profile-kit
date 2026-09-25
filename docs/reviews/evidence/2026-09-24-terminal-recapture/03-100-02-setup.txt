@@ -1,0 +1,24 @@
+Context, Skills, and Profiles will be stored in and loaded from
+  /private/tmp/apkit-680-session/100/workspace.
+
+This folder doesn't exist yet. Setup will create it and add:
+- workspace.yaml
+- context/
+- skills/
+- profiles/
+
+✔ Set up this folder as your Workspace? › yes
+✔ Created your Workspace at /private/tmp/apkit-680-session/100/workspace
+
+Profiles group Context and Skills for one kind of work. You can reuse them across Projects.
+
+Skills are the skills you already use (open standard). Drop skill folders into
+  /private/tmp/apkit-680-session/100/workspace/skills/ to use them in a Profile.
+
+Context is plain Markdown in /private/tmp/apkit-680-session/100/workspace/context/. Every agent
+  session loads the Context in its Profile.
+
+Agents found: claude, codex
+
+Next:
+- apkit new profile (create your first Profile, step by step)

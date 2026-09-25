@@ -1,0 +1,12 @@
+Recent runs (7)
+
+Run        When      Command  Result     Scope
+op-000007  just now  update   succeeded  all Projects
+op-000006  just now  install  succeeded  one Project
+op-000005  just now  install  succeeded  one Project
+op-000004  just now  install  succeeded  one Project
+op-000003  just now  install  cancelled  one Project
+op-000002  just now  update   no-op      all Projects
+op-000001  just now  install  succeeded  one Project
+
+Next: apkit details <run> (see exactly what one run changed)

@@ -1,0 +1,15 @@
+[31m✖ Uninstall stopped partway.[0m
+
+Couldn't write to /private/tmp/apkit-680-session/100/projects/acme-internal-analytics-pipeline-v2
+  (permission denied)
+
+- Done: /private/tmp/apkit-680-session/100/home/proj/alpha
+- Put back as it was, where possible:
+  /private/tmp/apkit-680-session/100/projects/acme-internal-analytics-pipeline-v2
+- Not touched: /private/tmp/apkit-680-session/100/projects/alpha/my-app,
+  /private/tmp/apkit-680-session/100/projects/beta/my-app,
+  /private/tmp/apkit-680-session/100/projects/hello
+
+Fix the cause, then run the same command again: [36mapkit uninstall --all --auto-confirm[0m
+
+[36mDetails: [36mapkit details (see exactly what changed)[0m[0m

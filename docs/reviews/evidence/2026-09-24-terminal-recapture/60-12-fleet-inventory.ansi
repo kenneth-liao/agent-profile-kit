@@ -1,0 +1,15 @@
+[1mYour Projects (4)[0m
+
+Project: acme-internal-analytics-pipeline-v2
+Profile: engineering  Agents: claude, codex  Status: ok
+
+Project: alpha/my-app  Profile: engineering
+Agents: claude, codex  Status: ok
+
+Project: beta/my-app  Profile: engineering
+Agents: claude, codex  Status: ok
+
+Project: hello  Profile: engineering  Agents: codex
+Status: ok
+
+[36mNext: [36mapkit status (check whether they're up to date)[0m[0m

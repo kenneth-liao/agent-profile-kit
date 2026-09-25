@@ -1,0 +1,50 @@
+A Profile groups Context and Skills for one kind of work,
+  like "engineering" or "writing".
+[36m❯ [0m[1mName your Profile[0m[20G[21G[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0me[4G[5G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0men[5G[6G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0meng[6G[7G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengi[7G[8G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengin[8G[9G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengine[9G[10G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0menginee[10G[11G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengineer[11G[12G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengineeri[12G[13G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengineerin[13G[14G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
+[36m❯ [0mengineering[14G[3G[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mName[0m [36m›[0m [32mengineering[0m
+Context is loaded in every agent session that uses this
+  Profile.
+[36m❯ [0m[1mWhich Context?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+0 selected
+[36m❯ [0m[36m◻ [0mstyle
+  [36m◻ [0mteam[9G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Context?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+0 selected
+  [36m◻ [0mstyle
+[36m❯ [0m[36m◻ [0mteam[9G[10G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Context?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+1 selected
+  [36m◻ [0mstyle
+[36m❯ [0m[36m◼ [0mteam[9G[8G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mContext[0m [36m›[0m [32mteam[0m
+Agents load Skills only when they need them.
+[36m❯ [0m[1mWhich Skills?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+0 selected
+[36m❯ [0m[36m◻ [0mreview-pr
+  [36m◻ [0mwrite-tests[16G[17G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[36m❯ [0m[1mWhich Skills?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+1 selected
+[36m❯ [0m[36m◼ [0mreview-pr
+  [36m◻ [0mwrite-tests[16G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mSkills[0m [36m›[0m [32mreview-pr[0m
+[32m✔ Created the engineering Profile[0m
+[1m  Context: team[0m
+  Skills: review-pr
+
+Change it later with [36mapkit configure profile engineering[0m.
+
+[36mNext: [36mapkit install engineering[0m[0m
+[36m[36m  (run it inside a Project folder)[0m[0m

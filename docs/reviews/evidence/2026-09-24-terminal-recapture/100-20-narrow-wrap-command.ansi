@@ -1,0 +1,36 @@
+Installing into ~/proj/alpha.
+[36m❯ [0m[1mWhich Profile?[0m
+type to filter › ↑↓ move › enter select
+[36m❯ [0mengineering
+  writing[10G[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mProfile[0m [36m›[0m [32mengineering[0m
+Pick the agents that should use this Profile here. apkit doesn't install the agents themselves.
+[36m❯ [0m[1mWhich agents?[0m
+type to filter › ↑↓ move › space toggle › enter submit
+2 selected
+[36m❯ [0m[36m◼ [0mclaude       [2mdetected[0m
+  [36m◼ [0mcodex        [2mdetected[0m
+  [36m◻ [0mantigravity  [2mnot found[0m
+  [36m◻ [0mgrok         [2mnot found[0m
+  [36m◻ [0mopencode     [2mnot found[0m
+  [36m◻ [0mpi           [2mnot found[0m[27G[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mAgents[0m [36m›[0m [32mclaude, codex[0m
+[36m❯ [0m[1mInstall now? (y/N)[0m[21G[22G[2K[G[36m❯ [0m[1mInstall now? (y/N)[0m
+[36m❯ [0my[4G[3G[2K[1A[2K[G[G[?25h
+[32m✔ [0m[32mInstall now? (y/N)[0m [36m›[0m [32my[0m
+[32m✔ Installed the engineering Profile[0m
+[1m  Project: [1m~/proj/alpha[0m[0m
+  Agents: claude, codex
+
+[1mBefore your agents can load it:[0m
+- Start your agents from this Project folder, not a subfolder.
+- Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project
+  in Codex.
+
+Try it: start new Claude and Codex sessions in ~/proj/alpha and ask what Profile material each
+  loaded.
+
+Run the same install without the prompt:
+  [36mapkit install engineering ~/'proj/alpha' --agent claude --agent codex --auto-confirm[0m
+
+[36mNext: [36mapkit status (see installed Profiles and whether they're up to date)[0m[0m

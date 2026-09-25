@@ -1,0 +1,4 @@
+A Profile groups Context and Skills for one kind of work,
+  like "engineering" or "writing".
+❯ Name your Profile
+❯ engineering

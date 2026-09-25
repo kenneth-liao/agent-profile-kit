@@ -1,0 +1,16 @@
+A Profile groups Context and Skills for one kind of work, like "engineering" or "writing".
+
+✔ Name › engineering
+Context is loaded in every agent session that uses this Profile.
+
+✔ Context › team
+Agents load Skills only when they need them.
+
+✔ Skills › review-pr
+✔ Created the engineering Profile
+  Context: team
+  Skills: review-pr
+
+Change it later with apkit configure profile engineering.
+
+Next: apkit install engineering (run it inside a Project folder)

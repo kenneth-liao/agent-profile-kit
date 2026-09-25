@@ -1,0 +1,16 @@
+  /\  Agent Profile Kit
+ /__\ reusable agent material
+
+[33m⚠ Agent Profile Kit is not set up on this machine.[0m
+
+Your Workspace folder holds your Context, Skills, and Profiles. You only need one Workspace for
+  all of your Projects.
+
+Start by naming the folder that will hold the Workspace. The second command uses the current
+  folder instead.
+
+[1mNext:[0m
+- [36mapkit init <path>[0m
+- [36mapkit init .[0m
+
+[2mRun apkit --help for the full command list.[0m

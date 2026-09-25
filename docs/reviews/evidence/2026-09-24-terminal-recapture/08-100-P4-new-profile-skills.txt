@@ -1,0 +1,12 @@
+A Profile groups Context and Skills for one kind of work, like "engineering" or "writing".
+
+✔ Name › engineering
+Context is loaded in every agent session that uses this Profile.
+
+✔ Context › team
+Agents load Skills only when they need them.
+❯ Which Skills?
+type to filter › ↑↓ move › space toggle › enter submit
+0 selected
+❯ ◻ review-pr
+  ◻ write-tests

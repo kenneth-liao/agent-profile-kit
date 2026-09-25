@@ -1,0 +1,9 @@
+Context, Skills, and Profiles will be stored in and loaded from
+  /private/tmp/apkit-680-session/100/workspace.
+
+This folder doesn't exist yet. Setup will create it and add:
+- workspace.yaml
+- context/
+- skills/
+- profiles/
+❯ Set up this folder as your Workspace? (y/N)

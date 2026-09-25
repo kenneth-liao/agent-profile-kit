@@ -1,0 +1,20 @@
+✖ Uninstall stopped partway.
+
+Couldn't write to
+  /private/tmp/apkit-680-session/60/projects/acme-internal-a
+nalytics-pipeline-v2
+  (permission denied)
+
+- Done: /private/tmp/apkit-680-session/60/home/proj/alpha
+- Put back as it was, where possible:
+  /private/tmp/apkit-680-session/60/projects/acme-internal-a
+nalytics-pipeline-v2
+- Not touched:
+  /private/tmp/apkit-680-session/60/projects/alpha/my-app,
+  /private/tmp/apkit-680-session/60/projects/beta/my-app,
+  /private/tmp/apkit-680-session/60/projects/hello
+
+Fix the cause, then run the same command again:
+  apkit uninstall --all --auto-confirm
+
+Details: apkit details (see exactly what changed)

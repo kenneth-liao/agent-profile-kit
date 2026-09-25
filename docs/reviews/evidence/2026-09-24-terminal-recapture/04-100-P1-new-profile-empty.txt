@@ -1,0 +1,7 @@
+A Profile needs at least one Context file or Skill, and your Workspace has none yet.
+
+Add some first:
+- Put skill folders in /private/tmp/apkit-680-session/100/workspace/skills/
+- apkit new context <name> (create a Context file to fill in)
+
+Then run apkit new profile again.
