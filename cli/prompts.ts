@@ -41,6 +41,7 @@ import {
   type SemanticCategory,
   type TerminalStream,
 } from "./terminal-presentation.js";
+import { writeSettledAnswer } from "./presentation-document.js";
 import { wrapProjectIdentity } from "./display-path.js";
 
 /** Terminal outcome of one confirm prompt. */
@@ -371,7 +372,10 @@ function writeSettledLine(
     answer === undefined
       ? ""
       : ` ${tint(GLYPHS.actionSeparator, "command", color)} ${tint(answer, role, color)}`;
-  output.write(`\n${prefix}${body}${suffix}\n`);
+  // The shared writer owns the settled answer's screen part (US-001, DEC-002,
+  // spec #693): consecutive settled answers stay together as one part and the
+  // next human write is separated from it by one blank line.
+  writeSettledAnswer(output, `${prefix}${body}${suffix}`);
 }
 
 /**

@@ -2672,13 +2672,23 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       humanText(
         "● No Projects are configured.\n" +
         "Workspace: ~/apkit-workspace\n" +
-        "Next: Run apkit list projects to inspect configured Projects, or apkit install <profile> --agent <agent> to install one.\n",
+        "Next:\n" +
+        "- apkit list projects (inspect configured Projects)\n" +
+        "- apkit install <profile> --agent <agent> (install a Project)\n",
       ),
     );
     expect(result.stdout.match(/No Projects are configured/g)).toHaveLength(1);
     expect(result.stdout).not.toContain("Projects: 0");
-    expect(result.stdout).toContain("apkit list projects");
-    expect(result.stdout).toContain("apkit install <profile> --agent <agent>");
+    expect(result.stdout).toContain("apkit list projects (inspect configured Projects)");
+    expect(result.stdout).toContain("apkit install <profile> --agent <agent> (install a Project)");
+    // Every printed next step runs (TEST-001).
+    expectExitCode(await runCli(home, "list", "projects"), 0);
+    writeContextProfile(home);
+    const target = project();
+    expectExitCode(
+      await runCli(home, "install", "coding", target, "--agent", "codex", "--auto-confirm"),
+      0,
+    );
   });
 
   test("status reports only the exact bound repository while summarizing mixed changes", async () => {
@@ -12222,11 +12232,18 @@ describe("apkit list", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toBe(
       "✔ No Projects are configured.\n\n" +
-        "Use apkit install <profile> --agent <agent> to install a Project.\n",
+        "Next: apkit install <profile> --agent <agent> (install a Project)\n",
     );
-    expect(result.stdout).not.toContain("Next:");
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
     expect(existsSync(statePath(home))).toBe(false);
+    // Every printed next step runs (TEST-001): the template filled with real
+    // values installs a Project.
+    writeContextProfile(home);
+    const target = project();
+    expectExitCode(
+      await runCli(home, "install", "coding", target, "--agent", "codex", "--auto-confirm"),
+      0,
+    );
   });
 
   test("projects uses the existing Local Configuration error boundary", async () => {
@@ -15591,6 +15608,42 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     return { home, projectPath };
   }
 
+  test("adding an agent to an installed Git Project omits the details route on a clean success and keeps it for a run that leaves a warning (US-008, DEC-007)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = gitRepository("agent-profile-kit-add-agent-");
+    writeContextProfile(home);
+    const path = `${installFakeClaude(home)}:${defaultCliPath(home)}`;
+    const first = await runCliWithPath(
+      home, path, "install", "coding", projectPath, "--agent", "claude", "--auto-confirm",
+    );
+    expectExitCode(first, 0);
+    expect(humanText(first.stdout)).not.toContain("Details:");
+
+    // Audit gap 1: the pre-apply plan's Repository Exclusion rewrite is
+    // bookkeeping this same run resolves, never a warning it leaves the user
+    // with, so a clean `succeeded` run prints no details route.
+    const added = await runCliWithPath(
+      home, path, "install", "coding", projectPath,
+      "--agent", "claude", "--agent", "codex", "--auto-confirm",
+    );
+    expectExitCode(added, 0);
+    const addedText = humanText(added.stdout);
+    expect(addedText).not.toContain("⚠");
+    expect(addedText).not.toContain("Details:");
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // A run that leaves a warning still prints the route (same Project).
+    const missingAgent = await runCliWithPath(
+      home, controlledAllowlistBin(home, ["git"]), "update", projectPath,
+    );
+    expectExitCode(missingAgent, 0);
+    expect(humanText(missingAgent.stdout)).toContain("⚠");
+    expect(humanText(missingAgent.stdout)).toContain(
+      "Details: apkit details (see exactly what this run checked)",
+    );
+  });
+
   test("a successful update states the impact once, omits the per-file inventory and the details route", async () => {
     const { home, projectPath } = await installedGitProject();
     writeFileSync(
@@ -16404,6 +16457,10 @@ describe("packed CLI problem screens", () => {
     expect(recovery).toContain("problem-b");
     expect(recovery).toContain("Not touched:");
     expect(recovery).toContain("problem-c");
+    // Every Project on the screen names itself through the shared
+    // home-relative display rule (US-008, screen 28, #693).
+    expect(recovery).toContain("Done: ~/projects/");
+    expect(recovery).toContain("Not touched: ~/projects/");
     expect(stoppedText).toContain("Fix the cause, then run the same command again:");
     expect(stopped.stderr).toContain("Details: apkit details (see exactly what changed)");
     // The completed Project's generated files are gone; the rest is untouched.

@@ -53,7 +53,7 @@ import {
   operationHistoryUnrecordedDocument,
   type HumanTimeContext,
 } from "./operation-history-presentation.js";
-import { reportHasReconciliationWork } from "./presentation.js";
+import { reportHasReconciliationWork, warningLeavesUserEvidence } from "./presentation.js";
 import { writeHumanDocument } from "./presentation-document.js";
 import {
   terminalPresentationContext,
@@ -384,8 +384,11 @@ export function reviewedProjectsAsUnattempted(
 }
 
 /**
- * The report's warning fact (US-008): whether any carried report recorded
- * warning evidence. Reads the reconciliation model, never rendered output.
+ * The report's warning fact (US-008): whether any carried report leaves the
+ * user with a warning. Reads the reconciliation model through the one
+ * user-visible-warning reader the screen uses (spec #693) — never rendered
+ * output, and never diagnostics the run resolved — so the details route
+ * follows the facts the screen shows.
  */
 function reportHasWarningFacts(
   ...reports: readonly (ReconciliationReport | undefined)[]
@@ -393,7 +396,9 @@ function reportHasWarningFacts(
   return reports.some(
     (report) =>
       report !== undefined &&
-      report.projects.some((project) => project.warnings.length > 0),
+      report.projects.some((project) =>
+        project.warnings.some(warningLeavesUserEvidence)
+      ),
   );
 }
 

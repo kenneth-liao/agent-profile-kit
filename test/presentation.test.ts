@@ -752,6 +752,20 @@ describe("lifecycle status document", () => {
     expect(lines[2]).toStartWith("Workspace:");
   });
 
+  test("the empty status and empty inventory give their next steps as noted commands (US-001, #693)", () => {
+    const status = renderBoundary(lifecycleStatusDocument(emptyReport({}), {
+      workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+    }));
+    expect(status).toContain("Next:");
+    expect(status).toContain("- apkit list projects (inspect configured Projects)");
+    expect(status).toContain("- apkit install <profile> --agent <agent> (install a Project)");
+
+    const inventory = renderBoundary(projectInventoryDocument([], "/home/test", "/home/test"));
+    expect(inventory).toStartWith("✔ No Projects are configured.");
+    expect(inventory).toContain("Next: apkit install <profile> --agent <agent> (install a Project)");
+    expect(inventory).not.toContain("Use apkit install");
+  });
+
   test("concise pending status is outcome, scope rows, then typed next commands in order", () => {
     const document = lifecycleStatusDocument(pendingReport());
 
@@ -6282,14 +6296,14 @@ describe("standalone view presentation documents (#389)", () => {
     }
   });
 
-  test("an empty project inventory is a success notice with install guidance", () => {
+  test("an empty project inventory is a success notice with a noted install next step (US-001, #693)", () => {
     const document = projectInventoryDocument([], "/home", "/work");
-    expect(shapes(document)).toEqual(["notice", "prose"]);
+    expect(shapes(document)).toEqual(["notice", "key-value:Next(command)"]);
     const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
     expect(notice.severity).toBe("success");
-    // The guidance is one prose node whose typed inline command part keeps
-    // the install invocation atomic.
-    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit install <profile> --agent <agent>"]);
+    // The footer's next step is the typed command node, note attached through
+    // the one noted-command home.
+    expect(commandTexts(document)).toEqual(["apkit install <profile> --agent <agent>"]);
   });
 
   test("profile inventory presents each Profile with its module and skill counts", () => {
@@ -6859,6 +6873,42 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("- Not touched: /project-c");
     expect(rendered).toContain("Fix the cause, then run the same command again:");
     expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+
+  test("a partial uninstall names every Project through the shared home-relative display (screen 28, #693)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/home/test/projects/acme",
+        project: "/home/test/projects/acme",
+        profile: "engineering",
+        detail: "injected fault",
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [{
+        canonicalProject: "/home/test/proj/alpha",
+        project: "/home/test/proj/alpha",
+        profile: "engineering",
+        outputs: [],
+      }],
+      unattempted: [{
+        canonicalProject: "/home/test/projects/hello",
+        project: "/home/test/projects/hello",
+        profile: "engineering",
+      }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      cwd: "/",
+      home: "/home/test",
+    });
+    // The same home-relative display rule `apkit details` uses (US-008):
+    // under HOME every Project reads `~/…`, never its full path.
+    expect(rendered).toContain("Couldn't write to ~/projects/acme (permission denied)");
+    expect(rendered).toContain("- Done: ~/proj/alpha");
+    expect(rendered).toContain("- Put back as it was, where possible: ~/projects/acme");
+    expect(rendered).toContain("- Not touched: ~/projects/hello");
   });
 
   test("a partial uninstall states the cause in plain words with no internal temp path (spec #672 US-007, screen 28)", () => {
@@ -8208,14 +8258,17 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("empty status references configured Projects in next guidance", () => {
     const empty = lifecycleStatusDocument(emptyReport());
-    expect(shapes(empty)).toEqual(["notice", "prose(command)"]);
+    expect(shapes(empty)).toEqual(["notice", "heading", "list"]);
     expect(flattenPresentationNodes(empty)[0]).toMatchObject({ kind: "notice", severity: "neutral" });
-    // The next action is one command-category prose node whose typed inline
-    // command parts keep both invocations atomic.
+    // The next action is the footer's noted-command list; every invocation
+    // stays atomic and its note keeps the newcomer lexicon (US-001, #693).
     expect(inlineCommandTexts(empty)).toEqual([
       "apkit list projects",
       "apkit install <profile> --agent <agent>",
     ]);
+    expect(renderPresentationDocument(empty, defaultRenderContext)).toContain(
+      "inspect configured Projects",
+    );
     expectUserFacingVocabulary(renderPresentationDocument(empty, defaultRenderContext));
   });
 
@@ -8306,6 +8359,50 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
 
 describe("update presentation documents", () => {
+  test("each warning is its own screen part under the changed-update and status headlines (US-001, DEC-002, #693)", () => {
+    const warning = "Codex isn't installed, or isn't on your PATH.";
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      warnings: [warning],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    for (const width of [100, 60]) {
+      const rendered = renderBoundary(
+        applyReportDocument(applyResult(receipt, resultingState)),
+        context(width),
+      );
+      const lines = rendered.split("\n");
+      const headline = lines.findIndex((line) => line.startsWith("✔"));
+      expect(headline).toBeGreaterThanOrEqual(0);
+      expect(lines[headline]).toContain("Updated 1 Project (1 file)");
+      expect(lines[headline + 1]).toBe("");
+      expect(lines[headline + 2]).toStartWith("⚠");
+    }
+
+    for (const width of [100, 60]) {
+      const rendered = renderBoundary(lifecycleStatusDocument(receipt), context(width));
+      const lines = rendered.split("\n");
+      const headline = lines.findIndex((line) => line.startsWith("⚠") || line.startsWith("✔"));
+      expect(headline).toBeGreaterThanOrEqual(0);
+      expect(lines[headline + 1]).toBe("");
+      expect(lines[headline + 2]).toStartWith("⚠");
+    }
+  });
+
   test("concise apply receipt carries a success notice, receipt evidence, and trailing readiness", () => {
     const receipt = emptyReport({
       desired: [{

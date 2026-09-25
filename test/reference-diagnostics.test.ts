@@ -16,6 +16,8 @@ import { nearestName } from "../cli/nearest-match.js";
 import type { WorkspaceIngestionErrorFact, InstallerToolErrorFact } from "../installer/tool-errors.js";
 import type { ProjectTargetErrorReason } from "../installer/local-configuration.js";
 import type { DiagnosticDocumentParts } from "../cli/diagnostics.js";
+import { diagnosticDocument } from "../cli/diagnostics.js";
+import { renderPresentationDocument } from "../cli/presentation-document.js";
 import { MissingProfileError } from "../installer/profile-selection.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
 import { flatInlineText } from "../cli/inline-content.js";
@@ -130,6 +132,30 @@ describe("missing Profile and Host diagnostics (US-007, US-015, DEC-011)", () =>
     expect(text).not.toContain("There's no Profile called");
   });
 
+  test("the unknown-Profile screen separates Your Profiles from its next-step line (screen 08, #693)", () => {
+    const error = new MissingProfileError("completely-unknown", ["eng"]);
+    const parts = formatMissingProfileErrorDiagnostic(error);
+    const lines = parts.whatToType ?? [];
+    const yourProfiles = lines.findIndex((line) => flatInlineText(line).startsWith("Your Profiles:"));
+    const next = lines.findIndex((line) => flatInlineText(line).startsWith("Run apkit list profiles"));
+    expect(yourProfiles).toBeGreaterThanOrEqual(0);
+    expect(next).toBeGreaterThan(yourProfiles);
+    // The carried empty line is the structural separator: one blank line
+    // between the user's Profiles and the next step.
+    expect(lines.slice(yourProfiles + 1, next)).toEqual([[]]);
+
+    const rendered = renderPresentationDocument(diagnosticDocument(parts), {
+      color: false,
+      interactive: false,
+      width: 100,
+      rows: undefined,
+    });
+    const renderedLines = rendered.split("\n");
+    const profilesLine = renderedLines.findIndex((line) => line.startsWith("Your Profiles:"));
+    const nextLine = renderedLines.findIndex((line) => line.startsWith("Run apkit list profiles"));
+    expect(renderedLines.slice(profilesLine + 1, nextLine)).toEqual([""]);
+  });
+
   test("suggests a plausible near-match for a mistyped Host with consistent sentence capitalization", () => {
     const fact: InstallerToolErrorFact = {
       kind: "unsupported-host",
@@ -138,11 +164,36 @@ describe("missing Profile and Host diagnostics (US-007, US-015, DEC-011)", () =>
     };
     const parts = formatInstallerToolErrorDiagnostic(fact);
     expect(flatInlineText(parts.happened)).toBe("Unsupported agent 'claud'");
-    const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
-    expect(why).toContain("Did you mean 'claude'?");
+    expect(parts.why ?? []).toEqual([]);
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
+    expect(whatToType).toContain("Did you mean 'claude'?");
     expect(whatToType).not.toContain("list agents");
+  });
+
+  test("the unsupported-agent headline stands alone above its supported-agents and suggestion lines (screen 08, #693)", () => {
+    const fact: InstallerToolErrorFact = {
+      kind: "unsupported-host",
+      host: "claud",
+      supportedHosts: SUPPORTED_HOSTS,
+    };
+    const parts = formatInstallerToolErrorDiagnostic(fact);
+    // The headline is the whole what-happened part; the supported-agents and
+    // suggestion lines are the next part, like the unknown-Profile screen 08.
+    expect(flatInlineText(parts.happened)).toBe("Unsupported agent 'claud'");
+    expect(parts.why ?? []).toEqual([]);
+    const guidance = (parts.whatToType ?? []).map(flatInlineText);
+    expect(guidance.join("\n")).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
+    expect(guidance.join("\n")).toContain("Did you mean 'claude'?");
+
+    const rendered = renderPresentationDocument(
+      diagnosticDocument(parts),
+      { color: false, interactive: false, width: 100, rows: undefined },
+    );
+    const lines = rendered.split("\n");
+    expect(lines[0]).toBe("✖ Unsupported agent 'claud'");
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toContain("Supported agents:");
   });
 
   test("without a clear Host match, shows supported Hosts and offers discovery command", () => {
@@ -153,10 +204,10 @@ describe("missing Profile and Host diagnostics (US-007, US-015, DEC-011)", () =>
     };
     const parts = formatInstallerToolErrorDiagnostic(fact);
     expect(flatInlineText(parts.happened)).toBe("Unsupported agent 'completely-unknown'");
-    const why = (parts.why ?? []).map(flatInlineText).join("\n");
-    expect(why).not.toContain("Did you mean");
-    expect(why).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
+    expect(parts.why ?? []).toEqual([]);
     const whatToType = (parts.whatToType ?? []).map(flatInlineText).join("\n");
+    expect(whatToType).not.toContain("Did you mean");
+    expect(whatToType).toContain("Supported agents: antigravity, claude, codex, grok, opencode, pi.");
     expect(whatToType).toContain("Run apkit list agents to inspect supported agents.");
   });
 

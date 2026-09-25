@@ -841,10 +841,12 @@ export function formatMissingProfileErrorDiagnostic(error: MissingProfileError):
     guidance.push([suggestion]);
   }
   guidance.push([formatYourProfiles(error.availableProfiles)]);
+  // The next step is its own part, one blank line below the user's Profiles
+  // (US-001, screen 08, spec #693): the carried empty line separates the runs.
   if (error.recoverByEditingLocalConfiguration) {
-    guidance.push(["Edit Local Configuration directly if this stale binding must be removed."]);
+    guidance.push([], ["Edit Local Configuration directly if this stale binding must be removed."]);
   } else if (suggestion === undefined) {
-    guidance.push([
+    guidance.push([], [
       "Run ",
       commandPart(COMMAND_NAME, [arg("list"), arg("profiles")]),
       " to inspect available Profiles.",
@@ -1011,26 +1013,24 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       };
     case "unsupported-host": {
       const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
-      const why: (readonly InlineContent[])[] = [
+      // The headline stands alone (US-001, screen 08, spec #693): the
+      // supported-agents and suggestion lines are one guidance part, and the
+      // discovery command is its own part when there is no suggestion.
+      const guidance: (readonly InlineContent[])[] = [
         [`Supported agents: ${fact.supportedHosts.join(", ")}.`],
       ];
       if (suggestion !== undefined) {
-        why.push([suggestion]);
+        guidance.push([suggestion]);
+      } else {
+        guidance.push([], [
+          "Run ",
+          commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
+          " to inspect supported agents.",
+        ]);
       }
       return {
         happened: [`Unsupported agent '${fact.host}'`],
-        why,
-        ...(suggestion === undefined
-          ? {
-              whatToType: [
-                [
-                  "Run ",
-                  commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
-                  " to inspect supported agents.",
-                ],
-              ],
-            }
-          : {}),
+        whatToType: guidance,
       };
     }
     case "unsupported-temporary-host": {

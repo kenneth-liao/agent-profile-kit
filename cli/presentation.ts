@@ -961,14 +961,20 @@ export function projectInventoryDocument(
         severity: "success",
         nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       },
-      {
-        kind: "prose",
-        parts: [
-          "Use ",
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
-          " to install a Project.",
-        ],
-      },
+      // The next step is `<command> (<note>)` through the one noted-command
+      // home (US-001, review rule 6, spec #693), never a prose sentence.
+      footerNodes({
+        next: {
+          kind: "command",
+          value: notedCommand(
+            commandNode(COMMAND_NAME, [{
+              kind: "text",
+              value: "install <profile> --agent <agent>",
+            }]),
+            "install a Project",
+          ),
+        },
+      }),
     ];
   }
 
@@ -1913,17 +1919,29 @@ export function uninstallExecutionFailureDocument(input: {
   readonly retryArguments: readonly CommandArg[];
 }): PresentationDocument {
   const { failed, completed, unattempted, retryArguments } = input;
-  const doneNames = completed.map((entry) => entry.project).join(", ");
-  const untouchedNames = unattempted.map((entry) => entry.project).join(", ");
-  const putBack = failed.selectionRestored
-    ? `Put back as it was, where possible: ${failed.project}`
-    : failed.restoreError === undefined
-      ? `Couldn't put back: ${failed.project}`
-      : `Couldn't put back: ${failed.project} (${failed.restoreError})`;
+  // Every Project on this screen names itself through the shared display-path
+  // rule (US-008, screen 28, spec #693) — home-relative where it applies, the
+  // same reader `apkit details` uses — never its raw authored path.
+  const projectDisplay = (
+    entry: { readonly canonicalProject?: string; readonly project: string },
+  ): InlineContent => pathPart(entry.canonicalProject ?? entry.project, "fleet", entry.project);
+  const names = (items: readonly InlineContent[]): readonly InlineContent[] =>
+    items.flatMap((item, index) => (index === 0 ? [item] : [", ", item]));
+  const putBack: readonly InlineContent[] = failed.selectionRestored
+    ? ["Put back as it was, where possible: ", projectDisplay(failed)]
+    : [
+        "Couldn't put back: ",
+        projectDisplay(failed),
+        ...(failed.restoreError === undefined ? [] : [` (${failed.restoreError})`]),
+      ];
   const recovery: (readonly InlineItemElement[])[] = [];
-  if (completed.length > 0) recovery.push([`Done: ${doneNames}`]);
-  recovery.push([putBack]);
-  if (unattempted.length > 0) recovery.push([`Not touched: ${untouchedNames}`]);
+  if (completed.length > 0) {
+    recovery.push(["Done: ", ...names(completed.map(projectDisplay))]);
+  }
+  recovery.push(putBack);
+  if (unattempted.length > 0) {
+    recovery.push(["Not touched: ", ...names(unattempted.map(projectDisplay))]);
+  }
   return [
     part({
       kind: "notice",
@@ -1935,7 +1953,11 @@ export function uninstallExecutionFailureDocument(input: {
       // The plain cause in words (US-007, screen 28): never the raw foreign
       // message with its syscall and internal path. The raw detail stays in
       // `apkit details` and JSON (DEC-004, OOS-004).
-      parts: [`Couldn't write to ${failed.project} (${plainSystemCause(failed.errorCode, failed.detail)})`],
+      parts: [
+        "Couldn't write to ",
+        projectDisplay(failed),
+        ` (${plainSystemCause(failed.errorCode, failed.detail)})`,
+      ],
     }),
     part(list(recovery)),
     part({
@@ -2715,6 +2737,23 @@ export interface WarningPresentationGroup {
   }[];
 }
 
+/**
+ * Whether one recorded warning leaves the user with a warning (US-008,
+ * DEC-007, spec #693): the Repository Exclusion bookkeeping notices render as
+ * the run's exclusion clause and in machine JSON, never as on-screen warnings,
+ * so they are diagnostics the run carries elsewhere — never warnings it leaves
+ * the user with. One reader shared by warning grouping and the details-route
+ * fact, so the route follows the facts the screen shows and never rendered
+ * copy.
+ */
+export function warningLeavesUserEvidence(warning: ReconciliationWarning): boolean {
+  const message = flatInlineText(warning.parts);
+  return !(
+    message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
+    message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
+  );
+}
+
 function warningGroupKey(warning: ReconciliationWarning): string {
   return JSON.stringify([
     warning.kind,
@@ -2791,11 +2830,7 @@ function groupWarnings(
   for (const report of reportList) {
     for (const projectRecord of report.projects) {
       for (const warning of projectRecord.warnings) {
-        const message = flatInlineText(warning.parts);
-        if (
-          message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
-          message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
-        ) {
+        if (!warningLeavesUserEvidence(warning)) {
           continue;
         }
         const key = warningGroupKey(warning);
@@ -4090,12 +4125,11 @@ function conciseApplyDocument(
   const nodes: PresentationNode[] = [];
   // The receipt's committed impact leads as the headline only when the
   // resulting state is clean; attention and blocked views keep their outcome
-  // headline and state the compact receipt as a body line.
+  // headline and state the compact receipt as a body line. Each warning is
+  // its own screen part beneath the headline (US-001, DEC-002, spec #693).
   const headlineCarriesReceipt = updateHeadlineCarriesReceipt(report, receipt);
-  nodes.push(part(
-    applyOutcomeNotice(report, receipt !== undefined, receipt),
-    ...warnings,
-  ));
+  nodes.push(part(applyOutcomeNotice(report, receipt !== undefined, receipt)));
+  nodes.push(...warnings);
 
   if (!blocked && !noOpApply && receipt !== undefined) {
     const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities, !headlineCarriesReceipt);
@@ -5800,29 +5834,36 @@ function conciseStatusDocument(
         nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       }),
       ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
-      {
-        kind: "prose",
-        category: "command",
-        parts: [
-          "Next: Run ",
-          commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
-          ` to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or `,
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
-          " to install one.",
-        ],
-      },
+      // Each next step is `<command> (<note>)` through the one noted-command
+      // home (US-001, review rule 6, spec #693), never a prose sentence.
+      footerNodes({
+        next: {
+          kind: "actions",
+          items: [
+            [notedCommand(
+              commandNode(COMMAND_NAME, [arg("list"), arg("projects")]),
+              `inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}`,
+            )],
+            [notedCommand(
+              commandNode(COMMAND_NAME, [{
+                kind: "text",
+                value: "install <profile> --agent <agent>",
+              }]),
+              "install a Project",
+            )],
+          ],
+        },
+      }),
       ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
     ];
   }
 
-  // The outcome states what happened as one part: the notice keeps its
-  // warnings beside it. The checked Workspace fact row is its own part, as on
-  // `validate` (review screens 06/16).
+  // The outcome states what happened as one part; each warning is its own
+  // part beneath it (US-001, DEC-002, spec #693). The checked Workspace fact
+  // row is its own part, as on `validate` (review screens 06/16).
   const nodes: PresentationNode[] = [
-    part(
-      statusOutcomeNotice(report, options.selection, grouped.identities),
-      ...warningNodes(report, groups, scope, grouped.identities),
-    ),
+    part(statusOutcomeNotice(report, options.selection, grouped.identities)),
+    ...warningNodes(report, groups, scope, grouped.identities),
     ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
   ];
   if (report.projects.length > 0) {
