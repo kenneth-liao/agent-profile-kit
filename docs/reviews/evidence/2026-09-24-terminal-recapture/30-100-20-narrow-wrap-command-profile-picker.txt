@@ -1,4 +1,5 @@
 Installing into ~/proj/alpha.
+
 ❯ Which Profile?
 type to filter › ↑↓ move › enter select
 ❯ engineering

@@ -1,4 +1,5 @@
 A Profile groups Context and Skills for one kind of work, like "engineering" or "writing".
+
 [36m❯ [0m[1mName your Profile[0m[20G[21G[2K[G[36m❯ [0m[1mName your Profile[0m
 [36m❯ [0me[4G[5G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
 [36m❯ [0men[5G[6G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
@@ -10,10 +11,10 @@ A Profile groups Context and Skills for one kind of work, like "engineering" or 
 [36m❯ [0mengineer[11G[12G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
 [36m❯ [0mengineeri[12G[13G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
 [36m❯ [0mengineerin[13G[14G[2K[1A[2K[G[36m❯ [0m[1mName your Profile[0m
-[36m❯ [0mengineering[14G[3G[2K[1A[2K[G[G[?25h
-[32m✔ [0m[32mName[0m [36m›[0m [32mengineering[0m
+[36m❯ [0mengineering[14G[3G[2K[1A[2K[G[G[?25h[32m✔ [0m[32mName[0m [36m›[0m [32mengineering[0m
 
 Context is loaded in every agent session that uses this Profile.
+
 [36m❯ [0m[1mWhich Context?[0m
 type to filter › ↑↓ move › space toggle › enter submit
 0 selected
@@ -26,10 +27,10 @@ type to filter › ↑↓ move › space toggle › enter submit
 type to filter › ↑↓ move › space toggle › enter submit
 1 selected
   [36m◻ [0mstyle
-[36m❯ [0m[36m◼ [0mteam[9G[8G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
-[32m✔ [0m[32mContext[0m [36m›[0m [32mteam[0m
+[36m❯ [0m[36m◼ [0mteam[9G[8G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h[32m✔ [0m[32mContext[0m [36m›[0m [32mteam[0m
 
 Agents load Skills only when they need them.
+
 [36m❯ [0m[1mWhich Skills?[0m
 type to filter › ↑↓ move › space toggle › enter submit
 0 selected
@@ -38,8 +39,7 @@ type to filter › ↑↓ move › space toggle › enter submit
 type to filter › ↑↓ move › space toggle › enter submit
 1 selected
 [36m❯ [0m[36m◼ [0mreview-pr
-  [36m◻ [0mwrite-tests[16G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h
-[32m✔ [0m[32mSkills[0m [36m›[0m [32mreview-pr[0m
+  [36m◻ [0mwrite-tests[16G[15G[2K[1A[2K[1A[2K[1A[2K[1A[2K[G[G[?25h[32m✔ [0m[32mSkills[0m [36m›[0m [32mreview-pr[0m
 
 [32m✔ Created the engineering Profile[0m
 [1m  Context: team[0m

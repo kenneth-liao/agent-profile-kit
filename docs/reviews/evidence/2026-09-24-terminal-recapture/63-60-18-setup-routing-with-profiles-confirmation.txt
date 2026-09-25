@@ -2,4 +2,5 @@ Context, Skills, and Profiles will be stored in and loaded
   from /private/tmp/apkit-680-session/60/workspace.
 
 This folder already has everything it needs.
+
 ❯ Use this folder as your Workspace? (y/N)

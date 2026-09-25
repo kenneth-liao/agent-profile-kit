@@ -7,4 +7,5 @@ This folder doesn't exist yet. Setup will create it and
 - context/
 - skills/
 - profiles/
+
 ❯ Set up this folder as your Workspace? (y/N)

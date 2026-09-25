@@ -4,6 +4,7 @@ Installing into ~/proj/alpha.
 
 Pick the agents that should use this Profile here. apkit
   doesn't install the agents themselves.
+
 ❯ Which agents?
 type to filter › ↑↓ move › space toggle › enter submit
 2 selected

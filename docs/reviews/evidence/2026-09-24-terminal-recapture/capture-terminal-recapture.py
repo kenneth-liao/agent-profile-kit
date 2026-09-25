@@ -11,7 +11,7 @@ re-review's P-numbers.
 
 Rerun (uv; do not pip-install into a global environment):
 
-  bun run docs/reviews/evidence/2026-09-24-terminal-recapture/prepare-candidate.ts /private/tmp/apkit-695-candidate
+  bun run docs/reviews/evidence/2026-09-24-terminal-recapture/prepare-candidate.ts /private/tmp/apkit-706-candidate
 
   uv run --with pexpect --with pyte --with pillow python \
     docs/reviews/evidence/2026-09-24-terminal-recapture/capture-terminal-recapture.py
@@ -31,7 +31,7 @@ import pexpect
 import pyte
 
 ROOT = pathlib.Path("/private/tmp/apkit-680-session")
-CANDIDATE = pathlib.Path("/private/tmp/apkit-695-candidate")
+CANDIDATE = pathlib.Path("/private/tmp/apkit-706-candidate")
 OUT = pathlib.Path(__file__).resolve().parent
 NODE = "/opt/homebrew/opt/node@22/bin/node"
 CLI = CANDIDATE / "package" / "package" / "dist" / "cli.js"
