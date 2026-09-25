@@ -427,6 +427,7 @@ function contextSetupSteps(): readonly AdapterHostSetupStep[] {
       consequence: "Declining the hook prevents Profile Context from loading.",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       // Newly relevant only when this apply adds or changes the hooks output.
       output: CODEX_HOOKS_OUTPUT_PATH,
       provenance: "transition",
@@ -435,6 +436,7 @@ function contextSetupSteps(): readonly AdapterHostSetupStep[] {
       consequence: "Profile Context does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Codex.",
+      humanAction: "trust this project",
       provenance: "standing",
     },
   ];

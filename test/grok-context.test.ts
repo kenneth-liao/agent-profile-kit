@@ -273,6 +273,7 @@ describe("Grok Adapter planner", () => {
       kind: "shared-path",
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+      humanAction: `it reads Claude's Context file at ${CLAUDE_CONTEXT_RULE_PATH}`,
       provenance: "standing",
     }]);
 
@@ -565,6 +566,7 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
       kind: "shared-path",
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+      humanAction: `it reads Claude's Context file at ${CLAUDE_CONTEXT_RULE_PATH}`,
       provenance: "standing",
     });
 

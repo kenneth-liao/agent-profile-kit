@@ -2927,7 +2927,7 @@ function isFirstRelevantHostOutput(
 
 /** A Host Setup Step selected for one surface, with its Project identities. */
 interface PresentedSetupStep extends ProjectIdentity {
-  readonly message: string;
+  readonly humanAction: string;
   readonly step: HostSetupStep;
 }
 
@@ -2938,7 +2938,9 @@ interface PresentedSetupStep extends ProjectIdentity {
  * guidance appear only when the Apply Receipt adds a relevant output consumed by
  * that Project/Host pairing (#292 DEC-016). Concise `status` renders none (DEC-008,
  * #292 DEC-015); shared-path steps remain verbose (#292 DEC-020); verbose and JSON
- * retain every step as complete evidence.
+ * retain every step as complete evidence. Human surfaces render the step's
+ * authored `humanAction` (spec #672 US-001/US-005); machine `message` stays
+ * JSON-only (DEC-004).
  */
 function presentedSetupSteps(
   command: LifecycleCommand,
@@ -2967,13 +2969,14 @@ function presentedSetupSteps(
           if (!isFirstRelevantHostOutput(changeProject, project, step.host)) continue;
         }
       }
-      const message = setupStepMessage(
+      const humanAction = attachBoundProject(
+        step.humanAction,
         step,
         displayProjectPath(project.canonicalProject, project.project, "fleet"),
       );
       steps.push({
         canonicalProject: project.canonicalProject,
-        message,
+        humanAction,
         project: project.project,
         step,
       });
@@ -2984,7 +2987,7 @@ function presentedSetupSteps(
 
 /** One deduplicated setup step group with its deterministic Project scope. */
 interface SetupStepGroup {
-  readonly message: string;
+  readonly humanAction: string;
   projects: ProjectIdentity[];
   readonly step: HostSetupStep;
 }
@@ -2994,13 +2997,13 @@ function setupStepOutput(step: HostSetupStep): string | undefined {
   return step.provenance === "transition" ? step.output : undefined;
 }
 
-function setupStepGroupKey(step: HostSetupStep, message: string): string {
+function setupStepGroupKey(step: HostSetupStep, humanAction: string): string {
   return [
     step.host,
     step.kind,
     step.provenance,
     setupStepOutput(step) ?? "",
-    message,
+    humanAction,
     step.consequence ?? "",
   ].join("\u0000");
 }
@@ -3013,8 +3016,8 @@ function groupSetupSteps(
   steps: readonly PresentedSetupStep[],
 ): readonly SetupStepGroup[] {
   const byKey = new Map<string, SetupStepGroup>();
-  for (const { message, step, canonicalProject, project } of steps) {
-    const key = setupStepGroupKey(step, message);
+  for (const { humanAction, step, canonicalProject, project } of steps) {
+    const key = setupStepGroupKey(step, humanAction);
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.projects.some((candidate) =>
@@ -3023,7 +3026,7 @@ function groupSetupSteps(
         existing.projects.push({ canonicalProject, project });
       }
     } else {
-      byKey.set(key, { message, projects: [{ canonicalProject, project }], step });
+      byKey.set(key, { humanAction, projects: [{ canonicalProject, project }], step });
     }
   }
   return [...byKey.values()]
@@ -3037,7 +3040,7 @@ function groupSetupSteps(
       left.step.host.localeCompare(right.step.host) ||
       HOST_SETUP_STEP_ORDER.indexOf(left.step.kind) -
         HOST_SETUP_STEP_ORDER.indexOf(right.step.kind) ||
-      left.message.localeCompare(right.message),
+      left.humanAction.localeCompare(right.humanAction),
     );
 }
 
@@ -3062,7 +3065,11 @@ function setupStepLines(
   verbose: boolean,
   scope: LocationDisplayScope,
 ): readonly string[] {
-  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose, scope)}`];
+  // The agent name prefixes each human line (spec #672 US-001/US-005): one
+  // line per step group, plain words, the display name once. Consequence
+  // labels stay as structured verbose evidence; machine JSON keeps the
+  // consequence field (DEC-004).
+  const lines = [`- ${hostDisplayName(group.step.host)}: ${group.humanAction}.${setupProjectScope(group.projects, verbose, scope)}`];
   if (group.step.consequence !== undefined) {
     lines.push(`  Consequence: ${group.step.consequence}`);
   }
@@ -3079,26 +3086,33 @@ const STANDARD_LOAD_CONSEQUENCES: ReadonlySet<string> = new Set([
 
 function conciseFirstUseAction(
   step: HostSetupStep,
+  humanAction: string,
   projects: readonly string[],
   isSubset: boolean,
 ): string {
-  const base = step.message
+  const base = `${hostDisplayName(step.host)}: ${humanAction
     .replace(/:\s*$/, "")
-    .replace(/[.:]+$/, "");
+    .replace(/[.:]+$/, "")}`;
   const subsetClause = isSubset
     ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
     : "";
+  // The human action states what to do and why in plain words; a non-standard
+  // consequence never reappears as a parenthetical (its fact stays in verbose
+  // labels and machine JSON), while the shared load reason lives in the
+  // standard suffix.
   const reason = step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
     ? "so the Profile can load."
-    : `(${step.consequence.replace(/[.:]+$/, "")}).`;
-  return `${base}${subsetClause} ${reason}`;
+    : "";
+  return reason === ""
+    ? `${base}${subsetClause}.`
+    : `${base}${subsetClause} ${reason}`;
 }
 
 /** One deduplicated concise first-use group with its affected Projects. */
 interface ConciseFirstUseGroup {
   readonly host: HostSetupStep["host"];
+  readonly humanAction: string;
   readonly kind: HostSetupStepKind;
-  readonly message: string;
   readonly projects: readonly string[];
   readonly step: HostSetupStep;
 }
@@ -3109,21 +3123,21 @@ function conciseFirstUseGroups(
 ): readonly ConciseFirstUseGroup[] {
   const byKey = new Map<string, {
     host: HostSetupStep["host"];
+    humanAction: string;
     kind: HostSetupStepKind;
-    message: string;
     projects: string[];
     step: HostSetupStep;
   }>();
   for (const { step, canonicalProject } of presented) {
-    const key = `${step.host}\0${step.kind}\0${step.message}`;
+    const key = `${step.host}\0${step.kind}\0${step.humanAction}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.projects.push(canonicalProject);
     } else {
       byKey.set(key, {
         host: step.host,
+        humanAction: step.humanAction,
         kind: step.kind,
-        message: step.message,
         projects: [canonicalProject],
         step,
       });
@@ -3138,7 +3152,7 @@ function conciseFirstUseGroups(
       left.host.localeCompare(right.host) ||
       HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
         HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
-      left.message.localeCompare(right.message),
+      left.humanAction.localeCompare(right.humanAction),
     );
 }
 
@@ -3154,7 +3168,7 @@ function conciseFirstUseActionLine(
     ).length;
     isSubset = group.projects.length < hostAdditionProjects;
   }
-  return conciseFirstUseAction(group.step, group.projects, isSubset);
+  return conciseFirstUseAction(group.step, group.humanAction, group.projects, isSubset);
 }
 
 function conciseFirstUseLines(
@@ -3965,34 +3979,35 @@ function firstDeliveryHosts(
 const START_FOLDER_GUIDANCE =
   "Start your agents from this Project folder, not a subfolder.";
 
-/** One per-agent setup line over Adapter-authored step text (spec #677 US-005,
- * D5): the agent name prefixes the messages its Adapter authored, joined as
- * one line. The rule is mechanical rendering — it never derives agent
- * requirements and never rewords Adapter text (CONTEXT.md, ADR-0012). The
- * standard load reason lives once in the section heading, so per-step
- * standard consequences are dropped here; non-standard consequences stay in
- * parentheses because they carry a fact the heading does not. */
+/** One per-agent human setup line over the steps' authored human renderings
+ * (spec #672 US-001/US-005 screens 04/26): the catalog displayName prefixes
+ * the joined human actions, one idea per clause and the name once. The rule is
+ * mechanical composition — it never derives agent requirements, never rewords
+ * machine `message` (DEC-004), and never appends a consequence parenthetical;
+ * each human action states what to do and why in plain words. */
 function perAgentSetupLine(host: SupportedHost, steps: readonly HostSetupStep[]): string {
-  const actions = steps.map((step) => {
-    const base = step.message.replace(/[:.]\s*$/, "");
-    const consequence =
-      step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
-        ? undefined
-        : step.consequence.replace(/[.:]+$/, "");
-    return consequence === undefined ? base : `${base} (${consequence})`;
-  });
-  return `${hostDisplayName(host)}: ${actions.join("; ")}.`;
+  const actions = steps.map((step) => step.humanAction.replace(/[.:]+$/, ""));
+  return `${hostDisplayName(host)}: ${joinHumanActions(actions)}.`;
+}
+
+/** Plain clause joining for one agent's human actions (screens 04/26). */
+function joinHumanActions(actions: readonly string[]): string {
+  if (actions.length <= 1) return actions[0] ?? "";
+  const [last, ...leading] = [...actions].reverse();
+  const separator = actions.length === 2 ? ", and " : "; and ";
+  return `${leading.reverse().join("; ")}${separator}${last}`;
 }
 
 /**
  * The install receipt's required setup guidance (US-005, US-012, DEC-006,
- * DEC-009, spec #677 screens 04/26): the host-neutral start-folder line on
- * first delivery, then one line per agent whose Adapter-authored steps the
- * shared relevance policy selects. Agents with nothing to do are left out —
- * a Claude-only install shows no per-agent line. Routine updates do not
- * repeat the start-folder line. The CLI never invents agent-specific step
- * text (ADR-0012); shared-path explanations and complete provenance stay in
- * focused guidance and verbose/JSON evidence.
+ * DEC-009, spec #672 screens 04/26): the host-neutral start-folder line on
+ * first delivery, then one plain human line per agent whose steps the shared
+ * relevance policy selects (each step's authored `humanAction`, the display
+ * name once). Agents with nothing to do are left out — a Claude-only install
+ * shows no per-agent line. Routine updates do not repeat the start-folder
+ * line. The CLI never invents agent-specific step text (ADR-0012); machine
+ * `setupSteps` messages, shared-path explanations and complete provenance stay
+ * in verbose/JSON evidence and the machine namespace.
  */
 export function installSetupGuidanceNodes(
   report: ReconciliationReport,
@@ -5786,7 +5801,7 @@ function verboseHostSetupNodes(
     const section: PresentationNode[] = [{ kind: "heading", text: heading }];
     for (const group of sectionGroups) {
       section.push(list([
-        [`${group.message}${setupProjectScope(group.projects, true, scope)}`],
+        [`${hostDisplayName(group.step.host)}: ${group.humanAction}.${setupProjectScope(group.projects, true, scope)}`],
       ]));
       if (group.step.consequence !== undefined) {
         section.push({ kind: "prose", parts: [`  Consequence: ${group.step.consequence}`] });
@@ -6282,10 +6297,20 @@ export interface TemporaryInstallationReceiptView {
  * One home for the bound-project setup-step rule: a step that identifies its
  * path semantically as the Project renders the caller's chosen Project
  * identity, while JSON keeps the canonical spelling and human views pass the
- * presented one.
+ * presented one. Applies to the machine `message` and the human rendering
+ * alike.
  */
+function attachBoundProject(
+  text: string,
+  step: HostSetupStep,
+  project: string,
+): string {
+  return step.path === "bound-project" ? `${text} ${project}` : text;
+}
+
+/** The machine `setupSteps` message (DEC-004): never rendered on human surfaces. */
 function setupStepMessage(step: HostSetupStep, project: string): string {
-  return step.path === "bound-project" ? `${step.message} ${project}` : step.message;
+  return attachBoundProject(step.message, step, project);
 }
 
 function temporarySetupStepJson(step: HostSetupStep, project: string) {

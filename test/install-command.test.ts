@@ -370,7 +370,7 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     expect(human).toContain("Before your agents can load it:");
     expect(human).toContain("Start your agents from this Project folder, not a subfolder.");
     expect(human).toContain(
-      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
+      "Codex: approve the SessionStart hook when asked, and trust this project.",
     );
     // The optional check is one short action on the stable Project path
     // (US-006); it never claims loading was observed (OOS-001).
