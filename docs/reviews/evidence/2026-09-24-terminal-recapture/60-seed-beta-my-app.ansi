@@ -6,8 +6,8 @@
 [1mBefore your agents can load it:[0m
 - Start your agents from this Project folder, not a
   subfolder.
-- Codex: Review and approve the generated SessionStart hook
-  when Codex asks; Trust the bound project in Codex.
+- Codex: approve the SessionStart hook when asked, and trust
+  this project.
 
 Try it: start new Claude and Codex sessions in
   /private/tmp/apkit-680-session/60/projects/beta/my-app and

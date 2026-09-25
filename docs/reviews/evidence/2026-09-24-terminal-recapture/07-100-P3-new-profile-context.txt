@@ -3,6 +3,7 @@ A Profile groups Context and Skills for one kind of work, like "engineering" or 
 ✔ Name › engineering
 
 Context is loaded in every agent session that uses this Profile.
+
 ❯ Which Context?
 type to filter › ↑↓ move › space toggle › enter submit
 1 selected

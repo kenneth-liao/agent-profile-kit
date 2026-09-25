@@ -1,3 +1,3 @@
-[31m✖ Project target '/private/tmp/apkit-680-session/100/missing' must be an existing directory[0m
+[31m✖ The folder /private/tmp/apkit-680-session/100/missing doesn't exist.[0m
 
-Create it or pass an existing Project directory.
+Create it first, or pick a folder that exists.
