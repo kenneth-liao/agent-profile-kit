@@ -52,11 +52,11 @@ import {
 import {
   extractPackageArchive,
   obtainPackageArchive,
-  packedCliNodeExecutable,
 } from "./support/package-archive.js";
 import {
   controlledEnvironment,
   controlledPath,
+  controlledToolPath,
 } from "./support/controlled-environment.js";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -284,7 +284,11 @@ describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)
     const { bin, home, project } = prepareCodexFixture();
     await writeCodexWorkspace(home);
     const result = await runProcess({
-      executable: packedCliNodeExecutable(),
+      // The canonical packed-consumer launcher seam (US-007): resolves the
+      // packed-CLI Node selection to an absolute realpath and fails fast when
+      // it is absent, so the spawn never depends on the child's controlled
+      // PATH — which deliberately contains no `node` (hermetic child env).
+      executable: controlledToolPath("node"),
       arguments_: [
         cliPath,
         "machine", "install-temp",
