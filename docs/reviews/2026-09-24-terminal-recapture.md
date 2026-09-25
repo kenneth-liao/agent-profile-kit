@@ -1,42 +1,50 @@
 # Rendered terminal evidence — 2026-09-24 recapture
 
-Prepared for #680 (TEST-005) to support the principal re-review on #519 under
-parent spec #672. **Principal acceptance stays on #519.** This report does not
-accept or disposition #519 or #491 (TEST-006, OOS-005), and this PR leaves #680
-open — it is done only after the #519 hand-off comment.
+Prepared for #680 (TEST-005), refreshed for #695 to support the principal
+re-review on #519 under parent spec #672. **Principal acceptance stays on
+#519.** This report does not accept or disposition #519 or #491 (TEST-006,
+OOS-005); both stay open.
 
-This is the second capture of the day under the one committed driver: the first
-ran against the packed candidate at `24067a5` and found four product defects
-plus two wording divergences; #690 (PR #691, merged as `7156297`) corrected
-them; this capture re-runs the same driver against a freshly packed candidate
-at that revision and replaces the evidence. Labels and frame IDs are unchanged,
-so the two captures compare one to one.
+This is the third capture under the one committed driver. The first ran
+against the packed candidate at `24067a5` and found four product defects plus
+two wording divergences; #690 (PR #691, merged as `7156297`) corrected them and
+the second capture replaced the evidence at that revision. #693 (PR #696) then
+corrected the audit's spacing and details-route gaps and #694 (PR #697) the
+docs; this capture re-runs the same driver against a freshly packed candidate
+at the new `main` (`414763a`) and replaces the evidence in place. Labels and
+frame IDs are unchanged, so all three captures compare one to one.
 
 ## Provenance
 
-- Product: Agent Profile Kit **0.236.1**, revision
-  [`7156297`](https://github.com/kenneth-liao/agent-profile-kit/commit/7156297dc5e228df8bfed77af78d6f44f9600957)
-  (origin/main with #673–#679 and #690 merged). Packed from this worktree
-  detached at that revision with a clean tree and no untracked source (the
-  session log sat outside the tree for the pack), so the identity record names
-  the product revision and no local evidence.
+- Product: Agent Profile Kit **0.236.2**, revision
+  [`414763a`](https://github.com/kenneth-liao/agent-profile-kit/commit/414763a7d56e22d89cc0e9ca5a6ee406349f9560)
+  (origin/main with #673–#679, #690, #693 and #694 merged). Packed from this
+  ticket's worktree at that revision with a clean tree and no untracked source
+  (the session log sat outside the tree for the pack), so the identity record
+  names the product revision and no local evidence.
 - Package created with `scripts/create-package-candidate.ts` (the committed
-  `prepare-candidate.ts` flow, executed from an ignored path inside the
-  detached tree so the clean source stayed pristine); extracted through
-  `extractPackageArchive`, which verifies the identity record against the
-  archive bytes. Identity summary:
+  `prepare-candidate.ts` flow) into a fresh, empty
+  `/private/tmp/apkit-695-candidate` — never a reused directory, so no stale
+  file can enter the candidate; extracted through `extractPackageArchive`,
+  which verifies the identity record against the archive bytes. Identity
+  summary:
   [`candidate-identity.json`](evidence/2026-09-24-terminal-recapture/candidate-identity.json).
 - Archive SHA-256:
-  `7e7027584b00ccd88e2d49d3a5ea4db91efa8d59d8677226e5c291d965bf059b`.
+  `42c7200621d96fc6fe34970dc82d8a79c3625858704a1e73687ae1fcf126ec52`.
 - Source fingerprint:
-  `429efea10c6cb2e18283fd6074cdf8877cd5e526f7854d54e856188209f42d09`.
+  `095e2aab838b0d30f1b6f80ae3b8475699f85f30d8c6f04f52816a72ff798c2c`.
+- The driver's candidate path now names this fresh directory
+  (`capture-terminal-recapture.py` constant `CANDIDATE`); that path change is
+  the only driver edit and is not a product-flow change. The session root stays
+  `/private/tmp/apkit-680-session` and is wiped before each run, so every
+  frame's path strings compare one to one with the 7156297 frames.
 - Runtime: Node v22.23.2 (`/opt/homebrew/opt/node@22/bin/node`, spawned as an
   absolute path; node@22 is never exported onto `PATH`); build: Bun 1.4.0.
 - Real PTYs: 100×24 and 60×24, `TERM=xterm-256color`, driven by pexpect. Each
   expected prompt/exit had a 12-second timeout and owned-child cleanup.
 - Each width used its own disposable HOME and XDG directories under
   `/private/tmp/apkit-680-session/`. Only fixture Projects were installed.
-  The session root keeps the previous capture's path length (`apkit-653-session`
+  The session root keeps the previous captures' path length (`apkit-653-session`
   → `apkit-680-session`), so 60-column wrapping stays comparable.
 - `PATH` contained controlled Codex/Claude version stubs and system tools; no
   real agent was started. The missing-agent scenario removed both stubs.
@@ -46,7 +54,7 @@ so the two captures compare one to one.
 ## How to rerun
 
 ```sh
-bun run docs/reviews/evidence/2026-09-24-terminal-recapture/prepare-candidate.ts /private/tmp/apkit-680-candidate
+bun run docs/reviews/evidence/2026-09-24-terminal-recapture/prepare-candidate.ts /private/tmp/apkit-695-candidate
 
 uv run --with pexpect --with pyte --with pillow python \
   docs/reviews/evidence/2026-09-24-terminal-recapture/capture-terminal-recapture.py
@@ -56,8 +64,9 @@ uv run --with playwright python \
 ```
 
 Run `prepare-candidate.ts` from a checkout whose tree is exactly the recorded
-product revision. The capture driver is committed beside the evidence as raw
-provenance
+product revision, into a fresh, empty destination directory (the capture driver
+reads that same path). The capture driver is committed beside the evidence as
+raw provenance
 ([`capture-terminal-recapture.py`](evidence/2026-09-24-terminal-recapture/capture-terminal-recapture.py)
 and [`prepare-candidate.ts`](evidence/2026-09-24-terminal-recapture/prepare-candidate.ts)),
 adapted from the 2026-09-23 pair: `--agent` and `apkit list agents` (D1), the
@@ -178,63 +187,84 @@ Frame IDs are 100-column; the 60-column twin shares the label.
 | **D5** — one start-folder line plus per-agent steps | `11` and `33` — `Start your agents from this Project folder, not a subfolder.` for every agent, then one Codex line; agents with nothing extra (Claude) have no line of their own |
 | **D6** — never hide just one Project | `34`, `70` — `Used by:` lists four Projects for Claude and five for Codex in full (the 10-Project limit was not reached in this fixture) |
 
-## Product defects
+## What changed since 7156297
 
-No product code was changed for this ticket. The first capture at `24067a5`
-found four product defects; #690 (PR #691, merged as `7156297`) corrected all
-four, and this capture at that revision proves each correction in the frame
-named below. The same change also corrected the two observations listed after
-them. **No new defect was found:** every frame outside the six corrections and
-the run-local timestamps of `details` is byte-identical to the first capture.
+No product code was changed for this ticket — #695 is docs and evidence only.
+#693 (PR #696, merged as `768cf6b`) corrected the spec acceptance audit's
+spacing and details-route gaps and observations 2–4; #694 (PR #697, merged as
+`414763a`) corrected the shipped guides and living docs. This section proves
+what moved on screen from the frame diff of this capture against the committed
+7156297 evidence: same 36 labels, same frame IDs, the session root kept at the
+exact previous path so every path string compares one to one. Everything the
+first capture's #690 corrections established stays fixed (the frames that
+proved them are byte-identical or changed only by the spacing rule below).
 
-### 1 — Install pickers settled with the full question as their label — fixed by #690
+### Corrections proven in frames
 
-- **Frames (before):** `20`, `21`, `32`, `33` (`56`, `57`, `68`, `69`)
-- **Frames (proof):** `20`, `21`, `32`, `33` (`56`, `57`, `68`, `69`) now show
-  `✔ Profile › engineering` and `✔ Agents › claude, codex`, matching proposed
-  screens 11–13 and the guided creation's settled form (`✔ Name › …`, frames
-  `07`–`09`). `cli/install-command.ts` now passes the prompt seam's
-  `settledLabel`. The labels also read right mid-flow (frames `18`, `19`, `31`).
+- **Settled answers separated from the next part (US-001/DEC-002, #693 gap 5).**
+  Frames `09`, `18`, `19` (`45`, `54`, `55`) — the frames the audit named:
+  `✔ Name › engineering` now stands one blank line above `Context is loaded…`,
+  `✔ Skills › review-pr` one blank line above the P5 receipt
+  `✔ Created the engineering Profile`, and `✔ Profile › engineering` one blank
+  line above `Pick the agents…` under the install pickers. Consecutive settled
+  answers stay together as one part (`✔ Agents › claude, codex` with
+  `● Install now? (y/N) › n`, frames `21`, `57`; with `✔ Install now? (y/N) › y`
+  on `33`, `69`). The same rule shows on every other settled-answer screen the
+  journey drives: `03`, `07`, `08`, `10`, `20`, `28`, `31`, `32` (`39`, `43`,
+  `44`, `46`, `56`, `64`, `67`, `68`) — including the setup confirmations
+  (`✔ Set up this folder as your Workspace? › yes` now clears the receipt) and
+  the cancelled name prompt (`● Name` clears `● Cancelled. Nothing was
+  changed.`).
+- **Partial-uninstall Projects on the display-path rule (audit observation 2).**
+  Frames `35`, `71`: `- Done: ~/proj/alpha` — the one Project under HOME now
+  names itself home-relative on the partial-uninstall screen, the same spelling
+  `apkit details` uses for it (frames `36`, `72`), instead of the full path.
+  Projects outside HOME keep their absolute spelling on both screens.
 
-### 2 — `status` grouped its headline and Workspace row without a blank line — fixed by #690
+### Corrections this journey does not exercise
 
-- **Frames (before):** `13`, `23` (`49`, `59`)
-- **Frames (proof):** `13`, `23` (`49`, `59`) now separate
-  `✔ Everything is up to date (…)` from `Workspace: …` with one blank line. The
-  Workspace row is its own screen part, as on `validate` (frame `14`), matching
-  proposed screens 06/16 (US-001/DEC-002).
+The journey proves these #693 corrections with tests, not frames — the screens
+they fix are not among the 36 labels (and were not at 7156297 either):
 
-### 3 — The partial-uninstall failure printed the raw Node error — fixed by #690
+- **Details route after a clean Git-Project re-install (gap 1).** The fixture
+  Projects are not Git Projects, so the Repository Exclusion bookkeeping never
+  appears; the route now follows the warnings the run leaves the user with
+  (`warningLeavesUserEvidence`), pinned by the packed Git-Project journey in
+  `test/cli.test.ts`.
+- **Changed-update warning spacing (gap 4).** The one changed update
+  (`14-fleet-update`, frames `24`, `60`) runs with the agent stubs on `PATH`
+  and carries no warnings — byte-identical since 7156297. The warnings on
+  screen sit on the no-op update (`17-agent-missing-warning`, `34`, `70`),
+  whose part shape was already correct. The changed-update sibling is PTY-pinned
+  at 100 and 60 columns in `test/presentation.test.ts`.
+- **`Unsupported agent` headline spacing and empty-screen noted next steps
+  (observation 3)** and **the unknown-Profile `Run apkit list profiles…`
+  spacing (observation 4)**: no such screen in the journey (`09-failure` takes
+  the `Did you mean` branch and is byte-identical). Each is pinned in
+  `test/presentation.test.ts` / `test/reference-diagnostics.test.ts`.
 
-- **Frames (before):** `35`, `36` (`71`, `72`) — `(EACCES: permission denied,
-  mkdtemp '…/.agent-profile-kit-remove-…')`, with the internal temp path
-  hard-wrapped mid-string at 60 columns
-- **Frames (proof):** `35` (`71`) now states `(permission denied)` under
-  `Couldn't write to <Project>`, matching proposed screen 28. Frame `36` (`72`)
-  keeps the raw evidence in `apkit details` unchanged (DEC-004, OOS-004).
+### Full label delta (frame diff at both widths)
 
-### 4 — Setup on an existing complete Workspace said "Created" — fixed by #690
+**Changed — 14 labels.** Settled-answer spacing (gap 5): `02-setup`, `P3-new-profile-context`, `P4-new-profile-skills`, `P5-new-profile-created`, `P5b-new-profile-cancel`, `11-selection-agent-picker`, `11-selection-filtered-agent`, `11-selection-install-confirmation`, `11-selection`, `18-setup-routing-with-profiles`, `20-narrow-wrap-command-agent-picker`, `20-narrow-wrap-command-confirmation`, `20-narrow-wrap-command`. Display-path rule on the partial-uninstall screen (observation 2): `21-details-partial`.
 
-- **Frames (before):** `28`, `64` — `✔ Created your Workspace at …`
-- **Frames (proof):** `28` (`64`) now reads `✔ Connected your Workspace at …`,
-  matching proposed screen 21. The verb is decided from what setup actually
-  created (the folder already existed), never from copy.
+**Changed only in run-local values — 2 labels.** `16-details` (the local human
+time of day) and `21b-details-partial` (the local human time and the raw
+`mkdtemp` suffix inside the unchanged `EACCES` evidence kept in details).
 
-### Also corrected by #690 (were observations)
+**Unchanged — 20 labels.** `01-first-use`, `02-setup-confirmation`, `P1-new-profile-empty`, `P6-new-context`, `P2-new-profile-name`, `05-first-install`, `06-routine`, `07-status`, `08-validate`, `09-failure`, `10-invalid-target`, `11-selection-profile-picker`, `12-fleet-inventory`, `13-fleet-status`, `14-fleet-update`, `15-details-list`, `18-setup-routing-with-profiles-confirmation`, `19-list-agents`, `20-narrow-wrap-command-profile-picker`, `17-agent-missing-warning` — byte-identical to the committed frames.
 
-- **A declined confirm settled with the success glyph** (frames `21`, `57`).
-  Frame `21` (`57`) now settles `● Install now? (y/N) › n`, neutral before the
-  shared `● Cancelled. Nothing was changed.` The rule lives in the shared
-  prompt seam, so every confirm settles neutral unless accepted.
-- **The Profile-picker screen opened with a Project concept sentence** (frames
-  `17`, `30`, and the scrolled history of `18`–`21`, `31`–`33`). Frames `17`
-  and `30` (`53`, `66`) now open with only `Installing into <path>.`, matching
-  proposed screen 10 (US-005).
+### New defects
+
+**None found.** Every changed frame's delta is one of the #693 corrections
+above; every other frame is byte-identical (or run-local values only), and the
+browser check reports one terminal row per line with a working Dark/Light
+toggle on all 72 frames.
 
 ## Observations (not gated; disposition at the principal's or orchestrator's call)
 
-Still true after #690; #690's "not included" list keeps each one deliberate or
-settled.
+Still true at `414763a` — the frames that show each are byte-identical since
+7156297 (or, for the soft-wrap one, changed only by the spacing rule above);
+#690's and #693's "not included" lists keep each one deliberate or settled.
 
 - **`validate` still prints `Settings: ~/.agents/agent-profile-kit/config.yaml`**
   (frame `14`) where proposed screen 07 omits it. Deliberate:
@@ -269,7 +299,7 @@ layout — not from the HTML source:
   text row count equals the terminal row count of the frame's `.txt` cells
   (joined rows would drop newlines); the rendered block height equals
   rows × line-height + padding + border (a wrapped row would make it taller).
-  793 rows checked, zero mismatches.
+  825 rows checked, zero mismatches.
 - **Dark/Light toggle switches the frames.** Default renders dark; the Light
   button sets the palette, flips the page background to `#f4f4f4`, hides the
   dark frames and shows the light ones; the Dark button restores the inverse.
@@ -293,8 +323,9 @@ new guided pickers.
 Review both widths and both palettes for readability, styling, scope clarity and
 progressive disclosure. The screen map above links every proposed screen
 (01–29, P1–P6) to its frame; the label-change table keeps the 2026-09-23
-comparison one to one. The four defects and the two wording divergences the
-first capture found are corrected by #690 and proven frame-by-frame above;
-disposition the remaining observations, and record the acceptance decision on
+comparison one to one. Since 7156297 the settled-answer spacing and the
+partial-uninstall display paths changed (each proven in the frames named above);
+the rest of the gallery is byte-identical, the #690 corrections included.
+Disposition the remaining observations, and record the acceptance decision on
 #519. **#519 and #491 stay open until the principal decides** (TEST-006,
 OOS-005).

@@ -4,6 +4,7 @@ Context, Skills, and Profiles will be stored in and loaded from
 This folder already has everything it needs.
 [36m❯ [0m[1mUse this folder as your Workspace? (y/N)[0m[43G[44G[43G[2K[G[G[?25h
 [32m✔ [0m[32mUse this folder as your Workspace?[0m [36m›[0m [32myes[0m
+
 [32m✔ Connected your Workspace at /private/tmp/apkit-680-session/100/workspace[0m
 
 Agents found: claude, codex

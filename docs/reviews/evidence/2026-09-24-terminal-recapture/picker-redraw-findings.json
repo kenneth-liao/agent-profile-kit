@@ -10,7 +10,7 @@
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
       "eraseOperationCount": 48,
-      "rawBytes": 2575
+      "rawBytes": 2581
     },
     {
       "stream": "100-11-selection",
@@ -22,7 +22,7 @@
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
       "eraseOperationCount": 64,
-      "rawBytes": 3367
+      "rawBytes": 3369
     },
     {
       "stream": "60-P5-new-profile-created",
@@ -34,7 +34,7 @@
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
       "eraseOperationCount": 48,
-      "rawBytes": 2602
+      "rawBytes": 2608
     },
     {
       "stream": "60-11-selection",
@@ -46,7 +46,7 @@
       "hidesCursorDuringRedraw": false,
       "restoresCursor": true,
       "eraseOperationCount": 64,
-      "rawBytes": 3372
+      "rawBytes": 3374
     }
   ],
   "summary": {

@@ -1,12 +1,13 @@
 Installing into ~/proj/alpha.
 
 ✔ Profile › engineering
+
 Pick the agents that should use this Profile here. apkit
   doesn't install the agents themselves.
 
 ✔ Agents › claude, codex
-
 ✔ Install now? (y/N) › y
+
 ✔ Installed the engineering Profile
   Project: ~/proj/alpha
   Agents: claude, codex

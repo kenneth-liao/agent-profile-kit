@@ -1,6 +1,6 @@
 ⚠ Uninstall op-000010 stopped partway
 
-  Today at 7:09 PM · all Projects
+  Today at 3:07 AM · all Projects
 
 Changed files:
   ~/proj/alpha
@@ -15,7 +15,7 @@ What went wrong:
 nalytics-pipeline-v2
     EACCES: permission denied, mkdtemp
       '/private/tmp/apkit-680-session/60/projects/acme-inter
-nal-analytics-pipeline-v2/.agent-profile-kit-remove-FecvH8'
+nal-analytics-pipeline-v2/.agent-profile-kit-remove-GNus8L'
 
 Not done:
 - /private/tmp/apkit-680-session/60/projects/alpha/my-app

@@ -8,6 +8,7 @@ This folder doesn't exist yet. Setup will create it and add:
 - profiles/
 
 ✔ Set up this folder as your Workspace? › yes
+
 ✔ Created your Workspace at /private/tmp/apkit-680-session/100/workspace
 
 Profiles group Context and Skills for one kind of work. You can reuse them across Projects.
