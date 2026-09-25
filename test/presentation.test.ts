@@ -844,6 +844,7 @@ describe("lifecycle status document", () => {
           host: "codex",
           kind: "trust-required",
           message: "Trust the bound project in Codex.",
+          humanAction: "trust this project",
           provenance: "standing",
         }],
       }],
@@ -1247,6 +1248,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "approval-required",
     message: "Review and approve the generated SessionStart hook when Codex asks.",
+    humanAction: "approve the SessionStart hook when asked",
     consequence: "Declining the hook prevents Profile Context from loading.",
     output: hookPath,
     provenance: "transition",
@@ -1255,6 +1257,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "trust-required",
     message: "Trust the bound project in Codex.",
+    humanAction: "trust this project",
     consequence: "Profile Context does not load until the project is trusted.",
     provenance: "standing",
   });
@@ -1262,6 +1265,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "launch-constraint",
     message: "Launch Codex from the exact bound project root:",
+    humanAction: "start it from the exact Project folder:",
     path: "bound-project",
     consequence: "Launching from a descendant prevents Profile Context from loading.",
     provenance: "standing",
@@ -1270,6 +1274,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "grok",
     kind: "shared-path",
     message: "Grok uses Claude's shared rule path.",
+    humanAction: "it reads Claude's shared rule path",
     provenance: "standing",
   });
 
@@ -1306,27 +1311,28 @@ describe("Host Setup Step provenance and presentation", () => {
   };
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     // Sections are authored headings; each step is a list item whose distinct
-    // consequence follows as its own prose node.
+    // consequence follows as its own prose node. Human surfaces render the
+    // step's authored humanAction (spec #672 US-001/US-005).
     expect(headingsIn(verbose)).toContain("Agent setup:");
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
     const nodes = flattenPresentationNodes(verbose);
     const approvalIndex = indexWhere(nodes, (node) =>
       listItemTexts(node).includes(
-        "Review and approve the generated SessionStart hook when Codex asks."));
+        "Codex: approve the SessionStart hook when asked."));
     expect(approvalIndex).toBeGreaterThan(-1);
     expect(nodes[approvalIndex + 1]).toEqual({
       kind: "prose",
       parts: ["  Consequence: Declining the hook prevents Profile Context from loading."],
     });
     const trustIndex = indexWhere(nodes, (node) =>
-      listItemTexts(node).includes("Trust the bound project in Codex."));
+      listItemTexts(node).includes("Codex: trust this project."));
     expect(trustIndex).toBeGreaterThan(-1);
     expect(nodes[trustIndex + 1]).toEqual({
       kind: "prose",
       parts: ["  Consequence: Profile Context does not load until the project is trusted."],
     });
-    expect(listItemsIn(verbose)).toContain("Launch Codex from the exact bound project root: /project-a");
-    expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
+    expect(listItemsIn(verbose)).toContain("Codex: start it from the exact Project folder: /project-a.");
+    expect(listItemsIn(verbose)).toContain("Grok: it reads Claude's shared rule path.");
 
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly projects: readonly {
@@ -1401,10 +1407,10 @@ describe("Host Setup Step provenance and presentation", () => {
     // The identical step renders once with compact Project scope; the distinct
     // consequence keeps its own bullet (US-048, US-049).
     expect(listItemsIn(verbose).filter((text) =>
-      text.startsWith("Trust the bound project in Codex.")
+      text.startsWith("Codex: trust this project.")
     )).toEqual([
-      "Trust the bound project in Codex. (/project-a, /project-b)",
-      "Trust the bound project in Codex.",
+      "Codex: trust this project. (/project-a, /project-b)",
+      "Codex: trust this project.",
     ]);
     expect(presentationTexts(verbose).filter((text) =>
       text === "  Consequence: Profile Context does not load until the project is trusted."
@@ -1431,7 +1437,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = lifecycleStatusDocument(report, { verbose: true });
 
     expect(listItemsIn(verbose)).toContain(
-      "Launch Codex from the exact bound project root: /project-a",
+      "Codex: start it from the exact Project folder: /project-a.",
     );
   });
 
@@ -1459,9 +1465,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const firstUse = indexWhere(conciseNodes, (node) => node.kind === "heading" && nodeText(node) === "First use:");
     expect(firstUse).toBeGreaterThan(-1);
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Launch Codex from the exact bound project root"),
+      expect.stringContaining("Codex: approve the SessionStart hook when asked so the Profile can load"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Codex: start it from the exact Project folder so the Profile can load"),
     ]);
     expect(headingsIn(applyReportDocument(applyResult(report, resultingState))))
       .not.toContain("Agent setup:");
@@ -1474,9 +1480,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Agent setup:", "Standing agent setup:"]));
     expect(listItemsIn(verbose)).toEqual(expect.arrayContaining([
-      "Trust the bound project in Codex.",
-      "Launch Codex from the exact bound project root: /project-a",
-      "Grok uses Claude's shared rule path.",
+      "Codex: trust this project.",
+      "Codex: start it from the exact Project folder: /project-a.",
+      "Grok: it reads Claude's shared rule path.",
     ]));
     expect(flattenPresentationNodes(verbose).some((node) =>
       node.kind === "prose" &&
@@ -1513,7 +1519,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Trust the bound project in Codex.");
+    expect(listItemsIn(verbose)).toContain("Codex: trust this project.");
   });
 
   test("replacing the last Host-consumed output on an established pairing does not replay standing first-use", () => {
@@ -1530,6 +1536,7 @@ describe("Host Setup Step provenance and presentation", () => {
           host: "pi",
           kind: "trust-required",
           message: "Trust the bound project in Pi.",
+          humanAction: "trust this project",
           consequence: "The Profile does not load until the project is trusted.",
           provenance: "standing",
         }],
@@ -1557,7 +1564,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Trust the bound project in Pi.");
+    expect(listItemsIn(verbose)).toContain("Pi: trust this project.");
   });
 
   test("routine update does not replay transition setup or standing trust", () => {
@@ -1629,7 +1636,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
+    expect(listItemsIn(verbose)).toContain("Grok: it reads Claude's shared rule path.");
   });
 
   test("no-op update omits transition setup and the standing reminder", () => {
@@ -1655,6 +1662,7 @@ describe("Host Setup Step provenance and presentation", () => {
       host: "pi",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      humanAction: "trust this project",
       consequence: "The Profile does not load until the project is trusted.",
       provenance: "standing",
     };
@@ -1691,9 +1699,9 @@ describe("Host Setup Step provenance and presentation", () => {
     // First-use guidance is deduplicated: one list item per distinct step,
     // with no per-Project setup matrix.
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Trust the bound project in Pi"),
+      expect.stringContaining("Codex: approve the SessionStart hook when asked so the Profile can load"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Pi: trust this project so the Profile can load"),
     ]);
   });
 
@@ -1720,15 +1728,15 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = listItemsIn(applyReportDocument(applyResult(receipt, resultingState)));
     expect(concise).toEqual([
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Launch Codex from the exact bound project root"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Codex: start it from the exact Project folder for 2 projects"),
     ]);
 
     const verbose = listItemsIn(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-1");
-    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-2");
+    expect(verbose).toContain("Codex: start it from the exact Project folder: /p-1.");
+    expect(verbose).toContain("Codex: start it from the exact Project folder: /p-2.");
   });
 
   test("standing guidance is not triggered by non-host bookkeeping additions or outputs for different hosts", () => {
@@ -1763,12 +1771,13 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
   });
 
-  test("non-standard security warning consequence is preserved in concise update", () => {
+  test("a non-standard consequence never reappears as a parenthetical on human lines (INT-2 superseded)", () => {
     const warningStep: HostSetupStep = {
       consequence: "Security warning: remote execution permitted",
       host: "codex",
       kind: "trust-required",
       message: "Trust the bound project in Codex.",
+      humanAction: "trust this project",
       provenance: "standing",
     };
     const report = emptyReport({
@@ -1797,9 +1806,25 @@ describe("Host Setup Step provenance and presentation", () => {
     );
     expect(firstUse).toBeGreaterThan(-1);
     const conciseNodes = flattenPresentationNodes(concise);
+    // The human line states what to do and why in plain words; the raw
+    // consequence never follows in parentheses. Its fact stays as verbose
+    // evidence and machine JSON (DEC-004).
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      "Trust the bound project in Codex (Security warning: remote execution permitted).",
+      "Codex: trust this project.",
     ]);
+    expect(documentText(concise)).not.toContain("Security warning: remote execution permitted");
+    const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
+    expect(presentationTexts(verbose)).toContain(
+      "  Consequence: Security warning: remote execution permitted",
+    );
+    const machine = JSON.parse(formatApplyJson(applyResult(report, resultingState))) as {
+      readonly projects: readonly {
+        readonly setupSteps: readonly { readonly consequence?: string }[];
+      }[];
+    };
+    expect(machine.projects[0]?.setupSteps[0]?.consequence).toBe(
+      "Security warning: remote execution permitted",
+    );
   });
 
   test("changed aliased projects retain activation through their authored report identity", () => {
@@ -1843,10 +1868,10 @@ describe("Host Setup Step provenance and presentation", () => {
     ]);
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     expect(listItemsIn(verbose)).toContain(
-      "Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
+      "Codex: trust this project. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
     );
     expect(listItemsIn(verbose).filter((text) =>
-      text.startsWith("Trust the bound project in Codex.")
+      text.startsWith("Codex: trust this project.")
     )).toHaveLength(1);
   });
 
@@ -1865,12 +1890,15 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(blockedApply)).not.toContain("Standing Host setup:");
     expect(listItemsIn(blockedApply).some((text) =>
       text.includes("Review and approve the generated SessionStart hook") ||
-      text.includes("Trust the bound project in Codex.")
+      text.includes("Trust the bound project in Codex.") ||
+      text.includes("approve the SessionStart hook") ||
+      text.includes("trust this project")
     )).toBe(false);
     expect(flattenPresentationNodes(blockedApply).some((node) =>
       node.kind === "prose" &&
       (nodeText(node).includes("Review and approve the generated SessionStart hook") ||
-        nodeText(node).includes("Trust the bound project in Codex."))
+        nodeText(node).includes("Trust the bound project in Codex.") ||
+        nodeText(node).includes("trust this project"))
     )).toBe(false);
   });
 
@@ -1890,7 +1918,7 @@ describe("Host Setup Step provenance and presentation", () => {
       (node) => node.kind === "heading" && nodeText(node) === "First use:",
     );
     expect(firstUse).toBeGreaterThan(-1);
-    expect(listItemsFrom(failureNodes, firstUse + 1)).toEqual([expect.stringContaining("Trust the bound project in Codex")]);
+    expect(listItemsFrom(failureNodes, firstUse + 1)).toEqual([expect.stringContaining("Codex: trust this project so the Profile can load")]);
   });
 });
 
@@ -1909,6 +1937,7 @@ describe("responsive lifecycle presentation", () => {
           host: "codex",
           kind: "trust-required",
           message: "Trust the bound project in Codex.",
+          humanAction: "trust this project",
           consequence: "Profile Context does not load until the project is trusted.",
           provenance: "standing",
         }],
@@ -2669,6 +2698,7 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     host: "codex",
     kind: "approval-required",
     message: "Review and approve the generated SessionStart hook when Codex asks.",
+    humanAction: "approve the SessionStart hook when asked",
     consequence: "Declining the hook prevents Profile Context from loading.",
     output: hookPath,
     provenance: "transition",
@@ -2677,13 +2707,41 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     host: "codex",
     kind: "trust-required",
     message: "Trust the bound project in Codex.",
+    humanAction: "trust this project",
     consequence: "Profile Context does not load until the project is trusted.",
     provenance: "standing",
+  });
+  const antigravityTrust = (): HostSetupStep => ({
+    host: "antigravity",
+    kind: "trust-required",
+    message: "Trust the bound project in Antigravity.",
+    humanAction: "trust this project",
+    consequence: "The Profile does not load until the project is trusted.",
+    provenance: "standing",
+  });
+  const piTrust = (): HostSetupStep => ({
+    host: "pi",
+    kind: "trust-required",
+    message: "Trust the bound project in Pi.",
+    humanAction: "trust this project",
+    consequence: "The Profile does not load until the project is trusted.",
+    provenance: "standing",
+  });
+  const opencodeRestart = (): HostSetupStep => ({
+    host: "opencode",
+    kind: "launch-constraint",
+    message: "Restart OpenCode to load changed configuration.",
+    humanAction: "restart it to load the new configuration",
+    consequence:
+      "A running OpenCode session keeps its previously loaded configuration until restarted.",
+    output: ".opencode/opencode.jsonc",
+    provenance: "transition",
   });
   const sharedPath = (): HostSetupStep => ({
     host: "grok",
     kind: "shared-path",
     message: "Grok uses Claude's shared rule path.",
+    humanAction: "it reads Claude's Context file",
     provenance: "standing",
   });
 
@@ -2710,7 +2768,7 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     return { receipt, resultingState };
   };
 
-  test("a first install surfaces the start-folder line plus one Adapter-authored line per agent", () => {
+  test("a first install surfaces the start-folder line plus one line per agent with steps", () => {
     const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex", "grok"]);
     const flattened = flattenPresentationNodes(nodes);
@@ -2719,17 +2777,11 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     );
     expect(section).toBeGreaterThan(-1);
     // The host-neutral start-folder line comes first (DEC-006); the agent's
-    // two Adapter-authored messages render as one prefixed line (spec #677).
-    expect(listItemsFrom(flattened, section + 1)).toEqual([
+    // steps render as one plain prefixed line (spec #672 screens 04/26).
+    expect(listItemsFrom(flattened, section + 1)[0]).toBe(
       "Start your agents from this Project folder, not a subfolder.",
-      expect.stringContaining("Codex: Review and approve the generated SessionStart hook when Codex asks"),
-    ]);
-    // The agent line joins the Adapter-authored messages mechanically; it is
-    // never reworded and never drops a non-standard consequence.
-    const agentLine = listItemsIn(nodes).find((text) => text.startsWith("Codex: "));
-    expect(agentLine).toBe(
-      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
     );
+    expect(listItemsIn(nodes).some((text) => text.startsWith("Codex: "))).toBe(true);
     // Shared-path stays off the receipt; longer explanation is focused
     // guidance and verbose/JSON evidence.
     expect(listItemsIn(nodes).some((text) => text.includes("shared rule path"))).toBe(false);
@@ -2737,16 +2789,16 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     expect(documentText(nodes)).not.toContain("Declining the hook prevents Profile Context from loading.");
   });
 
-  test("a non-standard consequence renders in parentheses on the agent's one line", () => {
+  test("a non-standard consequence never renders as a parenthetical on the agent's line (INT-2 superseded)", () => {
     // OpenCode-style restart step (transition-triggered on its own config
-    // output): the heading carries the standard load reason, so this
-    // step's non-standard consequence — a distinct Adapter-authored fact —
-    // stays on the line in parentheses (spec #677, INT-2).
+    // output): the human line states what to do and why in plain words, and
+    // the raw consequence stays verbose/JSON evidence (spec #672, ticket #701).
     const configPath = ".opencode/opencode.jsonc";
     const restart = (): HostSetupStep => ({
       host: "opencode",
       kind: "launch-constraint",
       message: "Restart OpenCode to load changed configuration.",
+      humanAction: "restart it to load the new configuration",
       consequence:
         "A running OpenCode session keeps its previously loaded configuration until restarted.",
       output: configPath,
@@ -2772,12 +2824,11 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
-    // ORCH-1 (spec #677): the agent prefix reads the catalog displayName, so
-    // the agent is never spelled two ways on one line — the product casing
-    // "OpenCode:" beside the Adapter-authored message's own "OpenCode".
+    // ORCH-1 (spec #677): the agent prefix reads the catalog displayName and
+    // the human action drops the agent name, so it appears once on the line.
     expect(listItemsIn(nodes)).toEqual([
       "Start your agents from this Project folder, not a subfolder.",
-      "OpenCode: Restart OpenCode to load changed configuration (A running OpenCode session keeps its previously loaded configuration until restarted).",
+      "OpenCode: restart it to load the new configuration.",
     ]);
   });
 
@@ -2808,6 +2859,134 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     const nodes = installSetupGuidanceNodes(receipt, receipt, ["codex"]);
     expect(nodes).toEqual([]);
   });
+
+  test("Codex's human line reads as proposed screens 04/26", () => {
+    const { receipt, resultingState } = installReports([hookApproval(), codexTrust()]);
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "Codex: approve the SessionStart hook when asked, and trust this project.",
+    ]);
+  });
+
+  test("a changed re-delivery renders only the step that presents", () => {
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts: ["codex"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps: [hookApproval(), codexTrust()],
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: hookPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Codex: approve the SessionStart hook when asked.",
+    ]);
+  });
+
+  test("Antigravity and Pi trust lines use the same plain form", () => {
+    const { receipt, resultingState } = installReports(
+      [antigravityTrust(), piTrust()],
+      ["antigravity", "pi"],
+    );
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["antigravity", "pi"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "Antigravity: trust this project.",
+      "Pi: trust this project.",
+    ]);
+  });
+
+  test("OpenCode keeps its restart step in the same plain style", () => {
+    const configPath = ".opencode/opencode.jsonc";
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed" as const,
+        hosts: ["opencode"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [opencodeRestart()],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: configPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed" as const,
+        hosts: ["opencode"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [opencodeRestart()],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "OpenCode: restart it to load the new configuration.",
+    ]);
+  });
+
+  test("no human setup surface reaches users with the machine message or 'bound project'", () => {
+    const steps = [hookApproval(), codexTrust(), antigravityTrust(), piTrust(), opencodeRestart(), sharedPath()];
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts: ["codex", "antigravity", "pi", "opencode", "grok"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps: steps,
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "addition", path: hookPath, project: "/project-a" },
+        { kind: "addition", path: ".opencode/opencode.jsonc", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const surfaces = [
+      installSetupGuidanceNodes(
+        resultingState,
+        receipt,
+        ["codex", "antigravity", "pi", "opencode", "grok"],
+      ),
+      applyReportDocument(applyResult(receipt, resultingState)),
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    ].map((nodes) => documentText(nodes)).join("\n");
+    for (const machineMessage of [
+      "bound project",
+      "Review and approve the generated SessionStart hook",
+      "Trust the bound project",
+      "Restart OpenCode to load changed configuration",
+      "Grok uses Claude's shared rule path",
+    ]) {
+      expect(surfaces).not.toContain(machineMessage);
+    }
+  });
 });
 
 describe("temporary-installation Project identity in documents", () => {
@@ -2836,6 +3015,7 @@ describe("temporary-installation Project identity in documents", () => {
         host: "codex",
         kind: "launch-constraint",
         message: "Launch Codex from the exact bound project root:",
+        humanAction: "start it from the exact Project folder:",
         path: "bound-project",
         provenance: "standing",
       }]),
@@ -2864,6 +3044,7 @@ describe("temporary-installation Project identity in documents", () => {
           host: "codex",
           kind: "launch-constraint",
           message: "Launch Codex from the exact bound project root:",
+          humanAction: "start it from the exact Project folder:",
           path: "bound-project",
           provenance: "standing",
         }]),
@@ -2885,6 +3066,7 @@ describe("temporary-installation Project identity in documents", () => {
             host: "codex",
             kind: "launch-constraint",
             message: "Launch Codex from the exact bound project root:",
+            humanAction: "start it from the exact Project folder:",
             path: "bound-project",
             provenance: "standing",
           }]),
@@ -4082,6 +4264,7 @@ describe("status concise terminology", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       output: ".codex/hooks.json",
       provenance: "transition",
     };
@@ -5467,6 +5650,7 @@ describe("Machine surface JSON and exit codes", () => {
           host: "codex",
           kind: "approval-required",
           message: "Approve the hook.",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         }],
@@ -7079,6 +7263,7 @@ describe("standalone view presentation documents (#389)", () => {
         host: "codex",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        humanAction: "trust this project",
         provenance: "standing",
       }],
       temporaryInstallationId: "temporary-installation-opaque-id",
@@ -7890,6 +8075,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       consequence: "Declining the hook prevents Profile Context from loading.",
       output: ".codex/hooks.json",
       provenance: "transition",
@@ -8033,6 +8219,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       consequence: "Declining the hook prevents Profile Context from loading.",
       output: ".codex/hooks.json",
       provenance: "transition",
@@ -8369,6 +8556,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
           host: "codex",
           kind: "approval-required",
           message: "Approve hook",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         }],
@@ -12009,6 +12197,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
           host: "codex",
           kind: "approval-required",
           message: "Approve hook",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         },
@@ -12017,6 +12206,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
           host: "claude",
           kind: "trust-required",
           message: "Trust the project in Claude",
+          humanAction: "trust this project",
           provenance: "standing",
         },
       ],
@@ -12105,9 +12295,9 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     // 5. Git exclusions are retained:
     expect(verboseTexts.some((t) => t.includes(".git/info/exclude"))).toBe(true);
 
-    // 5. Host setup steps are retained:
-    expect(verboseTexts.some((t) => t.includes("Approve hook"))).toBe(true);
-    expect(verboseTexts.some((t) => t.includes("Trust the project in Claude"))).toBe(true);
+    // 5. Host setup steps are retained as their authored human lines:
+    expect(verboseTexts.some((t) => t.includes("Codex: approve the hook."))).toBe(true);
+    expect(verboseTexts.some((t) => t.includes("Claude: trust this project."))).toBe(true);
 
     // 6. Composed context bodies, capability contracts, and per-project setup provenance are omitted:
     expect(headings).not.toContain("Selected setup:");

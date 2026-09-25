@@ -1091,7 +1091,7 @@ Changed files:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.236.4
+Engine version: 0.236.5
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1230,8 +1230,7 @@ exports[`golden snapshots of every human view install success: install-success 1
 
 Before your agents can load it:
 - Start your agents from this Project folder, not a subfolder.
-- Codex: Review and approve the generated SessionStart hook when Codex asks;
-  Trust the bound project in Codex.
+- Codex: approve the SessionStart hook when asked, and trust this project.
 
 Try it: start a new Codex session in ~/projects/demo and ask what Profile
   material it loaded.
@@ -1545,11 +1544,11 @@ Projects:
 ~/projects/demo: up to date
 
 Agent setup:
-- Review and approve the generated SessionStart hook when Codex asks.
+- Codex: approve the SessionStart hook when asked.
   Consequence: Declining the hook prevents Profile Context from loading.
 
 Standing agent setup:
-- Trust the bound project in Codex.
+- Codex: trust this project.
   Consequence: Profile Context does not load until the project is trusted.
 --- stderr ---
 "
@@ -1592,9 +1591,8 @@ exports[`golden snapshots of every human view update receipt: update-receipt 1`]
 ✔ Updated 1 Project (2 files)
 
 First use:
-- Review and approve the generated SessionStart hook when Codex asks so the
-  Profile can load.
-- Trust the bound project in Codex so the Profile can load.
+- Codex: approve the SessionStart hook when asked so the Profile can load.
+- Codex: trust this project so the Profile can load.
 
 Start a new agent session in a Project to use the changes.
 
@@ -2020,7 +2018,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.4
+Engine version: 0.236.5
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2030,7 +2028,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.4\x1B[0m
+\x1B[1mEngine version: 0.236.5\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2040,7 +2038,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.4
+Engine version: 0.236.5
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2050,7 +2048,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.4\x1B[0m
+\x1B[1mEngine version: 0.236.5\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2266,14 +2264,14 @@ Projects:
 ~/projects/demo: up to date
 
 Agent setup:
-- Review and approve the generated
-  SessionStart hook when Codex asks.
+- Codex: approve the SessionStart hook
+  when asked.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
 
 Standing agent setup:
-- Trust the bound project in Codex.
+- Codex: trust this project.
   Consequence: Profile Context does
     not load until the project is
     trusted.
@@ -2289,14 +2287,14 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 ~/projects/demo: up to date
 
 \x1B[1mAgent setup:\x1B[0m
-- Review and approve the generated
-  SessionStart hook when Codex asks.
+- Codex: approve the SessionStart hook
+  when asked.
   Consequence: Declining the hook
     prevents Profile Context from
     loading.
 
 \x1B[1mStanding agent setup:\x1B[0m
-- Trust the bound project in Codex.
+- Codex: trust this project.
   Consequence: Profile Context does
     not load until the project is
     trusted.
@@ -2312,11 +2310,11 @@ Projects:
 ~/projects/demo: up to date
 
 Agent setup:
-- Review and approve the generated SessionStart hook when Codex asks.
+- Codex: approve the SessionStart hook when asked.
   Consequence: Declining the hook prevents Profile Context from loading.
 
 Standing agent setup:
-- Trust the bound project in Codex.
+- Codex: trust this project.
   Consequence: Profile Context does not load until the project is trusted.
 --- stderr ---
 "
@@ -2330,11 +2328,11 @@ exports[`rendering matrix for a representative subset status verbose matrix: sta
 ~/projects/demo: up to date
 
 \x1B[1mAgent setup:\x1B[0m
-- Review and approve the generated SessionStart hook when Codex asks.
+- Codex: approve the SessionStart hook when asked.
   Consequence: Declining the hook prevents Profile Context from loading.
 
 \x1B[1mStanding agent setup:\x1B[0m
-- Trust the bound project in Codex.
+- Codex: trust this project.
   Consequence: Profile Context does not load until the project is trusted.
 --- stderr ---
 "

@@ -407,6 +407,7 @@ export async function planAntigravityProject(
         consequence: "The Profile does not load until the project is trusted.",
         kind: "trust-required",
         message: "Trust the bound project in Antigravity.",
+        humanAction: "trust this project",
         provenance: "standing",
       }]
     : [];

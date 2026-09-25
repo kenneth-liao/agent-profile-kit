@@ -162,6 +162,7 @@ describe("Codex project Skill packages", () => {
         consequence: "Declining the hook prevents Profile Context from loading.",
         kind: "approval-required",
         message: "Review and approve the generated SessionStart hook when Codex asks.",
+        humanAction: "approve the SessionStart hook when asked",
         output: ".codex/hooks.json",
         provenance: "transition",
       },
@@ -169,6 +170,7 @@ describe("Codex project Skill packages", () => {
         consequence: "Profile Context does not load until the project is trusted.",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        humanAction: "trust this project",
         provenance: "standing",
       },
     ]);
@@ -191,6 +193,7 @@ describe("Codex project Skill packages", () => {
         consequence: "Declining the hook prevents Profile Context from loading.",
         kind: "approval-required",
         message: "Review and approve the generated SessionStart hook when Codex asks.",
+        humanAction: "approve the SessionStart hook when asked",
         output: ".codex/hooks.json",
         provenance: "transition",
       },
@@ -198,6 +201,7 @@ describe("Codex project Skill packages", () => {
         consequence: "Profile Context does not load until the project is trusted.",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        humanAction: "trust this project",
         provenance: "standing",
       },
     ]);

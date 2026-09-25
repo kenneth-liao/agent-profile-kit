@@ -487,8 +487,7 @@ $ apkit install example ~/proj/alpha --agent codex --auto-confirm
 
 Before your agents can load it:
 - Start your agents from this Project folder, not a subfolder.
-- Codex: Review and approve the generated SessionStart hook when Codex asks;
-  Trust the bound project in Codex.
+- Codex: approve the SessionStart hook when asked, and trust this project.
 
 Try it: start a new Codex session in ~/proj/alpha and ask what Profile
   material it loaded.
@@ -802,9 +801,8 @@ $ apkit update
 ✔ Updated 2 Projects (6 files)
 
 First use:
-- Review and approve the generated SessionStart hook when Codex asks so the
-  Profile can load.
-- Trust the bound project in Codex so the Profile can load.
+- Codex: approve the SessionStart hook when asked so the Profile can load.
+- Codex: trust this project so the Profile can load.
 
 Start a new agent session in a Project to use the changes.
 

@@ -118,6 +118,15 @@ export type HostSetupProvenance = "transition" | "standing";
  */
 export interface AdapterTransitionSetupStep {
   readonly consequence?: string;
+  /**
+   * The step's plain human rendering (spec #672 US-001/US-005, ticket #701):
+   * one authored action phrase, no agent name and no trailing period, stated
+   * in plain words with its reason where one is not shared. Human surfaces
+   * render this; `message` stays the machine `setupSteps` value (DEC-004) and
+   * never reaches human output. Both texts are authored together at the
+   * step's creation site, so a new step cannot lack a human line.
+   */
+  readonly humanAction: string;
   readonly kind: HostSetupStepKind;
   readonly message: string;
   readonly path?: "bound-project";
@@ -133,6 +142,8 @@ export interface AdapterTransitionSetupStep {
 /** A persistent Host constraint presented as a compact standing reminder. */
 export interface AdapterStandingSetupStep {
   readonly consequence?: string;
+  /** The step's plain human rendering; see {@link AdapterTransitionSetupStep}. */
+  readonly humanAction: string;
   readonly kind: HostSetupStepKind;
   readonly message: string;
   readonly path?: "bound-project";

@@ -3486,11 +3486,9 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(plan.stdout).not.toContain("Trust the bound project in Codex.");
     const verbosePlan = await runCli(home, "status", "--verbose");
     expectExitCode(verbosePlan, 0);
-    expect(verbosePlan.stdout).toContain(
-      "Review and approve the generated SessionStart hook when Codex asks.",
-    );
+    expect(verbosePlan.stdout).toContain("Codex: approve the SessionStart hook when asked.");
     expect(verbosePlan.stdout).toContain("Standing agent setup:");
-    expect(verbosePlan.stdout).toContain("Trust the bound project in Codex.");
+    expect(verbosePlan.stdout).toContain("Codex: trust this project.");
     const result = await runCli(home, "update");
 
     expectExitCode(result, 0);
@@ -3503,12 +3501,12 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expect(result.stdout).not.toContain("Standing Host setup:");
     expect(humanText(result.stdout)).toContain(
       humanText(
-        "Review and approve the generated SessionStart hook when Codex asks so the Profile can load.",
+        "Codex: approve the SessionStart hook when asked so the Profile can load.",
       ),
     );
     expect(result.stdout).not.toContain("Declining the hook prevents Profile Context from loading.");
     expect(humanText(result.stdout)).toContain(
-      humanText("Trust the bound project in Codex so the Profile can load."),
+      humanText("Codex: trust this project so the Profile can load."),
     );
     // DEC-006 (spec #677): the Codex bound-root step no longer renders.
     expect(result.stdout).not.toContain("Launch Codex from the exact bound project root");
@@ -3603,7 +3601,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(first, 0);
     expect(first.stdout).toContain("First use:");
     expect(humanText(first.stdout)).toContain(
-      humanText("Trust the bound project in Codex so the Profile can load."),
+      humanText("Codex: trust this project so the Profile can load."),
     );
 
     mkdirSync(join(workspacePath(home), "skills", "review-pr"), { recursive: true });
@@ -3625,7 +3623,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const verbose = await runCli(home, "status", "--verbose");
     expectExitCode(verbose, 0);
     expect(verbose.stdout).toContain("Standing agent setup:");
-    expect(verbose.stdout).toContain("Trust the bound project in Codex.");
+    expect(verbose.stdout).toContain("Codex: trust this project.");
   });
 
   test("apply receipt work expands only the changed project in a multi-project binding", async () => {
@@ -8005,7 +8003,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     const status = await runCliWithPath(home, pathWithHosts, "status", "--verbose");
     expectExitCode(status, 0);
     expect(status.stdout).toContain(".agents/rules/agent-profile-kit-000-envelope.md");
-    expect(status.stdout).toContain("Trust the bound project in Antigravity.");
+    expect(status.stdout).toContain("Antigravity: trust this project.");
     expect(existsSync(join(antigravityProject, ".agents", "rules", "agent-profile-kit-000-envelope.md"))).toBe(false);
 
     const jsonStatus = await runCliWithPath(home, pathWithHosts, "status", "--json");
@@ -8028,7 +8026,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(apply, 0);
     expect(apply.stdout).toContain("First use:");
     expect(humanText(apply.stdout)).toContain(
-      humanText("Trust the bound project in Antigravity so the Profile can load."),
+      humanText("Antigravity: trust this project so the Profile can load."),
     );
     const envelope = join(antigravityProject, ".agents", "rules", "agent-profile-kit-000-envelope.md");
     const moduleRule = join(antigravityProject, ".agents", "rules", "agent-profile-kit-010-team-rules.md");
@@ -14662,7 +14660,7 @@ describe("packed CLI install flow (TEST-001, spec #677 US-005)", () => {
     expect(explicit.stdout).toContain("Agents: codex");
     expect(explicit.stdout).toContain("Before your agents can load it:");
     expect(explicit.stdout).toContain("Start your agents from this Project folder, not a subfolder.");
-    expect(explicit.stdout).toContain("Codex: Review and approve the generated SessionStart hook when Codex asks");
+    expect(explicit.stdout).toContain("Codex: approve the SessionStart hook when asked, and trust this project.");
     expect(explicit.stdout).toContain("Try it: start a new Codex session in");
     expect(explicit.stdout).toContain("Next: apkit status (see installed Profiles and whether they're up to date)");
     // Actual writes match the selected scope.
