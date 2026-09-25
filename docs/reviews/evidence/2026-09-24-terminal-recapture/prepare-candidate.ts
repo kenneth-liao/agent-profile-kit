@@ -6,8 +6,8 @@
  * capture driver records in the report.
  *
  * Run this from a checkout whose tree is exactly the recorded product
- * revision (this capture ran it while issue/680-terminal-recapture sat clean
- * at origin/main 24067a5), so `repositoryHead` and the source fingerprint
+ * revision (this capture ran it from a clean detached checkout of origin/main
+ * 7156297), so `repositoryHead` and the source fingerprint
  * name that revision and no local evidence files.
  *
  * Rerun:
