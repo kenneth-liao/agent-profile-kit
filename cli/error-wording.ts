@@ -1477,3 +1477,32 @@ export function formatErrorParts(error: unknown): readonly InlineContent[] {
 export function formatError(error: unknown): string {
   return flatInlineText(formatErrorParts(error));
 }
+
+/**
+ * The plain cause of one foreign system error (US-007, spec #672 #690): the
+ * system's own short description of its error code, without the syscall and
+ * the internal path Node appends to the message. The raw message stays the
+ * recorded evidence for `apkit details` and JSON; a carried detail without a
+ * code fact, or with an unlisted code, keeps its own words.
+ */
+const SYSTEM_ERROR_CAUSES: Readonly<Record<string, string>> = {
+  EACCES: "permission denied",
+  EBUSY: "resource busy",
+  EEXIST: "already exists",
+  EISDIR: "path is a directory",
+  ELOOP: "too many symbolic links",
+  EMFILE: "too many open files",
+  ENAMETOOLONG: "name too long",
+  ENOENT: "no such file or directory",
+  ENOSPC: "no space left on device",
+  ENOTDIR: "path is not a directory",
+  ENOTEMPTY: "directory not empty",
+  EPERM: "operation not permitted",
+  EROFS: "read-only file system",
+  EXDEV: "cross-device link",
+};
+
+/** The plain-cause sentence fragment for one carried failure (US-007). */
+export function plainSystemCause(errorCode: string | undefined, detail: string): string {
+  return errorCode === undefined ? detail : (SYSTEM_ERROR_CAUSES[errorCode] ?? detail);
+}

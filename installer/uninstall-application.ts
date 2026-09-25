@@ -449,7 +449,14 @@ export interface UninstallFailedProject {
   readonly canonicalProject?: string;
   readonly project: string;
   readonly profile: string;
+  /** The raw failure message: recorded evidence for details and JSON. */
   readonly detail: string;
+  /**
+   * The system error `code` fact behind `detail` (for example `EACCES`) when
+   * the failure was a foreign system error. Human screens state the plain
+   * cause from this fact; `detail` stays the raw evidence (DEC-020).
+   */
+  readonly errorCode?: string;
   /** The previous selection still names this Project after recovery. */
   readonly selectionRestored: boolean;
   /** The restoration failure, when restoring itself failed. */
@@ -1262,7 +1269,7 @@ async function commitPartialUninstallProject(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, item.canonicalProject ?? item.project, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -1425,11 +1432,10 @@ async function commitPartialUninstallProject(
                 }),
               };
             }
-            const detail = error instanceof Error ? error.message : String(error);
             return {
               state: await readInstallationState(home),
               failed: failedProjectResult(item, canonicalProject, {
-                detail,
+                ...foreignFailureDetail(error),
                 selectionRestored: true,
                 concurrentSelectionChange: false,
               }),
@@ -1581,11 +1587,10 @@ async function commitPartialUninstallProject(
                 : String(rollbackFailure);
               restoreError = restoreError === undefined ? detail : `${restoreError}\n${detail}`;
             }
-            const detail = error instanceof Error ? error.message : String(error);
             return {
               state: await readInstallationState(home),
               failed: failedProjectResult(item, canonicalProject, {
-                detail,
+                ...foreignFailureDetail(error),
                 selectionRestored: restoreError === undefined,
                 ...(restoreError === undefined ? {} : { restoreError }),
                 concurrentSelectionChange: false,
@@ -1600,7 +1605,7 @@ async function commitPartialUninstallProject(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, canonicalProject, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -1635,7 +1640,7 @@ async function commitNarrowOnly(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, item.canonicalProject ?? item.project, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -1695,7 +1700,7 @@ async function commitNarrowOnly(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, canonicalProject, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -1719,11 +1724,27 @@ async function removalCanonicalProject(home: string, item: UninstallWorkItem): P
   );
 }
 
+/**
+ * The carried evidence of one unexpected foreign failure (DEC-020): the raw
+ * message is the recorded detail, and the system error's `code` fact travels
+ * with it so human screens can state the plain cause instead of the raw
+ * message. Nothing is derived from the message text.
+ */
+function foreignFailureDetail(error: unknown): {
+  readonly detail: string;
+  readonly errorCode?: string;
+} {
+  const detail = error instanceof Error ? error.message : String(error);
+  const code = (error as { readonly code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" ? { detail, errorCode: code } : { detail };
+}
+
 function failedProjectResult(
   item: UninstallWorkItem,
   canonicalProject: string,
   failure: {
     readonly detail: string;
+    readonly errorCode?: string;
     readonly selectionRestored: boolean;
     readonly restoreError?: string;
     readonly concurrentSelectionChange: boolean;
@@ -1734,6 +1755,7 @@ function failedProjectResult(
     project: item.project,
     profile: item.profile,
     detail: failure.detail,
+    ...(failure.errorCode === undefined ? {} : { errorCode: failure.errorCode }),
     selectionRestored: failure.selectionRestored,
     ...(failure.restoreError === undefined ? {} : { restoreError: failure.restoreError }),
     concurrentSelectionChange: failure.concurrentSelectionChange,
@@ -1775,7 +1797,7 @@ async function commitUninstallProject(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, item.canonicalProject ?? item.project, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -1897,11 +1919,10 @@ async function commitUninstallProject(
                 rollback: async () => undefined,
               };
             } else {
-              const detail = error instanceof Error ? error.message : String(error);
               return {
                 state: await readInstallationState(home),
                 failed: failedProjectResult(item, canonicalProject, {
-                  detail,
+                  ...foreignFailureDetail(error),
                   selectionRestored: true,
                   concurrentSelectionChange: false,
                 }),
@@ -2035,11 +2056,10 @@ async function commitUninstallProject(
                 : String(rollbackFailure);
               restoreError = restoreError === undefined ? detail : `${restoreError}\n${detail}`;
             }
-            const detail = error instanceof Error ? error.message : String(error);
             return {
               state: await readInstallationState(home),
               failed: failedProjectResult(item, canonicalProject, {
-                detail,
+                ...foreignFailureDetail(error),
                 // The binding was restored unless its restoration itself
                 // failed; the receipt was never deleted because its write
                 // did not succeed.
@@ -2058,7 +2078,7 @@ async function commitUninstallProject(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, canonicalProject, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),
@@ -2226,7 +2246,7 @@ async function commitForgetOnly(
     return {
       state: options.confirmState,
       failed: failedProjectResult(item, canonicalProject, {
-        detail: error instanceof Error ? error.message : String(error),
+        ...foreignFailureDetail(error),
         selectionRestored: true,
         concurrentSelectionChange: false,
       }),

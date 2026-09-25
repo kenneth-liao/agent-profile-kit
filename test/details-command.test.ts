@@ -134,6 +134,14 @@ async function waitForOutput(
   }
 }
 
+/** The settled line of one declined confirmation (spec #672 US-005): it
+ * settles neutral and never with the success glyph. */
+function expectDeclinedSettled(text: string, question: string): void {
+  const settled = humanText(text);
+  expect(settled).toContain(`● ${question}`);
+  expect(settled).not.toContain(`✔ ${question}`);
+}
+
 interface Invocation<T> {
   readonly outcome: Promise<T>;
   readonly streams: CapturedStreams;
@@ -343,6 +351,7 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(install.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await install.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(install.streams.humanText(), "Install now? (y/N)");
 
     const entry = (await detailsEntries(home))[0]!;
     expect(entry.outcome).toBe("cancelled");
@@ -365,6 +374,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(update.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await update.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      update.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("update");
@@ -390,6 +403,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(install.streams.humanText, "Replace or delete these generated files");
     input.write("n\n");
     expect((await install.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      install.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("install");
@@ -410,6 +427,7 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(uninstall.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await uninstall.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(uninstall.streams.humanText(), "Uninstall as listed? (y/N)");
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("uninstall");
@@ -430,6 +448,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(uninstall.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await uninstall.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      uninstall.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("uninstall");

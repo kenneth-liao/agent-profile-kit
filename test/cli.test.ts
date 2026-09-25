@@ -14633,9 +14633,12 @@ describe("packed CLI install flow (TEST-001, spec #677 US-005)", () => {
     expectExitCode(guided, 0);
     expect(guided.stdout).toContain("Installing into");
     expect(guided.stdout).not.toContain("A Profile is a named selection");
+    expect(guided.stdout).not.toContain("A Project is one working folder");
     expect(guided.stdout).toContain("apkit doesn't install the agents themselves.");
-    expect(guided.stdout).toContain("✔ Which Profile? › coding");
-    expect(guided.stdout).toContain("✔ Which agents? › codex");
+    expect(guided.stdout).toContain("✔ Profile › coding");
+    expect(guided.stdout).toContain("✔ Agents › codex");
+    expect(guided.stdout).not.toContain("Which Profile? ›");
+    expect(guided.stdout).not.toContain("Which agents? ›");
     expect(guided.stdout).toContain("Install now? (y/N)");
     expect(guided.stdout).not.toMatch(/Install into .*\n\s*Profile: /);
     expect(guided.stdout).toContain("Installed the coding Profile");
@@ -16148,6 +16151,10 @@ describe("packed CLI everyday screens", () => {
     const fleetStatus = await runCli(home, "status", "--all");
     expectExitCode(fleetStatus, 0);
     expect(fleetStatus.stdout.split("\n")[0]).toBe("✔ Everything is up to date (2 Projects)");
+    // The Workspace row is its own screen part: one blank line after the
+    // headline (review screens 06/16).
+    expect(fleetStatus.stdout.split("\n")[1]).toBe("");
+    expect(fleetStatus.stdout.split("\n")[2]).toStartWith("Workspace: ");
     expect(fleetStatus.stdout).toContain("Workspace: ~/apkit-workspace");
     expect(fleetStatus.stdout).toContain("Project");
     expect(fleetStatus.stdout).toContain("Status");
@@ -16383,6 +16390,12 @@ describe("packed CLI problem screens", () => {
     const stoppedText = stopped.stderr.replace(/\s+/g, " ");
     expect(stoppedText).toContain("Uninstall stopped partway.");
     expect(stoppedText).toContain("Couldn't write to");
+    // The cause is stated in plain words with no internal temp path (US-007,
+    // screen 28); the raw foreign message stays the recorded evidence.
+    expect(stoppedText).toContain("(permission denied)");
+    expect(stoppedText).not.toContain("EACCES:");
+    expect(stoppedText).not.toContain("mkdtemp");
+    expect(stoppedText).not.toContain(".agent-profile-kit-remove-");
     // No Project and no recovery fact is dropped (OOS-004).
     const recovery = stoppedText.slice(stoppedText.indexOf("Done:"));
     expect(recovery).toContain("Done:");
@@ -16411,6 +16424,8 @@ describe("packed CLI problem screens", () => {
     expect(stoppedDetails.stdout).toContain("What went wrong:");
     expect(stoppedDetails.stdout).toContain("Not done:");
     expect(stoppedDetails.stdout).toContain("problem-c");
+    // The raw foreign message is still the retained evidence (OOS-004).
+    expect(stoppedDetails.stdout.replace(/\s+/g, " ")).toContain("EACCES:");
 
     // The printed retry command runs and finishes the work.
     const retryLine = stopped.stderr.split("\n")

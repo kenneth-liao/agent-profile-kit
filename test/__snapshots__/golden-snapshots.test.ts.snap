@@ -1091,7 +1091,7 @@ Changed files:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.236.0
+Engine version: 0.236.1
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -1280,6 +1280,7 @@ Next: apkit update
 exports[`golden snapshots of every human view status current: status-current 1`] = `
 "--- stdout ---
 ✔ demo is up to date
+
 Workspace: ~/apkit-workspace
 
 Project  Status
@@ -1291,6 +1292,7 @@ demo     up to date
 exports[`golden snapshots of every human view status pending: status-pending 1`] = `
 "--- stdout ---
 ⚠ Ready to update
+
 Workspace: ~/apkit-workspace
 
 Project  Status
@@ -1305,6 +1307,7 @@ Details: apkit status ~/'projects/demo' --verbose
 exports[`golden snapshots of every human view status blocked: status-blocked 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project  Status
@@ -1336,6 +1339,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts grouped-twelve: status-tracked-counts-grouped-twelve 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1369,6 +1373,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts eleven-no-cap: status-tracked-counts-eleven-no-cap 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1400,6 +1405,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts root-immediate-parent-equivalent: status-tracked-counts-root-immediate-parent-equivalent 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1433,6 +1439,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts overlapping-parent-equivalent: status-tracked-counts-overlapping-parent-equivalent 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1465,6 +1472,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts deterministic-order: status-tracked-counts-deterministic-order 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1498,6 +1506,7 @@ Next:
 exports[`golden snapshots of every human view status tracked counts large-60-60-30: status-tracked-counts-large-60-60-30 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project         Status
@@ -1549,6 +1558,7 @@ Standing agent setup:
 exports[`golden snapshots of every human view status blocked filter: status-blocked-filter 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project  Status
@@ -2010,7 +2020,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.0
+Engine version: 0.236.1
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2020,7 +2030,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.0\x1B[0m
+\x1B[1mEngine version: 0.236.1\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2030,7 +2040,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.0
+Engine version: 0.236.1
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2040,7 +2050,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.0\x1B[0m
+\x1B[1mEngine version: 0.236.1\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m
@@ -2111,6 +2121,7 @@ other    example  codex   ok
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project: blocked
@@ -2151,6 +2162,7 @@ Next:
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-narrow-color 1`] = `
 "--- stdout ---
 \x1B[33m⚠ Cannot update\x1B[0m
+
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 
 Project: blocked
@@ -2191,6 +2203,7 @@ blocked:
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-nocolor 1`] = `
 "--- stdout ---
 ⚠ Cannot update
+
 Workspace: ~/apkit-workspace
 
 Project  Status
@@ -2219,6 +2232,7 @@ Next:
 exports[`rendering matrix for a representative subset blocked status matrix: status-blocked-interactive-wide-color 1`] = `
 "--- stdout ---
 \x1B[33m⚠ Cannot update\x1B[0m
+
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 
 \x1B[1mProject  Status\x1B[0m

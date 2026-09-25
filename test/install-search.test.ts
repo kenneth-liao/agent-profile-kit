@@ -142,12 +142,10 @@ describe("guided install collects only missing choices", () => {
     await waitForOutput(streams.humanText, basename(projectPath));
     // Searchable Profile choice: filter and submit.
     await waitForOutput(streams.humanText, "Which Profile?");
-    // The Profile picker drops its concept explanation (spec #677 screen 10):
-    // only the Project concept precedes the picker.
+    // The Profile picker drops its concept explanation (spec #677 screen 10,
+    // spec #672 US-005): the pre-picker screen names only the target.
     const prePicker = plain(streams.humanText());
-    expect(prePicker).toContain(
-      "A Project is one working folder that receives the installed material.",
-    );
+    expect(prePicker).not.toContain("A Project is one working folder");
     expect(prePicker).not.toContain("A Profile is a named selection");
     expect(prePicker).not.toContain("Context is always-loaded");
     input.write("cod");
