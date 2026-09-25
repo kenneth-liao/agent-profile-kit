@@ -6,6 +6,13 @@
  * Human renderings (`humanAction`) live beside each machine message at the
  * step's creation site and never reach machine JSON.
  *
+ * The adapter half projects through the production projector
+ * (`canonicalMachineSetupSteps`), so a wholesale-spread regression fails here
+ * and not only in the journeys, and every entry's exact machine key set is
+ * asserted. Two journeys then pin the two DEC-004 serialization sites
+ * end-to-end: `install --json` (lifecycle payloads) and
+ * `machine install-temp --json` (temporary-installation payloads).
+ *
  * Serialization sites checked; the step object is never serialized wholesale:
  * - lifecycle JSON (`status`/`update`/`install`/`uninstall` `--json`):
  *   `canonicalMachineSetupSteps` (cli/presentation.ts) picks
@@ -19,11 +26,12 @@
  * - lifecycle transactions (install/uninstall/temporary-installation commit
  *   paths): no setupSteps
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { PassThrough, type Writable } from "node:stream";
+import { fileURLToPath } from "node:url";
 
 import { planAntigravityProject } from "../adapters/antigravity.js";
 import { CLAUDE_CONTEXT_RULE_PATH, planClaudeProject } from "../adapters/claude.js";
@@ -31,31 +39,59 @@ import { planCodexProject } from "../adapters/codex.js";
 import { planGrokProject } from "../adapters/grok.js";
 import { planOpenCodeProject } from "../adapters/opencode.js";
 import { planPiProject } from "../adapters/pi.js";
-import type {
-  AdapterHostSetupStep,
-  HostSetupStepKind,
-  HostSetupProvenance,
-} from "../adapters/project-plan.js";
+import type { AdapterHostSetupStep } from "../adapters/project-plan.js";
 import type { SupportedHost } from "../adapters/host-catalog.js";
+import { canonicalMachineSetupSteps } from "../cli/presentation.js";
 import { runInstallCommand } from "../cli/install-command.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
+import type { ReconciliationProjectRecord } from "../installer/reconcile.js";
+import {
+  TEST_CHILD_DEADLINE_MS,
+  runProcess,
+} from "../process/process-executor.js";
+import {
+  extractPackageArchive,
+  obtainPackageArchive,
+  packedCliNodeExecutable,
+} from "./support/package-archive.js";
+import {
+  controlledEnvironment,
+  controlledPath,
+} from "./support/controlled-environment.js";
 
-/** The machine projection exactly as canonicalMachineSetupSteps emits it. */
-function machineSetupStep(host: SupportedHost, step: AdapterHostSetupStep): string {
-  const output = step.provenance === "transition" ? step.output : undefined;
-  return JSON.stringify({
-    host,
-    kind: step.kind,
-    message: step.message,
-    provenance: step.provenance,
-    ...(output === undefined ? {} : { output }),
-    ...(step.consequence === undefined ? {} : { consequence: step.consequence }),
-    ...(step.path === undefined ? {} : { path: step.path }),
-  });
+const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const temporaryDirectories: string[] = [];
+let packageArchiveCleanup = (): void => undefined;
+let cliPath = "";
+
+beforeAll(async () => {
+  const archive = await obtainPackageArchive(repositoryRoot, "agent-profile-kit-pin-pack-");
+  packageArchiveCleanup = archive.cleanup;
+  const extracted = mkdtempSync(join(tmpdir(), "agent-profile-kit-pin-packed-"));
+  temporaryDirectories.push(extracted);
+  await extractPackageArchive(archive.path, extracted);
+  cliPath = join(extracted, "package", "dist", "cli.js");
+});
+
+afterAll(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  packageArchiveCleanup();
+});
+
+/** The machine projection exactly as the production projector emits it. */
+function machineSetupSteps(host: SupportedHost, steps: readonly AdapterHostSetupStep[]): string[] {
+  const projected = canonicalMachineSetupSteps({
+    project: "/project-a",
+    setupSteps: steps.map((step) => ({ ...step, host })),
+  } as unknown as ReconciliationProjectRecord);
+  return projected.map((step) => JSON.stringify(step));
 }
 
-function machineSetupSteps(host: SupportedHost, steps: readonly AdapterHostSetupStep[]): string[] {
-  return steps.map((step) => machineSetupStep(host, step));
+/** Assert the exact machine key set (order included) of projected entries. */
+function machineKeySets(serialized: readonly string[]): string[][] {
+  return serialized.map((entry) => Object.keys(JSON.parse(entry) as object));
 }
 
 const MODULES = [{ id: "team-rules", content: "Always preserve the project boundary.\n" }];
@@ -63,17 +99,17 @@ const MODULES = [{ id: "team-rules", content: "Always preserve the project bound
 const CODEX_STEPS = [
   JSON.stringify({
     host: "codex",
-    kind: "approval-required" as HostSetupStepKind,
+    kind: "approval-required",
     message: "Review and approve the generated SessionStart hook when Codex asks.",
-    provenance: "transition" as HostSetupProvenance,
+    provenance: "transition",
     output: ".codex/hooks.json",
     consequence: "Declining the hook prevents Profile Context from loading.",
   }),
   JSON.stringify({
     host: "codex",
-    kind: "trust-required" as HostSetupStepKind,
+    kind: "trust-required",
     message: "Trust the bound project in Codex.",
-    provenance: "standing" as HostSetupProvenance,
+    provenance: "standing",
     consequence: "Profile Context does not load until the project is trusted.",
   }),
 ];
@@ -81,9 +117,9 @@ const CODEX_STEPS = [
 const ANTIGRAVITY_STEPS = [
   JSON.stringify({
     host: "antigravity",
-    kind: "trust-required" as HostSetupStepKind,
+    kind: "trust-required",
     message: "Trust the bound project in Antigravity.",
-    provenance: "standing" as HostSetupProvenance,
+    provenance: "standing",
     consequence: "The Profile does not load until the project is trusted.",
   }),
 ];
@@ -91,9 +127,9 @@ const ANTIGRAVITY_STEPS = [
 const PI_STEPS = [
   JSON.stringify({
     host: "pi",
-    kind: "trust-required" as HostSetupStepKind,
+    kind: "trust-required",
     message: "Trust the bound project in Pi.",
-    provenance: "standing" as HostSetupProvenance,
+    provenance: "standing",
     consequence: "The Profile does not load until the project is trusted.",
   }),
 ];
@@ -101,9 +137,9 @@ const PI_STEPS = [
 const OPENCODE_STEPS = [
   JSON.stringify({
     host: "opencode",
-    kind: "launch-constraint" as HostSetupStepKind,
+    kind: "launch-constraint",
     message: "Restart OpenCode to load changed configuration.",
-    provenance: "transition" as HostSetupProvenance,
+    provenance: "transition",
     output: ".opencode/opencode.jsonc",
     consequence:
       "A running OpenCode session keeps its previously loaded configuration until restarted.",
@@ -113,11 +149,46 @@ const OPENCODE_STEPS = [
 const GROK_SHARED_PATH_STEPS = [
   JSON.stringify({
     host: "grok",
-    kind: "shared-path" as HostSetupStepKind,
+    kind: "shared-path",
     message: `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
-    provenance: "standing" as HostSetupProvenance,
+    provenance: "standing",
   }),
 ];
+
+/** One isolated home with a context-bearing `coding` Profile and a Codex stub. */
+function prepareCodexFixture(): {
+  readonly bin: string;
+  readonly home: string;
+  readonly project: string;
+} {
+  const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-pin-"));
+  const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-project-"));
+  const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-hosts-"));
+  temporaryDirectories.push(home, project, bin);
+  writeFileSync(join(bin, "codex"), "#!/bin/sh\necho \"codex-cli 0.145.0\"\n", { mode: 0o755 });
+  return { bin, home, project };
+}
+
+async function writeCodexWorkspace(home: string): Promise<void> {
+  await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
+  mkdirSync(join(home, "apkit-workspace", "context"), { recursive: true });
+  writeFileSync(
+    join(home, "apkit-workspace", "context", "team-rules.md"),
+    "Always preserve the project boundary.\n",
+  );
+  mkdirSync(join(home, "apkit-workspace", "profiles"), { recursive: true });
+  writeFileSync(
+    join(home, "apkit-workspace", "profiles", "coding.yaml"),
+    "context:\n  - team-rules\nskills: []\n",
+  );
+  mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
+  writeFileSync(
+    join(home, ".agents", "agent-profile-kit", "config.yaml"),
+    "schema_version: 2\nworkspace: ~/apkit-workspace\nbindings: []\n",
+  );
+  mkdirSync(join(home, ".codex"), { recursive: true });
+  writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
+}
 
 describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)", () => {
   test("every Adapter's machine setupSteps values match the frozen value set", async () => {
@@ -151,6 +222,18 @@ describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)
     const claude = await planClaudeProject("coding", MODULES);
     expect(machineSetupSteps("claude", claude.setupSteps)).toEqual([]);
 
+    // The exact machine key set, asserted once per pinned value set, so a
+    // wholesale-spread regression in the projector fails here (INT-3).
+    for (const [host, steps, frozen] of [
+      ["codex", codex.setupSteps, CODEX_STEPS],
+      ["antigravity", antigravity.setupSteps, ANTIGRAVITY_STEPS],
+      ["pi", pi.setupSteps, PI_STEPS],
+      ["opencode", opencode.setupSteps, OPENCODE_STEPS],
+      ["grok", grokShared.setupSteps, GROK_SHARED_PATH_STEPS],
+    ] as const) {
+      expect(machineKeySets(machineSetupSteps(host, steps))).toEqual(machineKeySets(frozen));
+    }
+
     // The removed Codex `launch-constraint` value stays removed (the recorded
     // DEC-004 exception): the only `launch-constraint` value is OpenCode's
     // restart step, and no human rendering is a machine value.
@@ -169,53 +252,60 @@ describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)
   });
 
   test("install --json publishes setupSteps with exactly the machine fields (no human rendering)", async () => {
-    const home = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-pin-"));
-    const project = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-project-"));
-    const bin = mkdtempSync(join(tmpdir(), "agent-profile-kit-setup-steps-hosts-"));
-    try {
-      writeFileSync(join(bin, "codex"), "#!/bin/sh\necho \"codex-cli 0.145.0\"\n", { mode: 0o755 });
-      await initializeWorkspace(home, { workspace: "~/apkit-workspace" });
-      mkdirSync(join(home, "apkit-workspace", "context"), { recursive: true });
-      writeFileSync(
-        join(home, "apkit-workspace", "context", "team-rules.md"),
-        "Always preserve the project boundary.\n",
-      );
-      mkdirSync(join(home, "apkit-workspace", "profiles"), { recursive: true });
-      writeFileSync(
-        join(home, "apkit-workspace", "profiles", "coding.yaml"),
-        "context:\n  - team-rules\nskills: []\n",
-      );
-      mkdirSync(join(home, ".agents", "agent-profile-kit"), { recursive: true });
-      writeFileSync(
-        join(home, ".agents", "agent-profile-kit", "config.yaml"),
-        "schema_version: 2\nworkspace: ~/apkit-workspace\nbindings: []\n",
-      );
+    const { bin, home, project } = prepareCodexFixture();
+    await writeCodexWorkspace(home);
+    const chunks: Buffer[] = [];
+    const stdout = new PassThrough();
+    stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
+    const outcome = await runInstallCommand({
+      home,
+      arguments: ["coding", project, "--agent", "codex", "--auto-confirm", "--json"],
+      stdout: stdout as Writable & { isTTY?: boolean },
+      stderr: new PassThrough() as Writable & { isTTY?: boolean },
+      input: new PassThrough(),
+      env: { PATH: bin },
+    });
+    expect(outcome.exitCode).toBe(0);
 
-      const chunks: Buffer[] = [];
-      const stdout = new PassThrough();
-      stdout.on("data", (chunk: Buffer) => chunks.push(chunk));
-      const outcome = await runInstallCommand({
+    const payload = JSON.parse(Buffer.concat(chunks).toString()) as {
+      projects?: readonly { setupSteps?: readonly unknown[] }[];
+      applied?: { projects?: readonly { setupSteps?: readonly unknown[] }[] };
+    };
+    const serialized = (steps: readonly unknown[] | undefined): string[] =>
+      (steps ?? []).map((step) => JSON.stringify(step));
+    expect(serialized(payload.projects?.[0]?.setupSteps)).toEqual(CODEX_STEPS);
+    expect(serialized(payload.applied?.projects?.[0]?.setupSteps)).toEqual(CODEX_STEPS);
+    expect(machineKeySets(serialized(payload.projects?.[0]?.setupSteps))).toEqual(
+      machineKeySets(CODEX_STEPS),
+    );
+  });
+
+  test("machine install-temp --json publishes setupSteps byte-equal to the pinned values", async () => {
+    const { bin, home, project } = prepareCodexFixture();
+    await writeCodexWorkspace(home);
+    const result = await runProcess({
+      executable: packedCliNodeExecutable(),
+      arguments_: [
+        cliPath,
+        "machine", "install-temp",
+        "coding",
+        project,
+        "--host", "codex",
+        "--json",
+      ],
+      environment: controlledEnvironment({
         home,
-        arguments: ["coding", project, "--agent", "codex", "--auto-confirm", "--json"],
-        stdout: stdout as Writable & { isTTY?: boolean },
-        stderr: new PassThrough() as Writable & { isTTY?: boolean },
-        input: new PassThrough(),
-        env: { PATH: bin },
-      });
-      expect(outcome.exitCode).toBe(0);
-
-      const payload = JSON.parse(Buffer.concat(chunks).toString()) as {
-        projects?: readonly { setupSteps?: readonly unknown[] }[];
-        applied?: { projects?: readonly { setupSteps?: readonly unknown[] }[] };
-      };
-      const serialized = (steps: readonly unknown[] | undefined): string[] =>
-        (steps ?? []).map((step) => JSON.stringify(step));
-      expect(serialized(payload.projects?.[0]?.setupSteps)).toEqual(CODEX_STEPS);
-      expect(serialized(payload.applied?.projects?.[0]?.setupSteps)).toEqual(CODEX_STEPS);
-    } finally {
-      rmSync(home, { recursive: true, force: true });
-      rmSync(project, { recursive: true, force: true });
-      rmSync(bin, { recursive: true, force: true });
-    }
+        path: `${bin}:${controlledPath(home)}`,
+      }),
+      deadlineMs: TEST_CHILD_DEADLINE_MS,
+      commandLabel: "packed CLI",
+    });
+    expect(result.exitCode).toBe(0);
+    const payload = JSON.parse(result.stdout) as {
+      readonly setupSteps?: readonly unknown[];
+    };
+    const serialized = (payload.setupSteps ?? []).map((step) => JSON.stringify(step));
+    expect(serialized).toEqual(CODEX_STEPS);
+    expect(machineKeySets(serialized)).toEqual(machineKeySets(CODEX_STEPS));
   });
 });

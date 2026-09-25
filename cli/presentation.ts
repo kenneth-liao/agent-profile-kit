@@ -6021,7 +6021,14 @@ function serializeMachinePayload(payload: unknown): string {
   return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
-function canonicalMachineSetupSteps(
+/**
+ * The one machine projection of an installation's Host Setup Steps (DEC-004):
+ * exactly these fields, in this shape. Exported so the machine-value pin
+ * (test/host-setup-steps-machine-pin.test.ts) can project through the real
+ * serializer, making any wholesale-spread regression fail outside the
+ * journeys too.
+ */
+export function canonicalMachineSetupSteps(
   project: ReconciliationProjectRecord,
 ): readonly MachineSetupStep[] {
   return project.setupSteps.map((step) => {
