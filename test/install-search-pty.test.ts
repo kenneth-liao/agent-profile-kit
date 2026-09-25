@@ -184,6 +184,17 @@ describe("guided install under a real PTY", () => {
       expect(plain(session.transcript()).replace(/\r/g, "")).toContain(
         "✔ Profile › coding\n\nPick the agents",
       );
+      // US-001/DEC-002 (#699): one blank line before every live question
+      // (screens 10–13), including after the grouped settled answers, never
+      // two.
+      const screen = plain(session.transcript()).replace(/\r/g, "");
+      expect(screen).toContain("\n\n❯ Which Profile?");
+      expect(screen).toContain("\n\n❯ Which agents?");
+      expect(screen).toContain("✔ Agents › codex\n\n❯ Install now? (y/N)");
+      expect(screen).not.toContain("\n\n\n❯");
+      // The settled confirmation lands where the question stood (no layout
+      // jump), one blank line above it and one below before the receipt.
+      expect(screen).toContain("✔ Install now? (y/N) › y\n\n✔ Installed");
     } finally {
       await session.close();
     }
@@ -257,6 +268,15 @@ describe("guided install under a real PTY", () => {
       const settled = plain(session.transcript());
       expect(settled).toContain("● Install now? (y/N)");
       expect(settled).not.toContain("✔ Install now?");
+      // US-001/DEC-002 (#699) at 100 columns: the live confirmation sits one
+      // blank line below the settled answers (screen 13), and the declined
+      // line keeps the question's position above the cancel statement (the
+      // frames 21/57 change — one blank line between `✔ Agents › …` and
+      // `● Install now? …`).
+      const screen = plain(session.transcript()).replace(/\r/g, "");
+      expect(screen).toContain("✔ Agents › codex\n\n❯ Install now? (y/N)");
+      expect(screen).toContain("● Install now? (y/N) › n\n\n● Cancelled. Nothing was changed.");
+      expect(screen).not.toContain("\n\n\n❯");
     } finally {
       await session.close();
     }

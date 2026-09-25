@@ -12,7 +12,11 @@ import {
   createYesNoPrompt,
   isInteractiveInput,
 } from "../cli/prompts.js";
-import { GLYPHS } from "../cli/terminal-presentation.js";
+import { GLYPHS, terminalPresentationContext } from "../cli/terminal-presentation.js";
+import {
+  writeHumanDocument,
+  writeSettledAnswer,
+} from "../cli/presentation-document.js";
 
 /** A fake interactive input stream: the prompt seam reads TTY evidence from it. */
 function fakeInteractiveInput(): PassThrough & { isTTY: true } {
@@ -21,8 +25,10 @@ function fakeInteractiveInput(): PassThrough & { isTTY: true } {
   return stream;
 }
 
-function collectingOutput(columns?: number): PassThrough & { chunks: Buffer[]; frames: string[] } {
-  const stream = new PassThrough() as PassThrough & { chunks: Buffer[]; frames: string[] };
+function collectingOutput(
+  columns?: number,
+): PassThrough & { chunks: Buffer[]; frames: string[]; isTTY?: boolean } {
+  const stream = new PassThrough() as PassThrough & { chunks: Buffer[]; frames: string[]; isTTY?: boolean };
   stream.chunks = [];
   stream.frames = [];
   if (columns !== undefined) {
@@ -856,6 +862,67 @@ describe("searchable multiselect prompt seam", () => {
     const multiWritten = plain(multiOutput);
     expect(multiWritten).toContain("Context › team");
     expect(multiWritten).not.toContain("Which Context? ›");
+  });
+});
+
+describe("live question screen-part rule (US-001, DEC-002, #699)", () => {
+  test("a question after text sits one blank line below it, never two", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput();
+    writeHumanDocument(
+      output,
+      [{ kind: "prose", parts: ["Context is loaded in every agent session that uses this Profile."] }],
+      terminalPresentationContext(output),
+    );
+    const confirm = createConfirmPrompt({ input, output });
+    const pending = confirm("Which Context?");
+    input.write("y\n");
+    expect(await pending).toBe("accepted");
+    const text = plain(output);
+    expect(text).toContain(
+      "Context is loaded in every agent session that uses this Profile.\n\n❯ Which Context?",
+    );
+    expect(text).not.toContain("Profile.\n\n\n❯ Which Context?");
+  });
+
+  test("a question with nothing before it gets no leading blank line", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput();
+    const confirm = createConfirmPrompt({ input, output });
+    const pending = confirm("Install now?");
+    input.write("y\n");
+    expect(await pending).toBe("accepted");
+    // The separator writes nothing on a clean stream: the question render is
+    // the stream's first write.
+    expect(written(output).startsWith("\n")).toBe(false);
+    expect(plain(output)).toContain("❯ Install now?");
+    expect(plain(output)).not.toContain("\n\n❯ Install now?");
+  });
+
+  test("a question after a settled run takes the run's blank (spec #672 screen 13)", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput();
+    writeSettledAnswer(output, "✔ Agents › claude, codex");
+    const confirm = createConfirmPrompt({ input, output });
+    const pending = confirm("Install now?");
+    input.write("y\n");
+    expect(await pending).toBe("accepted");
+    const text = plain(output);
+    expect(text).toContain("✔ Agents › claude, codex\n\n❯ Install now?");
+    // The settled line lands where the question stood: no fresh-part blank
+    // line was added in front of it.
+    expect(written(output).endsWith("✔ Install now? › yes\n")).toBe(true);
+    expect(written(output).endsWith("\n✔ Install now? › yes\n")).toBe(false);
+  });
+
+  test("a question that never renders gets no separator and settles in the #696 layout", async () => {
+    const input = fakeInteractiveInput();
+    const output = collectingOutput();
+    input.end();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const confirm = createConfirmPrompt({ input, output });
+    expect(await confirm("Install now?")).toBe("cancelled");
+    expect(written(output)).toBe(`\n${GLYPHS.neutral} Install now?\n`);
   });
 });
 

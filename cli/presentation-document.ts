@@ -1343,7 +1343,9 @@ export function writeHumanDocument(
 ): void {
   flushSettledAnswers();
   const rendered = renderPresentationDocument(document, context, options);
-  stream.write(rendered.endsWith("\n") ? rendered : `${rendered}\n`);
+  const written = rendered.endsWith("\n") ? rendered : `${rendered}\n`;
+  stream.write(written);
+  recordHumanStreamEnd(stream, written);
 }
 
 /**
@@ -1355,11 +1357,57 @@ export function writeHumanDocument(
 let settledAnswerStream: Writable | undefined;
 
 /**
+ * The live prompt question that is open on a human stream (US-001, DEC-002,
+ * spec #699): set by {@link beginLiveQuestion} and cleared by the settled
+ * answer that replaces the question, so that line lands where the question
+ * stood and the layout never jumps when an answer settles.
+ */
+let liveQuestionStream: Writable | undefined;
+
+/**
+ * What the shared writer last left at the end of each human stream (spec
+ * #699): true when the cursor sits under a blank line, false under text, and
+ * absent when nothing was written yet. It is the fact the live-question rule
+ * reads to separate a question from the text before it exactly once.
+ */
+const humanStreamEndsBlank = new WeakMap<Writable, boolean>();
+
+function recordHumanStreamEnd(stream: Writable, written: string): void {
+  const body = written.endsWith("\n") ? written.slice(0, -1) : written;
+  humanStreamEndsBlank.set(stream, body.length === 0 || body.endsWith("\n"));
+}
+
+/**
+ * Begin one live prompt question as the shared writer's screen part (US-001,
+ * DEC-002, spec #699): the question sits one blank line below the text before
+ * it. An open settled-answer run supplies that blank as it closes (screen 13's
+ * grouped answers), text gets one blank line written here, and a question with
+ * nothing before it — or one already sitting under a blank — gets none. The
+ * prompt seam calls this once per rendered question; {@link writeSettledAnswer}
+ * then keeps the question's position, so the settled screen keeps the #696
+ * layout and never jumps. Machine JSON and redirected output never reach this
+ * seam.
+ */
+export function beginLiveQuestion(stream: Writable): void {
+  if (settledAnswerStream !== undefined) {
+    flushSettledAnswers();
+  }
+  if (humanStreamEndsBlank.get(stream) === false) {
+    stream.write("\n");
+    humanStreamEndsBlank.set(stream, true);
+  }
+  liveQuestionStream = stream;
+}
+
+/**
  * Write one settled answer as the shared writer's screen part (US-001,
  * DEC-002): a run of consecutive settled answers is one part — never split by
  * a blank line — and a fresh part is preceded by the blank line that separates
- * it from the previous output. The prompt seam renders the line; this writer
- * owns only the part grouping.
+ * it from the previous output. The line that settles a live question lands
+ * where the question stood (spec #699): its part's blank line is the one
+ * {@link beginLiveQuestion} already placed above the question, so settled
+ * screens never jump. The prompt seam renders the line; this writer owns only
+ * the part grouping.
  */
 export function writeSettledAnswer(stream: Writable, line: string): void {
   if (settledAnswerStream !== undefined && settledAnswerStream !== stream) {
@@ -1367,7 +1415,11 @@ export function writeSettledAnswer(stream: Writable, line: string): void {
   }
   const continuing = settledAnswerStream === stream;
   settledAnswerStream = stream;
-  stream.write(continuing ? `${line}\n` : `\n${line}\n`);
+  const keepingQuestionPosition = liveQuestionStream === stream;
+  liveQuestionStream = undefined;
+  const written = continuing || keepingQuestionPosition ? `${line}\n` : `\n${line}\n`;
+  stream.write(written);
+  recordHumanStreamEnd(stream, written);
 }
 
 /**
@@ -1380,4 +1432,5 @@ function flushSettledAnswers(): void {
   const stream = settledAnswerStream;
   settledAnswerStream = undefined;
   stream.write("\n");
+  humanStreamEndsBlank.set(stream, true);
 }

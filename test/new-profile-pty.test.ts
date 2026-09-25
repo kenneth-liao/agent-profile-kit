@@ -134,6 +134,12 @@ describe("guided Profile creation under a real PTY (TEST-002)", () => {
       expect(screen).toContain(
         "✔ Skills › review-pr\n\n✔ Created the engineering Profile",
       );
+      // US-001/DEC-002 (#699): every live question sits one blank line below
+      // the text before it (screens P2–P4), never two.
+      expect(screen).toContain("\n\n❯ Name your Profile");
+      expect(screen).toContain("\n\n❯ Which Context?");
+      expect(screen).toContain("\n\n❯ Which Skills?");
+      expect(screen).not.toContain("\n\n\n❯");
     } finally {
       await session.close();
     }
@@ -177,6 +183,12 @@ describe("guided Profile creation under a real PTY (TEST-002)", () => {
       expect(screen).toContain("✔ Name › engineering\n\nContext is loaded");
       expect(screen).toContain("✔ Context › team-rules\n\nAgents load Skills");
       expect(screen).toContain("✔ Skills › review-pr\n\n✔ Created the engineering Profile");
+      // US-001/DEC-002 (#699): the same blank line before every live question
+      // at 60 columns.
+      expect(screen).toContain("\n\n❯ Name your Profile");
+      expect(screen).toContain("\n\n❯ Which Context?");
+      expect(screen).toContain("\n\n❯ Which Skills?");
+      expect(screen).not.toContain("\n\n\n❯");
     } finally {
       await session.close();
     }
