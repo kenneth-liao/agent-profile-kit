@@ -872,8 +872,13 @@ export function opencodeConfigOccupiedRemedy(project: string): string {
  * the vocabulary guard. Blocker wording is authored plain at the source and
  * does not pass through substitutions.
  */
+export type SubstitutionReplacement =
+  | string
+  | CommandPart
+  | ((match: string, offset: number, source: string) => string);
+
 export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
-  readonly replacement: string | CommandPart;
+  readonly replacement: SubstitutionReplacement;
   readonly term: RegExp;
 }[] = [
   { replacement: "configured Projects", term: /Project Bindings/g },
@@ -890,6 +895,22 @@ export const DEFAULT_BLOCKER_SUBSTITUTIONS: readonly {
   {
     replacement: commandPart("apkit", [arg("machine"), arg("remove-temp")]),
     term: /\bremove-temp\b/g,
+  },
+  {
+    // The one internal-term to user-term rewrite for the contributor word
+    // "Host" (US-002, DEC-003, #700): word-bounded so `localhost`,
+    // `hostname`, `--host` and the frozen `hosts:` key stay untouched, and
+    // case-correct so a sentence-initial "Host" becomes "Agent" while
+    // mid-sentence "Host(s)" becomes "agent(s)". Path-segment safe (OOS-004):
+    // a `Host` word next to a path separator or inside quotes is a raw path
+    // fact and is never rewritten.
+    replacement: (match: string, offset: number, source: string) => {
+      const before = source.slice(0, offset);
+      const sentenceStart = before === "" || /[.!?]\s+$/.test(before);
+      if (match === "Hosts") return sentenceStart ? "Agents" : "agents";
+      return sentenceStart ? "Agent" : "agent";
+    },
+    term: /(?<!['"\/\\])\bHosts?\b(?![\/\\'"])/g,
   },
 ];
 
@@ -914,7 +935,11 @@ export function substituteInline(
           const start = match.index;
           if (start === undefined || match[0].length === 0) continue;
           if (start > cursor) pieces.push(span.slice(cursor, start));
-          pieces.push(substitution.replacement);
+          pieces.push(
+            typeof substitution.replacement === "function"
+              ? substitution.replacement(match[0], start, span)
+              : substitution.replacement,
+          );
           cursor = start + match[0].length;
         }
         if (pieces.length === 0) return [span];
@@ -937,6 +962,9 @@ export function applyNewcomerSubstitutions(text: string): string {
 function substitute(text: string): string {
   return DEFAULT_BLOCKER_SUBSTITUTIONS.reduce(
     (rendered, substitution) => {
+      if (typeof substitution.replacement === "function") {
+        return rendered.replaceAll(substitution.term, substitution.replacement);
+      }
       const replacement = typeof substitution.replacement === "string"
         ? substitution.replacement
         : flatInlineText([substitution.replacement]);

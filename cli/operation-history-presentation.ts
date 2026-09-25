@@ -18,6 +18,7 @@ import {
 } from "../installer/operation-history.js";
 import { diagnosticDocument } from "./diagnostics.js";
 import type { LifecycleOperationRecording } from "./operation-recording.js";
+import { applyNewcomerSubstitutions } from "./blocker-wording.js";
 import {
   type TerminalPresentationContext,
   type TerminalStream,
@@ -470,7 +471,7 @@ function wentWrongNodes(entry: OperationHistoryEvidence): readonly PresentationN
     if (entry.failure === undefined) return [];
     section.push({
       kind: "sentence",
-      parts: ["  ", entry.failure],
+      parts: ["  ", applyNewcomerSubstitutions(entry.failure)],
       category: "error",
     });
     return [part(...section)];
@@ -479,7 +480,7 @@ function wentWrongNodes(entry: OperationHistoryEvidence): readonly PresentationN
     section.push(projectLine(project));
     section.push({
       kind: "sentence",
-      parts: ["    ", entry.failure ?? project.failure ?? "not completed"],
+      parts: ["    ", applyNewcomerSubstitutions(entry.failure ?? project.failure ?? "not completed")],
       category: "error",
     });
     if (project.outputCommitted === true) {
@@ -507,7 +508,9 @@ function notDoneNodes(projects: readonly OperationHistoryProject[]): readonly Pr
       { kind: "heading", text: "Not done:" },
       list(remaining.map((project) => [
         projectIdentity(project),
-        ...(project.failure === undefined ? [] : [`: ${project.failure}`]),
+        ...(project.failure === undefined
+          ? []
+          : [`: ${applyNewcomerSubstitutions(project.failure)}`]),
       ])),
     ),
   ];
