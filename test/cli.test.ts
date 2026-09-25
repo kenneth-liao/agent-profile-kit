@@ -15608,7 +15608,7 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     return { home, projectPath };
   }
 
-  test("adding an agent to an installed Git Project omits the details route on a clean success and keeps it for a run that leaves a warning (US-008, DEC-007)", async () => {
+  test("adding an agent to an installed Git Project omits the details route on a clean success and keeps machine JSON evidence unchanged (US-008, DEC-007, OOS-004)", async () => {
     const home = isolatedHome();
     await initialize(home);
     const projectPath = gitRepository("agent-profile-kit-add-agent-");
@@ -15632,6 +15632,39 @@ describe("compact lifecycle receipts and the retained-operation detail route (US
     expect(addedText).not.toContain("⚠");
     expect(addedText).not.toContain("Details:");
     expect(existsSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"))).toBe(true);
+
+    // DEC-004/OOS-004 (INT-1): the same step's machine JSON still carries the
+    // Repository Exclusion diagnostic the run resolves — only the human route
+    // reads the bookkeeping fact, never the evidence.
+    const jsonProject = gitRepository("agent-profile-kit-add-agent-json-");
+    expectExitCode(await runCliWithPath(
+      home, path, "install", "coding", jsonProject, "--agent", "claude", "--auto-confirm",
+    ), 0);
+    const json = await runCliWithPath(
+      home, path, "install", "coding", jsonProject,
+      "--agent", "claude", "--agent", "codex", "--auto-confirm", "--json",
+    );
+    expectExitCode(json, 0);
+    expect(json.stdout).toContain(
+      "exclusion section does not match the generated entries; update will rewrite it",
+    );
+    // The typed bookkeeping fact never reaches machine JSON (INT-2): the
+    // machine projection keeps its fixed field set around the same message.
+    expect(json.stdout).not.toContain("exclusionBookkeeping");
+    const payload = JSON.parse(json.stdout) as {
+      readonly applied?: {
+        readonly projects?: readonly {
+          readonly warnings?: readonly Record<string, unknown>[];
+        }[];
+      };
+    };
+    const warnings = (payload.applied?.projects ?? []).flatMap((entry) => entry.warnings ?? []);
+    const exclusion = warnings.find((warning) =>
+      typeof warning.message === "string" &&
+      warning.message.includes("exclusion section does not match the generated entries"),
+    );
+    expect(exclusion).toBeDefined();
+    expect(Object.keys(exclusion!).sort()).toEqual(["copyableValues", "kind", "message"]);
 
     // A run that leaves a warning still prints the route (same Project).
     const missingAgent = await runCliWithPath(

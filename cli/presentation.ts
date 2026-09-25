@@ -158,10 +158,6 @@ import {
   type BlockerScope,
   type StructuredReconciliationBlocker,
 } from "../installer/blockers.js";
-import {
-  REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX,
-  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
-} from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { ValidationResult } from "../installer/commands.js";
@@ -2739,19 +2735,15 @@ export interface WarningPresentationGroup {
 
 /**
  * Whether one recorded warning leaves the user with a warning (US-008,
- * DEC-007, spec #693): the Repository Exclusion bookkeeping notices render as
- * the run's exclusion clause and in machine JSON, never as on-screen warnings,
- * so they are diagnostics the run carries elsewhere — never warnings it leaves
- * the user with. One reader shared by warning grouping and the details-route
- * fact, so the route follows the facts the screen shows and never rendered
- * copy.
+ * DEC-007, spec #693): a Repository Exclusion bookkeeping notice carries the
+ * typed `exclusionBookkeeping` fact from where it is created (`installer/
+ * git-exclusions.ts`), and the run's exclusion clause and machine JSON carry
+ * its condition — never an on-screen warning. One reader shared by warning
+ * grouping and the details-route fact, so the route follows the facts the
+ * screen shows and never rendered copy.
  */
 export function warningLeavesUserEvidence(warning: ReconciliationWarning): boolean {
-  const message = flatInlineText(warning.parts);
-  return !(
-    message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
-    message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
-  );
+  return warning.exclusionBookkeeping !== true;
 }
 
 function warningGroupKey(warning: ReconciliationWarning): string {
@@ -6026,6 +6018,13 @@ function canonicalMachineSetupSteps(
   });
 }
 
+/**
+ * The machine projection of one warning (DEC-004): exactly these fields, in
+ * this shape, with `parts` flattened to `message`. Every typed presentation
+ * fact stays out of machine JSON explicitly — `affectedProjects`, `reason`,
+ * `exclusionBookkeeping`, `problem`, `remedy`, `requirement` — so adding one
+ * to the warning record can never move the JSON bytes (spec #693).
+ */
 function canonicalMachineWarning(warning: ReconciliationWarning): {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];

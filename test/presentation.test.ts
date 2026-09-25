@@ -104,6 +104,7 @@ import {
   hasNotInstalledYet,
   hasSourceChanged,
   primaryCauseLabel,
+  warningLeavesUserEvidence,
 } from "../cli/presentation.js";
 import type {
   PresentationDocument,
@@ -298,6 +299,8 @@ interface FlatFixture {
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
   readonly warningParts?: readonly (readonly InlineContent[])[];
+  /** Index-aligned with `warnings`: the typed Repository Exclusion bookkeeping fact. */
+  readonly warningExclusionBookkeeping?: readonly boolean[];
 }
 
 function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
@@ -372,6 +375,9 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
           parts: fixture.warningParts?.[index] ?? [message],
+          ...(fixture.warningExclusionBookkeeping?.[index] === true
+            ? { exclusionBookkeeping: true as const }
+            : {}),
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
@@ -4669,6 +4675,7 @@ describe("status concise terminology", () => {
       warnings: [
         "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries",
       ],
+      warningExclusionBookkeeping: [true],
     });
 
     const concise = lifecycleStatusDocument(report);
@@ -4676,6 +4683,32 @@ describe("status concise terminology", () => {
 
     expect(flattenPresentationNodes(concise).filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(conciseTexts.some((text) => text.includes("/repo/.git/info/exclude"))).toBe(false);
+  });
+
+  test("the user-visible-warning reader decides from the typed fact, never rendered copy (INT-2, #693)", () => {
+    // A tagged Repository Exclusion bookkeeping notice is never a warning the
+    // run leaves the user with, whatever its copy says.
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "diagnostic",
+      parts: ["an unrelated bookkeeping note"],
+      exclusionBookkeeping: true,
+    })).toBe(false);
+    // Untagged copy is a warning the run leaves the user with, even when the
+    // words match the historical exclusion suffixes: the fact is the one
+    // reader, so rewording the source cannot silently flip the rule.
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "diagnostic",
+      parts: [
+        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries",
+      ],
+    })).toBe(true);
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "host-attention",
+      parts: ["Codex isn't installed, or isn't on your PATH."],
+    })).toBe(true);
   });
 
   test("--verbose still renders complete diagnostics from the same ReconciliationReport", () => {
