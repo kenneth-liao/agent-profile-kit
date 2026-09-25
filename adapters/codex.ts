@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
+import { hostDisplayName } from "./host-catalog.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
@@ -220,7 +221,15 @@ async function resolveCodexCliVersion(
       "codex",
       "host",
       `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
+      `install a supported ${hostDisplayName("codex")} release before checking status or updating Profiles that require ${hostDisplayName("codex")} agent capabilities`,
+      [],
+      [
+        `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); ` +
+          "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
+      ],
+      [
+        `install a supported ${hostDisplayName("codex")} release before checking status or updating Profiles that require ${hostDisplayName("codex")} agent capabilities`,
+      ],
     );
   }
 }

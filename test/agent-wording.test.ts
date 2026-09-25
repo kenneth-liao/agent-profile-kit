@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, writeFileSync, chmodSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
 import { parseInstallArguments } from "../cli/install-command.js";
 import { parseUninstallArguments } from "../cli/uninstall-command.js";
@@ -17,7 +18,15 @@ import {
 } from "../cli/presentation.js";
 import { commandHelpDocument, defaultCommands } from "../cli/command-help.js";
 import { flatInlineText, renderPresentationDocument } from "../cli/presentation-document.js";
+import { applyNewcomerSubstitutions } from "../cli/blocker-wording.js";
+import { caughtCapabilityFailure } from "../adapters/capability.js";
+import { probeCodexMachineCapability } from "../adapters/codex.js";
 import { formatInstallerToolErrorDiagnostic } from "../cli/error-wording.js";
+import { errorDiagnosticDocument } from "../cli/error-wording.js";
+import {
+  operationHistoryEntryDocument,
+  localHumanTimeContext,
+} from "../cli/operation-history-presentation.js";
 import { diagnosticDocument } from "../cli/diagnostics.js";
 
 const defaultRenderContext = { color: false, interactive: false, width: 80, rows: undefined };
@@ -249,6 +258,119 @@ describe("issue #673 agent wording & flag changes", () => {
     test("the frozen `hosts` binding key stays exactly as authored (DEC-004, OOS-001)", () => {
       const content = readFileSync(join(import.meta.dirname, "../docs/guides/workspace.md"), "utf8");
       expect(content).toMatch(/^\s*hosts:$/m);
+    });
+
+    test("the newcomer Host substitution is word-bounded and case-correct (#700, gap 3)", () => {
+      // One entry in the newcomer-substitution layer rewrites the internal
+      // "Host" word to the user-facing "agent" word for every non-blocker
+      // error surface. The test pins the rewrite and the boundaries the
+      // rewrite must never cross.
+      expect(applyNewcomerSubstitutions("surviving Hosts stay")).toBe("surviving agents stay");
+      expect(applyNewcomerSubstitutions("the surviving Host output")).toBe("the surviving agent output");
+      expect(applyNewcomerSubstitutions("check the Host CLI works")).toBe("check the agent CLI works");
+      expect(applyNewcomerSubstitutions("require Codex Host capabilities"))
+        .toBe("require Codex agent capabilities");
+      expect(applyNewcomerSubstitutions("the Host mode left no Host selection"))
+        .toBe("the agent mode left no agent selection");
+      // Sentence-initial Host keeps its capital.
+      expect(applyNewcomerSubstitutions("Host output is occupied."))
+        .toBe("Agent output is occupied.");
+      expect(applyNewcomerSubstitutions("surviving-Host plan")).toBe("surviving-agent plan");
+      // Word-bounded: embedded words and frozen keys are never touched.
+      expect(applyNewcomerSubstitutions("localhost hostname")).toBe("localhost hostname");
+      expect(applyNewcomerSubstitutions("--host codex")).toBe("--host codex");
+      expect(applyNewcomerSubstitutions("hosts: [codex]")).toBe("hosts: [codex]");
+      expect(applyNewcomerSubstitutions("the Hosts: [codex]")).toBe("the agents: [codex]");
+    });
+
+    test("runtime capability remedies say 'agent', never 'Host' (#700, gap 3)", () => {
+      // The Adapter capability remedies are authored at the Adapter boundary
+      // and render as `Remedy:` lines on public commands. Every human remedy
+      // names the agent (via the Host catalog displayName) and never the
+      // internal "Host" word; the machine message keeps its own words.
+      const foreign = caughtCapabilityFailure("codex", "host", new Error("probe exploded"));
+      expect(foreign.remedy).not.toMatch(/\bHosts?\b/);
+      expect(foreign.remedy).toContain("Codex");
+    });
+
+    test("the Codex version-failure remedy is human-rendered while the machine message stays unchanged (#700, gap 3)", async () => {
+      // The Codex `--version` failure is a JSON-valued message (DEC-004). The
+      // human `Remedy:` line gets a rendering that says "agent"; the machine
+      // `message` keeps the authored wording with "Codex Host capabilities".
+      const bin = mkdtempSync(join(tmpdir(), "apkit-host-wording-"));
+      try {
+        writeFileSync(join(bin, "codex"), "#!/bin/sh\nexit 97\n");
+        chmodSync(join(bin, "codex"), 0o755);
+        let caught: unknown;
+        try {
+          await probeCodexMachineCapability({
+            env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+            requireContext: true,
+          });
+        } catch (error) {
+          caught = error;
+        }
+        expect(caught).toBeDefined();
+        const failure = caught as { remedy: string; remedyParts?: readonly string[]; parts: readonly string[] };
+        const humanRemedy = failure.remedyParts?.join("") ?? failure.remedy;
+        expect(humanRemedy).not.toMatch(/\bHosts?\b/);
+        const machineMessage = failure.parts.join("");
+        expect(machineMessage).toContain("Codex Host capabilities");
+      } finally {
+        rmSync(bin, { recursive: true, force: true });
+      }
+    });
+
+    test("rows 10 and 11 render without 'Host' (#700, gap 3)", () => {
+      // Row 10: the interactive uninstall invariant diagnostic renders through
+      // the shared error-diagnostic path (which applies newcomer substitutions).
+      const row10 = errorDiagnosticDocument(
+        new Error("interactive uninstall Host mode left no Host selection"),
+      );
+      const rendered10 = renderPresentationDocument(row10, defaultRenderContext);
+      expect(rendered10).not.toMatch(/\bHosts?\b/);
+      expect(rendered10).toContain("agent mode");
+      // Row 11: the surviving-plan invariant reaches skip reasons and details
+      // through the substitution layer every non-blocker error surface uses.
+      const row11 = applyNewcomerSubstitutions(
+        "surviving-Host plan missing for partial removal of ~/proj/alpha",
+      );
+      expect(row11).not.toMatch(/\bHosts?\b/);
+      expect(row11).toContain("surviving-agent plan");
+    });
+
+    test("apkit details substitutes 'Host' but keeps raw recovery facts (#700, OOS-004)", () => {
+      // The details view renders the substituted wording for the prose while
+      // every raw recovery fact — the file path and the errno code — stays
+      // exactly as the run recorded it.
+      const entry = {
+        id: "op-1",
+        command: "uninstall" as const,
+        startedAt: "2026-09-25T10:00:00.000Z",
+        finishedAt: "2026-09-25T10:00:01.000Z",
+        outcome: "partial" as const,
+        scope: { selection: "project" as const },
+        projects: [
+          {
+            project: "~/proj/alpha",
+            canonicalProject: "/home/user/proj/alpha",
+            result: "skipped" as const,
+            failure:
+              "surviving Host output '/home/user/proj/alpha/.agents/skills/x/SKILL.md' " +
+              "is occupied by unowned content (EACCES); remove it or remove the whole installation instead",
+          },
+        ],
+      };
+      const document = operationHistoryEntryDocument(
+        entry,
+        localHumanTimeContext(Date.parse("2026-09-25T10:00:02.000Z")),
+      );
+      const rendered = renderPresentationDocument(document, defaultRenderContext);
+      expect(rendered).not.toMatch(/\bHosts?\b/);
+      expect(rendered).toContain("surviving agent output");
+      // Raw recovery facts survive the substitution untouched (OOS-004).
+      expect(rendered).toContain("/home/user/proj/alpha/.agents/skills/x/SKILL.md");
+      expect(rendered).toContain("EACCES");
     });
   });
 });

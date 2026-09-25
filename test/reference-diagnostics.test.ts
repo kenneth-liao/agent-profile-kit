@@ -328,8 +328,9 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     const happened = flatInlineText(parts.happened);
     // AC-1: target and cause first; the internal configuration path is no
     // longer the lead.
-    expect(happened).toBe("Project target '~/projects/nope' must be an existing directory");
+    expect(happened).toBe("The folder ~/projects/nope doesn't exist.");
     expect(happened).not.toContain("Local Configuration");
+    expect(happened).not.toContain("Project target");
     const why = (parts.why ?? []).map((line) => flatInlineText(line)).join("\n");
     expect(why).toContain(`Recorded in Local Configuration ${configurationPath} bindings[0].`);
     // AC-2/AC-3: runnable recovery quoting the authored spelling.
@@ -339,7 +340,7 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     );
   });
 
-  test("a prospective install target leads with the target and offers a creation remedy without a locator", () => {
+  test("a prospective install target leads with the folder wording and the shared creation remedy without a locator", () => {
     const fact: InstallerToolErrorFact = {
       kind: "missing-directory",
       origin: { source: "local-configuration", configurationPath },
@@ -348,10 +349,10 @@ describe("Project-target diagnostics (#507, US-015)", () => {
     };
     const parts = formatInstallerToolErrorDiagnostic(fact);
     const happened = flatInlineText(parts.happened);
-    expect(happened).toBe("Project target '/projects/nope' must be an existing directory");
+    expect(happened).toBe("The folder /projects/nope doesn't exist.");
     expect(parts.why).toBeUndefined();
     const whatToType = (parts.whatToType ?? []).map((line) => flatInlineText(line)).join("\n");
-    expect(whatToType).toContain("Create it or pass an existing Project directory.");
+    expect(whatToType).toContain("Create it first, or pick a folder that exists.");
     expect(whatToType).not.toContain("uninstall");
   });
 

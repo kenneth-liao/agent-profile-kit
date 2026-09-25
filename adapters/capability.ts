@@ -230,7 +230,7 @@ export function caughtCapabilityFailure(
     scope,
     message,
     scope === "host"
-      ? "check the Host CLI works, then retry"
+      ? `check the ${hostDisplayName(host)} CLI works, then retry`
       : "check the Project surface, then retry",
     [{ kind: "host", value: host }],
     [message],

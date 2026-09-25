@@ -6899,7 +6899,7 @@ describe("standalone view presentation documents (#389)", () => {
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext);
     expect(rendered).toStartWith("✖ Uninstall stopped partway.");
-    expect(rendered).toContain("Couldn't write to /project-b (injected Installation State fault)");
+    expect(rendered).toContain("Couldn't write to /project-b (injected installation record fault)");
     // No Project and no recovery fact is dropped (OOS-004).
     expect(rendered).toContain("- Done: /project-a");
     expect(rendered).toContain("- Put back as it was, where possible: /project-b");

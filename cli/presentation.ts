@@ -1952,7 +1952,7 @@ export function uninstallExecutionFailureDocument(input: {
       parts: [
         "Couldn't write to ",
         projectDisplay(failed),
-        ` (${plainSystemCause(failed.errorCode, failed.detail)})`,
+        ` (${applyNewcomerSubstitutions(plainSystemCause(failed.errorCode, failed.detail))})`,
       ],
     }),
     part(list(recovery)),
@@ -4410,8 +4410,8 @@ export function applyExecutionFailureDocument(
       nodes: [{
         kind: "prose",
         parts: [failedProject === undefined
-          ? `Update failed after committing Project work: ${failure.detail}`
-          : `Update failed at ${failedProject}: ${failure.detail}`],
+          ? `Update failed after committing Project work: ${applyNewcomerSubstitutions(failure.detail)}`
+          : `Update failed at ${failedProject}: ${applyNewcomerSubstitutions(failure.detail)}`],
       }],
     },
     ...warningItems,
@@ -5050,8 +5050,8 @@ export function installExecutionFailureDocument(input: {
     : singleProjectIdentity(input.failedProject);
   return diagnosticDocument({
     happened: [failed === undefined
-      ? `install failed: ${input.detail}`
-      : `install failed at ${failed}: ${input.detail}`],
+      ? `install failed: ${applyNewcomerSubstitutions(input.detail)}`
+      : `install failed at ${failed}: ${applyNewcomerSubstitutions(input.detail)}`],
     why: installRecoverySentences(input.recovery).map((sentence): readonly InlineContent[] => [sentence]),
     whatToType: [[
       "To retry the same installation, run ",

@@ -2018,7 +2018,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${join(home, "missing")}\n    profile: coding\n    hosts: [codex]\n`,
-        message: "must be an existing directory",
+        message: "doesn't exist",
       },
       {
         source: `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings:\n  - project: ${first}\n    profile: missing\n    hosts: [codex]\n`,
@@ -2491,7 +2491,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     }
   });
 
-  test("an install target rejection leads with the Project target and a creation remedy, and writes nothing", async () => {
+  test("an install target rejection leads with the missing folder and the shared creation remedy, and writes nothing", async () => {
     const home = isolatedHome();
     await initialize(home);
     removeScaffoldedExample(home);
@@ -2503,17 +2503,17 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(failed, 1);
     // AC-1: the human diagnostic leads with the actual target and cause, not
-    // the internal Local Configuration path (US-015, review S10).
+    // the internal Local Configuration path (US-015, review S10, #700).
     expect(humanText(failed.stderr)).toBe(
       humanText(
-        `✖ Project target '${missing}' must be an existing directory\n` +
-          "Create it or pass an existing Project directory.",
+        `✖ The folder ${missing} doesn't exist.\n` +
+          "Create it first, or pick a folder that exists.",
       ),
     );
     expect(failed.stderr).not.toContain("Local Configuration");
     expect(failed.stderr).not.toContain("Project target project");
-    // What to type: the creation remedy for a prospective target.
-    expect(failed.stderr).toContain("Create it or pass an existing Project directory.");
+    // What to type: the shared creation remedy for a prospective target.
+    expect(failed.stderr).toContain("Create it first, or pick a folder that exists.");
     // AC-3: invalid targets cause no lifecycle writes.
     expect(readFileSync(configPath(home), "utf8")).toBe(configBefore);
   });
@@ -2533,7 +2533,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     // AC-1: target and cause first; the internal configuration path moved to
     // the why line instead of leading.
     expect(humanText(failed.stderr)).toContain(
-      humanText(`Project target '${stale}' must be an existing directory`),
+      humanText(`The folder ${stale} doesn't exist.`),
     );
     expect(humanText(failed.stderr)).toContain(
       humanText(`Recorded in Local Configuration ${configPath(home)} bindings[0].`),
@@ -3158,6 +3158,29 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     };
     expect(noopPayload.projects[0]?.outputs.every((output) => output.kind === "unchanged")).toBe(true);
     expect(readCodexHostAttentionWarnings(noopApply.stdout)).toEqual([]);
+  });
+
+  test("a failing Codex --version keeps the machine remedy string byte-identical in --json (#700)", async () => {
+    const home = isolatedHome();
+    await initialize(home);
+    const projectPath = project();
+    writeContextProfile(home);
+    bind(home, projectPath);
+    const failingBin = mkdtempSync(join(tmpdir(), "apkit-failing-codex-"));
+    temporaryDirectories.push(failingBin);
+    writeFileSync(join(failingBin, "codex"), "#!/bin/sh\nexit 97\n");
+    chmodSync(join(failingBin, "codex"), 0o755);
+
+    const result = await runCliWithPath(home, failingBin, "update", "--all", "--json");
+    expectExitCode(result, 0);
+    const warnings = readHostAttentionWarnings(result.stdout);
+    expect(warnings).toHaveLength(1);
+    // DEC-004: the machine message keeps the authored "Codex Host
+    // capabilities" wording; only the human Remedy line says "agent" (#700).
+    expect(warnings[0]).toContain(
+      "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
+    );
+    expect(warnings[0]).toContain("Codex CLI version could not be detected");
   });
 
   test("a missing Host emits one warning per invocation while update writes every Project", async () => {
@@ -6497,7 +6520,7 @@ describe("agent-profile-kit project-bound lifecycle", () => {
 
     expectExitCode(result, 1);
     expect(`${result.stdout}\n${result.stderr}`.replace(/\s+/g, " ")).toMatch(
-      /project.*(?:missing|existing)|missing.*project/i,
+      /project.*(?:missing|existing)|missing.*project|doesn't exist/i,
     );
     expect(readFileSync(configPath(home), "utf8")).toBe(configuration);
   });
@@ -9802,7 +9825,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       "--auto-confirm",
     );
     expectExitCode(missingProject, 1);
-    expect(missingProject.stderr).toMatch(/existing directory/i);
+    expect(missingProject.stderr).toMatch(/doesn't exist/i);
 
     const noHost = await runCli(home, "install", "coding", projectPath, "--auto-confirm");
     expectExitCode(noHost, 1);

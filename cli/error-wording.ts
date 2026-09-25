@@ -147,6 +147,23 @@ export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): readon
  * cause; the recorded binding's locator moves to the why section instead of
  * leading, so internal configuration details never precede the failure.
  */
+/**
+ * The one missing-folder wording shared by every command that reports a
+ * Project folder that doesn't exist (#700, US-007 screen 09): `install`,
+ * `update` and `uninstall` all read the same statement and the same creation
+ * recovery, so the family cannot drift. The stale-binding branch keeps its
+ * own recovery on top of the shared statement.
+ */
+function missingFolderWording(authored: string): {
+  readonly happened: readonly InlineContent[];
+  readonly whatToType: readonly (readonly InlineContent[])[];
+} {
+  return {
+    happened: [`The folder ${authored} doesn't exist.`],
+    whatToType: [["Create it first, or pick a folder that exists."]],
+  };
+}
+
 function formatProjectTargetPathDiagnostic(
   fact: Extract<ConfiguredPathErrorFact, { readonly field: string }>,
 ): DiagnosticDocumentParts {
@@ -167,16 +184,18 @@ function formatProjectTargetPathDiagnostic(
         happened: ["Project target must be an absolute path or home-relative path beginning with ~/"],
         whatToType: [listProjectsRecovery()],
       };
-    case "missing-directory":
+    case "missing-directory": {
+      const shared = missingFolderWording(fact.authored);
       return {
-        happened: [`Project target '${fact.authored}' must be an existing directory`],
+        happened: shared.happened,
         ...(bindingLocator === undefined ? {} : { why: bindingLocator }),
         whatToType: [
           bindingLocator === undefined
-            ? ["Create it or pass an existing Project directory."]
+            ? shared.whatToType[0]!
             : staleBindingRecovery(fact.authored),
         ],
       };
+    }
     case "dangling-symlink":
       return {
         happened: [`Project target '${fact.authored}' is a dangling symlink`],
@@ -1353,10 +1372,7 @@ export function formatProjectTargetErrorDiagnostic(
         whatToType: [["Restore its target or choose an existing directory."], listProjectsRecovery()],
       };
     case "missing-target":
-      return {
-        happened: [`The folder ${reason.target} doesn't exist.`],
-        whatToType: [["Create it first, or pick a folder that exists."]],
-      };
+      return missingFolderWording(reason.target);
     case "relative-target":
       return {
         happened: [
