@@ -5,7 +5,6 @@ import { join } from "node:path";
 
 import { previewInstall } from "../installer/install-application.js";
 import { ingestApplicationModelFromSource } from "../installer/local-configuration.js";
-import { publishBinding } from "./support/binding-publication.js";
 import { collectViolations, ingestionFactOf, violationTokens } from "./support/workspace-violations.js";
 import { expandConfiguredPath, requireExistingDirectory } from "../installer/local-configuration.js";
 import { initializeWorkspace } from "../installer/initialize-workspace.js";
@@ -106,7 +105,7 @@ describe("typed Installer tool errors", () => {
     }
   });
 
-  test("bind conflict, unsupported Host, and duplicate roots are typed facts", async () => {
+  test("unsupported Host and duplicate roots are typed facts", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
@@ -122,16 +121,6 @@ describe("typed Installer tool errors", () => {
       expect(flatInlineText(formatInstallerToolError((unsupportedHost as InstallerToolError).fact))).toBe(
         "unsupported agent 'gemini'; supported agents: antigravity, claude, codex, grok, opencode, pi",
       );
-
-      await publishBinding({ home, profile: "coding", project: projectPath, hosts: ["codex"] });
-      const conflict = await rejection(() =>
-        publishBinding({ home, profile: "ops", project: projectPath, hosts: ["codex"] }),
-      );
-      expect(conflict).toBeInstanceOf(InstallerToolError);
-      expect((conflict as InstallerToolError).fact.kind).toBe("bind-conflict");
-      const conflictSentence = flatInlineText(formatInstallerToolError((conflict as InstallerToolError).fact));
-      expect(conflictSentence).toContain("already binds canonical project");
-      expect(conflictSentence).toContain("pass --replace to restate its Profile and agents");
 
       const source = `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`;
       const duplicate = await rejection(() =>

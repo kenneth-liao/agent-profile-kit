@@ -231,13 +231,6 @@ export type CreationArtifactType = "Skill" | "Context Module" | "Profile";
 export type InstallerToolErrorFact =
   | { readonly kind: "missing-local-configuration"; readonly path: string }
   | {
-      readonly kind: "bind-conflict";
-      readonly configurationPath: string;
-      readonly canonicalProject: string;
-      readonly profile: string;
-      readonly hosts: readonly string[];
-    }
-  | {
       readonly kind: "duplicate-canonical-root";
       readonly configurationPath: string;
       readonly bindingIndex: number;

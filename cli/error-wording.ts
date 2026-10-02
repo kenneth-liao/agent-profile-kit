@@ -879,8 +879,6 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
   switch (fact.kind) {
     case "missing-local-configuration":
       return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])];
-    case "bind-conflict":
-      return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and agents`];
     case "duplicate-canonical-root":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
@@ -1008,11 +1006,6 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return {
         happened: ["init without a path would choose a Workspace location for you; setup uses a folder you choose and never selects one itself"],
         whatToType: [initLocationRemedies("Run ")],
-      };
-    case "bind-conflict":
-      return {
-        happened: [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]`],
-        whatToType: [["Pass --replace to restate its Profile and agents."]],
       };
     case "duplicate-canonical-root":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };

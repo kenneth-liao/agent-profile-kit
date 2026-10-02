@@ -27,9 +27,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { isMap, isSeq, parseDocument } from "yaml";
 
 import {
-  isSupportedHost,
   parseLocalConfiguration,
-  SUPPORTED_HOSTS,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
 import type { OwnershipReceipt, OwnershipState } from "../schemas/ownership-state.js";

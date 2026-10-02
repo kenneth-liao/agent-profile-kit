@@ -75,11 +75,7 @@ import { createProjectReadScheduler } from "./project-scheduler.js";
 import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
-import {
-  isSupportedHost,
-  SUPPORTED_HOSTS,
-  type SupportedHost,
-} from "../schemas/local-configuration.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import type { ProjectBinding } from "../schemas/local-configuration.js";
 import { requireProfile } from "./profile-selection.js";
 import { InstallerToolError, type ConfiguredPathOrigin, type WorkspaceViolation } from "./tool-errors.js";
@@ -483,7 +479,6 @@ export async function executeInstall(
                 hosts: preview.hosts,
                 canonicalProject: preview.canonicalProject,
                 storedProject: preview.authoredProject,
-                replace: true,
               },
               { toleratingReferenceViolations: true },
             );
@@ -617,7 +612,6 @@ export async function executeInstall(
                       hosts: preview.previous.hosts,
                       canonicalProject: preview.canonicalProject,
                       storedProject: preview.previous.authoredProject,
-                      replace: true,
                     }, { toleratingReferenceViolations: true });
                   }
                   restored = true;

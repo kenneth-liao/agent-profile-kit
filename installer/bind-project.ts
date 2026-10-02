@@ -102,13 +102,14 @@ export interface PublishBindingUnderLockOptions {
   readonly hosts: readonly SupportedHost[];
   readonly canonicalProject: string;
   readonly storedProject: string;
-  readonly replace: boolean;
 }
 
 /**
  * Validate, edit, and atomically publish one Project Binding while the caller
  * holds the Local Configuration lock. The install commit path publishes and
- * restores its selection through this one snapshot-checked boundary.
+ * restores its selection through this one snapshot-checked boundary. A
+ * different binding for the same canonical Project is replaced in place: the
+ * requested selection is final (ADR-0033).
  */
 export async function publishBindingUnderLock(
   configurationPath: string,
@@ -181,16 +182,6 @@ export async function publishBindingUnderLock(
         hosts: binding.hosts,
       };
     }
-    if (!binding.replace) {
-      throw new InstallerToolError({
-        kind: "bind-conflict",
-        configurationPath,
-        canonicalProject: binding.canonicalProject,
-        profile: existing.profile,
-        hosts: existing.hosts,
-      });
-    }
-
     // The application model preserves Local Configuration's binding order 1:1,
     // so the semantic match's position is also the YAML sequence index.
     const document = parseDocument(source);

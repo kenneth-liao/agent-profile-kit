@@ -78,9 +78,13 @@ Resolution, versioning, and process-executor decisions are intact.
   install publishes through `publishBindingUnderLock` under
   `withConfigurationLock`, and only tests used `bindProject` to record a
   binding without installing. Tests now build that never-installed state
-  through the same lock and publication primitive install uses, so they
-  exercise the production path. Host-selection normalization has one home,
-  `normalizeHostSelection`, shared by install and uninstall, and the
-  `bind-host-required` fact it alone raised is gone. The retired public
-  `bind` command, its diagnostic, and the hand-edited never-installed
-  binding as a valid state are unchanged.
+  through the same Host normalization, lock, and publication primitive
+  install uses, so they exercise the production path. Host-selection
+  normalization has one home, `normalizeHostSelection`, shared by install
+  and uninstall; the `bind-host-required` fact only `bindProject` raised is
+  gone. Because the requested selection is final, `publishBindingUnderLock`
+  always replaces a different binding for the same canonical Project: its
+  `replace` option and the `bind-conflict` fact, whose remedy named a
+  `--replace` flag no command has, are removed. The retired public `bind`
+  command, its diagnostic, and the hand-edited never-installed binding as a
+  valid state are unchanged.

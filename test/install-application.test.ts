@@ -396,7 +396,6 @@ describe("install commit serializes cooperating writers", () => {
       profile: "ops",
       hosts: ["claude"],
       project: projectPath,
-      replace: true,
       lockTimeoutMs: 100,
     }).then(
       () => { throw new Error("expected the cooperating writer to wait out the lock"); },
@@ -415,7 +414,6 @@ describe("install commit serializes cooperating writers", () => {
       profile: "ops",
       hosts: ["claude"],
       project: projectPath,
-      replace: true,
     });
     expect(retry.outcome).toBe("replaced");
     expect(readFileSync(configPath(home), "utf8")).toContain("profile: ops");
