@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 
 import { COMMANDS } from "../cli/command-help.js";
 import { AUTHORING_EXAMPLES } from "../installer/authoring-examples.js";
-import { bindProject } from "../installer/bind-project.js";
+import { publishBinding } from "./support/binding-publication.js";
 import { operationHistoryPath } from "../installer/operation-history.js";
 import { MAX_HUMAN_WIDTH, MIN_HUMAN_WIDTH } from "../cli/terminal-presentation.js";
 import { humanGuide, agentGuide } from "../cli/guides.js";
@@ -316,9 +316,9 @@ async function initializedHome(): Promise<{ home: string; project: string }> {
 
 async function pendingHome(): Promise<{ home: string; project: string }> {
   const prepared = await initializedHome();
-  // A never-installed binding: the recording-only primitive, not the
-  // install command, so pending views keep their pending subject.
-  await bindProject({
+  // A never-installed binding: recorded through the publication primitive,
+  // not the install command, so pending views keep their pending subject.
+  await publishBinding({
     home: prepared.home,
     profile: AUTHORING_EXAMPLES.profile.id,
     hosts: ["codex"],

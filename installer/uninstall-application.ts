@@ -38,6 +38,7 @@ import { comparisonMatchesDigests, type ChangedOutputComparison } from "./change
 import {
   defaultFileSystem as bindDefaultFileSystem,
   hostsEqual,
+  normalizeHostSelection,
   type BindProjectFileSystem,
 } from "./bind-project.js";
 import type { OwnershipFailureFact } from "./blockers.js";
@@ -133,33 +134,6 @@ export interface UninstallPreviewProject {
   readonly removeHosts?: readonly SupportedHost[];
   /** The bound root no longer exists: removal is trivially complete. */
   readonly missing: boolean;
-}
-
-/**
- * Normalize requested `--host` values to the deterministic
- * `SUPPORTED_HOSTS` order (the same boundary as install's Host
- * normalization). Unknown Hosts throw the shared `unsupported-host` fact
- * before any write, so presentation suggests the supported names.
- */
-export function normalizeUninstallHosts(hosts: readonly string[]): readonly SupportedHost[] {
-  if (hosts.length === 0) {
-    throw new InstallerToolError({
-      kind: "install-host-required",
-      supportedHosts: SUPPORTED_HOSTS,
-    });
-  }
-  const seen = new Set<SupportedHost>();
-  for (const host of hosts) {
-    if (!isSupportedHost(host)) {
-      throw new InstallerToolError({
-        kind: "unsupported-host",
-        host,
-        supportedHosts: SUPPORTED_HOSTS,
-      });
-    }
-    seen.add(host);
-  }
-  return SUPPORTED_HOSTS.filter((host) => seen.has(host));
 }
 
 /**
@@ -301,7 +275,7 @@ export async function previewUninstall(
   // before any write through the shared normalization boundary.
   const narrowed = new Map<IngestedProjectBinding, readonly SupportedHost[]>();
   if (options.hosts !== undefined) {
-    const requested = new Set(normalizeUninstallHosts(options.hosts));
+    const requested = new Set(normalizeHostSelection(options.hosts));
     for (const binding of selected) {
       const bound = binding.hosts.filter((host) => requested.has(host));
       if (bound.length > 0) narrowed.set(binding, bound);

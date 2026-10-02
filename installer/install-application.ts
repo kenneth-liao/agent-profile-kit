@@ -32,6 +32,7 @@
  */
 import {
   defaultFileSystem,
+  normalizeHostSelection,
   publishBindingUnderLock,
   removeBindingUnderLock,
   type BindProjectFileSystem,
@@ -162,27 +163,6 @@ export class InstallExecutionError extends Error {
   }
 }
 
-function normalizeInstallHosts(hosts: readonly string[]): readonly SupportedHost[] {
-  if (hosts.length === 0) {
-    throw new InstallerToolError({
-      kind: "install-host-required",
-      supportedHosts: SUPPORTED_HOSTS,
-    });
-  }
-  const seen = new Set<SupportedHost>();
-  for (const host of hosts) {
-    if (!isSupportedHost(host)) {
-      throw new InstallerToolError({
-        kind: "unsupported-host",
-        host,
-        supportedHosts: SUPPORTED_HOSTS,
-      });
-    }
-    seen.add(host);
-  }
-  return SUPPORTED_HOSTS.filter((host) => seen.has(host));
-}
-
 /**
  * The current binding for one canonical Project, without writing anything.
  * A missing configuration stably means "no previous selection"; any other
@@ -281,7 +261,7 @@ export async function previewInstall(
   },
 ): Promise<InstallPreview> {
   const profile = requireArtifactId(options.profile, "install profile");
-  const hosts = normalizeInstallHosts(options.hosts);
+  const hosts = normalizeHostSelection(options.hosts);
   const target = options.target ?? await resolveInstallTarget(home, options);
 
   // Tolerant Profile lookup (spec #593 US-007, #606): a broken Profile still

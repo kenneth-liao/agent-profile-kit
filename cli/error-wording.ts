@@ -885,8 +885,6 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`];
-    case "bind-host-required":
-      return [`bind requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "install-host-required":
       return [`install requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-host": {
@@ -1020,11 +1018,6 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };
     case "duplicate-missing-project":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`] };
-    case "bind-host-required":
-      return {
-        happened: ["bind requires at least one --agent flag"],
-        why: [[`supported agents: ${fact.supportedHosts.join(", ")}`]],
-      };
     case "install-host-required":
       return {
         happened: ["install requires at least one --agent flag"],

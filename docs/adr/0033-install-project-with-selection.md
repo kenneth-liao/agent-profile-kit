@@ -23,7 +23,8 @@ is consumed here, not re-decided.
   that bypasses the general confirmation, changed-file consent, and
   recovery this slice delivers. Hand-editing Local Configuration remains
   valid; the internal `bindProject` publication primitive keeps its name
-  (internal canonical vocabulary is preserved, as in ADR-0031).
+  (internal canonical vocabulary is preserved, as in ADR-0031). *Amended
+  2026-10-02 (#568): `bindProject` is removed; see Amendments.*
 - **`apkit install <profile> [project] --host <host> ...` records the
   Project's desired selection and installs/verifies the generated output in
   one action.** It targets the current Project by default and supports an
@@ -69,3 +70,17 @@ public command no longer exists. ADR-0010's Project Binding scope and the
 `unbind` removal boundary are unaffected and belong to the uninstall slice.
 #373's no-prompt teardown contract is untouched. Unrelated ownership, Host
 Resolution, versioning, and process-executor decisions are intact.
+
+## Amendments
+
+- **2026-10-02 (ticket #568).** The internal `bindProject` primitive is
+  removed rather than kept under its name. It had no production caller:
+  install publishes through `publishBindingUnderLock` under
+  `withConfigurationLock`, and only tests used `bindProject` to record a
+  binding without installing. Tests now build that never-installed state
+  through the same lock and publication primitive install uses, so they
+  exercise the production path. Host-selection normalization has one home,
+  `normalizeHostSelection`, shared by install and uninstall, and the
+  `bind-host-required` fact it alone raised is gone. The retired public
+  `bind` command, its diagnostic, and the hand-edited never-installed
+  binding as a valid state are unchanged.

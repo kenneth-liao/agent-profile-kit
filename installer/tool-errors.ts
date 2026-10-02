@@ -249,7 +249,6 @@ export type InstallerToolErrorFact =
       readonly bindingIndex: number;
       readonly project: string;
     }
-  | { readonly kind: "bind-host-required"; readonly supportedHosts: readonly string[] }
   | { readonly kind: "install-host-required"; readonly supportedHosts: readonly string[] }
   | { readonly kind: "unsupported-host"; readonly host: string; readonly supportedHosts: readonly string[] }
   | {

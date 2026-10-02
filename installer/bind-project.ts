@@ -1,17 +1,11 @@
 import { isMap, isSeq, parseDocument } from "yaml";
 
-import { requireArtifactId } from "../schemas/dependencies.js";
 import {
   isSupportedHost,
   SUPPORTED_HOSTS,
   type SupportedHost,
 } from "../schemas/local-configuration.js";
-import {
-  ingestApplicationFromSource,
-  localConfigurationPath,
-  normalizeProject,
-  requireExistingDirectory,
-} from "./local-configuration.js";
+import { ingestApplicationFromSource } from "./local-configuration.js";
 import {
   defaultFileSystem,
   DEFAULT_LOCK_TIMEOUT_MS,
@@ -25,7 +19,7 @@ import {
 } from "./local-configuration-publication.js";
 import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
-import { InstallerToolError, type ConfiguredPathOrigin } from "./tool-errors.js";
+import { InstallerToolError } from "./tool-errors.js";
 
 /** Compatibility facade for existing bind-project consumers; publication's canonical implementation is separate. */
 export {
@@ -45,10 +39,16 @@ function hasErrorCode(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }
 
-function normalizeHosts(hosts: readonly string[]): readonly SupportedHost[] {
+/**
+ * Normalize requested Hosts to the deterministic `SUPPORTED_HOSTS` order, the
+ * one Host-selection boundary shared by install and uninstall. Unknown Hosts
+ * throw the shared `unsupported-host` fact before any write, so presentation
+ * suggests the supported names.
+ */
+export function normalizeHostSelection(hosts: readonly string[]): readonly SupportedHost[] {
   if (hosts.length === 0) {
     throw new InstallerToolError({
-      kind: "bind-host-required",
+      kind: "install-host-required",
       supportedHosts: SUPPORTED_HOSTS,
     });
   }
@@ -73,22 +73,6 @@ export function hostsEqual(
   right: readonly SupportedHost[],
 ): boolean {
   return left.length === right.length && left.every((host, index) => host === right[index]);
-}
-
-export interface BindProjectOptions {
-  readonly home: string;
-  readonly profile: string;
-  /** Authored project path; omit to use cwd. */
-  readonly project?: string;
-  readonly hosts: readonly string[];
-  /** Restate Profile and Hosts of an existing binding for the canonical project. */
-  readonly replace?: boolean;
-  /** Working directory used when project is omitted. Defaults to process.cwd(). */
-  readonly cwd?: string;
-  /** Test-only filesystem override for snapshot and publication proofs. */
-  readonly fileSystem?: BindProjectFileSystem;
-  /** Test-only lock wait/stale-empty timeout (ms). */
-  readonly lockTimeoutMs?: number;
 }
 
 interface BindProjectResultBase {
@@ -123,8 +107,8 @@ export interface PublishBindingUnderLockOptions {
 
 /**
  * Validate, edit, and atomically publish one Project Binding while the caller
- * holds the Local Configuration lock. Shared by `bindProject` and the install
- * commit path so both publish through one snapshot-checked boundary.
+ * holds the Local Configuration lock. The install commit path publishes and
+ * restores its selection through this one snapshot-checked boundary.
  */
 export async function publishBindingUnderLock(
   configurationPath: string,
@@ -331,62 +315,4 @@ export async function removeBindingUnderLock(
     operation,
   );
   return { removed: true };
-}
-
-export async function bindProject(
-  options: BindProjectOptions,
-): Promise<BindProjectResult> {
-  const fileSystem = options.fileSystem ?? defaultFileSystem;
-  const lockTimeoutMs = options.lockTimeoutMs ?? DEFAULT_LOCK_TIMEOUT_MS;
-  const configurationPath = localConfigurationPath(options.home);
-  const origin: ConfiguredPathOrigin = {
-    source: "local-configuration",
-    configurationPath,
-  };
-  const profile = requireArtifactId(options.profile, "bind profile");
-  const hosts = normalizeHosts(options.hosts);
-  const cwd = options.cwd ?? process.cwd();
-
-  let canonicalProject: string;
-  if (options.project === undefined) {
-    canonicalProject = await requireExistingDirectory(
-      cwd,
-      cwd,
-      origin,
-      "project",
-    );
-  } else {
-    canonicalProject = await normalizeProject(
-      options.project,
-      options.home,
-      origin,
-    );
-  }
-
-  // Prefer absolute canonical root for cwd bindings; preserve authored spelling otherwise.
-  const storedProject =
-    options.project === undefined ? canonicalProject : options.project;
-
-  // Friendly missing-config diagnostic before lock acquisition (avoids raw ENOENT on .lock).
-  // Do not restore held residue here — recovery requires exclusive lock ownership so it
-  // cannot interfere with another live bind transaction.
-  if (!(await pathExists(fileSystem, configurationPath))) {
-    if (!(await hasHeldResidue(configurationPath, fileSystem))) {
-      throw new InstallerToolError({
-        kind: "missing-local-configuration",
-        path: configurationPath,
-      });
-    }
-  }
-
-  return withConfigurationLock(configurationPath, fileSystem, lockTimeoutMs, "bind", () =>
-    publishBindingUnderLock(configurationPath, fileSystem, "bind", {
-      home: options.home,
-      profile,
-      hosts,
-      canonicalProject,
-      storedProject,
-      replace: options.replace === true,
-    }),
-  );
 }
