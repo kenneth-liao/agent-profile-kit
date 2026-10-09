@@ -9894,7 +9894,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(readdirSync(workspacePath(home)).sort().join("\n")).toBe(workspaceBefore);
   });
 
-  test("bind refuses a direct edit observed by the final source recheck", async () => {
+  test("binding publication refuses a direct edit observed by the final source recheck", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9902,7 +9902,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     const configuration = configPath(home);
     const before = readFileSync(configuration, "utf8");
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     const {
       mkdir,
       readdir,
@@ -9918,7 +9918,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     // config.yaml before the pre-rename re-check — publish must fail closed.
     let staged = false;
     await expect(
-      bindProject({
+      publishBinding({
         home,
         profile: "coding",
         project: projectPath,
@@ -9954,7 +9954,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(readFileSync(configuration, "utf8")).not.toContain(projectPath);
   });
 
-  test("bind validates the pre-replace snapshot so a mid-flight rewrite cannot diverge from the edit model", async () => {
+  test("binding publication validates the pre-replace snapshot so a mid-flight rewrite cannot diverge from the edit model", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -9964,7 +9964,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     const empty = `schema_version: 2\nworkspace: ${workspacePath(home)}\nbindings: []\n`;
     writeFileSync(configuration, empty);
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     const {
       mkdir,
       readdir,
@@ -9984,7 +9984,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
 
     let configReads = 0;
     await expect(
-      bindProject({
+      publishBinding({
         home,
         profile: "coding",
         project: projectPath,
@@ -10012,7 +10012,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(readFileSync(configuration, "utf8")).not.toContain("profile: coding");
   });
 
-  test("concurrent binds retain both Project Bindings when one pauses mid-publish", async () => {
+  test("concurrent binding publications retain both Project Bindings when one pauses mid-publish", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -10020,7 +10020,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     const second = project();
     const configuration = configPath(home);
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     const {
       mkdir,
       readdir,
@@ -10032,15 +10032,15 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
       writeFile,
     } = await import("node:fs/promises");
 
-    // Bind A pauses after staging the replacement, while still holding the lock —
-    // the canonical path must remain readable and Bind B must wait, not steal.
+    // Publication A pauses after staging the replacement, while still holding the lock —
+    // the canonical path must remain readable and publication B must wait, not steal.
     let releasePublish: (() => void) | undefined;
     const publishGate = new Promise<void>((resolve) => {
       releasePublish = resolve;
     });
     let aReachedPublish = false;
 
-    const bindA = bindProject({
+    const bindA = publishBinding({
       home,
       profile: "coding",
       project: first,
@@ -10072,7 +10072,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(existsSync(configuration)).toBe(true);
     expect(readFileSync(configuration, "utf8")).toContain("bindings:");
 
-    const bindB = bindProject({
+    const bindB = publishBinding({
       home,
       profile: "coding",
       project: second,
@@ -10098,7 +10098,7 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(validate.stdout).toContain("Projects: 2");
   });
 
-  test("bind recovers legacy held residue only under exclusive lock ownership", async () => {
+  test("binding publication recovers legacy held residue only under exclusive lock ownership", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
@@ -10110,10 +10110,10 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     writeFileSync(heldPath, original);
     rmSync(configuration);
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     // Pre-lock recovery would steal/restore without ownership. Under-lock recovery
     // restores the residue only after exclusive acquisition, then publishes.
-    const result = await bindProject({
+    const result = await publishBinding({
       home,
       profile: "coding",
       project: projectPath,
@@ -10140,12 +10140,12 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     writeFileSync(lockPath, "");
     utimesSync(lockPath, new Date(Date.now() - 100), new Date(Date.now() - 100));
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     const started = Date.now();
     // Empty locks are live until their age exceeds the timeout. Instant steal
     // (treating empty as unowned) would finish in a few ms; the ~60ms wait for
     // the lock to age out is required.
-    await bindProject({
+    await publishBinding({
       home,
       profile: "coding",
       project: projectPath,
@@ -10157,17 +10157,17 @@ describe("agent-profile-kit install (selection and output in one action)", () =>
     expect(existsSync(lockPath)).toBe(false);
   });
 
-  test("concurrent binds serialize under the lock so both Project Bindings are retained", async () => {
+  test("concurrent binding publications serialize under the lock so both Project Bindings are retained", async () => {
     const home = isolatedHome();
     await initialize(home);
     writeContextProfile(home);
     const first = project();
     const second = project();
 
-    const { bindProject } = await import("../installer/bind-project.js");
+    const { publishBinding } = await import("./support/binding-publication.js");
     const results = await Promise.all([
-      bindProject({ home, profile: "coding", project: first, hosts: ["codex"] }),
-      bindProject({ home, profile: "coding", project: second, hosts: ["claude"] }),
+      publishBinding({ home, profile: "coding", project: first, hosts: ["codex"] }),
+      publishBinding({ home, profile: "coding", project: second, hosts: ["claude"] }),
     ]);
 
     expect(results.map((result) => result.outcome).sort()).toEqual(["created", "created"]);

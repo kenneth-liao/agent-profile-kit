@@ -28,10 +28,10 @@ import { PassThrough, type Writable } from "node:stream";
 
 import { parse as parseYaml } from "yaml";
 import { runUninstallCommand } from "../cli/uninstall-command.js";
+import { normalizeHostSelection } from "../installer/bind-project.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import {
   assertSurvivorAdditionsFree,
-  normalizeUninstallHosts,
   previewUninstall,
   stagePartialTransition,
   survivingHostsForRemoval,
@@ -210,13 +210,13 @@ function cleanup(): void {
 
 describe("uninstall --host surviving-set computation", () => {
   test("requested Hosts normalize to SUPPORTED_HOSTS order with duplicates collapsed", () => {
-    expect(normalizeUninstallHosts(["pi", "codex", "pi"])).toEqual(["codex", "pi"]);
+    expect(normalizeHostSelection(["pi", "codex", "pi"])).toEqual(["codex", "pi"]);
   });
 
   test("unknown Hosts throw the shared unsupported-host fact before any write", () => {
     let caught: unknown;
     try {
-      normalizeUninstallHosts(["borked"]);
+      normalizeHostSelection(["borked"]);
     } catch (error) {
       caught = error;
     }

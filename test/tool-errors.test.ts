@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { bindProject } from "../installer/bind-project.js";
+import { previewInstall } from "../installer/install-application.js";
 import { ingestApplicationModelFromSource } from "../installer/local-configuration.js";
 import { collectViolations, ingestionFactOf, violationTokens } from "./support/workspace-violations.js";
 import { expandConfiguredPath, requireExistingDirectory } from "../installer/local-configuration.js";
@@ -75,7 +75,7 @@ describe("typed Installer tool errors", () => {
       const projectPath = join(home, "project");
       mkdirSync(projectPath, { recursive: true });
       const failure = await rejection(() =>
-        bindProject({ home, profile: "coding", project: projectPath, hosts: ["codex"] }),
+        previewInstall(home, { profile: "coding", project: projectPath, hosts: ["codex"] }),
       );
       expect(failure).toBeInstanceOf(InstallerToolError);
       const fact = (failure as InstallerToolError).fact;
@@ -105,7 +105,7 @@ describe("typed Installer tool errors", () => {
     }
   });
 
-  test("bind conflict, unsupported Host, and duplicate roots are typed facts", async () => {
+  test("unsupported Host and duplicate roots are typed facts", async () => {
     const home = isolatedHome();
     try {
       const workspace = scaffoldWorkspace(home);
@@ -114,23 +114,13 @@ describe("typed Installer tool errors", () => {
       scaffoldConfiguration(home, workspace);
 
       const unsupportedHost = await rejection(() =>
-        bindProject({ home, profile: "coding", project: projectPath, hosts: ["gemini"] }),
+        previewInstall(home, { profile: "coding", project: projectPath, hosts: ["gemini"] }),
       );
       expect(unsupportedHost).toBeInstanceOf(InstallerToolError);
       expect((unsupportedHost as InstallerToolError).fact.kind).toBe("unsupported-host");
       expect(flatInlineText(formatInstallerToolError((unsupportedHost as InstallerToolError).fact))).toBe(
         "unsupported agent 'gemini'; supported agents: antigravity, claude, codex, grok, opencode, pi",
       );
-
-      await bindProject({ home, profile: "coding", project: projectPath, hosts: ["codex"] });
-      const conflict = await rejection(() =>
-        bindProject({ home, profile: "ops", project: projectPath, hosts: ["codex"] }),
-      );
-      expect(conflict).toBeInstanceOf(InstallerToolError);
-      expect((conflict as InstallerToolError).fact.kind).toBe("bind-conflict");
-      const conflictSentence = flatInlineText(formatInstallerToolError((conflict as InstallerToolError).fact));
-      expect(conflictSentence).toContain("already binds canonical project");
-      expect(conflictSentence).toContain("pass --replace to restate its Profile and agents");
 
       const source = `schema_version: 2\nworkspace: ${workspace}\nbindings:\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n  - project: ${projectPath}\n    profile: coding\n    hosts: [codex]\n`;
       const duplicate = await rejection(() =>
