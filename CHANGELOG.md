@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Updated `smol-toml` to 1.9.0 so invalid-TOML diagnostics in `apkit status --verbose` and Grok checks name the column of the bad character instead of always column 2 (#704)
+
 - Removed the internal `bindProject` publication primitive, its `replace` option, and the unreachable `bind-host-required` and `bind-conflict` errors, leaving one Host normalizer `normalizeHostSelection` for install and uninstall; CLI behavior and machine JSON are unchanged (#568)
 
 - Rendered every agent's setup steps in plain words from one authored human line per step: the install receipt reads `Codex: approve the SessionStart hook when asked, and trust this project.` (proposed screens 04/26), Antigravity and Pi read `trust this project`, OpenCode reads `restart it to load the new configuration`, and update `First use:`, verbose setup sections and every other public human surface read the same human lines with the agent's display name once and no consequence parenthetical (superseding the #686 INT-2 parenthetical; `consequence` stays in verbose labels and machine JSON), while machine `setupSteps` values stay byte-identical — including the recorded narrow DEC-004 exception that removing Codex's `launch-constraint` step (DEC-006 of spec #672) also removed its value from machine `setupSteps` for non-Git Codex Projects, this one value only with no other machine change (#701)
