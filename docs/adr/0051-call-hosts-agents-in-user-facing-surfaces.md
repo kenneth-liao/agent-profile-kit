@@ -41,6 +41,8 @@ payloads.
      `--host` and its existing parameter shapes.
    - Machine JSON output payloads (`topic: "hosts"`, `removedHosts`, etc.)
      remain byte-identical across versions (differing only in `engineVersion`).
+   - *Amended by ADR-0052:* wording and presentation changes never change this
+     contract; a real capability change may, as a versioned break.
 4. **Canonical terminology distinction.**
    - User-facing documentation and CLI interfaces use "agent".
    - Architectural, contributor, and adapter-layer documentation continues to use

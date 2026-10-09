@@ -49,7 +49,7 @@ A generated, host-native snapshot of one Workspace Profile installed into one bo
 _Avoid_: Canonical source, live link, Temporary Profile Installation
 
 **Temporary Profile Installation**:
-Generated Host-native output for one Profile, one Host, and one explicit Project whose desired lifetime is owned by a temporary Installation Receipt rather than a Project Binding. It uses the same receipt shape, Adapter planning, output ownership, and Repository Exclusion Contribution machinery as an ordinary installation, creates no Local Configuration change, and is removed only through `apkit machine remove-temp` by durable temporary installation identity.
+Generated Host-native output for one Profile, one or more Hosts, and one explicit Project whose desired lifetime is owned by a temporary Installation Receipt rather than a Project Binding. It uses the same receipt shape, Adapter planning, output ownership, and Repository Exclusion Contribution machinery as an ordinary installation, creates no Local Configuration change, and is removed only through `apkit machine remove-temp` by durable temporary installation identity.
 _Avoid_: Project Binding, ordinary Profile Installation, global apply
 
 **Output Ownership Conflict**:
@@ -73,7 +73,7 @@ The durable machine-local JSON ownership evidence used to prove ownership and dr
 _Avoid_: Disposable Profile Installation output, Workspace source, reconstructed Host inventory
 
 **Installation Receipt**:
-The single ownership record for one ordinary or Temporary Profile Installation. It owns installation identity, lifetime, canonical Project, Profile ID, desired-input digest, one Host receipt map, and generated output roots; it records no exclusion target or entry list. An active receipt grants the Installer authority over each recorded generated output root while the recorded paths are safe; a receipt retired by the removed `unbind` boundary no longer proves active ownership and persists only as the teardown authority whose recorded detail a later `update` consumes. Directory roots retain one aggregate ownership hash and no member tree.
+The single ownership record for one ordinary or Temporary Profile Installation. It owns installation identity, lifetime, canonical Project, Profile ID, desired-input digest, one Host receipt map, generated output roots, and the Project folders its installation created; it records no exclusion target or entry list. An active receipt grants the Installer authority over each recorded generated output root while the recorded paths are safe; a receipt retired by the removed `unbind` boundary no longer proves active ownership and persists only as the teardown authority whose recorded detail a later `update` consumes. Directory roots retain one aggregate ownership hash and no member tree.
 _Avoid_: Installation Manifest, presentation history, selected Context, generated output
 
 **Repository Exclusion Contribution**:

@@ -60,3 +60,5 @@ ADR-0010's binding-owned model:
   Host-parity slice (#136).
 - This does not restore session launchers or managed overlays superseded by
   ADR-0010; Hosts still load project material natively after install-temp.
+- *Amended by ADR-0052:* one Temporary Profile Installation covers one or more
+  Hosts, and every supported Host is eligible.
