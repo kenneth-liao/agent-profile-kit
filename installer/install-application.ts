@@ -32,6 +32,7 @@
  */
 import {
   defaultFileSystem,
+  normalizeHostSelection,
   publishBindingUnderLock,
   removeBindingUnderLock,
   type BindProjectFileSystem,
@@ -74,11 +75,7 @@ import { createProjectReadScheduler } from "./project-scheduler.js";
 import type { LifecyclePlanningInstrumentation } from "./lifecycle-planning.js";
 import type { LifecycleInstrumentation } from "./qualification-instrumentation.js";
 import { requireArtifactId } from "../schemas/dependencies.js";
-import {
-  isSupportedHost,
-  SUPPORTED_HOSTS,
-  type SupportedHost,
-} from "../schemas/local-configuration.js";
+import type { SupportedHost } from "../schemas/local-configuration.js";
 import type { ProjectBinding } from "../schemas/local-configuration.js";
 import { requireProfile } from "./profile-selection.js";
 import { InstallerToolError, type ConfiguredPathOrigin, type WorkspaceViolation } from "./tool-errors.js";
@@ -160,27 +157,6 @@ export class InstallExecutionError extends Error {
     this.name = "InstallExecutionError";
     this.failure = failure;
   }
-}
-
-function normalizeInstallHosts(hosts: readonly string[]): readonly SupportedHost[] {
-  if (hosts.length === 0) {
-    throw new InstallerToolError({
-      kind: "install-host-required",
-      supportedHosts: SUPPORTED_HOSTS,
-    });
-  }
-  const seen = new Set<SupportedHost>();
-  for (const host of hosts) {
-    if (!isSupportedHost(host)) {
-      throw new InstallerToolError({
-        kind: "unsupported-host",
-        host,
-        supportedHosts: SUPPORTED_HOSTS,
-      });
-    }
-    seen.add(host);
-  }
-  return SUPPORTED_HOSTS.filter((host) => seen.has(host));
 }
 
 /**
@@ -281,7 +257,7 @@ export async function previewInstall(
   },
 ): Promise<InstallPreview> {
   const profile = requireArtifactId(options.profile, "install profile");
-  const hosts = normalizeInstallHosts(options.hosts);
+  const hosts = normalizeHostSelection(options.hosts);
   const target = options.target ?? await resolveInstallTarget(home, options);
 
   // Tolerant Profile lookup (spec #593 US-007, #606): a broken Profile still
@@ -503,7 +479,6 @@ export async function executeInstall(
                 hosts: preview.hosts,
                 canonicalProject: preview.canonicalProject,
                 storedProject: preview.authoredProject,
-                replace: true,
               },
               { toleratingReferenceViolations: true },
             );
@@ -637,7 +612,6 @@ export async function executeInstall(
                       hosts: preview.previous.hosts,
                       canonicalProject: preview.canonicalProject,
                       storedProject: preview.previous.authoredProject,
-                      replace: true,
                     }, { toleratingReferenceViolations: true });
                   }
                   restored = true;

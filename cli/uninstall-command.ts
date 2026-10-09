@@ -284,10 +284,10 @@ import {
 import type { OperationHistoryScope } from "../installer/operation-history.js";
 import { displayProjectPath } from "./display-path.js";
 import { SUPPORTED_HOSTS } from "../adapters/registry.js";
+import { normalizeHostSelection } from "../installer/bind-project.js";
 import { ProjectTargetError, type ProjectBindingSelection } from "../installer/local-configuration.js";
 import {
   executeUninstall,
-  normalizeUninstallHosts,
   previewUninstall,
   survivingHostsForRemoval,
   UninstallScopeChangedError,
@@ -593,7 +593,7 @@ async function runInteractiveUninstall(
   let carriedHosts: readonly InteractiveHost[] | undefined;
   if (parsed.hosts !== undefined) {
     try {
-      carriedHosts = normalizeUninstallHosts(parsed.hosts);
+      carriedHosts = normalizeHostSelection(parsed.hosts);
     } catch (error) {
       writeHumanDocument(request.stderr, errorDiagnosticDocument(error), stderrContext);
       recording.recordNothing("the requested Agent Host is unsupported");

@@ -15,7 +15,7 @@ import {
   InstallExecutionError,
   sameInstallSelection,
 } from "../installer/install-application.js";
-import { bindProject } from "../installer/bind-project.js";
+import { publishBinding } from "./support/binding-publication.js";
 import { createLifecycleOwnershipInspectionContext } from "../installer/lifecycle-ownership-inspection.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import { buildDesiredState } from "../installer/project-plan.js";
@@ -391,12 +391,11 @@ describe("install commit serializes cooperating writers", () => {
     }
     // The commit holds the configuration lock across publication and output
     // writes: a cooperating writer fails closed instead of interleaving.
-    const competitor = await bindProject({
+    const competitor = await publishBinding({
       home,
       profile: "ops",
       hosts: ["claude"],
       project: projectPath,
-      replace: true,
       lockTimeoutMs: 100,
     }).then(
       () => { throw new Error("expected the cooperating writer to wait out the lock"); },
@@ -410,12 +409,11 @@ describe("install commit serializes cooperating writers", () => {
     expect(result.binding.outcome).toBe("created");
     expect(result.binding.profile).toBe("coding");
     // After release the cooperating writer converges normally.
-    const retry = await bindProject({
+    const retry = await publishBinding({
       home,
       profile: "ops",
       hosts: ["claude"],
       project: projectPath,
-      replace: true,
     });
     expect(retry.outcome).toBe("replaced");
     expect(readFileSync(configPath(home), "utf8")).toContain("profile: ops");
