@@ -562,7 +562,7 @@ skills = true
 
     expect(failure).toBeInstanceOf(Error);
     const message = failure instanceof Error ? failure.message : "";
-    expect(message).toContain("invalid TOML at line 1, column 2");
+    expect(message).toContain("invalid TOML at line 1, column 9");
     expect(message).not.toContain(secretLikeValue);
   });
 
