@@ -418,8 +418,8 @@ needs with one owned operation, and remove all of it with one owned operation.
     term ("one Host"); recorded in
     [ADR-0052](docs/adr/0052-install-one-temporary-profile-for-several-hosts.md).
   - Dead end: several single-Host Temporary Profile Installations in one
-    Project. Codex, OpenCode, and Pi share `.agents/skills` (ADR-0018), so two
-    receipts would own the same output.
+    Project; see
+    [ADR-0052](docs/adr/0052-install-one-temporary-profile-for-several-hosts.md).
   - Dead end: a manual claim that observes a real orchestration run. Output
     probes are the proof; ISC-10 is unchanged.
   - The ISC-56, ISC-57, and ISC-58 probes already passed for single-Host Claude
