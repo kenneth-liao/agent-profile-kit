@@ -1,10 +1,10 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/62
+progress: 0/71
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
-updated: 2026-09-17
+updated: 2026-09-24
 ---
 
 # Ideal State — Agent Profile Kit
@@ -18,6 +18,8 @@ Qualification can also consume repeated work without establishing which tests
 actually ran or whether the published package is the package they exercised.
 New users cannot tell where setup puts the Workspace, what a valid Workspace
 must contain, or how to use the Context and Skills they already have.
+Disposable worker worktrees get no Profile, so orchestrators copy apkit output
+into them by hand.
 
 ## Vision
 
@@ -28,6 +30,8 @@ Maintainers can qualify changes efficiently using trustworthy evidence, and
 users receive the exact package that passed release qualification.
 A new user turns what they already have, or nothing, into a Workspace they
 chose and own, knowing exactly what it must contain.
+An orchestrator gives each worker a disposable worktree that already has its
+Profile, then removes it without a trace.
 
 ## Out of Scope
 
@@ -37,6 +41,11 @@ chose and own, knowing exactly what it must contain.
 - apkit finding, importing, copying, or converting scattered Context and Skill
   files into a Workspace; the user or their agent moves material.
 - Recovering Project Bindings after Local Configuration is lost.
+- Updating a Temporary Profile Installation in place; it is a snapshot, and
+  getting changes means removing it and installing again.
+- More than one Profile in one Project's Temporary Profile Installation.
+- apkit writing Host trust or approval state.
+- Automatic worktree discovery, Git hooks, or watchers.
 
 ## Goal
 
@@ -46,6 +55,8 @@ and tie each released package to complete evidence for its supported environment
 Let a user start from nothing or from existing material and reach a valid,
 connected Workspace in a location they chose, against a published contract that
 validation enforces.
+Let an orchestrator give a disposable Project one Profile for every Host it
+needs with one owned operation, and remove all of it with one owned operation.
 
 ## Claims
 
@@ -296,6 +307,47 @@ validation enforces.
 - [ ] **ISC-49:** The CLI shows the Workspace contract on request.
   Probe: find the contract command from `apkit --help` and run it; output that
   differs from the canonical contract fails. bash
+- [ ] **ISC-50:** One command gives a Project a Temporary Profile Installation
+  of one Profile for several Hosts.
+  Probe: packed CLI `machine install-temp` with two or more Hosts into a linked
+  worktree; a selected Host without its outputs, or needing more than one
+  command, fails. bash
+- [ ] **ISC-51:** One command removes a Temporary Profile Installation for all
+  of its Hosts.
+  Probe: one `machine remove-temp` after the ISC-50 install; any remaining Host
+  output fails. bash
+- [ ] **ISC-52:** Every supported Host can receive a Temporary Profile
+  Installation.
+  Probe: packed CLI `install-temp` for each Host in the Host catalog with
+  controlled version probes; any rejected supported Host fails. bash
+- [ ] **ISC-53:** **Anti:** Removing a Temporary Profile Installation never
+  leaves anything that its install added, including empty folders.
+  Probe: compare the Project tree, including empty folders, before install and
+  after removal, for each Host and for a several-Host combination; any
+  difference fails. bash
+- [ ] **ISC-54:** **Anti:** A Temporary Profile Installation in a linked
+  worktree never changes the main checkout's Profile Installation.
+  Probe: install and remove a Temporary Profile Installation in a linked
+  worktree of a main checkout that has an ordinary installation; any changed
+  main-checkout output or owned exclusion entry fails. bash
+- [ ] **ISC-55:** **Anti:** A Temporary Profile Installation never makes the
+  Project's `git status` dirty.
+  Probe: compare `git status --porcelain` before and after install for each
+  Host; any new entry fails. bash
+- [ ] **ISC-56:** **Anti:** No output of a Temporary Profile Installation points
+  outside its Project.
+  Probe: resolve every output path and symlink target after install for each
+  Host and for a several-Host installation; any path outside the Project fails.
+  bash
+- [ ] **ISC-57:** **Anti:** A Temporary Profile Installation stays removable
+  after its Project is deleted.
+  Probe: install for several Hosts, `git worktree remove --force`, then
+  `remove-temp`; a failed removal, or the installation still listed by
+  `machine list temporary`, fails. bash
+- [ ] **ISC-58:** Temporary Profile Installations started at the same time in
+  different Projects all succeed.
+  Probe: start four several-Host `install-temp` runs into separate worktrees at
+  once; any failed run or missing installation record fails. bash
 
 ## Not yet specified
 
@@ -350,3 +402,26 @@ validation enforces.
     learned the location only from the final receipt (O1).
   - Dead end: recovering Project Bindings after Local Configuration is lost. It
     needs a second home for that fact.
+- 2026-09-24 — refined: from #656, the principal extended the destination to
+  disposable worker worktrees: "An orchestrator can give one disposable worktree
+  the same Profile for every Host it needs with one owned operation, and remove
+  all of it with one owned operation. No hand copies." Accepted:
+  - Automation first, behind `apkit machine`. A person can run it too; the
+    existing ISC-7.1, ISC-7.2, ISC-8.1, and ISC-8.2 probes include the
+    temporary installation screens, so they get no separate claims.
+  - Every supported Host is in scope (ISC-52). Antigravity and Grok were
+    excluded only by the scope of #133 and #369; a spike on e012809 installed
+    and removed both.
+  - Removal leaves the Project as it was, including empty folders (ISC-53).
+    This changes current removal behaviour for every Host.
+  - Contradicts ADR-0015 and the `CONTEXT.md` Temporary Profile Installation
+    term ("one Host"); recorded in
+    [ADR-0052](docs/adr/0052-install-one-temporary-profile-for-several-hosts.md).
+  - Dead end: several single-Host Temporary Profile Installations in one
+    Project. Codex, OpenCode, and Pi share `.agents/skills` (ADR-0018), so two
+    receipts would own the same output.
+  - Dead end: a manual claim that observes a real orchestration run. Output
+    probes are the proof; ISC-10 is unchanged.
+  - The ISC-56, ISC-57, and ISC-58 probes already passed for single-Host Claude
+    installs on a8a1f60, so those claims were sharpened to several-Host
+    installations, which is the destination.
