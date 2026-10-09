@@ -1,12 +1,14 @@
 import {
-  defaultFileSystem,
-  DEFAULT_LOCK_TIMEOUT_MS,
   normalizeHostSelection,
   publishBindingUnderLock,
-  withConfigurationLock,
   type BindProjectFileSystem,
   type BindProjectResult,
 } from "../../installer/bind-project.js";
+import {
+  defaultFileSystem,
+  DEFAULT_LOCK_TIMEOUT_MS,
+  withConfigurationLock,
+} from "../../installer/local-configuration-publication.js";
 import { localConfigurationPath, normalizeProject } from "../../installer/local-configuration.js";
 
 export interface PublishBindingOptions {

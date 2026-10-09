@@ -17,7 +17,6 @@ import {
   type LocalConfigurationFileSystem,
   withConfigurationLock,
 } from "./local-configuration-publication.js";
-import { COMMAND_NAME } from "./version.js";
 import { requireProfile } from "./profile-selection.js";
 import { InstallerToolError } from "./tool-errors.js";
 
@@ -92,10 +91,7 @@ export type BindProjectResult =
       readonly previousHosts: readonly SupportedHost[];
     });
 
-/**
- * Append one Project Binding to Local Configuration without reconciling output.
- * Local Configuration remains the sole canonical home; this is a validated edit.
- */
+/** The Project Binding that `publishBindingUnderLock` writes into Local Configuration. */
 export interface PublishBindingUnderLockOptions {
   readonly home: string;
   readonly profile: string;
@@ -182,8 +178,6 @@ export async function publishBindingUnderLock(
         hosts: binding.hosts,
       };
     }
-    // The application model preserves Local Configuration's binding order 1:1,
-    // so the semantic match's position is also the YAML sequence index.
     const document = parseDocument(source);
     const bindingsNode = document.get("bindings");
     if (!isSeq(bindingsNode)) {
