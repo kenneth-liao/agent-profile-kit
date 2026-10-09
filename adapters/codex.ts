@@ -3,9 +3,11 @@ import { join, resolve } from "node:path";
 import type { Skill } from "../schemas/skill.js";
 import type { CompleteHostAdapter } from "./adapter-contract.js";
 export { CODEX_ADAPTER_VERSION } from "./host-catalog.js";
+import { hostDisplayName } from "./host-catalog.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
@@ -197,18 +199,11 @@ async function resolveCodexCliVersion(
     return parseCodexCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "codex",
-        "host",
+        { program: "codex", args: [{ kind: "text", value: "--version" }] },
         "Codex CLI was not found on PATH",
         "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
-        [],
-        undefined,
-        [
-          "install Codex and ensure ",
-          commandPart("codex", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating Profiles that require Codex Host capabilities",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -226,7 +221,15 @@ async function resolveCodexCliVersion(
       "codex",
       "host",
       `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)})`,
-      "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
+      `install a supported ${hostDisplayName("codex")} release before checking status or updating Profiles that require ${hostDisplayName("codex")} agent capabilities`,
+      [],
+      [
+        `Codex CLI version could not be detected (${error instanceof Error ? error.message : String(error)}); ` +
+          "install a supported Codex release before checking status or updating Profiles that require Codex Host capabilities",
+      ],
+      [
+        `install a supported ${hostDisplayName("codex")} release before checking status or updating Profiles that require ${hostDisplayName("codex")} agent capabilities`,
+      ],
     );
   }
 }
@@ -424,6 +427,7 @@ function contextSetupSteps(): readonly AdapterHostSetupStep[] {
       consequence: "Declining the hook prevents Profile Context from loading.",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       // Newly relevant only when this apply adds or changes the hooks output.
       output: CODEX_HOOKS_OUTPUT_PATH,
       provenance: "transition",
@@ -432,6 +436,7 @@ function contextSetupSteps(): readonly AdapterHostSetupStep[] {
       consequence: "Profile Context does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Codex.",
+      humanAction: "trust this project",
       provenance: "standing",
     },
   ];

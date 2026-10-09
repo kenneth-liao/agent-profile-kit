@@ -19,6 +19,7 @@ import { COMMANDS } from "./command-help.js";
 import { errorDiagnosticDocument, formatError } from "./error-wording.js";
 import {
   formatDetailsJson,
+  localTimeZone,
   operationHistoryEmptyDocument,
   operationHistoryEntryDocument,
   operationHistoryListDocument,
@@ -53,6 +54,8 @@ export interface DetailsCommandRequest {
   readonly fileSystem?: Partial<OperationHistoryFileSystem>;
   /** Injectable wall clock for compact history-list time (US-008). */
   readonly now?: number;
+  /** Injectable time zone for one run's local human time (US-008). */
+  readonly timeZone?: string;
 }
 
 export interface DetailsCommandOutcome {
@@ -259,5 +262,13 @@ export async function runDetailsCommand(
     }));
     return { exitCode: 0 };
   }
-  return { exitCode: await writeDetailsDocument(request, operationHistoryEntryDocument(selected)) };
+  return {
+    exitCode: await writeDetailsDocument(
+      request,
+      operationHistoryEntryDocument(selected, {
+        nowMs: request.now ?? Date.now(),
+        timeZone: request.timeZone ?? localTimeZone(),
+      }),
+    ),
+  };
 }

@@ -22,6 +22,7 @@ import type { WorkspaceFolderValidation } from "../installer/commands.js";
 import type { InfoWorkspaceLocation } from "../installer/info.js";
 import type { RowNode } from "./presentation-document.js";
 import {
+  plainSystemCause,
   workspaceContractRecovery,
   workspaceViolationBulletParts,
   workspaceViolationMessage,
@@ -41,6 +42,7 @@ export {
   formatProjectTargetErrorForHuman,
 } from "./error-wording.js";
 import {
+  commandNode,
   commandPart,
   flatInlineText,
   footerNodes,
@@ -57,6 +59,7 @@ import {
   type CommandArg,
   type CommandNode,
   type InlineContent,
+  type InlineItemElement,
   type NoticeSeverity,
   type PartNode,
   type PresentationDocument,
@@ -66,7 +69,6 @@ import {
 /** One carried command argument. */
 const arg = (value: string): CommandArg => ({ kind: "text", value });
 import {
-  PROJECT_EXPLANATION_SENTENCE,
   WORKSPACE_EXPLANATION_SENTENCE,
 } from "./concept-explanations.js";
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
@@ -156,10 +158,6 @@ import {
   type BlockerScope,
   type StructuredReconciliationBlocker,
 } from "../installer/blockers.js";
-import {
-  REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX,
-  REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX,
-} from "../installer/git-exclusions.js";
 import { COMMAND_NAME, ENGINE_VERSION } from "../installer/version.js";
 import type { MissingProfileError } from "../installer/profile-selection.js";
 import type { ValidationResult } from "../installer/commands.js";
@@ -533,7 +531,7 @@ function statusScopeRows(
         ),
       },
       {
-        column: "Primary Cause",
+        column: "Status",
         content: { kind: "identifier" as const, value: primaryCauseLabel(project) },
       },
     ],
@@ -936,23 +934,14 @@ function inventoryTopicNodes(
 }
 
 
+/** The one reader for an inventory row's state word (review screen 15):
+ * a healthy Project reads `ok`; a Project with a problem still reads
+ * `problem`. */
 function projectInventoryStateNode(problem: InstallerToolErrorFact | null): PresentationNode {
   if (problem === null) {
-    return { kind: "identifier", value: "configured" };
+    return { kind: "identifier", value: "ok" };
   }
   return { kind: "identifier", value: "problem", category: "warning" };
-}
-
-function projectInventorySummary(projects: readonly ProjectInventoryRecord[]): string {
-  const problemCount = projects.filter((project) => project.problem !== null).length;
-  if (problemCount === 0) {
-    return `${plural(projects.length, "Project")} configured.`;
-  }
-  const configuredCount = projects.length - problemCount;
-  if (configuredCount === 0) {
-    return `${plural(projects.length, "Project")}: ${plural(problemCount, "problem")}.`;
-  }
-  return `${plural(projects.length, "Project")}: ${configuredCount} configured, ${plural(problemCount, "problem")}.`;
 }
 
 /** The Project inventory listing as a presentation document. */
@@ -968,14 +957,20 @@ export function projectInventoryDocument(
         severity: "success",
         nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
       },
-      {
-        kind: "prose",
-        parts: [
-          "Use ",
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
-          " to install a Project.",
-        ],
-      },
+      // The next step is `<command> (<note>)` through the one noted-command
+      // home (US-001, review rule 6, spec #693), never a prose sentence.
+      footerNodes({
+        next: {
+          kind: "command",
+          value: notedCommand(
+            commandNode(COMMAND_NAME, [{
+              kind: "text",
+              value: "install <profile> --agent <agent>",
+            }]),
+            "install a Project",
+          ),
+        },
+      }),
     ];
   }
 
@@ -985,8 +980,9 @@ export function projectInventoryDocument(
   });
   const identities = projectIdentityLookup(projects.map(location), cwd, home);
   const nodes: PresentationNode[] = [
-    // The count lives once, in the summary below (US-013).
-    { kind: "heading", text: "Projects:" },
+    // The count lives in the heading; the next step is the footer (US-013,
+    // review screen 15).
+    { kind: "heading", text: `Your Projects (${projects.length})` },
     spacerNode(),
   ];
   for (const project of projects) {
@@ -1011,13 +1007,12 @@ export function projectInventoryDocument(
           content: { kind: "identifier", value: project.hosts.join(", ") },
         },
         {
-          column: "State",
+          column: "Status",
           content: projectInventoryStateNode(project.problem),
         },
       ],
     });
   }
-  nodes.push(spacerNode());
   // A configuration problem renders its complete typed sentence and repair
   // locator once, after the rows, under the same identity the row carries.
   const problems: readonly (readonly InlineContent[])[] = projects
@@ -1027,21 +1022,16 @@ export function projectInventoryDocument(
       ": ",
       ...formatInstallerToolError(project.problem!),
     ]);
-  if (problems.length > 0) nodes.push(list(problems, "warning"));
-  nodes.push(
-    {
-      kind: "prose",
-      parts: [projectInventorySummary(projects)],
+  if (problems.length > 0) nodes.push(spacerNode(), list(problems, "warning"));
+  nodes.push(footerNodes({
+    next: {
+      kind: "command",
+      value: notedCommand(
+        commandNode(COMMAND_NAME, [arg("status")]),
+        "check whether they're up to date",
+      ),
     },
-    {
-      kind: "prose",
-      parts: [
-        "Use ",
-        commandPart(COMMAND_NAME, [arg("status")]),
-        " to inspect Project lifecycle diagnostics.",
-      ],
-    },
-  );
+  }));
   return nodes;
 }
 
@@ -1317,31 +1307,29 @@ export function hostInventoryDocument(
   hosts: readonly HostInventoryRecord[],
   detected: readonly SupportedHost[],
 ): PresentationDocument {
+  // The status sits beside its agent on the same line (review screen 22),
+  // aligned over the typed agent ids; agent ids stay as typed (US-002).
+  const width = Math.max(0, ...hosts.map(({ host }) => host.length));
   return [
+    part({ kind: "heading", text: "Supported agents" }),
     part(
-      { kind: "heading", text: "Supported agents:" },
       ...hosts.map(({ host }) => ({
         kind: "prose" as const,
         parts: [
           "  ",
           identifierPart(host),
+          textPart(" ".repeat(width - host.length + 2)),
           detected.includes(host)
-            ? ` — ${HOST_DETECTION_LABELS.detected}`
-            : ` — ${HOST_DETECTION_LABELS.notFound}`,
+            ? HOST_DETECTION_LABELS.detected
+            : HOST_DETECTION_LABELS.notFound,
         ],
       })),
     ),
     spacerNode(),
     {
       kind: "prose",
-      parts: [`"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`],
-    },
-    {
-      kind: "prose",
       parts: [
-        "Every agent stays selectable with ",
-        commandPart(COMMAND_NAME, [arg("install")]),
-        ".",
+        `"${HOST_DETECTION_LABELS.notFound}" means apkit couldn't find it on this machine. You can still pick it when you install.`,
       ],
     },
   ];
@@ -1510,15 +1498,6 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled output kind: ${String(value)}`);
 }
 
-/** The one home for the validation count clause: document and protector share it. */
-function validationCountClause(result: ValidationResult): string {
-  return `(${plural(result.profiles.length, "Profile")}, ${plural(
-    result.bindings,
-    DEFAULT_VIEW_LEXICON.projectBinding.singular,
-    DEFAULT_VIEW_LEXICON.projectBinding.plural,
-  )})`;
-}
-
 /**
  * The one row that names the checked Workspace (#629): both `validate` forms
  * state what they checked through the same key and path presentation.
@@ -1536,57 +1515,62 @@ function checkedWorkspaceRow(canonical: string, authored: string): PresentationN
   };
 }
 
-/** The validation result view as a presentation document. */
-export function validationResultDocument(result: ValidationResult): PresentationDocument {
-  const profileCount = result.profiles.length;
-  const countClause = validationCountClause(result);
+/** One labelled fact row for the validation screen. */
+function validationRow(key: string, value: string): PresentationNode {
+  return {
+    kind: "key-value",
+    key,
+    value: { kind: "prose", parts: [value] },
+  };
+}
+
+/** The validation result view as a presentation document (review screen 07).
+ * The settings path stays on this screen (#676): one remaining hand edit of
+ * the Local Configuration file needs it, so it renders as a plain labelled
+ * row. */
+export function validationResultDocument(
+  result: ValidationResult,
+  settingsPath: string,
+): PresentationDocument {
   return [part(
     // Severity is the validation outcome fact: the view only renders valid results.
     {
       kind: "notice",
       severity: "success",
-      nodes: [{
-        kind: "prose",
-        parts: [
-          `Workspace and ${DEFAULT_VIEW_LEXICON.localConfiguration} valid `,
-          identifierPart(countClause),
-        ],
-      }],
+      nodes: [{ kind: "prose", parts: ["Your Workspace looks good"] }],
     },
     // Warnings stay directly beside the outcome notice (DEC-011); the checked
     // Workspace follows them as the first fact row.
     ...(result.warnings.length === 0
       ? []
       : [list(result.warnings.map((warning): readonly InlineContent[] => [warning]), "warning")]),
-    checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
-    {
-      kind: "key-value",
-      key: "Profiles found",
-      value: {
-        kind: "prose",
-        parts: [profileCount === 0 ? "none" : result.profiles.join(", ")],
-      },
-    },
-    {
-      kind: "key-value",
-      key: "Agents bound",
-      value: {
-        kind: "prose",
-        parts: [result.hosts.length === 0 ? "none" : result.hosts.join(", ")],
-      },
-    },
   ),
+    part(
+      checkedWorkspaceRow(result.workspace.canonical, result.workspace.authored),
+      {
+        kind: "key-value",
+        key: "Settings",
+        value: {
+          kind: "path",
+          canonicalPath: settingsPath,
+          authoredPath: settingsPath,
+          scope: "fleet",
+        },
+      },
+      validationRow("Profiles", result.profiles.length === 0 ? "none" : result.profiles.join(", ")),
+      validationRow("Projects", String(result.bindings)),
+      validationRow("Agents in use", result.hosts.length === 0 ? "none" : result.hosts.join(", ")),
+    ),
     footerNodes({
       next: {
         kind: "command",
-        value: {
-          kind: "command",
-          program: COMMAND_NAME,
-          args: [{
+        value: notedCommand(
+          commandNode(COMMAND_NAME, [{
             kind: "text",
             value: result.bindings === 0 ? "install <profile> --agent <agent>" : "status",
-          }],
-        },
+          }]),
+          result.bindings === 0 ? "install a Profile into a Project" : "check your Projects",
+        ),
       },
     })];
 }
@@ -1917,6 +1901,13 @@ export function uninstallReceiptDocument(
  * failure stopped further work. Completed Projects stay completed, the
  * failed Project carries its restoration evidence, unattempted Projects
  * remain untouched, and the retry preserves the original scope. */
+/**
+ * The partial-run recovery screen (US-007, OOS-004, review screen 28): what
+ * happened to the failed Project, then every recovery group — done, put back
+ * (or couldn't put back), and not touched — then the same command to retry.
+ * No Project and no recovery fact is dropped. `writeLifecycleReport` adds the
+ * details route after a failure or partial run (DEC-007).
+ */
 export function uninstallExecutionFailureDocument(input: {
   readonly failed: UninstallFailedProject;
   readonly completed: readonly UninstallCompletedProject[];
@@ -1924,27 +1915,55 @@ export function uninstallExecutionFailureDocument(input: {
   readonly retryArguments: readonly CommandArg[];
 }): PresentationDocument {
   const { failed, completed, unattempted, retryArguments } = input;
-  const restoration = failed.restoreError !== undefined
-    ? `Previous selection/output restore failed: ${failed.restoreError}`
-    : failed.selectionRestored
-      ? "The previous selection and output were restored where possible."
-      : "The previous selection could not be restored.";
-  return diagnosticDocument({
-    happened: [`uninstall stopped at ${failed.project}: ${failed.detail}`],
-    why: [[
-      completed.length === 0
-        ? "No Project was completed before the failure."
-        : `Completed Projects stay completed: ${completed.map((entry) => entry.project).join(", ")}.`,
-      ` ${restoration}`,
-      unattempted.length === 0
-        ? ""
-        : ` Unattempted Projects remain untouched: ${unattempted.map((entry) => entry.project).join(", ")}.`,
-    ]],
-    whatToType: [[
-      "After resolving the cause, retry the same scope with ",
-      commandPart(COMMAND_NAME, retryArguments),
-    ]],
-  });
+  // Every Project on this screen names itself through the shared display-path
+  // rule (US-008, screen 28, spec #693) — home-relative where it applies, the
+  // same reader `apkit details` uses — never its raw authored path.
+  const projectDisplay = (
+    entry: { readonly canonicalProject?: string; readonly project: string },
+  ): InlineContent => pathPart(entry.canonicalProject ?? entry.project, "fleet", entry.project);
+  const names = (items: readonly InlineContent[]): readonly InlineContent[] =>
+    items.flatMap((item, index) => (index === 0 ? [item] : [", ", item]));
+  const putBack: readonly InlineContent[] = failed.selectionRestored
+    ? ["Put back as it was, where possible: ", projectDisplay(failed)]
+    : [
+        "Couldn't put back: ",
+        projectDisplay(failed),
+        ...(failed.restoreError === undefined ? [] : [` (${failed.restoreError})`]),
+      ];
+  const recovery: (readonly InlineItemElement[])[] = [];
+  if (completed.length > 0) {
+    recovery.push(["Done: ", ...names(completed.map(projectDisplay))]);
+  }
+  recovery.push(putBack);
+  if (unattempted.length > 0) {
+    recovery.push(["Not touched: ", ...names(unattempted.map(projectDisplay))]);
+  }
+  return [
+    part({
+      kind: "notice",
+      severity: "error",
+      nodes: [{ kind: "sentence", parts: ["Uninstall stopped partway."] }],
+    }),
+    part({
+      kind: "prose",
+      // The plain cause in words (US-007, screen 28): never the raw foreign
+      // message with its syscall and internal path. The raw detail stays in
+      // `apkit details` and JSON (DEC-004, OOS-004).
+      parts: [
+        "Couldn't write to ",
+        projectDisplay(failed),
+        ` (${applyNewcomerSubstitutions(plainSystemCause(failed.errorCode, failed.detail))})`,
+      ],
+    }),
+    part(list(recovery)),
+    part({
+      kind: "prose",
+      parts: [
+        "Fix the cause, then run the same command again: ",
+        commandPart(COMMAND_NAME, retryArguments),
+      ],
+    }),
+  ];
 }
 
 /** The scope-changed diagnostic (INT-2): the selection moved between
@@ -2011,8 +2030,13 @@ export function uninstallInteractiveCommandsDocument(input: {
   readonly commands: readonly (readonly CommandArg[])[];
   readonly severity?: NoticeSeverity;
 }): PresentationDocument {
+  // The interactive stop paths carry installer `detail` and `formatError`
+  // prose through `happened`; route them through the same newcomer
+  // substitution as the non-interactive recovery screen (#700, INT-2) so a
+  // surviving-Host detail never leaks `Host`. `why` stays as authored: it
+  // names raw recovery facts (project paths) that OOS-004 keeps unchanged.
   return diagnosticDocument({
-    happened: [...input.happened],
+    happened: input.happened.map(applyNewcomerSubstitutions),
     ...(input.why === undefined ? {} : { why: [...input.why] }),
     whatToType: [
       [input.intro],
@@ -2077,6 +2101,32 @@ export function formatUninstallToolErrorJson(
   });
 }
 
+/**
+ * The machine projection of one failed removal (DEC-004): the recorded
+ * evidence fields only, in their recorded order. The human-screen cause fact
+ * is presentation-facing and never enters the payload, so JSON stays
+ * byte-identical for the same failure.
+ */
+function machineUninstallFailedProject(failed: UninstallFailedProject): {
+  readonly canonicalProject?: string;
+  readonly project: string;
+  readonly profile: string;
+  readonly detail: string;
+  readonly selectionRestored: boolean;
+  readonly restoreError?: string;
+  readonly concurrentSelectionChange: boolean;
+} {
+  return {
+    ...(failed.canonicalProject === undefined ? {} : { canonicalProject: failed.canonicalProject }),
+    project: failed.project,
+    profile: failed.profile,
+    detail: failed.detail,
+    selectionRestored: failed.selectionRestored,
+    ...(failed.restoreError === undefined ? {} : { restoreError: failed.restoreError }),
+    concurrentSelectionChange: failed.concurrentSelectionChange,
+  };
+}
+
 /** The machine payload for one uninstall outcome: the same envelope as
  * every other lifecycle payload, carrying the completed/skipped/failed
  * evidence the human receipt carries, without rendered prose. Skipped
@@ -2094,7 +2144,7 @@ export function formatUninstallJson(result: UninstallApplicationResult): string 
     ...(result.failed === undefined ? {} : { error: result.failed.detail }),
     completed: result.completed,
     skipped: result.skipped,
-    ...(result.failed === undefined ? {} : { failed: result.failed }),
+    ...(result.failed === undefined ? {} : { failed: machineUninstallFailedProject(result.failed) }),
     unattempted: result.unattempted,
     warnings: result.warnings,
   });
@@ -2607,8 +2657,8 @@ export function settledStatusOutcomeLine(
   if (selection?.filter !== undefined) {
     return `Selected Projects are up to date (${plural(currentProjects, "Project")})`;
   }
-  const projects = capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural);
-  return `All ${projects} are up to date (${plural(currentProjects, capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.singular))})`;
+  const projects = plural(currentProjects, "Project");
+  return `Everything is up to date (${projects})`;
 }
 
 function outcomeLine(
@@ -2638,6 +2688,19 @@ function outcomeLine(
   return `No ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} are configured`;
 }
 
+/** Whether the clean changed-update headline already carries the committed
+ * receipt's impact (screen 17), so the body does not repeat it: decided by
+ * {@link isCleanChangedUpdate} over the report's facts, with the receipt
+ * proving committed work. */
+function updateHeadlineCarriesReceipt(
+  report: ReconciliationReport,
+  receipt: ReconciliationReport | undefined,
+): boolean {
+  return receipt !== undefined &&
+    isCleanChangedUpdate(report) &&
+    committedReceiptCounts(receipt) !== undefined;
+}
+
 function aggregateLine(
   command: LifecycleCommand,
   report: ReconciliationReport,
@@ -2663,6 +2726,8 @@ export interface WarningPresentationGroup {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
   readonly kind: ReconciliationWarning["kind"];
+  /** The typed cause class (US-007), when the warning declares one. */
+  readonly reason?: "missing-executable" | "version-floor";
   readonly parts: readonly InlineContent[];
   readonly problem?: readonly InlineContent[];
   readonly remedy?: readonly InlineContent[];
@@ -2671,6 +2736,19 @@ export interface WarningPresentationGroup {
     readonly canonicalProject: string;
     readonly project: string;
   }[];
+}
+
+/**
+ * Whether one recorded warning leaves the user with a warning (US-008,
+ * DEC-007, spec #693): a Repository Exclusion bookkeeping notice carries the
+ * typed `exclusionBookkeeping` fact from where it is created (`installer/
+ * git-exclusions.ts`), and the run's exclusion clause and machine JSON carry
+ * its condition — never an on-screen warning. One reader shared by warning
+ * grouping and the details-route fact, so the route follows the facts the
+ * screen shows and never rendered copy.
+ */
+export function warningLeavesUserEvidence(warning: ReconciliationWarning): boolean {
+  return warning.exclusionBookkeeping !== true;
 }
 
 function warningGroupKey(warning: ReconciliationWarning): string {
@@ -2738,6 +2816,7 @@ function groupWarnings(
     consequence?: string;
     copyableValues: readonly string[];
     kind: ReconciliationWarning["kind"];
+    reason?: "missing-executable" | "version-floor";
     parts: readonly InlineContent[];
     problem?: readonly InlineContent[];
     remedy?: readonly InlineContent[];
@@ -2748,11 +2827,7 @@ function groupWarnings(
   for (const report of reportList) {
     for (const projectRecord of report.projects) {
       for (const warning of projectRecord.warnings) {
-        const message = flatInlineText(warning.parts);
-        if (
-          message.endsWith(REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX) ||
-          message.endsWith(REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX)
-        ) {
+        if (!warningLeavesUserEvidence(warning)) {
           continue;
         }
         const key = warningGroupKey(warning);
@@ -2763,6 +2838,7 @@ function groupWarnings(
             ...(warning.consequence === undefined ? {} : { consequence: warning.consequence }),
             copyableValues: [...warning.copyableValues],
             kind: warning.kind,
+            ...(warning.reason === undefined ? {} : { reason: warning.reason }),
             parts: warning.parts,
             ...(warning.problem === undefined ? {} : { problem: warning.problem }),
             ...(warning.remedy === undefined ? {} : { remedy: warning.remedy }),
@@ -2793,6 +2869,7 @@ function groupWarnings(
       ...(group.consequence === undefined ? {} : { consequence: group.consequence }),
       copyableValues: group.copyableValues,
       kind: group.kind,
+      ...(group.reason === undefined ? {} : { reason: group.reason }),
       parts: group.parts,
       ...(group.problem === undefined ? {} : { problem: group.problem }),
       ...(group.remedy === undefined ? {} : { remedy: group.remedy }),
@@ -2850,7 +2927,7 @@ function isFirstRelevantHostOutput(
 
 /** A Host Setup Step selected for one surface, with its Project identities. */
 interface PresentedSetupStep extends ProjectIdentity {
-  readonly message: string;
+  readonly humanAction: string;
   readonly step: HostSetupStep;
 }
 
@@ -2861,7 +2938,9 @@ interface PresentedSetupStep extends ProjectIdentity {
  * guidance appear only when the Apply Receipt adds a relevant output consumed by
  * that Project/Host pairing (#292 DEC-016). Concise `status` renders none (DEC-008,
  * #292 DEC-015); shared-path steps remain verbose (#292 DEC-020); verbose and JSON
- * retain every step as complete evidence.
+ * retain every step as complete evidence. Human surfaces render the step's
+ * authored `humanAction` (spec #672 US-001/US-005); machine `message` stays
+ * JSON-only (DEC-004).
  */
 function presentedSetupSteps(
   command: LifecycleCommand,
@@ -2890,13 +2969,14 @@ function presentedSetupSteps(
           if (!isFirstRelevantHostOutput(changeProject, project, step.host)) continue;
         }
       }
-      const message = setupStepMessage(
+      const humanAction = attachBoundProject(
+        step.humanAction,
         step,
         displayProjectPath(project.canonicalProject, project.project, "fleet"),
       );
       steps.push({
         canonicalProject: project.canonicalProject,
-        message,
+        humanAction,
         project: project.project,
         step,
       });
@@ -2907,7 +2987,7 @@ function presentedSetupSteps(
 
 /** One deduplicated setup step group with its deterministic Project scope. */
 interface SetupStepGroup {
-  readonly message: string;
+  readonly humanAction: string;
   projects: ProjectIdentity[];
   readonly step: HostSetupStep;
 }
@@ -2917,13 +2997,13 @@ function setupStepOutput(step: HostSetupStep): string | undefined {
   return step.provenance === "transition" ? step.output : undefined;
 }
 
-function setupStepGroupKey(step: HostSetupStep, message: string): string {
+function setupStepGroupKey(step: HostSetupStep, humanAction: string): string {
   return [
     step.host,
     step.kind,
     step.provenance,
     setupStepOutput(step) ?? "",
-    message,
+    humanAction,
     step.consequence ?? "",
   ].join("\u0000");
 }
@@ -2936,8 +3016,8 @@ function groupSetupSteps(
   steps: readonly PresentedSetupStep[],
 ): readonly SetupStepGroup[] {
   const byKey = new Map<string, SetupStepGroup>();
-  for (const { message, step, canonicalProject, project } of steps) {
-    const key = setupStepGroupKey(step, message);
+  for (const { humanAction, step, canonicalProject, project } of steps) {
+    const key = setupStepGroupKey(step, humanAction);
     const existing = byKey.get(key);
     if (existing) {
       if (!existing.projects.some((candidate) =>
@@ -2946,7 +3026,7 @@ function groupSetupSteps(
         existing.projects.push({ canonicalProject, project });
       }
     } else {
-      byKey.set(key, { message, projects: [{ canonicalProject, project }], step });
+      byKey.set(key, { humanAction, projects: [{ canonicalProject, project }], step });
     }
   }
   return [...byKey.values()]
@@ -2960,7 +3040,7 @@ function groupSetupSteps(
       left.step.host.localeCompare(right.step.host) ||
       HOST_SETUP_STEP_ORDER.indexOf(left.step.kind) -
         HOST_SETUP_STEP_ORDER.indexOf(right.step.kind) ||
-      left.message.localeCompare(right.message),
+      left.humanAction.localeCompare(right.humanAction),
     );
 }
 
@@ -2985,7 +3065,11 @@ function setupStepLines(
   verbose: boolean,
   scope: LocationDisplayScope,
 ): readonly string[] {
-  const lines = [`- ${group.message}${setupProjectScope(group.projects, verbose, scope)}`];
+  // The agent name prefixes each human line (spec #672 US-001/US-005): one
+  // line per step group, plain words, the display name once. Consequence
+  // labels stay as structured verbose evidence; machine JSON keeps the
+  // consequence field (DEC-004).
+  const lines = [`- ${hostDisplayName(group.step.host)}: ${group.humanAction}.${setupProjectScope(group.projects, verbose, scope)}`];
   if (group.step.consequence !== undefined) {
     lines.push(`  Consequence: ${group.step.consequence}`);
   }
@@ -3002,26 +3086,33 @@ const STANDARD_LOAD_CONSEQUENCES: ReadonlySet<string> = new Set([
 
 function conciseFirstUseAction(
   step: HostSetupStep,
+  humanAction: string,
   projects: readonly string[],
   isSubset: boolean,
 ): string {
-  const base = step.message
+  const base = `${hostDisplayName(step.host)}: ${humanAction
     .replace(/:\s*$/, "")
-    .replace(/[.:]+$/, "");
+    .replace(/[.:]+$/, "")}`;
   const subsetClause = isSubset
     ? ` for ${plural(projects.length, "project")} (use --verbose to see all Projects)`
     : "";
+  // The human action states what to do and why in plain words; a non-standard
+  // consequence never reappears as a parenthetical (its fact stays in verbose
+  // labels and machine JSON), while the shared load reason lives in the
+  // standard suffix.
   const reason = step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
     ? "so the Profile can load."
-    : `(${step.consequence.replace(/[.:]+$/, "")}).`;
-  return `${base}${subsetClause} ${reason}`;
+    : "";
+  return reason === ""
+    ? `${base}${subsetClause}.`
+    : `${base}${subsetClause} ${reason}`;
 }
 
 /** One deduplicated concise first-use group with its affected Projects. */
 interface ConciseFirstUseGroup {
   readonly host: HostSetupStep["host"];
+  readonly humanAction: string;
   readonly kind: HostSetupStepKind;
-  readonly message: string;
   readonly projects: readonly string[];
   readonly step: HostSetupStep;
 }
@@ -3032,21 +3123,21 @@ function conciseFirstUseGroups(
 ): readonly ConciseFirstUseGroup[] {
   const byKey = new Map<string, {
     host: HostSetupStep["host"];
+    humanAction: string;
     kind: HostSetupStepKind;
-    message: string;
     projects: string[];
     step: HostSetupStep;
   }>();
   for (const { step, canonicalProject } of presented) {
-    const key = `${step.host}\0${step.kind}\0${step.message}`;
+    const key = `${step.host}\0${step.kind}\0${step.humanAction}`;
     const existing = byKey.get(key);
     if (existing) {
       existing.projects.push(canonicalProject);
     } else {
       byKey.set(key, {
         host: step.host,
+        humanAction: step.humanAction,
         kind: step.kind,
-        message: step.message,
         projects: [canonicalProject],
         step,
       });
@@ -3061,7 +3152,7 @@ function conciseFirstUseGroups(
       left.host.localeCompare(right.host) ||
       HOST_SETUP_STEP_ORDER.indexOf(left.kind) -
         HOST_SETUP_STEP_ORDER.indexOf(right.kind) ||
-      left.message.localeCompare(right.message),
+      left.humanAction.localeCompare(right.humanAction),
     );
 }
 
@@ -3077,7 +3168,7 @@ function conciseFirstUseActionLine(
     ).length;
     isSubset = group.projects.length < hostAdditionProjects;
   }
-  return conciseFirstUseAction(group.step, group.projects, isSubset);
+  return conciseFirstUseAction(group.step, group.humanAction, group.projects, isSubset);
 }
 
 function conciseFirstUseLines(
@@ -3192,7 +3283,7 @@ function readinessLines(
   receipt: ReconciliationReport,
 ): readonly string[] {
   if (appliedProfiles(report, receipt).length === 0) return [];
-  return ["Start a new agent session from the Project root to use the updated material."];
+  return ["Start a new agent session in a Project to use the changes."];
 }
 
 function nextActionScope(
@@ -3672,10 +3763,43 @@ function changedOutputExceptionNodes(
  * completed run's evidence is retained by `apkit details` — never by re-running
  * the command.
  */
+/** The committed Apply Receipt's affected-Project and changed-file counts:
+ * the one reader shared by the changed-update headline and the compact
+ * receipt line (US-011, DEC-007; ADR-0040). Undefined when the receipt proves
+ * no committed work. */
+function committedReceiptCounts(
+  receipt: ReconciliationReport,
+): { readonly projects: number; readonly files: number } | undefined {
+  const committed = receipt.projects.filter((project) => receiptProjectHasWork(project));
+  if (committed.length === 0) return undefined;
+  const files = committed.reduce(
+    (count, project) =>
+      count + project.outputs.filter((output) => isPlannedOutputOperation(output.kind)).length,
+    0,
+  );
+  return { projects: committed.length, files };
+}
+
+/** The one compact receipt statement, with the affected Project and
+ * changed-file counts stated once. */
+function committedReceiptSummaryLine(receipt: ReconciliationReport): string {
+  const counts = committedReceiptCounts(receipt)!;
+  return `Updated ${plural(counts.projects, "Project")} (${plural(counts.files, "file")}).`;
+}
+
+/** The one changed-update receipt headline (review screen 17): the committed
+ * impact is the headline. Undefined when the receipt proves no work. */
+function committedReceiptHeadline(receipt: ReconciliationReport): string | undefined {
+  const counts = committedReceiptCounts(receipt);
+  if (counts === undefined) return undefined;
+  return `Updated ${plural(counts.projects, "Project")} (${plural(counts.files, "file")})`;
+}
+
 function compactReceiptNodes(
   receipt: ReconciliationReport,
   scope: LocationDisplayScope,
   identities?: ProjectIdentityLookup,
+  includeSummaryLine = true,
 ): PresentationNode[] {
   const committed: readonly CommittedReceiptProject[] = receipt.projects
     .slice()
@@ -3689,15 +3813,10 @@ function compactReceiptNodes(
     }))
     .filter(({ project }) => receiptProjectHasWork(project));
   if (committed.length === 0) return [];
-  const fileCount = committed.reduce((count, entry) => count + entry.outputs.length, 0);
   return [
-    {
-      kind: "prose",
-      parts: [
-        `Updated ${plural(committed.length, "Project")} ` +
-        `(${plural(fileCount, DEFAULT_VIEW_LEXICON.generatedOutput.singular)}).`,
-      ],
-    },
+    ...(includeSummaryLine
+      ? [{ kind: "prose" as const, parts: [committedReceiptSummaryLine(receipt)] }]
+      : []),
     ...changedOutputExceptionNodes(committed, "replace", "Replaced changed generated files:", scope, identities),
     ...changedOutputExceptionNodes(committed, "remove", "Removed changed generated files:", scope, identities),
   ];
@@ -3733,15 +3852,36 @@ export function delimitedContext(context: string): string {
 }
 
 
-/** The apply outcome notice: severity derives from report facts, never copy. */
+/** Whether one completed update's resulting state is clean — no Blockers and
+ * no remaining non-current work — so the committed receipt's impact leads as
+ * the headline (review screen 17). One fact-based reader shared by the
+ * concise and verbose headlines: it decides from the report's typed facts
+ * only, never from rendered copy, so rewording the clean-update outcome line
+ * (#679 rewrites these screens' problem copy) cannot silently shift which
+ * headline renders. The receipt must additionally prove committed work
+ * ({@link committedReceiptCounts}). */
+function isCleanChangedUpdate(report: ReconciliationReport): boolean {
+  return reportBlockers(report).length === 0 &&
+    !reportItems(report).some((item) => item.kind !== "current");
+}
+
+/** The apply outcome notice: severity derives from report facts, never copy.
+ * A clean changed update leads with the committed receipt's impact as the
+ * headline (review screen 17) — intended for the verbose view too, which
+ * keeps its per-path sections beneath the same headline; every other outcome
+ * keeps its outcome line. */
 function applyOutcomeNotice(
   report: ReconciliationReport,
   applyCompleted: boolean,
+  receipt?: ReconciliationReport,
 ): PresentationNode {
+  const headline = applyCompleted && receipt !== undefined && isCleanChangedUpdate(report)
+    ? committedReceiptHeadline(receipt)
+    : undefined;
   return {
     kind: "notice",
     severity: reportBlockers(report).length > 0 ? "error" : "success",
-    nodes: [{ kind: "prose", parts: [outcomeLine("update", report, applyCompleted)] }],
+    nodes: [{ kind: "prose", parts: [headline ?? outcomeLine("update", report, applyCompleted)] }],
   };
 }
 
@@ -3839,34 +3979,35 @@ function firstDeliveryHosts(
 const START_FOLDER_GUIDANCE =
   "Start your agents from this Project folder, not a subfolder.";
 
-/** One per-agent setup line over Adapter-authored step text (spec #677 US-005,
- * D5): the agent name prefixes the messages its Adapter authored, joined as
- * one line. The rule is mechanical rendering — it never derives agent
- * requirements and never rewords Adapter text (CONTEXT.md, ADR-0012). The
- * standard load reason lives once in the section heading, so per-step
- * standard consequences are dropped here; non-standard consequences stay in
- * parentheses because they carry a fact the heading does not. */
+/** One per-agent human setup line over the steps' authored human renderings
+ * (spec #672 US-001/US-005 screens 04/26): the catalog displayName prefixes
+ * the joined human actions, one idea per clause and the name once. The rule is
+ * mechanical composition — it never derives agent requirements, never rewords
+ * machine `message` (DEC-004), and never appends a consequence parenthetical;
+ * each human action states what to do and why in plain words. */
 function perAgentSetupLine(host: SupportedHost, steps: readonly HostSetupStep[]): string {
-  const actions = steps.map((step) => {
-    const base = step.message.replace(/[:.]\s*$/, "");
-    const consequence =
-      step.consequence === undefined || STANDARD_LOAD_CONSEQUENCES.has(step.consequence)
-        ? undefined
-        : step.consequence.replace(/[.:]+$/, "");
-    return consequence === undefined ? base : `${base} (${consequence})`;
-  });
-  return `${hostDisplayName(host)}: ${actions.join("; ")}.`;
+  const actions = steps.map((step) => step.humanAction.replace(/[.:]+$/, ""));
+  return `${hostDisplayName(host)}: ${joinHumanActions(actions)}.`;
+}
+
+/** Plain clause joining for one agent's human actions (screens 04/26). */
+function joinHumanActions(actions: readonly string[]): string {
+  if (actions.length <= 1) return actions[0] ?? "";
+  const [last, ...leading] = [...actions].reverse();
+  const separator = actions.length === 2 ? ", and " : "; and ";
+  return `${leading.reverse().join("; ")}${separator}${last}`;
 }
 
 /**
  * The install receipt's required setup guidance (US-005, US-012, DEC-006,
- * DEC-009, spec #677 screens 04/26): the host-neutral start-folder line on
- * first delivery, then one line per agent whose Adapter-authored steps the
- * shared relevance policy selects. Agents with nothing to do are left out —
- * a Claude-only install shows no per-agent line. Routine updates do not
- * repeat the start-folder line. The CLI never invents agent-specific step
- * text (ADR-0012); shared-path explanations and complete provenance stay in
- * focused guidance and verbose/JSON evidence.
+ * DEC-009, spec #672 screens 04/26): the host-neutral start-folder line on
+ * first delivery, then one plain human line per agent whose steps the shared
+ * relevance policy selects (each step's authored `humanAction`, the display
+ * name once). Agents with nothing to do are left out — a Claude-only install
+ * shows no per-agent line. Routine updates do not repeat the start-folder
+ * line. The CLI never invents agent-specific step text (ADR-0012); machine
+ * `setupSteps` messages, shared-path explanations and complete provenance stay
+ * in verbose/JSON evidence and the machine namespace.
  */
 export function installSetupGuidanceNodes(
   report: ReconciliationReport,
@@ -3974,7 +4115,6 @@ function conciseApplyDocument(
   const blocked = reportBlockers(report).length > 0;
   const noOpApply = isNoOpApply("update", report, receipt);
 
-  const nodes: PresentationNode[] = [];
   const warnings = warningNodes(
     receipt ? [report, receipt] : report,
     groups,
@@ -3986,23 +4126,25 @@ function conciseApplyDocument(
     grouped.viewProjectCount === 1 ? "stable" : "identity",
   );
   if (noOpApply) {
-    // One neutral statement (US-003, US-010): a clean no-op invents no next
-    // action and omits the details hint; history retention is unchanged.
-    // Warnings still carry recovery evidence beside the statement.
+    // One neutral statement (US-003, US-010; review screen 05): a clean no-op
+    // invents no next action and omits the details hint; history retention is
+    // unchanged. Warnings still carry recovery evidence beside the statement.
     return [
-      ...neutralStatementDocument([
-        `All ${capitalize(DEFAULT_VIEW_LEXICON.profileInstallation.plural)} were already current.`,
-      ]),
+      ...neutralStatementDocument(["Everything is already up to date."]),
       ...warnings,
     ];
   }
-  nodes.push(part(
-    applyOutcomeNotice(report, receipt !== undefined),
-    ...warnings,
-  ));
+  const nodes: PresentationNode[] = [];
+  // The receipt's committed impact leads as the headline only when the
+  // resulting state is clean; attention and blocked views keep their outcome
+  // headline and state the compact receipt as a body line. Each warning is
+  // its own screen part beneath the headline (US-001, DEC-002, spec #693).
+  const headlineCarriesReceipt = updateHeadlineCarriesReceipt(report, receipt);
+  nodes.push(part(applyOutcomeNotice(report, receipt !== undefined, receipt)));
+  nodes.push(...warnings);
 
   if (!blocked && !noOpApply && receipt !== undefined) {
-    const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities);
+    const appliedNodes = compactReceiptNodes(receipt, scope, grouped.identities, !headlineCarriesReceipt);
     if (appliedNodes.length > 0) nodes.push(spacerNode(), ...appliedNodes);
   }
 
@@ -4130,7 +4272,7 @@ function verboseApplyDocument(
   const grouped = groupProjects(result.resultingState, result.receipt);
   const groups = grouped.groups;
   const nodes: PresentationNode[] = [
-    applyOutcomeNotice(result.resultingState, true),
+    applyOutcomeNotice(result.resultingState, true, result.receipt),
     ...verboseWarningNodes([result.resultingState, result.receipt], groups, scope, grouped.identities),
     { kind: "heading", text: "Pending:" },
     ...verboseLifecycleSections(result.resultingState, {
@@ -4288,8 +4430,8 @@ export function applyExecutionFailureDocument(
       nodes: [{
         kind: "prose",
         parts: [failedProject === undefined
-          ? `Update failed after committing Project work: ${failure.detail}`
-          : `Update failed at ${failedProject}: ${failure.detail}`],
+          ? `Update failed after committing Project work: ${applyNewcomerSubstitutions(failure.detail)}`
+          : `Update failed at ${failedProject}: ${applyNewcomerSubstitutions(failure.detail)}`],
       }],
     },
     ...warningItems,
@@ -4650,18 +4792,15 @@ export function installHostSelectionNoteDocument(): PresentationDocument {
  * Project target by its stable home-relative or absolute path before missing
  * choices are collected, so a bare interactive install shows which directory
  * it will act on — and states the existing selection when one is recorded, so
- * replacing it starts informed. The full proposed scope follows later in the
- * general-confirmation review. */
+ * replacing it starts informed. Screen 10 carries no concept explanation
+ * (spec #672 US-005): the Profile picker trusts a user who already made one.
+ * The full proposed scope follows later in the general-confirmation review. */
 export function installTargetDocument(target: {
   readonly canonicalProject: string;
   readonly authoredProject: string;
   readonly previous?: { readonly profile: string; readonly hosts: readonly string[] } | undefined;
 }): PresentationDocument {
   return [
-    {
-      kind: "prose",
-      parts: [PROJECT_EXPLANATION_SENTENCE],
-    },
     {
       kind: "sentence",
       parts: [
@@ -4931,8 +5070,8 @@ export function installExecutionFailureDocument(input: {
     : singleProjectIdentity(input.failedProject);
   return diagnosticDocument({
     happened: [failed === undefined
-      ? `install failed: ${input.detail}`
-      : `install failed at ${failed}: ${input.detail}`],
+      ? `install failed: ${applyNewcomerSubstitutions(input.detail)}`
+      : `install failed at ${failed}: ${applyNewcomerSubstitutions(input.detail)}`],
     why: installRecoverySentences(input.recovery).map((sentence): readonly InlineContent[] => [sentence]),
     whatToType: [[
       "To retry the same installation, run ",
@@ -5242,11 +5381,15 @@ function readyStatusGuidanceNodes(
   options: LifecycleHumanOptions,
 ): PartNode {
   // One footer block: the action list and its secondary details route
-  // (US-010). Healthy settled status never reaches this helper.
+  // (US-010). Healthy settled status never reaches this helper. The next step
+  // carries its note (US-001, review rule 6).
   return footerNodes({
     next: {
       kind: "command",
-      value: statusLifecycleCommand("update", report, options),
+      value: notedCommand(
+        statusLifecycleCommand("update", report, options),
+        "bring your Projects up to date",
+      ),
     },
     details: statusLifecycleCommand("status", report, options, [
       { kind: "text", value: "--verbose" },
@@ -5312,7 +5455,9 @@ function formatWarningGroupParts(
   return shortenInlineProjectReferences(group.parts, groups, scope, display);
 }
 
-/** How one warning names its affected Projects inside its view (DEC-006). */
+/**
+ * How one warning names its affected Projects inside its view (DEC-006).
+ */
 type WarningProjectNaming = "identity" | "stable";
 
 function warningProjectName(
@@ -5324,6 +5469,17 @@ function warningProjectName(
     return displayProjectPath(project.canonicalProject, project.project, "fleet");
   }
   return identities(project);
+}
+
+/**
+ * The shared affected-Project list rule (US-007, D6): every Project up to 10,
+ * then "… and N more" — and never hiding just one, so a list of 11 shows all
+ * 11 and only 12 elides two behind the marker.
+ */
+export function usedByNames(names: readonly string[]): string {
+  const limit = 10;
+  if (names.length <= limit + 1) return names.join(", ");
+  return `${names.slice(0, limit).join(", ")}, … and ${names.length - limit} more`;
 }
 
 /**
@@ -5346,11 +5502,13 @@ function warningProjectClause(
 }
 
 /**
- * One warning group as typed nodes (US-011): a ⚠ statement that names the
- * affected Projects, then its consequence, requirement, and remedy as
- * separate default-colored lines. Remedies stay Adapter-authored (DEC-009);
- * a structurally marked command inside a remedy stays an atomic command part
- * (#651), while a plain string is left unparsed.
+ * One warning group as typed nodes (US-007, US-011): a missing agent (typed
+ * `missing-executable`) reads as review screen 27 — the plain statement, every
+ * affected Project under `Used by:`, and the Adapter-authored fix. Every other
+ * warning keeps its ⚠ statement with the affected-Project clause and its
+ * consequence, requirement, and remedy lines. Remedies stay Adapter-authored
+ * (DEC-009); a structurally marked command inside a remedy stays an atomic
+ * command part (#651), while a plain string is left unparsed.
  */
 function warningGroupNodes(
   group: WarningPresentationGroup,
@@ -5364,6 +5522,25 @@ function warningGroupNodes(
   const statement = group.problem === undefined
     ? formatWarningGroupParts(group, groups, scope, display)
     : shortenInlineProjectReferences(group.problem, groups, scope, display);
+  if (group.reason === "missing-executable") {
+    const names = group.projects.map((project) =>
+      warningProjectName(project, identities, naming)
+    );
+    const nodes: PresentationNode[] = [
+      list([[...statement]], "warning"),
+      { kind: "prose", parts: ["  Used by: ", usedByNames(names)] },
+    ];
+    if (group.remedy !== undefined) {
+      nodes.push({
+        kind: "prose",
+        parts: [
+          "  Fix: ",
+          ...shortenInlineProjectReferences(group.remedy, groups, scope, display),
+        ],
+      });
+    }
+    return [part(...nodes)];
+  }
   const nodes: PresentationNode[] = [list([[
     ...statement,
     warningProjectClause(group.projects, identities, naming, verbose),
@@ -5624,7 +5801,7 @@ function verboseHostSetupNodes(
     const section: PresentationNode[] = [{ kind: "heading", text: heading }];
     for (const group of sectionGroups) {
       section.push(list([
-        [`${group.message}${setupProjectScope(group.projects, true, scope)}`],
+        [`${hostDisplayName(group.step.host)}: ${group.humanAction}.${setupProjectScope(group.projects, true, scope)}`],
       ]));
       if (group.step.consequence !== undefined) {
         section.push({ kind: "prose", parts: [`  Consequence: ${group.step.consequence}`] });
@@ -5657,42 +5834,50 @@ function conciseStatusDocument(
     // inventory guidance (DEC-006).
     if (options.selection.filter !== undefined) {
       return [
-        statusOutcomeNotice(report, options.selection, grouped.identities),
-        ...workspaceRow,
+        part(statusOutcomeNotice(report, options.selection, grouped.identities)),
+        ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
         ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
       ];
     }
     return [
-      part(
-        {
-          kind: "notice",
-          severity: "neutral",
-          nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
+      part({
+        kind: "notice",
+        severity: "neutral",
+        nodes: [{ kind: "prose", parts: ["No Projects are configured."] }],
+      }),
+      ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
+      // Each next step is `<command> (<note>)` through the one noted-command
+      // home (US-001, review rule 6, spec #693), never a prose sentence.
+      footerNodes({
+        next: {
+          kind: "actions",
+          items: [
+            [notedCommand(
+              commandNode(COMMAND_NAME, [arg("list"), arg("projects")]),
+              `inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}`,
+            )],
+            [notedCommand(
+              commandNode(COMMAND_NAME, [{
+                kind: "text",
+                value: "install <profile> --agent <agent>",
+              }]),
+              "install a Project",
+            )],
+          ],
         },
-        ...workspaceRow,
-      ),
-      {
-        kind: "prose",
-        category: "command",
-        parts: [
-          "Next: Run ",
-          commandPart(COMMAND_NAME, [arg("list"), arg("projects")]),
-          ` to inspect ${DEFAULT_VIEW_LEXICON.projectBinding.plural}, or `,
-          commandPart(COMMAND_NAME, [arg("install"), arg("<profile>"), arg("--agent"), arg("<agent>")]),
-          " to install one.",
-        ],
-      },
+      }),
       ...(brokenProfiles.length > 0 ? [spacerNode(), ...brokenProfiles] : []),
     ];
   }
 
-  // The outcome states what happened as one part: the notice keeps its
-  // warnings and the checked Workspace fact row (review screen 04).
-  const nodes: PresentationNode[] = [part(
-    statusOutcomeNotice(report, options.selection, grouped.identities),
+  // The outcome states what happened as one part; each warning is its own
+  // part beneath it (US-001, DEC-002, spec #693). The checked Workspace fact
+  // row is its own part, as on `validate` (review screens 06/16).
+  const nodes: PresentationNode[] = [
+    part(statusOutcomeNotice(report, options.selection, grouped.identities)),
     ...warningNodes(report, groups, scope, grouped.identities),
-    ...workspaceRow,
-  )];
+    ...(workspaceRow.length === 0 ? [] : [part(...workspaceRow)]),
+  ];
   if (report.projects.length > 0) {
     nodes.push(spacerNode(), ...statusScopeRows(report, scope, grouped.identities));
     const evidence = statusScopeEvidenceNodes(report, groups, scope, grouped.identities);
@@ -5836,7 +6021,14 @@ function serializeMachinePayload(payload: unknown): string {
   return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
-function canonicalMachineSetupSteps(
+/**
+ * The one machine projection of an installation's Host Setup Steps (DEC-004):
+ * exactly these fields, in this shape. Exported so the machine-value pin
+ * (test/host-setup-steps-machine-pin.test.ts) can project through the real
+ * serializer, making any wholesale-spread regression fail outside the
+ * journeys too.
+ */
+export function canonicalMachineSetupSteps(
   project: ReconciliationProjectRecord,
 ): readonly MachineSetupStep[] {
   return project.setupSteps.map((step) => {
@@ -5853,6 +6045,13 @@ function canonicalMachineSetupSteps(
   });
 }
 
+/**
+ * The machine projection of one warning (DEC-004): exactly these fields, in
+ * this shape, with `parts` flattened to `message`. Every typed presentation
+ * fact stays out of machine JSON explicitly — `affectedProjects`, `reason`,
+ * `exclusionBookkeeping`, `problem`, `remedy`, `requirement` — so adding one
+ * to the warning record can never move the JSON bytes (spec #693).
+ */
 function canonicalMachineWarning(warning: ReconciliationWarning): {
   readonly consequence?: string;
   readonly copyableValues: readonly string[];
@@ -6105,10 +6304,20 @@ export interface TemporaryInstallationReceiptView {
  * One home for the bound-project setup-step rule: a step that identifies its
  * path semantically as the Project renders the caller's chosen Project
  * identity, while JSON keeps the canonical spelling and human views pass the
- * presented one.
+ * presented one. Applies to the machine `message` and the human rendering
+ * alike.
  */
+function attachBoundProject(
+  text: string,
+  step: HostSetupStep,
+  project: string,
+): string {
+  return step.path === "bound-project" ? `${text} ${project}` : text;
+}
+
+/** The machine `setupSteps` message (DEC-004): never rendered on human surfaces. */
 function setupStepMessage(step: HostSetupStep, project: string): string {
-  return step.path === "bound-project" ? `${step.message} ${project}` : step.message;
+  return attachBoundProject(step.message, step, project);
 }
 
 function temporarySetupStepJson(step: HostSetupStep, project: string) {

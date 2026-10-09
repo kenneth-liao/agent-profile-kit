@@ -255,8 +255,8 @@ describe("explicit configure profile", () => {
     expect(outcome.exitCode).toBe(1);
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
-    expect(diagnostic).toContain("Profile 'codin' does not exist in this Workspace.");
-    expect(diagnostic).toContain("Available Profiles: coding.");
+    expect(diagnostic).toContain("There's no Profile called 'codin'.");
+    expect(diagnostic).toContain("Your Profiles: coding");
     expect(diagnostic).toContain("Did you mean 'coding'?");
   });
 
@@ -509,6 +509,11 @@ describe("interactive configure profile", () => {
     const outcome = await pending;
 
     expect(outcome.exitCode).toBe(1);
+    // The declined confirmation settles neutral, never as a success (spec
+    // #672 US-005).
+    const settled = plain(streams.humanText());
+    expect(settled).toContain("● Save these membership changes? (y/N)");
+    expect(settled).not.toContain("✔ Save these membership changes?");
     expect(readFileSync(profileFile, "utf8")).toBe(before);
     const diagnostic = plain(streams.errorText());
     expect(diagnostic).toContain("Cancelled. Nothing was changed.");

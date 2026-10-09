@@ -63,6 +63,15 @@ spellings, selection, consent, and machine contracts are unchanged.
   `problem`; a problem's complete typed sentence and repair locator render once,
   after the entries, under the same identity the row carries.
 
+- **Spec #672 US-006 (ticket #678).** The inventory heading becomes `Your
+  Projects (N)` and the count lives there instead of in a summary footer; the
+  State column is renamed `Status` and its healthy value reads `ok` (a
+  Project with a problem still reads `problem`); the footer becomes one next
+  step, `apkit status (check whether they're up to date)`, replacing the
+  summary-and-guidance prose. Problem sentences keep rendering once after the
+  entries under the row identity. Concise `status` scope rows share the
+  `Status` heading (ADR-0020's US-006 amendment). Machine JSON is unchanged.
+
 ## Consequences
 
 - A fleet is scannable at 100 and 80 columns and readable as separated entries

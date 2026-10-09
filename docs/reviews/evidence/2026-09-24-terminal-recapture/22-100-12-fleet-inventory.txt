@@ -1,0 +1,9 @@
+Your Projects (4)
+
+Project                              Profile      Agents         Status
+acme-internal-analytics-pipeline-v2  engineering  claude, codex  ok
+alpha/my-app                         engineering  claude, codex  ok
+beta/my-app                          engineering  claude, codex  ok
+hello                                engineering  codex          ok
+
+Next: apkit status (check whether they're up to date)

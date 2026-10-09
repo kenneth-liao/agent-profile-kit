@@ -51,8 +51,9 @@ import {
   operationHistoryEntryDocument,
   operationHistorySaveFailureDocument,
   operationHistoryUnrecordedDocument,
+  type HumanTimeContext,
 } from "./operation-history-presentation.js";
-import { reportHasReconciliationWork } from "./presentation.js";
+import { reportHasReconciliationWork, warningLeavesUserEvidence } from "./presentation.js";
 import { writeHumanDocument } from "./presentation-document.js";
 import {
   terminalPresentationContext,
@@ -63,6 +64,11 @@ export interface OperationRecordingFacts {
   readonly outcome: OperationHistoryOutcome;
   readonly scope: OperationHistoryScope;
   readonly projects: readonly OperationHistoryProject[];
+  /**
+   * The lifecycle report's warning fact (US-008, DEC-007): whether this run
+   * carried warning evidence. Facts only — never rendered presentation.
+   */
+  readonly hasWarnings: boolean;
   /** Run-level carried detail (facts, never rendered prose). */
   readonly failure?: string;
   readonly cancelledReason?: OperationHistoryCancelledReason;
@@ -187,6 +193,11 @@ export interface FinishOperationRecordingInput {
   readonly command: LifecycleOperationCommand;
   readonly startedAt: number;
   readonly finishedAt: number;
+  /**
+   * The injected clock and zone for this run's human time (US-008): tests
+   * pass both; the CLI edge resolves the machine's zone once.
+   */
+  readonly time: HumanTimeContext;
   /** Test seam over the history document's filesystem operations. */
   readonly fileSystem?: Partial<OperationHistoryFileSystem>;
   readonly stderr: Writable & TerminalStream;
@@ -244,7 +255,7 @@ export async function finishLifecycleOperationRecording(
       operationHistorySaveFailureDocument(detail, operationHistoryPath(input.home)),
       stderrContext,
     );
-    writeHumanDocument(input.stderr, operationHistoryEntryDocument(draft), stderrContext);
+    writeHumanDocument(input.stderr, operationHistoryEntryDocument(draft, input.time), stderrContext);
     return "unsaved";
   }
 }
@@ -372,6 +383,25 @@ export function reviewedProjectsAsUnattempted(
   return records;
 }
 
+/**
+ * The report's warning fact (US-008): whether any carried report leaves the
+ * user with a warning. Reads the reconciliation model through the one
+ * user-visible-warning reader the screen uses (spec #693) — never rendered
+ * output, and never diagnostics the run resolved — so the details route
+ * follows the facts the screen shows.
+ */
+function reportHasWarningFacts(
+  ...reports: readonly (ReconciliationReport | undefined)[]
+): boolean {
+  return reports.some(
+    (report) =>
+      report !== undefined &&
+      report.projects.some((project) =>
+        project.warnings.some(warningLeavesUserEvidence)
+      ),
+  );
+}
+
 /** Update succeeded: committed paths from the receipt, state from the fresh snapshot. */
 export function updateSuccessRecording(
   applied: ApplyReconciliationResult,
@@ -395,6 +425,7 @@ export function updateSuccessRecording(
     }),
     scope: recordingScopeForSelection(selection),
     projects,
+    hasWarnings: reportHasWarningFacts(applied.receipt, applied.resultingState),
   };
 }
 
@@ -418,6 +449,7 @@ export function updateBlockedRecording(
     outcome: "blocked",
     scope: recordingScopeForSelection(selection),
     projects,
+    hasWarnings: reportHasWarningFacts(report),
     ...(report.globalBlockers.length === 0
       ? {}
       : { failure: blockerFailures(report.globalBlockers) }),
@@ -447,6 +479,7 @@ export function updateExecutionFailureRecording(
     }),
     scope: recordingScopeForSelection(selection),
     projects,
+    hasWarnings: reportHasWarningFacts(error.receipt, error.resultingState),
     failure: error.detail,
   };
 }
@@ -468,6 +501,7 @@ export function updateVerificationFailureRecording(
     }),
     scope: recordingScopeForSelection(selection),
     projects,
+    hasWarnings: reportHasWarningFacts(error.receipt),
     failure: error.message,
   };
 }
@@ -482,6 +516,7 @@ export function updateCancelledRecording(
     outcome: "cancelled",
     scope: recordingScopeForSelection(selection),
     projects: reviewedProjectsAsUnattempted(evidence.projects),
+    hasWarnings: false,
     cancelledReason: reason,
   };
 }
@@ -522,6 +557,7 @@ export function lateAuthorizationStopRecording(
     outcome: "partial",
     scope,
     projects,
+    hasWarnings: false,
     failure,
   };
 }
@@ -542,6 +578,7 @@ export function installSuccessRecording(
     }),
     scope: recordingScopeForProject(result.preview),
     projects,
+    hasWarnings: reportHasWarningFacts(result.applied.receipt, result.applied.resultingState),
   };
 }
 
@@ -568,6 +605,7 @@ export function installFailureRecording(
       outcome: "cancelled",
       scope,
       projects: [unattemptedProject(identity)],
+      hasWarnings: false,
       cancelledReason: cause.reason,
     };
   }
@@ -611,6 +649,7 @@ export function installFailureRecording(
       ...failedProject(identity, detail, error.failure.selectionRestored),
       ...(error.failure.outputCommitted ? { outputCommitted: true } : {}),
     }],
+    hasWarnings: false,
     failure: detail,
   };
 }
@@ -624,6 +663,7 @@ export function installCancelledRecording(
     outcome: "cancelled",
     scope: recordingScopeForProject(identity),
     projects: [unattemptedProject(identity)],
+    hasWarnings: false,
     cancelledReason: reason,
   };
 }
@@ -703,6 +743,7 @@ export function uninstallRecording(
     }),
     scope,
     projects,
+    hasWarnings: result.warnings.length > 0,
     ...(result.failed === undefined
       ? {}
       : {
@@ -723,6 +764,7 @@ export function uninstallCancelledRecording(
     outcome: "cancelled",
     scope,
     projects,
+    hasWarnings: false,
     cancelledReason: reason,
   };
 }

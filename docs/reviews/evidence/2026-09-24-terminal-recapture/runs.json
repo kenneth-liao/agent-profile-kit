@@ -1,0 +1,674 @@
+[
+  {
+    "width": 100,
+    "label": "01-first-use",
+    "args": [],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "02-setup",
+    "args": [
+      "init",
+      "./workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "P1-new-profile-empty",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "P6-new-context",
+    "args": [
+      "new",
+      "context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-context-style",
+    "args": [
+      "new",
+      "context",
+      "style"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-skill-review-pr",
+    "args": [
+      "new",
+      "skill",
+      "review-pr"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-skill-write-tests",
+    "args": [
+      "new",
+      "skill",
+      "write-tests"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "P5-new-profile-created",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "P5b-new-profile-cancel",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "04-create-second-profile",
+    "args": [
+      "new",
+      "profile",
+      "writing",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "05-first-install",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/100/projects/hello",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "06-routine",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "07-status",
+    "args": [
+      "status"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "08-validate",
+    "args": [
+      "validate"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "09-failure",
+    "args": [
+      "install",
+      "enginering",
+      "/private/tmp/apkit-680-session/100/projects/hello",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "10-invalid-target",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/100/missing",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "11-selection",
+    "args": [
+      "install"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-alpha-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/100/projects/alpha/my-app",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-beta-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/100/projects/beta/my-app",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "seed-acme-internal-analytics-pipeline-v2",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/100/projects/acme-internal-analytics-pipeline-v2",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "12-fleet-inventory",
+    "args": [
+      "list",
+      "projects"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "13-fleet-status",
+    "args": [
+      "status",
+      "--all"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "14-fleet-update",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "15-details-list",
+    "args": [
+      "details",
+      "--list"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "16-details",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "18-setup-routing-with-profiles",
+    "args": [
+      "init",
+      "/private/tmp/apkit-680-session/100/workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home-connect"
+  },
+  {
+    "width": 100,
+    "label": "19-list-agents",
+    "args": [
+      "list",
+      "agents"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "20-narrow-wrap-command",
+    "args": [
+      "install"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "17-agent-missing-warning",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "21-details-partial",
+    "args": [
+      "uninstall",
+      "--all",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 100,
+    "label": "21b-details-partial",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/100/home"
+  },
+  {
+    "width": 60,
+    "label": "01-first-use",
+    "args": [],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "02-setup",
+    "args": [
+      "init",
+      "./workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "P1-new-profile-empty",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "P6-new-context",
+    "args": [
+      "new",
+      "context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-context-style",
+    "args": [
+      "new",
+      "context",
+      "style"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-skill-review-pr",
+    "args": [
+      "new",
+      "skill",
+      "review-pr"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-skill-write-tests",
+    "args": [
+      "new",
+      "skill",
+      "write-tests"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "P5-new-profile-created",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "P5b-new-profile-cancel",
+    "args": [
+      "new",
+      "profile"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "04-create-second-profile",
+    "args": [
+      "new",
+      "profile",
+      "writing",
+      "--context",
+      "team"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "05-first-install",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/60/projects/hello",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "06-routine",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "07-status",
+    "args": [
+      "status"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "08-validate",
+    "args": [
+      "validate"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "09-failure",
+    "args": [
+      "install",
+      "enginering",
+      "/private/tmp/apkit-680-session/60/projects/hello",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "10-invalid-target",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/60/missing",
+      "--agent",
+      "codex",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "11-selection",
+    "args": [
+      "install"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-alpha-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/60/projects/alpha/my-app",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-beta-my-app",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/60/projects/beta/my-app",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "seed-acme-internal-analytics-pipeline-v2",
+    "args": [
+      "install",
+      "engineering",
+      "/private/tmp/apkit-680-session/60/projects/acme-internal-analytics-pipeline-v2",
+      "--agent",
+      "codex",
+      "--agent",
+      "claude",
+      "--auto-confirm"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "12-fleet-inventory",
+    "args": [
+      "list",
+      "projects"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "13-fleet-status",
+    "args": [
+      "status",
+      "--all"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "14-fleet-update",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "15-details-list",
+    "args": [
+      "details",
+      "--list"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "16-details",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "18-setup-routing-with-profiles",
+    "args": [
+      "init",
+      "/private/tmp/apkit-680-session/60/workspace"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home-connect"
+  },
+  {
+    "width": 60,
+    "label": "19-list-agents",
+    "args": [
+      "list",
+      "agents"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "20-narrow-wrap-command",
+    "args": [
+      "install"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "17-agent-missing-warning",
+    "args": [
+      "update"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "21-details-partial",
+    "args": [
+      "uninstall",
+      "--all",
+      "--auto-confirm"
+    ],
+    "exit": 1,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  },
+  {
+    "width": 60,
+    "label": "21b-details-partial",
+    "args": [
+      "details"
+    ],
+    "exit": 0,
+    "home": "/private/tmp/apkit-680-session/60/home"
+  }
+]

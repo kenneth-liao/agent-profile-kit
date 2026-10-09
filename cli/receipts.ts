@@ -335,10 +335,10 @@ export interface InitReceiptInput {
   readonly authoredPath: string;
   /**
    * True when setup created the named Workspace folder itself (it did not
-   * exist; spec #593 #599). The created folder is reported in the receipt so
-   * the user sees exactly what setup wrote.
+   * exist; spec #593 #599). The receipt's created/connected verb is decided
+   * from this fact and no other input (spec #672 US-003, screen 21).
    */
-  readonly folderCreated?: boolean;
+  readonly folderCreated: boolean;
   readonly detectedHosts?: readonly SupportedHost[];
   readonly missingProfileBindings?: readonly MissingProfileBindingReport[];
   /** The parts setup actually added (SETUP_PART_LABELS keys), never planned-but-absent. */
@@ -559,11 +559,16 @@ export function initReceiptDocument(input: InitReceiptInput): PresentationDocume
     ]);
   }
   const nodes: PresentationNode[] = [];
+  // The verb is the folder fact (spec #672 US-003, screen 21): setup created
+  // the named folder, or the folder already existed and this machine's
+  // settings were written. Never the outcome's copy.
+  const folderVerb = input.folderCreated ? "Created" : "Connected";
   const headline = input.outcome === "migrated"
-    ? stateHeadline(["Migrated Local Configuration and connected your Workspace at ", workspace], "success")
-    : input.outcome === "connected"
-      ? stateHeadline(["Connected your Workspace at ", workspace], "success")
-      : stateHeadline(["Created your Workspace at ", workspace], "success");
+    ? stateHeadline([
+      `Migrated Local Configuration and ${folderVerb.toLowerCase()} your Workspace at `,
+      workspace,
+    ], "success")
+    : stateHeadline([`${folderVerb} your Workspace at `, workspace], "success");
   nodes.push(part(headline));
 
   if (!hasProfiles(input)) {

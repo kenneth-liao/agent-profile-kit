@@ -259,6 +259,14 @@ export interface RepositoryExclusionWarning {
   readonly project?: string;
   /** Every target the warning's condition covers. */
   readonly targets: readonly string[];
+  /**
+   * Typed fact (spec #693): this notice is Repository Exclusion bookkeeping —
+   * the run's exclusion clause carries the condition on screen and machine
+   * JSON keeps the raw message, so it is never a warning the run leaves the
+   * user with. Tagged where the notice is created; presentation and the
+   * details-route fact decide from this fact, never from its rendered copy.
+   */
+  readonly exclusionBookkeeping?: true;
 }
 
 export interface RepositoryExclusionInspection {
@@ -403,6 +411,7 @@ export async function inspectRepositoryExclusions(
             warnings.push({
               parts: [identifierPart(target), REPOSITORY_EXCLUSION_REPAIR_WARNING_SUFFIX],
               targets: [target],
+              exclusionBookkeeping: true,
             });
           }
         }
@@ -420,6 +429,7 @@ export async function inspectRepositoryExclusions(
           warnings.push({
             parts: [identifierPart(target), REPOSITORY_EXCLUSION_MODIFIED_WARNING_SUFFIX],
             targets: [target],
+            exclusionBookkeeping: true,
           });
         }
       }

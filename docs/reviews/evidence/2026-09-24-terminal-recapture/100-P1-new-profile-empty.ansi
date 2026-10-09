@@ -1,0 +1,7 @@
+A Profile needs at least one Context file or Skill, and your Workspace has none yet.
+
+Add some first:
+- Put skill folders in /private/tmp/apkit-680-session/100/workspace/skills/
+- [36mapkit new context <name>[0m (create a Context file to fill in)
+
+Then run [36mapkit new profile[0m again.

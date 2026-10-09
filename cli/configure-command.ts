@@ -33,7 +33,7 @@ import {
   type TerminalStream,
 } from "./terminal-presentation.js";
 import {
-  createTextPrompt,
+  createConfirmTextPrompt,
   createSearchableMultiSelectPrompt,
   createSearchableSelectPrompt,
   isInteractiveInput,
@@ -455,22 +455,13 @@ export async function runConfigureCommand(request: ConfigureCommandRequest): Pro
     );
   }
   if (!parsed.autoConfirm) {
-    const prompt = createTextPrompt({
+    const prompt = createConfirmTextPrompt({
       input: request.input,
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
     });
     const answer = await prompt(CONFIGURE_CONFIRMATION_QUESTION);
-    if (answer.kind === "cancelled") {
-      writeHumanDocument(
-        request.stderr,
-        cancelledDocument(),
-        stderrContext,
-      );
-      return { exitCode: 1 };
-    }
-    const normalized = answer.value.trim().toLowerCase();
-    if (normalized !== "y" && normalized !== "yes") {
+    if (answer.kind !== "accepted") {
       writeHumanDocument(
         request.stderr,
         cancelledDocument(),

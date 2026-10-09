@@ -1,0 +1,11 @@
+● Everything is already up to date.
+
+[33m⚠ Claude isn't installed, or isn't on your PATH.[0m
+  Used by: alpha, acme-internal-analytics-pipeline-v2, alpha/my-app, beta/my-app
+  Fix: install Claude, then check that [36mclaude --version[0m works.
+
+[33m⚠ Codex isn't installed, or isn't on your PATH.[0m
+  Used by: alpha, acme-internal-analytics-pipeline-v2, alpha/my-app, beta/my-app, hello
+  Fix: install Codex, then check that [36mcodex --version[0m works.
+
+[36mDetails: [36mapkit details (see exactly what this run checked)[0m[0m

@@ -16,11 +16,11 @@ Use this workflow when helping a person author their Workspace and bind projects
    whose existing material is invalid is refused with its violation
    (spec #593 DEC-003, ADR-0047, ADR-0049). Inspect any present
    artifact directories next. Treat the Workspace as the canonical source; do
-   not infer reusable material from generated Host output.
+   not infer reusable material from generated agent output.
 2. Elicit the user's needs one decision at a time. Establish the kind of work,
    the reusable facts or workflow they want, and whether existing material
    already satisfies the need. Ask instead of inventing personal preferences,
-   project facts, Host preferences, credentials, or machine paths.
+   project facts, agent preferences, credentials, or machine paths.
 3. Create the smallest useful artifact set. This release accepts Profile Context
    and shared Skills for Antigravity, plus portable Context and Skills for Codex,
    Claude Code, Grok, OpenCode, and Pi. Put standing facts in
@@ -38,28 +38,28 @@ Use this workflow when helping a person author their Workspace and bind projects
    - **Workspace** owns reusable cross-project Profiles and artifacts as the
      single canonical source. That includes Profile-selected material and
      unselected universal artifacts (useful across every directory or kind of
-     work). Unselected does not mean “belongs in Host config.”
+     work). Unselected does not mean “belongs in agent config.”
    - **Local Configuration** (`~/.agents/agent-profile-kit/config.yaml`) owns
      machine-local Project Bindings and the explicit Workspace path. Current
      schema version 2 requires one existing absolute or home-relative Workspace
      path and each binding names one existing project root, one Profile, and a
-     supported Host set (`antigravity`, `codex`, `claude`, `grok`, `opencode`, or `pi`); Host
+     supported agent set (`antigravity`, `codex`, `claude`, `grok`, `opencode`, or `pi`); agent
      order and duplicate entries normalize at ingestion. A version-1 configuration without
      `workspace` is legacy migration input only; run `apkit init <path>` before any desired-state
      or binding-recording command (ADR-0049).
    - **Project repositories** own project facts and repository-owned instructions.
-   - **Hosts** own authentication, trust, approvals, plugins, sessions, and
-     Host preferences. User-managed native global Skill delivery (including
-     Host-root symlinks into Workspace source) is Host configuration, not
+   - **Agents** own authentication, trust, approvals, plugins, sessions, and
+     agent preferences. User-managed native global Skill delivery (including
+     agent-root symlinks into Workspace source) is agent configuration, not
      Agent Profile Kit–owned state: outside Project Bindings and Installation
      Manifests; `update` / `uninstall` never adopt or remove those paths. v1 does
-     not manage global Host delivery. Hosts own Skill discovery, precedence,
+     not manage global agent delivery. Agents own Skill discovery, precedence,
      deduplication, collision diagnostics, and resolution across project,
      personal, package, plugin, extension, and compatibility sources.
    - **Generated output** is disposable Installer-owned material inside bound
      projects. Never copy it back into the Workspace as source.
    - Same-identity Skill material outside an exact planned output destination is
-     Host Resolution, not an Agent Profile Kit blocker. Concrete Host settings
+     agent resolution, not an Agent Profile Kit blocker. Concrete agent settings
      that disable planned output may warn; exact Output Ownership Conflicts and
      unsupported capability remain blockers.
 5. Install Profiles into Projects—either hand-edit `config.yaml` and run
@@ -100,7 +100,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    schema version is 1.
 7. After update, the user launches Antigravity, Codex, Claude, Grok, OpenCode, or Pi
    natively in the bound project. Do not claim that Agent Profile Kit manages
-   Host authentication, trust, approvals, plugins, or sessions. Antigravity
+   agent authentication, trust, approvals, plugins, or sessions. Antigravity
    bindings load deterministic always-on Context rules under `.agents/rules/`
    and shared `.agents/skills/<Artifact ID>` packages after the user's native
    trust step. OpenCode bindings load Profile Context via `.opencode/opencode.jsonc`
@@ -108,7 +108,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    packages after restarting running sessions. Pi bindings load the generated
    `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>` packages after
    Pi's native trust boundary; packages, extensions, and other Skill sources coexist
-   through Pi Host Resolution. For non-Git projects, remind the user that Codex must
+   through Pi agent resolution. For non-Git projects, remind the user that Codex must
    launch from the exact bound root.
 8. Use `apkit status` for the bound Project containing cwd, pass one explicit
    Project root, or use `apkit status --all` for the fleet. Its concise result
@@ -125,7 +125,7 @@ Use this workflow when helping a person author their Workspace and bind projects
    `apkit uninstall` with an explicit scope removes only output whose Installation Receipt
    and hashes prove Agent Profile Kit ownership and forgets each fully removed
    Project's recorded selection; it preserves the Workspace,
-   unselected Projects, global Host configuration, and repository-owned files.
+   unselected Projects, global agent configuration, and repository-owned files.
    Never use hand-editing as a substitute for output cleanup: hand-editing the
    selection out of Local Configuration keeps generated files in place for the
    next update to reconcile, while `uninstall` deletes them.

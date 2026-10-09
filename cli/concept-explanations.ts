@@ -37,10 +37,6 @@ export function contextExplanationParagraph(contextFolder: string): string {
 export const WORKSPACE_SCOPE_EXPLANATION_SENTENCE =
   "One Workspace can serve several Projects, and setup may add those folders and files.";
 
-/** The Project concept: the working folder that receives installed material. */
-export const PROJECT_EXPLANATION_SENTENCE =
-  "A Project is one working folder that receives the installed material.";
-
 /**
  * The Profile concept, named so it cannot drift between the initialization
  * receipt and the interactive Profile choices. Names Context and Skills as

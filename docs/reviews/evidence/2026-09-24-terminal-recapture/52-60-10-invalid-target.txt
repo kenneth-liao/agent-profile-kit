@@ -1,0 +1,4 @@
+✖ The folder /private/tmp/apkit-680-session/60/missing
+  doesn't exist.
+
+Create it first, or pick a folder that exists.

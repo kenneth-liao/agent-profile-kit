@@ -147,6 +147,23 @@ export function formatConfiguredPathError(fact: ConfiguredPathErrorFact): readon
  * cause; the recorded binding's locator moves to the why section instead of
  * leading, so internal configuration details never precede the failure.
  */
+/**
+ * The one missing-folder wording shared by every command that reports a
+ * Project folder that doesn't exist (#700, US-007 screen 09): `install`,
+ * `update` and `uninstall` all read the same statement and the same creation
+ * recovery, so the family cannot drift. The stale-binding branch keeps its
+ * own recovery on top of the shared statement.
+ */
+function missingFolderWording(authored: string): {
+  readonly happened: readonly InlineContent[];
+  readonly whatToType: readonly (readonly InlineContent[])[];
+} {
+  return {
+    happened: [`The folder ${authored} doesn't exist.`],
+    whatToType: [["Create it first, or pick a folder that exists."]],
+  };
+}
+
 function formatProjectTargetPathDiagnostic(
   fact: Extract<ConfiguredPathErrorFact, { readonly field: string }>,
 ): DiagnosticDocumentParts {
@@ -167,16 +184,18 @@ function formatProjectTargetPathDiagnostic(
         happened: ["Project target must be an absolute path or home-relative path beginning with ~/"],
         whatToType: [listProjectsRecovery()],
       };
-    case "missing-directory":
+    case "missing-directory": {
+      const shared = missingFolderWording(fact.authored);
       return {
-        happened: [`Project target '${fact.authored}' must be an existing directory`],
+        happened: shared.happened,
         ...(bindingLocator === undefined ? {} : { why: bindingLocator }),
         whatToType: [
           bindingLocator === undefined
-            ? ["Create it or pass an existing Project directory."]
+            ? shared.whatToType[0]!
             : staleBindingRecovery(fact.authored),
         ],
       };
+    }
     case "dangling-symlink":
       return {
         happened: [`Project target '${fact.authored}' is a dangling symlink`],
@@ -351,6 +370,16 @@ function formatAvailableChoices(label: string, items: readonly string[]): string
   const visible = items.slice(0, MAX_DISPLAYED_AVAILABLE_CHOICES);
   const remaining = items.length - MAX_DISPLAYED_AVAILABLE_CHOICES;
   return `Available ${label}s: ${visible.join(", ")} (and ${remaining} more).`;
+}
+
+/** The user's Profile list on a missing-Profile screen (US-007, screen 08). */
+function formatYourProfiles(items: readonly string[]): string {
+  if (items.length <= MAX_DISPLAYED_AVAILABLE_CHOICES) {
+    return `Your Profiles: ${items.join(", ")}`;
+  }
+  const visible = items.slice(0, MAX_DISPLAYED_AVAILABLE_CHOICES);
+  const remaining = items.length - MAX_DISPLAYED_AVAILABLE_CHOICES;
+  return `Your Profiles: ${visible.join(", ")} (and ${remaining} more)`;
 }
 
 /**
@@ -808,33 +837,41 @@ export function formatMissingProfileError(error: MissingProfileError): readonly 
   return [...heading, ` ${choicesText}${suggestionText}`, ...recovery];
 }
 
-/** Structured diagnostic for Missing Profile (DEC-014). */
+/**
+ * Structured diagnostic for Missing Profile (DEC-014; US-007 screen 08): one
+ * plain headline, then the near-match and the user's Profiles as guidance.
+ */
 export function formatMissingProfileErrorDiagnostic(error: MissingProfileError): DiagnosticDocumentParts {
-  const heading = [`${missingProfileSentence(error.profile)}.`];
-  const why: (readonly InlineContent[])[] = error.availableProfiles.length === 0
-    ? [["No Profiles exist in the Workspace."]]
-    : [[formatAvailableChoices("Profile", error.availableProfiles)]];
+  const heading = [`There's no Profile called '${error.profile}'.`];
+  if (error.availableProfiles.length === 0) {
+    return {
+      happened: heading,
+      why: [["No Profiles exist in the Workspace."]],
+      whatToType: [[
+        "Run ",
+        commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]),
+        " to learn how to add a Profile.",
+      ]],
+    };
+  }
+  const guidance: (readonly InlineContent[])[] = [];
   const suggestion = nameSuggestionSentence(error.profile, error.availableProfiles);
   if (suggestion !== undefined) {
-    why.push([suggestion]);
+    guidance.push([suggestion]);
   }
-  const whatToType: (readonly InlineContent[])[] = [];
+  guidance.push([formatYourProfiles(error.availableProfiles)]);
+  // The next step is its own part, one blank line below the user's Profiles
+  // (US-001, screen 08, spec #693): the carried empty line separates the runs.
   if (error.recoverByEditingLocalConfiguration) {
-    whatToType.push(["Edit Local Configuration directly if this stale binding must be removed."]);
-  } else if (error.availableProfiles.length === 0) {
-    whatToType.push(["Run ", commandPart(COMMAND_NAME, [arg("guide"), arg("profile")]), " to learn how to add a Profile."]);
+    guidance.push([], ["Edit Local Configuration directly if this stale binding must be removed."]);
   } else if (suggestion === undefined) {
-    whatToType.push([
+    guidance.push([], [
       "Run ",
       commandPart(COMMAND_NAME, [arg("list"), arg("profiles")]),
       " to inspect available Profiles.",
     ]);
   }
-  return {
-    happened: heading,
-    why,
-    ...(whatToType.length > 0 ? { whatToType } : {}),
-  };
+  return { happened: heading, whatToType: guidance };
 }
 
 /** The carried sentence parts for one typed Installer tool-error fact. */
@@ -842,14 +879,10 @@ export function formatInstallerToolError(fact: InstallerToolErrorFact): readonly
   switch (fact.kind) {
     case "missing-local-configuration":
       return [`Local Configuration is missing at ${fact.path}; run `, commandPart(COMMAND_NAME, [arg("init"), arg("<path>")])];
-    case "bind-conflict":
-      return [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]; pass --replace to restate its Profile and agents`];
     case "duplicate-canonical-root":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`];
     case "duplicate-missing-project":
       return [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`];
-    case "bind-host-required":
-      return [`bind requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "install-host-required":
       return [`install requires at least one --agent flag; supported agents: ${fact.supportedHosts.join(", ")}`];
     case "unsupported-host": {
@@ -974,20 +1007,10 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
         happened: ["init without a path would choose a Workspace location for you; setup uses a folder you choose and never selects one itself"],
         whatToType: [initLocationRemedies("Run ")],
       };
-    case "bind-conflict":
-      return {
-        happened: [`Local Configuration ${fact.configurationPath} already binds canonical project '${fact.canonicalProject}' to profile '${fact.profile}' hosts [${fact.hosts.join(", ")}]`],
-        whatToType: [["Pass --replace to restate its Profile and agents."]],
-      };
     case "duplicate-canonical-root":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] project resolves to duplicate canonical root '${fact.canonicalProject}'`] };
     case "duplicate-missing-project":
       return { happened: [`Local Configuration ${fact.configurationPath} bindings[${fact.bindingIndex}] duplicates missing project path '${fact.project}'`] };
-    case "bind-host-required":
-      return {
-        happened: ["bind requires at least one --agent flag"],
-        why: [[`supported agents: ${fact.supportedHosts.join(", ")}`]],
-      };
     case "install-host-required":
       return {
         happened: ["install requires at least one --agent flag"],
@@ -995,26 +1018,24 @@ export function formatInstallerToolErrorDiagnostic(fact: InstallerToolErrorFact)
       };
     case "unsupported-host": {
       const suggestion = nameSuggestionSentence(fact.host, fact.supportedHosts);
-      const why: (readonly InlineContent[])[] = [
+      // The headline stands alone (US-001, screen 08, spec #693): the
+      // supported-agents and suggestion lines are one guidance part, and the
+      // discovery command is its own part when there is no suggestion.
+      const guidance: (readonly InlineContent[])[] = [
         [`Supported agents: ${fact.supportedHosts.join(", ")}.`],
       ];
       if (suggestion !== undefined) {
-        why.push([suggestion]);
+        guidance.push([suggestion]);
+      } else {
+        guidance.push([], [
+          "Run ",
+          commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
+          " to inspect supported agents.",
+        ]);
       }
       return {
         happened: [`Unsupported agent '${fact.host}'`],
-        why,
-        ...(suggestion === undefined
-          ? {
-              whatToType: [
-                [
-                  "Run ",
-                  commandPart(COMMAND_NAME, [arg("list"), arg("agents")]),
-                  " to inspect supported agents.",
-                ],
-              ],
-            }
-          : {}),
+        whatToType: guidance,
       };
     }
     case "unsupported-temporary-host": {
@@ -1337,10 +1358,7 @@ export function formatProjectTargetErrorDiagnostic(
         whatToType: [["Restore its target or choose an existing directory."], listProjectsRecovery()],
       };
     case "missing-target":
-      return {
-        happened: [`Project target '${reason.target}' must be an existing directory`],
-        whatToType: [listProjectsRecovery()],
-      };
+      return missingFolderWording(reason.target);
     case "relative-target":
       return {
         happened: [
@@ -1460,4 +1478,33 @@ export function formatErrorParts(error: unknown): readonly InlineContent[] {
 /** Machine projection: plain-text string representation. */
 export function formatError(error: unknown): string {
   return flatInlineText(formatErrorParts(error));
+}
+
+/**
+ * The plain cause of one foreign system error (US-007, spec #672 #690): the
+ * system's own short description of its error code, without the syscall and
+ * the internal path Node appends to the message. The raw message stays the
+ * recorded evidence for `apkit details` and JSON; a carried detail without a
+ * code fact, or with an unlisted code, keeps its own words.
+ */
+const SYSTEM_ERROR_CAUSES: Readonly<Record<string, string>> = {
+  EACCES: "permission denied",
+  EBUSY: "resource busy",
+  EEXIST: "already exists",
+  EISDIR: "path is a directory",
+  ELOOP: "too many symbolic links",
+  EMFILE: "too many open files",
+  ENAMETOOLONG: "name too long",
+  ENOENT: "no such file or directory",
+  ENOSPC: "no space left on device",
+  ENOTDIR: "path is not a directory",
+  ENOTEMPTY: "directory not empty",
+  EPERM: "operation not permitted",
+  EROFS: "read-only file system",
+  EXDEV: "cross-device link",
+};
+
+/** The plain-cause sentence fragment for one carried failure (US-007). */
+export function plainSystemCause(errorCode: string | undefined, detail: string): string {
+  return errorCode === undefined ? detail : (SYSTEM_ERROR_CAUSES[errorCode] ?? detail);
 }

@@ -1,0 +1,434 @@
+[
+  {
+    "id": "01-100-01-first-use",
+    "label": "01-first-use",
+    "width": 100,
+    "command": "apkit "
+  },
+  {
+    "id": "02-100-02-setup-confirmation",
+    "label": "02-setup-confirmation",
+    "width": 100,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "03-100-02-setup",
+    "label": "02-setup",
+    "width": 100,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "04-100-P1-new-profile-empty",
+    "label": "P1-new-profile-empty",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "05-100-P6-new-context",
+    "label": "P6-new-context",
+    "width": 100,
+    "command": "apkit new context team"
+  },
+  {
+    "id": "06-100-P2-new-profile-name",
+    "label": "P2-new-profile-name",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "07-100-P3-new-profile-context",
+    "label": "P3-new-profile-context",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "08-100-P4-new-profile-skills",
+    "label": "P4-new-profile-skills",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "09-100-P5-new-profile-created",
+    "label": "P5-new-profile-created",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "10-100-P5b-new-profile-cancel",
+    "label": "P5b-new-profile-cancel",
+    "width": 100,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "11-100-05-first-install",
+    "label": "05-first-install",
+    "width": 100,
+    "command": "apkit install engineering /private/tmp/apkit-680-session/100/projects/hello --agent codex --auto-confirm"
+  },
+  {
+    "id": "12-100-06-routine",
+    "label": "06-routine",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "13-100-07-status",
+    "label": "07-status",
+    "width": 100,
+    "command": "apkit status"
+  },
+  {
+    "id": "14-100-08-validate",
+    "label": "08-validate",
+    "width": 100,
+    "command": "apkit validate"
+  },
+  {
+    "id": "15-100-09-failure",
+    "label": "09-failure",
+    "width": 100,
+    "command": "apkit install enginering /private/tmp/apkit-680-session/100/projects/hello --agent codex --auto-confirm"
+  },
+  {
+    "id": "16-100-10-invalid-target",
+    "label": "10-invalid-target",
+    "width": 100,
+    "command": "apkit install engineering /private/tmp/apkit-680-session/100/missing --agent codex --auto-confirm"
+  },
+  {
+    "id": "17-100-11-selection-profile-picker",
+    "label": "11-selection-profile-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "18-100-11-selection-agent-picker",
+    "label": "11-selection-agent-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "19-100-11-selection-filtered-agent",
+    "label": "11-selection-filtered-agent",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "20-100-11-selection-install-confirmation",
+    "label": "11-selection-install-confirmation",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "21-100-11-selection",
+    "label": "11-selection",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "22-100-12-fleet-inventory",
+    "label": "12-fleet-inventory",
+    "width": 100,
+    "command": "apkit list projects"
+  },
+  {
+    "id": "23-100-13-fleet-status",
+    "label": "13-fleet-status",
+    "width": 100,
+    "command": "apkit status --all"
+  },
+  {
+    "id": "24-100-14-fleet-update",
+    "label": "14-fleet-update",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "25-100-15-details-list",
+    "label": "15-details-list",
+    "width": 100,
+    "command": "apkit details --list"
+  },
+  {
+    "id": "26-100-16-details",
+    "label": "16-details",
+    "width": 100,
+    "command": "apkit details"
+  },
+  {
+    "id": "27-100-18-setup-routing-with-profiles-confirmation",
+    "label": "18-setup-routing-with-profiles-confirmation",
+    "width": 100,
+    "command": "apkit init /private/tmp/apkit-680-session/100/workspace"
+  },
+  {
+    "id": "28-100-18-setup-routing-with-profiles",
+    "label": "18-setup-routing-with-profiles",
+    "width": 100,
+    "command": "apkit init /private/tmp/apkit-680-session/100/workspace"
+  },
+  {
+    "id": "29-100-19-list-agents",
+    "label": "19-list-agents",
+    "width": 100,
+    "command": "apkit list agents"
+  },
+  {
+    "id": "30-100-20-narrow-wrap-command-profile-picker",
+    "label": "20-narrow-wrap-command-profile-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "31-100-20-narrow-wrap-command-agent-picker",
+    "label": "20-narrow-wrap-command-agent-picker",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "32-100-20-narrow-wrap-command-confirmation",
+    "label": "20-narrow-wrap-command-confirmation",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "33-100-20-narrow-wrap-command",
+    "label": "20-narrow-wrap-command",
+    "width": 100,
+    "command": "apkit install"
+  },
+  {
+    "id": "34-100-17-agent-missing-warning",
+    "label": "17-agent-missing-warning",
+    "width": 100,
+    "command": "apkit update"
+  },
+  {
+    "id": "35-100-21-details-partial",
+    "label": "21-details-partial",
+    "width": 100,
+    "command": "apkit uninstall --all --auto-confirm"
+  },
+  {
+    "id": "36-100-21b-details-partial",
+    "label": "21b-details-partial",
+    "width": 100,
+    "command": "apkit details"
+  },
+  {
+    "id": "37-60-01-first-use",
+    "label": "01-first-use",
+    "width": 60,
+    "command": "apkit "
+  },
+  {
+    "id": "38-60-02-setup-confirmation",
+    "label": "02-setup-confirmation",
+    "width": 60,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "39-60-02-setup",
+    "label": "02-setup",
+    "width": 60,
+    "command": "apkit init ./workspace"
+  },
+  {
+    "id": "40-60-P1-new-profile-empty",
+    "label": "P1-new-profile-empty",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "41-60-P6-new-context",
+    "label": "P6-new-context",
+    "width": 60,
+    "command": "apkit new context team"
+  },
+  {
+    "id": "42-60-P2-new-profile-name",
+    "label": "P2-new-profile-name",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "43-60-P3-new-profile-context",
+    "label": "P3-new-profile-context",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "44-60-P4-new-profile-skills",
+    "label": "P4-new-profile-skills",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "45-60-P5-new-profile-created",
+    "label": "P5-new-profile-created",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "46-60-P5b-new-profile-cancel",
+    "label": "P5b-new-profile-cancel",
+    "width": 60,
+    "command": "apkit new profile"
+  },
+  {
+    "id": "47-60-05-first-install",
+    "label": "05-first-install",
+    "width": 60,
+    "command": "apkit install engineering /private/tmp/apkit-680-session/60/projects/hello --agent codex --auto-confirm"
+  },
+  {
+    "id": "48-60-06-routine",
+    "label": "06-routine",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "49-60-07-status",
+    "label": "07-status",
+    "width": 60,
+    "command": "apkit status"
+  },
+  {
+    "id": "50-60-08-validate",
+    "label": "08-validate",
+    "width": 60,
+    "command": "apkit validate"
+  },
+  {
+    "id": "51-60-09-failure",
+    "label": "09-failure",
+    "width": 60,
+    "command": "apkit install enginering /private/tmp/apkit-680-session/60/projects/hello --agent codex --auto-confirm"
+  },
+  {
+    "id": "52-60-10-invalid-target",
+    "label": "10-invalid-target",
+    "width": 60,
+    "command": "apkit install engineering /private/tmp/apkit-680-session/60/missing --agent codex --auto-confirm"
+  },
+  {
+    "id": "53-60-11-selection-profile-picker",
+    "label": "11-selection-profile-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "54-60-11-selection-agent-picker",
+    "label": "11-selection-agent-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "55-60-11-selection-filtered-agent",
+    "label": "11-selection-filtered-agent",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "56-60-11-selection-install-confirmation",
+    "label": "11-selection-install-confirmation",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "57-60-11-selection",
+    "label": "11-selection",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "58-60-12-fleet-inventory",
+    "label": "12-fleet-inventory",
+    "width": 60,
+    "command": "apkit list projects"
+  },
+  {
+    "id": "59-60-13-fleet-status",
+    "label": "13-fleet-status",
+    "width": 60,
+    "command": "apkit status --all"
+  },
+  {
+    "id": "60-60-14-fleet-update",
+    "label": "14-fleet-update",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "61-60-15-details-list",
+    "label": "15-details-list",
+    "width": 60,
+    "command": "apkit details --list"
+  },
+  {
+    "id": "62-60-16-details",
+    "label": "16-details",
+    "width": 60,
+    "command": "apkit details"
+  },
+  {
+    "id": "63-60-18-setup-routing-with-profiles-confirmation",
+    "label": "18-setup-routing-with-profiles-confirmation",
+    "width": 60,
+    "command": "apkit init /private/tmp/apkit-680-session/60/workspace"
+  },
+  {
+    "id": "64-60-18-setup-routing-with-profiles",
+    "label": "18-setup-routing-with-profiles",
+    "width": 60,
+    "command": "apkit init /private/tmp/apkit-680-session/60/workspace"
+  },
+  {
+    "id": "65-60-19-list-agents",
+    "label": "19-list-agents",
+    "width": 60,
+    "command": "apkit list agents"
+  },
+  {
+    "id": "66-60-20-narrow-wrap-command-profile-picker",
+    "label": "20-narrow-wrap-command-profile-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "67-60-20-narrow-wrap-command-agent-picker",
+    "label": "20-narrow-wrap-command-agent-picker",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "68-60-20-narrow-wrap-command-confirmation",
+    "label": "20-narrow-wrap-command-confirmation",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "69-60-20-narrow-wrap-command",
+    "label": "20-narrow-wrap-command",
+    "width": 60,
+    "command": "apkit install"
+  },
+  {
+    "id": "70-60-17-agent-missing-warning",
+    "label": "17-agent-missing-warning",
+    "width": 60,
+    "command": "apkit update"
+  },
+  {
+    "id": "71-60-21-details-partial",
+    "label": "21-details-partial",
+    "width": 60,
+    "command": "apkit uninstall --all --auto-confirm"
+  },
+  {
+    "id": "72-60-21b-details-partial",
+    "label": "21b-details-partial",
+    "width": 60,
+    "command": "apkit details"
+  }
+]

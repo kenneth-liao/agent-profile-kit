@@ -1,0 +1,24 @@
+[1mRecent runs (7)[0m
+
+Run: op-000007  When: just now  Command: update
+Result: succeeded  Scope: all Projects
+
+Run: op-000006  When: just now  Command: install
+Result: succeeded  Scope: one Project
+
+Run: op-000005  When: just now  Command: install
+Result: succeeded  Scope: one Project
+
+Run: op-000004  When: just now  Command: install
+Result: succeeded  Scope: one Project
+
+Run: op-000003  When: just now  Command: install
+Result: cancelled  Scope: one Project
+
+Run: op-000002  When: just now  Command: update
+Result: no-op  Scope: all Projects
+
+Run: op-000001  When: just now  Command: install
+Result: succeeded  Scope: one Project
+
+[36mNext: [36mapkit details <run> (see exactly what one run changed)[0m[0m

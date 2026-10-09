@@ -370,7 +370,7 @@ describe("install Host-loading handoff (spec #640 US-012, #648)", () => {
     expect(human).toContain("Before your agents can load it:");
     expect(human).toContain("Start your agents from this Project folder, not a subfolder.");
     expect(human).toContain(
-      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
+      "Codex: approve the SessionStart hook when asked, and trust this project.",
     );
     // The optional check is one short action on the stable Project path
     // (US-006); it never claims loading was observed (OOS-001).
@@ -894,8 +894,8 @@ describe("install changed-installation scope", () => {
   });
 });
 
-describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)", () => {
-  test("a successful install prints the retained-operation route once", async () => {
+describe("install completed-operation detail route (US-008, DEC-007, ADR-0040)", () => {
+  test("a successful install omits the details route (D4)", async () => {
     const home = await setupHome();
     const projectPath = projectDirectory();
     const env = { PATH: hermeticCodexPath() };
@@ -909,8 +909,7 @@ describe("install completed-operation detail route (US-011, DEC-007, ADR-0040)",
 
     expect(exitCode).toBe(0);
     const text = plain(streams.humanText());
-    expect(text).toContain("Details: apkit details");
-    expect(text.split("Details: apkit details")).toHaveLength(2);
+    expect(text).not.toContain("Details:");
   });
 
   test("a clean unchanged install omits the details hint and still records the no-op", async () => {
@@ -1012,8 +1011,8 @@ describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () =
 
     expect(exitCode).toBe(1);
     const err = plain(streams.errorText());
-    expect(err).toContain("Profile 'codin' does not exist in this Workspace.");
-    expect(err).toContain("Available Profiles: coding.");
+    expect(err).toContain("There's no Profile called 'codin'.");
+    expect(err).toContain("Your Profiles: coding");
     expect(err).toContain("Did you mean 'coding'?");
     expect(existsSync(join(projectPath, ".agent-profile-kit"))).toBe(false);
   });

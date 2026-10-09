@@ -406,7 +406,7 @@ describe("0.204.0 compatibility (issues #596, #598, #600; TEST-010, DEC-013)", (
 
     const status = await runCli(home, "status", "--all");
     expectExitCode(status, 0);
-    expect(status.stdout).toContain("All Projects are up to date");
+    expect(status.stdout).toContain("Everything is up to date");
   });
 
   test("uninstall completes safely on 0.204.0 Installation State and installed output", async () => {

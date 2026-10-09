@@ -47,6 +47,23 @@ function expectProcessGone(pid: number, label: string): void {
   expect(alive, `${label} (pid ${pid}) must already be gone`).toBe(false);
 }
 
+/**
+ * Wait until run 1's child has observably started by touching `marker`. An
+ * abort during the admission work before run 1 yields the zero-run record
+ * instead, so interruption tests abort from this fact, never a fixed delay
+ * (#636, #692). Fails at once if the supervisor settles first.
+ */
+async function waitForRunStart(marker: string, pending: Promise<unknown>): Promise<void> {
+  let settled = false;
+  void pending.then(() => { settled = true; }, () => { settled = true; });
+  const startDeadline = Date.now() + 10_000;
+  while (!existsSync(marker)) {
+    if (settled) throw new Error("the supervisor settled before run 1 started");
+    if (Date.now() > startDeadline) throw new Error("run 1 did not start within 10s");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
 /** One supervised "suite" backed by a shell fixture instead of `bun test`. */
 function shFixture(script: string, name = "suite fixture"): readonly [string, ...string[]] {
   return ["sh", "-c", script, name];
@@ -342,19 +359,24 @@ describe("suite supervisor: stress mode", () => {
 describe("suite supervisor: bounded interruption", () => {
   test("aborting a supervised run cancels the active suite and cleans up its process group", async () => {
     const logDir = tempDir();
+    const markerDir = tempDir();
     const controller = new AbortController();
+    const marker = join(markerDir, "run-started");
+    // The marker follows the descendant report, so the aborted run's stdout
+    // always carries the pid the cleanup proof checks.
+    const pending = runSupervisedSuite(
+      {
+        mode: "full",
+        suiteCommand: shFixture(`sleep 30 & echo child=$!; touch '${marker}'; wait`),
+        perRunDeadlineMs: 10_000,
+        logDir,
+      },
+      controller.signal,
+    );
     try {
-      const promise = runSupervisedSuite(
-        {
-          mode: "full",
-          suiteCommand: shFixture("sleep 30 & echo child=$!; wait"),
-          perRunDeadlineMs: 10_000,
-          logDir,
-        },
-        controller.signal,
-      );
-      setTimeout(() => controller.abort(), 150);
-      const result = await promise;
+      await waitForRunStart(marker, pending);
+      controller.abort();
+      const result = await pending;
       expect(result.interrupted).toBe(true);
       expect(result.ok).toBe(false);
       expect(result.runs[0]!.result.kind).toBe("cancelled");
@@ -370,7 +392,12 @@ describe("suite supervisor: bounded interruption", () => {
       expect(match?.[1]).toBeTruthy();
       expectProcessGone(Number(match![1]), "aborted descendant");
     } finally {
+      // Cancel and join the supervisor on every exit path, so it never outlives
+      // the directories it writes to.
+      controller.abort();
+      await pending.catch(() => {});
       rmSync(logDir, { recursive: true, force: true });
+      rmSync(markerDir, { recursive: true, force: true });
     }
   });
 });
@@ -1229,16 +1256,7 @@ describe("suite supervisor: qualification records", () => {
       controller.signal,
     );
     try {
-      // Abort only once run 1's child has observably started: an abort during
-      // the admission work before run 1 yields the zero-run record instead.
-      let settled = false;
-      void pending.then(() => { settled = true; }, () => { settled = true; });
-      const startDeadline = Date.now() + 10_000;
-      while (!existsSync(marker)) {
-        if (settled) throw new Error("the supervisor settled before run 1 started");
-        if (Date.now() > startDeadline) throw new Error("run 1 did not start within 10s");
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      }
+      await waitForRunStart(marker, pending);
       controller.abort();
       const result = await pending;
       expect(result.interrupted).toBe(true);

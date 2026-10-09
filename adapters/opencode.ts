@@ -6,6 +6,7 @@ import { type ContextModuleSource } from "./context-envelope.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   isAdapterCapabilityError,
   type AdapterCapabilityError,
   versionFloorCapabilityFailure,
@@ -168,18 +169,11 @@ async function resolveOpenCodeCliVersion(
     return parseOpenCodeCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "opencode",
-        "host",
+        { program: "opencode", args: [{ kind: "text", value: "--version" }] },
         "OpenCode was not found on PATH",
         `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure \`opencode --version\` works before checking status or updating the Profile`,
-        [],
-        undefined,
-        [
-          `install OpenCode ${OPENCODE_MINIMUM_CLI_VERSION}+ and ensure `,
-          commandPart("opencode", [{ kind: "text", value: "--version" }]),
-          " works before checking status or updating the Profile",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -506,6 +500,7 @@ export async function planOpenCodeProject(
             "A running OpenCode session keeps its previously loaded configuration until restarted.",
           kind: "launch-constraint",
           message: "Restart OpenCode to load changed configuration.",
+          humanAction: "restart it to load the new configuration",
           output: OPENCODE_CONFIG_PATH,
           provenance: "transition",
         },

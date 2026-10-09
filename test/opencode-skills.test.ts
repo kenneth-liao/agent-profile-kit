@@ -355,6 +355,7 @@ describe("OpenCode Skills planning", () => {
           "A running OpenCode session keeps its previously loaded configuration until restarted.",
         kind: "launch-constraint",
         message: "Restart OpenCode to load changed configuration.",
+        humanAction: "restart it to load the new configuration",
         output: OPENCODE_CONFIG_PATH,
         provenance: "transition",
       },

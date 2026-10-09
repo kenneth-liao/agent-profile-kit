@@ -355,6 +355,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      humanAction: "trust this project",
       provenance: "standing",
     }]);
     const skillOutput = skillsOnly.outputs[0];
@@ -399,6 +400,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      humanAction: "trust this project",
       provenance: "standing",
     }]);
 
@@ -435,6 +437,7 @@ describe("Pi Adapter", () => {
       consequence: "The Profile does not load until the project is trusted.",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      humanAction: "trust this project",
       provenance: "standing",
     }]);
 

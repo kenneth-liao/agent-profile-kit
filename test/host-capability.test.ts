@@ -96,6 +96,7 @@ describe("Host capability probing", () => {
         host: "codex",
         scope: "host",
         requiredVersion: "0.145.0",
+        reason: "version-floor",
         problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
         remedy: "upgrade Codex before checking status or updating the Profile",
         requirement: "The selected Profile requires Codex project delivery",
@@ -448,7 +449,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probeAntigravityMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("Antigravity CLI was not found on PATH");
+    expect(failure.problem).toContain("Antigravity isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 
@@ -457,7 +458,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probeClaudeMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("Claude Code CLI was not found on PATH");
+    expect(failure.problem).toContain("Claude isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 
@@ -466,7 +467,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probeCodexMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("Codex CLI was not found on PATH");
+    expect(failure.problem).toContain("Codex isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 
@@ -475,7 +476,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probeGrokMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("Grok CLI was not found on PATH");
+    expect(failure.problem).toContain("Grok isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 
@@ -484,7 +485,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probeOpenCodeMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("OpenCode was not found on PATH");
+    expect(failure.problem).toContain("OpenCode isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 
@@ -493,7 +494,7 @@ describe("missing-Host remedy command atoms (ORCH-1, US-011)", () => {
     const failure = await missingHostFailure(() =>
       probePiMachineCapability({ env: { PATH: emptyBin } })
     );
-    expect(failure.problem).toContain("Pi CLI was not found on PATH");
+    expect(failure.problem).toContain("Pi isn't installed, or isn't on your PATH.");
     expectStructuralRemedy(failure);
   });
 });

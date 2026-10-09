@@ -1,0 +1,11 @@
+Supported agents
+
+  antigravity  not found
+  claude       detected
+  codex        detected
+  grok         not found
+  opencode     not found
+  pi           not found
+
+"not found" means apkit couldn't find it on this machine.
+  You can still pick it when you install.

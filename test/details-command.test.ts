@@ -33,6 +33,7 @@ import {
 import type { ProjectBindingSelection } from "../installer/local-configuration.js";
 import type { InteractiveExecution } from "../cli/pager.js";
 import { humanText } from "./support/human-text.js";
+import { installControlledHosts } from "./support/fleet-fixture.js";
 
 const temporaryDirectories: string[] = [];
 
@@ -133,6 +134,14 @@ async function waitForOutput(
   }
 }
 
+/** The settled line of one declined confirmation (spec #672 US-005): it
+ * settles neutral and never with the success glyph. */
+function expectDeclinedSettled(text: string, question: string): void {
+  const settled = humanText(text);
+  expect(settled).toContain(`● ${question}`);
+  expect(settled).not.toContain(`✔ ${question}`);
+}
+
 interface Invocation<T> {
   readonly outcome: Promise<T>;
   readonly streams: CapturedStreams;
@@ -152,6 +161,9 @@ function invokeInstall(
       stdout: streams.output,
       stderr: streams.stderr,
       input,
+      // Hermetic agent detection (CI-1): the controlled stubs, never the
+      // host machine's PATH, so a run is a clean success everywhere.
+      env: { PATH: installControlledHosts(home) },
     }),
     streams,
   };
@@ -213,6 +225,9 @@ function invokeUpdate(
       verbose: false,
       stdout: streams.output,
       stderr: streams.stderr,
+      // Hermetic agent detection (CI-1): the controlled stubs, never the
+      // host machine's PATH.
+      env: { PATH: installControlledHosts(home) },
       input,
     }),
     streams,
@@ -222,7 +237,7 @@ function invokeUpdate(
 async function readDetails(
   home: string,
   arguments_: readonly string[],
-  options: Partial<Pick<DetailsCommandRequest, "pagerExecution" | "pagerEnvironment" | "now">> = {},
+  options: Partial<Pick<DetailsCommandRequest, "pagerExecution" | "pagerEnvironment" | "now" | "timeZone">> = {},
 ): Promise<{ readonly exitCode: number; readonly output: string; readonly error: string }> {
   const streams = capturedStreams(arguments_.includes("--json") ? false : process.stdout.isTTY === true);
   const outcome = await runDetailsCommand({
@@ -336,6 +351,7 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(install.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await install.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(install.streams.humanText(), "Install now? (y/N)");
 
     const entry = (await detailsEntries(home))[0]!;
     expect(entry.outcome).toBe("cancelled");
@@ -358,6 +374,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(update.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await update.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      update.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("update");
@@ -383,6 +403,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(install.streams.humanText, "Replace or delete these generated files");
     input.write("n\n");
     expect((await install.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      install.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("install");
@@ -403,6 +427,7 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(uninstall.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await uninstall.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(uninstall.streams.humanText(), "Uninstall as listed? (y/N)");
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("uninstall");
@@ -423,6 +448,10 @@ describe("lifecycle operation recording", () => {
     await waitForOutput(uninstall.streams.humanText, "(y/N)");
     input.write("n\n");
     expect((await uninstall.outcome).exitCode).toBe(1);
+    expectDeclinedSettled(
+      uninstall.streams.humanText(),
+      "Replace or delete these generated files as listed? (y/N)",
+    );
 
     const latest = (await detailsEntries(home))[0]!;
     expect(latest.command).toBe("uninstall");
@@ -522,7 +551,7 @@ describe("lifecycle operation recording", () => {
     )).toBeUndefined();
   });
 
-  test("committed output without enumerated paths still renders under Written", async () => {
+  test("committed output without enumerated paths still renders under Changed files", async () => {
     const home = await setupHome();
     await appendOperationHistory(home, {
       command: "update",
@@ -539,17 +568,20 @@ describe("lifecycle operation recording", () => {
       failure: "Update refuses without explicit changed-file consent (--replace-changed)",
     });
 
-    const rendered = await readDetails(home, []);
+    const rendered = await readDetails(home, [], {
+      now: Date.parse("2026-09-10T10:05:00.000Z"),
+      timeZone: "UTC",
+    });
     expect(rendered.exitCode).toBe(0);
-    expect(humanText(rendered.output)).toContain("Written:");
+    expect(humanText(rendered.output)).toContain("Changed files:");
     expect(humanText(rendered.output)).not.toContain("Committed:");
     expect(humanText(rendered.output)).toContain("committed generated output (paths not enumerated)");
-    expect(humanText(rendered.output)).toContain("Started:");
-    expect(humanText(rendered.output)).toContain("Finished:");
-    expect(humanText(rendered.output)).not.toContain("→");
+    // US-008: local human time and scope; exact timestamps stay in --json.
+    expect(humanText(rendered.output)).toContain("Today at 10:00 AM · all Projects");
+    expect(humanText(rendered.output)).not.toContain("2026-09-10T10:00:00");
   });
 
-  test("history list uses compact human time and details keep exact timestamps", async () => {
+  test("history list uses compact human time and details use local human time", async () => {
     const home = await setupHome();
     await appendOperationHistory(home, {
       command: "install",
@@ -566,20 +598,22 @@ describe("lifecycle operation recording", () => {
     });
 
     const now = Date.parse("2026-01-01T00:05:00.000Z");
-    const list = await readDetails(home, ["--list"], { now });
+    const list = await readDetails(home, ["--list"], { now, timeZone: "UTC" });
     expect(humanText(list.output)).toContain("5m ago");
     expect(humanText(list.output)).not.toContain("2026-01-01T00:00:00Z");
-    expect(humanText(list.output)).toContain("Operation");
-    expect(humanText(list.output)).toContain("Time");
+    expect(humanText(list.output)).toContain("Run");
+    expect(humanText(list.output)).toContain("When");
     expect(humanText(list.output)).toContain("Command");
-    expect(humanText(list.output)).toContain("Outcome");
+    expect(humanText(list.output)).toContain("Result");
     expect(humanText(list.output)).toContain("Scope");
 
-    const latest = await readDetails(home, [], { now });
-    expect(humanText(latest.output)).toContain("Time: 2026-01-01T00:00:00Z");
-    expect(humanText(latest.output)).not.toContain("→");
-    expect(humanText(latest.output)).not.toContain("Started:");
-    expect(humanText(latest.output)).toContain("Written:");
+    const latest = await readDetails(home, [], { now, timeZone: "UTC" });
+    expect(humanText(latest.output)).toContain("Today at 12:00 AM · all Projects");
+    expect(humanText(latest.output)).not.toContain("2026-01-01T00:00:00Z");
+    expect(humanText(latest.output)).toContain("Changed files:");
+    // Exact timestamps stay in --json (byte-identical, DEC-009).
+    const machine = await readDetails(home, ["--json"], { now, timeZone: "UTC" });
+    expect(machine.output).toContain("2026-01-01T00:00:00.000Z");
   });
 
   test("invalid invocations and fail-closed refusals record nothing and decide explicitly", async () => {
@@ -627,6 +661,7 @@ describe("lifecycle operation recording", () => {
       command: "update",
       startedAt: Date.now(),
       finishedAt: Date.now(),
+      time: { nowMs: Date.now(), timeZone: "UTC" },
       stderr: refusedStreams.stderr,
     })).toBe("refused");
     expect(refusedStreams.errorText()).toBe("");
@@ -639,6 +674,7 @@ describe("lifecycle operation recording", () => {
       command: "update",
       startedAt: Date.now(),
       finishedAt: Date.now(),
+      time: { nowMs: Date.now(), timeZone: "UTC" },
       stderr: undecidedStreams.stderr,
     })).toBe("unrecorded");
     expect(humanText(undecidedStreams.errorText())).toContain(
@@ -844,17 +880,18 @@ describe("lifecycle operation recording", () => {
     const output = humanText(install.streams.humanText());
     const error = humanText(install.streams.errorText());
     expect(output).toContain("Installed the coding Profile");
-    // The run still prints its route (ADR-0040), and the save-failure guard
-    // states that this run is not in the store the route reads (INT-1).
-    expect(output).toContain("Details: apkit details");
+    // A normal success omits the details route (US-008, D4); the
+    // save-failure warning explains that `apkit details` cannot show this run
+    // and carries the complete evidence inline instead (INT-1).
+    expect(output).not.toContain("Details: apkit details");
     expect(error).toContain("operation history could not be saved");
     expect(error).toContain("does not include it");
     // The complete run evidence is displayed, not lost with the entry.
     expect(error).toContain("Install (not saved)");
-    expect(error).toContain("Written:");
+    expect(error).toContain("Changed files:");
     expect(error).toContain(".agent-profile-kit/codex/context.md");
     expect(error).toContain(".codex/hooks.json");
-    expect(error).toContain("Outcome: succeeded");
+    expect(error).toContain("succeeded");
     // Successful lifecycle work is never rolled back.
     expect(existsSync(join(projectPath, ".codex", "hooks.json"))).toBe(true);
     expect(readFileSync(configPath(home), "utf8")).toContain("profile: coding");

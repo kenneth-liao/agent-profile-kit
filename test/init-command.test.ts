@@ -729,8 +729,10 @@ describe("the setup confirmation content and scope (#603)", () => {
     // Connecting never changes the Workspace's files (ISC-33).
     expect(fileTreeSnapshot(workspace)).toEqual(before);
     // A first connection at a fully valid folder writes the configuration
-    // and nothing else (US-002, ISC-27.2, spec #676).
-    expect(plain(streams.humanText())).toContain("Created your Workspace at");
+    // and nothing else (US-002, ISC-27.2, spec #676). The folder already
+    // existed, so the receipt says Connected, decided from the folder fact
+    // (spec #672 US-003, screen 21).
+    expect(plain(streams.humanText())).toContain("Connected your Workspace at");
     expect(plain(streams.humanText())).not.toContain("settings:");
     expect(existsSync(join(workspace, "profiles", "example.yaml"))).toBe(false);
   }, 20_000);
@@ -826,6 +828,11 @@ describe("the setup confirmation content and scope (#603)", () => {
     const { exitCode } = await pending;
 
     expect(exitCode).toBe(1);
+    // The declined confirmation settles neutral, never as a success (spec
+    // #672 US-005).
+    const settled = plain(streams.humanText());
+    expect(settled).toContain("● Use the current folder as your Workspace?");
+    expect(settled).not.toContain("✔ Use the current folder as your Workspace?");
     expect(existsSync(configPath(home))).toBe(false);
     expect(fileTreeSnapshot(cwd).size).toBe(0);
   }, 20_000);

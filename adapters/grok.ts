@@ -12,6 +12,7 @@ import { type ContextModuleSource } from "./context-envelope.js";
 import {
   caughtCapabilityFailure,
   capabilityFailure,
+  missingExecutableFailure,
   versionFloorCapabilityFailure,
   type AdapterCapabilityFailure,
 } from "./capability.js";
@@ -238,18 +239,11 @@ export async function resolveGrokCliVersion(options: GrokCapabilityOptions): Pro
     return parseGrokCliVersion(`${stdout}\n${stderr}`);
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "grok",
-        "host",
+        { program: "grok", args: [{ kind: "text", value: "version" }] },
         "Grok CLI was not found on PATH",
         "install Grok Build and ensure `grok version` works before checking status or updating the Profile",
-        [],
-        undefined,
-        [
-          "install Grok Build and ensure ",
-          commandPart("grok", [{ kind: "text", value: "version" }]),
-          " works before checking status or updating the Profile",
-        ],
       );
     }
     if (error instanceof Error && "stdout" in error) {
@@ -564,21 +558,17 @@ export async function inspectGrokProject(
     return parseGrokInspectDocument(stdout, { version });
   } catch (error) {
     if (hasErrorCode(error, "ENOENT")) {
-      throw capabilityFailure(
+      throw missingExecutableFailure(
         "grok",
-        "host",
-        "Grok CLI was not found on PATH",
-        "install Grok Build and ensure `grok inspect --json` works before checking status or updating the Profile",
-        [],
-        undefined,
-        [
-          "install Grok Build and ensure ",
-          commandPart("grok", [
+        {
+          program: "grok",
+          args: [
             { kind: "text", value: "inspect" },
             { kind: "text", value: "--json" },
-          ]),
-          " works before checking status or updating the Profile",
-        ],
+          ],
+        },
+        "Grok CLI was not found on PATH",
+        "install Grok Build and ensure `grok inspect --json` works before checking status or updating the Profile",
       );
     }
     if (error instanceof Error && error.message.startsWith("Grok inspect")) {
@@ -942,6 +932,7 @@ export async function planGrokProject(
           kind: "shared-path",
           message:
             `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
+          humanAction: `it reads Claude's Context file at ${CLAUDE_CONTEXT_RULE_PATH}`,
           provenance: "standing",
         }]
       : [];

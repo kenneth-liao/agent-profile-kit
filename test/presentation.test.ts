@@ -16,7 +16,6 @@ import {
   installReceiptDocument,
   newArtifactCreatedNodes,
 } from "../cli/receipts.js";
-import { PROJECT_EXPLANATION_SENTENCE } from "../cli/concept-explanations.js";
 import { workspaceSubfolderDisplay } from "../cli/display-path.js";
 import {
   commandPart,
@@ -105,6 +104,7 @@ import {
   hasNotInstalledYet,
   hasSourceChanged,
   primaryCauseLabel,
+  warningLeavesUserEvidence,
 } from "../cli/presentation.js";
 import type {
   PresentationDocument,
@@ -299,6 +299,8 @@ interface FlatFixture {
   readonly diagnosticValues: readonly string[];
   readonly warnings: readonly string[];
   readonly warningParts?: readonly (readonly InlineContent[])[];
+  /** Index-aligned with `warnings`: the typed Repository Exclusion bookkeeping fact. */
+  readonly warningExclusionBookkeeping?: readonly boolean[];
 }
 
 function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport {
@@ -373,6 +375,9 @@ function emptyReport(overrides: Partial<FlatFixture> = {}): ReconciliationReport
           copyableValues: fixture.diagnosticValues,
           kind: "diagnostic" as const,
           parts: fixture.warningParts?.[index] ?? [message],
+          ...(fixture.warningExclusionBookkeeping?.[index] === true
+            ? { exclusionBookkeeping: true as const }
+            : {}),
         })) : [],
         repositoryExclusions: key === firstProject ? fixture.repositoryExclusions : [],
       });
@@ -705,10 +710,66 @@ describe("lifecycle status document", () => {
       "row",
     ]);
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (2 Projects)\n");
     expect(rendered).toContain("up to date");
     expect(rendered).not.toContain("Next:");
     expect(rendered).not.toContain("Details:");
+  });
+
+  test("status separates its headline from the Workspace row with one blank line (spec #672 US-001/DEC-002, screens 06/16)", () => {
+    const report = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    for (const width of [100, 60] as const) {
+      const rendered = renderBoundary(
+        lifecycleStatusDocument(report, {
+          workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+        }),
+        { ...defaultRenderContext, width },
+      );
+      const lines = rendered.split("\n");
+      // The Workspace row is its own screen part, as on `validate`.
+      expect(lines[0]).toStartWith("✔ Everything is up to date");
+      expect(lines[1]).toBe("");
+      expect(lines[2]).toStartWith("Workspace:");
+      for (const line of lines) {
+        expect(line.length).toBeLessThanOrEqual(width);
+      }
+    }
+  });
+
+  test("empty status separates its condition from the Workspace row the same way (spec #672 US-001)", () => {
+    const rendered = renderBoundary(
+      lifecycleStatusDocument(emptyReport({}), {
+        workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+      }),
+    );
+    const lines = rendered.split("\n");
+    expect(lines[0]).toStartWith("● No Projects are configured.");
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toStartWith("Workspace:");
+  });
+
+  test("the empty status and empty inventory give their next steps as noted commands (US-001, #693)", () => {
+    const status = renderBoundary(lifecycleStatusDocument(emptyReport({}), {
+      workspace: { canonical: "/home/apkit-workspace", authored: "~/apkit-workspace" },
+    }));
+    expect(status).toContain("Next:");
+    expect(status).toContain("- apkit list projects (inspect configured Projects)");
+    expect(status).toContain("- apkit install <profile> --agent <agent> (install a Project)");
+
+    const inventory = renderBoundary(projectInventoryDocument([], "/home/test", "/home/test"));
+    expect(inventory).toStartWith("✔ No Projects are configured.");
+    expect(inventory).toContain("Next: apkit install <profile> --agent <agent> (install a Project)");
+    expect(inventory).not.toContain("Use apkit install");
   });
 
   test("concise pending status is outcome, scope rows, then typed next commands in order", () => {
@@ -728,6 +789,7 @@ describe("lifecycle status document", () => {
         kind: "command",
         program: "apkit",
         args: [{ kind: "text", value: "update" }],
+        note: "bring your Projects up to date",
       },
       {
         kind: "command",
@@ -782,6 +844,7 @@ describe("lifecycle status document", () => {
           host: "codex",
           kind: "trust-required",
           message: "Trust the bound project in Codex.",
+          humanAction: "trust this project",
           provenance: "standing",
         }],
       }],
@@ -1185,6 +1248,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "approval-required",
     message: "Review and approve the generated SessionStart hook when Codex asks.",
+    humanAction: "approve the SessionStart hook when asked",
     consequence: "Declining the hook prevents Profile Context from loading.",
     output: hookPath,
     provenance: "transition",
@@ -1193,6 +1257,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "trust-required",
     message: "Trust the bound project in Codex.",
+    humanAction: "trust this project",
     consequence: "Profile Context does not load until the project is trusted.",
     provenance: "standing",
   });
@@ -1200,6 +1265,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "codex",
     kind: "launch-constraint",
     message: "Launch Codex from the exact bound project root:",
+    humanAction: "start it from the exact Project folder:",
     path: "bound-project",
     consequence: "Launching from a descendant prevents Profile Context from loading.",
     provenance: "standing",
@@ -1208,6 +1274,7 @@ describe("Host Setup Step provenance and presentation", () => {
     host: "grok",
     kind: "shared-path",
     message: "Grok uses Claude's shared rule path.",
+    humanAction: "it reads Claude's shared rule path",
     provenance: "standing",
   });
 
@@ -1244,27 +1311,28 @@ describe("Host Setup Step provenance and presentation", () => {
   };
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     // Sections are authored headings; each step is a list item whose distinct
-    // consequence follows as its own prose node.
+    // consequence follows as its own prose node. Human surfaces render the
+    // step's authored humanAction (spec #672 US-001/US-005).
     expect(headingsIn(verbose)).toContain("Agent setup:");
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
     const nodes = flattenPresentationNodes(verbose);
     const approvalIndex = indexWhere(nodes, (node) =>
       listItemTexts(node).includes(
-        "Review and approve the generated SessionStart hook when Codex asks."));
+        "Codex: approve the SessionStart hook when asked."));
     expect(approvalIndex).toBeGreaterThan(-1);
     expect(nodes[approvalIndex + 1]).toEqual({
       kind: "prose",
       parts: ["  Consequence: Declining the hook prevents Profile Context from loading."],
     });
     const trustIndex = indexWhere(nodes, (node) =>
-      listItemTexts(node).includes("Trust the bound project in Codex."));
+      listItemTexts(node).includes("Codex: trust this project."));
     expect(trustIndex).toBeGreaterThan(-1);
     expect(nodes[trustIndex + 1]).toEqual({
       kind: "prose",
       parts: ["  Consequence: Profile Context does not load until the project is trusted."],
     });
-    expect(listItemsIn(verbose)).toContain("Launch Codex from the exact bound project root: /project-a");
-    expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
+    expect(listItemsIn(verbose)).toContain("Codex: start it from the exact Project folder: /project-a.");
+    expect(listItemsIn(verbose)).toContain("Grok: it reads Claude's shared rule path.");
 
     const machine = JSON.parse(formatLifecycleJson("status", report)) as {
       readonly projects: readonly {
@@ -1339,10 +1407,10 @@ describe("Host Setup Step provenance and presentation", () => {
     // The identical step renders once with compact Project scope; the distinct
     // consequence keeps its own bullet (US-048, US-049).
     expect(listItemsIn(verbose).filter((text) =>
-      text.startsWith("Trust the bound project in Codex.")
+      text.startsWith("Codex: trust this project.")
     )).toEqual([
-      "Trust the bound project in Codex. (/project-a, /project-b)",
-      "Trust the bound project in Codex.",
+      "Codex: trust this project. (/project-a, /project-b)",
+      "Codex: trust this project.",
     ]);
     expect(presentationTexts(verbose).filter((text) =>
       text === "  Consequence: Profile Context does not load until the project is trusted."
@@ -1369,7 +1437,7 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = lifecycleStatusDocument(report, { verbose: true });
 
     expect(listItemsIn(verbose)).toContain(
-      "Launch Codex from the exact bound project root: /project-a",
+      "Codex: start it from the exact Project folder: /project-a.",
     );
   });
 
@@ -1397,9 +1465,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const firstUse = indexWhere(conciseNodes, (node) => node.kind === "heading" && nodeText(node) === "First use:");
     expect(firstUse).toBeGreaterThan(-1);
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Launch Codex from the exact bound project root"),
+      expect.stringContaining("Codex: approve the SessionStart hook when asked so the Profile can load"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Codex: start it from the exact Project folder so the Profile can load"),
     ]);
     expect(headingsIn(applyReportDocument(applyResult(report, resultingState))))
       .not.toContain("Agent setup:");
@@ -1412,9 +1480,9 @@ describe("Host Setup Step provenance and presentation", () => {
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toEqual(expect.arrayContaining(["Agent setup:", "Standing agent setup:"]));
     expect(listItemsIn(verbose)).toEqual(expect.arrayContaining([
-      "Trust the bound project in Codex.",
-      "Launch Codex from the exact bound project root: /project-a",
-      "Grok uses Claude's shared rule path.",
+      "Codex: trust this project.",
+      "Codex: start it from the exact Project folder: /project-a.",
+      "Grok: it reads Claude's shared rule path.",
     ]));
     expect(flattenPresentationNodes(verbose).some((node) =>
       node.kind === "prose" &&
@@ -1451,7 +1519,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Trust the bound project in Codex.");
+    expect(listItemsIn(verbose)).toContain("Codex: trust this project.");
   });
 
   test("replacing the last Host-consumed output on an established pairing does not replay standing first-use", () => {
@@ -1468,6 +1536,7 @@ describe("Host Setup Step provenance and presentation", () => {
           host: "pi",
           kind: "trust-required",
           message: "Trust the bound project in Pi.",
+          humanAction: "trust this project",
           consequence: "The Profile does not load until the project is trusted.",
           provenance: "standing",
         }],
@@ -1495,7 +1564,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(concise)).not.toContain("First use:");
     const verbose = applyReportDocument(applyResult(receipt, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Trust the bound project in Pi.");
+    expect(listItemsIn(verbose)).toContain("Pi: trust this project.");
   });
 
   test("routine update does not replay transition setup or standing trust", () => {
@@ -1567,7 +1636,7 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
     const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
     expect(headingsIn(verbose)).toContain("Standing agent setup:");
-    expect(listItemsIn(verbose)).toContain("Grok uses Claude's shared rule path.");
+    expect(listItemsIn(verbose)).toContain("Grok: it reads Claude's shared rule path.");
   });
 
   test("no-op update omits transition setup and the standing reminder", () => {
@@ -1593,6 +1662,7 @@ describe("Host Setup Step provenance and presentation", () => {
       host: "pi",
       kind: "trust-required",
       message: "Trust the bound project in Pi.",
+      humanAction: "trust this project",
       consequence: "The Profile does not load until the project is trusted.",
       provenance: "standing",
     };
@@ -1629,9 +1699,9 @@ describe("Host Setup Step provenance and presentation", () => {
     // First-use guidance is deduplicated: one list item per distinct step,
     // with no per-Project setup matrix.
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      expect.stringContaining("Review and approve the generated SessionStart hook when Codex asks"),
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Trust the bound project in Pi"),
+      expect.stringContaining("Codex: approve the SessionStart hook when asked so the Profile can load"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Pi: trust this project so the Profile can load"),
     ]);
   });
 
@@ -1658,15 +1728,15 @@ describe("Host Setup Step provenance and presentation", () => {
 
     const concise = listItemsIn(applyReportDocument(applyResult(receipt, resultingState)));
     expect(concise).toEqual([
-      expect.stringContaining("Trust the bound project in Codex"),
-      expect.stringContaining("Launch Codex from the exact bound project root"),
+      expect.stringContaining("Codex: trust this project so the Profile can load"),
+      expect.stringContaining("Codex: start it from the exact Project folder for 2 projects"),
     ]);
 
     const verbose = listItemsIn(
       applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
     );
-    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-1");
-    expect(verbose).toContain("Launch Codex from the exact bound project root: /p-2");
+    expect(verbose).toContain("Codex: start it from the exact Project folder: /p-1.");
+    expect(verbose).toContain("Codex: start it from the exact Project folder: /p-2.");
   });
 
   test("standing guidance is not triggered by non-host bookkeeping additions or outputs for different hosts", () => {
@@ -1701,12 +1771,13 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(flattenPresentationNodes(concise).at(-1)).toMatchObject({ kind: "prose" });
   });
 
-  test("non-standard security warning consequence is preserved in concise update", () => {
+  test("a non-standard consequence never reappears as a parenthetical on human lines (INT-2 superseded)", () => {
     const warningStep: HostSetupStep = {
       consequence: "Security warning: remote execution permitted",
       host: "codex",
       kind: "trust-required",
       message: "Trust the bound project in Codex.",
+      humanAction: "trust this project",
       provenance: "standing",
     };
     const report = emptyReport({
@@ -1735,9 +1806,25 @@ describe("Host Setup Step provenance and presentation", () => {
     );
     expect(firstUse).toBeGreaterThan(-1);
     const conciseNodes = flattenPresentationNodes(concise);
+    // The human line states what to do and why in plain words; the raw
+    // consequence never follows in parentheses. Its fact stays as verbose
+    // evidence and machine JSON (DEC-004).
     expect(listItemsFrom(conciseNodes, firstUse + 1)).toEqual([
-      "Trust the bound project in Codex (Security warning: remote execution permitted).",
+      "Codex: trust this project.",
     ]);
+    expect(documentText(concise)).not.toContain("Security warning: remote execution permitted");
+    const verbose = applyReportDocument(applyResult(report, resultingState), { verbose: true });
+    expect(presentationTexts(verbose)).toContain(
+      "  Consequence: Security warning: remote execution permitted",
+    );
+    const machine = JSON.parse(formatApplyJson(applyResult(report, resultingState))) as {
+      readonly projects: readonly {
+        readonly setupSteps: readonly { readonly consequence?: string }[];
+      }[];
+    };
+    expect(machine.projects[0]?.setupSteps[0]?.consequence).toBe(
+      "Security warning: remote execution permitted",
+    );
   });
 
   test("changed aliased projects retain activation through their authored report identity", () => {
@@ -1781,10 +1868,10 @@ describe("Host Setup Step provenance and presentation", () => {
     ]);
     const verbose = lifecycleStatusDocument(report, { verbose: true });
     expect(listItemsIn(verbose)).toContain(
-      "Trust the bound project in Codex. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
+      "Codex: trust this project. (/p-1, /p-2, /p-3, /p-4, /p-5, /p-6)",
     );
     expect(listItemsIn(verbose).filter((text) =>
-      text.startsWith("Trust the bound project in Codex.")
+      text.startsWith("Codex: trust this project.")
     )).toHaveLength(1);
   });
 
@@ -1803,12 +1890,15 @@ describe("Host Setup Step provenance and presentation", () => {
     expect(headingsIn(blockedApply)).not.toContain("Standing Host setup:");
     expect(listItemsIn(blockedApply).some((text) =>
       text.includes("Review and approve the generated SessionStart hook") ||
-      text.includes("Trust the bound project in Codex.")
+      text.includes("Trust the bound project in Codex.") ||
+      text.includes("approve the SessionStart hook") ||
+      text.includes("trust this project")
     )).toBe(false);
     expect(flattenPresentationNodes(blockedApply).some((node) =>
       node.kind === "prose" &&
       (nodeText(node).includes("Review and approve the generated SessionStart hook") ||
-        nodeText(node).includes("Trust the bound project in Codex."))
+        nodeText(node).includes("Trust the bound project in Codex.") ||
+        nodeText(node).includes("trust this project"))
     )).toBe(false);
   });
 
@@ -1828,7 +1918,7 @@ describe("Host Setup Step provenance and presentation", () => {
       (node) => node.kind === "heading" && nodeText(node) === "First use:",
     );
     expect(firstUse).toBeGreaterThan(-1);
-    expect(listItemsFrom(failureNodes, firstUse + 1)).toEqual([expect.stringContaining("Trust the bound project in Codex")]);
+    expect(listItemsFrom(failureNodes, firstUse + 1)).toEqual([expect.stringContaining("Codex: trust this project so the Profile can load")]);
   });
 });
 
@@ -1847,6 +1937,7 @@ describe("responsive lifecycle presentation", () => {
           host: "codex",
           kind: "trust-required",
           message: "Trust the bound project in Codex.",
+          humanAction: "trust this project",
           consequence: "Profile Context does not load until the project is trusted.",
           provenance: "standing",
         }],
@@ -2339,7 +2430,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     const document = applyReportDocument(changedApply("coding"));
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session in a Project to use the changes."
     )).toBe(true);
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" && nodeText(node).includes("will load the next time")
@@ -2373,7 +2464,7 @@ describe("Host-loading optional check and next-use instruction (US-012, ADR-0043
     // guidance.
     expect(flattenPresentationNodes(document).some((node) =>
       node.kind === "prose" &&
-      nodeText(node) === "Start a new agent session from the Project root to use the updated material."
+      nodeText(node) === "Start a new agent session in a Project to use the changes."
     )).toBe(true);
   });
 
@@ -2607,6 +2698,7 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     host: "codex",
     kind: "approval-required",
     message: "Review and approve the generated SessionStart hook when Codex asks.",
+    humanAction: "approve the SessionStart hook when asked",
     consequence: "Declining the hook prevents Profile Context from loading.",
     output: hookPath,
     provenance: "transition",
@@ -2615,13 +2707,41 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     host: "codex",
     kind: "trust-required",
     message: "Trust the bound project in Codex.",
+    humanAction: "trust this project",
     consequence: "Profile Context does not load until the project is trusted.",
     provenance: "standing",
+  });
+  const antigravityTrust = (): HostSetupStep => ({
+    host: "antigravity",
+    kind: "trust-required",
+    message: "Trust the bound project in Antigravity.",
+    humanAction: "trust this project",
+    consequence: "The Profile does not load until the project is trusted.",
+    provenance: "standing",
+  });
+  const piTrust = (): HostSetupStep => ({
+    host: "pi",
+    kind: "trust-required",
+    message: "Trust the bound project in Pi.",
+    humanAction: "trust this project",
+    consequence: "The Profile does not load until the project is trusted.",
+    provenance: "standing",
+  });
+  const opencodeRestart = (): HostSetupStep => ({
+    host: "opencode",
+    kind: "launch-constraint",
+    message: "Restart OpenCode to load changed configuration.",
+    humanAction: "restart it to load the new configuration",
+    consequence:
+      "A running OpenCode session keeps its previously loaded configuration until restarted.",
+    output: ".opencode/opencode.jsonc",
+    provenance: "transition",
   });
   const sharedPath = (): HostSetupStep => ({
     host: "grok",
     kind: "shared-path",
     message: "Grok uses Claude's shared rule path.",
+    humanAction: "it reads Claude's Context file",
     provenance: "standing",
   });
 
@@ -2648,7 +2768,7 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     return { receipt, resultingState };
   };
 
-  test("a first install surfaces the start-folder line plus one Adapter-authored line per agent", () => {
+  test("a first install surfaces the start-folder line plus one line per agent with steps", () => {
     const { receipt, resultingState } = installReports([hookApproval(), codexTrust(), sharedPath()]);
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex", "grok"]);
     const flattened = flattenPresentationNodes(nodes);
@@ -2657,17 +2777,11 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     );
     expect(section).toBeGreaterThan(-1);
     // The host-neutral start-folder line comes first (DEC-006); the agent's
-    // two Adapter-authored messages render as one prefixed line (spec #677).
-    expect(listItemsFrom(flattened, section + 1)).toEqual([
+    // steps render as one plain prefixed line (spec #672 screens 04/26).
+    expect(listItemsFrom(flattened, section + 1)[0]).toBe(
       "Start your agents from this Project folder, not a subfolder.",
-      expect.stringContaining("Codex: Review and approve the generated SessionStart hook when Codex asks"),
-    ]);
-    // The agent line joins the Adapter-authored messages mechanically; it is
-    // never reworded and never drops a non-standard consequence.
-    const agentLine = listItemsIn(nodes).find((text) => text.startsWith("Codex: "));
-    expect(agentLine).toBe(
-      "Codex: Review and approve the generated SessionStart hook when Codex asks; Trust the bound project in Codex.",
     );
+    expect(listItemsIn(nodes).some((text) => text.startsWith("Codex: "))).toBe(true);
     // Shared-path stays off the receipt; longer explanation is focused
     // guidance and verbose/JSON evidence.
     expect(listItemsIn(nodes).some((text) => text.includes("shared rule path"))).toBe(false);
@@ -2675,16 +2789,16 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     expect(documentText(nodes)).not.toContain("Declining the hook prevents Profile Context from loading.");
   });
 
-  test("a non-standard consequence renders in parentheses on the agent's one line", () => {
+  test("a non-standard consequence never renders as a parenthetical on the agent's line (INT-2 superseded)", () => {
     // OpenCode-style restart step (transition-triggered on its own config
-    // output): the heading carries the standard load reason, so this
-    // step's non-standard consequence — a distinct Adapter-authored fact —
-    // stays on the line in parentheses (spec #677, INT-2).
+    // output): the human line states what to do and why in plain words, and
+    // the raw consequence stays verbose/JSON evidence (spec #672, ticket #701).
     const configPath = ".opencode/opencode.jsonc";
     const restart = (): HostSetupStep => ({
       host: "opencode",
       kind: "launch-constraint",
       message: "Restart OpenCode to load changed configuration.",
+      humanAction: "restart it to load the new configuration",
       consequence:
         "A running OpenCode session keeps its previously loaded configuration until restarted.",
       output: configPath,
@@ -2710,12 +2824,11 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
       items: [{ kind: "current", project: "/project-a" }],
     });
     const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
-    // ORCH-1 (spec #677): the agent prefix reads the catalog displayName, so
-    // the agent is never spelled two ways on one line — the product casing
-    // "OpenCode:" beside the Adapter-authored message's own "OpenCode".
+    // ORCH-1 (spec #677): the agent prefix reads the catalog displayName and
+    // the human action drops the agent name, so it appears once on the line.
     expect(listItemsIn(nodes)).toEqual([
       "Start your agents from this Project folder, not a subfolder.",
-      "OpenCode: Restart OpenCode to load changed configuration (A running OpenCode session keeps its previously loaded configuration until restarted).",
+      "OpenCode: restart it to load the new configuration.",
     ]);
   });
 
@@ -2746,6 +2859,134 @@ describe("install Host Setup Steps on the receipt (US-012, DEC-009)", () => {
     const nodes = installSetupGuidanceNodes(receipt, receipt, ["codex"]);
     expect(nodes).toEqual([]);
   });
+
+  test("Codex's human line reads as proposed screens 04/26", () => {
+    const { receipt, resultingState } = installReports([hookApproval(), codexTrust()]);
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "Codex: approve the SessionStart hook when asked, and trust this project.",
+    ]);
+  });
+
+  test("a changed re-delivery renders only the step that presents", () => {
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts: ["codex"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps: [hookApproval(), codexTrust()],
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "update", project: "/project-a" }],
+      outputs: [{ kind: "update", path: hookPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["codex"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Codex: approve the SessionStart hook when asked.",
+    ]);
+  });
+
+  test("Antigravity and Pi trust lines use the same plain form", () => {
+    const { receipt, resultingState } = installReports(
+      [antigravityTrust(), piTrust()],
+      ["antigravity", "pi"],
+    );
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["antigravity", "pi"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "Antigravity: trust this project.",
+      "Pi: trust this project.",
+    ]);
+  });
+
+  test("OpenCode keeps its restart step in the same plain style", () => {
+    const configPath = ".opencode/opencode.jsonc";
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed" as const,
+        hosts: ["opencode"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [opencodeRestart()],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: configPath, project: "/project-a" }],
+    });
+    const resultingState = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed" as const,
+        hosts: ["opencode"] as const,
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+        setupSteps: [opencodeRestart()],
+      }],
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const nodes = installSetupGuidanceNodes(resultingState, receipt, ["opencode"]);
+    expect(listItemsIn(nodes)).toEqual([
+      "Start your agents from this Project folder, not a subfolder.",
+      "OpenCode: restart it to load the new configuration.",
+    ]);
+  });
+
+  test("no human setup surface reaches users with the machine message or 'bound project'", () => {
+    const steps = [hookApproval(), codexTrust(), antigravityTrust(), piTrust(), opencodeRestart(), sharedPath()];
+    const desired = [{
+      canonicalProject: "/project-a",
+      context: "composed" as const,
+      hosts: ["codex", "antigravity", "pi", "opencode", "grok"] as const,
+      outputs: ["a.md"],
+      profile: "coding",
+      project: "/project-a",
+      resolvedArtifacts: [],
+      setupSteps: steps,
+    }];
+    const receipt = emptyReport({
+      desired,
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [
+        { kind: "addition", path: hookPath, project: "/project-a" },
+        { kind: "addition", path: ".opencode/opencode.jsonc", project: "/project-a" },
+      ],
+    });
+    const resultingState = emptyReport({
+      desired,
+      items: [{ kind: "current", project: "/project-a" }],
+    });
+    const surfaces = [
+      installSetupGuidanceNodes(
+        resultingState,
+        receipt,
+        ["codex", "antigravity", "pi", "opencode", "grok"],
+      ),
+      applyReportDocument(applyResult(receipt, resultingState)),
+      applyReportDocument(applyResult(receipt, resultingState), { verbose: true }),
+    ].map((nodes) => documentText(nodes)).join("\n");
+    for (const machineMessage of [
+      "bound project",
+      "Review and approve the generated SessionStart hook",
+      "Trust the bound project",
+      "Restart OpenCode to load changed configuration",
+      "Grok uses Claude's shared rule path",
+    ]) {
+      expect(surfaces).not.toContain(machineMessage);
+    }
+  });
 });
 
 describe("temporary-installation Project identity in documents", () => {
@@ -2774,6 +3015,7 @@ describe("temporary-installation Project identity in documents", () => {
         host: "codex",
         kind: "launch-constraint",
         message: "Launch Codex from the exact bound project root:",
+        humanAction: "start it from the exact Project folder:",
         path: "bound-project",
         provenance: "standing",
       }]),
@@ -2802,6 +3044,7 @@ describe("temporary-installation Project identity in documents", () => {
           host: "codex",
           kind: "launch-constraint",
           message: "Launch Codex from the exact bound project root:",
+          humanAction: "start it from the exact Project folder:",
           path: "bound-project",
           provenance: "standing",
         }]),
@@ -2823,6 +3066,7 @@ describe("temporary-installation Project identity in documents", () => {
             host: "codex",
             kind: "launch-constraint",
             message: "Launch Codex from the exact bound project root:",
+            humanAction: "start it from the exact Project folder:",
             path: "bound-project",
             provenance: "standing",
           }]),
@@ -3609,7 +3853,7 @@ describe("status concise terminology", () => {
     const concise = applyReportDocument(applyResult(receipt, emptyReport()));
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(flattenPresentationNodes(concise).map(nodeText))
-      .toContain("Updated 1 Project (1 generated file).");
+      .toContain("Updated 1 Project (1 file)");
     expect(flattenPresentationNodes(concise).some((node) =>
       node.kind === "prose" && nodeText(node).includes("receipt-project")
     )).toBe(false);
@@ -3679,7 +3923,7 @@ describe("status concise terminology", () => {
 
     // The receipt states the affected Project and changed-file counts once
     // (US-011, DEC-007).
-    expect(texts.filter((text) => text === "Updated 6 Projects (16 generated files)."))
+    expect(texts.filter((text) => text === "Updated 6 Projects (16 files)"))
       .toHaveLength(1);
 
     // No per-file, per-Project, per-operation, or Profile inventory in the
@@ -3709,7 +3953,7 @@ describe("status concise terminology", () => {
 
     const texts = flattenPresentationNodes(applyReportDocument(applyResult(receipt, emptyReport())))
       .map(nodeText);
-    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts).toContain("Updated 1 Project (12 files)");
     expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
   });
 
@@ -3737,7 +3981,7 @@ describe("status concise terminology", () => {
 
     // Routine committed work stays a count; the approved changed-file
     // replacement and deletion keep their actionable identities (US-011).
-    expect(texts).toContain("Updated 1 Project (4 generated files).");
+    expect(texts).toContain("Updated 1 Project (4 files)");
     expect(headingsIn(document)).toContain("Replaced changed generated files:");
     expect(texts).toContain("  ~ a.md (/project-a)");
     expect(headingsIn(document)).toContain("Removed changed generated files:");
@@ -3794,7 +4038,7 @@ describe("status concise terminology", () => {
       // The receipt proves committed work; every projection stayed
       // byte-identical, so the file count is truthfully zero while the
       // affected Project is still stated once (US-011, ADR-0040).
-      expect(texts).toContain("Updated 1 Project (0 generated files).");
+      expect(texts).toContain("Updated 1 Project (0 files)");
       expect(texts.some((text) => text.includes("a.md"))).toBe(false);
     }
   });
@@ -3822,7 +4066,7 @@ describe("status concise terminology", () => {
     const document = applyReportDocument(applyResult(receipt, emptyReport()));
     const texts = flattenPresentationNodes(document).map(nodeText);
 
-    expect(texts).toContain("Updated 1 Project (0 generated files).");
+    expect(texts).toContain("Updated 1 Project (0 files)");
     // Routine Git exclusion bookkeeping stays out of the default view.
     expect(texts.some((text) => text.includes(".git/info/exclude"))).toBe(false);
   });
@@ -3876,7 +4120,7 @@ describe("status concise terminology", () => {
     });
     const texts = flattenPresentationNodes(document).map(nodeText);
     // Committed work is summarized once; the failed Project keeps its identity.
-    expect(texts).toContain("Updated 1 Project (12 generated files).");
+    expect(texts).toContain("Updated 1 Project (12 files).");
     expect(texts.filter((text) => text.trim().startsWith("+ "))).toEqual([]);
     expect(texts.some((text) => text.includes("/project-b"))).toBe(true);
   });
@@ -3893,7 +4137,7 @@ describe("status concise terminology", () => {
     // statement, no status-style Changes summary.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const conciseNodes = flattenPresentationNodes(concise);
-    expect(conciseNodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(conciseNodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(conciseNodes.some((node) =>
       node.kind === "prose"
@@ -4020,6 +4264,7 @@ describe("status concise terminology", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       output: ".codex/hooks.json",
       provenance: "transition",
     };
@@ -4613,6 +4858,7 @@ describe("status concise terminology", () => {
       warnings: [
         "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries",
       ],
+      warningExclusionBookkeeping: [true],
     });
 
     const concise = lifecycleStatusDocument(report);
@@ -4620,6 +4866,32 @@ describe("status concise terminology", () => {
 
     expect(flattenPresentationNodes(concise).filter((node) => node.kind === "prose" && node.category === "error")).toHaveLength(1);
     expect(conciseTexts.some((text) => text.includes("/repo/.git/info/exclude"))).toBe(false);
+  });
+
+  test("the user-visible-warning reader decides from the typed fact, never rendered copy (INT-2, #693)", () => {
+    // A tagged Repository Exclusion bookkeeping notice is never a warning the
+    // run leaves the user with, whatever its copy says.
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "diagnostic",
+      parts: ["an unrelated bookkeeping note"],
+      exclusionBookkeeping: true,
+    })).toBe(false);
+    // Untagged copy is a warning the run leaves the user with, even when the
+    // words match the historical exclusion suffixes: the fact is the one
+    // reader, so rewording the source cannot silently flip the rule.
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "diagnostic",
+      parts: [
+        "/repo/.git/info/exclude is missing its Agent Profile Kit exclusion section; update will restore recorded exact entries",
+      ],
+    })).toBe(true);
+    expect(warningLeavesUserEvidence({
+      copyableValues: [],
+      kind: "host-attention",
+      parts: ["Codex isn't installed, or isn't on your PATH."],
+    })).toBe(true);
   });
 
   test("--verbose still renders complete diagnostics from the same ReconciliationReport", () => {
@@ -4796,7 +5068,7 @@ describe("status concise terminology", () => {
     // gain no receipt block.
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     expect(flattenPresentationNodes(concise).map(nodeText))
-      .toContain("Updated 1 Project (1 generated file).");
+      .toContain("Updated 1 Project (1 file)");
     expect(headingsIn(concise)).not.toContain("Updated:");
     expect(keyValuesIn(concise, "Project")).toEqual([]);
   });
@@ -4911,7 +5183,7 @@ describe("status concise terminology", () => {
     const nodes = flattenPresentationNodes(concise);
     // The compact receipt follows the error notice: committed work is
     // summarized once and the message remains the only outcome claim.
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file).");
     // A failure view carries no success-claim notice.
     expect(noticesIn(concise).every((notice) => notice.severity === "error")).toBe(true);
   });
@@ -5378,6 +5650,7 @@ describe("Machine surface JSON and exit codes", () => {
           host: "codex",
           kind: "approval-required",
           message: "Approve the hook.",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         }],
@@ -5699,15 +5972,14 @@ describe("standalone view presentation documents (#389)", () => {
       "row",
       "spacer",
       "list",
-      "prose",
-      "prose",
+      "key-value:Next(command)",
     ]);
     const heading = document[0] as Extract<PresentationNode, { kind: "heading" }>;
-    expect(heading.text).toBe("Projects:");
+    expect(heading.text).toBe("Your Projects (1)");
     const row = document.find((node) => node.kind === "row") as Extract<PresentationNode, { kind: "row" }>;
     expect(row).toBeDefined();
     expect(row.cells).toHaveLength(4);
-    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Agents", "State"]);
+    expect(row.cells.map((c) => c.column)).toEqual(["Project", "Profile", "Agents", "Status"]);
     expect(row.cells[0]!.content).toEqual({
       kind: "path",
       canonicalPath: project,
@@ -5744,10 +6016,10 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain(
       "⚠ a-very-long-project-identity: Configured project root does not exist on this machine and cannot be",
     );
-    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(summary)).toBe("1 Project: 1 problem.");
-    const guidance = document[6] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(guidance)).toContain("apkit status");
+    const footer = document[5] as Extract<PresentationNode, { kind: "part" }>;
+    const next = footer.nodes[0] as Extract<PresentationNode, { kind: "key-value" }>;
+    expect(next.key).toBe("Next");
+    expect(next.value).toMatchObject({ kind: "command", note: "check whether they're up to date" });
   });
 
   test("project inventory presents clean Projects with configured state and summary count", () => {
@@ -5774,23 +6046,20 @@ describe("standalone view presentation documents (#389)", () => {
       "spacer",
       "row",
       "row",
-      "spacer",
-      "prose",
-      "prose",
+      "key-value:Next(command)",
     ]);
+    const heading = document[0] as Extract<PresentationNode, { kind: "heading" }>;
+    expect(heading.text).toBe("Your Projects (2)");
     const rows = document.filter((node): node is Extract<PresentationNode, { kind: "row" }> => node.kind === "row");
     expect(rows).toHaveLength(2);
     expect(rows[0]!.cells[3]!.content).toEqual({
       kind: "identifier",
-      value: "configured",
+      value: "ok",
     });
     expect(rows[1]!.cells[3]!.content).toEqual({
       kind: "identifier",
-      value: "configured",
+      value: "ok",
     });
-
-    const summary = document[5] as Extract<PresentationNode, { kind: "prose" }>;
-    expect(nodeText(summary)).toBe("2 Projects configured.");
   });
 
   test("project inventory aligns columns across records of differing lengths", () => {
@@ -5820,9 +6089,9 @@ describe("standalone view presentation documents (#389)", () => {
   }, { home: "/home", cwd: "/home" });
 
     const lines = rendered.split("\n");
-    // lines: [ "Projects:", "", "<header>", "<row1>", "<row2>", "", "2 Projects configured.", "Use apkit status..." ]
-    expect(lines[0]).toBe("Projects:");
-    expect(lines[2]).toMatch(/^Project\s+Profile\s+Agents\s+State$/);
+    // lines: [ "Your Projects (2)", "", "<header>", "<row1>", "<row2>" ]
+    expect(lines[0]).toBe("Your Projects (2)");
+    expect(lines[2]).toMatch(/^Project\s+Profile\s+Agents\s+Status$/);
     const row1 = lines[3]!;
     const row2 = lines[4]!;
     expect(row1).toBeDefined();
@@ -5840,8 +6109,8 @@ describe("standalone view presentation documents (#389)", () => {
     const hosts2Index = row2.indexOf("claude, codex, opencode");
     expect(hosts1Index).toBe(hosts2Index);
 
-    const state1Index = row1.indexOf("configured");
-    const state2Index = row2.indexOf("configured");
+    const state1Index = row1.indexOf("ok");
+    const state2Index = row2.indexOf("ok");
     expect(state1Index).toBe(state2Index);
   });
 
@@ -5877,16 +6146,15 @@ describe("standalone view presentation documents (#389)", () => {
     expect(rendered).toContain("Project: alpha");
     expect(rendered).toContain("Profile: engineering");
     expect(rendered).toContain("Agents: codex");
-    expect(rendered).toContain("State: configured");
+    expect(rendered).toContain("Status: ok");
     expect(rendered).toContain("Project: beta");
     expect(rendered).toContain("Profile: devops");
     expect(rendered).toContain("Agents: claude");
-    expect(rendered).toContain("2 Projects configured.");
     const records = rendered.split("\n\n");
     expect(records[1]).toContain("Project: alpha");
     expect(records[1]).toContain("Profile: engineering");
     expect(records[1]).toContain("Agents: codex");
-    expect(records[1]).toContain("State: configured");
+    expect(records[1]).toContain("Status: ok");
     expect(records[2]).toContain("Project: beta");
     expect(Math.max(...rendered.split("\n").map((line) => line.length))).toBeLessThanOrEqual(40);
   });
@@ -5915,10 +6183,10 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     const wideLines = wide.split("\n");
-    expect(wideLines[0]).toBe("Projects:");
-    expect(wideLines[2]).toBe("Project  Profile  Agents  State");
-    expect(wideLines[3]).toBe("demo     example  codex   configured");
-    expect(wideLines[4]).toBe("other    example  codex   configured");
+    expect(wideLines[0]).toBe("Your Projects (2)");
+    expect(wideLines[2]).toBe("Project  Profile  Agents  Status");
+    expect(wideLines[3]).toBe("demo     example  codex   ok");
+    expect(wideLines[4]).toBe("other    example  codex   ok");
 
     const narrow = renderPresentationDocument(
       projectInventoryDocument(projects, "/home", "/home"),
@@ -5926,14 +6194,14 @@ describe("standalone view presentation documents (#389)", () => {
       { home: "/home", cwd: "/home" },
     );
     const records = narrow.split("\n\n");
-    expect(records[0]).toBe("Projects:");
+    expect(records[0]).toBe("Your Projects (2)");
     for (const record of records.slice(1, 3)) {
       const recordLines = record.split("\n");
       expect(recordLines.length).toBeLessThanOrEqual(2);
       expect(recordLines.join(" ")).toContain("Project:");
       expect(recordLines.join(" ")).toContain("Profile:");
       expect(recordLines.join(" ")).toContain("Agents:");
-      expect(recordLines.join(" ")).toContain("State:");
+      expect(recordLines.join(" ")).toContain("Status:");
     }
     expect(records[1]).toContain("demo");
     expect(records[2]).toContain("other");
@@ -5979,7 +6247,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(narrow).toContain("Profile: devops");
     expect(narrow).toContain("Agents: codex");
     expect(narrow).toContain("Agents: claude, codex");
-    expect(narrow).toContain("State: configured");
+    expect(narrow).toContain("Status: ok");
     expect(Math.max(...narrow.split("\n").map((line) => line.length))).toBeLessThanOrEqual(60);
     for (const record of narrow.split("\n\n").slice(1, 3)) {
       expect(record.split("\n").length).toBeLessThanOrEqual(3);
@@ -6245,14 +6513,14 @@ describe("standalone view presentation documents (#389)", () => {
     }
   });
 
-  test("an empty project inventory is a success notice with install guidance", () => {
+  test("an empty project inventory is a success notice with a noted install next step (US-001, #693)", () => {
     const document = projectInventoryDocument([], "/home", "/work");
-    expect(shapes(document)).toEqual(["notice", "prose"]);
+    expect(shapes(document)).toEqual(["notice", "key-value:Next(command)"]);
     const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
     expect(notice.severity).toBe("success");
-    // The guidance is one prose node whose typed inline command part keeps
-    // the install invocation atomic.
-    expect(inlineCommandTexts([document[1]!])).toEqual(["apkit install <profile> --agent <agent>"]);
+    // The footer's next step is the typed command node, note attached through
+    // the one noted-command home.
+    expect(commandTexts(document)).toEqual(["apkit install <profile> --agent <agent>"]);
   });
 
   test("profile inventory presents each Profile with its module and skill counts", () => {
@@ -6333,7 +6601,7 @@ describe("standalone view presentation documents (#389)", () => {
       ],
       ["codex"],
     );
-    expect(shapes(document)).toEqual(["heading", "prose", "prose", "spacer", "prose", "prose"]);
+    expect(shapes(document)).toEqual(["heading", "prose", "prose", "spacer", "prose"]);
     const hostLines = flattenPresentationNodes(document)
       .filter((node) => node.kind === "prose")
       .map((node) => nodeText(node));
@@ -6341,15 +6609,15 @@ describe("standalone view presentation documents (#389)", () => {
     // `installed` beside a Host is ambiguous — in this kit installing means
     // installing into a Project. Literal bytes pin the wording end-to-end;
     // the constant checks pin that the literals read the one shared home.
-    expect(hostLines[0]).toContain("codex — detected");
-    expect(hostLines[0]).toContain(`codex — ${HOST_DETECTION_LABELS.detected}`);
-    expect(hostLines[1]).toContain(`claude — ${HOST_DETECTION_LABELS.notFound}`);
+    // The status sits beside its agent on the same line (review screen 22);
+    // agent ids stay as typed.
+    expect(hostLines[0]).toBe(`  codex   ${HOST_DETECTION_LABELS.detected}`);
+    expect(hostLines[1]).toBe(`  claude  ${HOST_DETECTION_LABELS.notFound}`);
     expect(hostLines.join("\n")).not.toContain("— installed");
     // The advisory sentence quotes the shared not-found wording itself.
     expect(hostLines).toContain(
-      `"${HOST_DETECTION_LABELS.notFound}" means the agent executable was not detected here.`,
+      `"${HOST_DETECTION_LABELS.notFound}" means apkit couldn't find it on this machine. You can still pick it when you install.`,
     );
-    expect(inlineCommandTexts(document)).toContain("apkit install");
   });
 
   test("host inventory keeps an undetected Host listed with the advisory loading distinction", () => {
@@ -6364,11 +6632,9 @@ describe("standalone view presentation documents (#389)", () => {
     expect(hostLines[0]).toContain("not found");
     // The advisory wording distinguishes executable presence from Profile
     // loading and keeps every Host an available installation choice.
-    const advice = hostLines.filter((line) => line.includes("not detected") || line.includes("selectable"));
-    expect(advice).toHaveLength(2);
-    expect(advice[0]).toContain("not detected");
-    expect(advice[1]).toContain("selectable");
-    expect(inlineCommandTexts(document)).toContain("apkit install");
+    const advice = hostLines.filter((line) => line.includes("couldn't find it on this machine"));
+    expect(advice).toHaveLength(1);
+    expect(advice[0]).toContain("You can still pick it when you install.");
   });
 
   test("temporary inventory presents each installation as typed identity fields", () => {
@@ -6428,14 +6694,16 @@ describe("standalone view presentation documents (#389)", () => {
         "This is an unusually long validation warning that must wrap cleanly at a narrow terminal measure.",
       ],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     expect(shapes(document)).toEqual([
       "notice",
       "list",
       "key-value:Workspace",
-      "key-value:Profiles found",
-      "key-value:Agents bound",
+      "key-value:Settings",
+      "key-value:Profiles",
+      "key-value:Projects",
+      "key-value:Agents in use",
       "key-value:Next(command)",
     ]);
     const next = keyValuesIn(document, "Next")[0]!;
@@ -6443,10 +6711,21 @@ describe("standalone view presentation documents (#389)", () => {
       kind: "command",
       program: "apkit",
       args: [{ kind: "text", value: "status" }],
+      note: "check your Projects",
     });
-    expect(keyValuesIn(document, "Profiles found")[0]!.value).toEqual({
+    expect(keyValuesIn(document, "Profiles")[0]!.value).toEqual({
       kind: "prose",
       parts: ["engineering"],
+    });
+    expect(keyValuesIn(document, "Projects")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["2"],
+    });
+    expect(keyValuesIn(document, "Settings")[0]!.value).toEqual({
+      kind: "path",
+      canonicalPath: "/Users/example/.agents/agent-profile-kit/config.yaml",
+      authoredPath: "/Users/example/.agents/agent-profile-kit/config.yaml",
+      scope: "fleet",
     });
   });
 
@@ -6458,7 +6737,7 @@ describe("standalone view presentation documents (#389)", () => {
       profiles: [],
       warnings: [],
       workspace,
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
     const pathForm = workspaceValidationDocument(
       { outcome: "valid", path: workspace.canonical, contexts: [], profiles: [], skills: [] },
       workspace.authored,
@@ -6482,29 +6761,26 @@ describe("standalone view presentation documents (#389)", () => {
       profiles: [],
       warnings: [],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     expect(keyValuesIn(document, "Next")[0]!.value).toEqual({
       kind: "command",
       program: "apkit",
       args: [{ kind: "text", value: "install <profile> --agent <agent>" }],
+      note: "install a Profile into a Project",
     });
-    expect(keyValuesIn(document, "Profiles found")[0]!.value).toMatchObject({ kind: "prose" });
-    // The count clause is protected report material: it never wraps (US-010).
-    const rendered = renderPresentationDocument(
-      validationResultDocument({
-        bindings: 0,
-        hosts: [],
-        profiles: [],
-        warnings: [],
-      workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-      }),
-      context(40),
-    );
-    const notice = document[0] as Extract<PresentationNode, { kind: "notice" }>;
-    const count = inlineIdentifiers(notice.nodes)[0]!;
-    expect(count).toBeDefined();
-    expect(rendered.split("\n").filter((line) => line.includes(count))).toHaveLength(1);
+    expect(keyValuesIn(document, "Profiles")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["none"],
+    });
+    expect(keyValuesIn(document, "Projects")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["0"],
+    });
+    expect(keyValuesIn(document, "Agents in use")[0]!.value).toEqual({
+      kind: "prose",
+      parts: ["none"],
+    });
   });
 
   test("uninstall receipt reports the removed count once without inventories", () => {
@@ -6693,6 +6969,71 @@ describe("standalone view presentation documents (#389)", () => {
     expect(failed.error).toContain("injected fault");
   });
 
+  test("uninstall JSON keeps the same field set and bytes for a partial failure (DEC-004, spec #672 #690)", () => {
+    const rawDetail =
+      "EACCES: permission denied, mkdtemp '/projects/b/.agent-profile-kit-remove-Abc123'";
+    const json = formatUninstallJson({
+      completed: [{
+        canonicalProject: "/projects/a",
+        project: "~/projects/a",
+        profile: "engineering",
+        outputs: [".codex/hooks.json"],
+      }],
+      skipped: [],
+      failed: {
+        canonicalProject: "/projects/b",
+        project: "~/projects/b",
+        profile: "engineering",
+        detail: rawDetail,
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      unattempted: [{ canonicalProject: "/projects/c", project: "~/projects/c", profile: "engineering" }],
+      warnings: [],
+    });
+    const payload = JSON.parse(json) as {
+      failed: Record<string, unknown>;
+    };
+    // The machine contract is unchanged: the recorded evidence fields only,
+    // in their recorded order. The human-screen cause fact never enters it.
+    expect(Object.keys(payload.failed)).toEqual([
+      "canonicalProject",
+      "project",
+      "profile",
+      "detail",
+      "selectionRestored",
+      "concurrentSelectionChange",
+    ]);
+    expect(payload.failed.errorCode).toBeUndefined();
+    expect(payload.failed.detail).toBe(rawDetail);
+    // Byte-identical to the payload this partial fixture produced before the
+    // plain-cause fact existed.
+    expect(json).toBe(`${JSON.stringify({
+      schemaVersion: 16,
+      command: "uninstall",
+      outcome: "error",
+      error: rawDetail,
+      completed: [{
+        canonicalProject: "/projects/a",
+        project: "~/projects/a",
+        profile: "engineering",
+        outputs: [".codex/hooks.json"],
+      }],
+      skipped: [],
+      failed: {
+        canonicalProject: "/projects/b",
+        project: "~/projects/b",
+        profile: "engineering",
+        detail: rawDetail,
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      unattempted: [{ canonicalProject: "/projects/c", project: "~/projects/c", profile: "engineering" }],
+      warnings: [],
+    }, null, 2)}\n`);
+  });
+
   test("uninstall confirmation names the fleet-wide reach of a Profile-only scope", () => {
     const document = uninstallConfirmationDocument(
       {
@@ -6726,7 +7067,7 @@ describe("standalone view presentation documents (#389)", () => {
     expect(renderPresentationDocument(noMatch, defaultRenderContext)).toContain("docs");
   });
 
-  test("uninstall execution failure distinguishes completed, failed, and unattempted work", () => {
+  test("an uninstall stopped partway lists done, put-back, and not-touched Projects and the retry (screen 28)", () => {
     const document = uninstallExecutionFailureDocument({
       failed: {
         canonicalProject: "/project-b",
@@ -6741,10 +7082,123 @@ describe("standalone view presentation documents (#389)", () => {
       retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
     });
     const rendered = renderPresentationDocument(document, defaultRenderContext);
-    expect(rendered).toContain("/project-b");
-    expect(rendered).toContain("/project-a");
-    expect(rendered).toContain("/project-c");
+    expect(rendered).toStartWith("✖ Uninstall stopped partway.");
+    expect(rendered).toContain("Couldn't write to /project-b (injected installation record fault)");
+    // No Project and no recovery fact is dropped (OOS-004).
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Put back as it was, where possible: /project-b");
+    expect(rendered).toContain("- Not touched: /project-c");
+    expect(rendered).toContain("Fix the cause, then run the same command again:");
     expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+
+  test("a partial uninstall names every Project through the shared home-relative display (screen 28, #693)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/home/test/projects/acme",
+        project: "/home/test/projects/acme",
+        profile: "engineering",
+        detail: "injected fault",
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [{
+        canonicalProject: "/home/test/proj/alpha",
+        project: "/home/test/proj/alpha",
+        profile: "engineering",
+        outputs: [],
+      }],
+      unattempted: [{
+        canonicalProject: "/home/test/projects/hello",
+        project: "/home/test/projects/hello",
+        profile: "engineering",
+      }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext, {
+      cwd: "/",
+      home: "/home/test",
+    });
+    // The same home-relative display rule `apkit details` uses (US-008):
+    // under HOME every Project reads `~/…`, never its full path.
+    expect(rendered).toContain("Couldn't write to ~/projects/acme (permission denied)");
+    expect(rendered).toContain("- Done: ~/proj/alpha");
+    expect(rendered).toContain("- Put back as it was, where possible: ~/projects/acme");
+    expect(rendered).toContain("- Not touched: ~/projects/hello");
+  });
+
+  test("a partial uninstall states the cause in plain words with no internal temp path (spec #672 US-007, screen 28)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "EACCES: permission denied, mkdtemp '/project-b/.agent-profile-kit-remove-Abc123'",
+        errorCode: "EACCES",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      unattempted: [{ project: "/project-c", profile: "engineering" }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toStartWith("✖ Uninstall stopped partway.");
+    expect(rendered).toContain("Couldn't write to /project-b (permission denied)");
+    // The raw evidence stays in details and JSON; the screen states the cause.
+    expect(rendered).not.toContain("mkdtemp");
+    expect(rendered).not.toContain(".agent-profile-kit-remove-");
+    expect(rendered).not.toContain("EACCES:");
+    // No Project and no recovery fact is dropped (OOS-004).
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Put back as it was, where possible: /project-b");
+    expect(rendered).toContain("- Not touched: /project-c");
+    expect(inlineCommandTexts(document)).toEqual(["apkit uninstall --all"]);
+  });
+
+  test("a failed put-back names that Project and its restore error (OOS-004)", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected Installation State fault",
+        selectionRestored: false,
+        restoreError: "restore denied",
+        concurrentSelectionChange: false,
+      },
+      completed: [{ project: "/project-a", profile: "engineering", outputs: [] }],
+      unattempted: [{ project: "/project-c", profile: "engineering" }],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("- Done: /project-a");
+    expect(rendered).toContain("- Couldn't put back: /project-b (restore denied)");
+    expect(rendered).toContain("- Not touched: /project-c");
+    expect(rendered).not.toContain("Put back as it was");
+    expect(rendered).toContain("apkit uninstall --all");
+  });
+
+  test("a stopped run with no completed Project still names every group it has", () => {
+    const document = uninstallExecutionFailureDocument({
+      failed: {
+        canonicalProject: "/project-b",
+        project: "/project-b",
+        profile: "engineering",
+        detail: "injected fault",
+        selectionRestored: true,
+        concurrentSelectionChange: false,
+      },
+      completed: [],
+      unattempted: [],
+      retryArguments: [{ kind: "text" as const, value: "uninstall" }, { kind: "text" as const, value: "--all" }],
+    });
+    const rendered = renderPresentationDocument(document, defaultRenderContext);
+    expect(rendered).toContain("Put back as it was, where possible: /project-b");
+    expect(rendered).not.toContain("Done:");
+    expect(rendered).not.toContain("Not touched:");
+    expect(rendered).toContain("apkit uninstall --all");
   });
 
   test("temporary installation receipts present identity fields and a typed removal command", () => {
@@ -6809,6 +7263,7 @@ describe("standalone view presentation documents (#389)", () => {
         host: "codex",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        humanAction: "trust this project",
         provenance: "standing",
       }],
       temporaryInstallationId: "temporary-installation-opaque-id",
@@ -7055,7 +7510,7 @@ describe("operation-first multi-Project presentation", () => {
 
     const concise = lifecycleStatusDocument(report);
 
-    // The ready summary notice leads; scope rows carry each Project's Primary Cause.
+    // The ready summary notice leads; scope rows carry each Project's cause.
     expect(noticesIn(concise)[0]).toMatchObject({ kind: "notice", severity: "warning" });
     expect(renderBoundary(concise)).toContain("source changed");
     expect(headingsIn(concise)).not.toContain("Project changes:");
@@ -7124,6 +7579,7 @@ describe("operation-first multi-Project presentation", () => {
         { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
+      note: "bring your Projects up to date",
     });
     const details = keyValuesIn(concise, "Details")[0]!.value;
     expect(details).toEqual({
@@ -7178,7 +7634,7 @@ describe("operation-first multi-Project presentation", () => {
     // selected-setup detail stay out of the receipt section.
     const apply = applyReportDocument({ receipt, resultingState });
     const nodes = flattenPresentationNodes(apply);
-    expect(nodes.map(nodeText)).toContain("Updated 3 Projects (3 generated files).");
+    expect(nodes.map(nodeText)).toContain("Updated 3 Projects (3 files)");
     expect(nodes.some((node) => node.kind === "heading" && nodeText(node) === "Updated:")).toBe(false);
     expect(nodes.some((node) =>
       node.kind === "key-value" && node.key === "  State"
@@ -7269,6 +7725,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
         { kind: "text", value: "update" },
         { kind: "path", canonicalPath: "/private/project-a", authoredPath: "/project-a", scope: "fleet" },
       ],
+      note: "bring your Projects up to date",
     });
     expect(keyValuesIn(status, "Details")[0]!.value).toEqual({
       kind: "command",
@@ -7385,7 +7842,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(apply)).not.toContain("Updated:");
     expect(keyValuesIn(apply, "Project")).toEqual([]);
     expect(keyValuesIn(apply, "  State")).toEqual([]);
@@ -7460,7 +7917,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     expect(stateNodes).toHaveLength(1);
     expect(stateNodes[0]!.value).toMatchObject({ kind: "prose" });
     expect(nodeText(stateNodes[0]!.value)).toContain("a.md");
-    const impact = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Updated 1 Project (1 generated file).");
+    const impact = indexWhere(nodes, (node) => node.kind === "prose" && nodeText(node) === "Updated 1 Project (1 file).");
     expect(impact).toBeGreaterThan(-1);
     expect(nodes.findIndex((node) => node.kind === "key-value" && node.key === "  State"))
       .toBeGreaterThan(impact);
@@ -7512,7 +7969,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const apply = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(apply);
     expect(noticesIn(apply)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect(nodes.map(nodeText)).toContain("Updated 2 Projects (2 generated files).");
+    expect(nodes.map(nodeText)).toContain("Updated 2 Projects (2 files).");
     expect(headingsIn(apply)).not.toContain("Updated:");
     const projectNodes = keyValuesIn(apply, "Project");
     expect(projectNodes).toHaveLength(1);
@@ -7618,6 +8075,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       consequence: "Declining the hook prevents Profile Context from loading.",
       output: ".codex/hooks.json",
       provenance: "transition",
@@ -7658,8 +8116,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // the trailing prose node; the composed readiness wording (and any
     // Project list) is golden-covered.
     expect(shapes(concise)).toEqual([
-      "notice", "spacer", "prose",
-      "spacer", "heading", "list",
+      "notice", "spacer", "heading", "list",
       "spacer", "prose", "prose",
     ]);
   });
@@ -7720,7 +8177,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     const concise = applyReportDocument(applyResult(receipt, resultingState));
     const nodes = flattenPresentationNodes(concise);
     expect(shapes(concise)).toEqual([
-      "notice", "spacer", "prose", "spacer", "prose", "prose",
+      "notice", "spacer", "prose", "prose",
     ]);
   });
 
@@ -7762,6 +8219,7 @@ describe("lifecycle summaries, next actions, and readiness", () => {
       host: "codex",
       kind: "approval-required",
       message: "Review and approve the generated SessionStart hook when Codex asks.",
+      humanAction: "approve the SessionStart hook when asked",
       consequence: "Declining the hook prevents Profile Context from loading.",
       output: ".codex/hooks.json",
       provenance: "transition",
@@ -7794,8 +8252,6 @@ describe("lifecycle summaries, next actions, and readiness", () => {
     // (spec #491 US-017, #515): the receipt proves no first delivery.
     expect(shapes(concise)).toEqual([
       "notice",
-      "spacer",
-      "prose",
       "spacer",
       "prose",
     ]);
@@ -7913,35 +8369,28 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
         profiles,
         warnings: [],
         workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-      });
+      }, "/Users/example/.agents/agent-profile-kit/config.yaml");
 
     const zeroProjects = validationDocument(0, [], ["engineering"]);
-    // Severity is the validity fact; the count clause is its carried value,
-    // authored as an atomic identifier so it never wraps (US-010).
+    // Severity is the validity fact; the fact rows carry the counts.
     expect(noticesIn(zeroProjects)).toHaveLength(1);
     expect(noticesIn(zeroProjects)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(zeroProjects)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
-    expect(keyValuesIn(zeroProjects, "Profiles found")[0]!.value).toEqual({
+    expect(keyValuesIn(zeroProjects, "Profiles")[0]!.value).toEqual({
       kind: "prose",
       parts: ["engineering"],
     });
-    expect(keyValuesIn(zeroProjects, "Agents bound")[0]!.value).toMatchObject({ kind: "prose" });
+    expect(keyValuesIn(zeroProjects, "Agents in use")[0]!.value).toMatchObject({ kind: "prose" });
     expect(commandTexts(zeroProjects)).toContain("apkit install <profile> --agent <agent>");
     expectUserFacingVocabulary(renderBoundary(zeroProjects));
 
     const oneProject = validationDocument(1, ["codex"], ["engineering"]);
     expect(noticesIn(oneProject)).toHaveLength(1);
     expect(noticesIn(oneProject)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(oneProject)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
     expectUserFacingVocabulary(renderBoundary(oneProject));
 
     const multiProjects = validationDocument(3, ["codex", "claude"], ["engineering", "design"]);
     expect(noticesIn(multiProjects)).toHaveLength(1);
     expect(noticesIn(multiProjects)[0]).toMatchObject({ kind: "notice", severity: "success" });
-    expect((noticesIn(multiProjects)[0]!.nodes[0] as { readonly parts: readonly InlineContent[] })
-      .parts.at(-1)).toMatchObject({ kind: "identifier" });
     expectUserFacingVocabulary(renderBoundary(multiProjects));
   });
 
@@ -8029,14 +8478,17 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
   test("empty status references configured Projects in next guidance", () => {
     const empty = lifecycleStatusDocument(emptyReport());
-    expect(shapes(empty)).toEqual(["notice", "prose(command)"]);
+    expect(shapes(empty)).toEqual(["notice", "heading", "list"]);
     expect(flattenPresentationNodes(empty)[0]).toMatchObject({ kind: "notice", severity: "neutral" });
-    // The next action is one command-category prose node whose typed inline
-    // command parts keep both invocations atomic.
+    // The next action is the footer's noted-command list; every invocation
+    // stays atomic and its note keeps the newcomer lexicon (US-001, #693).
     expect(inlineCommandTexts(empty)).toEqual([
       "apkit list projects",
       "apkit install <profile> --agent <agent>",
     ]);
+    expect(renderPresentationDocument(empty, defaultRenderContext)).toContain(
+      "inspect configured Projects",
+    );
     expectUserFacingVocabulary(renderPresentationDocument(empty, defaultRenderContext));
   });
 
@@ -8104,6 +8556,7 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
           host: "codex",
           kind: "approval-required",
           message: "Approve hook",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         }],
@@ -8127,6 +8580,50 @@ describe("newcomer presentation lexicon (TEST-015, US-030, US-031, DEC-027)", ()
 
 
 describe("update presentation documents", () => {
+  test("each warning is its own screen part under the changed-update and status headlines (US-001, DEC-002, #693)", () => {
+    const warning = "Codex isn't installed, or isn't on your PATH.";
+    const receipt = emptyReport({
+      desired: [{
+        canonicalProject: "/project-a",
+        context: "composed",
+        outputs: ["a.md"],
+        profile: "coding",
+        project: "/project-a",
+        resolvedArtifacts: [],
+      }],
+      items: [{ kind: "addition", project: "/project-a" }],
+      outputs: [{ kind: "addition", path: "a.md", project: "/project-a" }],
+      warnings: [warning],
+    });
+    const resultingState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    for (const width of [100, 60]) {
+      const rendered = renderBoundary(
+        applyReportDocument(applyResult(receipt, resultingState)),
+        context(width),
+      );
+      const lines = rendered.split("\n");
+      const headline = lines.findIndex((line) => line.startsWith("✔"));
+      expect(headline).toBeGreaterThanOrEqual(0);
+      expect(lines[headline]).toContain("Updated 1 Project (1 file)");
+      expect(lines[headline + 1]).toBe("");
+      expect(lines[headline + 2]).toStartWith("⚠");
+    }
+
+    for (const width of [100, 60]) {
+      const rendered = renderBoundary(lifecycleStatusDocument(receipt), context(width));
+      const lines = rendered.split("\n");
+      const headline = lines.findIndex((line) => line.startsWith("⚠") || line.startsWith("✔"));
+      expect(headline).toBeGreaterThanOrEqual(0);
+      expect(lines[headline + 1]).toBe("");
+      expect(lines[headline + 2]).toStartWith("⚠");
+    }
+  });
+
   test("concise apply receipt carries a success notice, receipt evidence, and trailing readiness", () => {
     const receipt = emptyReport({
       desired: [{
@@ -8150,10 +8647,49 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toHaveLength(1);
     expect(noticesIn(document)[0]).toMatchObject({ kind: "notice", severity: "success" });
     const nodes = flattenPresentationNodes(document);
-    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map(nodeText)).toContain("Updated 1 Project (1 file)");
     expect(headingsIn(document)).not.toContain("Updated:");
     expect(nodes.at(-1)).toMatchObject({ kind: "prose" });
     expect(commandsIn(document)).toEqual([]);
+  });
+
+  test("the verbose changed-update headline carries the committed receipt impact once, by fact not by copy (ORCH-1, INT-1)", () => {
+    const receipt = identityReport("/project-a");
+    const cleanState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "current", project: "/project-a" }],
+      outputs: [{ kind: "unchanged", path: "a.md", project: "/project-a" }],
+    });
+
+    // Intended: the verbose view shares the concise clean headline — the
+    // committed impact leads there too, with its per-path sections beneath.
+    const verbose = applyReportDocument(applyResult(receipt, cleanState), { verbose: true });
+    expect(renderBoundary(verbose)).toStartWith("✔ Updated 1 Project (1 file)\n");
+    expect(headingsIn(verbose)).toContain("Updated:");
+
+    // The decision comes from the report's typed facts (no Blockers, no
+    // remaining non-current work): an attention update keeps its attention
+    // headline and states the compact receipt as a body line, so rewording
+    // the clean-update outcome line (#679) cannot shift which headline
+    // renders.
+    const attentionState = emptyReport({
+      desired: reportDesired(receipt),
+      items: [{ kind: "drifted output", project: "/project-a", reason: "a.md" }],
+      outputs: [{ kind: "update", path: "a.md", project: "/project-a" }],
+    });
+    const attention = applyReportDocument(applyResult(receipt, attentionState), { verbose: true });
+    expect(noticesIn(attention)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Update completed with attention"],
+    });
+    // Concise keeps the same split: the attention headline above, the compact
+    // receipt as a body line.
+    const conciseAttention = applyReportDocument(applyResult(receipt, attentionState));
+    expect(noticesIn(conciseAttention)[0]!.nodes[0]).toMatchObject({
+      kind: "prose",
+      parts: ["Update completed with attention"],
+    });
+    expect(flattenPresentationNodes(conciseAttention).map(nodeText)).toContain("Updated 1 Project (1 file).");
   });
 
   test("verbose update separates Pending and Updated sections without composed Context bodies", () => {
@@ -8235,7 +8771,7 @@ describe("update presentation documents", () => {
     expect(nodes.slice(0, 4).map((node) => shape(node))).toEqual(["notice:error", "prose", "prose", "prose"]);
     expect(nodeText(nodes[1]!)).toContain("/project-a");
     // The compact receipt evidence follows the locator and pending scope.
-    expect(nodes.map((node) => nodeText(node))).toContain("Updated 1 Project (1 generated file).");
+    expect(nodes.map((node) => nodeText(node))).toContain("Updated 1 Project (1 file).");
   });
 
   test("verification failure carries the task message as an error notice and receipt evidence", () => {
@@ -8256,7 +8792,7 @@ describe("update presentation documents", () => {
     expect(noticesIn(document)).toEqual([
       { kind: "notice", severity: "error", nodes: [{ kind: "prose", parts: ["Verification failed."] }] },
     ]);
-    expect(flattenPresentationNodes(document).map(nodeText)).toContain("Updated 1 Project (1 generated file).");
+    expect(flattenPresentationNodes(document).map(nodeText)).toContain("Updated 1 Project (1 file).");
   });
 });
 
@@ -8681,7 +9217,7 @@ describe("grouped semantic warnings across Projects (#354, DEC-011)", () => {
       profiles: ["engineering"],
       warnings: ["Sample validation warning"],
       workspace: { authored: "~/apkit-workspace", canonical: "/Users/example/apkit-workspace" },
-    });
+    }, "/Users/example/.agents/agent-profile-kit/config.yaml");
     expect(flattenPresentationNodes(validationDoc)[0]).toMatchObject({ kind: "notice", severity: "success" });
     expect(warningListIn(validationDoc)).toMatchObject({ category: "warning" });
     expect(renderBoundary(validationDoc)).toContain("Sample validation warning");
@@ -9367,6 +9903,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      folderCreated: false,
       configurationWritten: true,
       configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
       addedParts: ["profiles"],
@@ -9395,6 +9932,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
         outcome: "connected",
         path: join(home, "apkit-workspace"),
         authoredPath: "~/apkit-workspace",
+        folderCreated: false,
         configurationWritten: true,
         configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
         addedParts: ["workspace.yaml"],
@@ -9427,6 +9965,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "connected",
       path: join(home, "apkit-workspace"),
       authoredPath: "~/apkit-workspace",
+      folderCreated: false,
       addedParts: ["context", "profiles"],
       profileCount: 0,
       configurationWritten: true,
@@ -9490,6 +10029,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "migrated",
       path: "/test/workspace",
       authoredPath: "/test/workspace",
+      folderCreated: false,
       configurationWritten: true,
       configurationPath: "/home/test/.agents/agent-profile-kit/config.yaml",
       addedParts: ["skills"],
@@ -9510,6 +10050,7 @@ describe("authoring and teardown receipt documents (#390)", () => {
       outcome: "unchanged",
       path: `/test/workspace`,
       authoredPath: `/test/workspace`,
+      folderCreated: false,
       profileCount: 2,
       configurationWritten: false,
       configurationPath: `/home/test/.agents/agent-profile-kit/config.yaml`,
@@ -9621,6 +10162,29 @@ describe("authoring and teardown receipt documents (#390)", () => {
     expect(rendered).not.toContain("Context is plain Markdown");
     expect(rendered).toContain("Agents found: claude, codex");
     expect(rendered).toContain("Next: apkit install (run it inside a Project folder)");
+  });
+
+  test("the receipt's created/connected verb follows the folder fact, never the outcome (spec #672 US-003, screen 21)", () => {
+    const at = (folderCreated: boolean, outcome: "created" | "connected"): string =>
+      renderPresentationDocument(initReceiptDocument({
+        outcome,
+        path: join(home, "my-team-kit"),
+        authoredPath: "~/my-team-kit",
+        folderCreated,
+        detectedHosts: ["codex"],
+        configurationWritten: true,
+        configurationPath: join(home, ".agents", "agent-profile-kit", "config.yaml"),
+        addedParts: [],
+        profileCount: 1,
+      }), defaultRenderContext);
+
+    // Setup created the named folder: Created, whatever the outcome calls it.
+    expect(at(true, "created")).toContain("Created your Workspace at");
+    expect(at(true, "connected")).toContain("Created your Workspace at");
+    // The folder already existed and only this machine's settings were
+    // written: Connected.
+    expect(at(false, "created")).toContain("Connected your Workspace at");
+    expect(at(false, "connected")).toContain("Connected your Workspace at");
   });
 
   test("emptyWorkspaceProfileCreationDocument uses workspaceSubfolderDisplay and notedCommand", () => {
@@ -9864,18 +10428,20 @@ describe("authoring and teardown receipt documents (#390)", () => {
   });
 });
 
-describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
+describe("missing-agent warnings (US-007, US-011, DEC-007, DEC-009)", () => {
   const codexMissing = {
-    problem: "Codex CLI was not found on PATH",
-    remedy: "install Codex and ensure `codex --version` works before checking status or updating Profiles that require Codex Host capabilities",
+    problem: "Codex isn't installed, or isn't on your PATH.",
+    remedy: "install Codex, then check that `codex --version` works.",
     requirement: "The selected Profile requires Codex project delivery",
     copyableValues: ["codex"],
+    reason: "missing-executable" as const,
   };
   const claudeMissing = {
-    problem: "Claude Code CLI was not found on PATH",
-    remedy: "install Claude Code and ensure `claude --version` works before checking status or updating the Profile",
-    requirement: "The selected Profile requires Claude Code project delivery",
+    problem: "Claude isn't installed, or isn't on your PATH.",
+    remedy: "install Claude, then check that `claude --version` works.",
+    requirement: "The selected Profile requires Claude project delivery",
     copyableValues: ["claude"],
+    reason: "missing-executable" as const,
   };
 
   function hostAttentionWarning(input: {
@@ -9886,6 +10452,7 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     readonly problemParts?: readonly InlineContent[];
     readonly remedyParts?: readonly InlineContent[];
     readonly requirementParts?: readonly InlineContent[];
+    readonly reason?: "missing-executable" | "version-floor";
   }): ReconciliationWarning {
     return {
       kind: "host-attention",
@@ -9894,10 +10461,11 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       problem: input.problemParts ?? [input.problem],
       remedy: input.remedyParts ?? [input.remedy],
       requirement: input.requirementParts ?? [input.requirement],
+      ...(input.reason === undefined ? {} : { reason: input.reason }),
     };
   }
 
-  test("a single Project missing one Host names that Project and keeps the outcome successful", () => {
+  test("a missing agent says it isn't installed, lists Used by, and gives the fix (screen 27)", () => {
     const report = machineReport([
       machineProject("~/projects/demo", {
         warnings: [hostAttentionWarning(codexMissing)],
@@ -9928,21 +10496,122 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
 
     for (const document of [install, update]) {
       const rendered = renderBoundary(document);
-      // US-011: the completed outcome stays truthful and separate.
+      // US-007: the plain statement, the affected Projects and the fix.
       expect(rendered).toStartWith("✔ ");
-      expect(rendered).toContain("Codex CLI was not found on PATH (~/projects/demo)");
-      expect(rendered).not.toContain("(1 Project)");
-      expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
-      expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
-      // Never claim Host loading or that the missing Host failed the update.
+      expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+      expect(rendered).toContain("Used by: ~/projects/demo");
+      expect(rendered).toContain("Fix: install Codex, then check that `codex --version` works.");
+      // Never claim Host loading or that the missing agent failed the update.
       expect(rendered).not.toMatch(/proved Host loading|Host loaded the material|update failed because/i);
+      expect(rendered).not.toContain("Codex CLI was not found on PATH");
     }
     expect(renderBoundary(install)).toContain("Installed the coding Profile");
     expect(renderBoundary(install)).toContain("Project: ~/projects/demo");
-    expect(renderBoundary(update)).toContain("Update complete");
+    expect(renderBoundary(update)).toContain("Updated 1 Project (1 file)");
   });
 
-  test("one Host missing across several Projects names every Project once with one remedy", () => {
+  test("Used by lists up to 10 Projects and never hides just one (D6)", () => {
+    // The shared limit rule, asserted once at 10, 11 and 12 Projects
+    // (TEST-003): 10 and 11 show every Project; 12 shows 10 plus "… and 2
+    // more" — a list never elides exactly one Project.
+    const warning = hostAttentionWarning({
+      problem: "Pi isn't installed, or isn't on your PATH.",
+      remedy: "install Pi, then check that `pi --version` works.",
+      requirement: "The selected Profile requires Pi project delivery",
+      copyableValues: ["pi"],
+      reason: "missing-executable",
+    });
+    const usedByFor = (count: number): string => {
+      const projects = Array.from({ length: count }, (_, index) => `/fleet/project-${String(index + 1).padStart(2, "0")}`);
+      const report = machineReport(
+        projects.map((project) => machineProject(project, { warnings: [warning] })),
+      );
+      const rendered = renderBoundary(applyReportDocument({
+        receipt: emptyReport({
+          desired: projects.map((project) => ({
+            canonicalProject: project,
+            context: "composed",
+            outputs: ["a.md"],
+            profile: "coding",
+            project,
+            resolvedArtifacts: [],
+          })),
+          items: projects.map((project) => ({ kind: "addition" as const, project })),
+          outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+        }),
+        resultingState: report,
+      }));
+      return rendered.slice(rendered.indexOf("Used by:"), rendered.indexOf("Fix:"));
+    };
+
+    const ten = usedByFor(10);
+    for (let index = 1; index <= 10; index += 1) {
+      expect(ten).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(ten).not.toContain("more");
+
+    const eleven = usedByFor(11);
+    for (let index = 1; index <= 11; index += 1) {
+      expect(eleven).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(eleven).not.toContain("more");
+
+    const twelve = usedByFor(12);
+    for (let index = 1; index <= 10; index += 1) {
+      expect(twelve).toContain(`project-${String(index).padStart(2, "0")}`);
+    }
+    expect(twelve).not.toContain("project-11");
+    expect(twelve).not.toContain("project-12");
+    expect(twelve).toContain("… and 2 more");
+  });
+
+  test("a fleet-scale generic warning names Projects and points at --verbose instead of dropping any (INT-B-1)", () => {
+    // The non-missing-agent path keeps the affected-Project clause (cap 4
+    // plus a see-all pointer): a version-floor warning is its fleet-scale
+    // case, asserted here so both warning shapes stay covered.
+    const warning = hostAttentionWarning({
+      problem: "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+)",
+      remedy: "upgrade Codex before checking status or updating the Profile",
+      requirement: "The selected Profile requires Codex project delivery",
+      copyableValues: ["codex"],
+      reason: "version-floor",
+    });
+    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
+    const report = machineReport(
+      projects.map((project) => machineProject(project, { warnings: [warning] })),
+    );
+    const document = applyReportDocument({
+      receipt: emptyReport({
+        desired: projects.map((project) => ({
+          canonicalProject: project,
+          context: "composed",
+          outputs: ["a.md"],
+          profile: "coding",
+          project,
+          resolvedArtifacts: [],
+        })),
+        items: projects.map((project) => ({ kind: "addition" as const, project })),
+        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
+      }),
+      resultingState: report,
+    });
+    const rendered = renderBoundary(document);
+    // Canonical sort keeps the see-all pointer truthful and deterministic.
+    expect(rendered).toContain(
+      "Codex CLI 0.144.6 cannot deliver complete Context through SessionStart hooks (requires 0.145.0+) (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)",
+    );
+    expect(rendered).not.toContain("(12 Projects)");
+    const verbose = renderBoundary(applyReportDocument({
+      receipt: emptyReport(),
+      resultingState: report,
+    }, { verbose: true }));
+    for (const project of projects) {
+      expect(verbose).toContain(project);
+    }
+    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
+  });
+
+  test("one agent missing across several Projects lists every Project once with one fix", () => {
     const warning = hostAttentionWarning(codexMissing);
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [warning] }),
@@ -9965,15 +10634,15 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ Update complete");
-    // One warning statement names every affected Project (view identity).
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta, gamma)");
-    expect(rendered).not.toContain("(3 Projects)");
-    // The identical Adapter-authored remedy appears once.
-    expect(rendered.split("Remedy: install Codex").length - 1).toBe(1);
+    expect(rendered).toStartWith("✔ Updated 3 Projects (3 files)");
+    // One warning statement lists every affected Project (view identity).
+    expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: alpha, beta, gamma");
+    // The identical Adapter-authored fix appears once.
+    expect(rendered.split("Fix: install Codex").length - 1).toBe(1);
   });
 
-  test("a warning that survived installer host-scope dedup names every affected Project once (#668)", () => {
+  test("a warning that survived installer host-scope dedup lists every affected Project under Used by (#668)", () => {
     // The installer keeps one host-attention warning per Host on the first
     // Project in canonical order; the carrying record's Project is one of the
     // affectedProjects, so the seed must be the only home for the set (no
@@ -10003,18 +10672,18 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/my-app, beta/my-app, hello)");
-    expect(rendered.split("(alpha/my-app, beta/my-app, hello)").length - 1).toBe(1);
+    expect(rendered).toContain("Used by: alpha/my-app, beta/my-app, hello");
+    expect(rendered.split("Used by: alpha/my-app, beta/my-app, hello").length - 1).toBe(1);
   });
 
-  test("two Hosts keep separate warning lines with their own remedy and requirement", () => {
+  test("two agents keep separate warning blocks with their own fix (screen 27)", () => {
     const report = machineReport([
       machineProject("/work/alpha", {
-        warnings: [hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" })],
+        warnings: [hostAttentionWarning({ ...codexMissing, problem: "Codex isn't installed, or isn't on your PATH." })],
       }),
       machineProject("/work/beta", {
         warnings: [
-          hostAttentionWarning({ ...codexMissing, problem: "Codex CLI was not found on PATH" }),
+          hostAttentionWarning({ ...codexMissing, problem: "Codex isn't installed, or isn't on your PATH." }),
           hostAttentionWarning(claudeMissing),
         ],
       }),
@@ -10035,59 +10704,19 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       resultingState: report,
     });
     const rendered = renderBoundary(document);
-    expect(rendered).toStartWith("✔ Update complete");
-    // Different Hosts: each keeps its own Adapter-authored remedy and requirement.
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha, beta)");
-    expect(rendered).toContain("Remedy: install Codex and ensure `codex --version` works");
-    expect(rendered).toContain("Requirement: The selected Profile requires Codex project delivery");
-    expect(rendered).toContain("Claude Code CLI was not found on PATH (beta)");
-    expect(rendered).toContain("Remedy: install Claude Code and ensure `claude --version` works");
-    expect(rendered).toContain("Requirement: The selected Profile requires Claude Code project delivery");
-    // No synthesized merge of two Host remedies.
-    expect(rendered).not.toContain("install Codex and Claude Code");
+    expect(rendered).toStartWith("✔ Updated 2 Projects (2 files)");
+    // Different agents: each keeps its own Adapter-authored fix.
+    expect(rendered).toContain("Codex isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: alpha, beta");
+    expect(rendered).toContain("Fix: install Codex, then check that `codex --version` works.");
+    expect(rendered).toContain("Claude isn't installed, or isn't on your PATH.");
+    expect(rendered).toContain("Used by: beta");
+    expect(rendered).toContain("Fix: install Claude, then check that `claude --version` works.");
+    // No synthesized merge of two agent fixes.
+    expect(rendered).not.toContain("install Codex and Claude");
   });
 
-  test("a fleet-scale missing-Host list names Projects and points at --verbose instead of dropping any", () => {
-    const warning = hostAttentionWarning({
-      problem: "Pi CLI was not found on PATH",
-      remedy: "install Pi and ensure `pi --version` works before checking status or updating the Profile",
-      requirement: "The selected Profile requires Pi project delivery",
-      copyableValues: ["pi"],
-    });
-    const projects = Array.from({ length: 12 }, (_, index) => `/fleet/p${index + 1}`);
-    const report = machineReport(
-      projects.map((project) => machineProject(project, { warnings: [warning] })),
-    );
-    const document = applyReportDocument({
-      receipt: emptyReport({
-        desired: projects.map((project) => ({
-          canonicalProject: project,
-          context: "composed",
-          outputs: ["a.md"],
-          profile: "coding",
-          project,
-          resolvedArtifacts: [],
-        })),
-        items: projects.map((project) => ({ kind: "addition" as const, project })),
-        outputs: projects.map((project) => ({ kind: "addition" as const, path: "a.md", project })),
-      }),
-      resultingState: report,
-    });
-    const rendered = renderBoundary(document);
-    // Canonical sort keeps the see-all pointer truthful and deterministic.
-    expect(rendered).toContain("Pi CLI was not found on PATH (p1, p10, p11, p12, … 8 more Projects; use --verbose to see all Projects)");
-    expect(rendered).not.toContain("(12 Projects)");
-    const verbose = renderBoundary(applyReportDocument({
-      receipt: emptyReport(),
-      resultingState: report,
-    }, { verbose: true }));
-    for (const project of projects) {
-      expect(verbose).toContain(project);
-    }
-    expect(verbose).toContain("(/fleet/p1, /fleet/p10");
-  });
-
-  test("remedy stays default-colored while the warning statement carries the warning role", () => {
+  test("the fix stays default-colored while the warning statement carries the warning role", () => {
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
     ]);
@@ -10108,23 +10737,23 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     });
     const items = listPartsIn(document).filter((item) => item.length > 0);
     expect(items).toHaveLength(1);
-    expect(flatInlineText(items[0]!)).toContain("Codex CLI was not found on PATH");
-    const remedies = flattenPresentationNodes(document).filter((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    expect(flatInlineText(items[0]!)).toContain("Codex isn't installed, or isn't on your PATH.");
+    const fixes = flattenPresentationNodes(document).filter((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Fix: ")
     );
-    expect(remedies).toHaveLength(1);
-    expect((remedies[0] as { category?: string }).category).toBeUndefined();
+    expect(fixes).toHaveLength(1);
+    expect((fixes[0] as { category?: string }).category).toBeUndefined();
   });
 
-  test("a structurally marked remedy command renders as an atomic command part", () => {
+  test("a structurally marked fix command renders as an atomic command part", () => {
     const report = machineReport([
       machineProject("/work/alpha", {
         warnings: [hostAttentionWarning({
           ...codexMissing,
           remedyParts: [
-            "install Codex and ensure ",
+            "install Codex, then check that ",
             commandPart("codex", [{ kind: "text", value: "--version" }]),
-            " works",
+            " works.",
           ],
         })],
       }),
@@ -10132,26 +10761,26 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
     const nodes = flattenPresentationNodes([
       ...installWarningNodes(report),
     ]);
-    const remedy = nodes.find((node) =>
-      node.kind === "prose" && nodeText(node).includes("Remedy:")
+    const fix = nodes.find((node) =>
+      node.kind === "prose" && nodeText(node).includes("Fix:")
     ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
-    expect(remedy).toBeDefined();
-    expect(remedy!.parts.some((part) =>
+    expect(fix).toBeDefined();
+    expect(fix!.parts.some((part) =>
       typeof part !== "string" && part.kind === "command" && part.program === "codex"
     )).toBe(true);
   });
 
-  test("a plain-string remedy with markdown backticks is left unparsed", () => {
+  test("a plain-string fix with markdown backticks is left unparsed", () => {
     const report = machineReport([
       machineProject("/work/alpha", { warnings: [hostAttentionWarning(codexMissing)] }),
     ]);
-    const remedy = flattenPresentationNodes(installWarningNodes(report)).find((node) =>
-      node.kind === "prose" && nodeText(node).startsWith("  Remedy: ")
+    const fix = flattenPresentationNodes(installWarningNodes(report)).find((node) =>
+      node.kind === "prose" && nodeText(node).startsWith("  Fix: ")
     ) as Extract<PresentationNode, { kind: "prose" }> | undefined;
-    expect(remedy).toBeDefined();
+    expect(fix).toBeDefined();
     // Correction: do not parse markdown backticks out of a plain string.
-    expect(flatInlineText(remedy!.parts)).toContain("`codex --version`");
-    expect(remedy!.parts.some((part) => typeof part !== "string" && part.kind === "command")).toBe(false);
+    expect(flatInlineText(fix!.parts)).toContain("`codex --version`");
+    expect(fix!.parts.some((part) => typeof part !== "string" && part.kind === "command")).toBe(false);
   });
 
   test("capabilityWarning carries typed problem, remedy, and requirement for presentation", () => {
@@ -10181,9 +10810,9 @@ describe("missing-Host warnings (US-011, DEC-007, DEC-009)", () => {
       machineProject("/teams/beta/tools"),
     ]);
     const rendered = renderBoundary(applyReportDocument({ receipt, resultingState }));
-    expect(rendered).toContain("Codex CLI was not found on PATH (alpha/tools)");
+    expect(rendered).toContain("Used by: alpha/tools");
     expect(rendered).not.toContain("/teams/alpha/tools");
-    expect(rendered).not.toContain("Codex CLI was not found on PATH (tools)");
+    expect(rendered).not.toContain("Used by: tools");
   });
 
   test("identical machine messages with different typed splits never merge (INT-2)", () => {
@@ -11217,7 +11846,7 @@ describe("primary-cause fleet partition (spec #373, DEC-041, issue #435)", () =>
       const document = lifecycleStatusDocument(report, { selection: { kind: "all" } });
       const rendered = renderBoundary(document);
 
-      expect(rendered).toStartWith("✔ All Projects are up to date (2 Projects)\n");
+      expect(rendered).toStartWith("✔ Everything is up to date (2 Projects)\n");
       expect(rendered).toContain("up to date");
       expect(rendered).toContain("/project-1");
       expect(rendered).toContain("/project-2");
@@ -11568,6 +12197,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
           host: "codex",
           kind: "approval-required",
           message: "Approve hook",
+          humanAction: "approve the hook",
           output: ".codex/hooks.json",
           provenance: "transition",
         },
@@ -11576,6 +12206,7 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
           host: "claude",
           kind: "trust-required",
           message: "Trust the project in Claude",
+          humanAction: "trust this project",
           provenance: "standing",
         },
       ],
@@ -11664,9 +12295,9 @@ describe("focused verbose diagnostics (issue #449, spec #373, US-013, DEC-006, D
     // 5. Git exclusions are retained:
     expect(verboseTexts.some((t) => t.includes(".git/info/exclude"))).toBe(true);
 
-    // 5. Host setup steps are retained:
-    expect(verboseTexts.some((t) => t.includes("Approve hook"))).toBe(true);
-    expect(verboseTexts.some((t) => t.includes("Trust the project in Claude"))).toBe(true);
+    // 5. Host setup steps are retained as their authored human lines:
+    expect(verboseTexts.some((t) => t.includes("Codex: approve the hook."))).toBe(true);
+    expect(verboseTexts.some((t) => t.includes("Claude: trust this project."))).toBe(true);
 
     // 6. Composed context bodies, capability contracts, and per-project setup provenance are omitted:
     expect(headings).not.toContain("Selected setup:");
@@ -12142,7 +12773,6 @@ describe("bare invocation entry screen (issue #452, US-032, US-035, DEC-020, DEC
  */
 const CONCEPT_DEFINITION_MARKERS = [
   { concept: "Workspace", markers: ["Your Workspace folder holds", "Your Workspace is one folder that holds"] },
-  { concept: "Project", markers: ["A Project is one working folder"] },
   { concept: "Profile", markers: ["Profiles group Context and Skills", "A Profile is a named selection"] },
   { concept: "Skills", markers: ["Skills are the skills you already use"] },
   { concept: "Context", markers: ["Context is plain Markdown", "Context is always-loaded"] },
@@ -12238,18 +12868,16 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
   });
 
   test("the Profile picker drops its concept explanation (spec #677 screen 10)", () => {
-    // The pre-picker screen carries only the Project concept: a user choosing
-    // among existing Profiles already met the word at setup and
-    // `apkit new profile` (US-005).
+    // US-005: the Profile picker has no concept explanation. A user choosing
+    // among existing Profiles already met the words at setup and
+    // `apkit new profile` (spec #672 US-005).
     const prePicker = installTargetDocument({
       canonicalProject: join(home, "projects", "demo"),
       authoredProject: "~/projects/demo",
     });
     const text = documentText(prePicker);
-    expect(explainedConcepts(text)).toEqual(["Project"]);
-    expect(text).toContain(
-      "A Project is one working folder that receives the installed material.",
-    );
+    expect(explainedConcepts(text)).toEqual([]);
+    expect(text).not.toContain("A Project is one working folder");
     expect(text).not.toContain(
       "A Profile is a named selection",
     );
@@ -12269,8 +12897,8 @@ describe("newcomer concept explanations (US-001, DEC-003, #645)", () => {
     });
     expect(rendered).toContain("Installing into ~/projects/demo.");
     expect(rendered).not.toContain("Installing into demo");
-    // #645's Project sentence stays on this screen.
-    expect(rendered).toContain(PROJECT_EXPLANATION_SENTENCE);
+    // Screen 10 shows only the target: no concept sentence (spec #672 US-005).
+    expect(rendered).not.toContain("A Project is one working folder");
   });
 
   test("the install agent note says in one sentence that apkit doesn't install the agents", () => {
@@ -12495,7 +13123,7 @@ describe("status wording consistency and scope accuracy (issue #505, spec #491, 
 
     const doc = lifecycleStatusDocument(report, { selection: { kind: "all" } });
     const rendered = renderBoundary(doc);
-    expect(rendered).toStartWith("✔ All Projects are up to date (3 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (3 Projects)\n");
     expect(rendered).toContain("up to date");
     expect(rendered).not.toContain("Next:");
   });
@@ -12716,10 +13344,10 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const document = lifecycleStatusDocument(healthyFleet(), { workspace });
     const rendered = renderBoundary(document, context(100));
 
-    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
+    expect(rendered).toStartWith("✔ Everything is up to date (4 Projects)\n");
     expect(rendered).toContain("Workspace: ~/apkit-workspace");
     expect(rendered).toContain("Project");
-    expect(rendered).toContain("Primary Cause");
+    expect(rendered).toContain("Status");
     for (const project of ["alpha", "beta", "gamma", "delta"]) {
       expect(rendered).toContain(project);
       expect(rendered).toContain("up to date");
@@ -12918,9 +13546,9 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const rendered = renderBoundary(document, context(60));
     const lines = rendered.trimEnd().split("\n");
 
-    expect(rendered).toStartWith("✔ All Projects are up to date (4 Projects)\n");
-    // #649's packer: Project + Primary Cause share one line when they fit the measure.
-    const packed = lines.filter((line) => line.includes("Primary Cause:") && line.includes("Project:"));
+    expect(rendered).toStartWith("✔ Everything is up to date (4 Projects)\n");
+    // #649's packer: Project + Status share one line when they fit the measure.
+    const packed = lines.filter((line) => line.includes("Status:") && line.includes("Project:"));
     expect(packed.length).toBeGreaterThanOrEqual(4);
     for (const line of packed) {
       expect(line.length).toBeLessThanOrEqual(60);
@@ -12952,7 +13580,7 @@ describe("status scope inventory (spec #640 US-007, #650, TEST-003, TEST-005)", 
     const document = lifecycleStatusDocument(healthyFleet(), { workspace });
     const rendered = renderBoundary(document, context(100));
     const lines = rendered.trimEnd().split("\n");
-    const header = lines.find((line) => line.startsWith("Project") && line.includes("Primary Cause"));
+    const header = lines.find((line) => line.startsWith("Project") && line.includes("Status"));
     expect(header).toBeDefined();
   });
 });

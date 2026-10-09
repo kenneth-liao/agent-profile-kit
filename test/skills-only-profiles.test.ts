@@ -349,6 +349,7 @@ describe("Skills-only Profiles", () => {
         host: "codex",
         kind: "approval-required",
         message: "Review and approve the generated SessionStart hook when Codex asks.",
+        humanAction: "approve the SessionStart hook when asked",
         output: ".codex/hooks.json",
         provenance: "transition",
       },
@@ -357,6 +358,7 @@ describe("Skills-only Profiles", () => {
         host: "codex",
         kind: "trust-required",
         message: "Trust the bound project in Codex.",
+        humanAction: "trust this project",
         provenance: "standing",
       },
     ]);
