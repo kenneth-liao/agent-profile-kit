@@ -1,7 +1,8 @@
 {
   "name": "agent-profile-kit",
-  "version": "0.236.7",
+  "version": "0.237.0",
   "description": "Compose portable agent material into host-native profiles.",
+  "license": "MIT",
   "type": "module",
   "bin": {
     "apkit": "./dist/cli.js"

@@ -13,6 +13,12 @@ promise.
 
 Supported agents: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 
+## Agent-first setup
+
+If you are using an AI coding agent, you do not need to run commands by hand. Paste this prompt into your agent:
+
+> Read https://github.com/kenneth-liao/agent-profile-kit (specifically `docs/guides/agent-workflow.md` and `docs/guides/workspace-contract.md`, or run `npx --yes --package agent-profile-kit apkit guide --agent`), then help me set up my Workspace, migrate my existing Skills and instruction files, create my first Profile, and install it into my projects.
+
 ## Quick start
 
 Initialize your Workspace in a folder you choose, without a global installation:
@@ -39,8 +45,10 @@ apkit uninstall --here --auto-confirm    # remove an installation and forget its
 ## Learn more
 
 - `apkit --help` — concise summary of every command
+- `apkit guide --agent` — step-by-step agent onboarding, migration, and authoring workflow
 - `apkit guide profile` (or `guide context`, `guide skill`) — focused authoring topics
 - `apkit guide --contract` — the Workspace contract: every rule validation enforces
 - `apkit guide --full` — the complete Workspace guide
+- [docs/guides/agent-workflow.md](docs/guides/agent-workflow.md) — agent onboarding and migration guide, readable before installing apkit
 - [docs/guides/workspace-contract.md](docs/guides/workspace-contract.md) — the Workspace contract, readable before installing apkit
 - [docs/guides/workspace.md](docs/guides/workspace.md) — Workspace authoring guidance
