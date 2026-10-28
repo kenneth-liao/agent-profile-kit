@@ -247,6 +247,7 @@ jobs:
           MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           test "$GITHUB_SHA" = "$MAIN_SHA"
 
+          npm install --global npm@latest
           npm publish \
             "$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}" \
             --provenance \
