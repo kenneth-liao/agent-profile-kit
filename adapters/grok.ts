@@ -926,16 +926,26 @@ export async function planGrokProject(
     modules.length > 0
       ? [contextRule(profileId, modules, path, materials), ...skillOutputs]
       : [...skillOutputs];
+  // Grok loads project rules and Skills at startup only in a trusted folder.
+  const trustSteps: readonly AdapterHostSetupStep[] = outputs.length > 0
+    ? [{
+        consequence: "The Profile does not load until the project is trusted.",
+        kind: "trust-required",
+        message: "Trust the bound project in Grok.",
+        humanAction: "trust this project",
+        provenance: "standing",
+      }]
+    : [];
   const setupSteps: readonly AdapterHostSetupStep[] =
     modules.length > 0 && path === CLAUDE_CONTEXT_RULE_PATH
-      ? [{
+      ? [...trustSteps, {
           kind: "shared-path",
           message:
             `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
           humanAction: `it reads Claude's Context file at ${CLAUDE_CONTEXT_RULE_PATH}`,
           provenance: "standing",
         }]
-      : [];
+      : trustSteps;
   return {
     host: "grok",
     hostVersion: skillsRequireDisabledModelInvocation(skills)

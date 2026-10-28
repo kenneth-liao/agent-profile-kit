@@ -192,7 +192,7 @@ exit 2
       host: "grok",
       hostVersion: "native-project-unscoped-rules-v1",
       outputs: [{ path: ".grok/rules/agent-profile-kit.md" }],
-      setupSteps: [],
+      setupSteps: [{ kind: "trust-required", message: "Trust the bound project in Grok." }],
     });
   });
 

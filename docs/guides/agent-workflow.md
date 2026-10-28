@@ -7,7 +7,7 @@ Use this workflow when helping a person set up Agent Profile Kit, migrate their 
 When a user points you at this repository or asks you to set up Agent Profile Kit from scratch, execute these five steps non-interactively (confirming user choices before writing):
 
 1. **Run `apkit` without requiring manual CLI setup.**
-   Check whether `apkit` is on `PATH` (`command -v apkit`). If not, invoke it via `npx --yes --package agent-profile-kit apkit <command>`. Always pass explicit paths and `--auto-confirm` (or `--yes` on `init` when switching Workspaces) so commands never hang waiting for a terminal prompt. Optionally offer to add `alias apkit="npx --yes --package agent-profile-kit apkit"` to `~/.zshrc` if the user wants a short command for themselves.
+   Check whether `apkit` is on `PATH` (`command -v apkit`). If not, invoke it via `npx --yes --package agent-profile-kit apkit <command>`. Always pass explicit paths, and pass `--auto-confirm` to the commands that confirm (`install`, `uninstall`, and `configure profile`) so they never hang waiting for a terminal prompt. `init`, `new`, `validate`, `status`, and `update` take no confirmation flag: run without a terminal, they never prompt, and a supplied `init` path counts as confirmation. Optionally offer to add `alias apkit="npx --yes --package agent-profile-kit apkit"` to `~/.zshrc` if the user wants a short command for themselves.
 2. **Initialize or connect the Workspace.**
    Check `~/.agents/agent-profile-kit/config.yaml` first. If no Workspace is configured, ask the user where they want their Workspace (suggest `~/agent-profile-workspace` or `~/projects/agent-profile-workspace`) and run `apkit init <workspace>`.
 3. **Discover and migrate existing Skills and instruction files.**
