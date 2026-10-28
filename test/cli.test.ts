@@ -8360,11 +8360,13 @@ describe("agent-profile-kit project-bound lifecycle", () => {
     expectExitCode(status, 0);
     expect(humanText(status.stdout)).toContain(humanText(`${projectPath}: not installed yet`));
     expect(status.stdout).toContain(".grok/rules/agent-profile-kit.md");
+    expect(status.stdout).toContain("Grok: trust this project.");
     expect(status.stdout).not.toContain("# Agent Profile Kit Context");
     expect(existsSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"))).toBe(false);
 
     const apply = await runCliWithPath(home, pathWithGrok, "update");
     expectExitCode(apply, 0);
+    expect(apply.stdout).toContain("First use:\n- Grok: trust this project so the Profile can load.");
     const rule = readFileSync(join(projectPath, ".grok", "rules", "agent-profile-kit.md"), "utf8");
     expect(rule).toContain("Profile: coding");
     expect(rule).toContain("Always preserve the project boundary.");

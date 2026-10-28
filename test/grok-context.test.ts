@@ -196,6 +196,15 @@ const supportedGrokInspection = async () => ({
   version: "0.2.111",
 });
 
+
+const GROK_TRUST_STEP = {
+  consequence: "The Profile does not load until the project is trusted.",
+  kind: "trust-required",
+  message: "Trust the bound project in Grok.",
+  humanAction: "trust this project",
+  provenance: "standing",
+} as const;
+
 describe("Grok Context Local Configuration", () => {
   test("accepts Grok-only and three-Host bindings and normalizes duplicates", () => {
     const grokOnly = parseLocalConfiguration(
@@ -249,7 +258,11 @@ describe("Grok Adapter planner", () => {
     expect(String(output.bytes)).toContain("Profile: coding");
     expect(String(output.bytes)).toContain("Repository-owned project instructions");
     expect(String(output.bytes)).not.toContain("<!-- Context Module:");
-    expect(plan.setupSteps).toEqual([]);
+    expect(plan.setupSteps).toEqual([GROK_TRUST_STEP]);
+
+    const empty = await planGrokProject("coding", []);
+    expect(empty.outputs).toEqual([]);
+    expect(empty.setupSteps).toEqual([]);
   });
 
   test("selects the Claude rule path when Claude is co-selected and Claude rules are enabled", async () => {
@@ -269,7 +282,7 @@ describe("Grok Adapter planner", () => {
     expect(plan.outputs[0]?.path).toBe(CLAUDE_CONTEXT_RULE_PATH);
     if (plan.outputs[0]?.type !== "file") throw new Error("expected file");
     expect(plan.outputs[0].bytes).toBe(composeContextEnvelope("coding", modules));
-    expect(plan.setupSteps).toEqual([{
+    expect(plan.setupSteps).toEqual([GROK_TRUST_STEP, {
       kind: "shared-path",
       message:
         `Grok uses Profile Context from Claude's shared rule path: ${CLAUDE_CONTEXT_RULE_PATH}.`,
@@ -281,7 +294,7 @@ describe("Grok Adapter planner", () => {
       claudeCoSelected: true,
       claudeRulesEnabled: false,
     });
-    expect(compatibilityDisabled.setupSteps).toEqual([]);
+    expect(compatibilityDisabled.setupSteps).toEqual([GROK_TRUST_STEP]);
   });
 
   test("rejects non-directory .grok or .grok/rules project surfaces", async () => {
@@ -740,7 +753,9 @@ describe("Combined Claude/Grok and three-Host Profile Installation", () => {
         ],
       });
       expect(plannedInstallation(desired.installations[0]!)?.capabilityWarnings).toEqual([]);
-      expect(plannedInstallation(desired.installations[0]!)?.setupSteps).toEqual([]);
+      expect(plannedInstallation(desired.installations[0]!)?.setupSteps).toEqual([
+        { host: "grok", ...GROK_TRUST_STEP },
+      ]);
       // Skills-only Claude+Grok plans Skill packages without Context rule topology.
       expect(
         plannedInstallation(desired.installations[0]!)?.outputs.some((output) =>

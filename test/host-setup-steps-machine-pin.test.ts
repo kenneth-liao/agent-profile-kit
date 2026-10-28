@@ -146,7 +146,20 @@ const OPENCODE_STEPS = [
   }),
 ];
 
+const GROK_TRUST_STEP = JSON.stringify({
+  host: "grok",
+  kind: "trust-required",
+  message: "Trust the bound project in Grok.",
+  provenance: "standing",
+  consequence: "The Profile does not load until the project is trusted.",
+});
+
+// The Grok trust step is the second recorded DEC-004 exception (ADR-0014,
+// launch host qualification amendment).
+const GROK_OWN_PATH_STEPS = [GROK_TRUST_STEP];
+
 const GROK_SHARED_PATH_STEPS = [
+  GROK_TRUST_STEP,
   JSON.stringify({
     host: "grok",
     kind: "shared-path",
@@ -190,7 +203,7 @@ async function writeCodexWorkspace(home: string): Promise<void> {
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
-describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)", () => {
+describe("machine setupSteps values stay byte-identical to 171d5d5 except the recorded ADR-0014 exceptions (DEC-004 pin)", () => {
   test("every Adapter's machine setupSteps values match the frozen value set", async () => {
     const codex = await planCodexProject("coding", MODULES);
     expect(machineSetupSteps("codex", codex.setupSteps)).toEqual(CODEX_STEPS);
@@ -217,7 +230,7 @@ describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)
     expect(machineSetupSteps("grok", grokShared.setupSteps)).toEqual(GROK_SHARED_PATH_STEPS);
 
     const grokOwnPath = await planGrokProject("coding", MODULES);
-    expect(machineSetupSteps("grok", grokOwnPath.setupSteps)).toEqual([]);
+    expect(machineSetupSteps("grok", grokOwnPath.setupSteps)).toEqual(GROK_OWN_PATH_STEPS);
 
     const claude = await planClaudeProject("coding", MODULES);
     expect(machineSetupSteps("claude", claude.setupSteps)).toEqual([]);
@@ -230,6 +243,7 @@ describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)
       ["pi", pi.setupSteps, PI_STEPS],
       ["opencode", opencode.setupSteps, OPENCODE_STEPS],
       ["grok", grokShared.setupSteps, GROK_SHARED_PATH_STEPS],
+      ["grok", grokOwnPath.setupSteps, GROK_OWN_PATH_STEPS],
     ] as const) {
       expect(machineKeySets(machineSetupSteps(host, steps))).toEqual(machineKeySets(frozen));
     }

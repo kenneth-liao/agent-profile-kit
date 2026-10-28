@@ -7,7 +7,7 @@ Use this workflow when helping a person set up Agent Profile Kit, migrate their 
 When a user points you at this repository or asks you to set up Agent Profile Kit from scratch, execute these five steps non-interactively (confirming user choices before writing):
 
 1. **Run `apkit` without requiring manual CLI setup.**
-   Check whether `apkit` is on `PATH` (`command -v apkit`). If not, invoke it via `npx --yes --package agent-profile-kit apkit <command>`. Always pass explicit paths and `--auto-confirm` (or `--yes` on `init` when switching Workspaces) so commands never hang waiting for a terminal prompt. Optionally offer to add `alias apkit="npx --yes --package agent-profile-kit apkit"` to `~/.zshrc` if the user wants a short command for themselves.
+   Check whether `apkit` is on `PATH` (`command -v apkit`). If not, invoke it via `npx --yes --package agent-profile-kit apkit <command>`. Always pass explicit paths, and pass `--auto-confirm` to the commands that confirm (`install`, `uninstall`, and `configure profile`) so they never hang waiting for a terminal prompt. `init`, `new`, `validate`, `status`, and `update` take no confirmation flag: run without a terminal, they never prompt, and a supplied `init` path counts as confirmation. Optionally offer to add `alias apkit="npx --yes --package agent-profile-kit apkit"` to `~/.zshrc` if the user wants a short command for themselves.
 2. **Initialize or connect the Workspace.**
    Check `~/.agents/agent-profile-kit/config.yaml` first. If no Workspace is configured, ask the user where they want their Workspace (suggest `~/agent-profile-workspace` or `~/projects/agent-profile-workspace`) and run `apkit init <workspace>`.
 3. **Discover and migrate existing Skills and instruction files.**
@@ -141,7 +141,10 @@ When a user points you at this repository or asks you to set up Agent Profile Ki
    packages after restarting running sessions. Pi bindings load the generated
    `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>` packages after
    Pi's native trust boundary; packages, extensions, and other Skill sources coexist
-   through Pi agent resolution. For non-Git projects, remind the user that Codex must
+   through Pi agent resolution. Grok bindings load the generated `.grok/rules/` rule
+   (or Claude's shared rule when Claude is co-selected and Grok's Claude rules
+   compatibility is on) and `.grok/skills/<Artifact ID>`
+   packages after Grok's native folder trust. For non-Git projects, remind the user that Codex must
    launch from the exact bound root.
 8. Use `apkit status` for the bound Project containing cwd, pass one explicit
    Project root, or use `apkit status --all` for the fleet. Its concise result
