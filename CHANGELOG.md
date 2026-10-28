@@ -6,6 +6,10 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.237.0] - 2026-10-27
+
+- Added an agent-first setup prompt to `README.md`, a 5-step onboarding and migration playbook to `docs/guides/agent-workflow.md` (`apkit guide --agent`), MIT licensing (`LICENSE`), and public npm + GitHub Release publication via OIDC trusted publishing with provenance in `.github/workflows/release.yml` and `docs/runbooks/github-release.md` (#712)
+
 - Updated `smol-toml` to 1.9.0 so invalid-TOML diagnostics in `apkit status --verbose` and Grok checks name the column of the bad character instead of always column 2 (#704)
 
 - Removed the internal `bindProject` publication primitive, its `replace` option, and the unreachable `bind-host-required` and `bind-conflict` errors, leaving one Host normalizer `normalizeHostSelection` for install and uninstall; CLI behavior and machine JSON are unchanged (#568)

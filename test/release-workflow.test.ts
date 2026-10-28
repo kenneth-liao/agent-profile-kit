@@ -11,14 +11,17 @@ const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workflow = parse(
   readFileSync(resolve(repositoryRoot, ".github/workflows/release.yml"), "utf8"),
 ) as {
+  name?: string;
   on: { workflow_dispatch?: { inputs?: { version?: { required?: boolean } } } };
   permissions?: { contents?: string };
+  concurrency?: { group?: string; "cancel-in-progress"?: boolean };
   jobs?: Record<
     string,
     {
+      name?: string;
       needs?: string | string[];
       outputs?: Record<string, string>;
-      permissions?: { contents?: string };
+      permissions?: { contents?: string; "id-token"?: string };
       env?: Record<string, string>;
       "timeout-minutes"?: number;
       steps?: Array<{
@@ -37,17 +40,19 @@ const workflow = parse(
 const VERIFY_JOB = "verify-release-candidate";
 const PUBLISH_JOB = "publish-release";
 
-test("private releases are manual, main-only, fully gated, and attach the packed CLI", () => {
+test("public releases are manual, main-only, fully gated, and publish the packed CLI to npm and GitHub (#712)", () => {
+  expect(workflow.name).toBe("Release");
+  expect(workflow.concurrency?.group).toBe("release-${{ inputs.version }}");
   expect(workflow.on.workflow_dispatch?.inputs?.version?.required).toBe(true);
-  // Least privilege by default (#551): only the publishing job holds the
-  // release-write grant; the workflow default is read-only.
+  // Least privilege by default (#551, #712): only the publishing job holds the
+  // release-write and OIDC id-token grants; the workflow default is read-only.
   expect(workflow.permissions).toEqual({ contents: "read" });
 
   const jobs = workflow.jobs ?? {};
   expect(Object.keys(jobs)).toEqual([VERIFY_JOB, PUBLISH_JOB]);
-  // Verification cannot write a release; publication is a separate boundary.
+  // Verification cannot write a release or mint OIDC tokens; publication is a separate boundary.
   expect(jobs[VERIFY_JOB]?.permissions).toEqual({ contents: "read" });
-  expect(jobs[PUBLISH_JOB]?.permissions).toEqual({ contents: "write" });
+  expect(jobs[PUBLISH_JOB]?.permissions).toEqual({ contents: "write", "id-token": "write" });
   for (const [id, job] of Object.entries(jobs)) {
     if (id !== PUBLISH_JOB) {
       expect(job.permissions).toEqual({ contents: "read" });
@@ -60,6 +65,7 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   const commands = steps.map((step) => step.run ?? "").join("\n");
 
   expect(Object.values(jobs).every((job) => job.env?.GH_TOKEN === undefined)).toBe(true);
+  expect(Object.values(jobs).every((job) => job.env?.REPOSITORY_PRIVATE === undefined)).toBe(true);
   // Containment is reachable-state arithmetic, not stacked ceilings: a failed
   // suite step (including a supervisor timeout) skips the remaining steps by
   // default, so the 600s suite ceilings never both run after setup. The
@@ -93,18 +99,26 @@ test("private releases are manual, main-only, fully gated, and attach the packed
     engines?: { bun?: string };
   };
   expect(pinnedBunVersion()).toBe(manifest.engines?.bun ?? "");
-  // Release qualification qualifies the same declared primary Node line; the
-  // filter/length loop pins every setup-node step, not only the first.
+  // Release qualification and publication run the same declared primary Node line;
+  // the filter/length loop pins every setup-node step, not only the first.
   const setupNodes = steps.filter((step) => step.uses?.startsWith("actions/setup-node@"));
-  expect(setupNodes).toHaveLength(1);
+  expect(setupNodes).toHaveLength(2);
   for (const step of setupNodes) {
     expect(step.with?.["node-version"]).toBe("22");
   }
-  expect(steps.find((step) => step.name === "Create private GitHub Release")?.env?.GH_TOKEN).toBe(
+  expect(
+    (jobs[PUBLISH_JOB]?.steps ?? []).find((step) => step.uses?.startsWith("actions/setup-node@"))
+      ?.with?.["registry-url"],
+  ).toBe("https://registry.npmjs.org");
+  expect(steps.find((step) => step.name === "Publish to npm")?.env?.GH_TOKEN).toBe(
+    "${{ github.token }}",
+  );
+  expect(steps.find((step) => step.name === "Create GitHub Release")?.env?.GH_TOKEN).toBe(
     "${{ github.token }}",
   );
   expect(commands).toContain('test "$GITHUB_REF" = "refs/heads/main"');
-  expect(commands).toContain('test "$REPOSITORY_PRIVATE" = "true"');
+  expect(commands).not.toContain("REPOSITORY_PRIVATE");
+  expect(commands).not.toMatch(/NPM_TOKEN/);
   expect(commands).toContain('test "$GITHUB_SHA" = "$MAIN_SHA"');
   expect(commands).toContain('test "$VERSION" = "$PACKAGE_VERSION"');
   expect(commands).toContain('git/ref/tags/v$VERSION');
@@ -121,11 +135,13 @@ test("private releases are manual, main-only, fully gated, and attach the packed
   expect(commands).toContain('test -z "$(git status --porcelain)"');
   expect(commands).toContain('"$INSTALL_ROOT/node_modules/.bin/apkit" guide');
   expect(commands).toContain("CHANGELOG.md > release-notes.md");
+  expect(commands).toContain("npm publish");
+  expect(commands).toContain("--provenance");
   expect(commands).toContain('gh release create "v$VERSION"');
   expect(commands).toContain('--target "$GITHUB_SHA"');
 
   const createReleaseCommands = steps.find(
-    (step) => step.name === "Create private GitHub Release",
+    (step) => step.name === "Create GitHub Release",
   )?.run;
   expect(createReleaseCommands).toContain('MAIN_SHA="$(gh api');
   expect(createReleaseCommands).toContain('test "$GITHUB_SHA" = "$MAIN_SHA"');
@@ -225,18 +241,28 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect(boundaryVerify?.run).toContain("qualification-record.json");
   expect(boundaryVerify?.run).toContain("archive-name");
   expect(publishStepNames.indexOf("Verify the received candidate and evidence")).toBeLessThan(
-    publishStepNames.indexOf("Create private GitHub Release"),
+    publishStepNames.indexOf("Publish to npm"),
+  );
+  expect(publishStepNames.indexOf("Publish to npm")).toBeLessThan(
+    publishStepNames.indexOf("Create GitHub Release"),
   );
   // The boundary consumes the workflow's only write-permission job, addressed
   // through the single handoff artifact.
   const download = publishSteps.find((step) => step.uses?.startsWith("actions/download-artifact@"));
   expect(download?.with?.["name"]).toBe("release-candidate-handoff");
   expect(String(download?.with?.path)).toContain("${{ runner.temp }}");
-  const createRelease = publishSteps.find((step) => step.name === "Create private GitHub Release");
+  const publishNpm = publishSteps.find((step) => step.name === "Publish to npm");
+  expect(publishNpm?.run).toContain("npm publish");
+  expect(publishNpm?.run).toContain(
+    '$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}',
+  );
+  expect(publishNpm?.run).toContain("--provenance");
+  expect(publishNpm?.run).toContain("--access public");
+  const createRelease = publishSteps.find((step) => step.name === "Create GitHub Release");
   expect(createRelease?.run).toContain('gh release create "v$VERSION"');
-  // Publication consumes the exact received artifact: the release attaches
-  // the handoff's identified archive, addressed by the verification job's
-  // output name — the same file the boundary gate re-digested.
+  // Publication consumes the exact received artifact: both npm and the GitHub
+  // Release attach the handoff's identified archive, addressed by the
+  // verification job's output name — the same file the boundary gate re-digested.
   expect(createRelease?.run).toContain(
     '$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}',
   );
@@ -251,7 +277,7 @@ test("the release path builds and packs once and publishes exactly the qualified
   expect(count(publishCommands, "create-package-candidate")).toBe(0);
 });
 
-test("the publishing boundary receives only the verified candidate and evidence (#551)", () => {
+test("the publishing boundary receives only the verified candidate and evidence (#551, #712)", () => {
   const publishJob = workflow.jobs?.[PUBLISH_JOB];
   const publishSteps = publishJob?.steps ?? [];
   const publishStepNames = publishSteps.map((step) => step.name);
@@ -260,12 +286,14 @@ test("the publishing boundary receives only the verified candidate and evidence 
   // no suite, no fleet run, no candidate creation, no smoke install.
   expect(publishStepNames).toEqual([
     "Check out release commit",
+    "Set up Node.js",
     "Set up Bun",
     "Install dependencies",
     "Receive the verified candidate",
     "Verify the received candidate and evidence",
     "Prepare release notes",
-    "Create private GitHub Release",
+    "Publish to npm",
+    "Create GitHub Release",
   ]);
   // The verification job supplies the archive filename through its output;
   // the boundary addresses the received artifact by that name.

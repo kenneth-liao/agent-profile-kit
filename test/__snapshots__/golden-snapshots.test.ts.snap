@@ -914,7 +914,40 @@ exports[`golden snapshots of every human view agent guide: agent-guide 1`] = `
 "--- stdout ---
 # Agent Profile Kit agent workflow
 
-Use this workflow when helping a person author their Workspace and bind projects.
+Use this workflow when helping a person set up Agent Profile Kit, migrate their existing Skills and instructions into a Workspace, compose Profiles, and bind projects.
+
+## Fast-start onboarding & migration playbook
+
+When a user points you at this repository or asks you to set up Agent Profile Kit from scratch, execute these five steps non-interactively (confirming user choices before writing):
+
+1. **Run \`apkit\` without requiring manual CLI setup.**
+   Check whether \`apkit\` is on \`PATH\` (\`command -v apkit\`). If not, invoke it via \`npx --yes --package agent-profile-kit apkit <command>\`. Always pass explicit paths and \`--auto-confirm\` (or \`--yes\` on \`init\` when switching Workspaces) so commands never hang waiting for a terminal prompt. Optionally offer to add \`alias apkit="npx --yes --package agent-profile-kit apkit"\` to \`~/.zshrc\` if the user wants a short command for themselves.
+2. **Initialize or connect the Workspace.**
+   Check \`~/.agents/agent-profile-kit/config.yaml\` first. If no Workspace is configured, ask the user where they want their Workspace (suggest \`~/agent-profile-workspace\` or \`~/projects/agent-profile-workspace\`) and run \`apkit init <workspace>\`.
+3. **Discover and migrate existing Skills and instruction files.**
+   Scan the user's machine for existing reusable material they may want to bring into their Workspace:
+   - Global agent directories: \`~/.claude/CLAUDE.md\`, \`~/.claude/skills/\`, \`~/.claude/commands/\`, \`~/.agents/AGENTS.md\`, \`~/.agents/skills/\`, \`~/.agents/rules/\`, \`~/.codex/AGENTS.md\`, \`~/.codex/skills/\`, \`~/.grok/GROK.md\`, \`~/.grok/skills/\`.
+   - Current project directories (if inside a repo): \`CLAUDE.md\`, \`AGENTS.md\`, \`.claude/skills/\`, \`.claude/rules/\`, \`.agents/skills/\`, \`.agents/rules/\`.
+   Present a concise summary of what you found and ask which items are reusable across projects (versus repo-specific facts that should stay in the repo). Then **copy** (never delete the user's originals):
+   - Reusable instruction files into \`<workspace>/context/<kebab-case-id>.md\` (plain Markdown, no frontmatter needed; nested folders like \`context/engineering/testing.md\` become ID \`engineering/testing\`).
+   - Reusable Skill folders into \`<workspace>/skills/<skill-name>/SKILL.md\` (must start with YAML frontmatter containing \`name: <skill-name>\` matching the folder name and a non-empty \`description:\`).
+4. **Create the first Profile and validate.**
+   Ask what Profile name fits their workflow (for example \`engineering\`, \`creator\`, or \`default\`), then run:
+   \`\`\`sh
+   apkit new profile <profile> --context <id>... --skill <id>...
+   apkit validate
+   \`\`\`
+   (Use \`apkit configure profile <profile> --context <id>... --skill <id>... --auto-confirm\` when updating an existing Profile's full membership list.)
+5. **Install into the user's projects.**
+   Ask which project directory (or directories) and which agents (\`claude\`, \`codex\`, \`antigravity\`, \`grok\`, \`opencode\`, \`pi\`) they want to bind. Before running \`install\` on a Git repository, check whether the planned agent output paths (for example \`.claude/rules/agent-profile-kit.md\`, \`.agents/skills/<skill>\`, or \`.agent-profile-kit/\`) are already git-tracked in that repo; if so, warn the user about the Output Ownership Conflict before proceeding. Then run:
+   \`\`\`sh
+   apkit install <profile> <project-path> --agent <agent> --auto-confirm
+   apkit status
+   \`\`\`
+
+---
+
+## Core rules and lifecycle reference
 
 1. Read this guide first. Then inspect the Workspace: start with \`workspace.yaml\`
    and its schema version. The Workspace contract (run \`apkit guide --contract\`)
@@ -1091,7 +1124,7 @@ Changed files:
 
 exports[`golden snapshots of every human view info: info 1`] = `
 "--- stdout ---
-Engine version: 0.236.7
+Engine version: 0.237.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2018,7 +2051,7 @@ Agent Profile Kit composes reusable agent material into agent-native projects.
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.7
+Engine version: 0.237.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/…/config.yaml
 Installation State: ~/…/manifest.json
@@ -2028,7 +2061,7 @@ Installation State: ~/…/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-narrow-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.7\x1B[0m
+\x1B[1mEngine version: 0.237.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/…/config.yaml\x1B[0m
 Installation State: \x1B[1m~/…/manifest.json\x1B[0m
@@ -2038,7 +2071,7 @@ Installation State: \x1B[1m~/…/manifest.json\x1B[0m
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-nocolor 1`] = `
 "--- stdout ---
-Engine version: 0.236.7
+Engine version: 0.237.0
 Workspace: ~/apkit-workspace
 Local Configuration: ~/.agents/agent-profile-kit/config.yaml
 Installation State: ~/.agents/agent-profile-kit/state/manifest.json
@@ -2048,7 +2081,7 @@ Installation State: ~/.agents/agent-profile-kit/state/manifest.json
 
 exports[`rendering matrix for a representative subset info matrix: info-interactive-wide-color 1`] = `
 "--- stdout ---
-\x1B[1mEngine version: 0.236.7\x1B[0m
+\x1B[1mEngine version: 0.237.0\x1B[0m
 Workspace: \x1B[1m~/apkit-workspace\x1B[0m
 Local Configuration: \x1B[1m~/.agents/agent-profile-kit/config.yaml\x1B[0m
 Installation State: \x1B[1m~/.agents/agent-profile-kit/state/manifest.json\x1B[0m

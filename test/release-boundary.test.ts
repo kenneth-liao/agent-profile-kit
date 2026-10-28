@@ -158,6 +158,7 @@ test("packed npm artifacts exclude personal, legacy, and generated content", asy
   try {
     // Keep this allowlist exact: intentional package growth must update this gate with the release boundary.
     expect(packed.files).toEqual([
+      "LICENSE",
       "README.md",
       "dist/cli.js",
       "docs/guides/agent-workflow.md",

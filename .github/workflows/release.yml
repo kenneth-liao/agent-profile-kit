@@ -1,4 +1,4 @@
-name: Private Release
+name: Release
 
 on:
   workflow_dispatch:
@@ -9,13 +9,13 @@ on:
         type: string
 
 # Least privilege by default: only the publishing job receives release-write
-# permission (#551). Verification — including the complete release gate —
-# runs read-only and cannot create a release.
+# and OIDC token permissions (#551, #712). Verification — including the
+# complete release gate — runs read-only and cannot publish.
 permissions:
   contents: read
 
 concurrency:
-  group: private-release-${{ inputs.version }}
+  group: release-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
@@ -36,7 +36,6 @@ jobs:
       # addresses the handoff's identified artifact without re-globbing.
       archive-name: ${{ steps.candidate.outputs.archive-name }}
     env:
-      REPOSITORY_PRIVATE: ${{ github.event.repository.private }}
       VERSION: ${{ inputs.version }}
 
     steps:
@@ -60,7 +59,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$REPOSITORY_PRIVATE" = "true"
           test "$GITHUB_REF" = "refs/heads/main"
           MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
           test "$GITHUB_SHA" = "$MAIN_SHA"
@@ -175,16 +173,18 @@ jobs:
           retention-days: 7
 
   publish-release:
-    name: Publish the verified private release
+    name: Publish the verified release
     needs: [verify-release-candidate]
     runs-on: macos-15
-    # No suite runs here; the job's own bounded verifier plus the release
-    # creation is a minutes-scale step sequence after setup.
+    # No suite runs here; the job's own bounded verifier plus npm and GitHub
+    # Release publication is a minutes-scale step sequence after setup.
     timeout-minutes: 10
-    # The workflow's single release-write grant: this job consumes only the
-    # verified candidate and its evidence, and cannot rebuild or repack them.
+    # The workflow's single write grant: this job consumes only the verified
+    # candidate and its evidence, publishes through npm OIDC trusted publishing
+    # with provenance, and cannot rebuild or repack the artifact (#551, #712).
     permissions:
       contents: write
+      id-token: write
     env:
       VERSION: ${{ inputs.version }}
 
@@ -193,6 +193,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -233,7 +240,20 @@ jobs:
           ' CHANGELOG.md > release-notes.md
           test -s release-notes.md
 
-      - name: Create private GitHub Release
+      - name: Publish to npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          test "$GITHUB_SHA" = "$MAIN_SHA"
+
+          npm install --global npm@latest
+          npm publish \
+            "$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}" \
+            --provenance \
+            --access public
+
+      - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
