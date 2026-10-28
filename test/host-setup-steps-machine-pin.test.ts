@@ -203,7 +203,7 @@ async function writeCodexWorkspace(home: string): Promise<void> {
   writeFileSync(join(home, ".codex", "config.toml"), "[features]\nhooks = true\n");
 }
 
-describe("machine setupSteps values stay byte-identical to 171d5d5 (DEC-004 pin)", () => {
+describe("machine setupSteps values stay byte-identical to 171d5d5 except the recorded ADR-0014 exceptions (DEC-004 pin)", () => {
   test("every Adapter's machine setupSteps values match the frozen value set", async () => {
     const codex = await planCodexProject("coding", MODULES);
     expect(machineSetupSteps("codex", codex.setupSteps)).toEqual(CODEX_STEPS);

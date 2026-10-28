@@ -141,7 +141,9 @@ When a user points you at this repository or asks you to set up Agent Profile Ki
    packages after restarting running sessions. Pi bindings load the generated
    `.pi/APPEND_SYSTEM.md` and shared `.agents/skills/<Artifact ID>` packages after
    Pi's native trust boundary; packages, extensions, and other Skill sources coexist
-   through Pi agent resolution. For non-Git projects, remind the user that Codex must
+   through Pi agent resolution. Grok bindings load the generated `.grok/rules/` rule
+   (or Claude's shared rule when Claude is co-selected) and `.grok/skills/<Artifact ID>`
+   packages after Grok's native folder trust. For non-Git projects, remind the user that Codex must
    launch from the exact bound root.
 8. Use `apkit status` for the bound Project containing cwd, pass one explicit
    Project root, or use `apkit status --all` for the fleet. Its concise result
