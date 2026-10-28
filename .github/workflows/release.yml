@@ -66,7 +66,7 @@ jobs:
           PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
           test "$VERSION" = "$PACKAGE_VERSION"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          rg -F "## [$VERSION] - " CHANGELOG.md
+          grep -F "## [$VERSION] - " CHANGELOG.md
 
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
             echo "Tag v$VERSION already exists" >&2
