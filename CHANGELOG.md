@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.237.1] - 2026-10-28
+
 - Fixed `apkit install` and `update` saying nothing about Grok folder trust, which left Grok loading no Profile Context or Skills in an untrusted folder; when they first deliver Grok output, the `install` receipt now reads `Grok: trust this project.` and `update` lists `Grok: trust this project so the Profile can load.` under `First use:`, like Antigravity and Pi, and `status --verbose` lists the step (#722)
 
 - Fixed `docs/guides/agent-workflow.md` (`apkit guide --agent`) telling agents to pass `--yes` to `init` and `--auto-confirm` to every command; it now names `install`, `uninstall`, and `configure profile` as the commands that take `--auto-confirm` and says `init` needs no flag (#722)
