@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.238.0] - 2026-10-28
+
 - Changed `engines.node` from `>=22 <23` to `>=22`, so installs on Node 24 and 26 no longer print `EBADENGINE`, and added a `Packed CLI on Node <N>` CI job that runs the packed CLI suite on Node 23, 24, 25, and 26 (#724)
 
 ## [0.237.1] - 2026-10-28
