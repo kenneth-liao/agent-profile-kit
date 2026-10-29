@@ -6,6 +6,10 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.238.0] - 2026-10-28
+
+- Changed `engines.node` from `>=22 <23` to `>=22`, so installs on Node 24 and 26 no longer print `EBADENGINE`, and added a `Packed CLI on Node <N>` CI job that runs the packed CLI suite on Node 23, 24, 25, and 26 (#724)
+
 ## [0.237.1] - 2026-10-28
 
 - Fixed `apkit install` and `update` saying nothing about Grok folder trust, which left Grok loading no Profile Context or Skills in an untrusted folder; when they first deliver Grok output, the `install` receipt now reads `Grok: trust this project.` and `update` lists `Grok: trust this project so the Profile can load.` under `First use:`, like Antigravity and Pi, and `status --verbose` lists the step (#722)

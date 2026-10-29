@@ -27,6 +27,7 @@ const workflow = parse(workflowSource) as {
       if?: string;
       "runs-on"?: string;
       "timeout-minutes"?: number;
+      strategy?: { "fail-fast"?: boolean; matrix?: Record<string, unknown> };
       permissions?: Record<string, string>;
       steps?: Array<{
         name?: string;
@@ -51,7 +52,7 @@ test("runs the complete gate for ready pull-request activity and main pushes onl
   expect(workflow.on?.push?.branches).toEqual(["main"]);
 
   const jobs = Object.values(workflow.jobs ?? {});
-  expect(jobs).toHaveLength(2);
+  expect(jobs).toHaveLength(3);
   expect(jobs.every((job) => job.if ===
     "github.event_name != 'pull_request' || github.event.pull_request.draft == false",
   )).toBe(true);
@@ -97,7 +98,7 @@ test("installs the frozen dependency graph without lifecycle scripts or a depend
 test("installs the pinned Bun from its canonical home in every CI job", () => {
   const steps = Object.values(workflow.jobs ?? {}).flatMap((job) => job.steps ?? []);
   const setupBun = steps.filter((step) => step.uses?.startsWith("oven-sh/setup-bun@"));
-  expect(setupBun).toHaveLength(2);
+  expect(setupBun).toHaveLength(3);
   for (const step of setupBun) {
     expect(step.with?.["bun-version-file"]).toBe("package.json");
     expect(step.with?.["bun-version"]).toBeUndefined();
@@ -152,25 +153,39 @@ test("declares the qualified Node and platform support in one canonical home", (
     engines?: { node?: string };
     os?: string[];
   };
-  // Node 22 is the declared primary qualification line; the explicit upper
-  // bound keeps the manifest from claiming every newer Node line through an
-  // open-ended engine range (US-007, DEC-010). macOS-only scope stays
-  // declared; expansion requires an explicit support decision.
-  expect(manifest.engines?.node).toBe(">=22 <23");
+  // Node 22 is the declared minimum and primary qualification line; newer
+  // lines are claimed open-ended and backed by the packed-CLI Node-line job
+  // (ADR-0054). macOS-only scope stays declared; expansion requires an
+  // explicit support decision.
+  expect(manifest.engines?.node).toBe(">=22");
   expect(manifest.os).toEqual(["darwin"]);
 });
 
 // The Node that actually executes the packed CLI is the workflow's selected
 // Node: the record's packed CLI probe and every packed consumer read the same
 // one reader, so no Bun direct-test pass can be mislabeled as Node 22.
-test("installs the declared primary Node line in every CI job", () => {
-  const setupNodes = Object.values(workflow.jobs ?? {})
-    .flatMap((job) => job.steps ?? [])
-    .filter((step) => step.uses?.startsWith("actions/setup-node@"));
-  expect(setupNodes).toHaveLength(2);
-  for (const step of setupNodes) {
-    expect(step.with?.["node-version"]).toBe("22");
+test("installs the declared primary Node line in the full-gate CI jobs", () => {
+  for (const name of ["macos-supported-platform", "fleet-scale-regressions"]) {
+    const setupNodes = (workflow.jobs?.[name]?.steps ?? [])
+      .filter((step) => step.uses?.startsWith("actions/setup-node@"));
+    expect(setupNodes).toHaveLength(1);
+    expect(setupNodes[0]?.with?.["node-version"]).toBe("22");
   }
+});
+
+// Every newer Node major the open-ended engine range claims runs the packed
+// CLI release-candidate suite against one candidate (ADR-0054).
+test("runs the packed CLI suite on every newer Node line", () => {
+  const job = workflow.jobs?.["packed-cli-node-lines"];
+  expect(job?.strategy?.["fail-fast"]).toBe(false);
+  expect(job?.strategy?.matrix?.node).toEqual(["23", "24", "25", "26"]);
+  const steps = job?.steps ?? [];
+  const setupNodes = steps.filter((step) => step.uses?.startsWith("actions/setup-node@"));
+  expect(setupNodes).toHaveLength(1);
+  expect(setupNodes[0]?.with?.["node-version"]).toBe("${{ matrix.node }}");
+  expect(steps.some((step) => step.run?.includes("scripts/create-package-candidate.ts"))).toBe(true);
+  expect(steps.some((step) =>
+    step.run === "bun run test:focused -- test/release-candidate.test.ts")).toBe(true);
 });
 
 test("package scripts keep local typecheck, build, and supervised tests independently usable", () => {
