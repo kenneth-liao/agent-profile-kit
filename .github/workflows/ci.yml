@@ -119,3 +119,44 @@ jobs:
           path: ${{ runner.temp }}/suite-diagnostics/
           if-no-files-found: ignore
           retention-days: 7
+
+  # The engine range claims every Node line from 22 up (ADR-0054). The full
+  # gate runs on the primary line above; each newer line runs the packed CLI
+  # release-candidate suite against its own candidate.
+  packed-cli-node-lines:
+    name: Packed CLI on Node ${{ matrix.node }}
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: macos-15
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["23", "24", "25", "26"]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Create package candidate
+        run: |
+          archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/package")"
+          echo "APKIT_TEST_PACKAGE_ARCHIVE=$archive_file" >> "$GITHUB_ENV"
+
+      - name: Run packed CLI suite
+        run: bun run test:focused -- test/release-candidate.test.ts

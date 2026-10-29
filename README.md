@@ -3,13 +3,13 @@
 Agent Profile Kit composes your Skills and Context into portable Profiles and
 installs them into the projects you choose, as native material for your agents.
 
-The initial release supports macOS only, on the Node.js 22 line — the package's
-declared primary Node runtime; no newer Node release line is claimed. The
+The initial release supports macOS only, on Node.js 22 or newer. Node 22 is
+the primary qualification line, and CI also runs the packed CLI on Node 23
+through 26 ([ADR-0054](docs/adr/0054-support-node-22-and-newer.md)). The
 actually observed baseline (macOS version, CPU architecture, and Node version)
 is recorded in each supervised qualification run's record, retained as CI
-evidence. Supporting additional environments is an explicit decision backed by
-matching packed installation and lifecycle evidence, never an engine-range
-promise.
+evidence. Supporting additional operating systems is an explicit decision
+backed by matching packed installation and lifecycle evidence.
 
 Supported agents: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 

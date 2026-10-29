@@ -60,8 +60,8 @@ let packageArchiveCleanup = (): void => undefined;
  * Parse the declared Node support line from package.json engines.node.
  * package.json is the sole supported-runtime home; this gate must not hardcode a major.
  * Supported forms: ">=MAJOR", ">=MAJOR.MINOR", ">=MAJOR.MINOR.PATCH", each with an
- * optional explicit upper bound "<MAJOR" that keeps the manifest from claiming
- * newer Node lines through an open-ended range (US-007, DEC-010).
+ * optional explicit upper bound "<MAJOR". The declared range is open-ended
+ * (ADR-0054); the packed-cli-node-lines CI job runs this suite on each newer line.
  */
 function declaredNodeLine(enginesNode: unknown): { major: number; upperMajor: number | null; range: string } {
   if (typeof enginesNode !== "string" || enginesNode.trim() === "") {
