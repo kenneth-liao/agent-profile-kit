@@ -701,3 +701,18 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   principal: Host size limits are each Host's own behaviour, and a user can
   already write an instruction file of any size. The guide's advice to keep
   Context short stays. The fog item is closed.
+- 2026-10-30 — Cutover shape, chosen before the specs:
+  - The commands `new`, `configure`, `open`, `info`, `list`, and `details` do
+    not return; the agent edits files, and `check`, `status --all`,
+    `workspace`, and `--json` cover the rest. ISC-7.2 is met by `--json`
+    output at the time of the run.
+  - The prototype's command and flag names stay (`check`, `remove`,
+    `--agents a,b`, `--yes`, `--overwrite`), as a breaking minor release under
+    ADR-0014.
+  - `next/` becomes the only engine at the repository root; the current
+    engine's code and tests are deleted.
+  - Release qualification keeps exact-artifact release and a qualification
+    record (ISC-11 to ISC-18) but replaces the supervised test runner with
+    plain `bun test`, because the new engine starts no child processes.
+  - Two specs: first the Workspace format and the remaining engine gaps in
+    `next/`, then migration and cutover.
