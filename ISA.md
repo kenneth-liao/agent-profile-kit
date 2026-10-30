@@ -516,3 +516,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
     ADR-0052 (Temporary Profile Installation), and the `CONTEXT.md` Temporary
     Profile Installation term. Superseding ADRs and a glossary update are
     needed before cutover.
+- 2026-10-30 — The 2026-10-30 direction is recorded in
+  [ADR-0055](docs/adr/0055-deliver-through-verified-locations-instead-of-adapters.md)
+  and [ADR-0056](docs/adr/0056-let-each-folder-own-its-installation.md). Both
+  take effect at cutover. ADR-0010 also conflicts (Project Bindings, owning
+  whole files only, no user-level writes), so ADR-0056 supersedes it as well.
+  ADR-0012 is amended, not superseded: Host Resolution stays with the Host.
+  The `CONTEXT.md` terms change in the cutover change.

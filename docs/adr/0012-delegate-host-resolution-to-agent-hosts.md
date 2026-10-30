@@ -1,3 +1,5 @@
 # Delegate native material resolution to Agent Hosts
 
 Agent Profile Kit owns portable artifacts, Host-native projection, and exact generated-output reconciliation, while each Agent Host owns discovery, precedence, deduplication, collision diagnostics, and resolution across generated, project, global, package, plugin, and extension material. Adapters rely on supported native Host behavior instead of reconstructing a Host resolver or inventory: they may warn when concrete Host configuration disables planned output, and they reject only when the output cannot be owned safely or its required portable semantics cannot be represented at all. This supersedes the cross-Host collision policy introduced by issue #53; same-identity material outside an exact planned output destination is Host Resolution, not an Agent Profile Kit blocker.
+
+*Amended at cutover by ADR-0055:* a table of verified locations replaces the Adapters. The engine still relies on Host Resolution and never rebuilds a resolver or an inventory.

@@ -65,3 +65,4 @@ e012809 installed and removed both.
   Temporary Profile Installation still leaves its empty folders.
 - apkit still writes no Host trust or approval state. A new worktree is a new
   path for each Host, and the orchestrator owns trust.
+- *Superseded at cutover by ADR-0056:* one kind of installation covers disposable worktrees. Until cutover this decision stays in force for the current engine.

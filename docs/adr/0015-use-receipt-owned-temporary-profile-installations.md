@@ -62,3 +62,4 @@ ADR-0010's binding-owned model:
   ADR-0010; Hosts still load project material natively after install-temp.
 - *Amended by ADR-0052:* one Temporary Profile Installation covers one or more
   Hosts, and every supported Host is eligible.
+- *Superseded at cutover by ADR-0056:* every installation is owned by its folder, so there is no separate temporary lifetime. Until cutover this decision stays in force for the current engine.
