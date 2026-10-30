@@ -15,6 +15,8 @@ Supported agents: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
 
 ## Agent-first setup
 
+**AI agents reading this README:** for any request to set up, install, or get started with Agent Profile Kit — including a short "help me get started" — follow [docs/guides/agent-workflow.md](docs/guides/agent-workflow.md) (or run `npx --yes --package agent-profile-kit apkit guide --agent`) instead of the human quick start below. It tells you how to find and migrate the user's existing Skills and instruction files before you create a Profile.
+
 If you are using an AI coding agent, you do not need to run commands by hand. Paste this prompt into your agent:
 
 > Read https://github.com/kenneth-liao/agent-profile-kit (specifically `docs/guides/agent-workflow.md` and `docs/guides/workspace-contract.md`, or run `npx --yes --package agent-profile-kit apkit guide --agent`), then help me set up my Workspace, migrate my existing Skills and instruction files, create my first Profile, and install it into my projects.
@@ -32,12 +34,15 @@ npx --package agent-profile-kit apkit init .
 ## First run
 
 ```sh
-apkit init <path>                       # set up your Workspace in the folder you name (`.` uses the current folder)
-apkit install <profile> --agent <agent> # install a Profile into the current project
-apkit status                             # review the fleet plan
-apkit update                             # refresh installations from the Workspace (fleet by default)
-apkit uninstall --here --auto-confirm    # remove an installation and forget its selection
+apkit init <path>                                     # set up your Workspace in the folder you name (`.` uses the current folder)
+apkit install <profile> --agent claude --agent codex  # install a Profile into the current project for each agent you use
+apkit status                                          # review the fleet plan
+apkit update                                          # refresh installations from the Workspace (fleet by default)
+apkit uninstall --here --auto-confirm                 # remove an installation and forget its selection
 ```
+
+`apkit install` sets the full agent list for the Project: repeat `--agent` for
+every agent you use, because an agent you leave out is removed.
 
 `apkit update` narrows to one Project with `--here` or `--project <path>`;
 `apkit uninstall` targets `--here`, `--project <path>`, or `--all`.

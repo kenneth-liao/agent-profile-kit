@@ -4,7 +4,7 @@ Use this workflow when helping a person set up Agent Profile Kit, migrate their 
 
 ## Fast-start onboarding & migration playbook
 
-When a user points you at this repository or asks you to set up Agent Profile Kit from scratch, execute these five steps non-interactively (confirming user choices before writing):
+When a user points you at this repository or asks you to set up Agent Profile Kit from scratch — even with a short "help me get started" — execute these six steps non-interactively (confirming user choices before writing):
 
 1. **Run `apkit` without requiring manual CLI setup.**
    Check whether `apkit` is on `PATH` (`command -v apkit`). If not, invoke it via `npx --yes --package agent-profile-kit apkit <command>`. Always pass explicit paths, and pass `--auto-confirm` to the commands that confirm (`install`, `uninstall`, and `configure profile`) so they never hang waiting for a terminal prompt. `init`, `new`, `validate`, `status`, and `update` take no confirmation flag: run without a terminal, they never prompt, and a supplied `init` path counts as confirmation. Optionally offer to add `alias apkit="npx --yes --package agent-profile-kit apkit"` to `~/.zshrc` if the user wants a short command for themselves.
@@ -14,7 +14,7 @@ When a user points you at this repository or asks you to set up Agent Profile Ki
    Scan the user's machine for existing reusable material they may want to bring into their Workspace:
    - Global agent directories: `~/.claude/CLAUDE.md`, `~/.claude/skills/`, `~/.claude/commands/`, `~/.agents/AGENTS.md`, `~/.agents/skills/`, `~/.agents/rules/`, `~/.codex/AGENTS.md`, `~/.codex/skills/`, `~/.grok/GROK.md`, `~/.grok/skills/`.
    - Current project directories (if inside a repo): `CLAUDE.md`, `AGENTS.md`, `.claude/skills/`, `.claude/rules/`, `.agents/skills/`, `.agents/rules/`.
-   Present a concise summary of what you found and ask which items are reusable across projects (versus repo-specific facts that should stay in the repo). Then **copy** (never delete the user's originals):
+   Present a concise summary of what you found and ask which items are reusable across projects (versus repo-specific facts that should stay in the repo). Then **copy** (never delete the user's originals without asking; step 6 offers cleanup) and keep a list of each original you copied:
    - Reusable instruction files into `<workspace>/context/<kebab-case-id>.md` (plain Markdown, no frontmatter needed; nested folders like `context/engineering/testing.md` become ID `engineering/testing`).
    - Reusable Skill folders into `<workspace>/skills/<skill-name>/SKILL.md` (must start with YAML frontmatter containing `name: <skill-name>` matching the folder name and a non-empty `description:`).
 4. **Create the first Profile and validate.**
@@ -27,9 +27,12 @@ When a user points you at this repository or asks you to set up Agent Profile Ki
 5. **Install into the user's projects.**
    Ask which project directory (or directories) and which agents (`claude`, `codex`, `antigravity`, `grok`, `opencode`, `pi`) they want to bind. Before running `install` on a Git repository, check whether the planned agent output paths (for example `.claude/rules/agent-profile-kit.md`, `.agents/skills/<skill>`, or `.agent-profile-kit/`) are already git-tracked in that repo; if so, warn the user about the Output Ownership Conflict before proceeding. Then run:
    ```sh
-   apkit install <profile> <project-path> --agent <agent> --auto-confirm
+   apkit install <profile> <project-path> --agent claude --agent codex --auto-confirm
    apkit status
    ```
+   `install` sets the full agent list for the Project: pass one `--agent` for every agent the user wants, because any agent left out of the list is removed. To add an agent to an installed Project, repeat its current agents as well. A refusal without `--auto-confirm` names any agent change (for example `Agents: claude → codex`) and prints the command that keeps the current agents.
+6. **Offer to clean up duplicate originals.**
+   After a successful install, list each original you copied in step 3 that is now a duplicate of Workspace material (for example `~/.claude/skills/<skill>` beside `<workspace>/skills/<skill>`). Explain that the originals stay active for their agent and will drift from the Workspace copies, which are now the ones to edit. Offer to remove or archive them (for example, move them to a dated backup folder). Act only on an explicit yes for the items the user names; by default, change nothing.
 
 ---
 

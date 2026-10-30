@@ -11105,6 +11105,7 @@ describe("guide documents (#390)", () => {
       "sentence",
       "sentence(command)",
       "sentence(command)",
+      "sentence(command)",
       "spacer",
       "sentence",
       "spacer",
@@ -11293,6 +11294,33 @@ describe("guide documents (#390)", () => {
     // agent, and markdown structure is information to that reader (#510).
     const document = guideFileDocument("# Title\n\nBody line.\n");
     expect(shapes(document)).toEqual(["verbatim"]);
+  });
+});
+
+describe("Profile authoring hints name the Skill flag (#725)", () => {
+  test("the profile guide creates the Profile with --context and --skill", () => {
+    const rendered = renderPresentationDocument(
+      focusedGuideDocument("profile"),
+      defaultRenderContext,
+    );
+    expect(rendered).toContain("apkit new skill <skill>");
+    expect(rendered).toContain("apkit new profile <profile> --context <context> --skill <skill>");
+  });
+
+  test("the zero-Profile setup receipt shows the explicit flag form of new profile", () => {
+    const rendered = renderPresentationDocument(initReceiptDocument({
+      outcome: "created",
+      path: "/tmp/my-team-kit",
+      authoredPath: "~/my-team-kit",
+      folderCreated: true,
+      detectedHosts: ["claude"],
+      configurationWritten: true,
+      configurationPath: "/tmp/home/.agents/agent-profile-kit/config.yaml",
+      addedParts: ["workspace.yaml", "context", "skills", "profiles"],
+      profileCount: 0,
+    }), defaultRenderContext);
+    expect(rendered).toContain("apkit new profile (create your first Profile, step by step)");
+    expect(rendered).toContain("apkit new profile <profile> --context <context> --skill <skill>");
   });
 });
 

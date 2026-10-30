@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Changed `apkit install` so a request that drops an installed agent names the change (`Agents: claude → codex`) before any write, and its non-interactive refusal also prints a runnable command that keeps the current agents with repeated `--agent`; `apkit guide profile`, the `init` handoff, the README, and the agent workflow now show `new profile … --skill`, multi-agent installs, an agent-first README route, and a consented cleanup offer for duplicate originals (#725)
+
 ## [0.238.0] - 2026-10-28
 
 - Changed `engines.node` from `>=22 <23` to `>=22`, so installs on Node 24 and 26 no longer print `EBADENGINE`, and added a `Packed CLI on Node <N>` CI job that runs the packed CLI suite on Node 23, 24, 25, and 26 (#724)

@@ -4825,20 +4825,60 @@ export function installTargetDocument(target: {
  * default no, or cancellation. Shared with the changed-output gate. */
 export type InstallDeclinedAnswer = ApplyDeclinedAnswer;
 
+/** An install that drops an installed agent (#725): the recorded and the
+ * requested agent lists. `install` sets the full list (ADR-0033), so this
+ * replacement is stated before anything asks for or skips confirmation. */
+export interface InstallAgentReplacement {
+  readonly previous: readonly string[];
+  readonly requested: readonly string[];
+}
+
+/** The agent-selection change line (#725), in the receipt's old → new form. */
+export function installAgentReplacementLine(replacement: InstallAgentReplacement): string {
+  return `Agents: ${replacement.previous.join(", ")} → ${replacement.requested.join(", ")}`;
+}
+
+/** The interactive notice of an agent replacement (#725), shown before the
+ * general-confirmation question. */
+export function installAgentReplacementDocument(
+  replacement: InstallAgentReplacement,
+): PresentationDocument {
+  return [{ kind: "prose", parts: [`${installAgentReplacementLine(replacement)}.`] }];
+}
+
 /** The missing general-confirmation refusal diagnostic (DEC-004): a
  * non-interactive (or machine-JSON) install without `--auto-confirm` refuses
  * before any configuration or generated-output write, with the runnable
- * command that answers it. */
+ * command that answers it. When the request drops an installed agent (#725),
+ * it also names that change and the runnable command that keeps the current
+ * agents and adds the new ones. */
 export function installConfirmationRequiredDocument(
   commandArguments: readonly CommandArg[],
+  agentReplacement?: InstallAgentReplacement & {
+    readonly keepCurrentArguments: readonly CommandArg[];
+  },
 ): PresentationDocument {
   return diagnosticDocument({
     happened: ["install needs explicit confirmation before any write"],
-    why: [["No Project or setting was changed."]],
-    whatToType: [[
-      "To proceed without asking, run ",
-      commandPart(COMMAND_NAME, commandArguments),
-    ]],
+    why: [
+      ["No Project or setting was changed."],
+      ...(agentReplacement === undefined ? [] : [[`${installAgentReplacementLine(agentReplacement)}.`]]),
+    ],
+    whatToType: agentReplacement === undefined
+      ? [[
+        "To proceed without asking, run ",
+        commandPart(COMMAND_NAME, commandArguments),
+      ]]
+      : [
+        [
+          "To replace the agents as requested, run ",
+          commandPart(COMMAND_NAME, commandArguments),
+        ],
+        [
+          "To keep the current agents and add the new ones, run ",
+          commandPart(COMMAND_NAME, agentReplacement.keepCurrentArguments),
+        ],
+      ],
   });
 }
 
