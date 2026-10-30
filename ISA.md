@@ -51,6 +51,8 @@ Linux, and Windows, and an agent learns it from the tool itself.
   flags.
 - Agent-specific Context formats; Context reaches every agent through the
   shared `AGENTS.md` delivery.
+- Projects that track `AGENTS.md` or `CLAUDE.md` in Git, such as most team
+  repositories. Installed Context there shows as a tracked change.
 
 ## Goal
 
@@ -584,3 +586,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - 2026-10-30 — The Workspace format change is recorded in
   [ADR-0057](docs/adr/0057-simplify-the-workspace-format.md), which takes
   effect at cutover and amends ADR-0046 and ADR-0048.
+- 2026-10-30 — A parity test showed that the shared `AGENTS.md` delivery
+  leaves ` M AGENTS.md` and ` M CLAUDE.md` in `git status` when a project
+  tracks those files. The current engine leaves `git status` clean. The
+  principal accepted this: most users are individuals, and projects that track
+  those files are out of scope for now. Supporting teams is later work.
+  Dead end: per-Host untracked Context files when the project tracks
+  `AGENTS.md`; it keeps the per-Host table that ADR-0055 removes.
