@@ -101,6 +101,7 @@ import {
 import { formatError } from "./error-wording.js";
 import { InstallerToolError } from "../installer/tool-errors.js";
 import { listProfiles } from "../installer/inventory.js";
+import { normalizeHostSelection } from "../installer/bind-project.js";
 import type { CommandArg } from "./inline-content.js";
 
 const arg = (value: string): CommandArg => ({ kind: "text", value });
@@ -466,8 +467,8 @@ async function runInstallCommandWithRecording(
 
   if (!parsed.autoConfirm && (!interactive || parsed.json)) {
     const replacement = agentReplacement(
-      (guidedTarget ?? await recordedInstallTarget(request.home, parsed, cwd))?.previous?.hosts,
-      parsed.hosts,
+      (await recordedInstallTarget(request.home, parsed, cwd))?.previous?.hosts,
+      requestedHostSelection(parsed.hosts),
     );
     writeHumanDocument(
       request.stderr,
@@ -926,10 +927,24 @@ function installReceiptInput(
  * the requested agents drop at least one recorded agent. */
 function agentReplacement(
   previous: readonly string[] | undefined,
-  requested: readonly string[],
+  requested: readonly string[] | undefined,
 ): InstallAgentReplacement | undefined {
-  if (previous === undefined || previous.every((host) => requested.includes(host))) return undefined;
+  if (previous === undefined || requested === undefined) return undefined;
+  if (previous.every((host) => requested.includes(host))) return undefined;
   return { previous, requested };
+}
+
+/** The requested agents through the one Host-selection boundary, so the
+ * refusal states the same canonical, de-duplicated list the install would
+ * record (#725). An unsupported agent leaves no agent change to state; the
+ * install reports it once confirmed. */
+function requestedHostSelection(hosts: readonly string[]): readonly string[] | undefined {
+  try {
+    return normalizeHostSelection(hosts);
+  } catch (error) {
+    if (error instanceof InstallerToolError) return undefined;
+    throw error;
+  }
 }
 
 /** The recorded agents followed by the newly requested ones (#725). */
@@ -941,9 +956,9 @@ function keptAndAddedHosts(replacement: InstallAgentReplacement): readonly strin
 }
 
 /** The recorded install target for the refusal's agent change (#725). The
- * refusal stays read-only and never fails on it: a target that does not
- * resolve leaves the plain refusal, and the error surfaces once the command
- * is confirmed. */
+ * refusal stays read-only: a target that does not resolve (a tool error)
+ * leaves the plain refusal, and that error surfaces once the command is
+ * confirmed. Any other error is a defect and propagates. */
 async function recordedInstallTarget(
   home: string,
   parsed: ParsedInstallArguments,
@@ -954,8 +969,9 @@ async function recordedInstallTarget(
       ...(parsed.project === undefined ? {} : { project: parsed.project }),
       cwd,
     });
-  } catch {
-    return undefined;
+  } catch (error) {
+    if (error instanceof InstallerToolError) return undefined;
+    throw error;
   }
 }
 

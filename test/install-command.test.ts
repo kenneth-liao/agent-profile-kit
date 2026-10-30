@@ -1128,6 +1128,63 @@ describe("install agent-selection replacement is stated before it happens (#725)
     expect(diagnostic.match(/apkit install /g)).toHaveLength(1);
   });
 
+  test("a --json refusal names the replaced agents the same way", async () => {
+    const { home, projectPath } = await installedFor("claude");
+
+    const refused = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", "codex", "--json"],
+      fakeInteractiveInput(),
+    );
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).toContain("Agents: claude → codex");
+    expect(diagnostic).toContain("--agent claude --agent codex --auto-confirm");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain("- codex");
+  });
+
+  test("the refusal states the normalized agent list, not the raw flags", async () => {
+    const { home, projectPath } = await installedFor("claude");
+
+    const refused = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", "codex", "--agent", "codex"],
+      nonInteractiveInput(),
+    );
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).toContain("Agents: claude → codex.");
+    expect(diagnostic).not.toContain("codex, codex");
+    expect(diagnostic).toContain("--agent claude --agent codex --auto-confirm");
+  });
+
+  test("an unsupported agent leaves the plain refusal with no agent change", async () => {
+    const { home, projectPath } = await installedFor("claude");
+
+    const refused = await runInstall(home, ["coding", projectPath, "--agent", "cdex"], nonInteractiveInput());
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).toContain("install needs explicit confirmation before any write");
+    expect(diagnostic).not.toContain("Agents:");
+    expect(diagnostic.match(/apkit install /g)).toHaveLength(1);
+  });
+
+  test("a Project that does not resolve leaves the plain refusal", async () => {
+    const home = await setupHome();
+    const missing = join(projectDirectory(), "missing");
+
+    const refused = await runInstall(home, ["coding", missing, "--agent", "codex"], nonInteractiveInput());
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).toContain("install needs explicit confirmation before any write");
+    expect(diagnostic).not.toContain("Agents:");
+    expect(existsSync(missing)).toBe(false);
+  });
+
   test("the interactive confirmation names the replaced agents before asking", async () => {
     const { home, projectPath } = await installedFor("claude");
     const input = fakeInteractiveInput();
