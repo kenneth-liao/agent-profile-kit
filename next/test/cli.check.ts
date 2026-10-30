@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { COMMAND, GUIDE, HELP } from "../src/guide.js";
+import { AGENTS } from "../src/render.js";
 import { makeWorkspace, read, tempDir, writeTree } from "./fixtures.js";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
@@ -79,6 +81,31 @@ describe("apkit-next CLI", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.out).added).toEqual(["workspace.yaml", "skills/", "profiles/"]);
     expect(cli(home, root, "workspace").out.trim()).not.toBe("No Workspace selected.");
+  });
+
+  test("bare invocation points agents at the guide", async () => {
+    const home = await tempDir("home");
+    const bare = cli(home, home);
+    expect(bare.code).toBe(2);
+    expect(bare.out).toContain(`${COMMAND} guide`);
+    expect(cli(home, home, "--help").code).toBe(0);
+  });
+
+  test("the guide covers every command, flag, and agent the CLI accepts", async () => {
+    const home = await tempDir("home");
+    const guide = cli(home, home, "guide");
+    expect(guide.code).toBe(0);
+    expect(guide.out).toBe(`${GUIDE}\n`);
+    const commands = [...HELP.matchAll(new RegExp(`^  ${COMMAND} (\\w+)`, "gm"))].map((m) => m[1] as string);
+    expect(commands.length).toBeGreaterThan(5);
+    for (const command of commands) {
+      if (command !== "guide") expect(GUIDE).toContain(`${COMMAND} ${command}`);
+      expect(cli(home, home, command, "--json").err).not.toContain("Unknown command");
+    }
+    for (const flag of [...HELP.matchAll(/^  (--[a-z]+)/gm)].map((m) => m[1] as string)) {
+      if (flag !== "--workspace") expect(GUIDE).toContain(flag);
+    }
+    for (const agent of Object.keys(AGENTS)) expect(GUIDE).toContain(agent);
   });
 
   test("usage errors explain themselves", async () => {

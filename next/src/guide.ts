@@ -1,0 +1,96 @@
+// The usage guide is built into the command, so an agent learns apkit by
+// running `apkit-next guide`; nothing has to be installed first, and the guide
+// always matches the installed version.
+import { AGENTS } from "./render.js";
+
+export const COMMAND = "apkit-next";
+
+export const HELP = `${COMMAND} — install Workspace Profiles into folders for your agents
+
+Agents: run \`${COMMAND} guide\` first. It explains everything below.
+
+Usage:
+  ${COMMAND} guide                            The complete guide for agents and people
+  ${COMMAND} init <path>                      Create (or complete) a Workspace and select it
+  ${COMMAND} workspace [<path>]               Show or select the Workspace
+  ${COMMAND} check                            Validate the Workspace and list what it holds
+  ${COMMAND} install <profile> [folder] --agents <a,b>
+                                              Install a Profile (folder defaults to the current one)
+  ${COMMAND} update [folder | --all]          Re-install from the current Workspace
+  ${COMMAND} remove [folder]                  Remove everything apkit installed there
+  ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
+
+Options:
+  --yes               Allow edits to AGENTS.md / CLAUDE.md (and creating AGENTS.md)
+  --overwrite         Replace or delete files that were changed or not written by apkit
+  --json              Machine-readable output
+  --workspace <path>  Use this Workspace for one command
+
+Agents: ${Object.keys(AGENTS).join(", ")}
+Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (nothing was changed)
+`;
+
+export const GUIDE = `# Agent Profile Kit guide
+
+The user keeps their Skills and Context in one Workspace folder and groups
+them into Profiles. ${COMMAND} installs a Profile into any project folder for
+the user's coding agents, keeps installs up to date, and removes them. If you
+are an agent: you do the authoring and the conversation; ${COMMAND} does every
+install, update, and removal so that the user's own edits are never lost.
+Never copy or edit installed files by hand.
+
+## Workspace format
+
+    workspace.yaml          exactly: schema_version: 1
+    context/<id>.md         a Context Module; folders allowed (id: writing/voice)
+    skills/<dir>/SKILL.md   an Agent Skills package; its \`name\` is its id
+    profiles/<id>.yaml      context: [ids] and skills: [names], both lists required
+
+Names are lowercase kebab-case. Edit these files directly, then run
+\`${COMMAND} check\` and fix anything it reports.
+
+- Context is always-on guidance for every session in a project, such as a
+  communication style. Keep it short: agents load all of it, every session.
+- Skills are procedures an agent loads only when relevant, such as a release
+  checklist. Prefer a Skill unless the guidance must apply all the time.
+
+## Commands
+
+All commands are non-interactive. Add --json when you need to parse results.
+
+- Create a Workspace:                \`${COMMAND} init <path>\`
+- Select an existing Workspace:      \`${COMMAND} workspace <path>\`
+- Validate and list Profiles:        \`${COMMAND} check\`
+- Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
+- Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
+- See what is installed or stale:    \`${COMMAND} status --all\`
+- Uninstall from a folder:           \`${COMMAND} remove [folder]\`
+
+Agent ids: ${Object.keys(AGENTS).join(", ")}. To change a folder's agents or
+Profile, run install again with the new values. The folder defaults to the
+current directory.
+
+## What gets installed
+
+- Skills are copied to each agent's own Skills folder in the project.
+- Context goes into one marked section in AGENTS.md, which every supported
+  agent reads. If CLAUDE.md exists and Claude Code is selected, CLAUDE.md gets
+  one \`@AGENTS.md\` line. Everything else in both files is left as it is.
+
+## Decisions (exit code 3)
+
+When a step needs the user's decision, ${COMMAND} changes nothing, prints the
+decisions, and exits with code 3. Explain each one to the user in plain words,
+then re-run the same command:
+
+- Add --yes only after the user agrees to the AGENTS.md or CLAUDE.md edits.
+- Add --overwrite only after the user explicitly agrees to discard the changed
+  files it lists. Never pass --overwrite on your own judgment. If the user
+  wants to keep a change, move it into the Workspace first, then update.
+
+## After installing
+
+Tell the user once that some agents load project instructions only in
+folders they trust, so they should trust the folder when the agent asks.
+Agents pick up installed material in their next session.
+`;

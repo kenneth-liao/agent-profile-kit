@@ -7,8 +7,8 @@ it lives here to prove the design before any cutover.
 
 - **Engine** (`src/`): a small non-interactive command, `apkit-next`. It never
   prompts; a step that needs the user's decision changes nothing and exits 3.
-- **Agent front end** (`skill/apkit/SKILL.md`): teaches any agent to author the
-  Workspace and drive the engine.
+- **Built-in guide** (`apkit-next guide`, in `src/guide.ts`): teaches any agent to
+  author the Workspace and drive the engine. Nothing to install first.
 
 ## How installs work
 

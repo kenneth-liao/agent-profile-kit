@@ -6,33 +6,12 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { readConfig, recordInstall, writeConfig } from "./config.js";
+import { GUIDE, HELP } from "./guide.js";
 import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
 import { AGENTS, isAgentId, render, type AgentId, type Desired } from "./render.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
-
-const HELP = `apkit-next — install Workspace Profiles into folders for your agents
-
-Usage:
-  apkit-next init <path>                       Create (or complete) a Workspace and select it
-  apkit-next workspace [<path>]                Show or select the Workspace
-  apkit-next check                             Validate the Workspace and list what it holds
-  apkit-next install <profile> [folder] --agents <a,b>
-                                               Install a Profile (folder defaults to the current one)
-  apkit-next update [folder | --all]           Re-install from the current Workspace
-  apkit-next remove [folder]                   Remove everything apkit installed there
-  apkit-next status [folder | --all]           Show what is installed and what is out of date
-
-Options:
-  --yes          Allow edits to AGENTS.md / CLAUDE.md (and creating AGENTS.md)
-  --overwrite    Replace or delete files that were changed or not written by apkit
-  --json         Machine-readable output
-  --workspace <path>  Use this Workspace for one command
-
-Agents: ${Object.keys(AGENTS).join(", ")}
-Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (nothing was changed)
-`;
 
 interface Args {
   readonly positional: string[];
@@ -203,6 +182,10 @@ async function main(argv: readonly string[]): Promise<number> {
     case "help":
       console.log(HELP);
       return args.flags.has("--help") || command === "help" ? EXIT.ok : EXIT.usage;
+
+    case "guide":
+      console.log(GUIDE);
+      return EXIT.ok;
 
     case "init": {
       const path = args.positional[1];
