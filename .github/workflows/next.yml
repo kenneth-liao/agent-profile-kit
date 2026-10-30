@@ -1,0 +1,63 @@
+name: Next prototype
+
+on:
+  pull_request:
+    paths:
+      - "next/**"
+      - ".github/workflows/next.yml"
+  push:
+    branches:
+      - agent-first-prototype
+    paths:
+      - "next/**"
+      - ".github/workflows/next.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: next-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cross-platform:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+        working-directory: next
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          package-manager-cache: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version-file: next/package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Run tests (Bun)
+        run: bun run test
+
+      - name: Typecheck and build
+        run: bun run build
+
+      - name: Run the CLI journey on Node
+        run: APKIT_NEXT_CLI=dist/cli.js bun test ./test/cli.check.ts

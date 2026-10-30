@@ -1,0 +1,336 @@
+#!/usr/bin/env node
+// `apkit-next`: a small, non-interactive command meant to be driven by an agent.
+// It never prompts. When a step needs the user's decision it changes nothing,
+// lists the decisions (exit 3), and the caller re-runs with --yes or --overwrite.
+import { realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { resolve, sep } from "node:path";
+import { readConfig, recordInstall, writeConfig } from "./config.js";
+import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
+import { AGENTS, isAgentId, render, type AgentId, type Desired } from "./render.js";
+import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
+
+const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
+
+const HELP = `apkit-next — install Workspace Profiles into folders for your agents
+
+Usage:
+  apkit-next init <path>                       Create (or complete) a Workspace and select it
+  apkit-next workspace [<path>]                Show or select the Workspace
+  apkit-next check                             Validate the Workspace and list what it holds
+  apkit-next install <profile> [folder] --agents <a,b>
+                                               Install a Profile (folder defaults to the current one)
+  apkit-next update [folder | --all]           Re-install from the current Workspace
+  apkit-next remove [folder]                   Remove everything apkit installed there
+  apkit-next status [folder | --all]           Show what is installed and what is out of date
+
+Options:
+  --yes          Allow edits to AGENTS.md / CLAUDE.md (and creating AGENTS.md)
+  --overwrite    Replace or delete files that were changed or not written by apkit
+  --json         Machine-readable output
+  --workspace <path>  Use this Workspace for one command
+
+Agents: ${Object.keys(AGENTS).join(", ")}
+Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (nothing was changed)
+`;
+
+interface Args {
+  readonly positional: string[];
+  readonly flags: Map<string, string | true>;
+}
+
+function parseArgs(argv: readonly string[]): Args {
+  const positional: string[] = [];
+  const flags = new Map<string, string | true>();
+  const valued = new Set(["--agents", "--workspace"]);
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string;
+    if (arg.startsWith("--")) {
+      const [name, inline] = arg.split("=", 2) as [string, string | undefined];
+      if (valued.has(name)) {
+        const value = inline ?? argv[++i];
+        if (value === undefined) throw new UsageError(`${name} needs a value.`);
+        flags.set(name, value);
+      } else {
+        flags.set(name, true);
+      }
+    } else {
+      positional.push(arg);
+    }
+  }
+  return { positional, flags };
+}
+
+class UsageError extends Error {}
+
+function display(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
+
+async function folderArg(value: string | undefined): Promise<string> {
+  const path = resolve(value ?? process.cwd());
+  try {
+    if (!(await stat(path)).isDirectory()) throw new Error();
+  } catch {
+    throw new UsageError(`${path} is not a folder.`);
+  }
+  return realpath(path);
+}
+
+async function workspaceFor(args: Args): Promise<Workspace> {
+  const flag = args.flags.get("--workspace");
+  const root = typeof flag === "string" ? resolve(flag) : (await readConfig()).workspace;
+  if (root === undefined) throw new UsageError("No Workspace selected. Run `apkit-next init <path>` or `apkit-next workspace <path>`.");
+  return loadWorkspace(root);
+}
+
+function requireValid(workspace: Workspace): void {
+  if (workspace.violations.length > 0) {
+    const lines = workspace.violations.map((v) => `  - ${v.message}`);
+    throw new Error(`The Workspace at ${display(workspace.root)} has problems:\n${lines.join("\n")}`);
+  }
+}
+
+function agentsFlag(args: Args, fallback: readonly AgentId[] | undefined): AgentId[] {
+  const flag = args.flags.get("--agents");
+  if (typeof flag !== "string") {
+    if (fallback !== undefined) return [...fallback];
+    throw new UsageError(`Name the agents with --agents (${Object.keys(AGENTS).join(", ")}).`);
+  }
+  const ids = flag.split(",").map((id) => id.trim()).filter((id) => id !== "");
+  const unknown = ids.filter((id) => !isAgentId(id));
+  if (unknown.length > 0 || ids.length === 0) {
+    throw new UsageError(`Unknown agent: ${unknown.join(", ") || "(none)"}. Use ${Object.keys(AGENTS).join(", ")}.`);
+  }
+  return ids as AgentId[];
+}
+
+interface Outcome {
+  readonly folder: string;
+  readonly result: "installed" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
+  readonly profile?: string;
+  readonly agents?: readonly AgentId[];
+  readonly issues?: readonly Issue[];
+  readonly changed?: readonly string[];
+  readonly message?: string;
+}
+
+async function apply(
+  folder: string,
+  desired: Desired | null,
+  previous: Manifest | null,
+  decisions: Decisions,
+): Promise<Outcome> {
+  const planned = await plan(folder, desired, previous);
+  const open = unresolved(planned, decisions);
+  const base = { folder, profile: desired?.profile ?? previous?.profile, agents: desired?.agents ?? previous?.agents };
+  if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
+  if (planned.ops.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
+  await execute(planned);
+  await recordInstall(folder, desired !== null);
+  const changed = [...new Set(planned.ops.map((op) => op.path))];
+  const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
+  return { ...base, result, changed };
+}
+
+async function statusOf(workspace: Workspace, folder: string): Promise<Outcome> {
+  try {
+    if (!(await stat(folder)).isDirectory()) throw new Error();
+  } catch {
+    return { folder, result: "missing", message: "The folder no longer exists." };
+  }
+  const previous = await readManifest(folder);
+  if (previous === null) return { folder, result: "not-installed" };
+  const base = { folder, profile: previous.profile, agents: previous.agents };
+  if (!workspace.profiles.has(previous.profile)) {
+    return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
+  }
+  const planned = await plan(folder, render(workspace, previous.profile, previous.agents), previous);
+  if (planned.issues.length > 0) return { ...base, result: "needs-decision", issues: planned.issues };
+  if (planned.ops.length > 0) return { ...base, result: "updated", changed: [...new Set(planned.ops.map((op) => op.path))] };
+  return { ...base, result: "unchanged" };
+}
+
+async function targets(args: Args): Promise<string[]> {
+  if (args.flags.has("--all")) return [...(await readConfig()).installs];
+  return [await folderArg(args.positional[1])];
+}
+
+function describe(outcome: Outcome, mode: "apply" | "status"): string {
+  const where = display(outcome.folder);
+  const who = outcome.agents?.map((id) => AGENTS[id].name).join(", ");
+  const what = outcome.profile === undefined ? "" : `'${outcome.profile}'${who ? ` for ${who}` : ""}`;
+  switch (outcome.result) {
+    case "installed":
+      return `Installed ${what} in ${where}.`;
+    case "updated":
+      return mode === "status"
+        ? `${where}: ${what} is out of date (${outcome.changed?.length ?? 0} to update). Run \`apkit-next update\`.`
+        : `Updated ${what} in ${where} (${outcome.changed?.length ?? 0} changed).`;
+    case "removed":
+      return `Removed ${what} from ${where}.`;
+    case "unchanged":
+      return mode === "status" ? `${where}: ${what} is up to date.` : `${where}: ${what} is already up to date.`;
+    case "not-installed":
+      return `${where}: nothing installed.`;
+    case "missing":
+    case "error":
+      return `${where}: ${outcome.message}`;
+    case "needs-decision": {
+      const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
+      const flags = [
+        outcome.issues?.some((i) => i.kind === "consent") ? "--yes to allow the AGENTS.md/CLAUDE.md edits" : null,
+        outcome.issues?.some((i) => i.kind !== "consent") ? "--overwrite to replace the changed files" : null,
+      ].filter((flag) => flag !== null);
+      const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
+      return `${lead}\n${lines.join("\n")}\n  Re-run with ${flags.join(" and ")}.`;
+    }
+  }
+}
+
+const TRUST_NOTE = "Some agents load project instructions only in folders you trust. If an agent asks, trust this folder.";
+
+async function main(argv: readonly string[]): Promise<number> {
+  const args = parseArgs(argv);
+  const json = args.flags.has("--json");
+  const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };
+  const command = args.positional[0];
+  const print = (text: string, data: unknown) => console.log(json ? JSON.stringify(data, null, 2) : text);
+
+  switch (command) {
+    case undefined:
+    case "help":
+      console.log(HELP);
+      return args.flags.has("--help") || command === "help" ? EXIT.ok : EXIT.usage;
+
+    case "init": {
+      const path = args.positional[1];
+      if (path === undefined) throw new UsageError("Name the Workspace folder: `apkit-next init <path>`.");
+      const root = resolve(path);
+      const added = await initWorkspace(root);
+      await writeConfig({ ...(await readConfig()), workspace: root });
+      print(
+        `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.`,
+        { workspace: root, added },
+      );
+      return EXIT.ok;
+    }
+
+    case "workspace": {
+      const path = args.positional[1];
+      if (path === undefined) {
+        const current = (await readConfig()).workspace;
+        print(current === undefined ? "No Workspace selected." : display(current), { workspace: current ?? null });
+        return EXIT.ok;
+      }
+      const workspace = await loadWorkspace(resolve(path));
+      if (workspace.violations.some((v) => v.code === "workspace-missing-manifest")) {
+        throw new Error(`${display(workspace.root)} is not a Workspace. Run \`apkit-next init ${path}\` to make it one.`);
+      }
+      await writeConfig({ ...(await readConfig()), workspace: workspace.root });
+      print(`Selected the Workspace at ${display(workspace.root)}.`, { workspace: workspace.root });
+      return EXIT.ok;
+    }
+
+    case "check": {
+      const workspace = await workspaceFor(args);
+      const data = {
+        workspace: workspace.root,
+        valid: workspace.violations.length === 0,
+        violations: workspace.violations,
+        profiles: [...workspace.profiles.values()],
+        skills: [...workspace.skills.keys()],
+        context: [...workspace.context.keys()],
+      };
+      const lines =
+        workspace.violations.length > 0
+          ? [`The Workspace at ${display(workspace.root)} has problems:`, ...workspace.violations.map((v) => `  - ${v.message}`)]
+          : [
+              `The Workspace at ${display(workspace.root)} is valid.`,
+              ...[...workspace.profiles.values()].map(
+                (p) => `  ${p.id}: ${p.context.length} context, ${p.skills.length} skills`,
+              ),
+            ];
+      print(lines.join("\n"), data);
+      return workspace.violations.length > 0 ? EXIT.error : EXIT.ok;
+    }
+
+    case "install": {
+      const profile = args.positional[1];
+      if (profile === undefined) throw new UsageError("Name the Profile: `apkit-next install <profile> [folder] --agents <a,b>`.");
+      const folder = await folderArg(args.positional[2]);
+      const workspace = await workspaceFor(args);
+      requireValid(workspace);
+      const previous = await readManifest(folder);
+      const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
+      const desired = render(workspace, profile, agents);
+      const outcome = await apply(folder, desired, previous, decisions);
+      const note = outcome.result !== "needs-decision" && desired.context !== null ? `\n${TRUST_NOTE}` : "";
+      print(describe(outcome, "apply") + note, outcome);
+      return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+    }
+
+    case "update": {
+      const workspace = await workspaceFor(args);
+      requireValid(workspace);
+      const outcomes: Outcome[] = [];
+      for (const folder of await targets(args)) {
+        const status = await statusOf(workspace, folder);
+        if (status.result === "missing" || status.result === "error" || status.result === "not-installed") {
+          outcomes.push(status);
+          continue;
+        }
+        const previous = await readManifest(folder);
+        const desired = render(workspace, previous!.profile, previous!.agents);
+        outcomes.push(await apply(folder, desired, previous, decisions));
+      }
+      print(outcomes.map((o) => describe(o, "apply")).join("\n") || "Nothing is installed yet.", outcomes);
+      if (outcomes.some((o) => o.result === "needs-decision")) return EXIT.decision;
+      return outcomes.some((o) => o.result === "error" || o.result === "not-installed") ? EXIT.error : EXIT.ok;
+    }
+
+    case "remove": {
+      const path = resolve(args.positional[1] ?? process.cwd());
+      const exists = await stat(path).then((s) => s.isDirectory(), () => false);
+      if (!exists) {
+        await recordInstall(path, false);
+        print(`${display(path)} no longer exists; forgot it.`, { folder: path, result: "forgotten" });
+        return EXIT.ok;
+      }
+      const folder = await realpath(path);
+      const previous = await readManifest(folder);
+      if (previous === null) {
+        await recordInstall(folder, false);
+        print(`${display(folder)}: nothing installed.`, { folder, result: "not-installed" });
+        return EXIT.ok;
+      }
+      const outcome = await apply(folder, null, previous, decisions);
+      print(describe(outcome, "apply"), outcome);
+      return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+    }
+
+    case "status": {
+      const workspace = await workspaceFor(args);
+      const outcomes: Outcome[] = [];
+      for (const folder of await targets(args)) outcomes.push(await statusOf(workspace, folder));
+      print(outcomes.map((o) => describe(o, "status")).join("\n") || "Nothing is installed yet.", outcomes);
+      return EXIT.ok;
+    }
+
+    default:
+      throw new UsageError(`Unknown command '${command}'. Run \`apkit-next help\`.`);
+  }
+}
+
+main(process.argv.slice(2)).then(
+  (code) => {
+    process.exitCode = code;
+  },
+  (error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    if (process.argv.includes("--json")) console.log(JSON.stringify({ error: message }));
+    else console.error(message);
+    process.exitCode = error instanceof UsageError ? EXIT.usage : EXIT.error;
+  },
+);
