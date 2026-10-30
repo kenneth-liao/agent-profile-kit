@@ -46,6 +46,22 @@ Antigravity. You don't need to learn the commands: ask your coding agent.
   the list of installed folders, for `--all`. `APKIT_HOME` overrides the
   location.
 
+## Project-level locations
+
+Verified 2026-10-30 in one Git project installed for all six agents. Each
+agent, with no tools, quoted both Context markers from the `AGENTS.md` section
+and named the marker Skill. A Skill with `disable-model-invocation: true` was
+hidden every time.
+
+| Agent | Context | Skills | Evidence |
+|---|---|---|---|
+| Claude Code | `AGENTS.md` through the `@AGENTS.md` line in `CLAUDE.md` | `.claude/skills` | `claude -p` |
+| Antigravity | `AGENTS.md` | `.agents/skills` | `agy -p` |
+| Codex | `AGENTS.md`, also in an untrusted project | `.agents/skills`, in a trusted project only | `codex exec` |
+| Grok | `AGENTS.md`, in a trusted project only | `.grok/skills`, in a trusted project only | interactive `grok` session |
+| OpenCode | `AGENTS.md` | `.agents/skills` | `opencode run` (v2.2.4, `opencode/deepseek-v4.1-flash`) |
+| Pi | `AGENTS.md`, also in an untrusted project | `.agents/skills`, in a trusted project only | `pi -p` and `pi -p --approve` (1.4.0) |
+
 ## The user-level note (`setup`)
 
 `apkit-next setup` adds a two-line marked note to each installed agent's
