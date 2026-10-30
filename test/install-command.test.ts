@@ -881,11 +881,12 @@ describe("install changed-installation scope", () => {
     await waitForOutput(streams.humanText, "(y/N)");
     // Spec #677 screen 13: no separate summary block; the scope the command
     // states is the scope confirmed. The old → new deltas render on the
-    // replaced receipt instead.
+    // replaced receipt instead — except a dropped agent, which the command
+    // does not state, so it is named before the question (#725).
     const proposed = plain(streams.humanText());
     expect(proposed).toContain("Install now? (y/N)");
     expect(proposed).not.toContain("ops → coding");
-    expect(proposed).not.toContain("claude → codex");
+    expect(proposed).toContain("Agents: claude → codex");
     input.write("y\n");
     const { exitCode } = await pending;
 
@@ -1036,3 +1037,129 @@ describe("install mistyped Profile and Host suggestions (US-015, DEC-011)", () =
   });
 });
 
+
+describe("install agent-selection replacement is stated before it happens (#725)", () => {
+  async function installedFor(host: string): Promise<{ home: string; projectPath: string }> {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+    const installed = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", host, "--auto-confirm"],
+      nonInteractiveInput(),
+    );
+    expect(installed.exitCode).toBe(0);
+    return { home, projectPath };
+  }
+
+  /** The runnable keep-current-agents command, read back from the refusal. */
+  function keepCurrentCommand(errorText: string): string[] {
+    const match = plain(errorText).match(/apkit install (\S+) '?([^' ]+)'? (--agent claude --agent codex --auto-confirm)/);
+    expect(match).not.toBeNull();
+    return [match![1]!, match![2]!, ...match![3]!.split(" ")];
+  }
+
+  test("a non-interactive refusal names the replaced agents and the keep-current command, writing nothing", async () => {
+    const { home, projectPath } = await installedFor("claude");
+    const before = readFileSync(configPath(home), "utf8");
+
+    const refused = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", "codex"],
+      nonInteractiveInput(),
+    );
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).toContain("install needs explicit confirmation before any write");
+    expect(diagnostic).toContain("Agents: claude → codex");
+    expect(diagnostic).toContain(`apkit install coding '${projectPath}' --agent codex --auto-confirm`);
+    expect(diagnostic).toContain(
+      `apkit install coding '${projectPath}' --agent claude --agent codex --auto-confirm`,
+    );
+    expect(readFileSync(configPath(home), "utf8")).toBe(before);
+    expect(existsSync(join(projectPath, ".agent-profile-kit", "codex"))).toBe(false);
+  });
+
+  test("running the keep-current command leaves the Project installed for both agents", async () => {
+    const { home, projectPath } = await installedFor("claude");
+    const refused = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", "codex"],
+      nonInteractiveInput(),
+    );
+
+    const kept = await runInstall(home, keepCurrentCommand(refused.streams.errorText()), nonInteractiveInput());
+
+    expect(kept.exitCode).toBe(0);
+    const config = readFileSync(configPath(home), "utf8");
+    expect(config).toContain("- claude");
+    expect(config).toContain("- codex");
+    expect(readFileSync(join(projectPath, ".claude", "rules", "agent-profile-kit.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
+    expect(readFileSync(join(projectPath, ".agent-profile-kit", "codex", "context.md"), "utf8"))
+      .toContain("Always preserve the project boundary.");
+  });
+
+  test("a refusal that removes no agent prints no agent change and no added-agents command", async () => {
+    const { home, projectPath } = await installedFor("claude");
+
+    const refused = await runInstall(
+      home,
+      ["coding", projectPath, "--agent", "claude", "--agent", "codex"],
+      nonInteractiveInput(),
+    );
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).not.toContain("Agents:");
+    expect(diagnostic).not.toContain("→");
+    expect(diagnostic.match(/apkit install /g)).toHaveLength(1);
+  });
+
+  test("a first install refusal prints no agent change", async () => {
+    const home = await setupHome();
+    const projectPath = projectDirectory();
+
+    const refused = await runInstall(home, ["coding", projectPath, "--agent", "codex"], nonInteractiveInput());
+
+    expect(refused.exitCode).toBe(1);
+    const diagnostic = plain(refused.streams.errorText());
+    expect(diagnostic).not.toContain("Agents:");
+    expect(diagnostic.match(/apkit install /g)).toHaveLength(1);
+  });
+
+  test("the interactive confirmation names the replaced agents before asking", async () => {
+    const { home, projectPath } = await installedFor("claude");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInstall(
+      home,
+      ["coding", projectPath, "--agent", "codex"],
+      input,
+    );
+
+    await waitForOutput(streams.humanText, "(y/N)");
+    const proposed = plain(streams.humanText());
+    expect(proposed).toContain("Agents: claude → codex");
+    expect(proposed.indexOf("Agents: claude → codex")).toBeLessThan(proposed.indexOf("Install now? (y/N)"));
+    input.write("n\n");
+    const { exitCode } = await pending;
+    expect(exitCode).toBe(1);
+    expect(readFileSync(configPath(home), "utf8")).toContain("- claude");
+    expect(readFileSync(configPath(home), "utf8")).not.toContain("- codex");
+  });
+
+  test("the interactive confirmation adds nothing when no agent is removed", async () => {
+    const { home, projectPath } = await installedFor("claude");
+    const input = fakeInteractiveInput();
+    const { pending, streams } = startInstall(
+      home,
+      ["coding", projectPath, "--agent", "claude", "--agent", "codex"],
+      input,
+    );
+
+    await waitForOutput(streams.humanText, "(y/N)");
+    expect(plain(streams.humanText())).not.toContain("Agents:");
+    input.write("n\n");
+    await pending;
+  });
+});

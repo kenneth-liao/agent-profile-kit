@@ -33,6 +33,7 @@ import {
   applyReviewStaleDocument,
   installBlockedDocument,
   installBrokenProfileNodes,
+  installAgentReplacementDocument,
   installConfirmationRequiredDocument,
   installHostSelectionNoteDocument,
   installExecutionFailureDocument,
@@ -50,6 +51,7 @@ import {
   HOST_DETECTION_LABELS,
   INSTALL_CONFIRMATION_QUESTION,
   type ChangedFileAnsweringScope,
+  type InstallAgentReplacement,
   type InstallRecoveryEvidence,
 } from "./presentation.js";
 import {
@@ -463,10 +465,21 @@ async function runInstallCommandWithRecording(
   }
 
   if (!parsed.autoConfirm && (!interactive || parsed.json)) {
+    const replacement = agentReplacement(
+      (guidedTarget ?? await recordedInstallTarget(request.home, parsed, cwd))?.previous?.hosts,
+      parsed.hosts,
+    );
     writeHumanDocument(
       request.stderr,
       installConfirmationRequiredDocument(
         fullySpecifiedInstallArguments(parsed, cwd),
+        replacement === undefined ? undefined : {
+          ...replacement,
+          keepCurrentArguments: fullySpecifiedInstallArguments(
+            { ...parsed, hosts: keptAndAddedHosts(replacement) },
+            cwd,
+          ),
+        },
       ),
       stderrContext,
     );
@@ -506,6 +519,10 @@ async function runInstallCommandWithRecording(
       output: request.stdout,
       ...(request.clock === undefined ? {} : { clock: request.clock }),
     });
+    const replacement = agentReplacement(preview.previous?.hosts, preview.hosts);
+    if (replacement !== undefined) {
+      writeHumanDocument(request.stdout, installAgentReplacementDocument(replacement), stdoutContext);
+    }
     const answer = await prompt(INSTALL_CONFIRMATION_QUESTION);
     const previewIdentity = {
       canonicalProject: preview.canonicalProject,
@@ -903,6 +920,43 @@ function installReceiptInput(
     hosts: binding.hosts,
     previous: { profile: previous.profile, hosts: previous.hosts },
   };
+}
+
+/** The agent replacement an install would make (#725): defined only when
+ * the requested agents drop at least one recorded agent. */
+function agentReplacement(
+  previous: readonly string[] | undefined,
+  requested: readonly string[],
+): InstallAgentReplacement | undefined {
+  if (previous === undefined || previous.every((host) => requested.includes(host))) return undefined;
+  return { previous, requested };
+}
+
+/** The recorded agents followed by the newly requested ones (#725). */
+function keptAndAddedHosts(replacement: InstallAgentReplacement): readonly string[] {
+  return [
+    ...replacement.previous,
+    ...replacement.requested.filter((host) => !replacement.previous.includes(host)),
+  ];
+}
+
+/** The recorded install target for the refusal's agent change (#725). The
+ * refusal stays read-only and never fails on it: a target that does not
+ * resolve leaves the plain refusal, and the error surfaces once the command
+ * is confirmed. */
+async function recordedInstallTarget(
+  home: string,
+  parsed: ParsedInstallArguments,
+  cwd: string,
+): Promise<InstallTarget | undefined> {
+  try {
+    return await resolveInstallTarget(home, {
+      ...(parsed.project === undefined ? {} : { project: parsed.project }),
+      cwd,
+    });
+  } catch {
+    return undefined;
+  }
 }
 
 /**

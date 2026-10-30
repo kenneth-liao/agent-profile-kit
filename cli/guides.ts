@@ -62,10 +62,11 @@ export const TOPIC_GUIDES = {
     title: "Profile",
     introduction:
       "A Profile selects reusable material for a kind of work through its context and skills lists.",
-    scaffoldLead: "Create its Context Module, then the Profile selecting it:",
+    scaffoldLead: "Create its Context Module and Skill, then the Profile selecting them:",
     scaffoldCommands: [
       ["new", "context", "<context>"],
-      ["new", "profile", "<profile>", "--context", "<context>"],
+      ["new", "skill", "<skill>"],
+      ["new", "profile", "<profile>", "--context", "<context>", "--skill", "<skill>"],
     ] as const,
     next: [
       "Next: from the project you want to try, run ",

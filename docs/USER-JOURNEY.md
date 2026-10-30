@@ -284,6 +284,8 @@ Agents found: antigravity, claude, codex, grok, opencode, pi
 
 Next:
 - apkit new profile (create your first Profile, step by step)
+- apkit new profile <profile> --context <context> --skill <skill> (or name its
+  material directly)
 ```
 
 Setup requires a path the user gives: there is no default Workspace location
@@ -338,8 +340,9 @@ the machine (US-037) and never blocks.
 An init that finds everything already in place is a clean no-op: it prints one
 neutral statement and no handoff (#642). Setup and connection that actually
 write route the handoff from the resulting content (spec #640 US-002, spec #672
-DEC-003, #676). With zero Profiles, the next action is `apkit new profile
-(create your first Profile, step by step)`; with one or more Profiles, the
+DEC-003, #676). With zero Profiles, the next actions are `apkit new profile
+(create your first Profile, step by step)` and its explicit flag form
+`apkit new profile <profile> --context <context> --skill <skill>` (#725); with one or more Profiles, the
 concepts are not explained again and the next action is `apkit install (run it
 inside a Project folder)`. After this run's own successful validation, the
 receipt never recommends `apkit validate`.
@@ -400,9 +403,10 @@ A Profile selects reusable material for a kind of work through its context and
 
 Workspace: ~/apkit-workspace
 
-Create its Context Module, then the Profile selecting it:
+Create its Context Module and Skill, then the Profile selecting them:
   apkit new context <context>
-  apkit new profile <profile> --context <context>
+  apkit new skill <skill>
+  apkit new profile <profile> --context <context> --skill <skill>
 
 An example profiles/example.yaml:
 
@@ -530,6 +534,14 @@ echoed picker answers, or the explicit command's stated arguments — already
 carry the proposed scope, so the confirmation prints no separate summary
 block (spec #677 screen 13) and the question is `Install now? (y/N)`. The
 replaced receipt states old → new deltas on the Profile and Agents lines.
+
+`install` sets the full agent list for the Project (ADR-0033), so a request
+that drops an installed agent says so before it can happen (#725): the
+interactive confirmation prints `Agents: claude → codex.` above its question,
+and a non-interactive refusal without `--auto-confirm` names the same change
+and prints two runnable commands — one that replaces the agents as requested
+and one that keeps the current agents and adds the new ones with repeated
+`--agent`. A request that removes no agent prints neither.
 
 On an interactive terminal a bare `install` names the current-directory Project
 target first by that same stable path — with no concept explanation before the

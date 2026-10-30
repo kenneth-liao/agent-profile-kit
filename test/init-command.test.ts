@@ -206,7 +206,8 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     expect(human).not.toContain("Set up your first Profile now?");
     expect(human).not.toContain("apkit new context");
     expect(human).toContain("apkit new profile");
-    expect(human).not.toContain("--context");
+    // Only the flag-form placeholder, never a named Context (#725).
+    expect(human).not.toMatch(/--context (?!<context>)/);
     // Never invent or pick an existing Context (US-002).
     expect(human).not.toContain("team-rules");
     expect(human).not.toContain("apkit validate");
@@ -269,7 +270,8 @@ describe("setup handoff routes from the resulting content (#646, US-002)", () =>
     const human = plain(streams.humanText());
     expect(human).toContain("Connected your Workspace at");
     expect(human).toContain("apkit new profile");
-    expect(human).not.toContain("--context");
+    // Only the flag-form placeholder, never a named Context (#725).
+    expect(human).not.toMatch(/--context (?!<context>)/);
     expect(human).not.toContain("apkit new context");
     expect(human).not.toContain("apkit validate");
     expect(human).not.toContain("ops-rules");
@@ -810,7 +812,8 @@ describe("the setup confirmation content and scope (#603)", () => {
     const human = plain(streams.humanText());
     expect(human).not.toContain("Set up your first Profile now?");
     expect(human).toContain("apkit new profile");
-    expect(human).not.toContain("--context");
+    // Only the flag-form placeholder, never a named Context (#725).
+    expect(human).not.toMatch(/--context (?!<context>)/);
     expect(human).not.toContain("apkit new context");
     expect(human).not.toContain("apkit validate");
   }, 20_000);
@@ -1053,7 +1056,8 @@ describe("connect a different Workspace (#607)", () => {
     expect(receipt).not.toContain("Set up your first Profile now?");
     // Zero Profiles: Profile creation.
     expect(receipt).toContain("apkit new profile");
-    expect(receipt).not.toContain("--context");
+    // Only the flag-form placeholder, never a named Context (#725).
+    expect(receipt).not.toMatch(/--context (?!<context>)/);
     expect(receipt).not.toContain("apkit new context");
     expect(receipt).not.toContain("apkit validate");
   }, 20_000);

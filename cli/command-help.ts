@@ -250,13 +250,20 @@ export function createdProfileInstallRouting(profile: string): ReturnType<typeof
 }
 
 /**
- * The Profile-creation next action for a Workspace with zero Profiles
- * (spec #640 US-002, spec #672 DEC-003, #676): with zero Profiles,
- * the next step is guided Profile creation.
+ * The Profile-creation next actions for a Workspace with zero Profiles
+ * (spec #640 US-002, spec #672 DEC-003, #676): guided Profile creation, then
+ * its explicit flag form, so an agent copying the line selects Skills as
+ * well as Context (#725).
  * One home so help and receipts cannot route differently.
  */
 export function newProfileCreationCommands(): readonly (readonly InlineItemElement[])[] {
-  return [[notedCommand(invocation("new", "profile"), "create your first Profile, step by step")]];
+  return [
+    [notedCommand(invocation("new", "profile"), "create your first Profile, step by step")],
+    [notedCommand(
+      invocation("new", "profile", "<profile>", "--context", "<context>", "--skill", "<skill>"),
+      "or name its material directly",
+    )],
+  ];
 }
 
 /**
