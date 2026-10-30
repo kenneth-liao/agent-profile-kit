@@ -52,3 +52,4 @@ Receipts reference (#519 O1–O4, spec #593).
 - The `duplicate-artifact-name` ingestion fact can no longer arise for
   Profiles read from a Workspace; creation refuses an occupied Profile ID with
   that same fact instead of an occupancy error.
+*Amended at cutover by ADR-0057:* a Profile without a `context` or `skills` list treats it as empty, and `.yml` is accepted. A Profile in a subfolder becomes a warning.

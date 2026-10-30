@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/82
+progress: 0/92
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-10-30
@@ -247,10 +247,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   edits.
   Probe: copy real standard Skill packages unchanged into a Workspace and
   validate; any required edit fails. bash
-- [ ] **ISC-39:** An existing Markdown instruction file becomes a valid Context
-  Module after adding only the metadata the contract states.
-  Probe: add only contract-stated metadata to real instruction files and
-  validate; any other required edit fails. bash
+- [ ] **ISC-39:** An existing Markdown instruction file is a valid Context
+  Module unchanged.
+  Probe: copy real instruction files, such as `CLAUDE.md` and `AGENTS.md`, into
+  `context/` as they are and validate; any required rename or edit fails. bash
 - [ ] **ISC-40.1:** A folder that is not connected can be validated.
   Probe: packed CLI validates a folder that is not connected in a fresh home; no
   validation report fails. bash
@@ -270,9 +270,9 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [ ] **ISC-43:** Failed Workspace validation points to the contract.
   Probe: trigger each violation kind; output without a contract reference fails.
   bash
-- [ ] **ISC-44:** **Anti:** A file under `context/` or `skills/` that does not
-  follow the contract is never silently ignored.
-  Probe: validate non-conforming files in both folders; any unreported file
+- [ ] **ISC-44:** **Anti:** A file that apkit skips is never silently ignored.
+  Probe: put stray files in `context/`, `skills/`, and `profiles/`, then run
+  `check` and `install`; a skipped file without a warning in either output
   fails. bash
 - [ ] **ISC-45:** An agent can repair an invalid Workspace using only validation
   output.
@@ -407,6 +407,44 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: edit text around the section, then install, update, and remove; any
   change outside the section fails. bash
 
+- [ ] **ISC-76:** A Context file with any `.md` name is valid, and its ID is
+  its path under `context/` without `.md`.
+  Probe: validate and install Context files with mixed-case names and names
+  with spaces; a rejected file or a different ID fails. bash
+- [ ] **ISC-77:** Two Context IDs that differ only in case are an error on
+  every platform.
+  Probe: validate `Style.md` beside `style.md` on Linux; no error fails. bash
+- [ ] **ISC-78:** A Profile without a `context` or `skills` list treats that
+  list as empty.
+  Probe: validate and install a Skills-only Profile with no `context` list; an
+  error fails. bash
+- [ ] **ISC-79:** A Profile with a `.yml` extension is valid.
+  Probe: validate and install a `.yml` Profile; an error fails. bash
+- [ ] **ISC-80:** A Profile with `skills: all` installs every Skill in the
+  Workspace, including Skills added after the Profile was written.
+  Probe: install, add a Skill, run `update` without editing the Profile; a
+  missing Skill fails. bash
+- [ ] **ISC-81:** **Anti:** A warning never blocks an install.
+  Probe: install with each warning case present; a non-zero exit or missing
+  output fails. bash
+- [ ] **ISC-82:** Validation reports an error only when an install would be
+  wrong or ambiguous.
+  Probe: map each error kind to the wrong or ambiguous install it prevents; an
+  error kind without one fails. manual
+- [ ] **ISC-83:** A folder is a Workspace when it has an `apkit-workspace.yaml`
+  file, which may be empty. Its `schema_version` matters only when it is not a
+  version this apkit supports.
+  Probe: `init`, empty the file, and validate; then set an unsupported
+  version; an error for the empty file, or no error naming the needed apkit
+  version, fails. bash
+- [ ] **ISC-84:** A folder with only the old `workspace.yaml` fails validation,
+  and the output names the rename to `apkit-workspace.yaml`.
+  Probe: validate that fixture; a pass, or output without the rename, fails.
+  bash
+- [ ] **ISC-85:** The Workspace contract states no rule for a retired feature.
+  Probe: `rg` the contract for retired features, such as the sidecar and the
+  retired model-invocation key; any match fails. bash
+
 ## Not yet specified
 
 - What scattered sample material ISC-20 and ISC-21 must contain to represent
@@ -523,3 +561,26 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   whole files only, no user-level writes), so ADR-0056 supersedes it as well.
   ADR-0012 is amended, not superseded: Host Resolution stays with the Host.
   The `CONTEXT.md` terms change in the cutover change.
+- 2026-10-30 — refined: after an audit of the Workspace for new users, the
+  principal chose to simplify the Workspace format before cutover. Accepted:
+  - Any `.md` Context file name is valid; IDs that differ only in case are an
+    error (ISC-39, ISC-76, ISC-77).
+  - A missing Profile list is empty, and `.yml` is accepted (ISC-78, ISC-79).
+  - An error means an install would be wrong or ambiguous. A file that apkit
+    skips is a warning, which is always shown and never blocks an install
+    (ISC-44, ISC-81, ISC-82).
+  - `skills: all` selects every Skill (ISC-80).
+  - Rules for retired features leave the contract and the validator (ISC-85).
+    This only makes validation more permissive, so ISC-46 still holds.
+  - The marker becomes `apkit-workspace.yaml`. Being a Workspace depends only
+    on that file; the version matters only when it is unsupported (ISC-83,
+    ISC-84).
+  - Dead end: `context: all`. Context order matters, so Context stays listed.
+  - Dead end: a `profiles/` folder as the marker. The name is too common.
+  - Dead end: a fixed Workspace folder name. The user chooses the folder
+    (ISC-23).
+  - Dead end: a hidden marker file. It is invisible, and hidden files are
+    skipped everywhere else.
+- 2026-10-30 — The Workspace format change is recorded in
+  [ADR-0057](docs/adr/0057-simplify-the-workspace-format.md), which takes
+  effect at cutover and amends ADR-0046 and ADR-0048.
