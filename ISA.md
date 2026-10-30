@@ -507,8 +507,6 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   real users (which Host folders and instruction files).
 - Whether the agent probes (ISC-21, ISC-45) require a specific agent or Host.
 - Whether one Project can hold more than one Profile.
-- Whether Host limits on project instruction size, such as the Codex default of
-  32 KiB, need a claim on the size of installed Context.
 
 ## Decisions
 
@@ -691,3 +689,15 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   The remaining audit risks (two runs on one folder, a Project install into
   the home folder, version drift, agents passing `--overwrite` on their own)
   go to the cutover spec as tests, not destination changes.
+- 2026-10-30 — Tests before the cutover spec. A fresh Claude Code session and a
+  fresh Codex session, given only the `apkit-next` command, learned the tool
+  from `guide`, stopped at the exit-3 decision for a tracked `AGENTS.md`, and
+  asked the user. Neither passed `--yes` nor committed. Neither said that Git
+  tracks the file (ISC-86, ISC-88 are still open). Codex cut off an `AGENTS.md`
+  of about 52 KB at its 32 KiB default without a warning. Antigravity loaded
+  Context and Skills in its interactive app after it asked for, and was given,
+  trust, so it keeps its trust line (ISC-95).
+  Dead end: a claim or a Host limits table for installed Context size. The
+  principal: Host size limits are each Host's own behaviour, and a user can
+  already write an instruction file of any size. The guide's advice to keep
+  Context short stays. The fog item is closed.

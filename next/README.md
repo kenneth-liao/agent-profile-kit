@@ -56,7 +56,7 @@ hidden every time.
 | Agent | Context | Skills | Evidence |
 |---|---|---|---|
 | Claude Code | `AGENTS.md` through the `@AGENTS.md` line in `CLAUDE.md` | `.claude/skills` | `claude -p` |
-| Antigravity | `AGENTS.md` | `.agents/skills` | `agy -p` |
+| Antigravity | `AGENTS.md`, in a trusted project | `.agents/skills`, in a trusted project | `agy -p`, and the interactive app after trust |
 | Codex | `AGENTS.md`, also in an untrusted project | `.agents/skills`, in a trusted project only | `codex exec` |
 | Grok | `AGENTS.md`, in a trusted project only | `.grok/skills`, in a trusted project only | interactive `grok` session |
 | OpenCode | `AGENTS.md` | `.agents/skills` | `opencode run` (v2.2.4, `opencode/deepseek-v4.1-flash`) |
