@@ -1,9 +1,10 @@
 // The usage guide is built into the command, so an agent learns apkit by
 // running `apkit-next guide`; nothing has to be installed first, and the guide
 // always matches the installed version.
+import { COMMAND } from "./command.js";
 import { AGENTS } from "./render.js";
 
-export const COMMAND = "apkit-next";
+export { COMMAND };
 
 export const HELP = `${COMMAND} — install Workspace Profiles into folders for your agents
 
@@ -80,11 +81,19 @@ current directory.
 
 ## First-time setup
 
-After creating or selecting a Workspace, run \`${COMMAND} setup\`. It finds the
-user's installed agents and adds a two-line note to each agent's user-level
-instructions, so future sessions know to run \`${COMMAND} guide\` before
-changing Skills, Context, or Profiles. \`--agents\` limits it to some agents;
-\`setup --remove\` takes the note back out.
+1. Ask the user where to keep their Workspace. It is their own folder, so
+   never choose it for them. You may suggest a name such as ~/agent-workspace.
+   If they already have a Workspace, ask for its path instead.
+2. Run \`${COMMAND} init <path>\` for a new Workspace, or
+   \`${COMMAND} workspace <path>\` to select an existing one.
+3. Run \`${COMMAND} setup\`. It finds the user's installed agents and adds a
+   two-line note to each agent's user-level instructions, so future sessions
+   know to run \`${COMMAND} guide\` before changing Skills, Context, or
+   Profiles. Like any edit to the user's instruction files, it asks for a
+   decision first. \`--agents\` limits it to some agents; \`setup --remove\`
+   takes the note back out.
+
+Then move the user's material into the Workspace and install a Profile.
 
 ## What gets installed
 

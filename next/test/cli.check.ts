@@ -79,6 +79,7 @@ describe("apkit-next CLI", () => {
     const result = cli(home, root, "init", root, "--json");
     expect(result.code).toBe(0);
     expect(JSON.parse(result.out).added).toEqual(["workspace.yaml", "skills/", "profiles/"]);
+    expect(JSON.parse(result.out).next).toContain(`${COMMAND} setup`);
     expect(cli(home, root, "workspace").out.trim()).not.toBe("No Workspace selected.");
   });
 
@@ -93,6 +94,8 @@ describe("apkit-next CLI", () => {
     expect(await read(home, ".claude/CLAUDE.md")).toContain(`run \`${COMMAND} guide\``);
     expect(await read(home, ".codex/AGENTS.md")).toContain(`run \`${COMMAND} guide\``);
     expect(cli(home, home, "setup").out).toContain("already know about apkit");
+    const ws = await makeWorkspace();
+    expect(cli(home, home, "workspace", ws).out).not.toContain("Next:");
     expect(cli(home, home, "setup", "--remove").code).toBe(0);
     expect(await read(home, ".claude/CLAUDE.md")).toBe("# Mine\n");
     expect(await readdir(join(home, ".codex"))).toEqual(["config.toml"]);

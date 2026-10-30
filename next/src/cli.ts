@@ -6,7 +6,7 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { readConfig, recordInstall, writeConfig } from "./config.js";
-import { GUIDE, HELP } from "./guide.js";
+import { COMMAND, GUIDE, HELP } from "./guide.js";
 import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
 import { syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
@@ -182,6 +182,11 @@ function describe(outcome: Outcome, mode: "apply" | "status"): string {
   }
 }
 
+/** Until setup has run, init and workspace name it as the next step: agents follow command output. */
+function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> }): string | null {
+  return Object.keys(config.notes ?? {}).length > 0 ? null : `Next: run \`${COMMAND} setup\` so your agents know about apkit.`;
+}
+
 const TRUST_NOTE = "Some agents load project instructions only in folders you trust. If an agent asks, trust this folder.";
 
 async function main(argv: readonly string[]): Promise<number> {
@@ -206,10 +211,12 @@ async function main(argv: readonly string[]): Promise<number> {
       if (path === undefined) throw new UsageError("Name the Workspace folder: `apkit-next init <path>`.");
       const root = resolve(path);
       const added = await initWorkspace(root);
-      await writeConfig({ ...(await readConfig()), workspace: root });
+      const config = await readConfig();
+      await writeConfig({ ...config, workspace: root });
+      const next = setupHint(config);
       print(
-        `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.`,
-        { workspace: root, added },
+        `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.${next ? `\n${next}` : ""}`,
+        { workspace: root, added, next },
       );
       return EXIT.ok;
     }
@@ -225,8 +232,10 @@ async function main(argv: readonly string[]): Promise<number> {
       if (workspace.violations.some((v) => v.code === "workspace-missing-manifest")) {
         throw new Error(`${display(workspace.root)} is not a Workspace. Run \`apkit-next init ${path}\` to make it one.`);
       }
-      await writeConfig({ ...(await readConfig()), workspace: workspace.root });
-      print(`Selected the Workspace at ${display(workspace.root)}.`, { workspace: workspace.root });
+      const config = await readConfig();
+      await writeConfig({ ...config, workspace: workspace.root });
+      const next = setupHint(config);
+      print(`Selected the Workspace at ${display(workspace.root)}.${next ? `\n${next}` : ""}`, { workspace: workspace.root, next });
       return EXIT.ok;
     }
 

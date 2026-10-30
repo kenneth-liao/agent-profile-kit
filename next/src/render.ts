@@ -2,6 +2,7 @@
 // native discovery path, plus one combined Context block for AGENTS.md.
 import { join, relative, sep } from "node:path";
 import { parseDocument } from "yaml";
+import { COMMAND } from "./command.js";
 import type { Workspace } from "./workspace.js";
 
 /** Where each supported agent discovers project Skills. Everything else is native. */
@@ -100,7 +101,7 @@ export function render(
     });
     // Plain text, not a comment: some agents drop HTML comments before the model sees them.
     context =
-      `<!-- Installed by apkit from the '${profileId}' Profile. Edit your Workspace and run \`apkit update\`; edits here are replaced. -->\n` +
+      `<!-- Installed by apkit from the '${profileId}' Profile. Edit your Workspace and run \`${COMMAND} update\`; edits here are replaced. -->\n` +
       `Profile Context (${profileId}). This project's own instructions take precedence when they conflict with it.\n\n` +
       sections.join("\n");
   }
