@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/95
+progress: 0/101
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-10-30
@@ -51,6 +51,12 @@ Linux, and Windows, and an agent learns it from the tool itself.
   flags.
 - Agent-specific Context formats; Context reaches every agent through the
   shared `AGENTS.md` delivery.
+
+## Principles
+
+- apkit informs; the user decides. apkit states every change it will make
+  and every consequence it can see, then acts on the user's decision. It does
+  not choose for the user how their own setup works.
 
 ## Goal
 
@@ -202,9 +208,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: compare existing entries before and after `init` of valid, incomplete,
   and invalid folders that contain unrelated files; any changed, moved, or
   deleted entry fails. bash
-- [ ] **ISC-29:** **Anti:** An invalid Workspace is never connected.
-  Probe: set up, connect, and connect again to folders with invalid material;
-  Local Configuration that selects any of them fails. bash
+- **ISC-29:** [DROPPED — see Decisions 2026-10-30]
 - [ ] **ISC-30:** A user can connect a different Workspace after setup without
   hand-editing Local Configuration.
   Probe: packed CLI connects a second valid Workspace after setup; needing a
@@ -292,10 +296,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   file.
   Probe: compare the isolated home and working directory before and after every
   command that detects installed Hosts; any new or changed file fails. bash
-- [ ] **ISC-48:** When apkit refuses to connect an invalid Workspace, it shows
-  the complete validation report.
-  Probe: set up and connect folders with several violations; output missing any
-  violation that `validate` reports fails. bash
+- [ ] **ISC-48:** When apkit connects a Workspace that has errors, it shows the
+  complete validation report.
+  Probe: connect folders with several violations; output missing any violation
+  that `check` reports fails. bash
 - [ ] **ISC-49:** The CLI shows the Workspace contract on request.
   Probe: find the contract command from `apkit --help` and run it; output that
   differs from the canonical contract fails. bash
@@ -327,11 +331,12 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Host, into a repository root and into a subfolder of a repository; any new
   untracked entry other than a created `AGENTS.md` fails. Changes to files the
   user already tracks are allowed. bash
-- [ ] **ISC-56:** **Anti:** No output of a Profile Installation points outside
-  its Project.
-  Probe: resolve every output path and symlink target after install for each
-  Host and for a several-Host installation; any path outside the Project fails.
-  bash
+- [ ] **ISC-56:** **Anti:** No output of a Profile Installation lands outside
+  its Project without the user's decision.
+  Probe: install with a Host folder that is a symlink to a folder outside the
+  Project, without and then with the decision granted; a write outside the
+  Project before the decision, or a decision output that does not name the
+  link and where it leads, fails. bash
 - [ ] **ISC-57:** **Anti:** A Profile Installation stays removable after its
   Project is deleted.
   Probe: install for several Hosts, `git worktree remove --force`, then
@@ -459,6 +464,42 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: run a fresh agent session on a project that tracks `AGENTS.md`; an
   agent that allows the change without asking, or commits on its own judgment,
   fails. manual
+
+- [ ] **ISC-89:** One `apkit migrate` command moves every Project recorded by
+  the current engine to the new engine, with the same Workspace, Profile, and
+  Hosts.
+  Probe: on a fixture machine with several Projects installed by apkit 0.239,
+  run `migrate` with each decision granted; a Project with a different
+  Profile, Host set, or Workspace afterwards fails. bash (after: ISC-67)
+- [ ] **ISC-90:** **Anti:** After `migrate`, nothing the current engine wrote
+  remains, except files the user changed, and no Context is delivered twice.
+  Probe: compare each migrated Project with a fresh new-engine install of the
+  same Profile, including empty folders, old exclusion blocks, the Codex hook,
+  and the OpenCode configuration; any leftover unchanged output fails. bash
+- [ ] **ISC-91:** A changed file that the current engine wrote is kept and
+  listed as a decision that names the part apkit added.
+  Probe: edit `.codex/hooks.json` and `.opencode/opencode.jsonc` before
+  `migrate`; a deleted file, or a decision without apkit's part, fails. bash
+- [ ] **ISC-92:** After `migrate`, the current engine's state folder is kept,
+  renamed as a backup.
+  Probe: compare `~/.agents/agent-profile-kit` before migration with
+  `~/.agents/agent-profile-kit.migrated` after; a missing or changed file
+  fails. bash
+- [ ] **ISC-93:** While the current engine's state exists and is not migrated,
+  every command names `apkit migrate`.
+  Probe: run each command on that fixture machine; output without
+  `apkit migrate` fails. bash
+
+- [ ] **ISC-94:** **Anti:** No install or update runs from a Workspace that
+  has errors.
+  Probe: connect a Workspace with each error kind, then run `install` and
+  `update`; any write fails. bash
+
+- [ ] **ISC-95:** After an install, apkit names each selected Host that needs
+  the user to trust the Project, and what does not load until then.
+  Probe: install for every Host; a Host whose live check (ISC-68) needs trust
+  without a line, or a line for a Host that does not need trust, fails. bash
+  (after: ISC-68)
 
 ## Not yet specified
 
@@ -618,3 +659,35 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   never an instruction file, even one it creates (ISC-55, ISC-87).
   Dead end: per-Host untracked Context files, again; they keep the per-Host
   table that ADR-0055 removes.
+- 2026-10-30 — Moving from the current engine is one explicit
+  `apkit migrate` (ISC-89 to ISC-93). It uses the current engine's receipts:
+  each output that still matches its hash is deleted, including the Codex hook,
+  the OpenCode configuration, and the Host rules files. A changed file is kept
+  as a decision that names apkit's part. Folders are deleted only when nothing
+  but apkit's output was in them. The old state folder is renamed as a backup.
+  apkit leaves trust approvals for the old Codex hook alone.
+  Dead end: migrating automatically on the first command; it acts before the
+  user or agent sees the plan. Dead end: a manual cleanup guide; it breaks
+  ISC-67.
+- 2026-10-30 — refined: a symlink that leads an output outside the Project
+  becomes an exit-3 decision that names the link and where it leads, not a
+  refusal (ISC-56). The principal: "the user should have the full control over
+  how their own setup works. Again, apkit just needs to be explicit about what
+  it changes and potential consequences it sees and flag those." This and the
+  tracked-file decision are recorded as the first Principle.
+  Dead end: refusing every symlink, as the current engine does. Dead end:
+  refusing only links that leave the Project.
+- 2026-10-30 — refined: a Workspace with errors can be connected. apkit shows
+  the complete validation report (ISC-48) and blocks every install and update
+  until the errors are fixed (ISC-94). ISC-29 is dropped: the
+  `apkit-workspace.yaml` marker already stops a mistyped path, and the user
+  decides when to fix their Workspace.
+- 2026-10-30 — Trust guidance stays specific to each Host, as in the current
+  engine, with wording from the new live checks (ISC-95): Codex and Pi load
+  Context without trust but project Skills only with it, and Grok loads
+  nothing until trusted. Antigravity loaded without trust in print mode and
+  needs an interactive check before its trust line is dropped.
+  Dead end: one general trust line; a Host can silently miss Skills.
+  The remaining audit risks (two runs on one folder, a Project install into
+  the home folder, version drift, agents passing `--overwrite` on their own)
+  go to the cutover spec as tests, not destination changes.
