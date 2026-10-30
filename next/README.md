@@ -10,6 +10,17 @@ it lives here to prove the design before any cutover.
 - **Built-in guide** (`apkit-next guide`, in `src/guide.ts`): teaches any agent to
   author the Workspace and drive the engine. Nothing to install first.
 
+## Get started
+
+Keep your Skills and always-on agent instructions in one place, and install
+them into any project for Claude Code, Codex, OpenCode, Pi, Grok, or
+Antigravity. You don't need to learn the commands: ask your coding agent.
+
+> Run `apkit-next guide` and follow it to help me set up Agent Profile Kit.
+
+(The prototype is not on npm yet. Once published, agents will run it with
+`npx`.)
+
 ## How installs work
 
 - **Skills** are copied to each agent's native path: `.claude/skills/`,
