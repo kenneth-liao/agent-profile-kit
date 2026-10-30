@@ -13,6 +13,8 @@ Usage:
   ${COMMAND} guide                            The complete guide for agents and people
   ${COMMAND} init <path>                      Create (or complete) a Workspace and select it
   ${COMMAND} workspace [<path>]               Show or select the Workspace
+  ${COMMAND} setup [--agents <a,b>] [--remove]
+                                              Add (or remove) a short apkit note in each agent's user instructions
   ${COMMAND} check                            Validate the Workspace and list what it holds
   ${COMMAND} install <profile> [folder] --agents <a,b>
                                               Install a Profile (folder defaults to the current one)
@@ -21,7 +23,8 @@ Usage:
   ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
 
 Options:
-  --yes               Allow edits to AGENTS.md / CLAUDE.md (and creating AGENTS.md)
+  --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
+  --remove            With setup: remove the note from every agent
   --overwrite         Replace or delete files that were changed or not written by apkit
   --json              Machine-readable output
   --workspace <path>  Use this Workspace for one command
@@ -60,6 +63,7 @@ All commands are non-interactive. Add --json when you need to parse results.
 
 - Create a Workspace:                \`${COMMAND} init <path>\`
 - Select an existing Workspace:      \`${COMMAND} workspace <path>\`
+- Tell the user's agents about apkit: \`${COMMAND} setup\`
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
@@ -69,6 +73,14 @@ All commands are non-interactive. Add --json when you need to parse results.
 Agent ids: ${Object.keys(AGENTS).join(", ")}. To change a folder's agents or
 Profile, run install again with the new values. The folder defaults to the
 current directory.
+
+## First-time setup
+
+After creating or selecting a Workspace, run \`${COMMAND} setup\`. It finds the
+user's installed agents and adds a two-line note to each agent's user-level
+instructions, so future sessions know to run \`${COMMAND} guide\` before
+changing Skills, Context, or Profiles. \`--agents\` limits it to some agents;
+\`setup --remove\` takes the note back out.
 
 ## What gets installed
 
@@ -83,7 +95,8 @@ When a step needs the user's decision, ${COMMAND} changes nothing, prints the
 decisions, and exits with code 3. Explain each one to the user in plain words,
 then re-run the same command:
 
-- Add --yes only after the user agrees to the AGENTS.md or CLAUDE.md edits.
+- Add --yes only after the user agrees to the listed edits to their
+  instruction files (AGENTS.md, CLAUDE.md, or an agent's user-level file).
 - Add --overwrite only after the user explicitly agrees to discard the changed
   files it lists. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.

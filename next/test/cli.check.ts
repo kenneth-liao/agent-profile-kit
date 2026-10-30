@@ -11,13 +11,12 @@ const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 const BUILT = process.env.APKIT_NEXT_CLI;
 const RUNTIME = BUILT ? ["node", resolve(import.meta.dir, "..", BUILT)] : [process.execPath, CLI];
 
+/** Runs the CLI with `home` as both the apkit home and the user's home, so nothing real is touched. */
 function cli(home: string, cwd: string, ...args: string[]) {
   const [exe, ...pre] = RUNTIME as [string, ...string[]];
-  const result = spawnSync(exe, [...pre, ...args], {
-    cwd,
-    env: { ...process.env, APKIT_HOME: home },
-    encoding: "utf8",
-  });
+  const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
+  for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
+  const result = spawnSync(exe, [...pre, ...args], { cwd, env, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
 }
 
@@ -81,6 +80,22 @@ describe("apkit-next CLI", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.out).added).toEqual(["workspace.yaml", "skills/", "profiles/"]);
     expect(cli(home, root, "workspace").out.trim()).not.toBe("No Workspace selected.");
+  });
+
+  test("setup tells detected agents about apkit, after consent, and --remove undoes it", async () => {
+    const home = await tempDir("home");
+    expect(cli(home, home, "setup").code).toBe(1);
+    await writeTree(home, { ".claude/CLAUDE.md": "# Mine\n", ".codex/config.toml": "" });
+    const blocked = cli(home, home, "setup");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain("Add a short marked note about apkit");
+    expect(cli(home, home, "setup", "--yes").code).toBe(0);
+    expect(await read(home, ".claude/CLAUDE.md")).toContain(`run \`${COMMAND} guide\``);
+    expect(await read(home, ".codex/AGENTS.md")).toContain(`run \`${COMMAND} guide\``);
+    expect(cli(home, home, "setup").out).toContain("already know about apkit");
+    expect(cli(home, home, "setup", "--remove").code).toBe(0);
+    expect(await read(home, ".claude/CLAUDE.md")).toBe("# Mine\n");
+    expect(await readdir(join(home, ".codex"))).toEqual(["config.toml"]);
   });
 
   test("bare invocation points agents at the guide", async () => {

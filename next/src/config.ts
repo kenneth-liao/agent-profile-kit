@@ -4,10 +4,13 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { NoteRecords } from "./setup.js";
 
 export interface Config {
   readonly workspace?: string;
   readonly installs: readonly string[];
+  /** User-level files that carry the apkit note (see setup.ts). */
+  readonly notes?: NoteRecords;
 }
 
 export function configHome(): string {
@@ -19,7 +22,7 @@ const configPath = () => join(configHome(), "config.json");
 export async function readConfig(): Promise<Config> {
   try {
     const data = JSON.parse(await readFile(configPath(), "utf8")) as Partial<Config>;
-    return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [] };
+    return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes };
   } catch {
     return { installs: [] };
   }

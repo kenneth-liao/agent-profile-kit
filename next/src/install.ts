@@ -233,7 +233,7 @@ export async function execute(planned: Plan): Promise<void> {
 }
 
 /** Temp file + rename, retried briefly: Windows refuses renames over files another process holds open. */
-async function atomicWrite(path: string, bytes: Uint8Array): Promise<void> {
+export async function atomicWrite(path: string, bytes: Uint8Array): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.apkit-${process.pid}.tmp`;
   await writeFile(temp, bytes);

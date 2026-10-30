@@ -9,6 +9,7 @@ import { readConfig, recordInstall, writeConfig } from "./config.js";
 import { GUIDE, HELP } from "./guide.js";
 import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
 import { AGENTS, isAgentId, render, type AgentId, type Desired } from "./render.js";
+import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
@@ -159,7 +160,7 @@ function describe(outcome: Outcome, mode: "apply" | "status"): string {
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
       const flags = [
-        outcome.issues?.some((i) => i.kind === "consent") ? "--yes to allow the AGENTS.md/CLAUDE.md edits" : null,
+        outcome.issues?.some((i) => i.kind === "consent") ? "--yes to allow the edits to your instruction files" : null,
         outcome.issues?.some((i) => i.kind !== "consent") ? "--overwrite to replace the changed files" : null,
       ].filter((flag) => flag !== null);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
@@ -291,6 +292,37 @@ async function main(argv: readonly string[]): Promise<number> {
       const outcome = await apply(folder, null, previous, decisions);
       print(describe(outcome, "apply"), outcome);
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+    }
+
+    case "setup": {
+      const config = await readConfig();
+      const remove = args.flags.has("--remove");
+      const detected = await detectAgents(homedir(), process.env);
+      const agents = remove ? [] : args.flags.has("--agents") ? agentsFlag(args, undefined) : detected;
+      if (!remove && agents.length === 0) {
+        print("No supported agents found on this machine. Name them with --agents.", { result: "no-agents" });
+        return EXIT.error;
+      }
+      const targets = await noteTargets(agents, homedir(), process.env);
+      const planned = await planNotes(targets, config.notes ?? {});
+      const open = planned.issues.filter((issue) => (issue.kind === "consent" ? !decisions.yes : !decisions.overwrite));
+      const files = targets.map((t) => ({ path: t.path, agents: t.agents }));
+      if (open.length > 0) {
+        const outcome: Outcome = { folder: homedir(), result: "needs-decision", issues: open };
+        print(describe(outcome, "apply"), { result: "needs-decision", issues: open, files });
+        return EXIT.decision;
+      }
+      await executeNotes(planned);
+      await writeConfig({ ...config, notes: planned.records });
+      const result = remove ? "removed" : planned.ops.length === 0 ? "unchanged" : "updated";
+      const lines = remove
+        ? [planned.ops.length === 0 ? "No apkit notes to remove." : "Removed the apkit note from your agents' user instructions."]
+        : [
+            planned.ops.length === 0 ? "Your agents already know about apkit:" : "Your agents now know about apkit:",
+            ...targets.map((t) => `  ${t.agents.map((id) => AGENTS[id].name).join(", ")}: ${display(t.path)}`),
+          ];
+      print(lines.join("\n"), { result, files });
+      return EXIT.ok;
     }
 
     case "status": {

@@ -27,6 +27,32 @@ it lives here to prove the design before any cutover.
   the list of installed folders, for `--all`. `APKIT_HOME` overrides the
   location.
 
+## The user-level note (`setup`)
+
+`apkit-next setup` adds a two-line marked note to each installed agent's
+user-level instructions, telling every session to run `apkit-next guide`
+before changing Skills, Context, or Profiles. The note names only the guide
+command, so a newer guide never makes it stale. It follows the same consent
+and safety rules as project installs, writes through symlinked files, and
+`setup --remove` restores each file exactly.
+
+Each agent's user-level file, and how it was verified (2026-10-30):
+
+| Agent | File | Evidence |
+|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR` or `~/.claude`, `CLAUDE.md` | Marker reached the model request |
+| Codex | `$CODEX_HOME` or `~/.codex`, `AGENTS.override.md` if present, else `AGENTS.md` | Marker reached the model request |
+| OpenCode | `~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md` (first that exists) | Marker reached the model request, in both orders |
+| Pi | `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, `AGENTS.md` | Marker reached the model request |
+| Grok | `$GROK_HOME` or `~/.grok`, `rules/*.md` (loaded without folder trust) | Grok's bundled user guide |
+| Antigravity | `~/.gemini/AGENTS.md` or `GEMINI.md` | Antigravity changelog; not tested live |
+
+Because OpenCode reads only the first file that exists, setup never creates
+`~/.config/opencode/AGENTS.md` when `~/.claude/CLAUDE.md` exists: that would
+hide the user's `CLAUDE.md` from OpenCode. The note goes in `CLAUDE.md`
+instead. Grok also reads `~/.claude/CLAUDE.md` by default, so it may see the
+note twice; that is harmless.
+
 ## Develop
 
 ```sh
