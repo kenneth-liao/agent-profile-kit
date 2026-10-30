@@ -1,5 +1,6 @@
 // Turns a Profile into the desired installed state: Skill files at each agent's
 // native discovery path, plus one combined Context block for AGENTS.md.
+import { join, relative, sep } from "node:path";
 import { parseDocument } from "yaml";
 import type { Workspace } from "./workspace.js";
 
@@ -31,16 +32,46 @@ export interface Desired {
   readonly files: ReadonlyMap<string, DesiredFile>;
   /** Body of the AGENTS.md block, or null when the Profile selects no Context. */
   readonly context: string | null;
+  /** "user" for a Skills install into the home folder's user-level Skills folders. */
+  readonly scope?: "user";
 }
 
 /** Codex reads this file to stop implicit invocation (`disable-model-invocation`). */
 const CODEX_POLICY_PATH = "agents/openai.yaml";
 
-export function render(workspace: Workspace, profileId: string, agents: readonly AgentId[]): Desired {
+/** Each agent's Skills folder, as a POSIX path relative to the install target. */
+export type SkillRoots = Readonly<Record<AgentId, string>>;
+
+export const PROJECT_ROOTS: SkillRoots = Object.fromEntries(
+  Object.entries(AGENTS).map(([id, agent]) => [id, agent.skillsRoot]),
+) as Record<AgentId, string>;
+
+/**
+ * User-level Skills folders, relative to the home folder. Verified 2026-10-30
+ * against each agent (see the prototype's README).
+ */
+export function userRoots(home: string, env: Readonly<Record<string, string | undefined>>): SkillRoots {
+  const rel = (path: string) => relative(home, path).split(sep).join("/");
+  return {
+    antigravity: ".gemini/config/skills",
+    claude: `${rel(env.CLAUDE_CONFIG_DIR ?? join(home, ".claude"))}/skills`,
+    codex: ".agents/skills",
+    grok: `${rel(env.GROK_HOME ?? join(home, ".grok"))}/skills`,
+    opencode: ".agents/skills",
+    pi: ".agents/skills",
+  };
+}
+
+export function render(
+  workspace: Workspace,
+  profileId: string,
+  agents: readonly AgentId[],
+  skillRoots: SkillRoots = PROJECT_ROOTS,
+): Desired {
   const profile = workspace.profiles.get(profileId);
   if (profile === undefined) throw new Error(`No Profile named '${profileId}' in the Workspace.`);
   const sorted = [...new Set(agents)].sort();
-  const roots = [...new Set(sorted.map((agent) => AGENTS[agent].skillsRoot))];
+  const roots = [...new Set(sorted.map((agent) => skillRoots[agent]))];
 
   const files = new Map<string, DesiredFile>();
   for (const name of profile.skills) {
@@ -50,7 +81,7 @@ export function render(workspace: Workspace, profileId: string, agents: readonly
       for (const file of skill.files) {
         files.set(`${root}/${name}/${file.path}`, { bytes: file.bytes, executable: file.executable });
       }
-      if (skill.disableModelInvocation && root === ".agents/skills") {
+      if (skill.disableModelInvocation && root === skillRoots.codex) {
         const existing = skill.files.find((file) => file.path === CODEX_POLICY_PATH);
         files.set(`${root}/${name}/${CODEX_POLICY_PATH}`, {
           bytes: new TextEncoder().encode(codexPolicy(existing?.bytes)),

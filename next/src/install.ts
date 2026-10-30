@@ -19,6 +19,8 @@ export interface Manifest {
   readonly block: string | null;
   readonly createdAgentsMd: boolean;
   readonly claudeImport: boolean;
+  /** Present for a user-level install (`install --global`). */
+  readonly scope?: "user";
 }
 
 export type IssueKind =
@@ -198,7 +200,16 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
   const manifest: Manifest | null =
     desired === null
       ? null
-      : { schema: 1, profile: desired.profile, agents: desired.agents, files, block: blockHash, createdAgentsMd, claudeImport };
+      : {
+          schema: 1,
+          profile: desired.profile,
+          agents: desired.agents,
+          files,
+          block: blockHash,
+          createdAgentsMd,
+          claudeImport,
+          ...(desired.scope === undefined ? {} : { scope: desired.scope }),
+        };
   return { target, ops, issues, manifest };
 }
 

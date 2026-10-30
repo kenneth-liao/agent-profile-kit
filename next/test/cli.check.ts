@@ -98,6 +98,52 @@ describe("apkit-next CLI", () => {
     expect(await readdir(join(home, ".codex"))).toEqual(["config.toml"]);
   });
 
+  test("in a Git repository, installed files stay out of git status, and removal cleans up", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude,codex", "--yes").code).toBe(0);
+    // Only the user's own committed file shows the one-line import as a change.
+    expect(git("status", "--porcelain").trim()).toBe("M CLAUDE.md");
+    expect(await read(repo, ".git/info/exclude")).toContain("/.claude/skills/summarize/\n");
+    // A linked worktree shares the exclude file with its own block.
+    const tree = join(await tempDir("wt"), "tree");
+    git("worktree", "add", "-q", tree);
+    expect(cli(home, tree, "install", "skills-only", "--agents", "codex").code).toBe(0);
+    expect(spawnSync("git", ["status", "--porcelain"], { cwd: tree, encoding: "utf8" }).stdout).toBe("");
+    expect(cli(home, repo, "remove").code).toBe(0);
+    expect(git("status", "--porcelain")).toBe("");
+    const exclude = await read(repo, ".git/info/exclude");
+    expect(exclude).not.toContain(`apkit:begin ${repo}\n`);
+    expect(exclude).toContain(`apkit:begin ${tree}`);
+  });
+
+  test("install --global puts a Skills-only Profile in each agent's user-level Skills folder", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const refused = cli(home, home, "install", "engineering", "--global", "--agents", "claude");
+    expect(refused.code).toBe(2);
+    expect(refused.err).toContain("installed per project");
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude,codex,grok,antigravity").code).toBe(0);
+    for (const path of [".claude/skills", ".agents/skills", ".grok/skills", ".gemini/config/skills"]) {
+      expect(await read(home, `${path}/summarize/SKILL.md`)).toContain("name: summarize");
+    }
+    await writeTree(ws, { "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: v2\n---\n" });
+    expect(cli(home, home, "update", "--all").code).toBe(0);
+    expect(await read(home, ".gemini/config/skills/summarize/SKILL.md")).toContain("v2");
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    const left = await readdir(home);
+    for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
+  });
+
   test("bare invocation points agents at the guide", async () => {
     const home = await tempDir("home");
     const bare = cli(home, home);

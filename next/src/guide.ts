@@ -18,13 +18,16 @@ Usage:
   ${COMMAND} check                            Validate the Workspace and list what it holds
   ${COMMAND} install <profile> [folder] --agents <a,b>
                                               Install a Profile (folder defaults to the current one)
+  ${COMMAND} install <profile> --global --agents <a,b>
+                                              Install a Skills-only Profile for every project (user level)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
-  ${COMMAND} remove [folder]                  Remove everything apkit installed there
+  ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
 
 Options:
   --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
   --remove            With setup: remove the note from every agent
+  --global            Install or remove at the user level instead of a project
   --overwrite         Replace or delete files that were changed or not written by apkit
   --json              Machine-readable output
   --workspace <path>  Use this Workspace for one command
@@ -66,6 +69,7 @@ All commands are non-interactive. Add --json when you need to parse results.
 - Tell the user's agents about apkit: \`${COMMAND} setup\`
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
+- Install Skills for every project:  \`${COMMAND} install <profile> --global --agents <ids>\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
@@ -88,6 +92,11 @@ changing Skills, Context, or Profiles. \`--agents\` limits it to some agents;
 - Context goes into one marked section in AGENTS.md, which every supported
   agent reads. If CLAUDE.md exists and Claude Code is selected, CLAUDE.md gets
   one \`@AGENTS.md\` line. Everything else in both files is left as it is.
+- In a Git repository, the installed files are listed in .git/info/exclude
+  so they stay out of \`git status\` and are never committed by accident.
+- \`install --global\` puts a Skills-only Profile in each agent's user-level
+  Skills folder, so the Skills are available in every project. Context is
+  always installed per project, so --global refuses a Profile with Context.
 
 ## Decisions (exit code 3)
 
