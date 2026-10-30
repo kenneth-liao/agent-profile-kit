@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/92
+progress: 0/95
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-10-30
@@ -51,8 +51,6 @@ Linux, and Windows, and an agent learns it from the tool itself.
   flags.
 - Agent-specific Context formats; Context reaches every agent through the
   shared `AGENTS.md` delivery.
-- Projects that track `AGENTS.md` or `CLAUDE.md` in Git, such as most team
-  repositories. Installed Context there shows as a tracked change.
 
 ## Goal
 
@@ -323,11 +321,12 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: install and remove a Profile Installation in a linked worktree of a
   main checkout that has its own installation; any changed main-checkout output
   or owned exclusion entry fails. bash
-- [ ] **ISC-55:** **Anti:** A Profile Installation never adds an untracked
-  entry to the Project's `git status`.
+- [ ] **ISC-55:** **Anti:** A Profile Installation adds no untracked entry to
+  the Project's `git status`, except an instruction file that it creates.
   Probe: compare `git status --porcelain` before and after install for each
-  Host; any new untracked entry fails. Changes to files the user already
-  tracks, such as the `@AGENTS.md` line in `CLAUDE.md`, are allowed. bash
+  Host, into a repository root and into a subfolder of a repository; any new
+  untracked entry other than a created `AGENTS.md` fails. Changes to files the
+  user already tracks are allowed. bash
 - [ ] **ISC-56:** **Anti:** No output of a Profile Installation points outside
   its Project.
   Probe: resolve every output path and symlink target after install for each
@@ -447,12 +446,28 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: `rg` the contract for retired features, such as the sidecar and the
   retired model-invocation key; any match fails. bash
 
+- [ ] **ISC-86:** Before apkit creates or changes an instruction file, its
+  output names the file, says whether it will be created or changed, and says
+  whether Git tracks it.
+  Probe: run install with `AGENTS.md` and `CLAUDE.md` absent, untracked, and
+  tracked; a decision output that misses any of the three facts fails. bash
+- [ ] **ISC-87:** **Anti:** apkit never hides an instruction file from Git.
+  Probe: install where apkit creates `AGENTS.md`, then read
+  `.git/info/exclude`; any entry for `AGENTS.md` or `CLAUDE.md` fails. bash
+- [ ] **ISC-88:** The guide tells agents to get the user's agreement before an
+  instruction-file change, and to leave committing to the user.
+  Probe: run a fresh agent session on a project that tracks `AGENTS.md`; an
+  agent that allows the change without asking, or commits on its own judgment,
+  fails. manual
+
 ## Not yet specified
 
 - What scattered sample material ISC-20 and ISC-21 must contain to represent
   real users (which Host folders and instruction files).
 - Whether the agent probes (ISC-21, ISC-45) require a specific agent or Host.
 - Whether one Project can hold more than one Profile.
+- Whether Host limits on project instruction size, such as the Codex default of
+  32 KiB, need a claim on the size of installed Context.
 
 ## Decisions
 
@@ -593,3 +608,13 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   those files are out of scope for now. Supporting teams is later work.
   Dead end: per-Host untracked Context files when the project tracks
   `AGENTS.md`; it keeps the per-Host table that ADR-0055 removes.
+- 2026-10-30 — refined: a risk audit found that all seven of the principal's
+  own Projects track `AGENTS.md` or `CLAUDE.md`, so the earlier Out of Scope
+  line on such projects was wrong and is removed. The principal chose to keep
+  the shared `AGENTS.md` delivery and make it transparent instead: apkit says
+  which instruction files it creates or changes and whether Git tracks them,
+  the agent asks the user, and the user decides what to commit (ISC-86,
+  ISC-88). apkit hides installed Skill copies and its manifest from Git, but
+  never an instruction file, even one it creates (ISC-55, ISC-87).
+  Dead end: per-Host untracked Context files, again; they keep the per-Host
+  table that ADR-0055 removes.
