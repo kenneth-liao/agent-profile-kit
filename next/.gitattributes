@@ -1,0 +1,3 @@
+# The Workspace contract is bundled into the CLI and printed by `apkit-next contract`:
+# keep its bytes the same on every OS, whatever core.autocrlf is.
+docs/workspace-contract.md text eol=lf
