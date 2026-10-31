@@ -1,5 +1,5 @@
-// Reads and validates a Workspace. The format is today's Workspace contract
-// (docs/guides/workspace-contract.md), so existing Workspaces load unchanged.
+// Reads and validates a Workspace. The format is the Workspace contract
+// (docs/guides/workspace-contract.md) as simplified by ADR-0057.
 import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, parseDocument } from "yaml";
@@ -70,24 +70,46 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
 
 type Add = (code: string, path: string, message: string) => void;
 
+/** The file whose presence makes a folder a Workspace (ADR-0057 §6). */
+const MARKER = "apkit-workspace.yaml";
+/** The schema version this apkit reads; a missing `schema_version` means 1. */
+const SCHEMA_VERSION = 1;
+
 async function checkManifest(root: string, add: Add): Promise<void> {
   let text: string;
   try {
-    text = await readFile(join(root, "workspace.yaml"), "utf8");
+    text = await readFile(join(root, MARKER), "utf8");
   } catch {
-    add("workspace-missing-manifest", "workspace.yaml", "A Workspace needs a workspace.yaml file containing `schema_version: 1`.");
+    if (await exists(join(root, "workspace.yaml"))) {
+      add("workspace-old-manifest", "workspace.yaml", `Rename workspace.yaml to ${MARKER}; that file now marks a Workspace.`);
+    } else {
+      add("workspace-missing-manifest", MARKER, `A Workspace needs an ${MARKER} file; it may be empty.`);
+    }
     return;
   }
   let manifest: unknown;
   try {
     manifest = parseYaml(text);
   } catch {
-    add("workspace-manifest", "workspace.yaml", "workspace.yaml is not valid YAML.");
+    add("workspace-manifest", MARKER, `${MARKER} is not valid YAML.`);
     return;
   }
-  if (!isRecord(manifest) || manifest.schema_version !== 1 || Object.keys(manifest).length !== 1) {
-    add("workspace-manifest", "workspace.yaml", "workspace.yaml must contain only `schema_version: 1`.");
+  if (manifest === null || manifest === undefined) return;
+  if (!isRecord(manifest)) {
+    add("workspace-manifest", MARKER, `${MARKER} must be empty or hold YAML keys such as \`schema_version: 1\`.`);
+    return;
   }
+  const version = manifest.schema_version;
+  if (version === undefined || version === SCHEMA_VERSION) return;
+  if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
+    add("workspace-manifest", MARKER, `${MARKER}: \`schema_version\` must be a whole number such as 1.`);
+    return;
+  }
+  add(
+    "workspace-unsupported-version",
+    MARKER,
+    `${MARKER} declares schema_version ${version}, which needs a newer apkit; this apkit reads schema_version ${SCHEMA_VERSION}. Update apkit.`,
+  );
 }
 
 /** Lists every non-hidden file under `dir`, as POSIX paths relative to it. */
@@ -280,9 +302,9 @@ function isNameList(value: unknown): boolean {
 export async function initWorkspace(root: string): Promise<string[]> {
   const added: string[] = [];
   await mkdir(root, { recursive: true });
-  if (!(await exists(join(root, "workspace.yaml")))) {
-    await writeFile(join(root, "workspace.yaml"), "schema_version: 1\n");
-    added.push("workspace.yaml");
+  if (!(await exists(join(root, MARKER)))) {
+    await writeFile(join(root, MARKER), `schema_version: ${SCHEMA_VERSION}\n`);
+    added.push(MARKER);
   }
   for (const part of ["context", "skills", "profiles"]) {
     if (!(await exists(join(root, part)))) {
