@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { chmod, mkdir, readdir, readFile, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
 import { isAgentId, type AgentId, type Desired } from "./render.js";
 import { refuseNewer } from "./schema.js";
@@ -44,10 +45,19 @@ type Op =
   /** Whole-file text replacement of an instruction file; null deletes the file. */
   | { readonly type: "text"; readonly path: string; readonly absolute: string; readonly text: string | null };
 
+/** What the plan does to one instruction file, so the user can decide before it happens (ISC-86). */
+export interface InstructionChange {
+  readonly path: "AGENTS.md" | "CLAUDE.md";
+  readonly action: "create" | "change" | "delete";
+  /** Whether Git tracks the file. */
+  readonly tracked: boolean;
+}
+
 export interface Plan {
   readonly target: string;
   readonly ops: readonly Op[];
   readonly issues: readonly Issue[];
+  readonly instructions: readonly InstructionChange[];
   readonly manifest: Manifest | null;
 }
 
@@ -199,6 +209,15 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  const instructions: InstructionChange[] = [];
+  for (const op of ops) {
+    if (op.type !== "text") continue;
+    const path = op.path as InstructionChange["path"];
+    const before = path === "AGENTS.md" ? agentsText : claudeText;
+    const action = before === null ? "create" : op.text === null ? "delete" : "change";
+    instructions.push({ path, action, tracked: await isTracked(target, path) });
+  }
+
   const manifest: Manifest | null =
     desired === null
       ? null
@@ -212,7 +231,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
           claudeImport,
           ...(desired.scope === undefined ? {} : { scope: desired.scope }),
         };
-  return { target, ops, issues, manifest };
+  return { target, ops, issues, instructions, manifest };
 }
 
 /** Issues the given decisions do not settle. Nothing is written while any remain. */
