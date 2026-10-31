@@ -414,12 +414,15 @@ export async function atomicWrite(path: string, bytes: Uint8Array): Promise<void
   }
 }
 
-/** Removes now-empty folders apkit's files lived in, stopping at the target. */
+/**
+ * Removes now-empty folders apkit's files lived in, stopping at the target and at
+ * the first link: on Windows, rmdir would delete a junction the user made.
+ */
 async function pruneEmpty(target: string, dir: string): Promise<void> {
   let current = dir;
   while (current.length > target.length && current.startsWith(target)) {
     try {
-      if ((await readdir(current)).length > 0) return;
+      if ((await lstat(current)).isSymbolicLink() || (await readdir(current)).length > 0) return;
       await rmdir(current);
     } catch {
       return;

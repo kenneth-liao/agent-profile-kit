@@ -317,6 +317,11 @@ describe("manifest ingestion", () => {
   });
 });
 
+// rmdir as on Windows, where it also removes a junction (a folder link) to a
+// folder that is empty; elsewhere rmdir refuses any symlink.
+const realRmdir = fs.rmdir;
+let rmdirRemovesLinks = false;
+
 describe("lock", () => {
   // Runs a step in the gap right after any rename, as a delayed process could.
   const realRename = fs.rename;
@@ -328,6 +333,10 @@ describe("lock", () => {
       const step = afterRename;
       afterRename = null;
       if (step !== null) await step();
+    },
+    rmdir: async (path: string) => {
+      if (rmdirRemovesLinks && (await lstat(path)).isSymbolicLink() && (await readdir(path)).length === 0) return fs.unlink(path);
+      return realRmdir(path);
     },
   }));
 
@@ -386,4 +395,22 @@ describe("lock", () => {
     expect(error?.message).toContain(`delete ${path}`);
     expect(error?.message).toContain(mark);
   }, 5_000);
+});
+
+describe("pruning", () => {
+  test("removal never deletes a linked folder it emptied, even where rmdir removes links", async () => {
+    const { wsRoot, target } = await setup();
+    const outside = await tempDir("dotfiles");
+    await symlink(outside, join(target, ".claude"), "junction");
+    await run(wsRoot, target, "skills-only", ["claude"], { yes: true });
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    rmdirRemovesLinks = true;
+    try {
+      await run(wsRoot, target, null, [], { yes: true });
+    } finally {
+      rmdirRemovesLinks = false;
+    }
+    expect(await readdir(outside)).toEqual([]);
+    expect((await lstat(join(target, ".claude"))).isSymbolicLink()).toBe(true);
+  });
 });
