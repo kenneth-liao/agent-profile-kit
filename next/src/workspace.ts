@@ -39,8 +39,22 @@ export interface Workspace {
   readonly context: ReadonlyMap<string, ContextModule>;
   readonly skills: ReadonlyMap<string, Skill>;
   readonly profiles: ReadonlyMap<string, Profile>;
+  /** Errors: each makes an install wrong or ambiguous, so it blocks installs. */
   readonly violations: readonly Violation[];
+  /** Files apkit skips, and other harmless findings. A warning never blocks an install (ADR-0057 §4). */
+  readonly warnings: readonly Violation[];
 }
+
+/** The codes that are warnings; every other code is an error. */
+export const WARNINGS: ReadonlySet<string> = new Set([
+  "stray-context-file",
+  "stray-skill-file",
+  "stray-profile-file",
+  "profile-in-subfolder",
+  "symlink",
+  "empty-content",
+  "profile-without-artifacts",
+]);
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const isHidden = (name: string) => name.startsWith(".");
@@ -65,7 +79,14 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
       if (!skills.has(name)) add("missing-skill-reference", path, `Profile '${profile.id}' names Skill '${name}', which does not exist.`);
     }
   }
-  return { root, context, skills, profiles, violations };
+  return {
+    root,
+    context,
+    skills,
+    profiles,
+    violations: violations.filter((v) => !WARNINGS.has(v.code)),
+    warnings: violations.filter((v) => WARNINGS.has(v.code)),
+  };
 }
 
 type Add = (code: string, path: string, message: string) => void;
@@ -112,8 +133,8 @@ async function checkManifest(root: string, add: Add): Promise<void> {
   );
 }
 
-/** Lists every non-hidden file under `dir`, as POSIX paths relative to it. */
-async function walk(dir: string, add: Add, label: string, rel = ""): Promise<string[]> {
+/** Lists every non-hidden file under `dir`, as POSIX paths relative to it, except inside the `skip` folders. */
+async function walk(dir: string, add: Add, label: string, skip: readonly string[] = [], rel = ""): Promise<string[]> {
   let entries;
   try {
     entries = await readdir(join(dir, rel), { withFileTypes: true });
@@ -124,10 +145,11 @@ async function walk(dir: string, add: Add, label: string, rel = ""): Promise<str
   for (const entry of entries.sort(byName)) {
     if (isHidden(entry.name)) continue;
     const child = rel === "" ? entry.name : `${rel}/${entry.name}`;
+    if (skip.includes(child)) continue;
     if (entry.isSymbolicLink()) {
-      add("symlink", `${label}/${child}`, `${label}/${child} is a symlink; Workspace files must be real files.`);
+      add("symlink", `${label}/${child}`, `${label}/${child} is a symlink; apkit never follows links outside a Skill package, so it skips it.`);
     } else if (entry.isDirectory()) {
-      files.push(...(await walk(dir, add, label, child)));
+      files.push(...(await walk(dir, add, label, skip, child)));
     } else {
       files.push(child);
     }
@@ -144,7 +166,7 @@ async function loadContext(root: string, add: Add): Promise<Map<string, ContextM
   for (const file of files) {
     const path = `context/${file}`;
     if (!file.endsWith(".md")) {
-      add("stray-context-file", path, `${path} is not Markdown; only .md files belong in context/.`);
+      add("stray-context-file", path, `${path} is not Markdown; only .md files are Context, so apkit skips it.`);
       continue;
     }
     const id = file.slice(0, -".md".length);
@@ -156,7 +178,7 @@ async function loadContext(root: string, add: Add): Promise<Map<string, ContextM
     }
     const text = await readFile(join(dir, ...file.split("/")), "utf8");
     if (text.trim() === "") {
-      add("empty-content", path, `${path} is empty.`);
+      add("empty-content", path, `${path} is empty, so apkit skips it.`);
       continue;
     }
     modules.set(id, { id, text });
@@ -168,11 +190,9 @@ async function loadSkills(root: string, add: Add): Promise<Map<string, Skill>> {
   const skills = new Map<string, Skill>();
   const dir = join(root, "skills");
   const packages = await findSkillPackages(dir);
-  const files = await walk(dir, add, "skills");
-  for (const file of files) {
-    if (!packages.some((pkg) => file.startsWith(`${pkg}/`))) {
-      add("stray-skill-file", `skills/${file}`, `skills/${file} is not inside a Skill package (a folder with a SKILL.md).`);
-    }
+  // Package content belongs to the package, so only files outside every package are walked.
+  for (const file of await walk(dir, add, "skills", packages)) {
+    add("stray-skill-file", `skills/${file}`, `skills/${file} is not inside a Skill package (a folder with a SKILL.md), so apkit skips it.`);
   }
   for (const pkg of packages) {
     const path = `skills/${pkg}/SKILL.md`;
@@ -259,8 +279,12 @@ async function loadProfiles(
   for (const [index, file] of files.entries()) {
     const path = `profiles/${file}`;
     const id = ids[index];
+    if (id === undefined && file.includes("/") && /\.ya?ml$/.test(file)) {
+      add("profile-in-subfolder", path, `${path} is in a subfolder; Profiles are read only directly in profiles/, so apkit skips it.`);
+      continue;
+    }
     if (id === undefined) {
-      add("stray-profile-file", path, `${path}: Profiles are .yaml or .yml files directly in profiles/.`);
+      add("stray-profile-file", path, `${path} is not a Profile (a .yaml or .yml file), so apkit skips it.`);
       continue;
     }
     if (!KEBAB.test(id)) {
@@ -299,8 +323,7 @@ async function loadProfiles(
       continue;
     }
     if (context.length === 0 && skills.length === 0 && selected !== "all") {
-      add("profile-without-artifacts", path, `${path} selects nothing.`);
-      continue;
+      add("profile-without-artifacts", path, `${path} selects nothing; installing it installs nothing.`);
     }
     profiles.set(id, { id, context, skills });
     paths.set(id, path);
