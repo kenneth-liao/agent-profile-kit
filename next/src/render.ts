@@ -5,14 +5,18 @@ import { parseDocument } from "yaml";
 import { COMMAND } from "./command.js";
 import type { Workspace } from "./workspace.js";
 
-/** Where each supported agent discovers project Skills. Everything else is native. */
+/**
+ * Where each supported agent discovers project Skills, and what it does not load
+ * from a project folder until the user trusts it (live checks in the prototype's
+ * README). Everything else is native.
+ */
 export const AGENTS = {
-  antigravity: { name: "Antigravity", skillsRoot: ".agents/skills" },
-  claude: { name: "Claude Code", skillsRoot: ".claude/skills" },
-  codex: { name: "Codex", skillsRoot: ".agents/skills" },
-  grok: { name: "Grok", skillsRoot: ".grok/skills" },
-  opencode: { name: "OpenCode", skillsRoot: ".agents/skills" },
-  pi: { name: "Pi", skillsRoot: ".agents/skills" },
+  antigravity: { name: "Antigravity", skillsRoot: ".agents/skills", untilTrusted: "everything" },
+  claude: { name: "Claude Code", skillsRoot: ".claude/skills", untilTrusted: null },
+  codex: { name: "Codex", skillsRoot: ".agents/skills", untilTrusted: "skills" },
+  grok: { name: "Grok", skillsRoot: ".grok/skills", untilTrusted: "everything" },
+  opencode: { name: "OpenCode", skillsRoot: ".agents/skills", untilTrusted: null },
+  pi: { name: "Pi", skillsRoot: ".agents/skills", untilTrusted: "skills" },
 } as const;
 
 export type AgentId = keyof typeof AGENTS;
