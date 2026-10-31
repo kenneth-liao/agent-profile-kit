@@ -95,6 +95,9 @@ Do these steps once, before any install.
 2. Run \`${COMMAND} init <path>\` for a new Workspace, or
    \`${COMMAND} workspace <path>\` to select an existing one. ${COMMAND}
    remembers the selected Workspace, so later commands need no --workspace.
+   A Workspace with problems is selected too: \`${COMMAND} workspace\` lists
+   them, and installs and updates wait until they are fixed. It also names
+   each install whose Profile the Workspace lacks.
 3. Run \`${COMMAND} setup\`. It finds the user's installed agents and adds a
    two-line note to each agent's user-level instructions, so future sessions
    know to run \`${COMMAND} guide\` before changing Skills, Context, or
