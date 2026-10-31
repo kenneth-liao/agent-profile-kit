@@ -37,7 +37,7 @@ export interface Desired {
   readonly files: ReadonlyMap<string, DesiredFile>;
   /** Body of the AGENTS.md block, or null when the Profile selects no Context. */
   readonly context: string | null;
-  /** "user" for a Skills install into the home folder's user-level Skills folders. */
+  /** "user" for an install into each agent's user-level folders and instruction files. */
   readonly scope?: "user";
 }
 
@@ -72,6 +72,7 @@ export function render(
   profileId: string,
   agents: readonly AgentId[],
   skillRoots: SkillRoots = PROJECT_ROOTS,
+  scope?: "user",
 ): Desired {
   const profile = workspace.profiles.get(profileId);
   if (profile === undefined) throw new Error(`No Profile named '${profileId}' in the Workspace.`);
@@ -105,11 +106,14 @@ export function render(
     });
     // Plain text, not a comment: some agents drop HTML comments before the model sees them.
     context =
-      `<!-- Installed by apkit from the '${profileId}' Profile. Edit your Workspace and run \`${COMMAND} update\`; edits here are replaced. -->\n` +
-      `Profile Context (${profileId}). This project's own instructions take precedence when they conflict with it.\n\n` +
-      sections.join("\n");
+      scope === "user"
+        ? `<!-- Installed by apkit from the '${profileId}' Profile for every project. Edit your Workspace and run \`${COMMAND} update --all\`; edits here are replaced. -->\n` +
+          `Profile Context (${profileId}).\n\n`
+        : `<!-- Installed by apkit from the '${profileId}' Profile. Edit your Workspace and run \`${COMMAND} update\`; edits here are replaced. -->\n` +
+          `Profile Context (${profileId}). This project's own instructions take precedence when they conflict with it.\n\n`;
+    context += sections.join("\n");
   }
-  return { profile: profileId, agents: sorted, files, context };
+  return { profile: profileId, agents: sorted, files, context, ...(scope === undefined ? {} : { scope }) };
 }
 
 /** A Context ID may hold any file-name character; encode those that could end or forge an HTML comment. */

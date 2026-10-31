@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
@@ -18,6 +18,28 @@ function cli(home: string, cwd: string, ...args: string[]) {
   for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
   const result = spawnSync(exe, [...pre, ...args], { cwd, env, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
+}
+
+/** Each agent's user-level instruction file in a fresh home folder. */
+const USER_FILES = [
+  ".claude/CLAUDE.md",
+  ".codex/AGENTS.md",
+  ".config/opencode/AGENTS.md",
+  ".pi/agent/AGENTS.md",
+  ".grok/rules/apkit.md",
+  ".gemini/AGENTS.md",
+];
+
+/** Every file under home (POSIX path → exact bytes), without apkit's own config files (APKIT_HOME is home here). */
+async function homeSnapshot(home: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const entry of await readdir(home, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const path = relative(home, join(entry.parentPath, entry.name)).split(sep).join("/");
+    if (path === "config.json" || path === "global.json") continue;
+    files[path] = (await readFile(join(home, path))).toString("latin1");
+  }
+  return files;
 }
 
 describe("apkit-next CLI", () => {
@@ -375,9 +397,6 @@ describe("apkit-next CLI", () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
     cli(home, home, "workspace", ws);
-    const refused = cli(home, home, "install", "engineering", "--global", "--agents", "claude");
-    expect(refused.code).toBe(2);
-    expect(refused.err).toContain("installed per project");
     expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude,codex,grok,antigravity").code).toBe(0);
     for (const path of [".claude/skills", ".agents/skills", ".grok/skills", ".gemini/config/skills"]) {
       expect(await read(home, `${path}/summarize/SKILL.md`)).toContain("name: summarize");
@@ -388,6 +407,129 @@ describe("apkit-next CLI", () => {
     expect(cli(home, home, "remove", "--global").code).toBe(0);
     const left = await readdir(home);
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
+  });
+
+  test("install --global puts a Profile's Context in each agent's user-level file, after consent", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const before = await homeSnapshot(home);
+    const all = "antigravity,claude,codex,grok,opencode,pi";
+    const blocked = cli(home, home, "install", "engineering", "--global", "--agents", all);
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(join(home, ".codex", "AGENTS.md"));
+    expect(await homeSnapshot(home)).toEqual(before);
+
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", all, "--yes").code).toBe(0);
+    for (const path of USER_FILES) {
+      const text = await read(home, path);
+      expect(text).toContain("<!-- apkit:global:begin -->");
+      expect(text).toContain("Be concise.");
+      expect(text).toContain(`${COMMAND} update --all`);
+      expect(text).not.toContain("This project's own instructions");
+    }
+    for (const path of [".claude/skills", ".agents/skills", ".grok/skills", ".gemini/config/skills"]) {
+      expect(await read(home, `${path}/review/SKILL.md`)).toContain("name: review");
+    }
+    // The home folder has no project install: the global manifest lives apart from it.
+    expect(await readdir(join(home, ".agents"))).not.toContain("apkit.json");
+    expect(cli(home, home, "status", "--all").out).toContain("User level: 'engineering'");
+    expect(cli(home, home, "status", "--all").out).toContain("is up to date");
+
+    // A Workspace edit reaches every user-level file through update --all.
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out)[0].result).toBe("updated");
+    expect(cli(home, home, "update", "--all").code).toBe(0);
+    for (const path of USER_FILES) expect(await read(home, path)).toContain("Be warm.");
+
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await homeSnapshot(home)).toEqual(before);
+  });
+
+  test("a global install never hides an existing user-level file", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(home, { ".claude/CLAUDE.md": "# Mine\n", ".config/opencode/opencode.json": "{}\n" });
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "opencode", "--yes").code).toBe(0);
+    expect(await read(home, ".claude/CLAUDE.md")).toContain("Be concise.");
+    expect(await readdir(join(home, ".config", "opencode"))).toEqual(["opencode.json"]);
+  });
+
+  test("a global install writes through a user-level folder linked into dotfiles without an outside-link decision", async () => {
+    const home = await tempDir("home");
+    const dotfiles = await tempDir("dotfiles");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(dotfiles, { "claude/CLAUDE.md": "# Dotfiles\n" });
+    await symlink(join(dotfiles, "claude"), join(home, ".claude"), "junction");
+    const result = cli(home, home, "install", "engineering", "--global", "--agents", "claude", "--yes");
+    expect(result.code).toBe(0);
+    expect(await read(dotfiles, "claude/CLAUDE.md")).toContain("Be concise.");
+    expect(await read(dotfiles, "claude/skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await readdir(join(dotfiles, "claude"))).toEqual(["CLAUDE.md"]);
+    expect(await read(dotfiles, "claude/CLAUDE.md")).toBe("# Dotfiles\n");
+  });
+
+  test("remove --global restores each user-level file byte for byte", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(home, {
+      ".claude/CLAUDE.md": "# Mine\r\n\r\nBe brief.\r\n",
+      ".codex/AGENTS.override.md": "# Override\n",
+      ".gemini/AGENTS.md": "",
+    });
+    const before = await homeSnapshot(home);
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "claude,codex,antigravity,grok", "--yes").code).toBe(0);
+    expect(await read(home, ".codex/AGENTS.override.md")).toContain("Be concise.");
+    expect(await read(home, ".claude/CLAUDE.md")).toContain("\r\n<!-- apkit:global:begin -->\r\n");
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await homeSnapshot(home)).toEqual(before);
+  });
+
+  for (const order of [["setup", "global"], ["global", "setup"]]) {
+    test(`setup and a global install share a file, and removal (${order.join(" first, then ")}) restores it`, async () => {
+      const home = await tempDir("home");
+      const ws = await makeWorkspace();
+      cli(home, home, "workspace", ws);
+      await writeTree(home, { ".codex/config.toml": "" });
+      const before = await homeSnapshot(home);
+      const install = { setup: ["setup", "--yes"], global: ["install", "engineering", "--global", "--agents", "codex", "--yes"] };
+      const remove = { setup: ["setup", "--remove"], global: ["remove", "--global"] };
+      for (const step of order) expect(cli(home, home, ...install[step as "setup"]).code).toBe(0);
+      const both = await read(home, ".codex/AGENTS.md");
+      expect(both).toContain(`run \`${COMMAND} guide\``);
+      expect(both).toContain("Be concise.");
+      for (const step of order) expect(cli(home, home, ...remove[step as "setup"]).code).toBe(0);
+      expect(await homeSnapshot(home)).toEqual(before);
+    });
+  }
+
+  test("a project install in the home folder and a global install live side by side", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const project = ["install", "engineering", home, "--agents", "claude,codex", "--yes"];
+    const global = ["install", "engineering", "--global", "--agents", "claude,codex", "--yes"];
+    expect(cli(home, home, ...project).code).toBe(0);
+    const projectOnly = await homeSnapshot(home);
+    expect(cli(home, home, ...global).code).toBe(0);
+    expect(cli(home, home, "status", "--all").out.match(/is up to date/g)?.length).toBe(2);
+
+    // Removing the global install leaves the project install exactly as it was.
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await homeSnapshot(home)).toEqual(projectOnly);
+    expect(cli(home, home, "status").out).toContain("is up to date");
+
+    // Removing the project install leaves the global install intact.
+    expect(cli(home, home, ...global).code).toBe(0);
+    expect(cli(home, home, "remove", home).code).toBe(0);
+    expect(await read(home, ".claude/skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(await read(home, ".agents/skills/summarize/SKILL.md")).toContain("name: summarize");
+    const status = JSON.parse(cli(home, home, "status", "--all", "--json").out);
+    expect(status.map((o: { result: string }) => o.result)).toEqual(["unchanged"]);
   });
 
   test("a manifest from a newer apkit is left as it is and names the update", async () => {
@@ -425,6 +567,40 @@ describe("apkit-next CLI", () => {
     expect(update.out).toContain("written by a newer apkit");
     expect(await read(current, "AGENTS.md")).toContain("Be warm.");
     expect(await snapshot(newer)).toEqual(before);
+  });
+
+  test("a global manifest from a newer apkit is left as it is and names the update", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    cli(home, home, "workspace", ws);
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "codex", "--yes").code).toBe(0);
+    expect(cli(home, project, "install", "engineering", "--agents", "codex", "--yes").code).toBe(0);
+    const manifest = JSON.parse(await read(home, "global.json"));
+    await writeTree(home, { "global.json": JSON.stringify({ ...manifest, schema: 2, future: true }) });
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    const before = await homeSnapshot(home);
+    const global = await read(home, "global.json");
+
+    for (const args of [
+      ["install", "engineering", "--global", "--agents", "claude", "--yes", "--overwrite"],
+      ["remove", "--global", "--yes", "--overwrite"],
+      ["install", "engineering", home, "--agents", "codex", "--yes"],
+    ]) {
+      const result = cli(home, home, ...args);
+      expect(result.code).toBe(1);
+      expect(`${result.out}${result.err}`).toContain("global.json was written by a newer apkit");
+      expect(await homeSnapshot(home)).toEqual(before);
+      expect(await read(home, "global.json")).toBe(global);
+    }
+
+    // --all reports the global install and still updates the project.
+    const update = cli(home, project, "update", "--all");
+    expect(update.code).toBe(1);
+    expect(update.out).toContain("User level: ");
+    expect(update.out).toContain("written by a newer apkit");
+    expect(await read(project, "AGENTS.md")).toContain("Be warm.");
+    expect(await homeSnapshot(home)).toEqual(before);
   });
 
   test("machine configuration from a newer apkit stops every command before it writes", async () => {
