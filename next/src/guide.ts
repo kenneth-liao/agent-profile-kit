@@ -59,7 +59,8 @@ added later; Context has no \`all\`, because it is joined in list order.
 A Context file may have any .md name, so a copied CLAUDE.md is valid as it
 is; two Context IDs must not differ only in case. Skill and Profile names are
 lowercase kebab-case. Edit these files directly, then run
-\`${COMMAND} check\` and fix anything it reports.
+\`${COMMAND} check\`. Fix every problem it reports: problems block installs.
+Warnings name files apkit skips; they never block an install.
 
 - Context is always-on guidance for every session in a project, such as a
   communication style. Keep it short: agents load all of it, every session.
