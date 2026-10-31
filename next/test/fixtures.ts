@@ -26,7 +26,7 @@ export const SKILL = (name: string, extra = "") =>
 export async function makeWorkspace(): Promise<string> {
   const root = await tempDir("ws");
   await writeTree(root, {
-    "workspace.yaml": "schema_version: 1\n",
+    "apkit-workspace.yaml": "schema_version: 1\n",
     "context/communication.md": "# Communication\n\nBe concise.\n",
     "context/writing/voice.md": "# Voice\n\nWarm and plain. Ünïcödé ok.\n",
     "skills/summarize/SKILL.md": SKILL("summarize"),
