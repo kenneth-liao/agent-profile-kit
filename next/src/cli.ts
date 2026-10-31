@@ -88,11 +88,37 @@ async function workspaceFor(args: Args): Promise<Workspace> {
   return loadWorkspace(root);
 }
 
+const BLOCKED = `Installs and updates wait until \`${COMMAND} check\` reports no problems.`;
+
 function requireValid(workspace: Workspace): void {
   if (workspace.violations.length > 0) {
     const lines = workspace.violations.map((v) => `  - ${v.message}`);
-    throw new Error([`The Workspace at ${display(workspace.root)} has problems:`, ...lines, CONTRACT_POINTER, ...warningLines(workspace)].join("\n"));
+    throw new Error([`The Workspace at ${display(workspace.root)} has problems:`, ...lines, BLOCKED, CONTRACT_POINTER, ...warningLines(workspace)].join("\n"));
   }
+}
+
+interface MissingProfile {
+  readonly folder: string;
+  readonly global?: true;
+  readonly profile: string;
+}
+
+/** Each install (registered folders, then the global install) whose Profile the Workspace lacks. Reads only. */
+async function missingProfiles(workspace: Workspace, installs: readonly string[]): Promise<MissingProfile[]> {
+  const missing: MissingProfile[] = [];
+  for (const target of [...installs.map((folder): Target => ({ folder })), await globalTarget()]) {
+    let previous: Manifest | null;
+    try {
+      previous = await previousAt(target);
+    } catch (error) {
+      // status reports a manifest from a newer apkit.
+      if (error instanceof NewerSchemaError) continue;
+      throw error;
+    }
+    if (previous === null || workspace.profiles.has(previous.profile)) continue;
+    missing.push({ folder: target.folder, ...(target.global ? { global: target.global } : {}), profile: previous.profile });
+  }
+  return missing;
 }
 
 /** Warnings never block; they are shown so that no skipped file goes unnoticed (ADR-0057 §4). */
@@ -416,7 +442,29 @@ async function run(argv: readonly string[]): Promise<number> {
       const config = await readConfig();
       await writeConfig({ ...config, workspace: workspace.root });
       const next = setupHint(config);
-      print(`Selected the Workspace at ${display(workspace.root)}.${next ? `\n${next}` : ""}`, { workspace: workspace.root, next });
+      // A Workspace with errors is selected anyway; its report shows what to fix (ISC-48).
+      const problems =
+        workspace.violations.length === 0
+          ? []
+          : ["It has problems:", ...workspace.violations.map((v) => `  - ${v.message}`), BLOCKED, CONTRACT_POINTER];
+      const missing = await missingProfiles(workspace, config.installs);
+      const lacks =
+        missing.length === 0
+          ? []
+          : [
+              "These installs use a Profile this Workspace lacks:",
+              ...missing.map((m) => `  - ${m.global ? "User level" : display(m.folder)}: '${m.profile}'`),
+            ];
+      const lines = [`Selected the Workspace at ${display(workspace.root)}.`, ...problems, ...warningLines(workspace), ...lacks, ...(next ? [next] : [])];
+      print(lines.join("\n"), {
+        workspace: workspace.root,
+        valid: workspace.violations.length === 0,
+        violations: workspace.violations,
+        warnings: workspace.warnings,
+        missing,
+        next,
+        ...(workspace.violations.length > 0 ? { contract: `${COMMAND} contract` } : {}),
+      });
       return EXIT.ok;
     }
 

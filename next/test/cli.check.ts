@@ -342,6 +342,89 @@ describe("apkit-next CLI", () => {
     expect(blocked.err).toContain("skills/README.md");
   });
 
+  test("a Workspace with errors can be selected and shows every error; installs and updates wait until it is fixed", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const one = await tempDir("one");
+    const two = await tempDir("two");
+    cli(home, one, "workspace", ws);
+    expect(cli(home, one, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, two, "install", "writing", "--agents", "codex", "--yes").code).toBe(0);
+
+    // Several error kinds at once, and one warning.
+    await writeTree(ws, {
+      "profiles/engineering.yaml": "context:\n  - communication\nskills:\n  - summarize\n  - gone\n",
+      "profiles/broken.yaml": "skills: [\n",
+      "profiles/Bad_Name.yaml": "skills: []\n",
+      "skills/group/review/SKILL.md": "no frontmatter\n",
+      "skills/README.md": "x",
+    });
+    const check = JSON.parse(cli(home, one, "check", "--json").out);
+    expect(check.violations.length).toBeGreaterThanOrEqual(4);
+
+    const select = cli(home, one, "workspace", ws);
+    expect(select.code).toBe(0);
+    for (const v of check.violations) expect(select.out).toContain(v.message);
+    expect(select.out).toContain("skills/README.md");
+    expect(select.out).toContain(`${COMMAND} check`);
+    const json = JSON.parse(cli(home, one, "workspace", ws, "--json").out);
+    expect(json.valid).toBe(false);
+    expect(json.violations).toEqual(check.violations);
+    expect(json.warnings).toEqual(check.warnings);
+
+    // Neither install nor update writes anything while the errors remain.
+    const before = [await snapshot(one), await snapshot(two), await snapshot(home)];
+    const install = cli(home, one, "install", "writing", "--agents", "claude", "--yes");
+    expect(install.code).toBe(1);
+    expect(install.err).toContain("'gone'");
+    const update = cli(home, one, "update", "--all", "--yes");
+    expect(update.code).toBe(1);
+    expect(update.err).toContain("'gone'");
+    expect(update.err).toContain(`${COMMAND} check`);
+    expect([await snapshot(one), await snapshot(two), await snapshot(home)]).toEqual(before);
+
+    // Once the errors are fixed, the warning alone blocks nothing.
+    await writeTree(ws, {
+      "profiles/engineering.yaml": "context:\n  - communication\nskills:\n  - summarize\n",
+      "profiles/broken.yaml": "skills: []\n",
+      "skills/group/review/SKILL.md": SKILL("review"),
+    });
+    await rm(join(ws, "profiles", "Bad_Name.yaml"));
+    expect(cli(home, one, "update", "--all").code).toBe(0);
+    expect(cli(home, one, "install", "writing", "--agents", "claude", "--yes").code).toBe(0);
+  });
+
+  test("selecting a Workspace that lacks an installed Profile names each affected folder", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const one = await tempDir("one");
+    const two = await tempDir("two");
+    const three = await tempDir("three");
+    cli(home, one, "workspace", ws);
+    for (const folder of [one, two]) expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, three, "install", "writing", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude", "--yes").code).toBe(0);
+
+    const other = await tempDir("ws");
+    await writeTree(other, { "apkit-workspace.yaml": "", "context/voice.md": "Plain.\n", "profiles/writing.yaml": "context: [voice]\n" });
+    const before = [await snapshot(other), await snapshot(one), await snapshot(two), await snapshot(three)];
+    const select = cli(home, home, "workspace", other);
+    expect(select.code).toBe(0);
+    expect(select.out).toContain(`${one}: 'engineering'`);
+    expect(select.out).toContain(`${two}: 'engineering'`);
+    expect(select.out).toContain("User level: 'skills-only'");
+    expect(select.out).not.toContain(three);
+    const json = JSON.parse(cli(home, home, "workspace", other, "--json").out);
+    expect(json.missing).toEqual([
+      ...[one, two].sort().map((folder) => ({ folder, profile: "engineering" })),
+      { folder: home, global: true, profile: "skills-only" },
+    ]);
+    expect([await snapshot(other), await snapshot(one), await snapshot(two), await snapshot(three)]).toEqual(before);
+
+    // The first Workspace has every Profile again: nothing to report.
+    expect(cli(home, home, "workspace", ws).out).not.toContain("lacks");
+  });
+
   test("setup tells detected agents about apkit, after consent, and --remove undoes it", async () => {
     const home = await tempDir("home");
     expect(cli(home, home, "setup").code).toBe(1);
@@ -819,6 +902,9 @@ describe("apkit-next CLI", () => {
     expect(check.code).toBe(1);
     expect(check.out).toContain(pointer);
     expect(JSON.parse(cli(home, folder, "check", "--workspace", ws, "--json").out).contract).toBe(`${COMMAND} contract`);
+    const selected = cli(home, folder, "workspace", ws);
+    expect(selected.out).toContain(pointer);
+    expect(JSON.parse(cli(home, folder, "workspace", ws, "--json").out).contract).toBe(`${COMMAND} contract`);
     const install = cli(home, folder, "install", "p", "--workspace", ws, "--agents", "codex");
     expect(install.code).toBe(1);
     expect(install.err).toContain(pointer);
