@@ -1,10 +1,17 @@
 // The usage guide is built into the command, so an agent learns apkit by
 // running `apkit-next guide`; nothing has to be installed first, and the guide
 // always matches the installed version.
+import CONTRACT from "../docs/workspace-contract.md" with { type: "text" };
 import { COMMAND } from "./command.js";
 import { AGENTS } from "./render.js";
 
 export { COMMAND };
+
+/** The Workspace contract, bundled as written: the one home for the format's rules. */
+export { CONTRACT };
+
+/** Where failed validation sends the reader. */
+export const CONTRACT_POINTER = `Read the Workspace contract: \`${COMMAND} contract\``;
 
 export const HELP = `${COMMAND} — install Workspace Profiles into folders for your agents
 
@@ -12,6 +19,7 @@ Agents: run \`${COMMAND} guide\` first. It explains everything below.
 
 Usage:
   ${COMMAND} guide                            The complete guide for agents and people
+  ${COMMAND} contract                         The Workspace contract: every format rule
   ${COMMAND} init <path>                      Create (or complete) a Workspace and select it
   ${COMMAND} workspace [<path>]               Show or select the Workspace
   ${COMMAND} setup [--agents <a,b>] [--remove]
@@ -50,17 +58,15 @@ Never copy or edit installed files by hand.
 ## Workspace format
 
     apkit-workspace.yaml    marks the Workspace; may be empty
-    context/<id>.md         a Context Module; folders allowed (id: writing/voice)
+    context/<id>.md         a Context Module; any .md name (id: writing/voice)
     skills/<dir>/SKILL.md   an Agent Skills package; its \`name\` is its id
-    profiles/<id>.yaml      context: [ids] and skills: [names] or all; .yml is fine
+    profiles/<id>.yaml      context: [ids] and skills: [names] or all
 
-A missing list is empty. \`skills: all\` selects every Skill, including ones
-added later; Context has no \`all\`, because it is joined in list order.
-A Context file may have any .md name, so a copied CLAUDE.md is valid as it
-is; two Context IDs must not differ only in case. Skill and Profile names are
-lowercase kebab-case. Edit these files directly, then run
-\`${COMMAND} check\`. Fix every problem it reports: problems block installs.
-Warnings name files apkit skips; they never block an install.
+The Workspace contract states every rule, with examples. Read it with
+\`${COMMAND} contract\` before you author or repair a Workspace. Edit these
+files directly, then run \`${COMMAND} check\`. Fix every error it reports:
+errors block installs. Warnings name files apkit skips; they never block an
+install.
 
 - Context is always-on guidance for every session in a project, such as a
   communication style. Keep it short: agents load all of it, every session.
@@ -71,6 +77,7 @@ Warnings name files apkit skips; they never block an install.
 
 All commands are non-interactive. Add --json when you need to parse results.
 
+- Read the Workspace contract:       \`${COMMAND} contract\`
 - Create a Workspace:                \`${COMMAND} init <path>\`
 - Select an existing Workspace:      \`${COMMAND} workspace <path>\`
 - Tell the user's agents about apkit: \`${COMMAND} setup\`

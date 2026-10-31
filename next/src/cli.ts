@@ -6,7 +6,7 @@ import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
-import { COMMAND, GUIDE, HELP } from "./guide.js";
+import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP } from "./guide.js";
 import {
   execute,
   plan,
@@ -91,7 +91,7 @@ async function workspaceFor(args: Args): Promise<Workspace> {
 function requireValid(workspace: Workspace): void {
   if (workspace.violations.length > 0) {
     const lines = workspace.violations.map((v) => `  - ${v.message}`);
-    throw new Error([`The Workspace at ${display(workspace.root)} has problems:`, ...lines, ...warningLines(workspace)].join("\n"));
+    throw new Error([`The Workspace at ${display(workspace.root)} has problems:`, ...lines, CONTRACT_POINTER, ...warningLines(workspace)].join("\n"));
   }
 }
 
@@ -367,7 +367,7 @@ async function run(argv: readonly string[]): Promise<number> {
   const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };
   const command = args.positional[0];
   // A configuration from a newer apkit stops every command before anything is written.
-  if (command !== undefined && command !== "help" && command !== "guide") await readConfig();
+  if (command !== undefined && command !== "help" && command !== "guide" && command !== "contract") await readConfig();
   const print = (text: string, data: unknown) => console.log(json ? JSON.stringify(data, null, 2) : text);
 
   switch (command) {
@@ -378,6 +378,11 @@ async function run(argv: readonly string[]): Promise<number> {
 
     case "guide":
       console.log(GUIDE);
+      return EXIT.ok;
+
+    case "contract":
+      // Byte for byte as the canonical file, so no newline is added.
+      process.stdout.write(CONTRACT);
       return EXIT.ok;
 
     case "init": {
@@ -425,10 +430,15 @@ async function run(argv: readonly string[]): Promise<number> {
         profiles: [...workspace.profiles.values()],
         skills: [...workspace.skills.keys()],
         context: [...workspace.context.keys()],
+        ...(workspace.violations.length > 0 ? { contract: `${COMMAND} contract` } : {}),
       };
       const lines =
         workspace.violations.length > 0
-          ? [`The Workspace at ${display(workspace.root)} has problems:`, ...workspace.violations.map((v) => `  - ${v.message}`)]
+          ? [
+              `The Workspace at ${display(workspace.root)} has problems:`,
+              ...workspace.violations.map((v) => `  - ${v.message}`),
+              CONTRACT_POINTER,
+            ]
           : [
               `The Workspace at ${display(workspace.root)} is valid.`,
               ...[...workspace.profiles.values()].map(
