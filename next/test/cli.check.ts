@@ -4,7 +4,7 @@ import { mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
-import { makeWorkspace, read, SKILL, tempDir, writeTree } from "./fixtures.js";
+import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 /** Set APKIT_NEXT_CLI to a built bundle (relative to next/, e.g. `dist/cli.js`) to run the journey on Node. */
@@ -388,6 +388,75 @@ describe("apkit-next CLI", () => {
     expect(cli(home, home, "remove", "--global").code).toBe(0);
     const left = await readdir(home);
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
+  });
+
+  test("a manifest from a newer apkit is left as it is and names the update", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const newer = await tempDir("newer");
+    const current = await tempDir("current");
+    cli(home, newer, "workspace", ws);
+    expect(cli(home, newer, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, current, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    const manifest = JSON.parse(await read(newer, ".agents/apkit.json"));
+    await writeTree(newer, { ".agents/apkit.json": JSON.stringify({ ...manifest, schema: 2, future: true }) });
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    const before = await snapshot(newer);
+    const config = await read(home, "config.json");
+
+    for (const args of [
+      ["install", "engineering", "--agents", "codex", "--yes", "--overwrite"],
+      ["update", "--yes", "--overwrite"],
+      ["remove", "--yes", "--overwrite"],
+      ["status"],
+    ]) {
+      const result = cli(home, newer, ...args);
+      expect(`${result.out}${result.err}`).toContain("written by a newer apkit");
+      expect(`${result.out}${result.err}`).toContain("Update apkit");
+      expect(await snapshot(newer)).toEqual(before);
+      expect(await read(home, "config.json")).toBe(config);
+    }
+
+    // --all reports the newer folder and still processes the others.
+    const status = JSON.parse(cli(home, current, "status", "--all", "--json").out);
+    expect(status.map((o: { result: string }) => o.result).sort()).toEqual(["error", "updated"]);
+    const update = cli(home, current, "update", "--all");
+    expect(update.code).toBe(1);
+    expect(update.out).toContain("written by a newer apkit");
+    expect(await read(current, "AGENTS.md")).toContain("Be warm.");
+    expect(await snapshot(newer)).toEqual(before);
+  });
+
+  test("machine configuration from a newer apkit stops every command before it writes", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    // A configuration from before the schema field still works, and is written with one.
+    await writeTree(home, { "config.json": JSON.stringify({ workspace: ws, installs: [] }) });
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    const written = JSON.parse(await read(home, "config.json"));
+    expect(written.schema).toBe(1);
+
+    const config = JSON.stringify({ ...written, schema: 2, future: true });
+    await writeTree(home, { "config.json": config });
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    const other = await tempDir("other");
+    const before = await snapshot(folder);
+    for (const [cwd, args] of [
+      [other, ["install", "engineering", "--agents", "claude", "--yes"]],
+      [folder, ["update", "--yes"]],
+      [folder, ["remove", "--yes"]],
+      [folder, ["status"]],
+      [folder, ["workspace", ws]],
+    ] as const) {
+      const result = cli(home, cwd, ...args);
+      expect(result.code).toBe(1);
+      expect(result.err).toContain("written by a newer apkit");
+      expect(result.err).toContain("Update apkit");
+      expect(await read(home, "config.json")).toBe(config);
+      expect(await snapshot(folder)).toEqual(before);
+      expect(await readdir(other)).toEqual([]);
+    }
   });
 
   test("an install names each selected agent that needs the folder trusted, and what waits for it", async () => {

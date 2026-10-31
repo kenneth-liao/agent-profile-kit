@@ -11,6 +11,7 @@ import { execute, plan, readManifest, unresolved, type Decisions, type Instructi
 import { removeGitExclude, syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
+import { NewerSchemaError } from "./schema.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
@@ -139,7 +140,13 @@ async function statusOf(workspace: Workspace, folder: string): Promise<Outcome> 
   } catch {
     return { folder, result: "missing", message: "The folder no longer exists." };
   }
-  const previous = await readManifest(folder);
+  let previous: Manifest | null;
+  try {
+    previous = await readManifest(folder);
+  } catch (error) {
+    if (error instanceof NewerSchemaError) return { folder, result: "error", message: error.message };
+    throw error;
+  }
   if (previous === null) return { folder, result: "not-installed" };
   const base = { folder, profile: previous.profile, agents: previous.agents };
   if (!workspace.profiles.has(previous.profile)) {
@@ -236,6 +243,8 @@ async function main(argv: readonly string[]): Promise<number> {
   const json = args.flags.has("--json");
   const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };
   const command = args.positional[0];
+  // A configuration from a newer apkit stops every command before anything is written.
+  if (command !== undefined && command !== "help" && command !== "guide") await readConfig();
   const print = (text: string, data: unknown) => console.log(json ? JSON.stringify(data, null, 2) : text);
 
   switch (command) {
