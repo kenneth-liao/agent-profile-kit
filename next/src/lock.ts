@@ -46,14 +46,19 @@ export async function tryTake(path: string, owner: Owner): Promise<boolean> {
   }
 }
 
+/** The reclaim mark for one owner's lock. Exported for tests. */
+export function reclaimMark(path: string, token: string): string {
+  // The token comes from a file on disk: hash it, so it is always a plain file name.
+  return `${path}.${createHash("sha256").update(token).digest("hex").slice(0, 16)}.reclaim`;
+}
+
 /**
  * Removes a lock whose owner stopped. Only the run that creates the stopped
  * owner's reclaim mark may delete a lock with that owner's token, and it checks
  * the token first: a live owner's lock is never moved or deleted. Exported for tests.
  */
 export async function takeOver(path: string, stale: Owner, mine: string): Promise<void> {
-  // The token comes from a file on disk: hash it, so it is always a plain file name.
-  const mark = `${path}.${createHash("sha256").update(stale.token).digest("hex").slice(0, 16)}.reclaim`;
+  const mark = reclaimMark(path, stale.token);
   if (!(await tryTake(mark, { pid: process.pid, token: mine }))) return;
   try {
     if ((await readOwner(path))?.token === stale.token) await unlink(path).catch(() => undefined);
@@ -62,20 +67,21 @@ export async function takeOver(path: string, stale: Owner, mine: string): Promis
   }
 }
 
-export async function withLock<T>(home: string, body: () => Promise<T>): Promise<T> {
+export async function withLock<T>(home: string, body: () => Promise<T>, waitMs = WAIT_MS): Promise<T> {
   await mkdir(home, { recursive: true });
   const path = join(home, "lock");
   const owner: Owner = { pid: process.pid, token: randomUUID() };
-  const deadline = Date.now() + WAIT_MS;
+  const deadline = Date.now() + waitMs;
+  // Every pass that does not get the lock checks the deadline and backs off, even after
+  // a takeover: a reclaim mark left by a stopped run makes takeovers return at once.
   while (!(await tryTake(path, owner))) {
     const holder = await readOwner(path);
-    if (holder !== null && !isRunning(holder.pid)) {
-      await takeOver(path, holder, owner.token);
-      continue;
-    }
+    if (holder !== null && !isRunning(holder.pid)) await takeOver(path, holder, owner.token);
     if (Date.now() >= deadline) {
       const who = holder === null ? "" : ` (pid ${holder.pid})`;
-      throw new Error(`Another apkit-next run${who} is changing files. Try again when it ends. If no run is active, delete ${path}.`);
+      const mark = holder === null ? null : reclaimMark(path, holder.token);
+      const stranded = mark !== null && (await readOwner(mark)) !== null ? ` and ${mark}` : "";
+      throw new Error(`Another apkit-next run${who} is changing files. Try again when it ends. If no run is active, delete ${path}${stranded}.`);
     }
     await new Promise((done) => setTimeout(done, 25 + Math.random() * 75));
   }

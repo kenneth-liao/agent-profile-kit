@@ -340,4 +340,36 @@ describe("lock", () => {
     expect(JSON.parse(await readFile(path, "utf8")).token).toBe("A");
     expect((await readdir(home)).sort()).toEqual(["lock"]);
   });
+
+  test("a reclaim mark held by a live run is left alone, and so is the stopped owner's lock", async () => {
+    const { reclaimMark, takeOver } = await import("../src/lock.js");
+    const home = await tempDir("lock");
+    const path = join(home, "lock");
+    const stopped = { pid: 2 ** 30, token: "stopped" };
+    await writeFile(path, JSON.stringify(stopped));
+    await writeFile(reclaimMark(path, stopped.token), JSON.stringify({ pid: process.pid, token: "live" }));
+    await takeOver(path, stopped, "B");
+    expect(JSON.parse(await readFile(path, "utf8")).token).toBe("stopped");
+    expect(JSON.parse(await readFile(reclaimMark(path, stopped.token), "utf8")).token).toBe("live");
+  });
+
+  test("a run that stopped while it held the reclaim mark ends later runs in the bounded failure, not a loop", async () => {
+    const { reclaimMark, withLock } = await import("../src/lock.js");
+    const home = await tempDir("lock");
+    const path = join(home, "lock");
+    const stopped = { pid: 2 ** 30, token: "stopped" };
+    const mark = reclaimMark(path, stopped.token);
+    await writeFile(path, JSON.stringify(stopped));
+    await writeFile(mark, JSON.stringify({ pid: 2 ** 30 + 1, token: "reclaimer" }));
+    let ran = false;
+    const error = await withLock(home, async () => {
+      ran = true;
+    }, 300).then(
+      () => null,
+      (reason: unknown) => reason as Error,
+    );
+    expect(ran).toBe(false);
+    expect(error?.message).toContain(`delete ${path}`);
+    expect(error?.message).toContain(mark);
+  }, 5_000);
 });
