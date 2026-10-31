@@ -200,7 +200,32 @@ function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> 
   return Object.keys(config.notes ?? {}).length > 0 ? null : `Next: run \`${COMMAND} setup\` so your agents know about apkit.`;
 }
 
-const TRUST_NOTE = "Some agents load project instructions only in folders you trust. If an agent asks, trust this folder.";
+interface TrustNeed {
+  readonly agent: AgentId;
+  readonly untilTrusted: "skills" | "everything";
+}
+
+/** The selected agents that hold back part of a project install until the folder is trusted. */
+function trustNeeds(desired: Desired): TrustNeed[] {
+  if (desired.scope === "user") return [];
+  const held = { skills: desired.files.size > 0, everything: desired.files.size > 0 || desired.context !== null };
+  return desired.agents.flatMap((agent) => {
+    const untilTrusted = AGENTS[agent].untilTrusted;
+    return untilTrusted !== null && held[untilTrusted] ? [{ agent, untilTrusted }] : [];
+  });
+}
+
+function trustLines(needs: readonly TrustNeed[]): string[] {
+  const names = (kind: TrustNeed["untilTrusted"]) => needs.filter((n) => n.untilTrusted === kind).map((n) => AGENTS[n.agent].name);
+  const list = (items: readonly string[]) =>
+    items.length === 1 ? items[0] : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  const skills = names("skills");
+  const everything = names("everything");
+  return [
+    skills.length === 0 ? null : `${list(skills)} ${skills.length === 1 ? "loads" : "load"} this folder's Skills only after you trust the folder.`,
+    everything.length === 0 ? null : `${list(everything)} ${everything.length === 1 ? "loads" : "load"} nothing from this folder until you trust it.`,
+  ].filter((line) => line !== null);
+}
 
 async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
@@ -288,8 +313,8 @@ async function main(argv: readonly string[]): Promise<number> {
       const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(folder, desired, previous, decisions);
-      const note = outcome.result !== "needs-decision" && desired.context !== null ? `\n${TRUST_NOTE}` : "";
-      print(describe(outcome, "apply") + note, outcome);
+      const trust = outcome.result === "needs-decision" ? [] : trustNeeds(desired);
+      print([describe(outcome, "apply"), ...trustLines(trust)].join("\n"), { ...outcome, trust });
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 
