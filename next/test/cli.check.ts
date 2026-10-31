@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
-import { makeWorkspace, read, tempDir, writeTree } from "./fixtures.js";
+import { makeWorkspace, read, SKILL, tempDir, writeTree } from "./fixtures.js";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 /** Set APKIT_NEXT_CLI to a built bundle (relative to next/, e.g. `dist/cli.js`) to run the journey on Node. */
@@ -72,6 +72,50 @@ describe("apkit-next CLI", () => {
     expect(cli(home, one, "status", "--all").out).toContain("Nothing is installed yet.");
   });
 
+  test("a symlink that leads outside the Project needs a decision before any write there", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    const outside = await tempDir("dotfiles");
+    // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
+    await symlink(outside, join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+
+    const blocked = cli(home, project, "install", "skills-only", "--agents", "claude");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(blocked.out).toContain("--yes");
+    expect(await readdir(project)).toEqual([".claude"]);
+    expect(await readdir(outside)).toEqual([]);
+    expect(cli(home, project, "status", "--all").out).toContain("Nothing is installed yet.");
+
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude", "--yes").code).toBe(0);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    const manifest = JSON.parse(await read(project, ".agents/apkit.json"));
+    expect(Object.keys(manifest.files)).toContain(".claude/skills/summarize/SKILL.md");
+    expect(cli(home, project, "update").code).toBe(0);
+
+    const remove = cli(home, project, "remove");
+    expect(remove.code).toBe(3);
+    expect(remove.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove", "--yes").code).toBe(0);
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(project)).toEqual([".claude"]);
+  });
+
+  test("a symlink that stays inside the Project needs no decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    await mkdir(join(project, "shared"));
+    await symlink(join(project, "shared"), join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(await read(project, "shared/skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove").code).toBe(0);
+  });
+
   test("init creates only the missing Workspace parts and selects it", async () => {
     const home = await tempDir("home");
     const root = await tempDir("new-ws");
@@ -110,6 +154,45 @@ describe("apkit-next CLI", () => {
     expect(refused.code).toBe(1);
     expect(refused.err).toContain(`${COMMAND} init`);
     expect(cli(home, home, "workspace").out.trim()).toBe("No Workspace selected.");
+  });
+
+  test("lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    await writeTree(ws, {
+      "profiles/only-skills.yaml": "skills:\n  - summarize\n",
+      "profiles/light.yml": "context:\n  - communication\n",
+      "profiles/everything.yaml": "skills: all\n",
+    });
+    const folder = await tempDir("f");
+    expect(cli(home, folder, "workspace", ws).code).toBe(0);
+    const check = cli(home, folder, "check", "--json");
+    expect(check.code).toBe(0);
+    const ids = JSON.parse(check.out).profiles.map((p: { id: string }) => p.id);
+    expect(ids).toContain("only-skills");
+    expect(ids).toContain("light");
+
+    const one = await tempDir("one");
+    expect(cli(home, one, "install", "only-skills", "--agents", "claude", "--yes").code).toBe(0);
+    expect(await read(one, ".claude/skills/summarize/SKILL.md")).toContain("name: summarize");
+    const two = await tempDir("two");
+    expect(cli(home, two, "install", "light", "--agents", "codex", "--yes").code).toBe(0);
+    expect(await read(two, "AGENTS.md")).toContain("Be concise.");
+
+    // skills: all picks up a Skill added later, with no Profile edit.
+    const all = await tempDir("all");
+    expect(cli(home, all, "install", "everything", "--agents", "claude", "--yes").code).toBe(0);
+    expect((await readdir(join(all, ".claude", "skills"))).sort()).toEqual(["review", "summarize"]);
+    await writeTree(ws, { "skills/later/SKILL.md": SKILL("later") });
+    expect(cli(home, all, "update").code).toBe(0);
+    expect((await readdir(join(all, ".claude", "skills"))).sort()).toEqual(["later", "review", "summarize"]);
+    expect(await read(ws, "profiles/everything.yaml")).toBe("skills: all\n");
+
+    // Context is joined in list order, so it has no `all`.
+    await writeTree(ws, { "profiles/bad.yaml": "context: all\n" });
+    const bad = cli(home, folder, "check");
+    expect(bad.code).toBe(1);
+    expect(bad.out).toContain("Context must be listed");
   });
 
   test("setup tells detected agents about apkit, after consent, and --remove undoes it", async () => {

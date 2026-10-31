@@ -213,6 +213,21 @@ describe("AGENTS.md and CLAUDE.md", () => {
     expect(await read(target, "AGENTS.md")).not.toContain("@AGENTS.md");
   });
 
+  test("an AGENTS.md symlinked to a file outside the folder needs a decision", async () => {
+    if (process.platform === "win32") return;
+    const { wsRoot, target } = await setup();
+    const outside = await tempDir("dotfiles");
+    await writeTree(outside, { "AGENTS.md": original });
+    await symlink(join(outside, "AGENTS.md"), join(target, "AGENTS.md"));
+    const blocked = await run(wsRoot, target, "engineering", ["codex"]);
+    expect(kinds(blocked)).toEqual(["consent:AGENTS.md", "outside:AGENTS.md"]);
+    expect(blocked.open.find((i) => i.kind === "outside")?.message).toContain(`AGENTS.md is a symlink to ${join(outside, "AGENTS.md")}`);
+    expect(blocked.planned.instructions).toEqual([{ path: "AGENTS.md", action: "change", tracked: false }]);
+    expect(await read(outside, "AGENTS.md")).toBe(original);
+    await run(wsRoot, target, "engineering", ["codex"], { yes: true });
+    expect(await read(outside, "AGENTS.md")).toContain("apkit:begin");
+  });
+
   test("CRLF files stay CRLF, and a Git line-ending conversion is not mistaken for an edit", async () => {
     const { wsRoot, target } = await setup({ "AGENTS.md": "# Rules\r\n\r\nUse tabs.\r\n" });
     await run(wsRoot, target, "engineering", ["codex"], { yes: true });

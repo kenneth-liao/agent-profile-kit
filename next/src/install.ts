@@ -2,8 +2,8 @@
 // wrote and nobody changed since; anything else needs an explicit decision.
 // The manifest in each target folder records what apkit wrote, by content hash.
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readdir, readFile, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { chmod, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
 import { isAgentId, type AgentId, type Desired } from "./render.js";
@@ -30,7 +30,9 @@ export type IssueKind =
   /** A file apkit wrote was changed since. Replaced only with `--overwrite`. */
   | "changed"
   /** A file apkit did not write is in the way. Replaced only with `--overwrite`. */
-  | "unowned";
+  | "unowned"
+  /** A symlink would take writes or deletions outside the target. Allowed by `--yes`. */
+  | "outside";
 
 export interface Issue {
   readonly kind: IssueKind;
@@ -61,7 +63,7 @@ export interface Plan {
 }
 
 export interface Decisions {
-  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md. */
+  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, and writes through a symlink outside the target. */
   readonly yes?: boolean;
   /** Replace or delete files that were changed or not written by apkit. */
   readonly overwrite?: boolean;
@@ -100,6 +102,30 @@ async function resolveFile(path: string): Promise<string> {
   } catch {
     return path;
   }
+}
+
+function isInside(target: string, path: string): boolean {
+  const rel = relative(target, path);
+  return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+}
+
+/** The first symlink on the way to `path` that leads outside the target, and where it leads. */
+async function outsideLink(target: string, path: string): Promise<{ link: string; leadsTo: string } | null> {
+  const parts = path.split("/");
+  for (let i = 1; i <= parts.length; i++) {
+    const current = abs(target, parts.slice(0, i).join("/"));
+    let info;
+    try {
+      info = await lstat(current);
+    } catch {
+      return null;
+    }
+    if (!info.isSymbolicLink()) continue;
+    // A dangling link has no real path; read where it points instead.
+    const leadsTo = await realpath(current).catch(async () => resolve(dirname(current), await readlink(current)));
+    if (!isInside(target, leadsTo)) return { link: parts.slice(0, i).join("/"), leadsTo };
+  }
+  return null;
 }
 
 export async function readManifest(target: string): Promise<Manifest | null> {
@@ -207,6 +233,26 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  // A symlink can lead a write or deletion out of the target: the user decides.
+  if ((desired?.scope ?? previous?.scope) === undefined) {
+    const touched = ops.map((op) => op.path);
+    if (ops.length > 0 || desired === null) touched.push(MANIFEST_PATH);
+    const links = new Map<string, { leadsTo: string; count: number }>();
+    for (const path of touched) {
+      const found = await outsideLink(target, path);
+      if (found === null) continue;
+      const seen = links.get(found.link) ?? { leadsTo: found.leadsTo, count: 0 };
+      links.set(found.link, { ...seen, count: seen.count + 1 });
+    }
+    for (const [link, { leadsTo, count }] of links) {
+      issues.push({
+        kind: "outside",
+        path: link,
+        message: `${link} is a symlink to ${leadsTo}, outside this folder. apkit would change ${count} ${count === 1 ? "file" : "files"} there.`,
+      });
+    }
+  }
+
   const instructions: InstructionChange[] = [];
   for (const op of ops) {
     if (op.type !== "text") continue;
@@ -234,7 +280,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
 
 /** Issues the given decisions do not settle. Nothing is written while any remain. */
 export function unresolved(planned: Plan, decisions: Decisions): Issue[] {
-  return planned.issues.filter((issue) => (issue.kind === "consent" ? !decisions.yes : !decisions.overwrite));
+  return planned.issues.filter((issue) => (issue.kind === "consent" || issue.kind === "outside" ? !decisions.yes : !decisions.overwrite));
 }
 
 /** Applies a plan whose issues are all settled. The manifest is written last. */
