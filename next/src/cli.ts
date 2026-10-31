@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, GUIDE, HELP } from "./guide.js";
-import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
+import { execute, plan, readManifest, unresolved, type Decisions, type InstructionChange, type Issue, type Manifest } from "./install.js";
 import { syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
@@ -93,6 +93,7 @@ interface Outcome {
   readonly profile?: string;
   readonly agents?: readonly AgentId[];
   readonly issues?: readonly Issue[];
+  readonly instructions?: readonly InstructionChange[];
   readonly changed?: readonly string[];
   readonly message?: string;
 }
@@ -105,7 +106,12 @@ async function apply(
 ): Promise<Outcome> {
   const planned = await plan(folder, desired, previous);
   const open = unresolved(planned, decisions);
-  const base = { folder, profile: desired?.profile ?? previous?.profile, agents: desired?.agents ?? previous?.agents };
+  const base = {
+    folder,
+    profile: desired?.profile ?? previous?.profile,
+    agents: desired?.agents ?? previous?.agents,
+    instructions: planned.instructions,
+  };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
   await syncGitExclude(folder, planned.manifest);
   if (planned.ops.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
@@ -140,8 +146,10 @@ async function statusOf(workspace: Workspace, folder: string): Promise<Outcome> 
     return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
   }
   const planned = await plan(folder, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
-  if (planned.issues.length > 0) return { ...base, result: "needs-decision", issues: planned.issues };
-  if (planned.ops.length > 0) return { ...base, result: "updated", changed: [...new Set(planned.ops.map((op) => op.path))] };
+  if (planned.issues.length > 0) {
+    return { ...base, result: "needs-decision", issues: planned.issues, instructions: planned.instructions };
+  }
+  if (planned.ops.length > 0) return { ...base, result: "updated", instructions: planned.instructions, changed: [...new Set(planned.ops.map((op) => op.path))] };
   return { ...base, result: "unchanged" };
 }
 
@@ -181,7 +189,12 @@ function describe(outcome: Outcome, mode: "apply" | "status"): string {
         outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") ? "--overwrite to replace the changed files" : null,
       ].filter((flag) => flag !== null);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
-      return `${lead}\n${lines.join("\n")}\n  Re-run with ${flags.join(" and ")}.`;
+      const files = (outcome.instructions ?? []).map(
+        (file) =>
+          `    - ${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git.`,
+      );
+      const listed = files.length > 0 ? `\n  Instruction files:\n${files.join("\n")}` : "";
+      return `${lead}\n${lines.join("\n")}${listed}\n  Re-run with ${flags.join(" and ")}.`;
     }
   }
 }

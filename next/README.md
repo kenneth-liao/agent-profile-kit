@@ -35,10 +35,11 @@ Antigravity. You don't need to learn the commands: ask your coding agent.
   Edits to `AGENTS.md`/`CLAUDE.md` need `--yes`; replacing changed or foreign
   files needs `--overwrite`. Nothing is written until every decision is made.
 - **Git**: in a repository root (including a linked worktree), the installed
-  Skill folders, the manifest, and an `AGENTS.md` apkit created are listed in
-  a marked block in `.git/info/exclude`, so they stay out of `git status`.
-  Edits to files the user already tracks (such as the `CLAUDE.md` import line)
-  still show as changes.
+  Skill folders and the manifest are listed in a marked block in
+  `.git/info/exclude`, so they stay out of `git status`. Instruction files are
+  never hidden, even an `AGENTS.md` apkit created: the decision output names
+  each one, says whether it will be created or changed, and says whether Git
+  tracks it, and the user decides what to commit.
 - **User level** (`install --global`): a Skills-only Profile goes to each
   agent's user-level Skills folder, so it applies in every project. Context
   stays per project, so `--global` refuses a Profile with Context.

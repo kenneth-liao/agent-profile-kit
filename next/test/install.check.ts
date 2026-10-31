@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { chmod, lstat, readdir, readlink, stat, symlink } from "node:fs/promises";
 import { join } from "node:path";
+import { findRepository, isTracked } from "../src/gitindex.js";
 import { execute, plan, readManifest, unresolved, type Decisions } from "../src/install.js";
 import { render, type AgentId } from "../src/render.js";
 import { loadWorkspace } from "../src/workspace.js";
@@ -220,6 +222,7 @@ describe("AGENTS.md and CLAUDE.md", () => {
     const blocked = await run(wsRoot, target, "engineering", ["codex"]);
     expect(kinds(blocked)).toEqual(["consent:AGENTS.md", "outside:AGENTS.md"]);
     expect(blocked.open.find((i) => i.kind === "outside")?.message).toContain(`AGENTS.md is a symlink to ${join(outside, "AGENTS.md")}`);
+    expect(blocked.planned.instructions).toEqual([{ path: "AGENTS.md", action: "change", tracked: false }]);
     expect(await read(outside, "AGENTS.md")).toBe(original);
     await run(wsRoot, target, "engineering", ["codex"], { yes: true });
     expect(await read(outside, "AGENTS.md")).toContain("apkit:begin");
@@ -233,5 +236,32 @@ describe("AGENTS.md and CLAUDE.md", () => {
     await writeTree(target, { ".agents/skills/summarize/SKILL.md": (await read(target, ".agents/skills/summarize/SKILL.md")).replace(/\n/g, "\r\n") });
     const again = await run(wsRoot, target, "engineering", ["codex"]);
     expect(again.planned.issues).toEqual([]);
+  });
+});
+
+describe("Git index", () => {
+  for (const version of ["2", "3", "4"]) {
+    test(`reads tracked paths from an index at version ${version}, from the root and a subfolder`, async () => {
+      const repo = await tempDir("repo");
+      const git = (...args: string[]) => spawnSync("git", args, { cwd: repo, encoding: "utf8" });
+      git("init", "-q");
+      await writeTree(repo, { "AGENTS.md": "a\n", "docs/a.md": "a\n", "docs/ab.md": "b\n", "docs/sub/CLAUDE.md": "c\n" });
+      git("add", "AGENTS.md", "docs/ab.md", "docs/sub/CLAUDE.md");
+      if (version === "3") git("add", "--intent-to-add", "docs/a.md");
+      git("update-index", "--index-version", version);
+      expect(await findRepository(join(repo, "docs", "sub"))).toEqual({ root: repo, gitDir: join(repo, ".git"), commonDir: join(repo, ".git") });
+      expect(await isTracked(repo, "AGENTS.md")).toBe(true);
+      expect(await isTracked(repo, "CLAUDE.md")).toBe(false);
+      expect(await isTracked(join(repo, "docs"), "ab.md")).toBe(true);
+      expect(await isTracked(join(repo, "docs"), "a.md")).toBe(version === "3");
+      expect(await isTracked(join(repo, "docs", "sub"), "CLAUDE.md")).toBe(true);
+    });
+  }
+
+  test("a folder outside any repository tracks nothing", async () => {
+    const folder = await tempDir("plain");
+    await writeTree(folder, { "AGENTS.md": "a\n" });
+    expect(await findRepository(folder)).toBeNull();
+    expect(await isTracked(folder, "AGENTS.md")).toBe(false);
   });
 });
