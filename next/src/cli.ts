@@ -70,8 +70,13 @@ async function workspaceFor(args: Args): Promise<Workspace> {
 function requireValid(workspace: Workspace): void {
   if (workspace.violations.length > 0) {
     const lines = workspace.violations.map((v) => `  - ${v.message}`);
-    throw new Error(`The Workspace at ${display(workspace.root)} has problems:\n${lines.join("\n")}`);
+    throw new Error([`The Workspace at ${display(workspace.root)} has problems:`, ...lines, ...warningLines(workspace)].join("\n"));
   }
+}
+
+/** Warnings never block; they are shown so that no skipped file goes unnoticed (ADR-0057 §4). */
+function warningLines(workspace: Workspace): string[] {
+  return workspace.warnings.length === 0 ? [] : ["Warnings:", ...workspace.warnings.map((w) => `  - ${w.message}`)];
 }
 
 function agentsFlag(args: Args, fallback: readonly AgentId[] | undefined): AgentId[] {
@@ -298,6 +303,7 @@ async function main(argv: readonly string[]): Promise<number> {
         workspace: workspace.root,
         valid: workspace.violations.length === 0,
         violations: workspace.violations,
+        warnings: workspace.warnings,
         profiles: [...workspace.profiles.values()],
         skills: [...workspace.skills.keys()],
         context: [...workspace.context.keys()],
@@ -311,7 +317,7 @@ async function main(argv: readonly string[]): Promise<number> {
                 (p) => `  ${p.id}: ${p.context.length} context, ${p.skills.length} skills`,
               ),
             ];
-      print(lines.join("\n"), data);
+      print([...lines, ...warningLines(workspace)].join("\n"), data);
       return workspace.violations.length > 0 ? EXIT.error : EXIT.ok;
     }
 
@@ -327,7 +333,11 @@ async function main(argv: readonly string[]): Promise<number> {
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(folder, desired, previous, decisions);
       const trust = outcome.result === "needs-decision" ? [] : trustNeeds(desired);
-      print([describe(outcome, "apply"), ...trustLines(trust)].join("\n"), { ...outcome, trust });
+      print([describe(outcome, "apply"), ...trustLines(trust), ...warningLines(workspace)].join("\n"), {
+        ...outcome,
+        trust,
+        warnings: workspace.warnings,
+      });
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 
