@@ -8,7 +8,7 @@ import { resolve, sep } from "node:path";
 import { readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, GUIDE, HELP } from "./guide.js";
 import { execute, plan, readManifest, unresolved, type Decisions, type InstructionChange, type Issue, type Manifest } from "./install.js";
-import { syncGitExclude } from "./gitexclude.js";
+import { removeGitExclude, syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
@@ -113,10 +113,10 @@ async function apply(
     instructions: planned.instructions,
   };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
-  await syncGitExclude(folder, planned.manifest);
+  const exclusion = await syncGitExclude(folder, planned.manifest);
   if (planned.ops.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
   await execute(planned);
-  await recordInstall(folder, desired !== null);
+  await recordInstall(folder, desired !== null, exclusion);
   const changed = [...new Set(planned.ops.map((op) => op.path))];
   const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
   return { ...base, result, changed };
@@ -316,6 +316,8 @@ async function main(argv: readonly string[]): Promise<number> {
       const path = args.flags.has("--global") ? homedir() : resolve(args.positional[1] ?? process.cwd());
       const exists = await stat(path).then((s) => s.isDirectory(), () => false);
       if (!exists) {
+        const exclusion = (await readConfig()).exclusions?.[path];
+        if (exclusion !== undefined) await removeGitExclude(exclusion, path);
         await recordInstall(path, false);
         print(`${display(path)} no longer exists; forgot it.`, { folder: path, result: "forgotten" });
         return EXIT.ok;
