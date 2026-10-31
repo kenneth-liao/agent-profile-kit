@@ -118,6 +118,71 @@ describe("loadWorkspace", () => {
     expect(workspace.skills.get("a")?.files.map((f) => f.path)).toEqual(["SKILL.md", "extra/SKILL.md"]);
   });
 
+  test("a linked context, skills, or profiles folder is a skipped symlink like any other", async () => {
+    const outside = await tempDir("outside");
+    await writeTree(outside, {
+      "context/stolen.md": "Not from this Workspace.\n",
+      "skills/stolen/SKILL.md": SKILL("stolen"),
+      "profiles/stolen.yaml": "context: []\nskills: []\n",
+    });
+    const root = await tempDir("ws");
+    await writeTree(root, { "apkit-workspace.yaml": "" });
+    for (const part of ["context", "skills", "profiles"]) await symlink(join(outside, part), join(root, part), "junction");
+    const workspace = await loadWorkspace(root);
+    expect(workspace.violations).toEqual([]);
+    expect(workspace.warnings.map((w) => [w.code, w.path])).toEqual([
+      ["symlink", "context"],
+      ["symlink", "skills"],
+      ["symlink", "profiles"],
+    ]);
+    expect([workspace.context.size, workspace.skills.size, workspace.profiles.size]).toEqual([0, 0, 0]);
+  });
+
+  test("frontmatter closes only on a whole `---` line", async () => {
+    expect(
+      await codes({
+        "apkit-workspace.yaml": "",
+        "skills/bad/SKILL.md": "---\nname: bad\ndescription: Example\n---oops\nBody\n",
+        "skills/crlf/SKILL.md": "---\r\nname: crlf\r\ndescription: Example\r\n---\r\nBody\r\n",
+        "skills/bare/SKILL.md": "---\nname: bare\ndescription: Example\n---",
+      }),
+    ).toEqual(["invalid-frontmatter"]);
+  });
+
+  test("Context frontmatter that YAML cannot convert is still opaque Context", async () => {
+    const root = await tempDir("ws");
+    await writeTree(root, {
+      "apkit-workspace.yaml": "",
+      "context/alias.md": "---\nx: *missing\n---\nOrdinary Context.\n",
+      "skills/alias/SKILL.md": "---\nname: alias\ndescription: *missing\n---\n",
+    });
+    const workspace = await loadWorkspace(root);
+    expect(workspace.context.get("alias")?.text).toBe("---\nx: *missing\n---\nOrdinary Context.\n");
+    expect(workspace.violations.map((v) => [v.code, v.path])).toEqual([["invalid-frontmatter", "skills/alias/SKILL.md"]]);
+  });
+
+  test("a broken link or a link loop inside a Skill package is an error, not a crash", async () => {
+    const root = await tempDir("ws");
+    const outside = await tempDir("outside");
+    await writeTree(outside, { "shared/notes.md": "Shared.\n" });
+    await writeTree(root, {
+      "apkit-workspace.yaml": "",
+      "skills/dangling/SKILL.md": SKILL("dangling"),
+      "skills/loop/SKILL.md": SKILL("loop"),
+      "skills/fine/SKILL.md": SKILL("fine"),
+    });
+    await symlink(join(outside, "missing"), join(root, "skills", "dangling", "gone"), "junction");
+    await symlink(join(root, "skills", "loop"), join(root, "skills", "loop", "again"), "junction");
+    await symlink(join(outside, "shared"), join(root, "skills", "fine", "shared"), "junction");
+    const workspace = await loadWorkspace(root);
+    expect(workspace.violations.map((v) => [v.code, v.path])).toEqual([
+      ["unreadable-skill-file", "skills/dangling/gone"],
+      ["unreadable-skill-file", "skills/loop/again"],
+    ]);
+    expect([...workspace.skills.keys()]).toEqual(["fine"]);
+    expect(workspace.skills.get("fine")?.files.map((f) => f.path)).toEqual(["SKILL.md", "shared/notes.md"]);
+  });
+
   test("a leftover sidecar or the retired model-invocation key is ordinary package content", async () => {
     const root = await tempDir("ws");
     await writeTree(root, {
@@ -131,7 +196,8 @@ describe("loadWorkspace", () => {
   });
 
   // Each error kind blocks installs, so each names the wrong or ambiguous install it prevents (ADR-0057 §4, ISC-82).
-  const ERROR_KINDS: Record<string, { readonly prevents: string; readonly files: Record<string, string> }> = {
+  /** `links`: link path → the path it points to, both under the Workspace root. */
+  const ERROR_KINDS: Record<string, { readonly prevents: string; readonly files: Record<string, string>; readonly links?: Record<string, string> }> = {
     "workspace-missing-manifest": {
       prevents: "installing from a folder that is not a Workspace, such as a mistyped path",
       files: { "context/a.md": "x\n" },
@@ -168,6 +234,11 @@ describe("loadWorkspace", () => {
       prevents: "an ambiguous Skill name that two packages declare",
       files: { "apkit-workspace.yaml": "", "skills/a/SKILL.md": SKILL("same"), "skills/b/SKILL.md": SKILL("same") },
     },
+    "unreadable-skill-file": {
+      prevents: "installing a Skill package with a file that does not exist or a folder without end",
+      files: { "apkit-workspace.yaml": "", "skills/a/SKILL.md": SKILL("a") },
+      links: { "skills/a/gone": "missing" },
+    },
     "profile-file-name": {
       prevents: "a Profile ID that would break the marked section it is written into",
       files: { "apkit-workspace.yaml": "", "profiles/My Profile.yaml": "context: []\n" },
@@ -198,10 +269,13 @@ describe("loadWorkspace", () => {
     },
   };
 
-  for (const [code, { prevents, files }] of Object.entries(ERROR_KINDS)) {
+  for (const [code, { prevents, files, links = {} }] of Object.entries(ERROR_KINDS)) {
     test(`${code} is an error: it prevents ${prevents}`, async () => {
       const root = await tempDir("ws");
       await writeTree(root, files);
+      for (const [link, to] of Object.entries(links)) {
+        await symlink(join(root, ...to.split("/")), join(root, ...link.split("/")), "junction");
+      }
       const found = (await loadWorkspace(root)).violations.map((v) => v.code);
       if (code === "context-id-case-collision" && (await readdir(join(root, "context"))).length === 1) return; // case-insensitive file system
       expect([...new Set(found)]).toEqual([code]);

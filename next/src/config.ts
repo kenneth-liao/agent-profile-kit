@@ -25,13 +25,21 @@ const configPath = () => join(configHome(), "config.json");
 /** The global install's manifest. It lives apart from the home folder, which can have a project install of its own. */
 export const globalManifestPath = () => join(configHome(), "global.json");
 
-/** Throws NewerSchemaError for a configuration from a newer apkit; a file without a schema is schema 1. */
+/** Throws NewerSchemaError for a configuration from a newer apkit, and an error for one it cannot read; a file without a schema is schema 1. */
 export async function readConfig(): Promise<Config> {
+  let text: string;
+  try {
+    text = await readFile(configPath(), "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { installs: [] };
+    throw new Error(`Cannot read ${configPath()}: ${(error as Error).message}`);
+  }
   let data: Partial<Config> & { schema?: unknown };
   try {
-    data = JSON.parse(await readFile(configPath(), "utf8"));
+    data = JSON.parse(text);
   } catch {
-    return { installs: [] };
+    // Starting over would forget every installed folder: stop before any write.
+    throw new Error(`${configPath()} is not valid JSON. Fix it, or delete it to start over (apkit then forgets every installed folder).`);
   }
   refuseNewer(data.schema, 1, configPath());
   return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };

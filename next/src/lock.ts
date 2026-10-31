@@ -1,8 +1,8 @@
 // One lock per apkit home: every command that writes holds it from its first
 // read to its last write, so runs at the same time take turns (ADR-0058).
 // Plain files only: no child processes and nothing that differs by platform.
-import { randomUUID } from "node:crypto";
-import { link, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 interface Owner {
@@ -31,8 +31,8 @@ function isRunning(pid: number): boolean {
   }
 }
 
-/** Takes the lock in one step: the owner record is complete before the lock exists. */
-async function tryTake(path: string, owner: Owner): Promise<boolean> {
+/** Takes the lock in one step: the owner record is complete before the lock exists. Exported for tests. */
+export async function tryTake(path: string, owner: Owner): Promise<boolean> {
   const temp = `${path}.${owner.token}.tmp`;
   await writeFile(temp, JSON.stringify(owner));
   try {
@@ -47,19 +47,19 @@ async function tryTake(path: string, owner: Owner): Promise<boolean> {
 }
 
 /**
- * Removes a lock whose owner stopped. It moves the lock aside first and checks
- * it is still the stopped owner's: if another run took the lock meanwhile, it is put back.
+ * Removes a lock whose owner stopped. Only the run that creates the stopped
+ * owner's reclaim mark may delete a lock with that owner's token, and it checks
+ * the token first: a live owner's lock is never moved or deleted. Exported for tests.
  */
-async function takeOver(path: string, stale: Owner, mine: string): Promise<void> {
-  const aside = `${path}.${mine}.stale`;
+export async function takeOver(path: string, stale: Owner, mine: string): Promise<void> {
+  // The token comes from a file on disk: hash it, so it is always a plain file name.
+  const mark = `${path}.${createHash("sha256").update(stale.token).digest("hex").slice(0, 16)}.reclaim`;
+  if (!(await tryTake(mark, { pid: process.pid, token: mine }))) return;
   try {
-    await rename(path, aside);
-  } catch {
-    return;
+    if ((await readOwner(path))?.token === stale.token) await unlink(path).catch(() => undefined);
+  } finally {
+    await unlink(mark).catch(() => undefined);
   }
-  const moved = await readOwner(aside);
-  if (moved?.token !== stale.token) await link(aside, path).catch(() => undefined);
-  await unlink(aside).catch(() => undefined);
 }
 
 export async function withLock<T>(home: string, body: () => Promise<T>): Promise<T> {

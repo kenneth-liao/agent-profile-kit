@@ -9,14 +9,19 @@ import { atomicWrite, type Manifest } from "./install.js";
 
 /** Exclude patterns for an install in `prefix` (POSIX, from the repository root): each Skill folder and the manifest. Never an instruction file (ISC-87). */
 export function excludePatterns(manifest: Manifest, prefix = ""): string[] {
-  const base = prefix === "" ? "" : `/${prefix}`;
+  const base = prefix === "" ? "" : `/${literal(prefix)}`;
   const patterns = new Set<string>([`${base}/.agents/apkit.json`]);
   for (const path of Object.keys(manifest.files)) {
     const parts = path.split("/");
     const skills = parts.indexOf("skills");
-    patterns.add(skills >= 0 && skills + 1 < parts.length - 1 ? `${base}/${parts.slice(0, skills + 2).join("/")}/` : `${base}/${path}`);
+    patterns.add(skills >= 0 && skills + 1 < parts.length - 1 ? `${base}/${literal(parts.slice(0, skills + 2).join("/"))}/` : `${base}/${literal(path)}`);
   }
   return [...patterns].sort();
+}
+
+/** A path as a Git pattern that matches only itself: `\`, `*`, `?`, `[`, and a final space are escaped. */
+function literal(path: string): string {
+  return path.replace(/[\\*?[]/g, "\\$&").replace(/ $/, "\\ ");
 }
 
 /**

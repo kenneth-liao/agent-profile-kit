@@ -39,7 +39,8 @@ The Errors and Warnings sections below list every code that `check` reports.
 - Other files and folders at the Workspace root are ignored.
 - Hidden files and folders (names that start with `.`) are ignored everywhere,
   except inside a Skill package.
-- Outside a Skill package, apkit never follows a symlink: it skips it.
+- Outside a Skill package, apkit never follows a symlink: it skips it. This
+  includes a `context/`, `skills/`, or `profiles/` folder that is a symlink.
 
 ## Context Modules
 
@@ -64,6 +65,8 @@ a `SKILL.md` file. Folders may group packages.
 
 - Every file inside the package folder, hidden files included, is package
   content and is installed with the Skill. Packages do not nest.
+- Inside a package, apkit follows symlinks. A link that leads nowhere, or to a
+  folder that holds it, is an error.
 - A file under `skills/` that is not inside a package is skipped.
 - `SKILL.md` must open with a `---` line and close its YAML frontmatter with a
   second `---` line. The frontmatter must be a valid YAML mapping.
@@ -113,6 +116,7 @@ A Profile says what is installed together. It is the only apkit-specific file.
 | `invalid-field` | A Skill has a valid `name` and `description`. | Set the field as the rule says. |
 | `invalid-model-invocation` | `disable-model-invocation` is `true` or `false`. | Set it to `true` or `false`, or remove it. |
 | `duplicate-artifact-name` | Each Skill `name` is unique. | Rename one of the Skills. |
+| `unreadable-skill-file` | Every file and folder in a Skill package can be read, and no link leads to a folder that holds it. | Replace the link with the real file or folder, or remove it. |
 | `profile-file-name` | A Profile file name is lowercase kebab-case. | Rename the file. |
 | `duplicate-profile` | One file defines each Profile. | Keep one of `x.yaml` and `x.yml`. |
 | `invalid-yaml` | A Profile file is valid YAML. | Fix the YAML. |
@@ -242,6 +246,22 @@ schema_version: 1
 <!-- apkit-workspace.yaml -->
 ```yaml
 schema_version: 2
+```
+
+### Invalid: frontmatter that never closes
+
+<!-- expects errors: invalid-frontmatter -->
+
+<!-- apkit-workspace.yaml -->
+```yaml
+```
+
+<!-- skills/unclosed/SKILL.md -->
+```markdown
+---
+name: unclosed
+description: The last line only starts with three dashes, so it does not close the frontmatter.
+---not-a-delimiter
 ```
 
 ### Invalid: Skills that agents cannot load

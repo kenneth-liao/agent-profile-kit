@@ -1,9 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { chmod, lstat, readdir, readlink, stat, symlink } from "node:fs/promises";
+import * as fs from "node:fs/promises";
+import { chmod, lstat, readdir, readFile, readlink, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findRepository, isTracked } from "../src/gitindex.js";
-import { execute, plan, readManifest, unresolved, type Decisions } from "../src/install.js";
+import { execute, hash, plan, readManifest, readManifestAt, unresolved, type Decisions } from "../src/install.js";
 import { render, type AgentId } from "../src/render.js";
 import { loadWorkspace } from "../src/workspace.js";
 import { makeWorkspace, read, tempDir, writeTree } from "./fixtures.js";
@@ -263,5 +264,80 @@ describe("Git index", () => {
     await writeTree(folder, { "AGENTS.md": "a\n" });
     expect(await findRepository(folder)).toBeNull();
     expect(await isTracked(folder, "AGENTS.md")).toBe(false);
+  });
+});
+
+describe("manifest ingestion", () => {
+  const valid = { schema: 1, profile: "p", agents: ["codex"], files: {}, block: null, createdAgentsMd: false, claudeImport: false };
+  const H = hash("x");
+
+  for (const [label, change] of [
+    ["a path that leaves the folder", { files: { "../outside.txt": H } }],
+    ["an absolute path", { files: { "/etc/hosts": H } }],
+    ["a backslash path", { files: { "a\\..\\..\\b": H } }],
+    ["a dot segment", { files: { "a/./b": H } }],
+    ["a hash that is not SHA-256", { files: { "a.md": "nope" } }],
+    ["a missing profile", { profile: 1 }],
+    ["a block that is not a hash", { block: "x" }],
+    ["a non-boolean flag", { claudeImport: "yes" }],
+    ["user scope in a project folder", { scope: "user" }],
+    ["sections in a project folder", { sections: {} }],
+  ] as const) {
+    test(`a project manifest with ${label} is refused`, async () => {
+      const target = await tempDir("target");
+      await writeTree(target, { ".agents/apkit.json": JSON.stringify({ ...valid, ...change }) });
+      await expect(readManifest(target)).rejects.toThrow("is not a manifest this version understands");
+    });
+  }
+
+  test("the global manifest must be user scope, with absolute section paths", async () => {
+    const dir = await tempDir("home");
+    const path = join(dir, "global.json");
+    const good = { ...valid, scope: "user", sections: { [join(dir, ".codex", "AGENTS.md")]: { hash: H, created: false } } };
+    await writeFile(path, JSON.stringify(good));
+    expect((await readManifestAt(path, path, "user"))?.scope).toBe("user");
+    for (const bad of [valid, { ...good, sections: { "relative/AGENTS.md": { hash: H, created: false } } }]) {
+      await writeFile(path, JSON.stringify(bad));
+      await expect(readManifestAt(path, path, "user")).rejects.toThrow("is not a manifest this version understands");
+    }
+  });
+});
+
+describe("lock", () => {
+  // Runs a step in the gap right after any rename, as a delayed process could.
+  const realRename = fs.rename;
+  let afterRename: (() => Promise<void>) | null = null;
+  mock.module("node:fs/promises", () => ({
+    ...fs,
+    rename: async (from: string, to: string) => {
+      await realRename(from, to);
+      const step = afterRename;
+      afterRename = null;
+      if (step !== null) await step();
+    },
+  }));
+
+  test("a run that read a stopped owner late never lets a third run in beside the live owner", async () => {
+    const { takeOver, tryTake } = await import("../src/lock.js");
+    const home = await tempDir("lock");
+    const path = join(home, "lock");
+    const stopped = { pid: 2 ** 30, token: "stopped" };
+    await writeFile(path, JSON.stringify(stopped));
+    // A and B both read the stopped owner; A takes over first and holds the lock.
+    await takeOver(path, stopped, "A");
+    expect(await tryTake(path, { pid: process.pid, token: "A" })).toBe(true);
+    let third = null as boolean | null;
+    const tryThird = async () => {
+      third = await tryTake(path, { pid: process.pid, token: "C" });
+    };
+    afterRename = tryThird;
+    await takeOver(path, stopped, "B");
+    if (afterRename !== null) {
+      afterRename = null;
+      await tryThird();
+    }
+    expect(third).toBe(false);
+    expect(JSON.parse(await readFile(path, "utf8")).token).toBe("A");
+    expect((await readdir(home)).sort()).toEqual(["lock"]);
   });
 });

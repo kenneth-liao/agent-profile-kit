@@ -68,6 +68,8 @@ export interface Plan {
   readonly issues: readonly Issue[];
   readonly instructions: readonly InstructionChange[];
   readonly manifest: Manifest | null;
+  /** The manifest text on disk before the plan, or null. */
+  readonly manifestBefore: string | null;
 }
 
 export interface Decisions {
@@ -140,16 +142,52 @@ export async function readManifest(target: string): Promise<Manifest | null> {
   return readManifestAt(abs(target, MANIFEST_PATH), `${MANIFEST_PATH} in ${target}`);
 }
 
-/** Reads a manifest kept outside its target folder (the global install's). */
-export async function readManifestAt(path: string, label = path): Promise<Manifest | null> {
+/**
+ * Reads a manifest kept outside its target folder (the global install's, scope "user").
+ * Every field is checked here, so planning never trusts a path or record it did not write.
+ */
+export async function readManifestAt(path: string, label = path, scope?: "user"): Promise<Manifest | null> {
   const text = await readText(path);
   if (text === null) return null;
-  const data = JSON.parse(text) as Manifest;
-  refuseNewer(data.schema, 1, label);
-  if (data.schema !== 1 || !Array.isArray(data.agents) || !data.agents.every(isAgentId)) {
-    throw new Error(`${label} is not a manifest this version understands.`);
+  let data: Manifest;
+  try {
+    data = JSON.parse(text) as Manifest;
+  } catch {
+    throw new Error(`${label} is not a manifest this version understands: it is not valid JSON.`);
   }
+  refuseNewer(isRecord(data) ? data.schema : undefined, 1, label);
+  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
   return data;
+}
+
+const HASH = /^[0-9a-f]{64}$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A POSIX path inside the target: no empty, `.` or `..` segment, no backslash, drive, or leading `/`. */
+function isInsidePath(path: string): boolean {
+  return !/^[A-Za-z]:/.test(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.includes("\\"));
+}
+
+function isManifest(data: unknown, scope: "user" | undefined): data is Manifest {
+  if (!isRecord(data) || data.schema !== 1 || typeof data.profile !== "string") return false;
+  if (!Array.isArray(data.agents) || !data.agents.every((agent) => typeof agent === "string" && isAgentId(agent))) return false;
+  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => isInsidePath(path) && typeof value === "string" && HASH.test(value))) return false;
+  if (data.block !== null && !(typeof data.block === "string" && HASH.test(data.block))) return false;
+  if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
+  if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
+  if (data.scope !== scope) return false;
+  if (data.sections === undefined) return true;
+  // Only the global manifest, in the apkit home, names user-level files, by absolute path.
+  return (
+    scope === "user" &&
+    isRecord(data.sections) &&
+    Object.entries(data.sections).every(
+      ([path, record]) => isAbsolute(path) && isRecord(record) && typeof record.hash === "string" && HASH.test(record.hash) && typeof record.created === "boolean",
+    )
+  );
 }
 
 export interface PlanOptions {
@@ -258,10 +296,27 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
   }
 
+  const manifest: Manifest | null =
+    desired === null
+      ? null
+      : {
+          schema: 1,
+          profile: desired.profile,
+          agents: desired.agents,
+          files,
+          block: blockHash,
+          createdAgentsMd,
+          claudeImport,
+          ...(desired.contextIds.length === 0 ? {} : { context: desired.contextIds }),
+          ...(desired.scope === undefined ? {} : { scope: desired.scope }),
+        };
+  const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
+  const manifestBefore = await readText(manifestPath);
+
   // A symlink can lead a write or deletion out of the target: the user decides.
   if ((desired?.scope ?? previous?.scope) === undefined) {
     const touched = ops.map((op) => op.path);
-    if (ops.length > 0 || desired === null) touched.push(MANIFEST_PATH);
+    if (changesManifest({ manifest, manifestBefore })) touched.push(MANIFEST_PATH);
     const links = new Map<string, { leadsTo: string; count: number }>();
     for (const path of touched) {
       const found = await outsideLink(target, path);
@@ -287,21 +342,16 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     instructions.push({ path, action, tracked: await isTracked(target, path) });
   }
 
-  const manifest: Manifest | null =
-    desired === null
-      ? null
-      : {
-          schema: 1,
-          profile: desired.profile,
-          agents: desired.agents,
-          files,
-          block: blockHash,
-          createdAgentsMd,
-          claudeImport,
-          ...(desired.contextIds.length === 0 ? {} : { context: desired.contextIds }),
-          ...(desired.scope === undefined ? {} : { scope: desired.scope }),
-        };
-  return { target, manifestPath: options.manifestPath ?? abs(target, MANIFEST_PATH), ops, issues, instructions, manifest };
+  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore };
+}
+
+function manifestText(manifest: Manifest): string {
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/** Whether `execute` writes or deletes the manifest: a new selection or record changes it even when no file does. */
+export function changesManifest(planned: Pick<Plan, "manifest" | "manifestBefore">): boolean {
+  return planned.manifest === null ? planned.manifestBefore !== null : manifestText(planned.manifest) !== planned.manifestBefore;
 }
 
 /** Issues the given decisions do not settle. Nothing is written while any remain. */
@@ -326,11 +376,12 @@ export async function execute(planned: Plan): Promise<void> {
     }
   }
   const { manifestPath } = planned;
+  if (!changesManifest(planned)) return;
   if (planned.manifest === null) {
     await unlink(manifestPath).catch(() => undefined);
     await pruneEmpty(target, dirname(manifestPath));
   } else {
-    await atomicWrite(manifestPath, new TextEncoder().encode(`${JSON.stringify(planned.manifest, null, 2)}\n`));
+    await atomicWrite(manifestPath, new TextEncoder().encode(manifestText(planned.manifest)));
   }
 }
 

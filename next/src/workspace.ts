@@ -1,6 +1,6 @@
 // Reads and validates a Workspace. The format is the Workspace contract
 // (next/docs/workspace-contract.md), as simplified by ADR-0057.
-import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, parseDocument } from "yaml";
 
@@ -173,6 +173,14 @@ async function walk(dir: string, add: Add, label: string, skip: readonly string[
   return files;
 }
 
+/** A `context/`, `skills/`, or `profiles/` folder that is itself a symlink is skipped, like any link outside a Skill package. */
+async function isLinkedRoot(dir: string, label: string, add: Add): Promise<boolean> {
+  const info = await lstat(dir).catch(() => null);
+  if (info === null || !info.isSymbolicLink()) return false;
+  add("symlink", label, `${label} is a symlink; apkit never follows links outside a Skill package, so it skips it.`);
+  return true;
+}
+
 async function loadContext(
   root: string,
   add: Add,
@@ -181,6 +189,7 @@ async function loadContext(
   /** Frontmatter `id` → the files that declare it; used only to name a fix (contextFix). */
   const declared = new Map<string, string[]>();
   const dir = join(root, "context");
+  if (await isLinkedRoot(dir, "context", add)) return { context: modules, declared };
   const files = await walk(dir, add, "context");
   // IDs that differ only in case would collide on a case-insensitive file system (ADR-0057 §1).
   const ids = files.filter((file) => file.endsWith(".md")).map((file) => file.slice(0, -".md".length));
@@ -212,6 +221,7 @@ async function loadContext(
 async function loadSkills(root: string, add: Add): Promise<Map<string, Skill>> {
   const skills = new Map<string, Skill>();
   const dir = join(root, "skills");
+  if (await isLinkedRoot(dir, "skills", add)) return skills;
   const packages = await findSkillPackages(dir);
   // Package content belongs to the package, so only files outside every package are walked.
   for (const file of await walk(dir, add, "skills", packages)) {
@@ -243,11 +253,9 @@ async function loadSkills(root: string, add: Add): Promise<Map<string, Skill>> {
       add("duplicate-artifact-name", path, `Two Skill packages declare the name '${name}'.`);
       continue;
     }
-    skills.set(name, {
-      name,
-      disableModelInvocation: disable === true,
-      files: await readPackage(join(dir, ...pkg.split("/"))),
-    });
+    const files = await readPackage(join(dir, ...pkg.split("/")), `skills/${pkg}`, add);
+    if (files === null) continue;
+    skills.set(name, { name, disableModelInvocation: disable === true, files });
   }
   return skills;
 }
@@ -269,21 +277,48 @@ async function findSkillPackages(dir: string, rel = ""): Promise<string[]> {
   return found;
 }
 
-/** Reads every file in a Skill package, hidden files included. */
-async function readPackage(dir: string, rel = ""): Promise<SkillFile[]> {
+/**
+ * Reads every file in a Skill package, hidden files included. Links are package
+ * content; one that leads nowhere, or back to a folder that holds it, is an
+ * error, and the package is not read (null).
+ */
+async function readPackage(dir: string, label: string, add: Add, rel = "", holders: readonly string[] = []): Promise<SkillFile[] | null> {
+  const here = join(dir, ...(rel === "" ? [] : rel.split("/")));
+  const chain = [...holders, await realpath(here)];
   const files: SkillFile[] = [];
-  const entries = await readdir(join(dir, rel), { withFileTypes: true });
+  let readable = true;
+  const entries = await readdir(here, { withFileTypes: true });
   for (const entry of entries.sort(byName)) {
     const child = rel === "" ? entry.name : `${rel}/${entry.name}`;
     const full = join(dir, ...child.split("/"));
-    const info = await stat(full);
+    const unreadable = (why: string) => {
+      add("unreadable-skill-file", `${label}/${child}`, `${label}/${child} ${why}; replace it with the real file or folder, or remove it.`);
+      readable = false;
+    };
+    let info;
+    try {
+      info = await stat(full);
+    } catch {
+      unreadable("is a link that leads nowhere, or apkit cannot read it");
+      continue;
+    }
     if (info.isDirectory()) {
-      files.push(...(await readPackage(dir, child)));
+      if (chain.includes(await realpath(full))) {
+        unreadable("links back to a folder that holds it");
+        continue;
+      }
+      const inner = await readPackage(dir, label, add, child, chain);
+      if (inner === null) readable = false;
+      else files.push(...inner);
     } else if (info.isFile()) {
-      files.push({ path: child, bytes: new Uint8Array(await readFile(full)), executable: (info.mode & 0o111) !== 0 });
+      try {
+        files.push({ path: child, bytes: new Uint8Array(await readFile(full)), executable: (info.mode & 0o111) !== 0 });
+      } catch {
+        unreadable("cannot be read");
+      }
     }
   }
-  return files;
+  return readable ? files : null;
 }
 
 /** A Profile's file name, without its `.yaml` or `.yml` extension (ADR-0057 §2). */
@@ -297,6 +332,7 @@ async function loadProfiles(
   const profiles = new Map<string, Profile>();
   const selections: { profile: Profile; path: string }[] = [];
   const dir = join(root, "profiles");
+  if (await isLinkedRoot(dir, "profiles", add)) return { profiles, selections };
   const files = await walk(dir, add, "profiles");
   const ids = files.map((file) => PROFILE_FILE.exec(file)?.[1]);
   for (const [index, file] of files.entries()) {
@@ -361,15 +397,19 @@ async function loadProfiles(
   return { profiles, selections };
 }
 
+/** The frontmatter mapping, or undefined when the text has none: it must close on a whole `---` line. */
 function readFrontmatter(source: string): Record<string, unknown> | undefined {
-  const normalized = source.replace(/\r\n/g, "\n");
-  if (!normalized.startsWith("---\n")) return undefined;
-  const end = normalized.indexOf("\n---", 3);
-  if (end === -1) return undefined;
-  const document = parseDocument(normalized.slice(4, end + 1));
-  if (document.errors.length > 0) return undefined;
-  const value: unknown = document.toJS();
-  return isRecord(value) ? value : undefined;
+  const match = /^---\n([\s\S]*?\n)?---(?:\n|$)/.exec(source.replace(/\r\n/g, "\n"));
+  if (match === null) return undefined;
+  try {
+    const document = parseDocument(match[1] ?? "");
+    if (document.errors.length > 0) return undefined;
+    const value: unknown = document.toJS();
+    return isRecord(value) ? value : undefined;
+  } catch {
+    // YAML that parses but cannot convert, such as an alias to nothing.
+    return undefined;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

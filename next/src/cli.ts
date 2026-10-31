@@ -8,6 +8,7 @@ import { resolve, sep } from "node:path";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP } from "./guide.js";
 import {
+  changesManifest,
   execute,
   plan,
   readManifest,
@@ -166,7 +167,7 @@ async function globalTarget(): Promise<Target> {
 }
 
 async function previousAt(target: Target): Promise<Manifest | null> {
-  return target.global ? readManifestAt(globalManifestPath()) : readManifest(target.folder);
+  return target.global ? readManifestAt(globalManifestPath(), globalManifestPath(), "user") : readManifest(target.folder);
 }
 
 interface Planned {
@@ -224,7 +225,11 @@ async function apply(
   };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
   const exclusion = global ? null : await syncGitExclude(folder, planned.files.manifest);
-  if (planned.paths.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
+  // Unchanged only when no file, no manifest record, and no registration would change.
+  const registered = global || (await readConfig()).installs.includes(folder);
+  if (planned.paths.length === 0 && !changesManifest(planned.files) && registered && desired !== null && previous !== null) {
+    return { ...base, result: "unchanged" };
+  }
   if (planned.sections !== null) await executeNotes(planned.sections);
   await execute(planned.files);
   if (!global) await recordInstall(folder, desired !== null, exclusion);
@@ -275,18 +280,27 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
   if (planned.issues.length > 0) {
     return { ...base, result: "needs-decision", issues: planned.issues, instructions: planned.files.instructions };
   }
-  if (planned.paths.length > 0) return { ...base, result: "updated", instructions: planned.files.instructions, changed: [...new Set(planned.paths)] };
+  if (planned.paths.length > 0 || changesManifest(planned.files)) {
+    return { ...base, result: "updated", instructions: planned.files.instructions, changed: [...new Set(planned.paths)] };
+  }
   return { ...base, result: "unchanged" };
 }
 
 /** The Context Modules a project install shares with the global install. A newer global manifest is reported elsewhere. */
 async function overlapWithGlobal(project: Manifest): Promise<string[]> {
-  const global = await readManifestAt(globalManifestPath()).catch((error: unknown) => {
+  const global = await readManifestAt(globalManifestPath(), globalManifestPath(), "user").catch((error: unknown) => {
     if (error instanceof NewerSchemaError) return null;
     throw error;
   });
   const shared = new Set(global?.context ?? []);
   return (project.context ?? []).filter((id) => shared.has(id));
+}
+
+/** Drops a folder that no longer exists from the registry, with its exclusion block. */
+async function forget(folder: string): Promise<void> {
+  const exclusion = (await readConfig()).exclusions?.[folder];
+  if (exclusion !== undefined) await removeGitExclude(exclusion, folder);
+  await recordInstall(folder, false);
 }
 
 /** `--all` is every registered folder plus the global install, if there is one. */
@@ -523,6 +537,8 @@ async function run(argv: readonly string[]): Promise<number> {
       const outcomes: Outcome[] = [];
       for (const target of await targets(args)) {
         const status = await statusOf(workspace, target);
+        // A deleted folder is forgotten, with its exclusion block, as `remove` would.
+        if (status.result === "missing" && !target.global) await forget(target.folder);
         if (status.result === "missing" || status.result === "error" || status.result === "not-installed") {
           outcomes.push(status);
           continue;
@@ -551,9 +567,7 @@ async function run(argv: readonly string[]): Promise<number> {
       const path = resolve(args.positional[1] ?? process.cwd());
       const exists = await stat(path).then((s) => s.isDirectory(), () => false);
       if (!exists) {
-        const exclusion = (await readConfig()).exclusions?.[path];
-        if (exclusion !== undefined) await removeGitExclude(exclusion, path);
-        await recordInstall(path, false);
+        await forget(path);
         print(`${display(path)} no longer exists; forgot it.`, { folder: path, result: "forgotten" });
         return EXIT.ok;
       }

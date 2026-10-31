@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
@@ -8,6 +8,10 @@ import { AGENTS } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
+
+// Journeys run several commands, each a new process: on Node one took 7.4 s, past Bun's 5 s default.
+// A bounded budget for every journey here, wherever the suite runs (CI included).
+setDefaultTimeout(30_000);
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
 /** Set APKIT_NEXT_CLI to a built bundle (relative to next/, e.g. `dist/cli.js`) to run the journey on Node. */
@@ -946,6 +950,192 @@ describe("apkit-next CLI", () => {
 
 // Runs that write wait for each other through one lock in the apkit home. Each
 // check below holds for every order the runs can take, so none depends on timing.
+describe("ownership records and restoration", () => {
+  const git = (repo: string) => (...args: string[]) =>
+    spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+
+  test("the manifest alone through a symlink outside the Project needs a decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    await writeTree(ws, { "profiles/empty.yaml": "context: []\nskills: []\n" });
+    cli(home, home, "workspace", ws);
+    // An empty Profile writes only the manifest.
+    const empty = await tempDir("project");
+    const emptyOut = await tempDir("outside");
+    await symlink(emptyOut, join(empty, ".agents"), "junction");
+    const blocked = cli(home, empty, "install", "empty", "--agents", "codex");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(`.agents is a symlink to ${emptyOut}, outside this folder`);
+    expect(await readdir(emptyOut)).toEqual([]);
+    // Skill files already on disk as apkit would write them: again only the manifest is new.
+    const same = await tempDir("project");
+    const sameOut = await tempDir("outside");
+    await cp(join(ws, "skills", "summarize"), join(sameOut, "skills", "summarize"), { recursive: true });
+    await symlink(sameOut, join(same, ".agents"), "junction");
+    expect(cli(home, same, "install", "skills-only", "--agents", "codex").code).toBe(3);
+    expect(await readdir(sameOut)).toEqual(["skills"]);
+  });
+
+  test("a new selection is recorded even when no installed file changes", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    await writeTree(ws, { "profiles/twin.yaml": "context: []\nskills:\n  - summarize\n" });
+    const project = await tempDir("project");
+    cli(home, project, "workspace", ws);
+    expect(cli(home, project, "install", "skills-only", "--agents", "codex").code).toBe(0);
+    // Pi reads the same Skills folder as Codex, so no file changes.
+    const twin = JSON.parse(cli(home, project, "install", "twin", "--agents", "pi", "--json").out);
+    expect([twin.result, twin.profile, twin.agents]).toEqual(["updated", "twin", ["pi"]]);
+    const manifest = JSON.parse(await read(project, ".agents/apkit.json"));
+    expect([manifest.profile, manifest.agents]).toEqual(["twin", ["pi"]]);
+    const status = JSON.parse(cli(home, project, "status", "--json").out)[0];
+    expect([status.profile, status.agents, status.result]).toEqual(["twin", ["pi"], "unchanged"]);
+
+    // An install the registry lost is registered again by reinstalling it.
+    await writeFile(join(home, "config.json"), JSON.stringify({ schema: 1, workspace: ws, installs: [] }));
+    expect(cli(home, project, "install", "twin", "--agents", "pi").code).toBe(0);
+    expect(JSON.parse(cli(home, project, "status", "--all", "--json").out).map((o: { folder: string }) => o.folder)).toEqual([project]);
+  });
+
+  test("a global install sharing Skills with a home-folder install keeps its own records current", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    expect(cli(home, home, "install", "skills-only", home, "--agents", "codex").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "codex").code).toBe(0);
+    await writeTree(ws, { "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: v2\n---\n" });
+    expect(cli(home, home, "update", "--all").code).toBe(0);
+    // Without the project install, the global install alone owns the Skill: it must know v2 is its own.
+    expect(cli(home, home, "remove", home).code).toBe(0);
+    await writeTree(ws, { "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: v3\n---\n" });
+    const update = cli(home, home, "update", "--all");
+    expect([update.code, update.out]).toEqual([0, expect.not.stringContaining("changed after apkit wrote it")]);
+    expect(await read(home, ".agents/skills/summarize/SKILL.md")).toContain("v3");
+  });
+
+  test("project install and removal restore instruction files byte for byte", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    for (const original of ["# Mine", "# Mine\n\n\n", "  \n", "# Mine\r\n", ""]) {
+      const project = await tempDir("project");
+      await writeTree(project, { "AGENTS.md": original, "CLAUDE.md": original });
+      expect(cli(home, project, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+      expect(await read(project, "CLAUDE.md")).toContain("@AGENTS.md");
+      expect(cli(home, project, "remove").code).toBe(0);
+      expect([await read(project, "AGENTS.md"), await read(project, "CLAUDE.md")]).toEqual([original, original]);
+    }
+  });
+
+  test("remove --global restores files with any ending byte for byte", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(home, {
+      ".claude/CLAUDE.md": "# Mine",
+      ".codex/AGENTS.md": "# Mine\n\n\n",
+      ".config/opencode/AGENTS.md": "  \n",
+    });
+    const before = await homeSnapshot(home);
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "claude,codex,opencode", "--yes").code).toBe(0);
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await homeSnapshot(home)).toEqual(before);
+  });
+
+  test("Context that contains apkit's own end marker stays inside its section", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    await writeTree(ws, {
+      "context/markers.md": "Example:\n<!-- apkit:end -->\n<!-- apkit:global:end -->\nMore Context.\n",
+      "profiles/markers.yaml": "context:\n  - markers\nskills: []\n",
+    });
+    cli(home, home, "workspace", ws);
+    const project = await tempDir("project");
+    await writeTree(project, { "AGENTS.md": "# Mine\n" });
+    expect(cli(home, project, "install", "markers", "--agents", "codex", "--yes").code).toBe(0);
+    expect(JSON.parse(cli(home, project, "status", "--json").out)[0].result).toBe("unchanged");
+    expect(cli(home, project, "update").code).toBe(0);
+    expect(cli(home, project, "remove").code).toBe(0);
+    expect(await read(project, "AGENTS.md")).toBe("# Mine\n");
+
+    await writeTree(home, { ".codex/AGENTS.md": "# Mine\n" });
+    expect(cli(home, home, "install", "markers", "--global", "--agents", "codex", "--yes").code).toBe(0);
+    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out)[0].result).toBe("unchanged");
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await read(home, ".codex/AGENTS.md")).toBe("# Mine\n");
+  });
+
+  test("update --all forgets a deleted folder and drops its exclusion block", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "README.md": "# Repo\n", "sub/README.md": "# Sub\n" });
+    git(repo)("init", "-q");
+    git(repo)("add", "-A");
+    git(repo)("commit", "-qm", "init");
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "skills-only", "sub", "--agents", "codex").code).toBe(0);
+    await rm(join(repo, "sub"), { recursive: true });
+    const update = cli(home, repo, "update", "--all");
+    expect([update.code, update.out]).toEqual([0, expect.stringContaining("no longer exists")]);
+    expect(await read(repo, ".git/info/exclude")).not.toContain(join(repo, "sub"));
+    expect(JSON.parse(await read(home, "config.json")).installs).toEqual([]);
+  });
+
+  test("a folder name with Git pattern characters is excluded literally", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "README.md": "# Repo\n", "project[1]/README.md": "# P\n" });
+    git(repo)("init", "-q");
+    git(repo)("add", "-A");
+    git(repo)("commit", "-qm", "init");
+    // A sibling that `[1]` as a pattern would match.
+    await writeTree(repo, { "project1/.agents/apkit.json": "{}\n" });
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "skills-only", "project[1]", "--agents", "codex").code).toBe(0);
+    expect(git(repo)("status", "--porcelain", "--untracked-files=all")).toBe("?? project1/.agents/apkit.json\n");
+  });
+
+  test("unreadable machine configuration stops the command before it writes", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    cli(home, project, "workspace", ws);
+    const broken = `{"schema": 1, "workspace": ${JSON.stringify(ws)}, "installs": ["/old/project"`;
+    await writeFile(join(home, "config.json"), broken);
+    const run = cli(home, project, "install", "skills-only", "--agents", "codex");
+    expect(run.code).toBe(1);
+    expect(run.err).toContain(join(home, "config.json"));
+    expect(await read(home, "config.json")).toBe(broken);
+    expect(await readdir(project)).toEqual([]);
+  });
+
+  test("a manifest that names a path outside its folder is refused before anything is deleted", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const base = await tempDir("base");
+    const project = join(base, "project");
+    await writeTree(base, {
+      "outside.txt": "mine\n",
+      "project/.agents/apkit.json": JSON.stringify({
+        schema: 1,
+        profile: "skills-only",
+        agents: ["codex"],
+        files: { "../outside.txt": hash("mine\n") },
+        block: null,
+        createdAgentsMd: false,
+        claudeImport: false,
+      }),
+    });
+    cli(home, project, "workspace", ws);
+    const run = cli(home, project, "remove");
+    expect(run.code).toBe(1);
+    expect(run.err).toContain(".agents/apkit.json");
+    expect(await read(base, "outside.txt")).toBe("mine\n");
+  });
+});
+
 describe("concurrent runs", () => {
   const SLOW = 60_000;
   const MANY = "claude,codex,grok";
