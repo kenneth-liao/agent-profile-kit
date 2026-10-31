@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
@@ -113,6 +113,50 @@ describe("apkit-next CLI", () => {
     expect(await readdir(project)).toEqual([]);
   });
 
+  test("a symlink that leads outside the Project needs a decision before any write there", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    const outside = await tempDir("dotfiles");
+    // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
+    await symlink(outside, join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+
+    const blocked = cli(home, project, "install", "skills-only", "--agents", "claude");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(blocked.out).toContain("--yes");
+    expect(await readdir(project)).toEqual([".claude"]);
+    expect(await readdir(outside)).toEqual([]);
+    expect(cli(home, project, "status", "--all").out).toContain("Nothing is installed yet.");
+
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude", "--yes").code).toBe(0);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    const manifest = JSON.parse(await read(project, ".agents/apkit.json"));
+    expect(Object.keys(manifest.files)).toContain(".claude/skills/summarize/SKILL.md");
+    expect(cli(home, project, "update").code).toBe(0);
+
+    const remove = cli(home, project, "remove");
+    expect(remove.code).toBe(3);
+    expect(remove.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove", "--yes").code).toBe(0);
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(project)).toEqual([".claude"]);
+  });
+
+  test("a symlink that stays inside the Project needs no decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    await mkdir(join(project, "shared"));
+    await symlink(join(project, "shared"), join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(await read(project, "shared/skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove").code).toBe(0);
+  });
+
   test("init creates only the missing Workspace parts and selects it", async () => {
     const home = await tempDir("home");
     const root = await tempDir("new-ws");
@@ -183,8 +227,8 @@ describe("apkit-next CLI", () => {
     git("commit", "-qm", "init");
     cli(home, repo, "workspace", ws);
     expect(cli(home, repo, "install", "engineering", "--agents", "claude,codex", "--yes").code).toBe(0);
-    // Only the user's own committed file shows the one-line import as a change.
-    expect(git("status", "--porcelain").trim()).toBe("M CLAUDE.md");
+    // Only the instruction files show: the import line in the user's file, and the AGENTS.md apkit created.
+    expect(git("status", "--porcelain").trimEnd().split("\n").sort()).toEqual([" M CLAUDE.md", "?? AGENTS.md"]);
     expect(await read(repo, ".git/info/exclude")).toContain("/.claude/skills/summarize/\n");
     // A linked worktree shares the exclude file with its own block.
     const tree = join(await tempDir("wt"), "tree");
@@ -196,6 +240,47 @@ describe("apkit-next CLI", () => {
     const exclude = await read(repo, ".git/info/exclude");
     expect(exclude).not.toContain(`apkit:begin ${repo}\n`);
     expect(exclude).toContain(`apkit:begin ${tree}`);
+  });
+
+  test("the decision output names each instruction file, the change, and whether Git tracks it", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    cli(home, repo, "workspace", ws);
+
+    const fresh = cli(home, repo, "install", "engineering", "--agents", "claude");
+    expect(fresh.code).toBe(3);
+    expect(fresh.out).toContain("AGENTS.md: will be created; not tracked by Git.");
+    expect(fresh.out).toContain("CLAUDE.md: will be changed; not tracked by Git.");
+    const json = JSON.parse(cli(home, repo, "install", "engineering", "--agents", "claude", "--json").out);
+    expect(json.instructions).toEqual([
+      { path: "AGENTS.md", action: "create", tracked: false },
+      { path: "CLAUDE.md", action: "change", tracked: false },
+    ]);
+
+    await writeTree(repo, { "AGENTS.md": "# Agents\n" });
+    git("add", "AGENTS.md");
+    git("commit", "-qm", "agents");
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude").out).toContain(
+      "AGENTS.md: will be changed; tracked by Git.",
+    );
+  });
+
+  test("an AGENTS.md apkit creates is never hidden from Git", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    spawnSync("git", ["init", "-q"], { cwd: repo });
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    const exclude = (await read(repo, ".git/info/exclude")).split("\n");
+    expect(exclude.filter((line) => /AGENTS\.md|CLAUDE\.md/.test(line))).toEqual([]);
+    expect(spawnSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" }).stdout).toContain("?? AGENTS.md");
   });
 
   test("install --global puts a Skills-only Profile in each agent's user-level Skills folder", async () => {
@@ -215,6 +300,39 @@ describe("apkit-next CLI", () => {
     expect(cli(home, home, "remove", "--global").code).toBe(0);
     const left = await readdir(home);
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
+  });
+
+  test("an install names each selected agent that needs the folder trusted, and what waits for it", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const install = async (profile: string, agents: string) =>
+      cli(home, await tempDir("project"), "install", profile, "--agents", agents, "--yes").out;
+
+    const skills = await install("engineering", "codex,pi");
+    expect(skills).toContain("Codex and Pi load this folder's Skills only after you trust the folder.");
+    const everything = await install("skills-only", "grok,antigravity");
+    expect(everything).toContain("Antigravity and Grok load nothing from this folder until you trust it.");
+    // Grok holds back Context too; Codex loads Context without trust, so a Profile with no Skills needs no line for it.
+    expect(await install("writing", "codex,grok")).toEndWith("\nGrok loads nothing from this folder until you trust it.\n");
+    expect(await install("engineering", "claude,opencode")).not.toContain("trust");
+    for (const out of [skills, everything]) expect(out).not.toMatch(/\bloaded\b/);
+  });
+
+  test("install --json lists the same trust needs, and a user-level install has none", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const install = async (agents: string) =>
+      JSON.parse(cli(home, await tempDir("project"), "install", "engineering", "--agents", agents, "--yes", "--json").out);
+
+    expect((await install("claude,codex,grok")).trust).toEqual([
+      { agent: "codex", untilTrusted: "skills" },
+      { agent: "grok", untilTrusted: "everything" },
+    ]);
+    expect((await install("claude")).trust).toEqual([]);
+    const global = cli(home, home, "install", "skills-only", "--global", "--agents", "codex,grok", "--json");
+    expect(JSON.parse(global.out).trust).toEqual([]);
   });
 
   test("bare invocation points agents at the guide", async () => {

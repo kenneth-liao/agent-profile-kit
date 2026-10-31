@@ -27,7 +27,7 @@ async function excludeFile(target: string): Promise<string | null> {
   return join(gitDir, "info", "exclude");
 }
 
-/** Exclude patterns for an install: each Skill folder, the manifest, and an AGENTS.md apkit created. */
+/** Exclude patterns for an install: each Skill folder and the manifest. Never an instruction file (ISC-87). */
 export function excludePatterns(manifest: Manifest): string[] {
   const patterns = new Set<string>(["/.agents/apkit.json"]);
   for (const path of Object.keys(manifest.files)) {
@@ -35,7 +35,6 @@ export function excludePatterns(manifest: Manifest): string[] {
     const skills = parts.indexOf("skills");
     patterns.add(skills >= 0 && skills + 1 < parts.length - 1 ? `/${parts.slice(0, skills + 2).join("/")}/` : `/${path}`);
   }
-  if (manifest.createdAgentsMd) patterns.add("/AGENTS.md");
   return [...patterns].sort();
 }
 

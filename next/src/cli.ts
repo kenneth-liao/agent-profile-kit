@@ -7,7 +7,7 @@ import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
 import { readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, GUIDE, HELP } from "./guide.js";
-import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
+import { execute, plan, readManifest, unresolved, type Decisions, type InstructionChange, type Issue, type Manifest } from "./install.js";
 import { syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
@@ -93,6 +93,7 @@ interface Outcome {
   readonly profile?: string;
   readonly agents?: readonly AgentId[];
   readonly issues?: readonly Issue[];
+  readonly instructions?: readonly InstructionChange[];
   readonly changed?: readonly string[];
   readonly message?: string;
 }
@@ -105,7 +106,12 @@ async function apply(
 ): Promise<Outcome> {
   const planned = await plan(folder, desired, previous);
   const open = unresolved(planned, decisions);
-  const base = { folder, profile: desired?.profile ?? previous?.profile, agents: desired?.agents ?? previous?.agents };
+  const base = {
+    folder,
+    profile: desired?.profile ?? previous?.profile,
+    agents: desired?.agents ?? previous?.agents,
+    instructions: planned.instructions,
+  };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
   await syncGitExclude(folder, planned.manifest);
   if (planned.ops.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
@@ -140,8 +146,10 @@ async function statusOf(workspace: Workspace, folder: string): Promise<Outcome> 
     return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
   }
   const planned = await plan(folder, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
-  if (planned.issues.length > 0) return { ...base, result: "needs-decision", issues: planned.issues };
-  if (planned.ops.length > 0) return { ...base, result: "updated", changed: [...new Set(planned.ops.map((op) => op.path))] };
+  if (planned.issues.length > 0) {
+    return { ...base, result: "needs-decision", issues: planned.issues, instructions: planned.instructions };
+  }
+  if (planned.ops.length > 0) return { ...base, result: "updated", instructions: planned.instructions, changed: [...new Set(planned.ops.map((op) => op.path))] };
   return { ...base, result: "unchanged" };
 }
 
@@ -172,12 +180,21 @@ function describe(outcome: Outcome, mode: "apply" | "status"): string {
       return `${where}: ${outcome.message}`;
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
+      const yes = [
+        outcome.issues?.some((i) => i.kind === "consent") ? "the edits to your instruction files" : null,
+        outcome.issues?.some((i) => i.kind === "outside") ? "the writes outside this folder" : null,
+      ].filter((what) => what !== null);
       const flags = [
-        outcome.issues?.some((i) => i.kind === "consent") ? "--yes to allow the edits to your instruction files" : null,
-        outcome.issues?.some((i) => i.kind !== "consent") ? "--overwrite to replace the changed files" : null,
+        yes.length > 0 ? `--yes to allow ${yes.join(" and ")}` : null,
+        outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") ? "--overwrite to replace the changed files" : null,
       ].filter((flag) => flag !== null);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
-      return `${lead}\n${lines.join("\n")}\n  Re-run with ${flags.join(" and ")}.`;
+      const files = (outcome.instructions ?? []).map(
+        (file) =>
+          `    - ${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git.`,
+      );
+      const listed = files.length > 0 ? `\n  Instruction files:\n${files.join("\n")}` : "";
+      return `${lead}\n${lines.join("\n")}${listed}\n  Re-run with ${flags.join(" and ")}.`;
     }
   }
 }
@@ -187,7 +204,32 @@ function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> 
   return Object.keys(config.notes ?? {}).length > 0 ? null : `Next: run \`${COMMAND} setup\` so your agents know about apkit.`;
 }
 
-const TRUST_NOTE = "Some agents load project instructions only in folders you trust. If an agent asks, trust this folder.";
+interface TrustNeed {
+  readonly agent: AgentId;
+  readonly untilTrusted: "skills" | "everything";
+}
+
+/** The selected agents that hold back part of a project install until the folder is trusted. */
+function trustNeeds(desired: Desired): TrustNeed[] {
+  if (desired.scope === "user") return [];
+  const held = { skills: desired.files.size > 0, everything: desired.files.size > 0 || desired.context !== null };
+  return desired.agents.flatMap((agent) => {
+    const untilTrusted = AGENTS[agent].untilTrusted;
+    return untilTrusted !== null && held[untilTrusted] ? [{ agent, untilTrusted }] : [];
+  });
+}
+
+function trustLines(needs: readonly TrustNeed[]): string[] {
+  const names = (kind: TrustNeed["untilTrusted"]) => needs.filter((n) => n.untilTrusted === kind).map((n) => AGENTS[n.agent].name);
+  const list = (items: readonly string[]) =>
+    items.length === 1 ? items[0] : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  const skills = names("skills");
+  const everything = names("everything");
+  return [
+    skills.length === 0 ? null : `${list(skills)} ${skills.length === 1 ? "loads" : "load"} this folder's Skills only after you trust the folder.`,
+    everything.length === 0 ? null : `${list(everything)} ${everything.length === 1 ? "loads" : "load"} nothing from this folder until you trust it.`,
+  ].filter((line) => line !== null);
+}
 
 async function main(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
@@ -275,8 +317,8 @@ async function main(argv: readonly string[]): Promise<number> {
       const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(folder, desired, previous, decisions);
-      const note = outcome.result !== "needs-decision" && desired.context !== null ? `\n${TRUST_NOTE}` : "";
-      print(describe(outcome, "apply") + note, outcome);
+      const trust = outcome.result === "needs-decision" ? [] : trustNeeds(desired);
+      print([describe(outcome, "apply"), ...trustLines(trust)].join("\n"), { ...outcome, trust });
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 
