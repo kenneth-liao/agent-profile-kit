@@ -6,6 +6,7 @@ import { chmod, mkdir, readdir, readFile, realpath, rename, rmdir, stat, unlink,
 import { dirname, join } from "node:path";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
 import { isAgentId, type AgentId, type Desired } from "./render.js";
+import { refuseNewer } from "./schema.js";
 
 export const MANIFEST_PATH = ".agents/apkit.json";
 
@@ -96,6 +97,7 @@ export async function readManifest(target: string): Promise<Manifest | null> {
   const text = await readText(abs(target, MANIFEST_PATH));
   if (text === null) return null;
   const data = JSON.parse(text) as Manifest;
+  refuseNewer(data.schema, 1, `${MANIFEST_PATH} in ${target}`);
   if (data.schema !== 1 || !Array.isArray(data.agents) || !data.agents.every(isAgentId)) {
     throw new Error(`${MANIFEST_PATH} in ${target} is not a manifest this version understands.`);
   }

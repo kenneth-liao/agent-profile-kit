@@ -1,6 +1,6 @@
-import { mkdir, mkdtemp, readFile, realpath, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 
 export async function tempDir(label: string): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), `apkit-next-${label}-`)));
@@ -37,4 +37,15 @@ export async function makeWorkspace(): Promise<string> {
     "profiles/skills-only.yaml": "context: []\nskills:\n  - summarize\n",
   });
   return root;
+}
+
+/** Every file under root as { "posix/path": content }, to show that nothing changed. */
+export async function snapshot(root: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const full = join(entry.parentPath, entry.name);
+    files[relative(root, full).split(sep).join("/")] = await readFile(full, "utf8");
+  }
+  return files;
 }
