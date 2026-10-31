@@ -78,9 +78,38 @@ describe("apkit-next CLI", () => {
     await writeTree(root, { "context/existing.md": "Hi.\n" });
     const result = cli(home, root, "init", root, "--json");
     expect(result.code).toBe(0);
-    expect(JSON.parse(result.out).added).toEqual(["workspace.yaml", "skills/", "profiles/"]);
+    expect(JSON.parse(result.out).added).toEqual(["apkit-workspace.yaml", "skills/", "profiles/"]);
     expect(JSON.parse(result.out).next).toContain(`${COMMAND} setup`);
     expect(cli(home, root, "workspace").out.trim()).not.toBe("No Workspace selected.");
+    expect((await readdir(root)).sort()).toEqual(["apkit-workspace.yaml", "context", "profiles", "skills"]);
+  });
+
+  test("apkit-workspace.yaml marks a Workspace; the old workspace.yaml names the rename", async () => {
+    const home = await tempDir("home");
+    const empty = await tempDir("ws");
+    await writeTree(empty, { "apkit-workspace.yaml": "" });
+    expect(cli(home, home, "check", "--workspace", empty).code).toBe(0);
+
+    const future = await tempDir("ws");
+    await writeTree(future, { "apkit-workspace.yaml": "schema_version: 2\n" });
+    const unsupported = cli(home, home, "check", "--workspace", future);
+    expect(unsupported.code).toBe(1);
+    expect(unsupported.out).toContain("newer apkit");
+
+    const old = await tempDir("ws");
+    await writeTree(old, { "workspace.yaml": "schema_version: 1\n" });
+    const check = cli(home, home, "check", "--workspace", old);
+    expect(check.code).toBe(1);
+    expect(check.out).toContain("Rename workspace.yaml to apkit-workspace.yaml");
+    const select = cli(home, home, "workspace", old);
+    expect(select.code).toBe(1);
+    expect(select.err).toContain("Rename workspace.yaml to apkit-workspace.yaml");
+
+    const plain = await tempDir("plain");
+    const refused = cli(home, home, "workspace", plain);
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain(`${COMMAND} init`);
+    expect(cli(home, home, "workspace").out.trim()).toBe("No Workspace selected.");
   });
 
   test("setup tells detected agents about apkit, after consent, and --remove undoes it", async () => {
