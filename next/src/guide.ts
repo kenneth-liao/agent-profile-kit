@@ -107,9 +107,10 @@ Only after setup, move the user's material into the Workspace and install a Prof
 - Context goes into one marked section in AGENTS.md, which every supported
   agent reads. If CLAUDE.md exists and Claude Code is selected, CLAUDE.md gets
   one \`@AGENTS.md\` line. Everything else in both files is left as it is.
-- In a Git repository, the copied Skills and apkit's own record are listed in
-  .git/info/exclude so they stay out of \`git status\`. Instruction files
-  (AGENTS.md, CLAUDE.md) are never hidden from Git.
+- In a Git repository (at its root, in a subfolder, or in a linked worktree),
+  the copied Skills and apkit's manifest are listed in the repository's
+  .git/info/exclude so they stay out of \`git status\` and are never committed
+  by accident. Instruction files are never hidden.
 - \`install --global\` puts a Skills-only Profile in each agent's user-level
   Skills folder, so the Skills are available in every project. Context is
   always installed per project, so --global refuses a Profile with Context.

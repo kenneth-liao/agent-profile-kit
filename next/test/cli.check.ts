@@ -240,6 +240,55 @@ describe("apkit-next CLI", () => {
     expect(exclude).toContain(`apkit:begin ${tree}`);
   });
 
+  test("installs into subfolders stay out of git status, each with its own block", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "a/CLAUDE.md": "# A\n", "b/README.md": "# B\n" });
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "engineering", "a", "--agents", "claude,codex", "--yes").code).toBe(0);
+    expect(cli(home, repo, "install", "skills-only", "b", "--agents", "claude").code).toBe(0);
+    // Only the instruction files show: the import line in a/CLAUDE.md, and the AGENTS.md apkit created.
+    expect(git("status", "--porcelain").trimEnd().split("\n").sort()).toEqual([" M a/CLAUDE.md", "?? a/AGENTS.md"]);
+    const exclude = await read(repo, ".git/info/exclude");
+    expect(exclude).toContain(`# apkit:begin ${join(repo, "a")}\n`);
+    expect(exclude).toContain("/a/.claude/skills/summarize/\n");
+    expect(exclude).toContain("/b/.agents/apkit.json\n");
+    // Removing one subfolder's install leaves the other's block.
+    expect(cli(home, repo, "remove", "a").code).toBe(0);
+    const after = await read(repo, ".git/info/exclude");
+    expect(after).not.toContain(`apkit:begin ${join(repo, "a")}`);
+    expect(after).not.toContain("/a/");
+    expect(after).toContain(`# apkit:begin ${join(repo, "b")}\n`);
+    expect(git("status", "--porcelain")).toBe("");
+  });
+
+  test("remove forgets a deleted linked worktree and drops its block", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "README.md": "# Repo\n" });
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-qm", "init");
+    cli(home, repo, "workspace", ws);
+    const tree = join(await tempDir("wt"), "tree");
+    git("worktree", "add", "-q", tree);
+    expect(cli(home, tree, "install", "skills-only", "--agents", "claude,codex").code).toBe(0);
+    expect(await read(repo, ".git/info/exclude")).toContain(`apkit:begin ${tree}`);
+    git("worktree", "remove", "--force", tree);
+    expect(cli(home, repo, "remove", tree).code).toBe(0);
+    expect(JSON.parse(cli(home, repo, "status", "--all", "--json").out)).toEqual([]);
+    expect(await read(repo, ".git/info/exclude")).not.toContain(tree);
+  });
+
   test("the decision output names each instruction file, the change, and whether Git tracks it", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
