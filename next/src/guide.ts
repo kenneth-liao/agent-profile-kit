@@ -86,11 +86,14 @@ current directory.
 
 ## First-time setup
 
+Do these steps once, before any install.
+
 1. Ask the user where to keep their Workspace. It is their own folder, so
    never choose it for them. You may suggest a name such as ~/agent-workspace.
    If they already have a Workspace, ask for its path instead.
 2. Run \`${COMMAND} init <path>\` for a new Workspace, or
-   \`${COMMAND} workspace <path>\` to select an existing one.
+   \`${COMMAND} workspace <path>\` to select an existing one. ${COMMAND}
+   remembers the selected Workspace, so later commands need no --workspace.
 3. Run \`${COMMAND} setup\`. It finds the user's installed agents and adds a
    two-line note to each agent's user-level instructions, so future sessions
    know to run \`${COMMAND} guide\` before changing Skills, Context, or
@@ -98,7 +101,7 @@ current directory.
    decision first. \`--agents\` limits it to some agents; \`setup --remove\`
    takes the note back out.
 
-Then move the user's material into the Workspace and install a Profile.
+Only after setup, move the user's material into the Workspace and install a Profile.
 
 ## What gets installed
 
@@ -120,10 +123,12 @@ When a step needs the user's decision, ${COMMAND} changes nothing, prints the
 decisions, and exits with code 3. Explain each one to the user in plain words,
 then re-run the same command:
 
-- Add --yes only after the user agrees to the listed edits to their
-  instruction files (AGENTS.md, CLAUDE.md, or an agent's user-level file),
-  and to any listed writes through a symlink that leads outside the folder.
-  Name the link and where it leads.
+- For each listed instruction file (AGENTS.md, CLAUDE.md, or an agent's
+  user-level file), tell the user whether it will be created, changed, or
+  deleted, and whether Git tracks it. A change to a tracked file shows up in
+  the user's next commit. For each listed write through a symlink that leads
+  outside the folder, name the link and where it leads.
+  Add --yes only after the user agrees.
 - Add --overwrite only after the user explicitly agrees to discard the changed
   files it lists. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
@@ -133,4 +138,6 @@ then re-run the same command:
 ${COMMAND} names each selected agent that does not load what it installed
 until the user trusts the folder. Pass those lines on to the user.
 Agents pick up installed material in their next session.
+Committing is the user's decision: never stage, commit, or push installed
+files or instruction-file changes unless the user asks.
 `;

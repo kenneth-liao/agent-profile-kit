@@ -517,6 +517,17 @@ describe("apkit-next CLI", () => {
     for (const agent of Object.keys(AGENTS)) expect(GUIDE).toContain(agent);
   });
 
+  test("the guide asks first, leaves commits to the user, and starts with setup", () => {
+    const decisions = GUIDE.slice(GUIDE.indexOf("## Decisions"), GUIDE.indexOf("## After installing"));
+    expect(decisions).toContain("whether Git tracks it");
+    expect(decisions).toContain("Add --yes only after the user agrees");
+    expect(GUIDE).toContain("Committing is the user's decision");
+    const firstTime = GUIDE.slice(GUIDE.indexOf("## First-time setup"), GUIDE.indexOf("## What gets installed"));
+    expect(firstTime).toContain("before any install");
+    expect(firstTime.indexOf(`${COMMAND} setup`)).toBeGreaterThan(-1);
+    expect(firstTime.indexOf(`${COMMAND} setup`)).toBeLessThan(firstTime.indexOf("install a Profile"));
+  });
+
   test("usage errors explain themselves", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
