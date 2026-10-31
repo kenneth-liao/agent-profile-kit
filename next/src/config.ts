@@ -11,6 +11,8 @@ export interface Config {
   readonly installs: readonly string[];
   /** User-level files that carry the apkit note (see setup.ts). */
   readonly notes?: NoteRecords;
+  /** For each installed folder in a Git repository, the exclude file that holds its block (see gitexclude.ts). */
+  readonly exclusions?: Readonly<Record<string, string>>;
 }
 
 export function configHome(): string {
@@ -22,7 +24,7 @@ const configPath = () => join(configHome(), "config.json");
 export async function readConfig(): Promise<Config> {
   try {
     const data = JSON.parse(await readFile(configPath(), "utf8")) as Partial<Config>;
-    return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes };
+    return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };
   } catch {
     return { installs: [] };
   }
@@ -36,8 +38,16 @@ export async function writeConfig(config: Config): Promise<void> {
   await rename(temp, configPath());
 }
 
-export async function recordInstall(target: string, installed: boolean): Promise<void> {
+/** Adds or forgets `target`, with the exclude file of its block when installed in a Git repository. */
+export async function recordInstall(target: string, installed: boolean, exclusion: string | null = null): Promise<void> {
   const config = await readConfig();
   const others = config.installs.filter((path) => path !== target);
-  await writeConfig({ ...config, installs: installed ? [...others, target] : others });
+  const exclusions: Record<string, string> = { ...config.exclusions };
+  delete exclusions[target];
+  if (installed && exclusion !== null) exclusions[target] = exclusion;
+  await writeConfig({
+    ...config,
+    installs: installed ? [...others, target] : others,
+    exclusions: Object.keys(exclusions).length > 0 ? exclusions : undefined,
+  });
 }
