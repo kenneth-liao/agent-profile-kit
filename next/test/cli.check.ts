@@ -113,8 +113,8 @@ describe("apkit-next CLI", () => {
     git("commit", "-qm", "init");
     cli(home, repo, "workspace", ws);
     expect(cli(home, repo, "install", "engineering", "--agents", "claude,codex", "--yes").code).toBe(0);
-    // Only the user's own committed file shows the one-line import as a change.
-    expect(git("status", "--porcelain").trim()).toBe("M CLAUDE.md");
+    // Only the instruction files show: the import line in the user's file, and the AGENTS.md apkit created.
+    expect(git("status", "--porcelain").trimEnd().split("\n").sort()).toEqual([" M CLAUDE.md", "?? AGENTS.md"]);
     expect(await read(repo, ".git/info/exclude")).toContain("/.claude/skills/summarize/\n");
     // A linked worktree shares the exclude file with its own block.
     const tree = join(await tempDir("wt"), "tree");
@@ -126,6 +126,47 @@ describe("apkit-next CLI", () => {
     const exclude = await read(repo, ".git/info/exclude");
     expect(exclude).not.toContain(`apkit:begin ${repo}\n`);
     expect(exclude).toContain(`apkit:begin ${tree}`);
+  });
+
+  test("the decision output names each instruction file, the change, and whether Git tracks it", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    cli(home, repo, "workspace", ws);
+
+    const fresh = cli(home, repo, "install", "engineering", "--agents", "claude");
+    expect(fresh.code).toBe(3);
+    expect(fresh.out).toContain("AGENTS.md: will be created; not tracked by Git.");
+    expect(fresh.out).toContain("CLAUDE.md: will be changed; not tracked by Git.");
+    const json = JSON.parse(cli(home, repo, "install", "engineering", "--agents", "claude", "--json").out);
+    expect(json.instructions).toEqual([
+      { path: "AGENTS.md", action: "create", tracked: false },
+      { path: "CLAUDE.md", action: "change", tracked: false },
+    ]);
+
+    await writeTree(repo, { "AGENTS.md": "# Agents\n" });
+    git("add", "AGENTS.md");
+    git("commit", "-qm", "agents");
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude").out).toContain(
+      "AGENTS.md: will be changed; tracked by Git.",
+    );
+  });
+
+  test("an AGENTS.md apkit creates is never hidden from Git", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    spawnSync("git", ["init", "-q"], { cwd: repo });
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    cli(home, repo, "workspace", ws);
+    expect(cli(home, repo, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    const exclude = (await read(repo, ".git/info/exclude")).split("\n");
+    expect(exclude.filter((line) => /AGENTS\.md|CLAUDE\.md/.test(line))).toEqual([]);
+    expect(spawnSync("git", ["status", "--porcelain"], { cwd: repo, encoding: "utf8" }).stdout).toContain("?? AGENTS.md");
   });
 
   test("install --global puts a Skills-only Profile in each agent's user-level Skills folder", async () => {
