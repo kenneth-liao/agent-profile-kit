@@ -27,6 +27,7 @@ Usage:
 
 Options:
   --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
+                      and writes through a symlink that leads outside the folder
   --remove            With setup: remove the note from every agent
   --global            Install or remove at the user level instead of a project
   --overwrite         Replace or delete files that were changed or not written by apkit
@@ -114,7 +115,9 @@ decisions, and exits with code 3. Explain each one to the user in plain words,
 then re-run the same command:
 
 - Add --yes only after the user agrees to the listed edits to their
-  instruction files (AGENTS.md, CLAUDE.md, or an agent's user-level file).
+  instruction files (AGENTS.md, CLAUDE.md, or an agent's user-level file),
+  and to any listed writes through a symlink that leads outside the folder.
+  Name the link and where it leads.
 - Add --overwrite only after the user explicitly agrees to discard the changed
   files it lists. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
