@@ -73,3 +73,5 @@ changed the identity that Profiles reference.
   folders; its scaffold is plain Markdown with no frontmatter.
 - An older binary still requires frontmatter `id`; the Workspace guide names
   this rollback caveat, mirroring the 0.208.0 Profile caveat.
+
+*Amended at cutover by ADR-0057:* Context path segments need not be kebab-case. IDs that differ only in case are an error.

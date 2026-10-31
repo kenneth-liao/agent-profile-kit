@@ -157,3 +157,5 @@ preserved by that publication machinery.
 ### Amendment: superseded in part by ADR-0025
 
 Spec #371 (ticket #375) removed this record's recording-only `unbind` state boundary. `unbind` still records desired Project Binding state only and never removes generated output, but it now also retires the Project's active ordinary Installation Receipt in the same operation, so no active receipt can outlive its binding. The retired record keeps exactly the detail the active receipt recorded and persists as the sole teardown authority until the next `apply` consumes it. `bind` remains recording-only. See ADR-0025 for the accepted reduction.
+
+*Superseded at cutover by ADR-0056:* each folder owns its installation through a manifest, a folder list replaces Project Bindings, and user-level writes are allowed. Until cutover this decision stays in force for the current engine.

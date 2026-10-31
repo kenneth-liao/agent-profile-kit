@@ -1,0 +1,432 @@
+// The safety core. One rule for every write: replace or delete only what apkit
+// wrote and nobody changed since; anything else needs an explicit decision.
+// The manifest in each target folder records what apkit wrote, by content hash.
+import { createHash } from "node:crypto";
+import { chmod, lstat, mkdir, readdir, readFile, readlink, realpath, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { isTracked } from "./gitindex.js";
+import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
+import { isAgentId, type AgentId, type Desired } from "./render.js";
+import type { NoteRecords } from "./setup.js";
+import { refuseNewer } from "./schema.js";
+
+export const MANIFEST_PATH = ".agents/apkit.json";
+
+export interface Manifest {
+  readonly schema: 1;
+  readonly profile: string;
+  readonly agents: readonly AgentId[];
+  /** POSIX path → content hash, for every file apkit wrote. */
+  readonly files: Readonly<Record<string, string>>;
+  /** Hash of the AGENTS.md block body apkit wrote, or null. */
+  readonly block: string | null;
+  readonly createdAgentsMd: boolean;
+  readonly claudeImport: boolean;
+  /** IDs of the Context Modules installed; absent when none. */
+  readonly context?: readonly string[];
+  /** Present for a user-level install (`install --global`). */
+  readonly scope?: "user";
+  /** User-level instruction files that hold the global Context section, by absolute path. */
+  readonly sections?: NoteRecords;
+}
+
+export type IssueKind =
+  /** An edit to a file the user owns (AGENTS.md, CLAUDE.md). Allowed by `--yes`. */
+  | "consent"
+  /** A file apkit wrote was changed since. Replaced only with `--overwrite`. */
+  | "changed"
+  /** A file apkit did not write is in the way. Replaced only with `--overwrite`. */
+  | "unowned"
+  /** A symlink would take writes or deletions outside the target. Allowed by `--yes`. */
+  | "outside";
+
+export interface Issue {
+  readonly kind: IssueKind;
+  readonly path: string;
+  readonly message: string;
+}
+
+type Op =
+  | { readonly type: "write"; readonly path: string; readonly bytes: Uint8Array; readonly executable: boolean }
+  | { readonly type: "delete"; readonly path: string }
+  /** Whole-file text replacement of an instruction file; null deletes the file. */
+  | { readonly type: "text"; readonly path: string; readonly absolute: string; readonly text: string | null };
+
+/** What the plan does to one instruction file, so the user can decide before it happens (ISC-86). */
+export interface InstructionChange {
+  readonly path: "AGENTS.md" | "CLAUDE.md";
+  readonly action: "create" | "change" | "delete";
+  /** Whether Git tracks the file. */
+  readonly tracked: boolean;
+}
+
+export interface Plan {
+  readonly target: string;
+  /** Absolute path of the manifest `execute` writes or deletes. */
+  readonly manifestPath: string;
+  readonly ops: readonly Op[];
+  readonly issues: readonly Issue[];
+  readonly instructions: readonly InstructionChange[];
+  readonly manifest: Manifest | null;
+  /** The manifest text on disk before the plan, or null. */
+  readonly manifestBefore: string | null;
+}
+
+export interface Decisions {
+  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, and writes through a symlink outside the target. */
+  readonly yes?: boolean;
+  /** Replace or delete files that were changed or not written by apkit. */
+  readonly overwrite?: boolean;
+}
+
+/** Normalizes CRLF so a Git checkout on Windows does not look like an edit. */
+export function hash(bytes: Uint8Array | string): string {
+  const raw = typeof bytes === "string" ? new TextEncoder().encode(bytes) : bytes;
+  const text = Buffer.from(raw).toString("latin1");
+  return createHash("sha256").update(text.replace(/\r\n/g, "\n"), "latin1").digest("hex");
+}
+
+function abs(target: string, path: string): string {
+  return join(target, ...path.split("/"));
+}
+
+async function readBytes(path: string): Promise<Uint8Array | null | "directory"> {
+  try {
+    const info = await stat(path);
+    if (info.isDirectory()) return "directory";
+    return new Uint8Array(await readFile(path));
+  } catch {
+    return null;
+  }
+}
+
+async function readText(path: string): Promise<string | null> {
+  const bytes = await readBytes(path);
+  return bytes === null || bytes === "directory" ? null : new TextDecoder().decode(bytes);
+}
+
+/** Follows a symlinked instruction file so writes land in the real file. */
+async function resolveFile(path: string): Promise<string> {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
+}
+
+function isInside(target: string, path: string): boolean {
+  const rel = relative(target, path);
+  return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
+}
+
+/** The first symlink on the way to `path` that leads outside the target, and where it leads. */
+async function outsideLink(target: string, path: string): Promise<{ link: string; leadsTo: string } | null> {
+  const parts = path.split("/");
+  for (let i = 1; i <= parts.length; i++) {
+    const current = abs(target, parts.slice(0, i).join("/"));
+    let info;
+    try {
+      info = await lstat(current);
+    } catch {
+      return null;
+    }
+    if (!info.isSymbolicLink()) continue;
+    // A dangling link has no real path; read where it points instead.
+    const leadsTo = await realpath(current).catch(async () => resolve(dirname(current), await readlink(current)));
+    if (!isInside(target, leadsTo)) return { link: parts.slice(0, i).join("/"), leadsTo };
+  }
+  return null;
+}
+
+export async function readManifest(target: string): Promise<Manifest | null> {
+  return readManifestAt(abs(target, MANIFEST_PATH), `${MANIFEST_PATH} in ${target}`);
+}
+
+/**
+ * Reads a manifest kept outside its target folder (the global install's, scope "user").
+ * Every field is checked here, so planning never trusts a path or record it did not write.
+ */
+export async function readManifestAt(path: string, label = path, scope?: "user"): Promise<Manifest | null> {
+  const text = await readText(path);
+  if (text === null) return null;
+  let data: Manifest;
+  try {
+    data = JSON.parse(text) as Manifest;
+  } catch {
+    throw new Error(`${label} is not a manifest this version understands: it is not valid JSON.`);
+  }
+  refuseNewer(isRecord(data) ? data.schema : undefined, 1, label);
+  if (!isManifest(data, scope)) throw new Error(`${label} is not a manifest this version understands.`);
+  return data;
+}
+
+const HASH = /^[0-9a-f]{64}$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A POSIX path inside the target: no empty, `.` or `..` segment, no backslash, drive, or leading `/`. */
+function isInsidePath(path: string): boolean {
+  return !/^[A-Za-z]:/.test(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.includes("\\"));
+}
+
+/**
+ * A global manifest path, relative to the home folder: zero or more leading `..`
+ * segments, then a path that passes `isInsidePath`. It is what `relative(home, dir)`
+ * gives for an agent folder (`CLAUDE_CONFIG_DIR`, `GROK_HOME`) outside the home.
+ */
+function isHomeRelativePath(path: string): boolean {
+  return isInsidePath(path.replace(/^(\.\.\/)*/, ""));
+}
+
+function isManifest(data: unknown, scope: "user" | undefined): data is Manifest {
+  if (!isRecord(data) || data.schema !== 1 || typeof data.profile !== "string") return false;
+  if (!Array.isArray(data.agents) || !data.agents.every((agent) => typeof agent === "string" && isAgentId(agent))) return false;
+  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => (scope === "user" ? isHomeRelativePath(path) : isInsidePath(path)) && typeof value === "string" && HASH.test(value))) return false;
+  if (data.block !== null && !(typeof data.block === "string" && HASH.test(data.block))) return false;
+  if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
+  if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
+  if (data.scope !== scope) return false;
+  if (data.sections === undefined) return true;
+  // Only the global manifest, in the apkit home, names user-level files, by absolute path.
+  return (
+    scope === "user" &&
+    isRecord(data.sections) &&
+    Object.entries(data.sections).every(
+      ([path, record]) => isAbsolute(path) && isRecord(record) && typeof record.hash === "string" && HASH.test(record.hash) && typeof record.created === "boolean",
+    )
+  );
+}
+
+export interface PlanOptions {
+  /** Where the manifest lives; defaults to MANIFEST_PATH in the target. */
+  readonly manifestPath?: string;
+  /** Paths that another install in the same folder also owns: never deleted. */
+  readonly shared?: ReadonlySet<string>;
+}
+
+/**
+ * Plans an install or update (desired) or a removal (desired null). Writes nothing.
+ * A user-level install's Context goes in user-level files (see setup.ts), not in the target's AGENTS.md.
+ */
+export async function plan(target: string, desired: Desired | null, previous: Manifest | null, options: PlanOptions = {}): Promise<Plan> {
+  const ops: Op[] = [];
+  const issues: Issue[] = [];
+  const files: Record<string, string> = {};
+  const owned = previous?.files ?? {};
+  const shared = options.shared ?? new Set<string>();
+
+  for (const [path, file] of desired?.files ?? []) {
+    const want = hash(file.bytes);
+    files[path] = want;
+    const disk = await readBytes(abs(target, path));
+    if (disk === "directory") {
+      issues.push({ kind: "unowned", path, message: `${path} is a folder where apkit needs a file.` });
+      continue;
+    }
+    if (disk !== null && hash(disk) === want) continue;
+    if (disk !== null && owned[path] === undefined) {
+      issues.push({ kind: "unowned", path, message: `${path} exists and was not written by apkit.` });
+    } else if (disk !== null && hash(disk) !== owned[path]) {
+      issues.push({ kind: "changed", path, message: `${path} was changed after apkit wrote it.` });
+    }
+    ops.push({ type: "write", path, bytes: file.bytes, executable: file.executable });
+  }
+  for (const [path, was] of Object.entries(owned)) {
+    if (path in files || shared.has(path)) continue;
+    const disk = await readBytes(abs(target, path));
+    if (disk === null || disk === "directory") continue;
+    if (hash(disk) !== was) {
+      issues.push({ kind: "changed", path, message: `${path} was changed after apkit wrote it, and would be deleted.` });
+    }
+    ops.push({ type: "delete", path });
+  }
+
+  // AGENTS.md: the one place Context goes. Every supported agent loads it.
+  const agentsPath = await resolveFile(abs(target, "AGENTS.md"));
+  const agentsText = await readText(agentsPath);
+  const block = agentsText === null ? null : readBlock(agentsText);
+  const body = desired?.scope === "user" ? null : (desired?.context ?? null);
+  let blockHash: string | null = null;
+  let createdAgentsMd = previous?.createdAgentsMd ?? false;
+  if (body !== null) {
+    blockHash = hash(body);
+    if (agentsText === null) {
+      issues.push({ kind: "consent", path: "AGENTS.md", message: "Create AGENTS.md to hold this Profile's Context." });
+      createdAgentsMd = true;
+    } else if (block === null) {
+      if (previous?.block) {
+        issues.push({ kind: "changed", path: "AGENTS.md", message: "The apkit section was removed from AGENTS.md." });
+      } else {
+        issues.push({ kind: "consent", path: "AGENTS.md", message: "Add a marked apkit section with this Profile's Context to AGENTS.md." });
+      }
+    } else if (hash(block) !== blockHash) {
+      if (!previous?.block) {
+        issues.push({ kind: "unowned", path: "AGENTS.md", message: "AGENTS.md already has an apkit section that this folder's install did not write." });
+      } else if (hash(block) !== previous.block) {
+        issues.push({ kind: "changed", path: "AGENTS.md", message: "The apkit section in AGENTS.md was changed after apkit wrote it." });
+      }
+    }
+    if (block === null || hash(block) !== blockHash) {
+      ops.push({ type: "text", path: "AGENTS.md", absolute: agentsPath, text: writeBlock(agentsText, body) });
+    }
+  } else if (block !== null && previous?.block) {
+    if (hash(block) !== previous.block) {
+      issues.push({ kind: "changed", path: "AGENTS.md", message: "The apkit section in AGENTS.md was changed after apkit wrote it, and would be removed." });
+    }
+    const remaining = writeBlock(agentsText, null);
+    ops.push({
+      type: "text",
+      path: "AGENTS.md",
+      absolute: agentsPath,
+      text: createdAgentsMd && remaining.trim() === "" ? null : remaining,
+    });
+    createdAgentsMd = false;
+  }
+
+  // CLAUDE.md: Claude Code reads it instead of AGENTS.md when it exists, so it
+  // needs one import line. Never put the block itself here: Grok reads both.
+  const claudePath = await resolveFile(abs(target, "CLAUDE.md"));
+  const claudeText = await readText(claudePath);
+  const sameFile = claudeText !== null && agentsText !== null && claudePath === agentsPath;
+  const wantImport = body !== null && (desired?.agents.includes("claude") ?? false) && claudeText !== null && !sameFile;
+  let claudeImport = false;
+  if (wantImport && claudeText !== null) {
+    if (hasClaudeImport(claudeText)) {
+      claudeImport = previous?.claudeImport ?? false;
+    } else {
+      issues.push({ kind: "consent", path: "CLAUDE.md", message: "Add `@AGENTS.md` to CLAUDE.md so Claude Code loads the Context." });
+      ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: addClaudeImport(claudeText) });
+      claudeImport = true;
+    }
+  } else if (previous?.claudeImport && claudeText !== null && hasClaudeImport(claudeText)) {
+    const remaining = removeClaudeImport(claudeText);
+    ops.push({ type: "text", path: "CLAUDE.md", absolute: claudePath, text: remaining });
+  }
+
+  const manifest: Manifest | null =
+    desired === null
+      ? null
+      : {
+          schema: 1,
+          profile: desired.profile,
+          agents: desired.agents,
+          files,
+          block: blockHash,
+          createdAgentsMd,
+          claudeImport,
+          ...(desired.contextIds.length === 0 ? {} : { context: desired.contextIds }),
+          ...(desired.scope === undefined ? {} : { scope: desired.scope }),
+        };
+  const manifestPath = options.manifestPath ?? abs(target, MANIFEST_PATH);
+  const manifestBefore = await readText(manifestPath);
+
+  // A symlink can lead a write or deletion out of the target: the user decides.
+  if ((desired?.scope ?? previous?.scope) === undefined) {
+    const touched = ops.map((op) => op.path);
+    if (changesManifest({ manifest, manifestBefore })) touched.push(MANIFEST_PATH);
+    const links = new Map<string, { leadsTo: string; count: number }>();
+    for (const path of touched) {
+      const found = await outsideLink(target, path);
+      if (found === null) continue;
+      const seen = links.get(found.link) ?? { leadsTo: found.leadsTo, count: 0 };
+      links.set(found.link, { ...seen, count: seen.count + 1 });
+    }
+    for (const [link, { leadsTo, count }] of links) {
+      issues.push({
+        kind: "outside",
+        path: link,
+        message: `${link} is a symlink to ${leadsTo}, outside this folder. apkit would change ${count} ${count === 1 ? "file" : "files"} there.`,
+      });
+    }
+  }
+
+  const instructions: InstructionChange[] = [];
+  for (const op of ops) {
+    if (op.type !== "text") continue;
+    const path = op.path as InstructionChange["path"];
+    const before = path === "AGENTS.md" ? agentsText : claudeText;
+    const action = before === null ? "create" : op.text === null ? "delete" : "change";
+    instructions.push({ path, action, tracked: await isTracked(target, path) });
+  }
+
+  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore };
+}
+
+function manifestText(manifest: Manifest): string {
+  return `${JSON.stringify(manifest, null, 2)}\n`;
+}
+
+/** Whether `execute` writes or deletes the manifest: a new selection or record changes it even when no file does. */
+export function changesManifest(planned: Pick<Plan, "manifest" | "manifestBefore">): boolean {
+  return planned.manifest === null ? planned.manifestBefore !== null : manifestText(planned.manifest) !== planned.manifestBefore;
+}
+
+/** Issues the given decisions do not settle. Nothing is written while any remain. */
+export function unresolved(planned: Plan, decisions: Decisions): Issue[] {
+  return planned.issues.filter((issue) => (issue.kind === "consent" || issue.kind === "outside" ? !decisions.yes : !decisions.overwrite));
+}
+
+/** Applies a plan whose issues are all settled. The manifest is written last. */
+export async function execute(planned: Plan): Promise<void> {
+  const { target } = planned;
+  for (const op of planned.ops) {
+    if (op.type === "write") {
+      const path = abs(target, op.path);
+      await atomicWrite(path, op.bytes);
+      if (op.executable) await chmod(path, 0o755);
+    } else if (op.type === "text") {
+      if (op.text === null) await unlink(op.absolute);
+      else await atomicWrite(op.absolute, new TextEncoder().encode(op.text));
+    } else {
+      await unlink(abs(target, op.path)).catch(() => undefined);
+      await pruneEmpty(target, dirname(abs(target, op.path)));
+    }
+  }
+  const { manifestPath } = planned;
+  if (!changesManifest(planned)) return;
+  if (planned.manifest === null) {
+    await unlink(manifestPath).catch(() => undefined);
+    await pruneEmpty(target, dirname(manifestPath));
+  } else {
+    await atomicWrite(manifestPath, new TextEncoder().encode(manifestText(planned.manifest)));
+  }
+}
+
+/** Temp file + rename, retried briefly: Windows refuses renames over files another process holds open. */
+export async function atomicWrite(path: string, bytes: Uint8Array): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temp = `${path}.apkit-${process.pid}.tmp`;
+  await writeFile(temp, bytes);
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await rename(temp, path);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (attempt >= 5 || (code !== "EPERM" && code !== "EBUSY" && code !== "EACCES")) {
+        await unlink(temp).catch(() => undefined);
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
+}
+
+/**
+ * Removes now-empty folders apkit's files lived in, stopping at the target and at
+ * the first link: on Windows, rmdir would delete a junction the user made.
+ */
+async function pruneEmpty(target: string, dir: string): Promise<void> {
+  let current = dir;
+  while (current.length > target.length && current.startsWith(target)) {
+    try {
+      if ((await lstat(current)).isSymbolicLink() || (await readdir(current)).length > 0) return;
+      await rmdir(current);
+    } catch {
+      return;
+    }
+    current = dirname(current);
+  }
+}
