@@ -147,6 +147,39 @@ describe("apkit-next CLI", () => {
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
   });
 
+  test("an install names each selected agent that needs the folder trusted, and what waits for it", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const install = async (profile: string, agents: string) =>
+      cli(home, await tempDir("project"), "install", profile, "--agents", agents, "--yes").out;
+
+    const skills = await install("engineering", "codex,pi");
+    expect(skills).toContain("Codex and Pi load this folder's Skills only after you trust the folder.");
+    const everything = await install("skills-only", "grok,antigravity");
+    expect(everything).toContain("Antigravity and Grok load nothing from this folder until you trust it.");
+    // Grok holds back Context too; Codex loads Context without trust, so a Profile with no Skills needs no line for it.
+    expect(await install("writing", "codex,grok")).toEndWith("\nGrok loads nothing from this folder until you trust it.\n");
+    expect(await install("engineering", "claude,opencode")).not.toContain("trust");
+    for (const out of [skills, everything]) expect(out).not.toMatch(/\bloaded\b/);
+  });
+
+  test("install --json lists the same trust needs, and a user-level install has none", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const install = async (agents: string) =>
+      JSON.parse(cli(home, await tempDir("project"), "install", "engineering", "--agents", agents, "--yes", "--json").out);
+
+    expect((await install("claude,codex,grok")).trust).toEqual([
+      { agent: "codex", untilTrusted: "skills" },
+      { agent: "grok", untilTrusted: "everything" },
+    ]);
+    expect((await install("claude")).trust).toEqual([]);
+    const global = cli(home, home, "install", "skills-only", "--global", "--agents", "codex,grok", "--json");
+    expect(JSON.parse(global.out).trust).toEqual([]);
+  });
+
   test("bare invocation points agents at the guide", async () => {
     const home = await tempDir("home");
     const bare = cli(home, home);
