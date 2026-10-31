@@ -49,7 +49,7 @@ Never copy or edit installed files by hand.
 
 ## Workspace format
 
-    workspace.yaml          exactly: schema_version: 1
+    apkit-workspace.yaml    marks the Workspace; may be empty
     context/<id>.md         a Context Module; folders allowed (id: writing/voice)
     skills/<dir>/SKILL.md   an Agent Skills package; its \`name\` is its id
     profiles/<id>.yaml      context: [ids] and skills: [names], both lists required

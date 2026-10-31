@@ -233,7 +233,9 @@ async function main(argv: readonly string[]): Promise<number> {
         return EXIT.ok;
       }
       const workspace = await loadWorkspace(resolve(path));
-      if (workspace.violations.some((v) => v.code === "workspace-missing-manifest")) {
+      const unmarked = workspace.violations.find((v) => v.code === "workspace-missing-manifest" || v.code === "workspace-old-manifest");
+      if (unmarked?.code === "workspace-old-manifest") throw new Error(`${display(workspace.root)}: ${unmarked.message}`);
+      if (unmarked !== undefined) {
         throw new Error(`${display(workspace.root)} is not a Workspace. Run \`apkit-next init ${path}\` to make it one.`);
       }
       const config = await readConfig();
