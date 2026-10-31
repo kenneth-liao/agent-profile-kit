@@ -187,9 +187,13 @@ function describe(outcome: Outcome, mode: "apply" | "status"): string {
       return `${where}: ${outcome.message}`;
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
+      const yes = [
+        outcome.issues?.some((i) => i.kind === "consent") ? "the edits to your instruction files" : null,
+        outcome.issues?.some((i) => i.kind === "outside") ? "the writes outside this folder" : null,
+      ].filter((what) => what !== null);
       const flags = [
-        outcome.issues?.some((i) => i.kind === "consent") ? "--yes to allow the edits to your instruction files" : null,
-        outcome.issues?.some((i) => i.kind !== "consent") ? "--overwrite to replace the changed files" : null,
+        yes.length > 0 ? `--yes to allow ${yes.join(" and ")}` : null,
+        outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") ? "--overwrite to replace the changed files" : null,
       ].filter((flag) => flag !== null);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
       const files = (outcome.instructions ?? []).map(
