@@ -8,6 +8,7 @@ import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
 import { isAgentId, type AgentId, type Desired } from "./render.js";
 import type { NoteRecords } from "./setup.js";
+import { refuseNewer } from "./schema.js";
 
 export const MANIFEST_PATH = ".agents/apkit.json";
 
@@ -142,6 +143,7 @@ export async function readManifestAt(path: string, label = path): Promise<Manife
   const text = await readText(path);
   if (text === null) return null;
   const data = JSON.parse(text) as Manifest;
+  refuseNewer(data.schema, 1, label);
   if (data.schema !== 1 || !Array.isArray(data.agents) || !data.agents.every(isAgentId)) {
     throw new Error(`${label} is not a manifest this version understands.`);
   }

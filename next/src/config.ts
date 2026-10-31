@@ -4,6 +4,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { refuseNewer } from "./schema.js";
 import type { NoteRecords } from "./setup.js";
 
 export interface Config {
@@ -24,20 +25,23 @@ const configPath = () => join(configHome(), "config.json");
 /** The global install's manifest. It lives apart from the home folder, which can have a project install of its own. */
 export const globalManifestPath = () => join(configHome(), "global.json");
 
+/** Throws NewerSchemaError for a configuration from a newer apkit; a file without a schema is schema 1. */
 export async function readConfig(): Promise<Config> {
+  let data: Partial<Config> & { schema?: unknown };
   try {
-    const data = JSON.parse(await readFile(configPath(), "utf8")) as Partial<Config>;
-    return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };
+    data = JSON.parse(await readFile(configPath(), "utf8"));
   } catch {
     return { installs: [] };
   }
+  refuseNewer(data.schema, 1, configPath());
+  return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };
 }
 
 export async function writeConfig(config: Config): Promise<void> {
   await mkdir(configHome(), { recursive: true });
   const temp = `${configPath()}.tmp`;
   const installs = [...new Set(config.installs)].sort();
-  await writeFile(temp, `${JSON.stringify({ ...config, installs }, null, 2)}\n`);
+  await writeFile(temp, `${JSON.stringify({ schema: 1, ...config, installs }, null, 2)}\n`);
   await rename(temp, configPath());
 }
 

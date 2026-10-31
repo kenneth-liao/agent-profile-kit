@@ -31,6 +31,7 @@ import {
   planSections,
   type NotePlan,
 } from "./setup.js";
+import { NewerSchemaError } from "./schema.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
@@ -131,7 +132,7 @@ async function globalTarget(): Promise<Target> {
 }
 
 async function previousAt(target: Target): Promise<Manifest | null> {
-  return target.global ? readManifestAt(globalManifestPath(), "The global install's manifest") : readManifest(target.folder);
+  return target.global ? readManifestAt(globalManifestPath()) : readManifest(target.folder);
 }
 
 interface Planned {
@@ -211,13 +212,26 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
   } catch {
     return { folder, result: "missing", message: "The folder no longer exists." };
   }
-  const previous = await previousAt(target);
+  let previous: Manifest | null;
+  try {
+    previous = await previousAt(target);
+  } catch (error) {
+    if (error instanceof NewerSchemaError) return { folder, ...(target.global ? { global: target.global } : {}), result: "error", message: error.message };
+    throw error;
+  }
   if (previous === null) return { folder, result: "not-installed" };
   const base = { folder, ...(target.global ? { global: target.global } : {}), profile: previous.profile, agents: previous.agents };
   if (!workspace.profiles.has(previous.profile)) {
     return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
   }
-  const planned = await planAt(target, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
+  let planned: Planned;
+  try {
+    // A project install in the home folder also reads the global manifest, which can be newer.
+    planned = await planAt(target, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
+  } catch (error) {
+    if (error instanceof NewerSchemaError) return { ...base, result: "error", message: error.message };
+    throw error;
+  }
   if (planned.issues.length > 0) {
     return { ...base, result: "needs-decision", issues: planned.issues, instructions: planned.files.instructions };
   }
@@ -230,7 +244,7 @@ async function targets(args: Args): Promise<Target[]> {
   if (!args.flags.has("--all")) return [{ folder: await folderArg(args.positional[1]) }];
   const folders: Target[] = (await readConfig()).installs.map((folder) => ({ folder }));
   const global = await globalTarget();
-  return (await previousAt(global)) === null ? folders : [...folders, global];
+  return (await stat(globalManifestPath()).then(() => true, () => false)) ? [...folders, global] : folders;
 }
 
 function describe(outcome: Outcome, mode: "apply" | "status"): string {
@@ -311,6 +325,8 @@ async function main(argv: readonly string[]): Promise<number> {
   const json = args.flags.has("--json");
   const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };
   const command = args.positional[0];
+  // A configuration from a newer apkit stops every command before anything is written.
+  if (command !== undefined && command !== "help" && command !== "guide") await readConfig();
   const print = (text: string, data: unknown) => console.log(json ? JSON.stringify(data, null, 2) : text);
 
   switch (command) {
