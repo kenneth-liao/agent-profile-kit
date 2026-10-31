@@ -2,9 +2,12 @@
 // Context block in AGENTS.md and the `@AGENTS.md` import line in CLAUDE.md.
 // Line endings follow the file being edited, so Windows files stay CRLF.
 
-const BEGIN = "<!-- apkit:begin -->";
-const END = "<!-- apkit:end -->";
-const BLOCK = /<!-- apkit:begin -->\r?\n([\s\S]*?)<!-- apkit:end -->(\r?\n)?/;
+/** Marker names: `apkit` for a project block and the setup note, `apkit:global` for user-level Context. */
+export type Marker = "apkit" | "apkit:global";
+
+const begin = (marker: Marker) => `<!-- ${marker}:begin -->`;
+const end = (marker: Marker) => `<!-- ${marker}:end -->`;
+const blockPattern = (marker: Marker) => new RegExp(`${begin(marker)}\\r?\\n([\\s\\S]*?)${end(marker)}(\\r?\\n)?`);
 const IMPORT_LINE = /^[ \t]*@(?:\.\/)?AGENTS\.md[ \t]*$/m;
 
 export function eolOf(text: string | null): string {
@@ -16,16 +19,16 @@ function withEol(text: string, eol: string): string {
 }
 
 /** The block body (LF line endings), or null when the file has no block. */
-export function readBlock(text: string): string | null {
-  const match = BLOCK.exec(text);
+export function readBlock(text: string, marker: Marker = "apkit"): string | null {
+  const match = blockPattern(marker).exec(text);
   return match === null ? null : (match[1] ?? "").replace(/\r\n/g, "\n");
 }
 
 /** Inserts, replaces, or (with body null) removes the block. */
-export function writeBlock(text: string | null, body: string | null): string {
+export function writeBlock(text: string | null, body: string | null, marker: Marker = "apkit"): string {
   const current = text ?? "";
   const eol = eolOf(text);
-  const match = BLOCK.exec(current);
+  const match = blockPattern(marker).exec(current);
   if (body === null) {
     if (match === null) return current;
     const before = current.slice(0, match.index).replace(/(\r?\n)+$/, eol);
@@ -33,7 +36,7 @@ export function writeBlock(text: string | null, body: string | null): string {
     const joined = before + after;
     return joined.trim() === "" ? "" : joined.replace(/(\r?\n)+$/, eol);
   }
-  const block = withEol(`${BEGIN}\n${body}${END}\n`, eol);
+  const block = withEol(`${begin(marker)}\n${body}${end(marker)}\n`, eol);
   if (match !== null) {
     return current.slice(0, match.index) + block + current.slice(match.index + match[0].length);
   }

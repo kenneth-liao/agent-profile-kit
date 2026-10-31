@@ -7,6 +7,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isTracked } from "./gitindex.js";
 import { addClaudeImport, hasClaudeImport, readBlock, removeClaudeImport, writeBlock } from "./instructions.js";
 import { isAgentId, type AgentId, type Desired } from "./render.js";
+import type { NoteRecords } from "./setup.js";
 import { refuseNewer } from "./schema.js";
 
 export const MANIFEST_PATH = ".agents/apkit.json";
@@ -23,6 +24,8 @@ export interface Manifest {
   readonly claudeImport: boolean;
   /** Present for a user-level install (`install --global`). */
   readonly scope?: "user";
+  /** User-level instruction files that hold the global Context section, by absolute path. */
+  readonly sections?: NoteRecords;
 }
 
 export type IssueKind =
@@ -57,6 +60,8 @@ export interface InstructionChange {
 
 export interface Plan {
   readonly target: string;
+  /** Absolute path of the manifest `execute` writes or deletes. */
+  readonly manifestPath: string;
   readonly ops: readonly Op[];
   readonly issues: readonly Issue[];
   readonly instructions: readonly InstructionChange[];
@@ -130,22 +135,38 @@ async function outsideLink(target: string, path: string): Promise<{ link: string
 }
 
 export async function readManifest(target: string): Promise<Manifest | null> {
-  const text = await readText(abs(target, MANIFEST_PATH));
+  return readManifestAt(abs(target, MANIFEST_PATH), `${MANIFEST_PATH} in ${target}`);
+}
+
+/** Reads a manifest kept outside its target folder (the global install's). */
+export async function readManifestAt(path: string, label = path): Promise<Manifest | null> {
+  const text = await readText(path);
   if (text === null) return null;
   const data = JSON.parse(text) as Manifest;
-  refuseNewer(data.schema, 1, `${MANIFEST_PATH} in ${target}`);
+  refuseNewer(data.schema, 1, label);
   if (data.schema !== 1 || !Array.isArray(data.agents) || !data.agents.every(isAgentId)) {
-    throw new Error(`${MANIFEST_PATH} in ${target} is not a manifest this version understands.`);
+    throw new Error(`${label} is not a manifest this version understands.`);
   }
   return data;
 }
 
-/** Plans an install or update (desired) or a removal (desired null). Writes nothing. */
-export async function plan(target: string, desired: Desired | null, previous: Manifest | null): Promise<Plan> {
+export interface PlanOptions {
+  /** Where the manifest lives; defaults to MANIFEST_PATH in the target. */
+  readonly manifestPath?: string;
+  /** Paths that another install in the same folder also owns: never deleted. */
+  readonly shared?: ReadonlySet<string>;
+}
+
+/**
+ * Plans an install or update (desired) or a removal (desired null). Writes nothing.
+ * A user-level install's Context goes in user-level files (see setup.ts), not in the target's AGENTS.md.
+ */
+export async function plan(target: string, desired: Desired | null, previous: Manifest | null, options: PlanOptions = {}): Promise<Plan> {
   const ops: Op[] = [];
   const issues: Issue[] = [];
   const files: Record<string, string> = {};
   const owned = previous?.files ?? {};
+  const shared = options.shared ?? new Set<string>();
 
   for (const [path, file] of desired?.files ?? []) {
     const want = hash(file.bytes);
@@ -164,7 +185,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     ops.push({ type: "write", path, bytes: file.bytes, executable: file.executable });
   }
   for (const [path, was] of Object.entries(owned)) {
-    if (path in files) continue;
+    if (path in files || shared.has(path)) continue;
     const disk = await readBytes(abs(target, path));
     if (disk === null || disk === "directory") continue;
     if (hash(disk) !== was) {
@@ -177,7 +198,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
   const agentsPath = await resolveFile(abs(target, "AGENTS.md"));
   const agentsText = await readText(agentsPath);
   const block = agentsText === null ? null : readBlock(agentsText);
-  const body = desired?.context ?? null;
+  const body = desired?.scope === "user" ? null : (desired?.context ?? null);
   let blockHash: string | null = null;
   let createdAgentsMd = previous?.createdAgentsMd ?? false;
   if (body !== null) {
@@ -277,7 +298,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
           claudeImport,
           ...(desired.scope === undefined ? {} : { scope: desired.scope }),
         };
-  return { target, ops, issues, instructions, manifest };
+  return { target, manifestPath: options.manifestPath ?? abs(target, MANIFEST_PATH), ops, issues, instructions, manifest };
 }
 
 /** Issues the given decisions do not settle. Nothing is written while any remain. */
@@ -301,7 +322,7 @@ export async function execute(planned: Plan): Promise<void> {
       await pruneEmpty(target, dirname(abs(target, op.path)));
     }
   }
-  const manifestPath = abs(target, MANIFEST_PATH);
+  const { manifestPath } = planned;
   if (planned.manifest === null) {
     await unlink(manifestPath).catch(() => undefined);
     await pruneEmpty(target, dirname(manifestPath));

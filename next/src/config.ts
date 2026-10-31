@@ -22,6 +22,9 @@ export function configHome(): string {
 
 const configPath = () => join(configHome(), "config.json");
 
+/** The global install's manifest. It lives apart from the home folder, which can have a project install of its own. */
+export const globalManifestPath = () => join(configHome(), "global.json");
+
 /** Throws NewerSchemaError for a configuration from a newer apkit; a file without a schema is schema 1. */
 export async function readConfig(): Promise<Config> {
   let data: Partial<Config> & { schema?: unknown };
