@@ -52,8 +52,10 @@ Never copy or edit installed files by hand.
     apkit-workspace.yaml    marks the Workspace; may be empty
     context/<id>.md         a Context Module; folders allowed (id: writing/voice)
     skills/<dir>/SKILL.md   an Agent Skills package; its \`name\` is its id
-    profiles/<id>.yaml      context: [ids] and skills: [names], both lists required
+    profiles/<id>.yaml      context: [ids] and skills: [names] or all; .yml is fine
 
+A missing list is empty. \`skills: all\` selects every Skill, including ones
+added later; Context has no \`all\`, because it is joined in list order.
 Names are lowercase kebab-case. Edit these files directly, then run
 \`${COMMAND} check\` and fix anything it reports.
 
