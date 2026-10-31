@@ -123,7 +123,7 @@ then re-run the same command:
 
 ## After installing
 
-Tell the user once that some agents load project instructions only in
-folders they trust, so they should trust the folder when the agent asks.
+${COMMAND} names each selected agent that does not load what it installed
+until the user trusts the folder. Pass those lines on to the user.
 Agents pick up installed material in their next session.
 `;
