@@ -1,5 +1,5 @@
 // Reads and validates a Workspace. The format is the Workspace contract
-// (docs/guides/workspace-contract.md) as simplified by ADR-0057.
+// (next/docs/workspace-contract.md), as simplified by ADR-0057.
 import { lstat, mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, parseDocument } from "yaml";
@@ -66,14 +66,16 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
   const add = (code: string, path: string, message: string) => violations.push({ code, path, message });
 
   await checkManifest(root, add);
-  const context = await loadContext(root, add);
+  const { context, declared } = await loadContext(root, add);
   const skills = await loadSkills(root, add);
-  const { profiles, paths } = await loadProfiles(root, skills, add);
+  const { profiles, selections } = await loadProfiles(root, skills, add);
 
-  for (const profile of profiles.values()) {
-    const path = paths.get(profile.id) as string;
+  // Every readable selection is checked, even in a Profile with another error, so one run names every change.
+  for (const { profile, path } of selections) {
     for (const id of profile.context) {
-      if (!context.has(id)) add("missing-context-reference", path, `Profile '${profile.id}' names Context '${id}', which does not exist.`);
+      if (!context.has(id)) {
+        add("missing-context-reference", path, `Profile '${profile.id}' names Context '${id}', which does not exist${contextFix(id, context, declared)}.`);
+      }
     }
     for (const name of profile.skills) {
       if (!skills.has(name)) add("missing-skill-reference", path, `Profile '${profile.id}' names Skill '${name}', which does not exist.`);
@@ -90,6 +92,20 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
 }
 
 type Add = (code: string, path: string, message: string) => void;
+
+/**
+ * Names the change for a Context reference that matches no ID, when one is clear. Earlier releases
+ * took a Context ID from frontmatter `id` or from the file name alone; today the ID is the path.
+ */
+function contextFix(id: string, context: ReadonlyMap<string, ContextModule>, declared: ReadonlyMap<string, readonly string[]>): string {
+  const moved = [...context.keys()].filter((other) => other.endsWith(`/${id}`));
+  if (moved.length === 1) return `; use '${moved[0]}', the ID of context/${moved[0]}.md`;
+  const files = declared.get(id) ?? [];
+  if (files.length === 1) {
+    return `; ${files[0]} declares \`id: ${id}\`, but a Context ID is its path, so rename ${files[0]} to context/${id}.md`;
+  }
+  return "";
+}
 
 /** The file whose presence makes a folder a Workspace (ADR-0057 §6). */
 const MARKER = "apkit-workspace.yaml";
@@ -157,8 +173,13 @@ async function walk(dir: string, add: Add, label: string, skip: readonly string[
   return files;
 }
 
-async function loadContext(root: string, add: Add): Promise<Map<string, ContextModule>> {
+async function loadContext(
+  root: string,
+  add: Add,
+): Promise<{ context: Map<string, ContextModule>; declared: Map<string, string[]> }> {
   const modules = new Map<string, ContextModule>();
+  /** Frontmatter `id` → the files that declare it; used only to name a fix (contextFix). */
+  const declared = new Map<string, string[]>();
   const dir = join(root, "context");
   const files = await walk(dir, add, "context");
   // IDs that differ only in case would collide on a case-insensitive file system (ADR-0057 §1).
@@ -182,8 +203,10 @@ async function loadContext(root: string, add: Add): Promise<Map<string, ContextM
       continue;
     }
     modules.set(id, { id, text });
+    const old = readFrontmatter(text)?.id;
+    if (typeof old === "string" && old !== id) declared.set(old, [...(declared.get(old) ?? []), path]);
   }
-  return modules;
+  return { context: modules, declared };
 }
 
 async function loadSkills(root: string, add: Add): Promise<Map<string, Skill>> {
@@ -270,9 +293,9 @@ async function loadProfiles(
   root: string,
   skillMap: ReadonlyMap<string, Skill>,
   add: Add,
-): Promise<{ profiles: Map<string, Profile>; paths: Map<string, string> }> {
+): Promise<{ profiles: Map<string, Profile>; selections: { profile: Profile; path: string }[] }> {
   const profiles = new Map<string, Profile>();
-  const paths = new Map<string, string>();
+  const selections: { profile: Profile; path: string }[] = [];
   const dir = join(root, "profiles");
   const files = await walk(dir, add, "profiles");
   const ids = files.map((file) => PROFILE_FILE.exec(file)?.[1]);
@@ -303,9 +326,16 @@ async function loadProfiles(
       continue;
     }
     if (data === null || data === undefined) data = {};
-    if (!isRecord(data) || Object.keys(data).some((key) => key !== "context" && key !== "skills")) {
+    if (!isRecord(data)) {
       add("invalid-profile", path, `${path} may contain only a \`context\` list and a \`skills\` list.`);
       continue;
+    }
+    // Other keys are reported, but the lists are still read, so their references are checked in the same run.
+    const extra = Object.keys(data).filter((key) => key !== "context" && key !== "skills");
+    if (extra.length > 0) {
+      const named = extra.map((key) => `\`${key}\``).join(", ");
+      const why = extra.includes("id") ? ", and its ID is its file name" : "";
+      add("invalid-profile", path, `${path}: remove ${named}; a Profile holds only a \`context\` list and a \`skills\` list${why}.`);
     }
     if (data.context === "all") {
       add("invalid-profile", path, `${path}: Context must be listed by ID, in the order to join it; \`all\` is only for skills.`);
@@ -325,10 +355,10 @@ async function loadProfiles(
     if (context.length === 0 && skills.length === 0 && selected !== "all") {
       add("profile-without-artifacts", path, `${path} selects nothing; installing it installs nothing.`);
     }
-    profiles.set(id, { id, context, skills });
-    paths.set(id, path);
+    selections.push({ profile: { id, context, skills }, path });
+    if (extra.length === 0) profiles.set(id, { id, context, skills });
   }
-  return { profiles, paths };
+  return { profiles, selections };
 }
 
 function readFrontmatter(source: string): Record<string, unknown> | undefined {

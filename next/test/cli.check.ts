@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
 import { AGENTS } from "../src/render.js";
+import { loadWorkspace, type Violation } from "../src/workspace.js";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 
 const CLI = join(import.meta.dir, "..", "src", "cli.ts");
@@ -880,6 +882,36 @@ describe("apkit-next CLI", () => {
     for (const agent of Object.keys(AGENTS)) expect(GUIDE).toContain(agent);
   });
 
+  test("`contract` prints the Workspace contract byte for byte, without a lock or a Workspace", async () => {
+    const home = await tempDir("home");
+    expect(HELP).toMatch(new RegExp(`^  ${COMMAND} contract `, "m"));
+    const printed = cli(home, home, "contract");
+    expect([printed.code, printed.err]).toEqual([0, ""]);
+    expect(printed.out).toBe(await readFile(join(import.meta.dir, "..", "docs", "workspace-contract.md"), "utf8"));
+    // No lock, no config: apkit wrote nothing (the runtime may add its own cache folder).
+    expect((await readdir(home)).filter((name) => name.startsWith("lock") || name.endsWith(".json"))).toEqual([]);
+  });
+
+  test("failed validation names how to read the contract", async () => {
+    const home = await tempDir("home");
+    const ws = await tempDir("ws");
+    const folder = await tempDir("f");
+    await writeTree(ws, { "apkit-workspace.yaml": "", "profiles/p.yaml": "skills: [gone]\n" });
+    const pointer = `Read the Workspace contract: \`${COMMAND} contract\``;
+    const check = cli(home, folder, "check", "--workspace", ws);
+    expect(check.code).toBe(1);
+    expect(check.out).toContain(pointer);
+    expect(JSON.parse(cli(home, folder, "check", "--workspace", ws, "--json").out).contract).toBe(`${COMMAND} contract`);
+    const selected = cli(home, folder, "workspace", ws);
+    expect(selected.out).toContain(pointer);
+    expect(JSON.parse(cli(home, folder, "workspace", ws, "--json").out).contract).toBe(`${COMMAND} contract`);
+    const install = cli(home, folder, "install", "p", "--workspace", ws, "--agents", "codex");
+    expect(install.code).toBe(1);
+    expect(install.err).toContain(pointer);
+    const valid = cli(home, folder, "check", "--workspace", await makeWorkspace(), "--json");
+    expect(JSON.parse(valid.out).contract).toBeUndefined();
+  });
+
   test("the guide asks first, leaves commits to the user, and starts with setup", () => {
     const decisions = GUIDE.slice(GUIDE.indexOf("## Decisions"), GUIDE.indexOf("## After installing"));
     expect(decisions).toContain("whether Git tracks it");
@@ -1034,5 +1066,94 @@ describe("concurrent runs", () => {
     const run = cli(home, folder, "install", "skills-only", "--agents", "codex");
     expect([run.code, run.err]).toEqual([0, ""]);
     expect((await readdir(home)).filter((name) => name.startsWith("lock"))).toEqual([]);
+  }, SLOW);
+});
+
+/** The Workspaces kept from earlier releases that changed the contract (test/retained/README.md). */
+const RETAINED = {
+  "0.204.0 source": join(import.meta.dir, "..", "..", "test", "support", "fixtures", "compat-0.204.0", "workspace-source"),
+  "0.204.0 realistic": join(import.meta.dir, "..", "..", "test", "support", "fixtures", "compat-0.204.0", "workspace-realistic"),
+  "0.237.0": join(import.meta.dir, "retained", "compat-0.237.0"),
+};
+
+/** Makes exactly the change each error names, reading it only from the error's path and message. */
+async function applyNamedChanges(root: string, errors: readonly Violation[]): Promise<void> {
+  const editProfile = async (path: string, edit: (data: Record<string, unknown>) => void) => {
+    const file = join(root, ...path.split("/"));
+    const data = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+    edit(data);
+    await writeFile(file, stringifyYaml(data));
+  };
+  for (const error of errors) {
+    const rename_ = /Rename (\S+) to (\S+?);/.exec(error.message) ?? /rename (\S+) to (\S+?\.md)/.exec(error.message);
+    const remove = /remove ((?:`[^`]+`(?:, )?)+);/.exec(error.message);
+    const use = /use '([^']+)'/.exec(error.message);
+    const missing = /names Context '([^']+)'/.exec(error.message);
+    if (remove) {
+      const keys = [...(remove[1] as string).matchAll(/`([^`]+)`/g)].map((m) => m[1] as string);
+      await editProfile(error.path, (data) => keys.forEach((key) => delete data[key]));
+    } else if (use && missing) {
+      await editProfile(error.path, (data) => {
+        data.context = (data.context as string[]).map((id) => (id === missing[1] ? (use[1] as string) : id));
+      });
+    } else if (rename_) {
+      await rename(join(root, ...(rename_[1] as string).split("/")), join(root, ...(rename_[2] as string).split("/")));
+    } else {
+      throw new Error(`No change named: ${error.message}`);
+    }
+  }
+}
+
+describe("Workspaces valid in an earlier release", () => {
+  const SLOW = 60_000;
+  const count = (errors: readonly Violation[]) =>
+    Object.fromEntries([...new Set(errors.map((e) => e.code))].map((code) => [code, errors.filter((e) => e.code === code).length]));
+
+  for (const [release, source] of Object.entries(RETAINED)) {
+    test(`${release}: one check names every change, and making them leaves a valid Workspace`, async () => {
+      const root = await tempDir("retained");
+      await cp(source, root, { recursive: true });
+      const errors = (await loadWorkspace(root)).violations;
+      expect(errors.length).toBeGreaterThan(0);
+      await applyNamedChanges(root, errors);
+      const after = await loadWorkspace(root);
+      expect(after.violations).toEqual([]);
+      expect(after.warnings).toEqual([]);
+    });
+  }
+
+  test("0.204.0 source: the errors name the rename, the retired Profile key, and the Context file to rename", async () => {
+    const root = await tempDir("retained");
+    await cp(RETAINED["0.204.0 source"], root, { recursive: true });
+    const errors = (await loadWorkspace(root)).violations;
+    expect(errors.map((e) => [e.code, e.path])).toEqual([
+      ["workspace-old-manifest", "workspace.yaml"],
+      ["invalid-profile", "profiles/coding.yaml"],
+      ["invalid-profile", "profiles/example.yaml"],
+      ["missing-context-reference", "profiles/example.yaml"],
+    ]);
+    expect(errors[1]?.message).toContain("remove `id`;");
+    expect(errors[3]?.message).toContain("rename context/legacy-name.md to context/legacy-rules.md");
+  });
+
+  test("0.204.0 realistic: one check names every change; after them, it passes check and installs", async () => {
+    const home = await tempDir("home");
+    const root = await tempDir("retained");
+    const project = await tempDir("project");
+    await cp(RETAINED["0.204.0 realistic"], root, { recursive: true });
+    const errors = (await loadWorkspace(root)).violations;
+    expect(count(errors)).toEqual({ "workspace-old-manifest": 1, "invalid-profile": 5, "missing-context-reference": 29 });
+    for (const error of errors.filter((e) => e.code === "missing-context-reference")) expect(error.message).toMatch(/use 'area-[abc]\//);
+    await applyNamedChanges(root, errors);
+
+    expect(cli(home, project, "workspace", root).code).toBe(0);
+    const check = cli(home, project, "check", "--json");
+    expect(check.code).toBe(0);
+    const data = JSON.parse(check.out);
+    expect([data.profiles.length, data.context.length, data.skills.length]).toEqual([5, 20, 25]);
+    const install = cli(home, project, "install", "profile-01", "--agents", "claude,codex", "--yes");
+    expect([install.code, install.err]).toEqual([0, ""]);
+    expect(await read(project, ".claude/skills/skill-19/SKILL.md")).toContain("name: skill-19");
+    expect(await read(project, "AGENTS.md")).toContain("subject-03 guidance.");
   }, SLOW);
 });
