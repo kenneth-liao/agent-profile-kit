@@ -301,6 +301,20 @@ describe("manifest ingestion", () => {
       await expect(readManifestAt(path, path, "user")).rejects.toThrow("is not a manifest this version understands");
     }
   });
+
+  test("the global manifest accepts a home-relative path that leaves the home, and still refuses malformed paths", async () => {
+    const dir = await tempDir("home");
+    const path = join(dir, "global.json");
+    const user = { ...valid, scope: "user" };
+    for (const good of ["../claude-config/skills/x/SKILL.md", "../../grok/skills/x/SKILL.md", ".agents/skills/x/SKILL.md"]) {
+      await writeFile(path, JSON.stringify({ ...user, files: { [good]: H } }));
+      expect(Object.keys((await readManifestAt(path, path, "user"))?.files ?? {})).toEqual([good]);
+    }
+    for (const bad of ["..", "../", "../..", "a/../b", "../a/./b", "./a", "/etc/hosts", "C:/x", "../a\\b", "a//b", ""]) {
+      await writeFile(path, JSON.stringify({ ...user, files: { [bad]: H } }));
+      await expect(readManifestAt(path, path, "user")).rejects.toThrow("is not a manifest this version understands");
+    }
+  });
 });
 
 describe("lock", () => {

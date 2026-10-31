@@ -20,9 +20,15 @@ const RUNTIME = BUILT ? ["node", resolve(import.meta.dir, "..", BUILT)] : [proce
 
 /** Runs the CLI with `home` as both the apkit home and the user's home, so nothing real is touched. */
 function cli(home: string, cwd: string, ...args: string[]) {
+  return cliWithEnv({}, home, cwd, ...args);
+}
+
+/** Like `cli`, with agent folder variables (such as `CLAUDE_CONFIG_DIR`) set in `extra`. */
+function cliWithEnv(extra: Record<string, string>, home: string, cwd: string, ...args: string[]) {
   const [exe, ...pre] = RUNTIME as [string, ...string[]];
   const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
   for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
+  Object.assign(env, extra);
   const result = spawnSync(exe, [...pre, ...args], { cwd, env, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
 }
@@ -658,6 +664,32 @@ describe("apkit-next CLI", () => {
     expect(await read(home, ".claude/CLAUDE.md")).toContain("\r\n<!-- apkit:global:begin -->\r\n");
     expect(cli(home, home, "remove", "--global").code).toBe(0);
     expect(await homeSnapshot(home)).toEqual(before);
+  });
+
+  test("a global install into agent folders outside the home is updated and removed like any other", async () => {
+    const base = await tempDir("outside");
+    const home = join(base, "home");
+    const extra = { CLAUDE_CONFIG_DIR: join(base, "claude-config"), GROK_HOME: join(base, "grok-home") };
+    await mkdir(home);
+    await writeTree(base, {
+      "claude-config/CLAUDE.md": "# Mine\n",
+      "grok-home/rules/mine.md": "# Rules\n",
+    });
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const folders = [home, extra.CLAUDE_CONFIG_DIR, extra.GROK_HOME];
+    const before = await Promise.all(folders.map(homeSnapshot));
+    const run = (...args: string[]) => cliWithEnv(extra, home, home, ...args);
+    expect(run("install", "engineering", "--global", "--agents", "claude,grok", "--yes").code).toBe(0);
+    expect(await read(extra.CLAUDE_CONFIG_DIR, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(await read(extra.GROK_HOME, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    const global = JSON.parse(await readFile(join(home, "global.json"), "utf8")) as { files: Record<string, string> };
+    expect(Object.keys(global.files)).toContain("../claude-config/skills/summarize/SKILL.md");
+    for (const args of [["status", "--all"], ["update", "--all"], ["remove", "--global"]]) {
+      const result = run(...args);
+      expect({ args, code: result.code, err: result.err }).toEqual({ args, code: 0, err: "" });
+    }
+    expect(await Promise.all(folders.map(homeSnapshot))).toEqual(before);
   });
 
   for (const order of [["setup", "global"], ["global", "setup"]]) {

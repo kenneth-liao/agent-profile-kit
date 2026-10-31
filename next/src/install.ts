@@ -171,10 +171,19 @@ function isInsidePath(path: string): boolean {
   return !/^[A-Za-z]:/.test(path) && path.split("/").every((part) => part !== "" && part !== "." && part !== ".." && !part.includes("\\"));
 }
 
+/**
+ * A global manifest path, relative to the home folder: zero or more leading `..`
+ * segments, then a path that passes `isInsidePath`. It is what `relative(home, dir)`
+ * gives for an agent folder (`CLAUDE_CONFIG_DIR`, `GROK_HOME`) outside the home.
+ */
+function isHomeRelativePath(path: string): boolean {
+  return isInsidePath(path.replace(/^(\.\.\/)*/, ""));
+}
+
 function isManifest(data: unknown, scope: "user" | undefined): data is Manifest {
   if (!isRecord(data) || data.schema !== 1 || typeof data.profile !== "string") return false;
   if (!Array.isArray(data.agents) || !data.agents.every((agent) => typeof agent === "string" && isAgentId(agent))) return false;
-  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => isInsidePath(path) && typeof value === "string" && HASH.test(value))) return false;
+  if (!isRecord(data.files) || !Object.entries(data.files).every(([path, value]) => (scope === "user" ? isHomeRelativePath(path) : isInsidePath(path)) && typeof value === "string" && HASH.test(value))) return false;
   if (data.block !== null && !(typeof data.block === "string" && HASH.test(data.block))) return false;
   if (typeof data.createdAgentsMd !== "boolean" || typeof data.claudeImport !== "boolean") return false;
   if (data.context !== undefined && !(Array.isArray(data.context) && data.context.every((id) => typeof id === "string"))) return false;
