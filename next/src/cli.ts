@@ -19,7 +19,7 @@ import {
   type Manifest,
   type Plan,
 } from "./install.js";
-import { syncGitExclude } from "./gitexclude.js";
+import { removeGitExclude, syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import {
   contextSection,
@@ -188,11 +188,11 @@ async function apply(
     instructions: planned.files.instructions,
   };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
-  if (!global) await syncGitExclude(folder, planned.files.manifest);
+  const exclusion = global ? null : await syncGitExclude(folder, planned.files.manifest);
   if (planned.paths.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
   if (planned.sections !== null) await executeNotes(planned.sections);
   await execute(planned.files);
-  if (!global) await recordInstall(folder, desired !== null);
+  if (!global) await recordInstall(folder, desired !== null, exclusion);
   const changed = [...new Set(planned.paths)];
   const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
   return { ...base, result, changed };
@@ -431,6 +431,8 @@ async function main(argv: readonly string[]): Promise<number> {
       const path = resolve(args.positional[1] ?? process.cwd());
       const exists = await stat(path).then((s) => s.isDirectory(), () => false);
       if (!exists) {
+        const exclusion = (await readConfig()).exclusions?.[path];
+        if (exclusion !== undefined) await removeGitExclude(exclusion, path);
         await recordInstall(path, false);
         print(`${display(path)} no longer exists; forgot it.`, { folder: path, result: "forgotten" });
         return EXIT.ok;
