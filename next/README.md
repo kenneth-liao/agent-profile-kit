@@ -39,9 +39,13 @@ Antigravity. You don't need to learn the commands: ask your coding agent.
   a marked block in `.git/info/exclude`, so they stay out of `git status`.
   Edits to files the user already tracks (such as the `CLAUDE.md` import line)
   still show as changes.
-- **User level** (`install --global`): a Skills-only Profile goes to each
-  agent's user-level Skills folder, so it applies in every project. Context
-  stays per project, so `--global` refuses a Profile with Context.
+- **User level** (`install --global`): a Profile's Skills go to each agent's
+  user-level Skills folder, and its Context goes in a marked section
+  (`<!-- apkit:global:begin -->`) of each agent's user-level instruction file:
+  the same files, consent, hash, and restore rules as `setup`, beside the
+  `setup` note. Its manifest is `global.json` in the apkit home, apart from
+  any project install in the home folder; neither install deletes files the
+  other also owns. `update --all` and `status --all` include it.
 - **Registry**: `~/.agents/apkit/config.json` holds the selected Workspace and
   the list of installed folders, for `--all`. `APKIT_HOME` overrides the
   location.

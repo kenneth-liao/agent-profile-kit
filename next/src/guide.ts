@@ -20,7 +20,7 @@ Usage:
   ${COMMAND} install <profile> [folder] --agents <a,b>
                                               Install a Profile (folder defaults to the current one)
   ${COMMAND} install <profile> --global --agents <a,b>
-                                              Install a Skills-only Profile for every project (user level)
+                                              Install a Profile for every project (user level)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
@@ -70,7 +70,7 @@ All commands are non-interactive. Add --json when you need to parse results.
 - Tell the user's agents about apkit: \`${COMMAND} setup\`
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
-- Install Skills for every project:  \`${COMMAND} install <profile> --global --agents <ids>\`
+- Install for every project:        \`${COMMAND} install <profile> --global --agents <ids>\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
@@ -103,9 +103,12 @@ Then move the user's material into the Workspace and install a Profile.
   one \`@AGENTS.md\` line. Everything else in both files is left as it is.
 - In a Git repository, the installed files are listed in .git/info/exclude
   so they stay out of \`git status\` and are never committed by accident.
-- \`install --global\` puts a Skills-only Profile in each agent's user-level
-  Skills folder, so the Skills are available in every project. Context is
-  always installed per project, so --global refuses a Profile with Context.
+- \`install --global\` installs a Profile for every project: Skills go in each
+  agent's user-level Skills folder, and Context goes in a marked section of
+  each agent's user-level instruction file (the files setup uses). It never
+  creates a file that would hide one the agent already reads, and
+  \`remove --global\` restores each file exactly. It is kept apart from any
+  install in the home folder itself; \`update --all\` and \`status --all\` include it.
 
 ## Decisions (exit code 3)
 

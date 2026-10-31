@@ -5,12 +5,31 @@
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
-import { readConfig, recordInstall, writeConfig } from "./config.js";
+import { globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, GUIDE, HELP } from "./guide.js";
-import { execute, plan, readManifest, unresolved, type Decisions, type Issue, type Manifest } from "./install.js";
+import {
+  execute,
+  plan,
+  readManifest,
+  readManifestAt,
+  unresolved,
+  type Decisions,
+  type Issue,
+  type Manifest,
+  type Plan,
+} from "./install.js";
 import { syncGitExclude } from "./gitexclude.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
-import { detectAgents, executeNotes, noteTargets, planNotes } from "./setup.js";
+import {
+  contextSection,
+  createdFiles,
+  detectAgents,
+  executeNotes,
+  noteTargets,
+  planNotes,
+  planSections,
+  type NotePlan,
+} from "./setup.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
@@ -89,6 +108,8 @@ function agentsFlag(args: Args, fallback: readonly AgentId[] | undefined): Agent
 
 interface Outcome {
   readonly folder: string;
+  /** The global install (user level), as opposed to a project install in `folder`. */
+  readonly global?: true;
   readonly result: "installed" | "updated" | "removed" | "unchanged" | "needs-decision" | "not-installed" | "missing" | "error";
   readonly profile?: string;
   readonly agents?: readonly AgentId[];
@@ -97,61 +118,113 @@ interface Outcome {
   readonly message?: string;
 }
 
+/** An install location: a project folder, or the global install (Skills under the home folder). */
+interface Target {
+  readonly folder: string;
+  readonly global?: true;
+}
+
+async function globalTarget(): Promise<Target> {
+  return { folder: await realpath(homedir()), global: true };
+}
+
+async function previousAt(target: Target): Promise<Manifest | null> {
+  return target.global ? readManifestAt(globalManifestPath(), "The global install's manifest") : readManifest(target.folder);
+}
+
+interface Planned {
+  readonly files: Plan;
+  /** The global install's Context sections in user-level files. */
+  readonly sections: NotePlan | null;
+  readonly issues: readonly Issue[];
+  readonly paths: readonly string[];
+}
+
+/**
+ * Plans one location. The home folder can hold a project install and the global
+ * install at once: each keeps its own manifest and never deletes the other's files.
+ */
+async function planAt(target: Target, desired: Desired | null, previous: Manifest | null): Promise<Planned> {
+  const home = await realpath(homedir());
+  if (!target.global) {
+    const other = target.folder === home ? await previousAt(await globalTarget()) : null;
+    const files = await plan(target.folder, desired, previous, { shared: new Set(Object.keys(other?.files ?? {})) });
+    return { files, sections: null, issues: files.issues, paths: files.ops.map((op) => op.path) };
+  }
+  const project = await readManifest(home);
+  const planned = await plan(home, desired, previous, {
+    manifestPath: globalManifestPath(),
+    shared: new Set(Object.keys(project?.files ?? {})),
+  });
+  const body = desired?.context ?? null;
+  const targets = body === null ? [] : await noteTargets(desired?.agents ?? [], homedir(), process.env);
+  const notes = (await readConfig()).notes;
+  const sections = await planSections(targets, previous?.sections ?? {}, contextSection(body ?? ""), createdFiles(notes));
+  const files = planned.manifest === null ? planned : { ...planned, manifest: { ...planned.manifest, sections: sections.records } };
+  return {
+    files,
+    sections,
+    issues: [...files.issues, ...sections.issues],
+    paths: [...files.ops.map((op) => op.path), ...sections.ops.map((op) => op.path)],
+  };
+}
+
 async function apply(
-  folder: string,
+  target: Target,
   desired: Desired | null,
   previous: Manifest | null,
   decisions: Decisions,
 ): Promise<Outcome> {
-  const planned = await plan(folder, desired, previous);
-  const open = unresolved(planned, decisions);
-  const base = { folder, profile: desired?.profile ?? previous?.profile, agents: desired?.agents ?? previous?.agents };
+  const { folder, global } = target;
+  const planned = await planAt(target, desired, previous);
+  const open = unresolved({ ...planned.files, issues: planned.issues }, decisions);
+  const base = { folder, ...(global ? { global } : {}), profile: desired?.profile ?? previous?.profile, agents: desired?.agents ?? previous?.agents };
   if (open.length > 0) return { ...base, result: "needs-decision", issues: open };
-  await syncGitExclude(folder, planned.manifest);
-  if (planned.ops.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
-  await execute(planned);
-  await recordInstall(folder, desired !== null);
-  const changed = [...new Set(planned.ops.map((op) => op.path))];
+  if (!global) await syncGitExclude(folder, planned.files.manifest);
+  if (planned.paths.length === 0 && desired !== null && previous !== null) return { ...base, result: "unchanged" };
+  if (planned.sections !== null) await executeNotes(planned.sections);
+  await execute(planned.files);
+  if (!global) await recordInstall(folder, desired !== null);
+  const changed = [...new Set(planned.paths)];
   const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
   return { ...base, result, changed };
 }
 
-/** Renders for a project folder, or (scope "user") for the home folder's user-level Skills folders. */
+/** Renders for a project folder, or (scope "user") for each agent's user-level folders and files. */
 function renderFor(workspace: Workspace, profile: string, agents: readonly AgentId[], scope?: "user"): Desired {
   if (scope === undefined) return render(workspace, profile, agents);
-  if ((workspace.profiles.get(profile)?.context.length ?? 0) > 0) {
-    throw new UsageError(
-      `Profile '${profile}' has Context, which is installed per project. Use --global with a Skills-only Profile.`,
-    );
-  }
-  return { ...render(workspace, profile, agents, userRoots(homedir(), process.env)), scope };
+  return render(workspace, profile, agents, userRoots(homedir(), process.env), scope);
 }
 
-async function statusOf(workspace: Workspace, folder: string): Promise<Outcome> {
+async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> {
+  const { folder } = target;
   try {
     if (!(await stat(folder)).isDirectory()) throw new Error();
   } catch {
     return { folder, result: "missing", message: "The folder no longer exists." };
   }
-  const previous = await readManifest(folder);
+  const previous = await previousAt(target);
   if (previous === null) return { folder, result: "not-installed" };
-  const base = { folder, profile: previous.profile, agents: previous.agents };
+  const base = { folder, ...(target.global ? { global: target.global } : {}), profile: previous.profile, agents: previous.agents };
   if (!workspace.profiles.has(previous.profile)) {
     return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
   }
-  const planned = await plan(folder, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
+  const planned = await planAt(target, renderFor(workspace, previous.profile, previous.agents, previous.scope), previous);
   if (planned.issues.length > 0) return { ...base, result: "needs-decision", issues: planned.issues };
-  if (planned.ops.length > 0) return { ...base, result: "updated", changed: [...new Set(planned.ops.map((op) => op.path))] };
+  if (planned.paths.length > 0) return { ...base, result: "updated", changed: [...new Set(planned.paths)] };
   return { ...base, result: "unchanged" };
 }
 
-async function targets(args: Args): Promise<string[]> {
-  if (args.flags.has("--all")) return [...(await readConfig()).installs];
-  return [await folderArg(args.positional[1])];
+/** `--all` is every registered folder plus the global install, if there is one. */
+async function targets(args: Args): Promise<Target[]> {
+  if (!args.flags.has("--all")) return [{ folder: await folderArg(args.positional[1]) }];
+  const folders: Target[] = (await readConfig()).installs.map((folder) => ({ folder }));
+  const global = await globalTarget();
+  return (await previousAt(global)) === null ? folders : [...folders, global];
 }
 
 function describe(outcome: Outcome, mode: "apply" | "status"): string {
-  const where = display(outcome.folder);
+  const where = outcome.global ? "User level" : display(outcome.folder);
   const who = outcome.agents?.map((id) => AGENTS[id].name).join(", ");
   const what = outcome.profile === undefined ? "" : `'${outcome.profile}'${who ? ` for ${who}` : ""}`;
   switch (outcome.result) {
@@ -266,14 +339,14 @@ async function main(argv: readonly string[]): Promise<number> {
       const profile = args.positional[1];
       if (profile === undefined) throw new UsageError("Name the Profile: `apkit-next install <profile> [folder] --agents <a,b>`.");
       const global = args.flags.has("--global");
-      const folder = global ? await realpath(homedir()) : await folderArg(args.positional[2]);
+      const target = global ? await globalTarget() : { folder: await folderArg(args.positional[2]) };
       const workspace = await workspaceFor(args);
       requireValid(workspace);
-      const previous = await readManifest(folder);
+      const previous = await previousAt(target);
       const agents = agentsFlag(args, previous?.profile === profile ? previous.agents : undefined);
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
-      const outcome = await apply(folder, desired, previous, decisions);
-      const note = outcome.result !== "needs-decision" && desired.context !== null ? `\n${TRUST_NOTE}` : "";
+      const outcome = await apply(target, desired, previous, decisions);
+      const note = !global && outcome.result !== "needs-decision" && desired.context !== null ? `\n${TRUST_NOTE}` : "";
       print(describe(outcome, "apply") + note, outcome);
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
@@ -282,15 +355,15 @@ async function main(argv: readonly string[]): Promise<number> {
       const workspace = await workspaceFor(args);
       requireValid(workspace);
       const outcomes: Outcome[] = [];
-      for (const folder of await targets(args)) {
-        const status = await statusOf(workspace, folder);
+      for (const target of await targets(args)) {
+        const status = await statusOf(workspace, target);
         if (status.result === "missing" || status.result === "error" || status.result === "not-installed") {
           outcomes.push(status);
           continue;
         }
-        const previous = await readManifest(folder);
+        const previous = await previousAt(target);
         const desired = renderFor(workspace, previous!.profile, previous!.agents, previous!.scope);
-        outcomes.push(await apply(folder, desired, previous, decisions));
+        outcomes.push(await apply(target, desired, previous, decisions));
       }
       print(outcomes.map((o) => describe(o, "apply")).join("\n") || "Nothing is installed yet.", outcomes);
       if (outcomes.some((o) => o.result === "needs-decision")) return EXIT.decision;
@@ -298,7 +371,18 @@ async function main(argv: readonly string[]): Promise<number> {
     }
 
     case "remove": {
-      const path = args.flags.has("--global") ? homedir() : resolve(args.positional[1] ?? process.cwd());
+      if (args.flags.has("--global")) {
+        const target = await globalTarget();
+        const previous = await previousAt(target);
+        if (previous === null) {
+          print("Nothing is installed at user level.", { folder: target.folder, global: true, result: "not-installed" });
+          return EXIT.ok;
+        }
+        const outcome = await apply(target, null, previous, decisions);
+        print(describe(outcome, "apply"), outcome);
+        return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
+      }
+      const path = resolve(args.positional[1] ?? process.cwd());
       const exists = await stat(path).then((s) => s.isDirectory(), () => false);
       if (!exists) {
         await recordInstall(path, false);
@@ -312,7 +396,7 @@ async function main(argv: readonly string[]): Promise<number> {
         print(`${display(folder)}: nothing installed.`, { folder, result: "not-installed" });
         return EXIT.ok;
       }
-      const outcome = await apply(folder, null, previous, decisions);
+      const outcome = await apply({ folder }, null, previous, decisions);
       print(describe(outcome, "apply"), outcome);
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
@@ -327,7 +411,8 @@ async function main(argv: readonly string[]): Promise<number> {
         return EXIT.error;
       }
       const targets = await noteTargets(agents, homedir(), process.env);
-      const planned = await planNotes(targets, config.notes ?? {});
+      const global = await previousAt(await globalTarget());
+      const planned = await planNotes(targets, config.notes ?? {}, createdFiles(global?.sections));
       const open = planned.issues.filter((issue) => (issue.kind === "consent" ? !decisions.yes : !decisions.overwrite));
       const files = targets.map((t) => ({ path: t.path, agents: t.agents }));
       if (open.length > 0) {
@@ -351,7 +436,7 @@ async function main(argv: readonly string[]): Promise<number> {
     case "status": {
       const workspace = await workspaceFor(args);
       const outcomes: Outcome[] = [];
-      for (const folder of await targets(args)) outcomes.push(await statusOf(workspace, folder));
+      for (const target of await targets(args)) outcomes.push(await statusOf(workspace, target));
       print(outcomes.map((o) => describe(o, "status")).join("\n") || "Nothing is installed yet.", outcomes);
       return EXIT.ok;
     }

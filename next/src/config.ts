@@ -19,6 +19,9 @@ export function configHome(): string {
 
 const configPath = () => join(configHome(), "config.json");
 
+/** The global install's manifest. It lives apart from the home folder, which can have a project install of its own. */
+export const globalManifestPath = () => join(configHome(), "global.json");
+
 export async function readConfig(): Promise<Config> {
   try {
     const data = JSON.parse(await readFile(configPath(), "utf8")) as Partial<Config>;
