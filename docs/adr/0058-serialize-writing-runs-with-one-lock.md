@@ -59,3 +59,11 @@ Darwin `O_EXLOCK`, so the engine cannot use it.
   for the full timeout, and then the error names the lock file to delete.
 - Two runs with different `APKIT_HOME` values are not serialized against each
   other, even when they write to one shared `.git/info/exclude`.
+- *Amended 2026-10-30:* §3 no longer moves the lock aside. Moving it let a
+  late run that had read the stopped owner move a live owner's lock, so a third
+  run could take the lock while that owner still wrote. Now a run that finds a
+  stopped owner first creates that owner's reclaim mark with `link`, which only
+  one run can do. The run that holds the mark deletes the lock only if the lock
+  still holds the stopped owner's token, then deletes the mark. No run moves or
+  deletes a live owner's lock. If a run stops while it holds the mark, the lock
+  stays until the wait ends, and the error names the lock file to delete.

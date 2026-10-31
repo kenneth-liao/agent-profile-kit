@@ -59,3 +59,4 @@ user-level Host folders.
   all still recorded.
 - Supersedes ADR-0010, ADR-0015, and ADR-0052 at cutover.
 - *Amended 2026-10-30:* §6 hides installed Skill copies and the manifest only. apkit never hides `AGENTS.md` or `CLAUDE.md`, even when it creates them. It says which instruction files it creates or changes and whether Git tracks them, and the user decides what to commit (ISC-55, ISC-86, ISC-87).
+- *Amended 2026-10-30:* ADR-0058 supersedes "No lock guards the folder list". One lock now serializes every run that writes, so the folder list and each manifest change one run at a time.

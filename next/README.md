@@ -2,8 +2,8 @@
 
 An agent-first prototype of Agent Profile Kit. It installs Workspace Profiles
 into any folder with plain file writes, so it works the same on macOS, Linux,
-and Windows. It reads today's Workspace format unchanged. It is not released;
-it lives here to prove the design before any cutover.
+and Windows. Its Workspace format is in `docs/workspace-contract.md`. It is not
+released; it lives here to prove the design before any cutover.
 
 - **Engine** (`src/`): a small non-interactive command, `apkit-next`. It never
   prompts; a step that needs the user's decision changes nothing and exits 3.
