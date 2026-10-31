@@ -50,6 +50,9 @@ Antigravity. You don't need to learn the commands: ask your coding agent.
 - **Registry**: `~/.agents/apkit/config.json` holds the selected Workspace and
   the list of installed folders, for `--all`. `APKIT_HOME` overrides the
   location.
+- **Concurrency**: commands that write take turns through one lock file
+  (`lock`) in the apkit home, so runs started at the same time lose no record
+  or edit. A lock left by a stopped run is taken over (ADR-0058).
 
 ## Project-level locations
 

@@ -5,7 +5,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { resolve, sep } from "node:path";
-import { globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
+import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { COMMAND, GUIDE, HELP } from "./guide.js";
 import {
   execute,
@@ -32,6 +32,7 @@ import {
   type NotePlan,
 } from "./setup.js";
 import { NewerSchemaError } from "./schema.js";
+import { withLock } from "./lock.js";
 import { initWorkspace, loadWorkspace, type Workspace } from "./workspace.js";
 
 const EXIT = { ok: 0, error: 1, usage: 2, decision: 3 } as const;
@@ -351,7 +352,16 @@ function trustLines(needs: readonly TrustNeed[]): string[] {
   ].filter((line) => line !== null);
 }
 
+/** Commands that can write. `workspace` without a path only reads, but takes the lock anyway: it is quick. */
+const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup"]);
+
+/** Runs that write take turns, so none plans against files another run is changing. */
 async function main(argv: readonly string[]): Promise<number> {
+  const command = parseArgs(argv).positional[0];
+  return command !== undefined && WRITES.has(command) ? withLock(configHome(), () => run(argv)) : run(argv);
+}
+
+async function run(argv: readonly string[]): Promise<number> {
   const args = parseArgs(argv);
   const json = args.flags.has("--json");
   const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };

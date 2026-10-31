@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
-import { mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
+import { hash } from "../src/install.js";
 import { AGENTS } from "../src/render.js";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
 
@@ -18,6 +19,41 @@ function cli(home: string, cwd: string, ...args: string[]) {
   for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
   const result = spawnSync(exe, [...pre, ...args], { cwd, env, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
+}
+
+/** Like `cli`, but returns at once, so several runs can overlap. */
+function cliAsync(home: string, cwd: string, ...args: string[]): Promise<{ code: number | null; out: string; err: string }> {
+  const [exe, ...pre] = RUNTIME as [string, ...string[]];
+  const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
+  for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
+  return new Promise((done, fail) => {
+    const child = spawn(exe, [...pre, ...args], { cwd, env });
+    let out = "";
+    let err = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (out += chunk));
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => (err += chunk));
+    child.on("error", fail);
+    child.on("close", (code) => done({ code, out, err }));
+  });
+}
+
+/** Every file under `folder` that is not the manifest or an instruction file, as POSIX paths. */
+async function generatedFiles(folder: string): Promise<string[]> {
+  const entries = await readdir(folder, { recursive: true, withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(folder, join(entry.parentPath, entry.name)).split(sep).join("/"))
+    .filter((path) => !["AGENTS.md", "CLAUDE.md", ".agents/apkit.json"].includes(path))
+    .sort();
+}
+
+/** Every file the manifest records exists with its hash, and no generated file is on disk without a record. */
+async function expectManifestMatchesDisk(folder: string): Promise<void> {
+  const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { files: Record<string, string> };
+  for (const [path, recorded] of Object.entries(manifest.files)) {
+    expect(hash(await readFile(join(folder, ...path.split("/"))))).toBe(recorded);
+  }
+  expect(await generatedFiles(folder)).toEqual(Object.keys(manifest.files).sort());
 }
 
 /** Each agent's user-level instruction file in a fresh home folder. */
@@ -791,4 +827,129 @@ describe("apkit-next CLI", () => {
     expect(specifiers.filter((s) => !s?.startsWith("node:"))).toEqual([]);
     expect(bundle.includes("process.platform")).toBe(false);
   });
+});
+
+// Runs that write wait for each other through one lock in the apkit home. Each
+// check below holds for every order the runs can take, so none depends on timing.
+describe("concurrent runs", () => {
+  const SLOW = 60_000;
+  const MANY = "claude,codex,grok";
+
+  test("four installs into four folders at once all succeed and are all listed", async () => {
+    for (let round = 0; round < 3; round++) {
+      const home = await tempDir("home");
+      const ws = await makeWorkspace();
+      const folders = await Promise.all([0, 1, 2, 3].map((i) => tempDir(`f${i}`)));
+      expect(cli(home, folders[0]!, "workspace", ws).code).toBe(0);
+      const runs = await Promise.all(folders.map((folder) => cliAsync(home, folder, "install", "engineering", "--agents", MANY, "--yes")));
+      expect(runs.map((run) => [run.code, run.err])).toEqual(folders.map(() => [0, ""]));
+      const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out) as { folder: string; result: string }[];
+      expect(status.map((o) => [o.folder, o.result]).sort()).toEqual([...folders].sort().map((f) => [f, "unchanged"]));
+      expect(await readdir(home)).not.toContain("lock");
+    }
+  }, SLOW * 3);
+
+  test("two installs into one folder at once leave one manifest that matches the disk", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    cli(home, folder, "workspace", ws);
+    const runs = await Promise.all(
+      ["claude", "codex"].map((agents) => cliAsync(home, folder, "install", "engineering", "--agents", agents, "--yes")),
+    );
+    expect(runs.map((run) => [run.code, run.err])).toEqual([[0, ""], [0, ""]]);
+    await expectManifestMatchesDisk(folder);
+    expect(JSON.parse(cli(home, folder, "status", "--json").out)[0].result).toBe("unchanged");
+  }, SLOW);
+
+  test("update --all during an install loses no record", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folders = await Promise.all([0, 1, 2, 3].map((i) => tempDir(`f${i}`)));
+    cli(home, folders[0]!, "workspace", ws);
+    for (const folder of folders.slice(0, 3)) {
+      expect(cli(home, folder, "install", "engineering", "--agents", MANY, "--yes").code).toBe(0);
+    }
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    const runs = await Promise.all([
+      cliAsync(home, folders[0]!, "update", "--all", "--yes"),
+      cliAsync(home, folders[3]!, "install", "engineering", "--agents", MANY, "--yes"),
+    ]);
+    expect(runs.map((run) => [run.code, run.err])).toEqual([[0, ""], [0, ""]]);
+    const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out) as { folder: string; result: string }[];
+    expect(status.map((o) => [o.folder, o.result]).sort()).toEqual([...folders].sort().map((f) => [f, "unchanged"]));
+    for (const folder of folders) {
+      expect(await read(folder, "AGENTS.md")).toContain("Be warm.");
+      await expectManifestMatchesDisk(folder);
+    }
+  }, SLOW);
+
+  test("installs into two worktrees of one repository at once keep both exclusion blocks", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    await writeTree(repo, { "README.md": "# Repo\n" });
+    const git = (cwd: string, ...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd, encoding: "utf8" }).stdout;
+    git(repo, "init", "-q");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "init");
+    const tree = join(await tempDir("wt"), "tree");
+    git(repo, "worktree", "add", "-q", tree);
+    cli(home, repo, "workspace", ws);
+    const runs = await Promise.all([repo, tree].map((folder) => cliAsync(home, folder, "install", "skills-only", "--agents", MANY)));
+    expect(runs.map((run) => [run.code, run.err])).toEqual([[0, ""], [0, ""]]);
+    const exclude = await read(repo, ".git/info/exclude");
+    expect(exclude).toContain(`# apkit:begin ${repo}\n`);
+    expect(exclude).toContain(`# apkit:begin ${tree}\n`);
+    expect(git(repo, "status", "--porcelain")).toBe("");
+    expect(git(tree, "status", "--porcelain")).toBe("");
+  }, SLOW);
+
+  test("no run overwrites a file that the user changed", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    const other = await tempDir("other");
+    cli(home, folder, "workspace", ws);
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--yes").code).toBe(0);
+    await writeTree(folder, { ".claude/skills/summarize/SKILL.md": "mine\n" });
+    const runs = await Promise.all([
+      cliAsync(home, folder, "update"),
+      cliAsync(home, folder, "update", "--yes"),
+      cliAsync(home, folder, "install", "engineering", "--agents", "claude", "--yes"),
+      cliAsync(home, other, "install", "engineering", "--agents", "claude", "--yes"),
+    ]);
+    expect(runs.map((run) => run.code)).toEqual([3, 3, 3, 0]);
+    expect(await read(folder, ".claude/skills/summarize/SKILL.md")).toBe("mine\n");
+  }, SLOW);
+
+  test("a run waits for the run that holds the lock", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    cli(home, folder, "workspace", ws);
+    // This test process is running, so its lock is live until the test removes it.
+    await writeFile(join(home, "lock"), JSON.stringify({ pid: process.pid, token: "held-by-test" }));
+    const waiting = cliAsync(home, folder, "install", "skills-only", "--agents", "codex");
+    await new Promise((done) => setTimeout(done, 1_000));
+    expect(await readdir(folder)).toEqual([]);
+    await rm(join(home, "lock"));
+    const run = await waiting;
+    expect([run.code, run.err]).toEqual([0, ""]);
+    expect(await readdir(home)).not.toContain("lock");
+  }, SLOW);
+
+  test("a lock left by a run that stopped is taken over", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    cli(home, folder, "workspace", ws);
+    // A process that has exited: its pid no longer runs.
+    const gone = spawnSync(process.execPath, ["-e", ""]).pid;
+    await writeFile(join(home, "lock"), JSON.stringify({ pid: gone, token: "stopped" }));
+    const run = cli(home, folder, "install", "skills-only", "--agents", "codex");
+    expect([run.code, run.err]).toEqual([0, ""]);
+    expect((await readdir(home)).filter((name) => name.startsWith("lock"))).toEqual([]);
+  }, SLOW);
 });
