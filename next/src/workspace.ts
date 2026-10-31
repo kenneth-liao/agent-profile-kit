@@ -54,10 +54,10 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
   await checkManifest(root, add);
   const context = await loadContext(root, add);
   const skills = await loadSkills(root, add);
-  const profiles = await loadProfiles(root, add);
+  const { profiles, paths } = await loadProfiles(root, skills, add);
 
   for (const profile of profiles.values()) {
-    const path = `profiles/${profile.id}.yaml`;
+    const path = paths.get(profile.id) as string;
     for (const id of profile.context) {
       if (!context.has(id)) add("missing-context-reference", path, `Profile '${profile.id}' names Context '${id}', which does not exist.`);
     }
@@ -243,18 +243,32 @@ async function readPackage(dir: string, rel = ""): Promise<SkillFile[]> {
   return files;
 }
 
-async function loadProfiles(root: string, add: Add): Promise<Map<string, Profile>> {
+/** A Profile's file name, without its `.yaml` or `.yml` extension (ADR-0057 §2). */
+const PROFILE_FILE = /^([^/]+)\.ya?ml$/;
+
+async function loadProfiles(
+  root: string,
+  skillMap: ReadonlyMap<string, Skill>,
+  add: Add,
+): Promise<{ profiles: Map<string, Profile>; paths: Map<string, string> }> {
   const profiles = new Map<string, Profile>();
+  const paths = new Map<string, string>();
   const dir = join(root, "profiles");
-  for (const file of await walk(dir, add, "profiles")) {
+  const files = await walk(dir, add, "profiles");
+  const ids = files.map((file) => PROFILE_FILE.exec(file)?.[1]);
+  for (const [index, file] of files.entries()) {
     const path = `profiles/${file}`;
-    if (file.includes("/") || !file.endsWith(".yaml")) {
-      add("stray-profile-file", path, `${path}: Profiles are .yaml files directly in profiles/.`);
+    const id = ids[index];
+    if (id === undefined) {
+      add("stray-profile-file", path, `${path}: Profiles are .yaml or .yml files directly in profiles/.`);
       continue;
     }
-    const id = file.slice(0, -".yaml".length);
     if (!KEBAB.test(id)) {
       add("profile-file-name", path, `${path} must have a lowercase kebab-case file name.`);
+      continue;
+    }
+    if (ids.indexOf(id) !== index) {
+      add("duplicate-profile", path, `Two files define Profile '${id}'; keep one of ${id}.yaml and ${id}.yml.`);
       continue;
     }
     let data: unknown;
@@ -264,24 +278,34 @@ async function loadProfiles(root: string, add: Add): Promise<Map<string, Profile
       add("invalid-yaml", path, `${path} is not valid YAML.`);
       continue;
     }
-    const keys = isRecord(data) ? Object.keys(data).sort().join(",") : "";
-    if (!isRecord(data) || keys !== "context,skills" || !isNameList(data.context) || !isNameList(data.skills)) {
-      add("invalid-profile", path, `${path} must contain exactly a \`context\` list and a \`skills\` list of names.`);
+    if (data === null || data === undefined) data = {};
+    if (!isRecord(data) || Object.keys(data).some((key) => key !== "context" && key !== "skills")) {
+      add("invalid-profile", path, `${path} may contain only a \`context\` list and a \`skills\` list.`);
       continue;
     }
-    const context = data.context as string[];
-    const skills = data.skills as string[];
+    if (data.context === "all") {
+      add("invalid-profile", path, `${path}: Context must be listed by ID, in the order to join it; \`all\` is only for skills.`);
+      continue;
+    }
+    const context = data.context ?? [];
+    const selected = data.skills ?? [];
+    if (!isNameList(context) || !(selected === "all" || isNameList(selected))) {
+      add("invalid-profile", path, `${path}: \`context\` must be a list of IDs and \`skills\` a list of names or \`all\`.`);
+      continue;
+    }
+    const skills = selected === "all" ? [...skillMap.keys()].sort() : selected;
     if (new Set(context).size !== context.length || new Set(skills).size !== skills.length) {
       add("duplicate-selection", path, `${path} names the same item more than once.`);
       continue;
     }
-    if (context.length === 0 && skills.length === 0) {
+    if (context.length === 0 && skills.length === 0 && selected !== "all") {
       add("profile-without-artifacts", path, `${path} selects nothing.`);
       continue;
     }
     profiles.set(id, { id, context, skills });
+    paths.set(id, path);
   }
-  return profiles;
+  return { profiles, paths };
 }
 
 function readFrontmatter(source: string): Record<string, unknown> | undefined {
@@ -299,7 +323,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isNameList(value: unknown): boolean {
+function isNameList(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 

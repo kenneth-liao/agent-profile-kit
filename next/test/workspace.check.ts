@@ -82,6 +82,7 @@ describe("loadWorkspace", () => {
         "skills/b/SKILL.md": SKILL("same"),
         "skills/c/SKILL.md": "---\nname: c\n---\n",
         "profiles/p.yml": "context: []\nskills: []\n",
+        "profiles/notes.txt": "x",
         "profiles/extra.yaml": "id: extra\ncontext: []\nskills: []\n",
         "profiles/empty.yaml": "context: []\nskills: []\n",
       }),
@@ -90,6 +91,7 @@ describe("loadWorkspace", () => {
       "empty-content",
       "invalid-field",
       "invalid-profile",
+      "profile-without-artifacts",
       "profile-without-artifacts",
       "stray-context-file",
       "stray-profile-file",
@@ -127,6 +129,17 @@ describe("loadWorkspace", () => {
       expect(workspace.violations).toEqual([]);
       expect(workspace.context.size).toBe(1);
     }
+  });
+
+  test("a Profile named twice by .yaml and .yml is ambiguous", async () => {
+    expect(
+      await codes({
+        "apkit-workspace.yaml": "schema_version: 1\n",
+        "skills/a/SKILL.md": SKILL("a"),
+        "profiles/x.yaml": "skills: [a]\n",
+        "profiles/x.yml": "skills: all\n",
+      }),
+    ).toEqual(["duplicate-profile"]);
   });
 
   test("ignores hidden files", async () => {
