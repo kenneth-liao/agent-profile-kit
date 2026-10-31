@@ -578,6 +578,28 @@ describe("apkit-next CLI", () => {
     expect(status.map((o: { result: string }) => o.result)).toEqual(["unchanged"]);
   });
 
+  test("status names Context installed both at user level and in the Project, and never blocks", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const both = await tempDir("both");
+    const other = await tempDir("other");
+    cli(home, both, "workspace", ws);
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "claude", "--yes").code).toBe(0);
+    // The overlap never blocks an install or an update.
+    expect(cli(home, both, "install", "engineering", "--agents", "codex", "--yes").code).toBe(0);
+    expect(cli(home, other, "install", "writing", "--agents", "codex", "--yes").code).toBe(0);
+    await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
+    expect(cli(home, both, "update").code).toBe(0);
+
+    const status = cli(home, both, "status");
+    expect(status.code).toBe(0);
+    expect(status.out).toContain("Context 'communication' is also installed at user level; an agent selected in both places reads it twice.");
+    expect(JSON.parse(cli(home, both, "status", "--json").out)[0].overlap).toEqual(["communication"]);
+
+    expect(cli(home, other, "status").out).not.toContain("also installed at user level");
+    expect(JSON.parse(cli(home, other, "status", "--json").out)[0].overlap).toEqual([]);
+  });
+
   test("a manifest from a newer apkit is left as it is and names the update", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();

@@ -22,6 +22,8 @@ export interface Manifest {
   readonly block: string | null;
   readonly createdAgentsMd: boolean;
   readonly claudeImport: boolean;
+  /** IDs of the Context Modules installed; absent when none. */
+  readonly context?: readonly string[];
   /** Present for a user-level install (`install --global`). */
   readonly scope?: "user";
   /** User-level instruction files that hold the global Context section, by absolute path. */
@@ -296,6 +298,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
           block: blockHash,
           createdAgentsMd,
           claudeImport,
+          ...(desired.contextIds.length === 0 ? {} : { context: desired.contextIds }),
           ...(desired.scope === undefined ? {} : { scope: desired.scope }),
         };
   return { target, manifestPath: options.manifestPath ?? abs(target, MANIFEST_PATH), ops, issues, instructions, manifest };

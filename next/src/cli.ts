@@ -124,6 +124,8 @@ interface Outcome {
   readonly instructions?: readonly InstructionChange[];
   readonly changed?: readonly string[];
   readonly message?: string;
+  /** Context Modules this project install shares with the global install (status only). */
+  readonly overlap?: readonly string[];
 }
 
 /** An install location: a project folder, or the global install (Skills under the home folder). */
@@ -225,7 +227,13 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
     throw error;
   }
   if (previous === null) return { folder, result: "not-installed" };
-  const base = { folder, ...(target.global ? { global: target.global } : {}), profile: previous.profile, agents: previous.agents };
+  const base = {
+    folder,
+    ...(target.global ? { global: target.global } : {}),
+    profile: previous.profile,
+    agents: previous.agents,
+    ...(target.global ? {} : { overlap: await overlapWithGlobal(previous) }),
+  };
   if (!workspace.profiles.has(previous.profile)) {
     return { ...base, result: "error", message: `Profile '${previous.profile}' is no longer in the Workspace.` };
   }
@@ -244,6 +252,16 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
   return { ...base, result: "unchanged" };
 }
 
+/** The Context Modules a project install shares with the global install. A newer global manifest is reported elsewhere. */
+async function overlapWithGlobal(project: Manifest): Promise<string[]> {
+  const global = await readManifestAt(globalManifestPath()).catch((error: unknown) => {
+    if (error instanceof NewerSchemaError) return null;
+    throw error;
+  });
+  const shared = new Set(global?.context ?? []);
+  return (project.context ?? []).filter((id) => shared.has(id));
+}
+
 /** `--all` is every registered folder plus the global install, if there is one. */
 async function targets(args: Args): Promise<Target[]> {
   if (!args.flags.has("--all")) return [{ folder: await folderArg(args.positional[1]) }];
@@ -253,6 +271,14 @@ async function targets(args: Args): Promise<Target[]> {
 }
 
 function describe(outcome: Outcome, mode: "apply" | "status"): string {
+  const text = describeResult(outcome, mode);
+  const overlap = outcome.overlap ?? [];
+  if (mode !== "status" || overlap.length === 0) return text;
+  const ids = overlap.map((id) => `'${id}'`).join(", ");
+  return `${text}\n  Context ${ids} is also installed at user level; an agent selected in both places reads it twice.`;
+}
+
+function describeResult(outcome: Outcome, mode: "apply" | "status"): string {
   const where = outcome.global ? "User level" : display(outcome.folder);
   const who = outcome.agents?.map((id) => AGENTS[id].name).join(", ");
   const what = outcome.profile === undefined ? "" : `'${outcome.profile}'${who ? ` for ${who}` : ""}`;
