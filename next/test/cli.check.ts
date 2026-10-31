@@ -258,6 +258,52 @@ describe("apkit-next CLI", () => {
     expect(bad.out).toContain("Context must be listed");
   });
 
+  test("a skipped file is a warning: check and install show it, and it never blocks an install", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const outside = await tempDir("outside");
+    await writeTree(outside, { "linked/SKILL.md": SKILL("linked") });
+    await writeTree(ws, {
+      "context/notes.txt": "x",
+      "skills/README.md": "x",
+      "profiles/notes.txt": "x",
+      "profiles/team/nested.yaml": "skills: [summarize]\n",
+      "profiles/draft.yaml": "",
+      // A Skill package with a leftover sidecar and the retired model-invocation key.
+      "skills/old/SKILL.md": SKILL("old", "metadata:\n  agent-profile-kit:\n    model-invocation: explicit\n"),
+      "skills/old/agent-profile-kit.yaml": "dependencies: []\n",
+      "profiles/old.yaml": "skills: [old]\n",
+    });
+    // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
+    await symlink(join(outside, "linked"), join(ws, "skills", "linked"), "junction");
+    const skipped = ["context/notes.txt", "skills/README.md", "profiles/notes.txt", "profiles/team/nested.yaml", "skills/linked"];
+
+    const check = cli(home, home, "check", "--workspace", ws);
+    expect(check.code).toBe(0);
+    expect(check.out).toContain("is valid");
+    for (const path of [...skipped, "profiles/draft.yaml"]) expect(check.out).toContain(path);
+    const json = JSON.parse(cli(home, home, "check", "--workspace", ws, "--json").out);
+    expect(json.valid).toBe(true);
+    expect(json.violations).toEqual([]);
+    expect(json.warnings.map((w: { path: string }) => w.path).sort()).toEqual([...skipped, "profiles/draft.yaml"].sort());
+
+    const folder = await tempDir("f");
+    const install = cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--yes");
+    expect(install.code).toBe(0);
+    for (const path of skipped) expect(install.out).toContain(path);
+    expect(await read(folder, ".claude/skills/old/agent-profile-kit.yaml")).toBe("dependencies: []\n");
+    const again = JSON.parse(cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--json").out);
+    expect(again.result).toBe("unchanged");
+    expect(again.warnings.length).toBe(skipped.length + 1);
+
+    // An error still blocks the install, and the warnings are listed with it.
+    await writeTree(ws, { "profiles/old.yaml": "skills: [old, gone]\n" });
+    const blocked = cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--yes");
+    expect(blocked.code).toBe(1);
+    expect(blocked.err).toContain("'gone'");
+    expect(blocked.err).toContain("skills/README.md");
+  });
+
   test("setup tells detected agents about apkit, after consent, and --remove undoes it", async () => {
     const home = await tempDir("home");
     expect(cli(home, home, "setup").code).toBe(1);
