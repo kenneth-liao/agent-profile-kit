@@ -9,7 +9,7 @@
     "apkit-next": "./dist/cli.js"
   },
   "scripts": {
-    "build": "bun run typecheck && bun build src/cli.ts --target=node --packages=bundle --outfile=dist/cli.js",
+    "build": "bun run typecheck && bun run build.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test ./test/workspace.check.ts ./test/install.check.ts ./test/setup.check.ts ./test/cli.check.ts"
   },
