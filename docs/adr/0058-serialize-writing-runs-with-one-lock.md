@@ -65,5 +65,9 @@ Darwin `O_EXLOCK`, so the engine cannot use it.
   stopped owner first creates that owner's reclaim mark with `link`, which only
   one run can do. The run that holds the mark deletes the lock only if the lock
   still holds the stopped owner's token, then deletes the mark. No run moves or
-  deletes a live owner's lock. If a run stops while it holds the mark, the lock
-  stays until the wait ends, and the error names the lock file to delete.
+  deletes a live owner's lock. If a run stops while it holds the mark, later
+  takeovers do nothing, so the lock stays. Every waiting pass, also one after a
+  takeover, checks the 120-second limit and backs off, so those runs end in the
+  §4 failure, which then names the lock file and the stranded mark to delete.
+  The mark is not reclaimed: a run must stop inside a window of a few
+  milliseconds to strand it, and the bounded failure is enough.
