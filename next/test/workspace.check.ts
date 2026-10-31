@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
 import { loadWorkspace } from "../src/workspace.js";
 import { makeWorkspace, SKILL, tempDir, writeTree } from "./fixtures.js";
 
@@ -74,7 +76,6 @@ describe("loadWorkspace", () => {
       await codes({
         "apkit-workspace.yaml": "schema_version: 1\n",
         "context/notes.txt": "x",
-        "context/Bad Name.md": "x",
         "context/empty.md": "",
         "skills/README.md": "x",
         "skills/a/SKILL.md": SKILL("same"),
@@ -85,7 +86,6 @@ describe("loadWorkspace", () => {
         "profiles/empty.yaml": "context: []\nskills: []\n",
       }),
     ).toEqual([
-      "context-module-file-name",
       "duplicate-artifact-name",
       "empty-content",
       "invalid-field",
@@ -95,6 +95,38 @@ describe("loadWorkspace", () => {
       "stray-profile-file",
       "stray-skill-file",
     ]);
+  });
+
+  test("any .md name is a Context Module, and its ID is its path without .md", async () => {
+    const root = await tempDir("ws");
+    await writeTree(root, {
+      "apkit-workspace.yaml": "",
+      "context/CLAUDE.md": "# Claude\n",
+      "context/AGENTS.md": "# Agents\n",
+      "context/My Notes.md": "Notes.\n",
+      "context/Team Docs/Read Me.md": "Read me.\n",
+    });
+    const workspace = await loadWorkspace(root);
+    expect(workspace.violations).toEqual([]);
+    expect([...workspace.context.keys()].sort()).toEqual(["AGENTS", "CLAUDE", "My Notes", "Team Docs/Read Me"]);
+  });
+
+  test("two Context IDs that differ only in case are an error", async () => {
+    const root = await tempDir("ws");
+    await writeTree(root, { "apkit-workspace.yaml": "", "context/Style.md": "Upper.\n", "context/style.md": "Lower.\n" });
+    const workspace = await loadWorkspace(root);
+    if ((await readdir(join(root, "context"))).length === 2) {
+      // A case-sensitive file system keeps both files: the IDs are ambiguous.
+      expect(workspace.violations.map((v) => [v.code, v.path])).toEqual([
+        ["context-id-case-collision", "context/Style.md"],
+        ["context-id-case-collision", "context/style.md"],
+      ]);
+      expect(workspace.context.size).toBe(0);
+    } else {
+      // A case-insensitive file system keeps one file, so no ambiguous pair can exist.
+      expect(workspace.violations).toEqual([]);
+      expect(workspace.context.size).toBe(1);
+    }
   });
 
   test("ignores hidden files", async () => {

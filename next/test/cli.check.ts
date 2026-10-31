@@ -72,6 +72,47 @@ describe("apkit-next CLI", () => {
     expect(cli(home, one, "status", "--all").out).toContain("Nothing is installed yet.");
   });
 
+  test("any .md Context name installs, and an encoded ID keeps the marked section intact", async () => {
+    const home = await tempDir("home");
+    const ws = await tempDir("ws");
+    const project = await tempDir("project");
+    await writeTree(ws, {
+      "apkit-workspace.yaml": "",
+      "context/CLAUDE.md": "# Copied CLAUDE.md\n\nUse tabs.\n",
+      "context/My Notes.md": "Keep notes short.\n",
+      "profiles/mine.yaml": "context:\n  - CLAUDE\n  - My Notes\nskills: []\n",
+    });
+    // `>` is not allowed in Windows file names; elsewhere a name with `-->` must not end apkit's comment.
+    const arrow = await writeTree(ws, { "context/a-->b.md": "Arrow text.\n" }).then(
+      () => true,
+      () => false,
+    );
+    if (arrow) await writeTree(ws, { "profiles/mine.yaml": "context:\n  - CLAUDE\n  - My Notes\n  - a-->b\nskills: []\n" });
+
+    const check = cli(home, project, "check", "--workspace", ws, "--json");
+    expect(check.code).toBe(0);
+    expect(JSON.parse(check.out).context.sort()).toEqual(arrow ? ["CLAUDE", "My Notes", "a-->b"] : ["CLAUDE", "My Notes"]);
+
+    expect(cli(home, project, "workspace", ws).code).toBe(0);
+    expect(cli(home, project, "install", "mine", "--agents", "claude,codex", "--yes").code).toBe(0);
+    const agents = await read(project, "AGENTS.md");
+    expect(agents).toContain("<!-- context: CLAUDE -->\n# Copied CLAUDE.md");
+    expect(agents).toContain("<!-- context: My Notes -->\nKeep notes short.");
+    if (arrow) {
+      expect(agents).toContain("<!-- context: a--%3Eb -->\n");
+      expect(agents).not.toContain("a-->b");
+    }
+    expect(cli(home, project, "status").out).toContain("up to date");
+
+    await writeTree(ws, { "context/My Notes.md": "Keep notes shorter.\n" });
+    expect(cli(home, project, "update").code).toBe(0);
+    expect(await read(project, "AGENTS.md")).toContain("Keep notes shorter.");
+    expect(cli(home, project, "status").out).toContain("up to date");
+
+    expect(cli(home, project, "remove").code).toBe(0);
+    expect(await readdir(project)).toEqual([]);
+  });
+
   test("init creates only the missing Workspace parts and selects it", async () => {
     const home = await tempDir("home");
     const root = await tempDir("new-ws");

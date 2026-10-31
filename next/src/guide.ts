@@ -53,7 +53,9 @@ Never copy or edit installed files by hand.
     skills/<dir>/SKILL.md   an Agent Skills package; its \`name\` is its id
     profiles/<id>.yaml      context: [ids] and skills: [names], both lists required
 
-Names are lowercase kebab-case. Edit these files directly, then run
+A Context file may have any .md name, so a copied CLAUDE.md is valid as it
+is; two Context IDs must not differ only in case. Skill and Profile names are
+lowercase kebab-case. Edit these files directly, then run
 \`${COMMAND} check\` and fix anything it reports.
 
 - Context is always-on guidance for every session in a project, such as a

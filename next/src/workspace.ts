@@ -138,15 +138,20 @@ async function walk(dir: string, add: Add, label: string, rel = ""): Promise<str
 async function loadContext(root: string, add: Add): Promise<Map<string, ContextModule>> {
   const modules = new Map<string, ContextModule>();
   const dir = join(root, "context");
-  for (const file of await walk(dir, add, "context")) {
+  const files = await walk(dir, add, "context");
+  // IDs that differ only in case would collide on a case-insensitive file system (ADR-0057 §1).
+  const ids = files.filter((file) => file.endsWith(".md")).map((file) => file.slice(0, -".md".length));
+  for (const file of files) {
     const path = `context/${file}`;
     if (!file.endsWith(".md")) {
       add("stray-context-file", path, `${path} is not Markdown; only .md files belong in context/.`);
       continue;
     }
     const id = file.slice(0, -".md".length);
-    if (!id.split("/").every((part) => KEBAB.test(part))) {
-      add("context-module-file-name", path, `${path} must use lowercase kebab-case folder and file names.`);
+    const others = ids.filter((other) => other !== id && other.toLowerCase() === id.toLowerCase());
+    if (others.length > 0) {
+      const names = others.map((other) => `context/${other}.md`).join(", ");
+      add("context-id-case-collision", path, `${path} and ${names} differ only in case; rename one so each Context ID is unique.`);
       continue;
     }
     const text = await readFile(join(dir, ...file.split("/")), "utf8");
