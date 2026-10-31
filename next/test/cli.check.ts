@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readdir, rm } from "node:fs/promises";
+import { mkdir, readdir, rm, symlink } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
@@ -70,6 +70,50 @@ describe("apkit-next CLI", () => {
     expect(cli(home, one, "update", "--all").out).toContain("no longer exists");
     expect(cli(home, one, "remove", two).code).toBe(0);
     expect(cli(home, one, "status", "--all").out).toContain("Nothing is installed yet.");
+  });
+
+  test("a symlink that leads outside the Project needs a decision before any write there", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    const outside = await tempDir("dotfiles");
+    // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
+    await symlink(outside, join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+
+    const blocked = cli(home, project, "install", "skills-only", "--agents", "claude");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(blocked.out).toContain("--yes");
+    expect(await readdir(project)).toEqual([".claude"]);
+    expect(await readdir(outside)).toEqual([]);
+    expect(cli(home, project, "status", "--all").out).toContain("Nothing is installed yet.");
+
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude", "--yes").code).toBe(0);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    const manifest = JSON.parse(await read(project, ".agents/apkit.json"));
+    expect(Object.keys(manifest.files)).toContain(".claude/skills/summarize/SKILL.md");
+    expect(cli(home, project, "update").code).toBe(0);
+
+    const remove = cli(home, project, "remove");
+    expect(remove.code).toBe(3);
+    expect(remove.out).toContain(`.claude is a symlink to ${outside}, outside this folder`);
+    expect(await read(outside, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove", "--yes").code).toBe(0);
+    expect(await readdir(outside)).toEqual([]);
+    expect(await readdir(project)).toEqual([".claude"]);
+  });
+
+  test("a symlink that stays inside the Project needs no decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const project = await tempDir("project");
+    await mkdir(join(project, "shared"));
+    await symlink(join(project, "shared"), join(project, ".claude"), "junction");
+    cli(home, project, "workspace", ws);
+    expect(cli(home, project, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(await read(project, "shared/skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(cli(home, project, "remove").code).toBe(0);
   });
 
   test("init creates only the missing Workspace parts and selects it", async () => {
