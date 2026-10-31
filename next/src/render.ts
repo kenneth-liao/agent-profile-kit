@@ -37,6 +37,8 @@ export interface Desired {
   readonly files: ReadonlyMap<string, DesiredFile>;
   /** Body of the AGENTS.md block, or null when the Profile selects no Context. */
   readonly context: string | null;
+  /** IDs of the Context Modules in `context`, in Profile order. */
+  readonly contextIds: readonly string[];
   /** "user" for an install into each agent's user-level folders and instruction files. */
   readonly scope?: "user";
 }
@@ -113,7 +115,7 @@ export function render(
           `Profile Context (${profileId}). This project's own instructions take precedence when they conflict with it.\n\n`;
     context += sections.join("\n");
   }
-  return { profile: profileId, agents: sorted, files, context, ...(scope === undefined ? {} : { scope }) };
+  return { profile: profileId, agents: sorted, files, context, contextIds: [...profile.context], ...(scope === undefined ? {} : { scope }) };
 }
 
 /** A Context ID may hold any file-name character; encode those that could end or forge an HTML comment. */
