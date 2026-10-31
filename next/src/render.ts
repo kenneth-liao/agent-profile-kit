@@ -102,7 +102,7 @@ export function render(
     const sections = profile.context.map((id) => {
       const module = workspace.context.get(id);
       if (module === undefined) throw new Error(`Profile '${profileId}' names Context '${id}', which does not exist.`);
-      return `<!-- context: ${id} -->\n${module.text.replace(/\r\n/g, "\n").trimEnd()}\n`;
+      return `<!-- context: ${encodeId(id)} -->\n${module.text.replace(/\r\n/g, "\n").trimEnd()}\n`;
     });
     // Plain text, not a comment: some agents drop HTML comments before the model sees them.
     context =
@@ -114,6 +114,11 @@ export function render(
     context += sections.join("\n");
   }
   return { profile: profileId, agents: sorted, files, context, ...(scope === undefined ? {} : { scope }) };
+}
+
+/** A Context ID may hold any file-name character; encode those that could end or forge an HTML comment. */
+function encodeId(id: string): string {
+  return id.replace(/[%<>\x00-\x1f\x7f]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`);
 }
 
 function codexPolicy(existing: Uint8Array | undefined): string {

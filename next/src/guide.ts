@@ -56,7 +56,9 @@ Never copy or edit installed files by hand.
 
 A missing list is empty. \`skills: all\` selects every Skill, including ones
 added later; Context has no \`all\`, because it is joined in list order.
-Names are lowercase kebab-case. Edit these files directly, then run
+A Context file may have any .md name, so a copied CLAUDE.md is valid as it
+is; two Context IDs must not differ only in case. Skill and Profile names are
+lowercase kebab-case. Edit these files directly, then run
 \`${COMMAND} check\` and fix anything it reports.
 
 - Context is always-on guidance for every session in a project, such as a
