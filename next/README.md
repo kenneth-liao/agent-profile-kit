@@ -87,7 +87,7 @@ Each agent's user-level file, and how it was verified (2026-10-30):
 | Codex | `$CODEX_HOME` or `~/.codex`, `AGENTS.override.md` if present, else `AGENTS.md` | Marker reached the model request |
 | OpenCode | `~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md` (first that exists) | Marker reached the model request, in both orders |
 | Pi | `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, `AGENTS.md` | Marker reached the model request |
-| Grok | `$GROK_HOME` or `~/.grok`, `rules/*.md` (loaded without folder trust) | Grok's bundled user guide |
+| Grok | `$GROK_HOME` or `~/.grok`, `rules/*.md` (loaded without folder trust) | `grok -p` quoted the marker, in an untrusted folder |
 | Antigravity | `~/.gemini/AGENTS.md` or `GEMINI.md` | Live session quoted the marker |
 
 User-level Skills folders used by `install --global` (verified the same way):
@@ -98,8 +98,15 @@ User-level Skills folders used by `install --global` (verified the same way):
 | Codex | `~/.agents/skills` (also reads `$CODEX_HOME/skills`) | Marker Skill reached the model request |
 | OpenCode | `~/.agents/skills` (also `~/.claude/skills`, `~/.config/opencode/skills`) | `opencode debug skill` listed it |
 | Pi | `~/.agents/skills` (also `~/.pi/agent/skills`) | Marker Skill reached the model request |
-| Grok | `~/.grok/skills` (also `~/.claude/skills`) | Grok's bundled user guide |
+| Grok | `~/.grok/skills` (also `~/.claude/skills`) | `grok -p` named the marker Skill, in an untrusted folder |
 | Antigravity | `~/.gemini/config/skills` | Live session listed the marker Skill |
+
+`install --global` was checked live on 2026-10-30 with a Profile holding one
+marker Context and one marker Skill, installed for all six agents. In an
+untrusted folder with no project instructions, each agent quoted the Context
+marker and named the marker Skill without tools: `claude -p` (2.1.314),
+`codex exec` (0.164.0), `opencode run` (2.2.4), `pi -p` (1.4.0), `grok -p`
+(1.0.70), and `agy -p` (1.4.12). `remove --global` then restored every file.
 
 Because OpenCode reads only the first file that exists, setup never creates
 `~/.config/opencode/AGENTS.md` when `~/.claude/CLAUDE.md` exists: that would
