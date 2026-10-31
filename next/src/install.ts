@@ -225,7 +225,7 @@ export async function execute(planned: Plan): Promise<void> {
     if (op.type === "write") {
       const path = abs(target, op.path);
       await atomicWrite(path, op.bytes);
-      if (op.executable && process.platform !== "win32") await chmod(path, 0o755);
+      if (op.executable) await chmod(path, 0o755);
     } else if (op.type === "text") {
       if (op.text === null) await unlink(op.absolute);
       else await atomicWrite(op.absolute, new TextEncoder().encode(op.text));

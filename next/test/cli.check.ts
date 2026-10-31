@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { readdir, rm } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { AGENTS } from "../src/render.js";
@@ -182,5 +182,13 @@ describe("apkit-next CLI", () => {
     expect(missing.err).toContain("--agents");
     expect(cli(home, folder, "install", "engineering", "--agents", "vim").err).toContain("Unknown agent: vim");
     expect(cli(home, folder, "install", "nope", "--agents", "codex").err).toContain("No Profile named 'nope'");
+  });
+
+  test.skipIf(!BUILT)("the bundle imports only node: built-ins and never checks the operating system", async () => {
+    const bundle = await readFile(resolve(import.meta.dir, "..", BUILT ?? ""), "utf8");
+    const specifiers = [...bundle.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|require\s*\(\s*|^import\s*)["']([^"']+)["']/gm)].map((m) => m[1]);
+    expect(specifiers.length).toBeGreaterThan(0);
+    expect(specifiers.filter((s) => !s?.startsWith("node:"))).toEqual([]);
+    expect(bundle.includes("process.platform")).toBe(false);
   });
 });
