@@ -959,6 +959,15 @@ describe("apkit-next CLI", () => {
     expect(firstTime.indexOf(`${COMMAND} setup`)).toBeLessThan(firstTime.indexOf("install a Profile"));
   });
 
+  test("the guide asks for a short closing summary: what is set up, how apkit works, what to do next", () => {
+    const after = GUIDE.slice(GUIDE.indexOf("## After installing"));
+    expect(after).toContain("tell the user in a few short lines");
+    expect(after).toContain("Do not list files");
+    expect(after).toContain("Git tracks");
+    expect(after).toContain("How apkit works");
+    expect(after).toContain("What they can do next");
+  });
+
   test("usage errors explain themselves", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();

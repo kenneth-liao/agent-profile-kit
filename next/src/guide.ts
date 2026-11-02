@@ -154,4 +154,17 @@ until the user trusts the folder. Pass those lines on to the user.
 Agents pick up installed material in their next session.
 Committing is the user's decision: never stage, commit, or push installed
 files or instruction-file changes unless the user asks.
+
+When you finish, tell the user in a few short lines:
+
+- What is set up now, in plain words. Do not list files. Name only a changed
+  file that Git tracks, such as AGENTS.md, and say that committing it is
+  their call.
+- How apkit works, in one or two sentences: their Workspace holds their
+  Context and Skills, a Profile picks some of them, and ${COMMAND} installs a
+  Profile into a project and keeps it up to date.
+- What they can do next: add a Context file or a Skill to the Workspace, add
+  it to a Profile, then ask you to update.
+
+Give paths and details only if the user asks.
 `;
