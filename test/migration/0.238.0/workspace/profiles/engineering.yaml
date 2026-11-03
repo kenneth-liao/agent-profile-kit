@@ -1,0 +1,6 @@
+context:
+  - communication
+  - engineering/review-findings
+skills:
+  - review-pr
+  - summarize

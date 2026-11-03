@@ -1,3 +1,6 @@
 # The Workspace contract is bundled into the CLI and printed by `apkit contract`:
 # keep its bytes the same on every OS, whatever core.autocrlf is.
 docs/guides/workspace-contract.md text eol=lf
+
+# The old engine's receipts hash these exact bytes (test/migration/0.238.0/README.md).
+test/migration/** -text
