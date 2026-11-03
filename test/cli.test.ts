@@ -9,7 +9,7 @@ import { AGENTS } from "../src/render.js";
 import { loadWorkspace, type Violation } from "../src/workspace.js";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { makeWorkspace, read, SKILL, snapshot, tempDir, writeTree } from "./fixtures.js";
-import { materializeMigration, type MigrationFixture } from "./migration.js";
+import { materializeMachine, materializeMigration, type MigrationFixture } from "./migration.js";
 
 // Journeys run several commands, each a new process: on Node one took 7.4 s, past Bun's 5 s default.
 // A bounded budget for every journey here, wherever the suite runs (CI included).
@@ -1654,8 +1654,9 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     const fresh = cliWithEnv({ APKIT_HOME: join(fixture.root, "fresh-apkit") }, fixture.home, fixture.pristine, "install", "engineering", "--agents", ALL, "--yes", "--workspace", fixture.workspace);
     expect([fresh.code, fresh.err]).toEqual([0, ""]);
     expect(await tree(fixture.project)).toEqual(await tree(fixture.pristine));
-    // The old state is kept as it was.
-    expect(await readFile(join(fixture.state, "state", "manifest.json"), "utf8")).toBe(before);
+    // The old state is kept as a backup, as it was.
+    expect(existsSync(fixture.state)).toBe(false);
+    expect(await readFile(join(`${fixture.state}.migrated`, "state", "manifest.json"), "utf8")).toBe(before);
   });
 
   test("names each old output and its outcome in text, by Project path", async () => {
@@ -1675,7 +1676,9 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     });
     const home = await snapshot(fixture.home);
     expect(migrateCli(fixture, fixture.project, "migrate", "--yes").code).toBe(0);
-    expect(await snapshot(fixture.home)).toEqual(home);
+    // Only the old state moved, into its backup.
+    const moved = Object.fromEntries(Object.entries(home).map(([path, text]) => [path.replace(/^\.agents\/agent-profile-kit\//, ".agents/agent-profile-kit.migrated/"), text]));
+    expect(await snapshot(fixture.home)).toEqual(moved);
   });
 
   test("without --yes, creating AGENTS.md is a decision and nothing changes", async () => {
@@ -1705,29 +1708,46 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await tree(fixture.project)).toEqual(project);
   });
 
-  test("a second run finds the Project already migrated and changes nothing", async () => {
-    const fixture = await materializeMigration();
-    expect(migrateCli(fixture, fixture.project, "migrate", "--yes").code).toBe(0);
-    const project = await tree(fixture.project);
-    const again = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
-    expect([again.code, again.err]).toEqual([0, ""]);
-    const project2 = JSON.parse(again.out).projects[0];
-    expect(project2.result).toBe("unchanged");
-    expect(project2.outputs.filter((o: { result: string }) => o.result === "already-replaced").map((o: { path: string }) => o.path)).toContain(".claude/skills/review-pr");
-    expect(await tree(fixture.project)).toEqual(project);
+  test("a Project migrated by an earlier run that stopped for a decision is already migrated and does not change", async () => {
+    const fixture = await materializeMachine([{ name: "done" }, { name: "open" }]);
+    await writeFile(join(fixture.projects.open!, ".codex", "hooks.json"), '{ "hooks": {} }\n');
+    expect(migrateCli(fixture, fixture.root, "migrate", "--yes").code).toBe(3);
+    const project = await tree(fixture.projects.done!);
+    const again = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect(again.code).toBe(3);
+    const done = JSON.parse(again.out).projects[0];
+    expect([done.folder, done.result]).toEqual([fixture.projects.done, "unchanged"]);
+    expect(done.outputs.filter((o: { result: string }) => o.result === "already-replaced").map((o: { path: string }) => o.path)).toContain(".claude/skills/review-pr");
+    expect(await tree(fixture.projects.done!)).toEqual(project);
   });
 
-  test("a retired receipt is listed, not migrated", async () => {
-    const fixture = await materializeMigration();
-    const path = join(fixture.state, "state", "manifest.json");
-    const state = JSON.parse(await readFile(path, "utf8"));
-    state.receipts[0].retired = true;
-    await writeFile(path, JSON.stringify(state));
-    const project = await tree(fixture.project);
-    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
-    expect(result.code).toBe(0);
-    expect(JSON.parse(result.out).projects).toEqual([expect.objectContaining({ folder: fixture.project, result: "retired" })]);
-    expect(await tree(fixture.project)).toEqual(project);
+  test("a retired receipt's unchanged outputs and old exclusion entries are deleted, and nothing is installed", async () => {
+    const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+    const folder = fixture.projects.retired!;
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const data = JSON.parse(result.out);
+    expect(data.projects).toEqual([expect.objectContaining({ folder, result: "retired" })]);
+    expect(new Set(data.projects[0].outputs.map((o: { result: string }) => o.result))).toEqual(new Set(["deleted"]));
+    expect(data.projects[0].exclusion.result).toBe("removed");
+    expect(existsSync(join(folder, ".agents", "apkit.json"))).toBe(false);
+    expect(existsSync(join(fixture.root, "apkit", "config.json"))).toBe(false);
+    // Only the user's own files are left, as before the old install.
+    expect(await tree(folder)).toEqual(await tree(fixture.pristine));
+    expect(data.backup).toEqual({ path: `${fixture.state}.migrated`, result: "renamed" });
+  });
+
+  test("a retired receipt with a changed output is a decision: nothing changes and the old state stays", async () => {
+    const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+    const folder = fixture.projects.retired!;
+    await writeFile(join(folder, ".pi", "APPEND_SYSTEM.md"), "mine\n");
+    const project = await tree(folder);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--overwrite", "--json");
+    expect(result.code).toBe(3);
+    const data = JSON.parse(result.out);
+    expect(data.projects[0]).toMatchObject({ result: "needs-decision", issues: [expect.objectContaining({ kind: "changed", path: ".pi/APPEND_SYSTEM.md" })] });
+    expect(await tree(folder)).toEqual(project);
+    expect(existsSync(fixture.state)).toBe(true);
   });
 
   test("a malformed old exclusion block stops that Project before any change", async () => {
@@ -1754,9 +1774,9 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     await writeFile(exclude, (await readFile(exclude, "utf8")).replace("/.pi/APPEND_SYSTEM.md\n", "/.pi/APPEND_SYSTEM.md\n/sub/.pi/APPEND_SYSTEM.md\n"));
 
     const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
-    expect(result.code).toBe(0);
+    expect(result.code).toBe(3);
     const projects = JSON.parse(result.out).projects;
-    expect(projects.map((p: { result: string }) => p.result)).toEqual(["migrated", "retired"]);
+    expect(projects.map((p: { result: string }) => p.result)).toEqual(["migrated", "needs-decision"]);
     expect(projects[0].exclusion.result).toBe("kept-for-others");
     const text = await readFile(exclude, "utf8");
     expect(text).toContain("# BEGIN Agent Profile Kit generated paths\n/sub/.pi/APPEND_SYSTEM.md\n# END Agent Profile Kit generated paths\n");
@@ -1764,10 +1784,161 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await read(sub, ".pi/APPEND_SYSTEM.md")).toBe("old\n");
   });
 
+  /** The tree of a fresh new-engine install of `profile` for `agents` into a copy of the pristine Project. */
+  async function freshInstall(fixture: MigrationFixture, name: string, profile: string, agents: readonly string[]) {
+    const folder = join(fixture.root, `fresh-${name}`);
+    await cp(fixture.pristine, folder, { recursive: true });
+    const fresh = cliWithEnv({ APKIT_HOME: join(fixture.root, `fresh-apkit-${name}`) }, fixture.home, folder, "install", profile, "--agents", agents.join(","), "--yes", "--workspace", fixture.workspace);
+    expect([fresh.code, fresh.err]).toEqual([0, ""]);
+    return tree(folder);
+  }
+
+  test("one run migrates every Project with its own Profile and agents, then keeps the old state as a backup, unchanged", async () => {
+    const machine = [
+      { name: "engineering", profile: "engineering", agents: ALL.split(",") },
+      { name: "writing", profile: "writing", agents: ["claude", "codex"] },
+      { name: "skills", profile: "skills-only", agents: ["pi"] },
+    ];
+    const fixture = await materializeMachine(machine);
+    const before = await snapshot(fixture.state);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const data = JSON.parse(result.out);
+    expect(data.projects.map((p: { folder: string; result: string; profile: string; agents: string[] }) => [p.folder, p.result, p.profile, p.agents])).toEqual(
+      machine.map((p) => [fixture.projects[p.name], "migrated", p.profile, p.agents]),
+    );
+    for (const p of machine) {
+      const manifest = JSON.parse(await read(fixture.projects[p.name]!, ".agents/apkit.json"));
+      expect([manifest.profile, manifest.agents]).toEqual([p.profile, p.agents]);
+      expect(await tree(fixture.projects[p.name]!)).toEqual(await freshInstall(fixture, p.name, p.profile, p.agents));
+    }
+    const config = JSON.parse(await readFile(join(fixture.root, "apkit", "config.json"), "utf8"));
+    expect([config.workspace, [...config.installs].sort()]).toEqual([fixture.workspace, machine.map((p) => fixture.projects[p.name]).sort()]);
+    expect(data.backup).toEqual({ path: `${fixture.state}.migrated`, result: "renamed" });
+    expect(existsSync(fixture.state)).toBe(false);
+    expect(await snapshot(`${fixture.state}.migrated`)).toEqual(before);
+  });
+
+  test("names each Project and the backup in text", async () => {
+    const fixture = await materializeMachine([{ name: "one" }, { name: "two", profile: "writing", agents: ["claude"] }]);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    expect(result.out).toContain(`${fixture.projects.one}: migrated`);
+    expect(result.out).toContain(`${fixture.projects.two}: migrated`);
+    expect(result.out).toContain("Renamed ~/.agents/agent-profile-kit to ~/.agents/agent-profile-kit.migrated");
+  });
+
+  test("a recorded Project folder that no longer exists is named and skipped; the others migrate and the backup is made", async () => {
+    const fixture = await materializeMachine([{ name: "gone", missing: true }, { name: "here" }, { name: "gone-too", missing: true, retired: true }]);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const data = JSON.parse(result.out);
+    expect(data.projects.map((p: { folder: string; result: string }) => [p.folder, p.result])).toEqual([
+      [fixture.projects.gone, "missing"],
+      [fixture.projects.here, "migrated"],
+      [fixture.projects["gone-too"], "missing"],
+    ]);
+    expect(data.backup.result).toBe("renamed");
+    expect(existsSync(fixture.projects.gone!)).toBe(false);
+  });
+
+  test("missing Project folders are listed by path in one warning", async () => {
+    const fixture = await materializeMachine([{ name: "gone", missing: true }, { name: "gone-too", missing: true }]);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    expect(result.out.match(/Warning:/g)).toHaveLength(1);
+    expect(result.out).toContain(`  - ${fixture.projects.gone}\n  - ${fixture.projects["gone-too"]}`);
+  });
+
+  test("while a Project needs a decision, the old state folder is not renamed; a later complete run renames it", async () => {
+    const fixture = await materializeMachine([{ name: "ok" }, { name: "edited" }]);
+    const before = await snapshot(fixture.state);
+    const hooks = join(fixture.projects.edited!, ".codex", "hooks.json");
+    await writeFile(hooks, '{ "hooks": {} }\n');
+    const first = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect(first.code).toBe(3);
+    const data = JSON.parse(first.out);
+    expect(data.projects.map((p: { result: string }) => p.result)).toEqual(["migrated", "needs-decision"]);
+    expect(data.backup).toEqual({ path: `${fixture.state}.migrated`, result: "kept" });
+    expect(await snapshot(fixture.state)).toEqual(before);
+    expect(existsSync(`${fixture.state}.migrated`)).toBe(false);
+    const text = migrateCli(fixture, fixture.root, "migrate", "--yes").out;
+    expect(text).toContain(`Kept ~/.agents/agent-profile-kit as it is. It is renamed to ~/.agents/agent-profile-kit.migrated as a backup once these Projects are migrated:\n  - ${fixture.projects.edited}\n`);
+
+    await rm(hooks);
+    const second = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect([second.code, second.err]).toEqual([0, ""]);
+    expect(JSON.parse(second.out).projects.map((p: { result: string }) => p.result)).toEqual(["unchanged", "migrated"]);
+    expect(await snapshot(`${fixture.state}.migrated`)).toEqual(before);
+  });
+
+  test("a Project that fails keeps the old state folder", async () => {
+    const fixture = await materializeMachine([{ name: "ok" }, { name: "unknown", profile: "no-such-profile" }]);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.out).backup.result).toBe("kept");
+    expect(existsSync(fixture.state)).toBe(true);
+  });
+
+  for (const order of ["outer first", "inner first"]) {
+    test(`two Projects in one repository (${order}): the old block is removed and no entry comes back`, async () => {
+      const fixture = await materializeMachine([{ name: "outer" }]);
+      const outer = fixture.projects.outer!;
+      const inner = join(outer, "inner");
+      await cp(join(fixture.project, ".pi"), join(inner, ".pi"), { recursive: true });
+      await cp(join(fixture.project, ".claude"), join(inner, ".claude"), { recursive: true });
+      const path = join(fixture.state, "state", "manifest.json");
+      const state = JSON.parse(await readFile(path, "utf8"));
+      const [receipt] = state.receipts;
+      const keep = new Set([".pi/APPEND_SYSTEM.md", ".claude/rules/agent-profile-kit.md"]);
+      const second = { ...receipt, installation_id: "inner", project: inner, retired: true, outputs: receipt.outputs.filter((o: { path: string }) => keep.has(o.path)) };
+      state.receipts = order === "outer first" ? [receipt, second] : [second, receipt];
+      await writeFile(path, JSON.stringify(state));
+      const exclude = join(outer, ".git", "info", "exclude");
+      await writeFile(exclude, (await readFile(exclude, "utf8")).replace("/.pi/APPEND_SYSTEM.md\n", "/.pi/APPEND_SYSTEM.md\n/inner/.claude/rules/agent-profile-kit.md\n/inner/.pi/APPEND_SYSTEM.md\n"));
+
+      const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(await readFile(exclude, "utf8")).not.toContain("Agent Profile Kit");
+      expect(existsSync(join(inner, ".pi"))).toBe(false);
+      expect(await read(inner, ".claude/settings.json")).toContain("permissions");
+    });
+  }
+
+  test("a second run after a complete run changes nothing and says there is nothing to migrate", async () => {
+    const fixture = await materializeMachine([{ name: "one" }, { name: "two", profile: "writing", agents: ["codex"] }]);
+    expect(migrateCli(fixture, fixture.root, "migrate", "--yes").code).toBe(0);
+    const trees = [await tree(fixture.projects.one!), await tree(fixture.projects.two!)];
+    const home = await snapshot(fixture.home);
+    const apkit = await snapshot(join(fixture.root, "apkit"));
+    const again = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+    expect([again.code, again.err]).toEqual([0, ""]);
+    expect(JSON.parse(again.out)).toEqual({ state: fixture.state, found: false, projects: [], backup: `${fixture.state}.migrated` });
+    const text = migrateCli(fixture, fixture.root, "migrate", "--yes");
+    expect(text.out).toContain("Nothing to migrate");
+    expect(text.out).toContain("~/.agents/agent-profile-kit.migrated");
+    expect([await tree(fixture.projects.one!), await tree(fixture.projects.two!)]).toEqual(trees);
+    expect(await snapshot(fixture.home)).toEqual(home);
+    expect(await snapshot(join(fixture.root, "apkit"))).toEqual(apkit);
+  });
+
+  test("an existing backup folder stops migrate before any change", async () => {
+    const fixture = await materializeMachine([{ name: "one" }]);
+    await writeTree(`${fixture.state}.migrated`, { "config.yaml": "earlier\n" });
+    const project = await tree(fixture.projects.one!);
+    const home = await snapshot(fixture.home);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--yes");
+    expect(result.code).toBe(1);
+    expect(result.err).toContain("~/.agents/agent-profile-kit.migrated already exists");
+    expect(result.err).toContain("Next: `apkit migrate`");
+    expect(await tree(fixture.projects.one!)).toEqual(project);
+    expect(await snapshot(fixture.home)).toEqual(home);
+  });
+
   test("with no old state, there is nothing to migrate", async () => {
     const home = await tempDir("home");
     const result = cli(home, home, "migrate", "--json");
-    expect([result.code, JSON.parse(result.out)]).toEqual([0, { state: join(home, ".agents", "agent-profile-kit"), found: false, projects: [] }]);
+    expect([result.code, JSON.parse(result.out)]).toEqual([0, { state: join(home, ".agents", "agent-profile-kit"), found: false, projects: [], backup: null }]);
     expect(cli(home, home, "migrate").out).toContain("Nothing to migrate");
   });
 });
