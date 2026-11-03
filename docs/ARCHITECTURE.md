@@ -46,8 +46,8 @@ It is a small command for an agent to drive:
 `init`, `workspace`, `check`, `install`, `update`, `remove`, `status`, and
 `setup`, plus `help`, `guide`, and `contract`. Flags: `--agents a,b`, `--yes`,
 `--overwrite`, `--global`, `--all`, `--remove` (with `setup`), `--json`, and
-`--workspace <path>` (one run only). `apkit migrate` is added by #753; see
-[Migration from the released engine](#migration-from-the-released-engine).
+`--workspace <path>` (one run only). `apkit migrate` moves an installation of
+the released engine to this one; see [Migration from the released engine](#migration-from-the-released-engine).
 
 Exit codes: `0` done, `1` error, `2` usage, `3` needs a Decision (nothing was
 changed). With `--json`, each command prints one JSON value that is the
@@ -185,8 +185,7 @@ The released engine (0.238.0 and earlier) kept Local Configuration in
 `state/manifest.json` there. `apkit migrate` reads them, takes over each
 recorded Project without losing the user's edits, and installs the same
 Profile and agents with this engine; other commands name `apkit migrate` while
-that state is not migrated (#728). Its design lives with its implementation
-(#753 and its sibling tickets).
+that state is not migrated.
 
 ## Verified Locations
 
