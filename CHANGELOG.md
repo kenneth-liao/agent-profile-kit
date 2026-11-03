@@ -6,7 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Changed `apkit install` so a request that drops an installed agent names the change (`Agents: claude → codex`) before any write, and its non-interactive refusal also prints a runnable command that keeps the current agents with repeated `--agent`; `apkit guide profile`, the `init` handoff, the README, and the agent workflow now show `new profile … --skill`, multi-agent installs, an agent-first README route, and a consented cleanup offer for duplicate originals (#725)
+- Changed `apkit` to the agent-first engine (BREAKING): the commands are now `init`, `workspace`, `setup`, `check`, `install`, `update`, `remove`, `status`, `guide`, and `migrate`, and users of 0.238.0 or earlier must run `apkit migrate` once so each installed Project keeps its Workspace, Profile, and agents under the new engine (#728)
 
 ## [0.238.0] - 2026-10-28
 
