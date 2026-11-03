@@ -1593,12 +1593,8 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
 
   /** Runs with the new apkit home apart from the home folder, so the home folder holds only the user's and the old engine's files. */
   function migrateCli(fixture: MigrationFixture, cwd: string, ...args: string[]) {
-    return cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit") }, fixture.home, cwd, ...args);
-  }
-
-  /** The home folder's files, without the runtime's own cache (Bun writes one there). */
-  async function homeFiles(home: string): Promise<Record<string, string>> {
-    return Object.fromEntries(Object.entries(await snapshot(home)).filter(([path]) => !path.startsWith("Library/Caches/") && !path.startsWith(".cache/")));
+    // Bun's transpiler cache would otherwise land in the home folder that these journeys compare.
+    return cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, fixture.home, cwd, ...args);
   }
 
   /** Every file (with its text) and every empty folder under `folder`, skipping `.git` except its exclude file, with `folder` written as `<folder>`. */
@@ -1669,7 +1665,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(result.out).toContain(fixture.project);
     expect(result.out).toContain("'engineering'");
     expect(result.out).toContain(".codex/hooks.json");
-    expect(result.out).toContain(".git/info/exclude");
+    expect(result.out).toContain(join(fixture.project, ".git", "info", "exclude"));
   });
 
   test("leaves the home folder alone, including the trust given to the old Codex hook", async () => {
@@ -1677,22 +1673,22 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     await writeTree(fixture.home, {
       ".codex/config.toml": `[projects."${fixture.project}"]\ntrust_level = "trusted"\n\n[hooks.trusted]\n"${fixture.project}/.codex/hooks.json" = "sha256:abc"\n`,
     });
-    const home = await homeFiles(fixture.home);
+    const home = await snapshot(fixture.home);
     expect(migrateCli(fixture, fixture.project, "migrate", "--yes").code).toBe(0);
-    expect(await homeFiles(fixture.home)).toEqual(home);
+    expect(await snapshot(fixture.home)).toEqual(home);
   });
 
   test("without --yes, creating AGENTS.md is a decision and nothing changes", async () => {
     const fixture = await materializeMigration();
     const project = await tree(fixture.project);
-    const home = await homeFiles(fixture.home);
+    const home = await snapshot(fixture.home);
     const result = migrateCli(fixture, fixture.project, "migrate", "--json");
     expect(result.code).toBe(3);
     const data = JSON.parse(result.out);
     expect(data.projects[0].result).toBe("needs-decision");
     expect(data.projects[0].issues.map((i: { path: string }) => i.path)).toContain("AGENTS.md");
     expect(await tree(fixture.project)).toEqual(project);
-    expect(await homeFiles(fixture.home)).toEqual(home);
+    expect(await snapshot(fixture.home)).toEqual(home);
     expect(existsSync(join(fixture.root, "apkit", "config.json"))).toBe(false);
     expect(migrateCli(fixture, fixture.project, "migrate").out).toContain("apkit migrate --yes");
   });

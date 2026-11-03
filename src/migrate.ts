@@ -92,7 +92,7 @@ export async function readOldState(home: string): Promise<OldState | null> {
     if (!isRecord(config)) throw new OldStateError(configPath, "it is not a mapping");
     refuseNewer(config.schema_version, CONFIG_SCHEMA, configPath);
     if (config.workspace !== undefined && typeof config.workspace !== "string") throw new OldStateError(configPath, "workspace is not a path");
-    workspace = config.workspace as string | undefined;
+    workspace = config.workspace === undefined ? undefined : resolve(config.workspace as string);
   }
 
   const receipts: OldReceipt[] = [];
