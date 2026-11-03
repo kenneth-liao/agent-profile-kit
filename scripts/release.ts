@@ -124,11 +124,33 @@ async function qualify(directory: string) {
   }
 }
 
+/**
+ * Fails unless the CI workflow passed on `commit`: at least one run succeeded, and every run
+ * for that commit is complete and succeeded or was skipped. Any `gh` failure fails closed.
+ */
+function ciPassed(commit: string) {
+  const repository = process.env.GITHUB_REPOSITORY;
+  if (!repository || !/^[a-f0-9]{40}$/.test(commit)) throw new Error("ci-passed needs GITHUB_REPOSITORY and a full commit SHA");
+  const query = `repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${commit}&per_page=100`;
+  const runs = command("gh", ["api", "--paginate", query, "--jq", '.workflow_runs[] | [.id, .status, .conclusion // ""] | @tsv'])
+    .split("\n")
+    .filter((line) => line.trim() !== "")
+    .map((line) => {
+      const [id, status, conclusion] = line.split("\t");
+      return { id, status, conclusion };
+    });
+  const open = runs.filter((run) => run.status !== "completed" || !["success", "skipped"].includes(run.conclusion ?? ""));
+  if (!runs.some((run) => run.conclusion === "success")) throw new Error(`No passing CI run for ${commit}`);
+  if (open.length > 0) throw new Error(`CI has not passed for ${commit}: ${open.map((run) => `run ${run.id} is ${run.status}${run.conclusion ? ` (${run.conclusion})` : ""}`).join(", ")}`);
+  console.log(`CI passed for ${commit}: ${runs.map((run) => `run ${run.id}`).join(", ")}`);
+}
+
 if (import.meta.main) {
   try {
     const [operation, directory, arg, version, extra] = process.argv.slice(2);
-    if (!directory || extra) throw new Error("Usage: bun scripts/release.ts candidate <directory> [prerelease] | qualify <directory> | verify <directory> <commit> [version]");
-    if (operation === "candidate" && !version) await candidate(resolve(directory), arg);
+    if (!directory || extra) throw new Error("Usage: bun scripts/release.ts candidate <directory> [prerelease] | qualify <directory> | verify <directory> <commit> [version] | ci-passed <commit>");
+    if (operation === "ci-passed" && !arg) ciPassed(directory);
+    else if (operation === "candidate" && !version) await candidate(resolve(directory), arg);
     else if (operation === "qualify" && !arg && !version) await qualify(resolve(directory));
     else if (operation === "verify" && arg) await verify(resolve(directory), arg, version);
     else throw new Error("Unknown release operation or unexpected arguments");

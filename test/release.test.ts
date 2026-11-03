@@ -1,7 +1,7 @@
 import { expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { tempDir, writeTree } from "./fixtures.js";
 
 setDefaultTimeout(30_000);
@@ -129,18 +129,31 @@ test("workflow dry run excludes the entire write job and prereleases select next
   expect(verify.permissions).toEqual({ contents: "read" });
   const policy = verify.steps.find((step: { name: string }) => step.name === "Validate release identity").run;
   const root = await repository();
-  // Dry runs and next prereleases must not query main. Stub gh so an accidental query fails.
+  await writeTree(root, { "scripts/release.ts": await readFile(SCRIPT, "utf8") });
+  // Dry runs and next prereleases must not query main. Stub gh so an accidental query fails;
+  // it answers only the CI runs query, with the runs in CI_RUNS.
   const { chmod } = await import("node:fs/promises");
-  await writeTree(root, { "bin/gh": "#!/bin/sh\nexit 91\n" });
+  await writeTree(root, { "bin/gh": '#!/bin/sh\ncase "$*" in *actions/workflows/ci.yml/runs*) printf "$CI_RUNS";; *) exit 91;; esac\n' });
   await chmod(join(root, "bin/gh"), 0o755);
-  const env = { ...process.env, PATH: join(root, "bin") + ":" + process.env.PATH, VERSION: "0.239.0", PRERELEASE: "rc.1", DRY_RUN: "true", GITHUB_REF: "refs/heads/spec/728-agent-first-cutover" };
+  const path = [join(root, "bin"), dirname(process.execPath), process.env.PATH].join(":");
+  const env = { ...process.env, PATH: path, GITHUB_REPOSITORY: "owner/repo", GITHUB_SHA: "a".repeat(40), CI_RUNS: "", VERSION: "0.239.0", PRERELEASE: "rc.1", DRY_RUN: "true", GITHUB_REF: "refs/heads/spec/728-agent-first-cutover" };
+  const passed = "1\\tcompleted\\tsuccess\\n";
   if (process.platform !== "win32") {
     expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env, encoding: "utf8" }).status).toBe(0);
-    expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env: { ...env, DRY_RUN: "false" }, encoding: "utf8" }).status).toBe(0);
-    expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env: { ...env, DRY_RUN: "false", PRERELEASE: "" }, encoding: "utf8" }).status).not.toBe(0);
+    expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env: { ...env, DRY_RUN: "false", CI_RUNS: passed }, encoding: "utf8" }).status).toBe(0);
+    // A publishing run waits for every CI run of its commit to pass.
+    for (const runs of ["", "1\\tcompleted\\tfailure\\n", `${passed}2\\tin_progress\\t\\n`]) {
+      expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env: { ...env, DRY_RUN: "false", CI_RUNS: runs }, encoding: "utf8" }).status).not.toBe(0);
+    }
+    expect(spawnSync("bash", ["-e", "-c", policy], { cwd: root, env: { ...env, DRY_RUN: "false", PRERELEASE: "", CI_RUNS: passed }, encoding: "utf8" }).status).not.toBe(0);
   }
+  // The stable path's checks cannot be edited out on a branch: npm trusts only the protected environment.
+  expect(publish.environment).toBe("release");
   const npm = publish.steps.find((step: { name: string }) => step.name === "Publish to npm");
   expect(npm.run).toContain('--tag "$DIST_TAG"');
   expect(publish.env.DIST_TAG).toContain("'next'");
   expect(publish.steps.some((step: { run?: string }) => /npm pack|run build/.test(step.run ?? ""))).toBe(false);
+  // The Release keeps the record of what was tested, next to the exact tarball.
+  const release = publish.steps.find((step: { name: string }) => step.name === "Create GitHub Release").run;
+  for (const file of ["agent-profile-kit-$VERSION.tgz", "candidate.json", "qualification-record.json"]) expect(release).toContain(`"$CANDIDATE/${file}"`);
 });

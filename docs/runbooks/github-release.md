@@ -3,20 +3,30 @@
 The manually dispatched `Release` workflow builds and packs once, qualifies the
 installed tarball with plain `bun test`, and publishes the same bytes to npm
 and a GitHub Release (ADR-0053, ADR-0059). Verification is read-only. The separate
-publishing job has the sole `contents: write` and `id-token: write` grants;
-`dry-run=true` skips that entire job, including tag and Release creation.
+publishing job has the sole `contents: write` and `id-token: write` grants and
+runs in the `release` GitHub environment; `dry-run=true` skips that entire job,
+including tag and Release creation.
 
-## One-time setup: npm trusted publisher
+## One-time setup: release environment and npm trusted publisher
 
-The package owner configures a GitHub Actions trusted publisher at
-<https://www.npmjs.com/package/agent-profile-kit/access>:
+`workflow_dispatch` runs `release.yml` from the selected ref, so a branch could
+edit out the workflow's own checks. The environment's branch rules and the npm
+binding hold outside the workflow file. The repository owner does both steps once:
 
-- Organization or user: `kenneth-liao`
-- Repository: `agent-profile-kit`
-- Workflow filename: `release.yml`
-- Environment name: leave blank
+1. In the repository settings, under **Environments**, create the environment
+   `release`. Under **Deployment branches and tags**, select **Selected branches
+   and tags** and add the rules `main` and `spec/**`. Optionally add a required
+   reviewer.
+2. Configure the GitHub Actions trusted publisher at
+   <https://www.npmjs.com/package/agent-profile-kit/access>:
+   - Organization or user: `kenneth-liao`
+   - Repository: `agent-profile-kit`
+   - Workflow filename: `release.yml`
+   - Environment name: `release`
 
-No `NPM_TOKEN` is stored. npm publication uses OIDC and `--provenance`.
+No `NPM_TOKEN` is stored. npm publication uses OIDC and `--provenance`. Until both
+steps are done, the publishing job either waits for an environment that does not
+allow its branch or is refused by npm.
 
 ## Qualification without publication
 
@@ -24,8 +34,11 @@ Start with a clean checkout and installed dependencies. Local qualification
 uses the installed Node on `PATH` and the Bun running the command. CI uses the
 Bun pin in `package.json`, Node 22, macOS 15, and a finite 15-minute verification
 job. The ordinary CI matrix separately qualifies the same revision on macOS,
-Linux, Windows, and every supported Node line; require those results before
-publication. A local result is evidence only for its recorded environment.
+Linux, Windows, and every supported Node line. A publishing run (`dry-run=false`)
+stops in "Validate release identity" unless `bun scripts/release.ts ci-passed
+<commit>` finds a passing CI run for the commit and every CI run for it is
+complete and passed (or skipped). A local result is evidence only for its
+recorded environment.
 
 ```sh
 candidate_dir="$(mktemp -d)"
@@ -68,8 +81,8 @@ publication operations.
 
 ## Publish a prerelease to next
 
-Prereleases can come from the integration branch before it merges. Require
-passing CI on the selected commit. The base version must match `package.json`;
+Prereleases can come from the integration branch before it merges. The workflow
+requires passing CI on the selected commit. The base version must match `package.json`;
 the suffix must be valid SemVer prerelease identifiers. The dated changelog
 check is skipped. `latest` is left alone: npm receives `--tag next`, and GitHub
 receives `--prerelease --latest=false`.
@@ -84,7 +97,7 @@ the qualification record. Each candidate suffix must be unused.
 
 ## Publish a stable release
 
-Stable publication requires the current `main` head, passing CI on that commit,
+Stable publication requires the current `main` head, passing CI on that commit (checked by the workflow),
 the matching base version in `package.json`, and a dated changelog section
 `## [<version>] - YYYY-MM-DD`. No tag, GitHub Release, or npm version may already
 exist. Leave `prerelease` empty. Stable publication explicitly uses `--tag latest`.
@@ -117,7 +130,10 @@ platform/architecture, result, and completed test count. `tests.xml` records the
 individual test outcomes. The CLI environment is the installed path described
 above. Reproduce using that commit, the same runtime, and these commands.
 
-Workflow artifacts retained for seven days:
+The GitHub Release holds the durable copy: the exact `.tgz`, `candidate.json`,
+and `qualification-record.json`, attached after the same verifier passes. Link
+the record from there (for example on the release issue). Workflow artifacts
+retained for seven days:
 
 - `qualification-attempt-<attempt>`: available identity, qualification, and JUnit
   records on success or failure. A failure before record creation is evidenced
@@ -166,7 +182,8 @@ bun scripts/release.ts verify "$recovery_dir" "$target_sha" "$version"
 ```
 
 The release owner then prepares notes for that version and creates the missing
-GitHub Release using `$recovery_dir/$archive`, targeting `$target_sha`. Include
+GitHub Release with `$recovery_dir/$archive`, `$recovery_dir/candidate.json`, and
+`$recovery_dir/qualification-record.json` attached, targeting `$target_sha`. Include
 `--prerelease --latest=false` for a prerelease. Do not rerun npm publication or
 move a dist-tag as part of recovery. Preserve defective published versions and
 fix forward.

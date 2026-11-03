@@ -71,6 +71,8 @@ jobs:
           # Candidate creation validates the suffix before touching the manifest.
           # Dry runs perform no remote release/tag checks and have no write job.
           if [ "$DRY_RUN" != "true" ]; then
+            # Publication waits for the whole CI matrix (macOS, Linux, Windows, every Node line) on this commit.
+            bun scripts/release.ts ci-passed "$GITHUB_SHA"
             release_version="$VERSION${PRERELEASE:+-$PRERELEASE}"
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$release_version" >/dev/null 2>&1; then
               echo "Tag already exists: v$release_version" >&2
@@ -131,6 +133,8 @@ jobs:
     name: Publish the verified release
     if: ${{ !inputs.dry-run }}
     needs: [verify-release-candidate]
+    # npm trusts only this environment, whose branch rules a dispatched branch cannot edit.
+    environment: release
     runs-on: macos-15
     timeout-minutes: 10
     permissions:
@@ -199,12 +203,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [ "$DIST_TAG" = "latest" ]; then
-            test "$GITHUB_SHA" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          fi
           bun scripts/release.ts verify "$CANDIDATE" "$GITHUB_SHA" "$VERSION"
           flags=()
           if [ "$DIST_TAG" = "next" ]; then flags+=(--prerelease --latest=false); fi
+          # The verified record of what was tested stays with the Release, past the artifact retention.
           gh release create "v$VERSION" "$CANDIDATE/agent-profile-kit-$VERSION.tgz" \
+            "$CANDIDATE/candidate.json" "$CANDIDATE/qualification-record.json" \
             --target "$GITHUB_SHA" --title "Agent Profile Kit $VERSION" \
             --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
