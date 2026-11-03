@@ -447,8 +447,9 @@ interface Migration {
   /**
    * "retired": the old apkit no longer had a Profile selected here; its unchanged files were deleted and nothing was installed.
    * "missing": the recorded Project folder no longer exists; it was skipped.
+   * "waiting": a planning run found no decision of its own; it continues after the Workspace decision.
    */
-  readonly result: "migrated" | "unchanged" | "needs-decision" | "retired" | "missing" | "error";
+  readonly result: "migrated" | "unchanged" | "needs-decision" | "waiting" | "retired" | "missing" | "error";
   readonly profile: string;
   readonly agents: readonly AgentId[];
   readonly outputs: readonly OldOutputOutcome[];
@@ -549,7 +550,7 @@ function changedOutputs(states: readonly { output: OldOutput; state: { result: O
  * as the old apkit wrote it, through the ordinary planner, and its old exclusion entries.
  * Nothing is installed. Paths that a bound receipt for the same folder records stay.
  */
-async function retireProject(receipt: OldReceipt, pending: readonly OldReceipt[], bound: readonly OldReceipt[], decisions: Decisions): Promise<Migration> {
+async function retireProject(receipt: OldReceipt, pending: readonly OldReceipt[], bound: readonly OldReceipt[], decisions: Decisions, planOnly = false): Promise<Migration> {
   const base = emptyMigration(receipt);
   if (!(await isFolder(receipt.project))) return { ...base, result: "missing" };
   const folder = await realpath(receipt.project);
@@ -572,6 +573,7 @@ async function retireProject(receipt: OldReceipt, pending: readonly OldReceipt[]
       result: state.result === "unchanged" && !kept.has(output.path) ? (deleted ? "deleted" : "unchanged") : state.result,
     }));
   if (issues.length > 0) return { ...base, folder, result: "needs-decision", outputs: outputs(false), issues };
+  if (planOnly) return { ...base, folder, result: "waiting", outputs: outputs(false) };
   // Only the old files: any manifest this apkit keeps here is left as it is.
   await execute({ ...planned, manifest: null, manifestBefore: null });
   const exclusionResult = await removeOldEntries(exclusion);
@@ -585,7 +587,7 @@ async function retireProject(receipt: OldReceipt, pending: readonly OldReceipt[]
  * to the ordinary planner as if this engine had written it, so the same safety core replaces
  * or deletes it, prunes only folders it emptied, and stops for the same decisions (ISC-65).
  */
-async function migrateProject(workspace: Workspace, receipt: OldReceipt, pending: readonly OldReceipt[], decisions: Decisions): Promise<Migration> {
+async function migrateProject(workspace: Workspace, receipt: OldReceipt, pending: readonly OldReceipt[], decisions: Decisions, planOnly = false): Promise<Migration> {
   const base = emptyMigration(receipt);
   if (!(await isFolder(receipt.project))) return { ...base, result: "missing" };
   const folder = await realpath(receipt.project);
@@ -617,6 +619,13 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, pending
   };
   const desired = renderFor(workspace, receipt.profile, receipt.agents);
   const candidates = await oldFolders(folder, receipt.outputs);
+  if (planOnly) {
+    // Every issue is open: the run that settles them also settles the Workspace decision.
+    const planned = await planAt({ folder }, desired, previous);
+    const issues = unresolved({ ...planned.files, issues: planned.issues }, {});
+    const outputs = states.map(({ output, state }) => ({ path: output.path, type: output.type, result: state.result }));
+    return { ...base, folder, result: issues.length > 0 ? "needs-decision" : "waiting", outputs, issues, instructions: planned.files.instructions };
+  }
   const install = await apply({ folder }, desired, previous, decisions);
   const instructions = install.instructions ?? [];
   if (install.result === "needs-decision") {
@@ -648,7 +657,7 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, pending
 }
 
 /** Text for one migration. Kept in one place so the shared output rules (#760) can take it over. */
-function describeMigration(migration: Migration): string[] {
+function describeMigration(migration: Migration, nextStep = true): string[] {
   const where = display(migration.folder);
   const who = migration.agents.map((id) => AGENTS[id].name).join(", ");
   const list = (label: string, items: readonly string[]) => (items.length === 0 ? [] : [`  ${label}:`, ...items.map((item) => `    - ${item}`)]);
@@ -669,6 +678,8 @@ function describeMigration(migration: Migration): string[] {
         ...list("Removed folders that held only old files", migration.folders),
         ...(migration.exclusion.result === "none" ? [] : [`  Removed the old apkit lines from ${display(migration.exclusion.file!)}.`]),
       ];
+    case "waiting":
+      return [`${where}: nothing changed yet. It continues with the Profile '${migration.profile}' for ${who} after the Workspace decision.`];
     case "unchanged":
       return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`];
     case "needs-decision": {
@@ -680,7 +691,7 @@ function describeMigration(migration: Migration): string[] {
         `${where}: nothing changed. Needs a decision:`,
         ...migration.issues.map((issue) => `  - ${issue.message}`),
         ...list("Instruction files", files),
-        ...(yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
+        ...(!nextStep ? [] : yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
       ];
     }
     case "migrated":
@@ -709,6 +720,32 @@ function backupExists(state: string, backup: string, changed: boolean): Error {
   );
 }
 
+/** Renaming an old Workspace's `workspace.yaml` to the file that marks a Workspace now (ADR-0057 §6). */
+interface WorkspaceRename {
+  readonly from: string;
+  readonly to: string;
+  readonly result: "needs-decision" | "renamed";
+}
+
+/**
+ * The rename `migrate` can make, when the old `workspace.yaml` is the Workspace's only problem.
+ * With any other problem it is null, so validation stops the run before anything is renamed.
+ */
+function oldMarkerRename(workspace: Workspace): Pick<WorkspaceRename, "from" | "to"> | null {
+  const [only, ...rest] = workspace.violations;
+  if (only?.code !== "workspace-old-manifest" || rest.length > 0) return null;
+  return { from: join(workspace.root, "workspace.yaml"), to: join(workspace.root, "apkit-workspace.yaml") };
+}
+
+function describeRename(rename: WorkspaceRename | undefined): string[] {
+  if (rename === undefined) return [];
+  if (rename.result === "renamed") return [`  Renamed ${display(rename.from)} to ${display(rename.to)}; the content is unchanged.`];
+  return [
+    "  Nothing changed. Needs a decision:",
+    `  - Rename ${display(rename.from)} to ${display(rename.to)}; the content stays the same. This apkit finds a Workspace by its apkit-workspace.yaml file.`,
+  ];
+}
+
 async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   const old = await readOldState(homedir());
   const state = oldStateFolder(homedir());
@@ -723,8 +760,16 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   // The backup is never replaced or merged into.
   if (await exists(backup)) throw backupExists(state, backup, false);
   if (old.workspace === undefined) throw new Error(`${display(join(state, "config.yaml"))} names no Workspace, so apkit cannot tell which Profiles to install. Nothing was changed.`);
-  const workspace = await loadWorkspace(old.workspace);
-  requireValid(workspace);
+  let workspace = await loadWorkspace(old.workspace);
+  const marker = oldMarkerRename(workspace);
+  // Without consent nothing changes: each Project is only planned, so one run lists every decision.
+  const planOnly = marker !== null && !decisions.yes;
+  if (marker !== null && !planOnly) {
+    await rename(marker.from, marker.to);
+    workspace = await loadWorkspace(old.workspace);
+  }
+  if (!planOnly) requireValid(workspace);
+  const renamed: WorkspaceRename | undefined = marker === null ? undefined : { ...marker, result: planOnly ? "needs-decision" : "renamed" };
   const previousWorkspace = (await readConfig()).workspace ?? null;
   const projects: Migration[] = [];
   const bound = old.receipts.filter((receipt) => !receipt.retired);
@@ -734,27 +779,27 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
     const pending = old.receipts.filter((other) => other !== receipt && !settled.has(other));
     let migration: Migration;
     try {
-      migration = receipt.retired ? await retireProject(receipt, pending, bound, decisions) : await migrateProject(workspace, receipt, pending, decisions);
+      migration = receipt.retired ? await retireProject(receipt, pending, bound, decisions, planOnly) : await migrateProject(workspace, receipt, pending, decisions, planOnly);
     } catch (error) {
       if (error instanceof NewerSchemaError || !(error instanceof Error)) throw error;
       migration = { ...emptyMigration(receipt), result: "error", message: error.message };
     }
     projects.push(migration);
-    if (migration.result !== "needs-decision" && migration.result !== "error") settled.add(receipt);
+    if (migration.result !== "needs-decision" && migration.result !== "waiting" && migration.result !== "error") settled.add(receipt);
   }
   // The Workspace the old apkit used is selected once a Project uses it with this one.
   if (projects.some((p) => p.result === "migrated" || p.result === "unchanged")) await writeConfig({ ...(await readConfig()), workspace: workspace.root });
 
   // The old state is kept, renamed, once no Project needs it any more (ISC-92). A rename changes no file.
-  const open = projects.filter((p) => p.result === "needs-decision" || p.result === "error");
-  if (open.length === 0) {
+  const open = projects.filter((p) => p.result === "needs-decision" || p.result === "waiting" || p.result === "error");
+  if (open.length === 0 && !planOnly) {
     if (await exists(backup)) throw backupExists(state, backup, true);
     await rename(state, backup);
   }
-  const kept = { path: backup, result: open.length === 0 ? "renamed" : "kept" };
+  const kept = { path: backup, result: open.length === 0 && !planOnly ? "renamed" : "kept" };
 
   if (json) {
-    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace }, projects, backup: kept }, null, 2));
+    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace, ...(renamed ? { rename: renamed } : {}) }, projects, backup: kept }, null, 2));
   } else {
     const missing = projects.filter((p) => p.result === "missing").map((p) => display(p.folder));
     console.log(
@@ -763,20 +808,25 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
         `Migrating from the old apkit, whose records are in ${display(state)}.`,
         `This apkit keeps each Project's installation in the Project itself, in ${MANIFEST_PATH}.`,
         `Workspace: ${display(workspace.root)}`,
-        ...projects.flatMap(describeMigration),
+        ...describeRename(renamed),
+        // A planning run ends with one next step for every decision.
+        ...projects.flatMap((project) => describeMigration(project, !planOnly)),
+        ...(planOnly ? ["Only after the user agrees to every decision above:", `  ${nextCommand(["migrate", "--yes"])}`] : []),
         ...(missing.length === 0 ? [] : [groupedWarning("these recorded Project folders no longer exist, so they were skipped:", missing)]),
-        ...(open.length === 0
+        ...(open.length === 0 && !planOnly
           ? [`Renamed ${display(state)} to ${display(backup)}. It keeps the old apkit records, unchanged, as a backup.`]
-          : [
-              `Kept ${display(state)} as it is. It is renamed to ${display(backup)} as a backup once these Projects are migrated:`,
-              ...open.map((p) => `  - ${display(p.folder)}`),
-            ]),
+          : open.length === 0
+            ? [`Kept ${display(state)} as it is. It is renamed to ${display(backup)} as a backup after the Workspace decision.`]
+            : [
+                `Kept ${display(state)} as it is. It is renamed to ${display(backup)} as a backup once these Projects are migrated:`,
+                ...open.map((p) => `  - ${display(p.folder)}`),
+              ]),
         ...warningLines(workspace),
       ].join("\n"),
     );
   }
-  if (open.some((p) => p.result === "needs-decision")) return EXIT.decision;
-  return open.length > 0 ? EXIT.error : EXIT.ok;
+  if (planOnly || open.some((p) => p.result === "needs-decision")) return EXIT.decision;
+  return open.some((p) => p.result === "error") ? EXIT.error : EXIT.ok;
 }
 
 /** Commands that can write. `workspace` without a path only reads, but takes the lock anyway: it is quick. */

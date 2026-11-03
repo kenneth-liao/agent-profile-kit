@@ -1938,6 +1938,122 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await snapshot(fixture.home)).toEqual(home);
   });
 
+  describe("a Workspace marked only by workspace.yaml", () => {
+    /** The shipped fixture has both marker files; these journeys keep only the old one. */
+    async function oldMarkerOnly() {
+      const fixture = await materializeMigration();
+      await rm(join(fixture.workspace, "apkit-workspace.yaml"));
+      return { ...fixture, from: join(fixture.workspace, "workspace.yaml"), to: join(fixture.workspace, "apkit-workspace.yaml") };
+    }
+
+    test("without --yes, the rename is a decision listed with every Project decision, and nothing changes", async () => {
+      const fixture = await oldMarkerOnly();
+      const workspace = await snapshot(fixture.workspace);
+      const project = await tree(fixture.project);
+      const home = await snapshot(fixture.home);
+
+      const result = migrateCli(fixture, fixture.project, "migrate", "--json");
+      expect([result.code, result.err]).toEqual([3, ""]);
+      const data = JSON.parse(result.out);
+      expect(data.workspace).toMatchObject({ path: fixture.workspace, rename: { from: fixture.from, to: fixture.to, result: "needs-decision" } });
+      expect(data.projects).toHaveLength(1);
+      expect(data.projects[0]).toMatchObject({ folder: fixture.project, result: "needs-decision", profile: "engineering" });
+      expect(data.projects[0].issues.map((i: { path: string }) => i.path)).toContain("AGENTS.md");
+
+      const text = migrateCli(fixture, fixture.project, "migrate");
+      expect(text.code).toBe(3);
+      expect(text.out).toContain(fixture.from);
+      expect(text.out).toContain(fixture.to);
+      expect(text.out).toContain(fixture.project);
+      expect(text.out).toContain("AGENTS.md");
+      expect(text.out).toContain("apkit migrate --yes");
+
+      expect(await snapshot(fixture.workspace)).toEqual(workspace);
+      expect(await tree(fixture.project)).toEqual(project);
+      expect(await snapshot(fixture.home)).toEqual(home);
+      expect(existsSync(join(fixture.root, "apkit", "config.json"))).toBe(false);
+    });
+
+    test("without --yes, a Project with no decision of its own waits for the rename and is not changed", async () => {
+      // Migrated once while both marker files existed, so the Project needs no decision of its own.
+      // A second Project with a changed output keeps the old state from being renamed.
+      const fixture = await materializeMachine([{ name: "done" }, { name: "open" }]);
+      const done = fixture.projects.done!;
+      await writeFile(join(fixture.projects.open!, ".codex", "hooks.json"), '{ "hooks": {} }\n');
+      expect(migrateCli(fixture, fixture.root, "migrate", "--yes").code).toBe(3);
+      await rm(join(fixture.workspace, "apkit-workspace.yaml"));
+      const project = await tree(done);
+      const workspace = await snapshot(fixture.workspace);
+
+      const result = migrateCli(fixture, fixture.root, "migrate", "--json");
+      expect(result.code).toBe(3);
+      const data = JSON.parse(result.out);
+      expect(data.workspace.rename.result).toBe("needs-decision");
+      expect(data.projects[0]).toEqual(expect.objectContaining({ folder: done, result: "waiting", issues: [] }));
+      expect(data.backup.result).toBe("kept");
+      const text = migrateCli(fixture, fixture.root, "migrate").out;
+      expect(text).toContain(`${done}: nothing changed yet`);
+      expect(await tree(done)).toEqual(project);
+      expect(await snapshot(fixture.workspace)).toEqual(workspace);
+      expect(existsSync(fixture.state)).toBe(true);
+    });
+
+    test("without --yes, a retired Project waits too: none of its old files are deleted and the old state stays", async () => {
+      const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+      const folder = fixture.projects.retired!;
+      await rm(join(fixture.workspace, "apkit-workspace.yaml"));
+      const project = await tree(folder);
+      const result = migrateCli(fixture, fixture.root, "migrate", "--json");
+      expect(result.code).toBe(3);
+      const data = JSON.parse(result.out);
+      expect(data.projects).toEqual([expect.objectContaining({ folder, result: "waiting" })]);
+      expect(data.backup.result).toBe("kept");
+      expect(await tree(folder)).toEqual(project);
+      expect(existsSync(fixture.state)).toBe(true);
+    });
+
+    test("with --yes, the file is renamed with its content unchanged, and the migration continues with that Workspace", async () => {
+      const fixture = await oldMarkerOnly();
+      const content = await readFile(fixture.from);
+      const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      const data = JSON.parse(result.out);
+      expect(data.workspace).toMatchObject({ path: fixture.workspace, rename: { from: fixture.from, to: fixture.to, result: "renamed" } });
+      expect(data.projects[0]).toMatchObject({ folder: fixture.project, result: "migrated" });
+      expect(existsSync(fixture.from)).toBe(false);
+      expect((await readFile(fixture.to)).equals(content)).toBe(true);
+      const config = JSON.parse(await readFile(join(fixture.root, "apkit", "config.json"), "utf8"));
+      expect(config.workspace).toBe(fixture.workspace);
+    });
+
+    test("with --yes, text names the rename", async () => {
+      const fixture = await oldMarkerOnly();
+      const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(result.out).toContain(`Renamed ${fixture.from} to ${fixture.to}`);
+    });
+
+    test("another Workspace problem blocks the rename, and nothing changes", async () => {
+      const fixture = await oldMarkerOnly();
+      await writeFile(join(fixture.workspace, "profiles", "writing.yaml"), "context: []\nskills:\n  - missing-skill\n");
+      const workspace = await snapshot(fixture.workspace);
+      const project = await tree(fixture.project);
+      const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
+      expect(result.code).toBe(1);
+      expect(result.err).toContain("missing-skill");
+      expect(await snapshot(fixture.workspace)).toEqual(workspace);
+      expect(await tree(fixture.project)).toEqual(project);
+    });
+  });
+
+  test("a Workspace that already has apkit-workspace.yaml gets no rename decision", async () => {
+    const fixture = await materializeMigration();
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.out).workspace.rename).toBeUndefined();
+    expect(existsSync(join(fixture.workspace, "workspace.yaml"))).toBe(true);
+  });
+
   test("with no old state, there is nothing to migrate", async () => {
     const home = await tempDir("home");
     const result = cli(home, home, "migrate", "--json");
