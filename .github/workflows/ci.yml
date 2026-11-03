@@ -10,8 +10,8 @@ on:
   push:
     branches:
       - main
-      - spec/728-agent-first-cutover
-      - issue/751-agent-first-only-apkit
+      - 'spec/**'
+      - 'issue/**'
 
 permissions:
   contents: read
