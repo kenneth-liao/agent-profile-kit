@@ -127,7 +127,7 @@ describe("apkit CLI", () => {
     // Edit the Workspace once; status sees it everywhere; update --all applies it.
     await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
     const stale = cli(home, one, "status", "--all", "--json");
-    expect(JSON.parse(stale.out).map((o: { result: string }) => o.result)).toEqual(["updated", "updated"]);
+    expect(JSON.parse(stale.out).results.map((o: { result: string }) => o.result)).toEqual(["updated", "updated"]);
     expect(cli(home, one, "update", "--all").code).toBe(0);
     expect(await read(one, "AGENTS.md")).toContain("Be warm.");
     expect(await read(two, "AGENTS.md")).toContain("Be warm.");
@@ -356,7 +356,7 @@ describe("apkit CLI", () => {
       const result = cli(home, folder, command, "--all", "--workspace", ws);
       expect(result.code).toBe(0);
       for (const path of skipped) expect(result.out).toContain(join(ws, ...path.split("/")));
-      const records = JSON.parse(cli(home, folder, command, "--all", "--workspace", ws, "--json").out);
+      const records = JSON.parse(cli(home, folder, command, "--all", "--workspace", ws, "--json").out).results;
       expect(records[0].warnings.map((w: { path: string }) => w.path)).toContain("skills/README.md");
     }
 
@@ -541,7 +541,7 @@ describe("apkit CLI", () => {
     expect(await read(repo, ".git/info/exclude")).toContain(`apkit:begin ${tree}`);
     git("worktree", "remove", "--force", tree);
     expect(cli(home, repo, "remove", tree).code).toBe(0);
-    expect(JSON.parse(cli(home, repo, "status", "--all", "--json").out)).toEqual([]);
+    expect(JSON.parse(cli(home, repo, "status", "--all", "--json").out).results).toEqual([]);
     expect(await read(repo, ".git/info/exclude")).not.toContain(tree);
   });
 
@@ -631,7 +631,7 @@ describe("apkit CLI", () => {
 
     // A Workspace edit reaches every user-level file through update --all.
     await writeTree(ws, { "context/communication.md": "# Communication\n\nBe warm.\n" });
-    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out)[0].result).toBe("updated");
+    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out).results[0].result).toBe("updated");
     expect(cli(home, home, "update", "--all").code).toBe(0);
     for (const path of USER_FILES) expect(await read(home, path)).toContain("Be warm.");
 
@@ -778,7 +778,7 @@ describe("apkit CLI", () => {
     expect(cli(home, home, "remove", home).code).toBe(0);
     expect(await read(home, ".claude/skills/summarize/SKILL.md")).toContain("name: summarize");
     expect(await read(home, ".agents/skills/summarize/SKILL.md")).toContain("name: summarize");
-    const status = JSON.parse(cli(home, home, "status", "--all", "--json").out);
+    const status = JSON.parse(cli(home, home, "status", "--all", "--json").out).results;
     expect(status.map((o: { result: string }) => o.result)).toEqual(["unchanged"]);
   });
 
@@ -798,10 +798,10 @@ describe("apkit CLI", () => {
     const status = cli(home, both, "status");
     expect(status.code).toBe(0);
     expect(status.out).toContain("Context 'communication' is also installed at user level; an agent selected in both places reads it twice.");
-    expect(JSON.parse(cli(home, both, "status", "--json").out)[0].overlap).toEqual(["communication"]);
+    expect(JSON.parse(cli(home, both, "status", "--json").out).results[0].overlap).toEqual(["communication"]);
 
     expect(cli(home, other, "status").out).not.toContain("also installed at user level");
-    expect(JSON.parse(cli(home, other, "status", "--json").out)[0].overlap).toEqual([]);
+    expect(JSON.parse(cli(home, other, "status", "--json").out).results[0].overlap).toEqual([]);
   });
 
   test("a manifest from a newer apkit is left as it is and names the update", async () => {
@@ -833,7 +833,7 @@ describe("apkit CLI", () => {
     }
 
     // --all reports the newer folder and still processes the others.
-    const status = JSON.parse(cli(home, current, "status", "--all", "--json").out);
+    const status = JSON.parse(cli(home, current, "status", "--all", "--json").out).results;
     expect(status.map((o: { result: string }) => o.result).sort()).toEqual(["error", "updated"]);
     const update = cli(home, current, "update", "--all");
     expect(update.code).toBe(1);
@@ -998,7 +998,7 @@ describe("apkit CLI", () => {
       expect([result.status, result.stderr]).toEqual([0, ""]);
     }
     if (process.platform !== "win32") {
-      const after = JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out);
+      const after = JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out).results;
       expect(after.map((o: { result: string }) => o.result)).toEqual(["unchanged", "unchanged"]);
     }
   });
@@ -1036,7 +1036,7 @@ describe("apkit CLI", () => {
     const warnings = status.out.slice(status.out.indexOf("Warning:"));
     for (const path of [first, second, different]) expect(warnings.split(path)).toHaveLength(2);
     expect(warnings).not.toContain(unrelated);
-    const json = JSON.parse(cli(home, home, "status", "--all", "--json").out);
+    const json = JSON.parse(cli(home, home, "status", "--all", "--json").out).results;
     expect(json.find((o: { folder: string }) => o.folder === second).overlap).toEqual(["communication"]);
   });
 
@@ -1063,7 +1063,7 @@ describe("apkit CLI", () => {
       const env = cliEnv(home);
       const retry = spawnSync("sh", ["-c", 'exec "$@" ' + command!.slice("apkit ".length), "apkit", ...RUNTIME], { cwd: home, env, encoding: "utf8" });
       expect([retry.status, retry.stderr]).toEqual([0, ""]);
-      expect(JSON.parse(cli(home, folder, "status", "--workspace", ws, "--json").out)[0].profile).toBe("engineering");
+      expect(JSON.parse(cli(home, folder, "status", "--workspace", ws, "--json").out).results[0].profile).toBe("engineering");
     }
   });
 
@@ -1228,13 +1228,13 @@ describe("ownership records and restoration", () => {
     expect([twin.result, twin.profile, twin.agents]).toEqual(["updated", "twin", ["pi"]]);
     const manifest = JSON.parse(await read(project, ".agents/apkit.json"));
     expect([manifest.profile, manifest.agents]).toEqual(["twin", ["pi"]]);
-    const status = JSON.parse(cli(home, project, "status", "--json").out)[0];
+    const status = JSON.parse(cli(home, project, "status", "--json").out).results[0];
     expect([status.profile, status.agents, status.result]).toEqual(["twin", ["pi"], "unchanged"]);
 
     // An install the registry lost is registered again by reinstalling it.
     await writeFile(join(home, "config.json"), JSON.stringify({ schema: 1, workspace: ws, installs: [] }));
     expect(cli(home, project, "install", "twin", "--agents", "pi").code).toBe(0);
-    expect(JSON.parse(cli(home, project, "status", "--all", "--json").out).map((o: { folder: string }) => o.folder)).toEqual([project]);
+    expect(JSON.parse(cli(home, project, "status", "--all", "--json").out).results.map((o: { folder: string }) => o.folder)).toEqual([project]);
   });
 
   test("a global install sharing Skills with a home-folder install keeps its own records current", async () => {
@@ -1293,14 +1293,14 @@ describe("ownership records and restoration", () => {
     const project = await tempDir("project");
     await writeTree(project, { "AGENTS.md": "# Mine\n" });
     expect(cli(home, project, "install", "markers", "--agents", "codex", "--yes").code).toBe(0);
-    expect(JSON.parse(cli(home, project, "status", "--json").out)[0].result).toBe("unchanged");
+    expect(JSON.parse(cli(home, project, "status", "--json").out).results[0].result).toBe("unchanged");
     expect(cli(home, project, "update").code).toBe(0);
     expect(cli(home, project, "remove").code).toBe(0);
     expect(await read(project, "AGENTS.md")).toBe("# Mine\n");
 
     await writeTree(home, { ".codex/AGENTS.md": "# Mine\n" });
     expect(cli(home, home, "install", "markers", "--global", "--agents", "codex", "--yes").code).toBe(0);
-    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out)[0].result).toBe("unchanged");
+    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out).results[0].result).toBe("unchanged");
     expect(cli(home, home, "remove", "--global").code).toBe(0);
     expect(await read(home, ".codex/AGENTS.md")).toBe("# Mine\n");
   });
@@ -1388,7 +1388,7 @@ describe("concurrent runs", () => {
       expect(cli(home, folders[0]!, "workspace", ws).code).toBe(0);
       const runs = await Promise.all(folders.map((folder) => cliAsync(home, folder, "install", "engineering", "--agents", MANY, "--yes")));
       expect(runs.map((run) => [run.code, run.err])).toEqual(folders.map(() => [0, ""]));
-      const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out) as { folder: string; result: string }[];
+      const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out).results as { folder: string; result: string }[];
       expect(status.map((o) => [o.folder, o.result]).sort()).toEqual([...folders].sort().map((f) => [f, "unchanged"]));
       expect(await readdir(home)).not.toContain("lock");
     }
@@ -1404,7 +1404,7 @@ describe("concurrent runs", () => {
     );
     expect(runs.map((run) => [run.code, run.err])).toEqual([[0, ""], [0, ""]]);
     await expectManifestMatchesDisk(folder);
-    expect(JSON.parse(cli(home, folder, "status", "--json").out)[0].result).toBe("unchanged");
+    expect(JSON.parse(cli(home, folder, "status", "--json").out).results[0].result).toBe("unchanged");
   }, SLOW);
 
   test("update --all during an install loses no record", async () => {
@@ -1421,7 +1421,7 @@ describe("concurrent runs", () => {
       cliAsync(home, folders[3]!, "install", "engineering", "--agents", MANY, "--yes"),
     ]);
     expect(runs.map((run) => [run.code, run.err])).toEqual([[0, ""], [0, ""]]);
-    const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out) as { folder: string; result: string }[];
+    const status = JSON.parse(cli(home, folders[0]!, "status", "--all", "--json").out).results as { folder: string; result: string }[];
     expect(status.map((o) => [o.folder, o.result]).sort()).toEqual([...folders].sort().map((f) => [f, "unchanged"]));
     for (const folder of folders) {
       expect(await read(folder, "AGENTS.md")).toContain("Be warm.");
@@ -2235,5 +2235,119 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     const result = cli(home, home, "migrate", "--json");
     expect([result.code, JSON.parse(result.out)]).toEqual([0, { state: join(home, ".agents", "agent-profile-kit"), found: false, projects: [], backup: null }]);
     expect(cli(home, home, "migrate").out).toContain("Nothing to migrate");
+  });
+});
+
+describe("the migration notice (SRC-10)", () => {
+  const NOTICE = "Next: `apkit migrate`";
+
+  /** A run of every command: reads, writes, a Decision (exit 3), usage errors, and help, guide, and contract. */
+  async function everyCommand(run: (cwd: string, ...args: string[]) => { code: number | null; out: string; err: string }, json: boolean) {
+    const ws = await makeWorkspace();
+    const folder = await tempDir("project");
+    const fresh = join(await tempDir("init"), "workspace");
+    const flag = json ? ["--json"] : [];
+    const commands = [
+      ["init", fresh],
+      ["workspace"],
+      ["workspace", ws],
+      ["check", "--workspace", ws],
+      ["install", "engineering", folder, "--agents", "claude", "--workspace", ws],
+      ["update", "--all", "--workspace", ws],
+      ["status", "--workspace", ws],
+      ["status", "--all", "--workspace", ws],
+      ["remove", folder],
+      ["remove", "--global"],
+      ["setup", "--agents", "claude"],
+      ["install"],
+      ["no-such-command"],
+    ];
+    return commands.map((args) => ({ args, ...run(folder, ...args, ...flag) }));
+  }
+
+  /** Runs with the new apkit home apart from the home folder, as the migrate journeys do. */
+  function runner(fixture: MigrationFixture) {
+    return (cwd: string, ...args: string[]) =>
+      cliWithEnv({ APKIT_HOME: join(fixture.root, "apkit"), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, fixture.home, cwd, ...args);
+  }
+
+  test("with unmigrated old state, every command names `apkit migrate`, and none changes the old state", async () => {
+    const fixture = await materializeMigration();
+    const before = await snapshot(fixture.state);
+    const run = runner(fixture);
+    for (const result of await everyCommand(run, false)) {
+      expect({ args: result.args, named: (result.out + result.err).includes(NOTICE) }).toEqual({ args: result.args, named: true });
+    }
+    for (const args of [[], ["help"], ["guide"], ["help", "--json"], ["guide", "--json"]]) {
+      expect({ args, named: run(fixture.root, ...args).out.includes(NOTICE) }).toEqual({ args, named: true });
+    }
+    // The contract stays byte for byte on stdout; the notice goes to stderr.
+    const contract = run(fixture.root, "contract");
+    expect(contract.out).toBe(await readFile(join(import.meta.dir, "..", "docs", "guides", "workspace-contract.md"), "utf8"));
+    expect(contract.err).toContain(NOTICE);
+    expect(await snapshot(fixture.state)).toEqual(before);
+  });
+
+  test("with unmigrated old state, every --json record carries the migration field", async () => {
+    const fixture = await materializeMigration();
+    const migration = { command: "apkit migrate", state: fixture.state };
+    for (const result of await everyCommand(runner(fixture), true)) {
+      expect({ args: result.args, migration: JSON.parse(result.out).migration }).toEqual({ args: result.args, migration });
+    }
+  });
+
+  test("`migrate` does not repeat the notice in its own output", async () => {
+    const fixture = await materializeMigration();
+    const run = runner(fixture);
+    const planned = run(fixture.project, "migrate");
+    expect(planned.code).toBe(3);
+    expect(planned.out).not.toContain(NOTICE);
+    expect(JSON.parse(run(fixture.project, "migrate", "--json").out).migration).toBeUndefined();
+  });
+
+  test("a failed `migrate` names `apkit migrate` once, and its --json error carries the migration field", async () => {
+    const fixture = await materializeMigration();
+    const run = runner(fixture);
+    await mkdir(`${fixture.state}.migrated`);
+    const failed = run(fixture.project, "migrate", "--yes");
+    expect(failed.code).toBe(1);
+    expect(failed.err.split(NOTICE).length - 1).toBe(1);
+    const json = run(fixture.project, "migrate", "--yes", "--json");
+    expect(JSON.parse(json.out).migration).toEqual({ command: "apkit migrate", state: fixture.state });
+  });
+
+  test("after a complete migration, no command shows the notice", async () => {
+    const fixture = await materializeMigration();
+    const run = runner(fixture);
+    expect(run(fixture.project, "migrate", "--yes").code).toBe(0);
+    expect(existsSync(fixture.state)).toBe(false);
+    expect(existsSync(`${fixture.state}.migrated`)).toBe(true);
+    for (const json of [false, true]) {
+      for (const result of await everyCommand(run, json)) {
+        expect({ args: result.args, named: (result.out + result.err).includes("apkit migrate") }).toEqual({ args: result.args, named: false });
+        if (json) expect(JSON.parse(result.out).migration).toBeUndefined();
+      }
+    }
+    expect(run(fixture.project, "contract").err).toBe("");
+  });
+
+  test("with no old state, no command shows the notice", async () => {
+    const home = await tempDir("home");
+    const run = (cwd: string, ...args: string[]) => cli(home, cwd, ...args);
+    for (const json of [false, true]) {
+      for (const result of await everyCommand(run, json)) {
+        expect({ args: result.args, named: (result.out + result.err).includes(NOTICE) }).toEqual({ args: result.args, named: false });
+        if (json) expect(JSON.parse(result.out).migration).toBeUndefined();
+      }
+    }
+    for (const args of [["help"], ["guide"]]) expect(run(home, ...args).out).not.toContain(NOTICE);
+    expect(run(home, "contract").err).toBe("");
+  });
+
+  test("status and update --json print an object with the results, also when there are none", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    expect(JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
+    expect(JSON.parse(cli(home, home, "update", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
   });
 });

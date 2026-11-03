@@ -133,9 +133,9 @@ function warningLines(workspace: Workspace): string[] {
   return workspace.warnings.map((w) => groupedWarning(w.message, [display(resolve(workspace.root, w.path))]));
 }
 
-/** Keep the per-Project JSON records complete without changing the array result shape. */
-function withWarnings(outcomes: readonly Outcome[], workspace: Workspace): unknown {
-  return workspace.warnings.length === 0 ? outcomes : outcomes.map((outcome) => ({ ...outcome, warnings: workspace.warnings }));
+/** The `--json` record of several locations: one object, with each location's record complete. */
+function withWarnings(outcomes: readonly Outcome[], workspace: Workspace): { results: unknown[] } {
+  return { results: workspace.warnings.length === 0 ? [...outcomes] : outcomes.map((outcome) => ({ ...outcome, warnings: workspace.warnings })) };
 }
 
 function agentsFlag(args: Args, fallback: readonly AgentId[] | undefined): AgentId[] {
@@ -1012,9 +1012,28 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
 /** Commands that can write. `workspace` without a path only reads, but takes the lock anyway: it is quick. */
 const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup", "migrate"]);
 
+/**
+ * The old engine's state folder while it exists, so every command names `apkit migrate` (ISC-93).
+ * A complete migration renames it. Set once per run, from one stat, before anything can fail.
+ */
+let unmigrated: string | null = null;
+
+const MIGRATE = nextCommand(["migrate"]);
+
+function migrationNotice(state: string): string {
+  return `The old apkit (0.238 or earlier) left its records at ${display(state)}; they are not migrated yet.\n${MIGRATE} to move each of its Projects to this apkit.`;
+}
+
+/** The field a `--json` record carries while the old state is not migrated. */
+function migrationField(state: string | null): { migration?: { command: string; state: string } } {
+  return state === null ? {} : { migration: { command: `${COMMAND} migrate`, state } };
+}
+
 /** Runs that write take turns, so none plans against files another run is changing. */
 async function main(argv: readonly string[]): Promise<number> {
   const command = parseArgs(argv).positional[0];
+  const state = oldStateFolder(homedir());
+  unmigrated = (await exists(state)) ? state : null;
   return command !== undefined && WRITES.has(command) ? withLock(configHome(), () => run(argv)) : run(argv);
 }
 
@@ -1025,21 +1044,26 @@ async function run(argv: readonly string[]): Promise<number> {
   const command = args.positional[0];
   // A configuration from a newer apkit stops every command before anything is written.
   if (command !== undefined && command !== "help" && command !== "guide" && command !== "contract") await readConfig();
-  const print = (text: string, data: unknown) => console.log(json ? JSON.stringify(data, null, 2) : text);
+  // `migrate` explains the migration itself, so it does not repeat the notice.
+  const pending = command === "migrate" ? null : unmigrated;
+  const withNotice = (text: string) => (pending === null ? text : `${text}\n${migrationNotice(pending)}`);
+  const print = (text: string, data: object) =>
+    console.log(json ? JSON.stringify({ ...data, ...migrationField(pending) }, null, 2) : withNotice(text));
 
   switch (command) {
     case undefined:
     case "help":
-      console.log(HELP);
+      console.log(withNotice(HELP));
       return args.flags.has("--help") || command === "help" ? EXIT.ok : EXIT.usage;
 
     case "guide":
-      console.log(GUIDE);
+      console.log(withNotice(GUIDE));
       return EXIT.ok;
 
     case "contract":
-      // Byte for byte as the canonical file, so no newline is added.
+      // Byte for byte as the canonical file, so no newline is added; the notice goes to stderr.
       process.stdout.write(CONTRACT);
+      if (pending !== null) console.error(migrationNotice(pending));
       return EXIT.ok;
 
     case "init": {
@@ -1252,10 +1276,13 @@ main(process.argv.slice(2)).then(
   (code) => {
     process.exitCode = code;
   },
-  (error: unknown) => {
+  async (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
-    if (process.argv.includes("--json")) console.log(JSON.stringify({ error: message }));
-    else console.error(message);
+    // A failed `migrate` may already have renamed the old state, or may name `migrate` itself.
+    const migrating = process.argv.slice(2).find((arg) => !arg.startsWith("--")) === "migrate";
+    const state = migrating && unmigrated !== null && !(await exists(unmigrated)) ? null : unmigrated;
+    if (process.argv.includes("--json")) console.log(JSON.stringify({ error: message, ...migrationField(state) }));
+    else console.error(state === null || message.includes(MIGRATE) ? message : `${message}\n${migrationNotice(state)}`);
     process.exitCode = error instanceof UsageError ? EXIT.usage : EXIT.error;
   },
 );
