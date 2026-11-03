@@ -2,7 +2,7 @@
 // `apkit`: a small, non-interactive command meant to be driven by an agent.
 // It never prompts. When a step needs the user's decision it changes nothing,
 // lists the decisions (exit 3), and the caller re-runs with --yes or --overwrite.
-import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
+import { lstat, readdir, readFile, realpath, rename, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
@@ -444,7 +444,8 @@ interface OldOutputOutcome {
 /** The complete record of migrating one Project from the old engine (ISC-89, ISC-90). */
 interface Migration {
   readonly folder: string;
-  readonly result: "migrated" | "unchanged" | "needs-decision" | "retired" | "error";
+  /** "waiting": a planning run found no decision of its own; it continues after the Workspace decision. */
+  readonly result: "migrated" | "unchanged" | "needs-decision" | "waiting" | "retired" | "error";
   readonly profile: string;
   readonly agents: readonly AgentId[];
   readonly outputs: readonly OldOutputOutcome[];
@@ -501,7 +502,7 @@ async function oldExclusion(folder: string, others: readonly OldReceipt[]): Prom
  * to the ordinary planner as if this engine had written it, so the same safety core replaces
  * or deletes it, prunes only folders it emptied, and stops for the same decisions (ISC-65).
  */
-async function migrateProject(workspace: Workspace, receipt: OldReceipt, others: readonly OldReceipt[], decisions: Decisions): Promise<Migration> {
+async function migrateProject(workspace: Workspace, receipt: OldReceipt, others: readonly OldReceipt[], decisions: Decisions, planOnly = false): Promise<Migration> {
   const base = {
     folder: receipt.project,
     profile: receipt.profile,
@@ -557,6 +558,13 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
   };
   const desired = renderFor(workspace, receipt.profile, receipt.agents);
   const candidates = await oldFolders(folder, receipt.outputs);
+  if (planOnly) {
+    // Every issue is open: the run that settles them also settles the Workspace decision.
+    const planned = await planAt({ folder }, desired, previous);
+    const issues = unresolved({ ...planned.files, issues: planned.issues }, {});
+    const outputs = states.map(({ output, state }) => ({ path: output.path, type: output.type, result: state.result }));
+    return { ...base, folder, result: issues.length > 0 ? "needs-decision" : "waiting", outputs, issues, instructions: planned.files.instructions };
+  }
   const install = await apply({ folder }, desired, previous, decisions);
   const instructions = install.instructions ?? [];
   if (install.result === "needs-decision") {
@@ -596,7 +604,7 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
 }
 
 /** Text for one migration. Kept in one place so the shared output rules (#760) can take it over. */
-function describeMigration(migration: Migration): string[] {
+function describeMigration(migration: Migration, nextStep = true): string[] {
   const where = display(migration.folder);
   const who = migration.agents.map((id) => AGENTS[id].name).join(", ");
   const list = (label: string, items: readonly string[]) => (items.length === 0 ? [] : [`  ${label}:`, ...items.map((item) => `    - ${item}`)]);
@@ -605,6 +613,8 @@ function describeMigration(migration: Migration): string[] {
     case "retired":
     case "error":
       return [`${where}: not migrated. ${migration.message}`];
+    case "waiting":
+      return [`${where}: nothing changed yet. It continues with the Profile '${migration.profile}' for ${who} after the Workspace decision.`];
     case "unchanged":
       return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`];
     case "needs-decision": {
@@ -616,7 +626,7 @@ function describeMigration(migration: Migration): string[] {
         `${where}: nothing changed. Needs a decision:`,
         ...migration.issues.map((issue) => `  - ${issue.message}`),
         ...list("Instruction files", files),
-        ...(yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
+        ...(!nextStep ? [] : yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
       ];
     }
     case "migrated":
@@ -631,6 +641,32 @@ function describeMigration(migration: Migration): string[] {
   }
 }
 
+/** Renaming an old Workspace's `workspace.yaml` to the file that marks a Workspace now (ADR-0057 §6). */
+interface WorkspaceRename {
+  readonly from: string;
+  readonly to: string;
+  readonly result: "needs-decision" | "renamed";
+}
+
+/**
+ * The rename `migrate` can make, when the old `workspace.yaml` is the Workspace's only problem.
+ * With any other problem it is null, so validation stops the run before anything is renamed.
+ */
+function oldMarkerRename(workspace: Workspace): Pick<WorkspaceRename, "from" | "to"> | null {
+  const [only, ...rest] = workspace.violations;
+  if (only?.code !== "workspace-old-manifest" || rest.length > 0) return null;
+  return { from: join(workspace.root, "workspace.yaml"), to: join(workspace.root, "apkit-workspace.yaml") };
+}
+
+function describeRename(rename: WorkspaceRename | undefined): string[] {
+  if (rename === undefined) return [];
+  if (rename.result === "renamed") return [`  Renamed ${display(rename.from)} to ${display(rename.to)}; the content is unchanged.`];
+  return [
+    "  Nothing changed. Needs a decision:",
+    `  - Rename ${display(rename.from)} to ${display(rename.to)}; the content stays the same. This apkit finds a Workspace by its apkit-workspace.yaml file.`,
+  ];
+}
+
 async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   const old = await readOldState(homedir());
   const state = oldStateFolder(homedir());
@@ -640,15 +676,23 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
     return EXIT.ok;
   }
   if (old.workspace === undefined) throw new Error(`${display(join(state, "config.yaml"))} names no Workspace, so apkit cannot tell which Profiles to install. Nothing was changed.`);
-  const workspace = await loadWorkspace(old.workspace);
-  requireValid(workspace);
+  let workspace = await loadWorkspace(old.workspace);
+  const marker = oldMarkerRename(workspace);
+  // Without consent nothing changes: each Project is only planned, so one run lists every decision.
+  const planOnly = marker !== null && !decisions.yes;
+  if (marker !== null && !planOnly) {
+    await rename(marker.from, marker.to);
+    workspace = await loadWorkspace(old.workspace);
+  }
+  if (!planOnly) requireValid(workspace);
+  const renamed: WorkspaceRename | undefined = marker === null ? undefined : { ...marker, result: planOnly ? "needs-decision" : "renamed" };
   const previousWorkspace = (await readConfig()).workspace ?? null;
   const projects: Migration[] = [];
   for (const receipt of old.receipts) {
     // A retired receipt's files are still on disk, so its exclusion entries stay until they go (#755).
     const others = old.receipts.filter((other) => other !== receipt);
     try {
-      projects.push(await migrateProject(workspace, receipt, others, decisions));
+      projects.push(await migrateProject(workspace, receipt, others, decisions, planOnly));
     } catch (error) {
       if (error instanceof NewerSchemaError || !(error instanceof Error)) throw error;
       projects.push({ folder: receipt.project, result: "error", profile: receipt.profile, agents: receipt.agents, outputs: [], folders: [], exclusion: { file: null, result: "none" }, issues: [], instructions: [], trust: [], message: error.message });
@@ -658,7 +702,7 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   if (projects.some((p) => p.result === "migrated" || p.result === "unchanged")) await writeConfig({ ...(await readConfig()), workspace: workspace.root });
 
   if (json) {
-    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace }, projects }, null, 2));
+    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace, ...(renamed ? { rename: renamed } : {}) }, projects }, null, 2));
   } else {
     console.log(
       [
@@ -666,12 +710,15 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
         `Migrating from the old apkit, whose records are in ${display(state)} (they are not changed).`,
         `This apkit keeps each Project's installation in the Project itself, in ${MANIFEST_PATH}.`,
         `Workspace: ${display(workspace.root)}`,
-        ...projects.flatMap(describeMigration),
+        ...describeRename(renamed),
+        // A planning run ends with one next step for every decision.
+        ...projects.flatMap((project) => describeMigration(project, !planOnly)),
+        ...(planOnly ? ["Only after the user agrees to every decision above:", `  ${nextCommand(["migrate", "--yes"])}`] : []),
         ...warningLines(workspace),
       ].join("\n"),
     );
   }
-  if (projects.some((p) => p.result === "needs-decision")) return EXIT.decision;
+  if (planOnly || projects.some((p) => p.result === "needs-decision")) return EXIT.decision;
   return projects.some((p) => p.result === "error") ? EXIT.error : EXIT.ok;
 }
 
