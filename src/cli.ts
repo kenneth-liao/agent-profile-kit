@@ -536,7 +536,7 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
     const issues = changed.map(({ output }): Issue => ({
       kind: "changed",
       path: output.path,
-      message: `${output.path} was changed after the old apkit wrote it. apkit cannot migrate a changed file yet: move your changes out of it, or delete it, then run \`${COMMAND} migrate\` again.`,
+      message: `${output.path} was changed after the old apkit wrote it. apkit cannot migrate a changed file yet: move your changes out of it, or delete it, then run migrate again.`,
     }));
     const outputs = states.map(({ output, state }) => ({ path: output.path, type: output.type, result: state.result }));
     return { ...base, folder, result: "needs-decision", outputs, issues };
@@ -616,7 +616,7 @@ function describeMigration(migration: Migration): string[] {
         `${where}: nothing changed. Needs a decision:`,
         ...migration.issues.map((issue) => `  - ${issue.message}`),
         ...list("Instruction files", files),
-        ...(yes ? [`  To allow these changes, run \`${COMMAND} migrate --yes\`.`] : []),
+        ...(yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
       ];
     }
     case "migrated":
@@ -626,7 +626,7 @@ function describeMigration(migration: Migration): string[] {
         ...list("Replaced old Skill and file copies", paths("replaced")),
         ...list("Removed folders that held only old files", migration.folders),
         ...(migration.exclusion.result === "none" ? [] : [`  Removed the old apkit lines from ${display(migration.exclusion.file!)}.`]),
-        ...trustLines(migration.trust).map((line) => `  ${line}`),
+        ...trustLines(migration.trust, migration.folder).map((line) => `  ${line}`),
       ];
   }
 }
@@ -662,9 +662,10 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   } else {
     console.log(
       [
+        INTRODUCTION,
         `Migrating from the old apkit, whose records are in ${display(state)} (they are not changed).`,
         `This apkit keeps each Project's installation in the Project itself, in ${MANIFEST_PATH}.`,
-        `Workspace (the folder that holds your Profiles, Context, and Skills): ${display(workspace.root)}`,
+        `Workspace: ${display(workspace.root)}`,
         ...projects.flatMap(describeMigration),
         ...warningLines(workspace),
       ].join("\n"),
