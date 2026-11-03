@@ -15,6 +15,8 @@ export interface Config {
   readonly notes?: NoteRecords;
   /** For each installed folder in a Git repository, the exclude file that holds its block (see gitexclude.ts). */
   readonly exclusions?: Readonly<Record<string, string>>;
+  /** For each folder, the old apkit's changed outputs that `migrate --yes` left to the user (POSIX, from the folder). */
+  readonly kept?: Readonly<Record<string, readonly string[]>>;
 }
 
 export function configHome(): string {
@@ -47,7 +49,10 @@ export async function readConfig(): Promise<Config> {
   if (data.notes !== undefined && !isNoteRecords(data.notes)) {
     throw new Error(`${configPath()} has an invalid apkit note record. Fix it, or delete its "notes" entry (apkit then keeps the notes it wrote).`);
   }
-  return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };
+  if (data.kept !== undefined && !(typeof data.kept === "object" && data.kept !== null && Object.values(data.kept).every((paths) => Array.isArray(paths) && paths.every((path) => typeof path === "string")))) {
+    throw new Error(`${configPath()} has an invalid "kept" record. Fix it, or delete that entry (a later \`apkit migrate\` then asks again about those files).`);
+  }
+  return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions, kept: data.kept };
 }
 
 export async function writeConfig(config: Config): Promise<void> {
@@ -65,9 +70,12 @@ export async function recordInstall(target: string, installed: boolean, exclusio
   const exclusions: Record<string, string> = { ...config.exclusions };
   delete exclusions[target];
   if (installed && exclusion !== null) exclusions[target] = exclusion;
+  const kept: Record<string, readonly string[]> = { ...config.kept };
+  if (!installed) delete kept[target];
   await writeConfig({
     ...config,
     installs: installed ? [...others, target] : others,
     exclusions: Object.keys(exclusions).length > 0 ? exclusions : undefined,
+    kept: Object.keys(kept).length > 0 ? kept : undefined,
   });
 }

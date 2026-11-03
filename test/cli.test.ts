@@ -1693,16 +1693,139 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(migrateCli(fixture, fixture.project, "migrate").out).toContain("apkit migrate --yes");
   });
 
-  test("a changed old output is a decision, and nothing changes", async () => {
+  /** Adds a user entry next to apkit's in the Codex hook and the OpenCode configuration. */
+  async function editConfigurations(fixture: MigrationFixture): Promise<{ hooks: string; opencode: string }> {
+    const hooksPath = join(fixture.project, ".codex", "hooks.json");
+    const hooks = JSON.parse(await readFile(hooksPath, "utf8"));
+    hooks.hooks.SessionStart.push({ matcher: "startup", hooks: [{ command: "echo my-own-hook", type: "command" }] });
+    const hooksText = `${JSON.stringify(hooks, null, 2)}\n`;
+    await writeFile(hooksPath, hooksText);
+    const opencodePath = join(fixture.project, ".opencode", "opencode.jsonc");
+    const opencode = (await readFile(opencodePath, "utf8")).replace('"$schema": "https://opencode.ai/config.json",', '"$schema": "https://opencode.ai/config.json",\n  "model": "my-own/model",');
+    await writeFile(opencodePath, opencode);
+    return { hooks: hooksText, opencode };
+  }
+
+  const resultOf = (project: { outputs: { path: string; result: string }[] }, path: string) => project.outputs.find((o) => o.path === path)?.result;
+
+  test("a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes", async () => {
     const fixture = await materializeMigration();
-    await writeFile(join(fixture.project, ".codex", "hooks.json"), '{ "hooks": {} }\n');
+    await editConfigurations(fixture);
     const project = await tree(fixture.project);
-    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--overwrite", "--json");
+    const home = await snapshot(fixture.home);
+
+    const result = migrateCli(fixture, fixture.project, "migrate", "--json");
     expect(result.code).toBe(3);
-    const data = JSON.parse(result.out);
-    expect(data.projects[0].result).toBe("needs-decision");
-    expect(data.projects[0].issues).toEqual([expect.objectContaining({ kind: "changed", path: ".codex/hooks.json" })]);
+    const data = JSON.parse(result.out).projects[0];
+    expect(data.result).toBe("needs-decision");
+    expect(data.issues.filter((i: { kind: string }) => i.kind === "changed").map((i: { path: string }) => i.path).sort()).toEqual([".codex/hooks.json", ".opencode/opencode.jsonc"]);
+    // The other decisions are listed in the same run.
+    expect(data.issues.map((i: { path: string }) => i.path)).toContain("AGENTS.md");
+    const hooks = data.outputs.find((o: { path: string }) => o.path === ".codex/hooks.json");
+    expect(hooks).toMatchObject({ result: "changed", origin: expect.stringContaining("Codex hook"), apkitPart: { present: "yes" } });
+    expect(hooks.apkitPart.text).toContain(".agent-profile-kit/codex/context.md");
+    expect(hooks.apkitPart.text).not.toContain("my-own-hook");
+    const opencode = data.outputs.find((o: { path: string }) => o.path === ".opencode/opencode.jsonc");
+    expect(opencode.apkitPart.text).toContain(".agent-profile-kit/opencode/context.md");
+    expect(opencode.apkitPart.text).not.toContain("my-own/model");
     expect(await tree(fixture.project)).toEqual(project);
+    expect(await snapshot(fixture.home)).toEqual(home);
+
+    const text = migrateCli(fixture, fixture.project, "migrate");
+    expect(text.code).toBe(3);
+    expect(text.out).toContain(".codex/hooks.json was changed after the old apkit wrote it");
+    expect(text.out).toContain('cat \\"$root/.agent-profile-kit/codex/context.md\\"');
+    expect(text.out).not.toContain("my-own-hook");
+    expect(text.out).toContain("--yes keeps .codex/hooks.json, .opencode/opencode.jsonc as your own");
+    expect(text.out).toContain("--overwrite deletes .codex/hooks.json, .opencode/opencode.jsonc");
+    expect(text.out).toContain("apkit migrate --yes");
+    expect(text.out).toContain("apkit migrate --overwrite --yes");
+    expect(await tree(fixture.project)).toEqual(project);
+  });
+
+  test("--overwrite deletes the changed files, and the Project matches a fresh install", async () => {
+    const fixture = await materializeMigration();
+    await editConfigurations(fixture);
+    const result = migrateCli(fixture, fixture.project, "migrate", "--overwrite", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const data = JSON.parse(result.out).projects[0];
+    expect(data.result).toBe("migrated");
+    expect([resultOf(data, ".codex/hooks.json"), resultOf(data, ".opencode/opencode.jsonc")]).toEqual(["deleted", "deleted"]);
+    const fresh = cliWithEnv({ APKIT_HOME: join(fixture.root, "fresh-apkit") }, fixture.home, fixture.pristine, "install", "engineering", "--agents", ALL, "--yes", "--workspace", fixture.workspace);
+    expect(fresh.code).toBe(0);
+    expect(await tree(fixture.project)).toEqual(await tree(fixture.pristine));
+  });
+
+  test("--yes keeps the changed files as the user's own, and a later migrate does not list them again", async () => {
+    const fixture = await materializeMigration();
+    // The user removed apkit's part first, as the decision asks.
+    const hooksPath = join(fixture.project, ".codex", "hooks.json");
+    const mine = `${JSON.stringify({ hooks: { SessionStart: [{ hooks: [{ command: "echo my-own-hook", type: "command" }] }] } }, null, 2)}\n`;
+    await writeFile(hooksPath, mine);
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const data = JSON.parse(result.out).projects[0];
+    expect(data.result).toBe("migrated");
+    expect(resultOf(data, ".codex/hooks.json")).toBe("kept");
+    expect(resultOf(data, ".opencode/opencode.jsonc")).toBe("deleted");
+    expect(await readFile(hooksPath, "utf8")).toBe(mine);
+    // The old block is gone, so Git sees the user's file again.
+    expect(await readFile(join(fixture.project, ".git", "info", "exclude"), "utf8")).not.toContain("hooks.json");
+    const kept = migrateCli(fixture, fixture.project, "migrate", "--yes");
+    expect(kept.out).toContain("Kept as your own");
+    expect(kept.out).not.toContain("Warning");
+
+    const project = await tree(fixture.project);
+    const again = migrateCli(fixture, fixture.project, "migrate", "--json");
+    expect([again.code, again.err]).toEqual([0, ""]);
+    const second = JSON.parse(again.out).projects[0];
+    expect(second.result).toBe("unchanged");
+    expect(second.issues).toEqual([]);
+    expect(resultOf(second, ".codex/hooks.json")).toBe("kept");
+    expect(await tree(fixture.project)).toEqual(project);
+  });
+
+  test("a kept file that still holds apkit's part is named in a warning", async () => {
+    const fixture = await materializeMigration();
+    await editConfigurations(fixture);
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    expect(result.out).toContain("Warning:");
+    expect(result.out).toContain(join(fixture.project, ".codex", "hooks.json"));
+    expect(result.out).toContain(join(fixture.project, ".opencode", "opencode.jsonc"));
+  });
+
+  test("a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again", async () => {
+    const fixture = await materializeMigration();
+    await writeFile(join(fixture.project, ".grok", "skills", "summarize", "mine.md"), "my notes\n");
+    await writeFile(join(fixture.project, ".pi", "APPEND_SYSTEM.md"), "my own Pi text\n");
+    const project = await tree(fixture.project);
+
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
+    expect(result.code).toBe(3);
+    expect(result.out).toContain(".grok/skills/summarize was changed after the old apkit wrote it. It is the Skill 'summarize' for Grok, from the Profile 'engineering'.");
+    expect(result.out).toContain(".pi/APPEND_SYSTEM.md was changed after the old apkit wrote it. It is the Context for Pi, from the Profile 'engineering'.");
+    expect(result.out).toContain("--yes cannot keep .grok/skills/summarize");
+    expect(result.out).toContain("apkit migrate --overwrite --yes");
+    expect(await tree(fixture.project)).toEqual(project);
+
+    const overwrite = migrateCli(fixture, fixture.project, "migrate", "--overwrite", "--yes", "--json");
+    expect([overwrite.code, overwrite.err]).toEqual([0, ""]);
+    const data = JSON.parse(overwrite.out).projects[0];
+    expect([resultOf(data, ".grok/skills/summarize"), resultOf(data, ".pi/APPEND_SYSTEM.md")]).toEqual(["replaced", "deleted"]);
+    const fresh = cliWithEnv({ APKIT_HOME: join(fixture.root, "fresh-apkit") }, fixture.home, fixture.pristine, "install", "engineering", "--agents", ALL, "--yes", "--workspace", fixture.workspace);
+    expect(fresh.code).toBe(0);
+    expect(await tree(fixture.project)).toEqual(await tree(fixture.pristine));
+  });
+
+  test("removing a folder forgets the old files kept there", async () => {
+    const fixture = await materializeMigration();
+    await editConfigurations(fixture);
+    expect(migrateCli(fixture, fixture.project, "migrate", "--yes").code).toBe(0);
+    const configPath = join(fixture.root, "apkit", "config.json");
+    expect(JSON.parse(await readFile(configPath, "utf8")).kept).toEqual({ [fixture.project]: [".codex/hooks.json", ".opencode/opencode.jsonc"] });
+    expect(migrateCli(fixture, fixture.project, "remove", "--yes").code).toBe(0);
+    expect(JSON.parse(await readFile(configPath, "utf8")).kept).toBeUndefined();
   });
 
   test("a second run finds the Project already migrated and changes nothing", async () => {
@@ -1798,6 +1921,20 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
       expect(await tree(fixture.project)).toEqual(project);
       expect(await snapshot(fixture.home)).toEqual(home);
       expect(existsSync(join(fixture.root, "apkit", "config.json"))).toBe(false);
+    });
+
+    test("with --overwrite but not --yes, changed old outputs are listed with the rename, and nothing changes", async () => {
+      const fixture = await oldMarkerOnly();
+      await editConfigurations(fixture);
+      const project = await tree(fixture.project);
+      const result = migrateCli(fixture, fixture.project, "migrate", "--overwrite", "--json");
+      expect(result.code).toBe(3);
+      const data = JSON.parse(result.out);
+      expect(data.workspace.rename.result).toBe("needs-decision");
+      expect(data.projects[0].result).toBe("needs-decision");
+      expect(data.projects[0].issues.filter((i: { kind: string }) => i.kind === "changed").map((i: { path: string }) => i.path).sort()).toEqual([".codex/hooks.json", ".opencode/opencode.jsonc"]);
+      expect(data.projects[0].outputs.find((o: { path: string }) => o.path === ".codex/hooks.json").apkitPart.present).toBe("yes");
+      expect(await tree(fixture.project)).toEqual(project);
     });
 
     test("without --yes, a Project with no decision of its own waits for the rename and is not changed", async () => {
