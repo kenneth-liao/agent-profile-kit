@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0059
 ---
 
 # Own one shared bounded process executor

@@ -30,8 +30,8 @@ If a user asks you to set up, install, or get started with Agent Profile Kit:
 
 The guide is the full set of rules. The ones that matter most:
 
-- `apkit` never prompts. When a step needs the user, it changes nothing,
-  lists each decision, and exits with code 3. Explain each decision to the
+- `apkit` never prompts. When a step needs the user, it does not change the
+  folder or Project that needs it, lists each decision, and exits with code 3. Explain each decision to the
   user in plain words.
 - Ask the user before you pass `--yes`. It allows edits to the user's own
   instruction files (such as `AGENTS.md` and `CLAUDE.md`).
@@ -55,48 +55,21 @@ coding agent:
 ## Existing users: run `apkit migrate`
 
 If you used apkit 0.238 or earlier, install the new version and run
-`apkit migrate` once:
+`apkit migrate` once. Until you do, every `apkit` command reminds you.
 
 ```sh
 npm install -g agent-profile-kit
 apkit migrate
 ```
 
-- Each Project the old apkit installed keeps the same Workspace, Profile, and
-  agents.
-- If you changed a file the old apkit wrote, `migrate` changes nothing for
-  that Project and asks you to decide. `--yes` keeps the file as your own, and
-  apkit stops tracking it. `--overwrite` deletes it.
-- If your Workspace has only the old `workspace.yaml` marker file, renaming it
-  to `apkit-workspace.yaml` is a decision too.
-- A Project folder that no longer exists is reported and skipped.
-- When every Project is migrated, your old apkit state is kept as a backup at
-  `~/.agents/agent-profile-kit.migrated`.
-
-Until you migrate, every `apkit` command reminds you to run `apkit migrate`.
+What `migrate` keeps and which decisions it asks for:
+[docs/USER-JOURNEY.md § Migration](docs/USER-JOURNEY.md#migration).
 
 ## Commands
 
-```text
-apkit guide                                  The complete guide for agents and people
-apkit contract                               The Workspace contract: every format rule
-apkit init <path>                            Create (or complete) a Workspace and select it
-apkit workspace [<path>]                     Show or select the Workspace
-apkit setup [--agents <a,b>] [--remove]      Add (or remove) a short apkit note in each agent's user instructions
-apkit check                                  Validate the Workspace and list what it holds
-apkit install <profile> [folder] --agents <a,b>
-                                             Install a Profile (folder defaults to the current one)
-apkit install <profile> --global --agents <a,b>
-                                             Install a Profile for every project
-apkit update [folder | --all]                Re-install from the current Workspace
-apkit remove [folder | --global]             Remove everything apkit installed there
-apkit status [folder | --all]                Show what is installed and what is out of date
-apkit migrate                                Move each Project the old apkit installed to this one
-```
-
-Add `--json` to any command for machine-readable output. Exit codes: `0`
-done, `1` error, `2` usage, `3` needs a decision (nothing was changed).
-`apkit --help` prints the full list of options.
+`apkit --help` lists every command, option, agent ID, and exit code.
+[docs/USER-JOURNEY.md](docs/USER-JOURNEY.md) maps each stage and what it owes
+you.
 
 ## Learn more
 

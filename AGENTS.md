@@ -19,7 +19,8 @@ This repository is the open-source Agent Profile Kit engine. It contains the age
 
 - `src/` owns the `apkit` command, Workspace validation, verified delivery locations, and installation lifecycle.
 - `build.ts` owns the dependency-free Node bundle at `dist/cli.js`.
-- `test/` owns engine and CLI journey tests; `test/retained/` owns earlier-release Workspace fixtures and their provenance.
+- `scripts/` owns release tooling: `scripts/release.ts` creates, qualifies, and verifies the release candidate (see `docs/runbooks/github-release.md`).
+- `test/` owns engine and CLI journey tests; `test/retained/` owns earlier-release Workspace fixtures and their provenance; `test/migration/` owns what apkit 0.238.0 wrote, with its provenance, for the `migrate` journeys.
 - `docs/guides/workspace-contract.md` owns the portable Workspace format, bundled into `apkit contract`.
 - `docs/adr/` owns accepted decisions and rationale.
 - `docs/ARCHITECTURE.md` owns living structural facts.

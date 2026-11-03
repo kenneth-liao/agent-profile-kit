@@ -57,7 +57,7 @@ The short marked note that `setup` adds to each installed Host's user-level inst
 _Avoid_: Host Setup Step, User-Level Installation
 
 **Decision**:
-A planned change that needs the user before apkit writes anything: an edit to a file the user owns or a write through a symlink that leads outside the folder (allowed by `--yes`), or a file that apkit wrote and someone changed, or a file apkit did not write (replaced only with `--overwrite`). When a Decision is open, the run changes nothing, lists every Decision, and exits 3.
+A planned change that needs the user before apkit writes anything: an edit to a file the user owns or a write through a symlink that leads outside the folder (allowed by `--yes`), or a file that apkit wrote and someone changed, or a file apkit did not write (replaced only with `--overwrite`). When a Decision is open, the location or Project that needs it is not changed; in a run over several, the others may already be done. The run lists every Decision and exits 3.
 _Avoid_: Blocker, prompt, Output Ownership Conflict
 
 **Repository Exclusion Contribution**:

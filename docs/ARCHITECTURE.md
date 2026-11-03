@@ -9,9 +9,10 @@ the Workspace format is `docs/guides/workspace-contract.md`.
 `apkit` installs a Workspace's Profiles into folders for several Agent Hosts.
 It is a small command for an agent to drive:
 
-- **No prompts.** A step that needs the user is a Decision: the run changes
-  nothing, lists every Decision, and exits 3. The caller runs the command again
-  with `--yes` or `--overwrite`.
+- **No prompts.** A step that needs the user is a Decision: the location or
+  Project that needs it is not changed, the run lists every Decision, and exits
+  3. Other locations or Projects in the same run may already be done. The
+  caller runs the command again with `--yes` or `--overwrite`.
 - **Plain file writes only.** The engine starts no child processes (ISC-61)
   and has no code path that depends on the operating system (ISC-62). It reads
   Git's index file itself instead of running `git`.
@@ -27,6 +28,9 @@ It is a small command for an agent to drive:
 |---|---|
 | `src/cli.ts` | Argument parsing, the command set, the lock around writing commands, human and `--json` output, exit codes |
 | `src/command.ts` | The command name (`apkit`) used in every printed command |
+| `src/output.ts` | Rules every human output shares: paths shown with `~`, quoted Next commands, grouped warnings |
+| `src/location.ts` | One install location (a project folder or the User-Level Installation): planning it against the Workspace and applying it; commands and `migrate` share it |
+| `src/migrate.ts` | `apkit migrate` behind one entry point: reading the released engine's state, taking over each recorded Project, selecting the Workspace, and renaming the old state to its backup |
 | `src/guide.ts` | `apkit help`, `apkit guide`, and the bundled Workspace contract (`apkit contract`) |
 | `src/workspace.ts` | Reading and validating a Workspace; `init` |
 | `src/render.ts` | The Host table (project Skills folder and trust behavior), user-level Skills folders, and rendering a Profile into desired files and one Context body |
@@ -39,7 +43,8 @@ It is a small command for an agent to drive:
 | `src/lock.ts` | One lock per apkit home (ADR-0058) |
 | `src/schema.ts` | Refusing a file written by a newer apkit |
 | `build.ts` | The dependency-free Node bundle at `dist/cli.js` |
-| `test/` | Engine and CLI journey suites; `test/retained/` holds earlier-release Workspaces (ISC-46) |
+| `scripts/release.ts` | Release candidate, qualification, verification, and the CI gate before publication (`docs/runbooks/github-release.md`) |
+| `test/` | Engine and CLI journey suites; `test/retained/` holds earlier-release Workspaces (ISC-46); `test/migration/` holds what apkit 0.238.0 wrote, for the `migrate` journeys |
 
 ## Commands
 
@@ -49,8 +54,9 @@ It is a small command for an agent to drive:
 `--workspace <path>` (one run only). `apkit migrate` moves an installation of
 the released engine to this one; see [Migration from the released engine](#migration-from-the-released-engine).
 
-Exit codes: `0` done, `1` error, `2` usage, `3` needs a Decision (nothing was
-changed). With `--json`, each command prints one JSON object that is the
+Exit codes: `0` done, `1` error, `2` usage, `3` needs a Decision (what needs
+it was not changed). With `--json`, each operation command (every command
+except `help`, `guide`, and `contract`) prints one JSON object that is the
 complete record of the operation; `status` and `update` put one record per
 location in `results`. An error prints `{"error": "..."}`.
 
@@ -170,7 +176,7 @@ visit every listed folder and then the User-Level Installation, if
 
 ## Concurrency
 
-`init`, `workspace`, `install`, `update`, `remove`, and `setup` hold
+`init`, `workspace`, `install`, `update`, `remove`, `setup`, and `migrate` hold
 `<APKIT_HOME>/lock` from their first read to their last write, so runs that
 write take turns and each plans against the disk as the previous run left it.
 `status`, `check`, `guide`, `contract`, and `help` do not take it. The lock is
@@ -194,7 +200,12 @@ Profile and agents with this engine; other commands name `apkit migrate` while
 that state is not migrated. An old output that the user changed is a Decision
 that names the part apkit added: `--overwrite` deletes it, and `--yes` keeps it
 as the user's own, recorded in Local Configuration so a later run does not ask
-again. Once no recorded Project needs a decision or failed, `migrate` renames
+again. `--yes` cannot keep a changed file at a path where this engine installs
+its own copy (such as a Skill folder): `--overwrite` or moving the changes out
+settles it. The Workspace is validated only when a bound Project whose folder
+exists installs its Profile again; `migrate --workspace <path>` names another
+Workspace. A run that completes, or that migrates a Project, selects the
+Workspace when it is one. Once no recorded Project needs a decision or failed, `migrate` renames
 the folder to `~/.agents/agent-profile-kit.migrated` and keeps it, unchanged,
 as a backup; it never replaces an existing backup. A folder with neither
 file holds nothing to migrate, so `migrate` renames it the same way.

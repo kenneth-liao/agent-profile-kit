@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded by ADR-0059
 ---
 
 # Run interactive children through the shared bounded executor

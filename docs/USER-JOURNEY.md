@@ -20,7 +20,7 @@ install, update, and removal.
 |---|-------|---------|------------------------|
 | 1 | Discover | `npm install -g agent-profile-kit`, `apkit --help`, `apkit guide` | From the README alone, an agent installs `apkit` and learns the whole workflow from `apkit guide`, which matches the installed version. `--help` lists every command, option, agent ID, and exit code. |
 | 2 | Learn the format | `apkit contract` | Every Workspace rule that validation enforces, with examples. |
-| 3 | Create or select a Workspace | `apkit init <path>`, `apkit workspace [<path>]` | A Workspace at the path the user chose (never a default), selected for later commands. `workspace` without a path shows the selected Workspace, its problems, and each install whose Profile it lacks. |
+| 3 | Create or select a Workspace | `apkit init <path>`, `apkit workspace [<path>]` | A Workspace at the path the user chose (never a default), selected for later commands. `workspace` without a path shows the selected Workspace's path. `workspace <path>` also shows its problems and each install whose Profile it lacks. |
 | 4 | Tell the user's agents | `apkit setup [--agents <a,b>]`, `apkit setup --remove` | A short Setup Note in each installed agent's user-level instructions, so later sessions run `apkit guide` before they change Skills, Context, or Profiles. Adding or removing it is a Decision first. `--remove` restores each file. |
 | 5 | Author and validate | Edit Workspace files, then `apkit check` | Each error names its file and the change that fixes it, and blocks installs and updates until fixed. Each warning names a file that `apkit` skips and blocks nothing. `check` lists the Profiles. |
 | 6 | Install | `apkit install <profile> [folder] --agents <a,b>`, `apkit install <profile> --global --agents <a,b>` | The Profile's Skills in each selected agent's Skills folder and its Context in one Context Section, for one folder or for every project. Running `install` again with other values changes that folder's Profile or agents. Each instruction file it creates or changes is named, with whether Git tracks it. |
@@ -31,9 +31,10 @@ install, update, and removal.
 
 ## Rules for every stage
 
-- **No prompts.** A step that needs the user is a Decision. The run changes
-  nothing, lists every Decision, and exits 3. The Next line is the exact
-  command to run after the user agrees.
+- **No prompts.** A step that needs the user is a Decision. The folder or
+  Project that needs it is not changed; in a run over several, the others may
+  already be done. The run lists every Decision and exits 3. The Next line is
+  the exact command to run after the user agrees.
 - **`--yes`** allows an edit to a file the user owns (such as `AGENTS.md`,
   `CLAUDE.md`, or an agent's user-level instruction file) and a write through
   a symlink that leads outside the folder. An agent passes it only after the
@@ -47,8 +48,9 @@ install, update, and removal.
   repository's `.git/info/exclude`. Instruction files are never hidden: the
   output says whether Git tracks each one, and committing is the user's
   decision.
-- **`--json`** prints one JSON value that is the complete record of the
-  operation.
+- **`--json`** makes each operation command print one JSON value that is the
+  complete record of the operation. `help`, `guide`, and `contract` print text
+  only.
 - **Exit codes** agree across commands: `0` done, `1` error, `2` usage, `3`
   needs a Decision.
 
@@ -64,7 +66,12 @@ user:
   twice.
 - A file the old engine wrote that the user changed is a Decision that names
   the part `apkit` added. `--yes` keeps the file as the user's own and `apkit`
-  stops tracking it; `--overwrite` deletes it.
+  stops tracking it; `--overwrite` deletes it. `--yes` cannot keep a changed
+  file at a path this `apkit` installs again (such as a Skill folder):
+  `--overwrite` or moving the changes out settles it.
+- The Workspace must be valid only when a Project installs its Profile again.
+  If it was moved or is not valid, the error names it and the old
+  `config.yaml`; `apkit migrate --workspace <path>` uses another Workspace.
 - A Workspace with only the old `workspace.yaml` marker file: the rename to
   `apkit-workspace.yaml` is a Decision.
 - A recorded Project folder that no longer exists is reported and skipped.

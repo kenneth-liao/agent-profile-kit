@@ -6,7 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Changed `apkit` to the agent-first engine (BREAKING): the commands are now `init`, `workspace`, `setup`, `check`, `install`, `update`, `remove`, `status`, `guide`, and `migrate`, and users of 0.238.0 or earlier must run `apkit migrate` once so each installed Project keeps its Workspace, Profile, and agents under the new engine (#728)
+- Changed `apkit` to the agent-first engine (BREAKING): the commands are now `init`, `workspace`, `setup`, `check`, `install`, `update`, `remove`, `status`, `guide`, `contract`, and `migrate`, and users of 0.238.0 or earlier must run `apkit migrate` once so each installed Project keeps its Workspace, Profile, and agents under the new engine (#728)
 
 ## [0.238.0] - 2026-10-28
 

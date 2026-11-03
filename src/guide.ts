@@ -47,11 +47,12 @@ Options:
   --remove            With setup: remove the note from every agent
   --global            Install or remove at the user level instead of a project
   --overwrite         Replace or delete files that were changed or not written by apkit
-  --json              Machine-readable output
+  --json              Machine-readable output (not with help, guide, or contract)
   --workspace <path>  Use this Workspace for one command
+                      With migrate: use it instead of the Workspace the old apkit named
 
 Agents: ${Object.keys(AGENTS).join(", ")}
-Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (nothing was changed)
+Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (what needs it was not changed)
 `;
 
 export const GUIDE = `# Agent Profile Kit guide
@@ -144,8 +145,9 @@ Only after setup, move the user's material into the Workspace and install a Prof
 
 ## Decisions (exit code 3)
 
-When a step needs the user's decision, ${COMMAND} changes nothing, prints the
-decisions, and exits with code 3. Explain each one to the user in plain words.
+When a step needs the user's decision, ${COMMAND} does not change the folder or
+Project that needs it, prints the decisions, and exits with code 3. With several
+folders or Projects in one run, the others may already be done. Explain each one to the user in plain words.
 The Next line gives the complete command to run after the user agrees:
 
 - For each listed instruction file (AGENTS.md, CLAUDE.md, or an agent's
