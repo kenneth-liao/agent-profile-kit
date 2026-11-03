@@ -42,7 +42,8 @@ Usage:
 
 Options:
   --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
-                      and writes through a symlink that leads outside the folder
+                      and writes through a symlink that leads outside the folder.
+                      With migrate: also keep each file the old apkit wrote and the user changed
   --remove            With setup: remove the note from every agent
   --global            Install or remove at the user level instead of a project
   --overwrite         Replace or delete files that were changed or not written by apkit

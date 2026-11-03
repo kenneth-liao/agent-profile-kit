@@ -7,7 +7,7 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { hash as contentHash } from "./install.js";
-import { isAgentId, type AgentId } from "./render.js";
+import { AGENTS, isAgentId, type AgentId } from "./render.js";
 import { refuseNewer } from "./schema.js";
 
 /** The old engine's application folder. It had no override: always under the home folder. */
@@ -327,4 +327,128 @@ export function rewriteOldExclude(source: Buffer, entries: readonly string[], pa
   const separate = prefix.length > 0 && !prefix.endsWith("\n");
   const block = `${separate ? BEGIN_WITH_SEPARATOR : BEGIN}${newline}${kept.join(newline)}${newline}${END}${newline}`;
   return Buffer.from(`${prefix}${separate ? `${newline}${SEPARATOR}${newline}` : ""}${block}${suffix}`, "latin1");
+}
+
+/** Which agents each old Context file was for: the old engine's layout (0.238.0). */
+const OLD_CONTEXT: readonly { readonly prefix: string; readonly agents: readonly AgentId[]; readonly what?: string }[] = [
+  { prefix: ".agents/rules/", agents: ["antigravity"] },
+  { prefix: ".claude/rules/", agents: ["claude", "grok"] },
+  { prefix: ".agent-profile-kit/codex/", agents: ["codex"] },
+  { prefix: ".agent-profile-kit/opencode/", agents: ["opencode"] },
+  { prefix: ".pi/", agents: ["pi"] },
+  { prefix: ".codex/hooks.json", agents: ["codex"], what: "the Codex hook that loads the Context" },
+  { prefix: ".opencode/opencode.jsonc", agents: ["opencode"], what: "the OpenCode configuration that loads the Context" },
+];
+
+/** What an old output was, in plain words: the Skill or Context it held, for which agents, from which Profile. */
+export function oldOutputOrigin(path: string, receipt: { readonly profile: string; readonly agents: readonly AgentId[] }): string {
+  const from = `from the Profile '${receipt.profile}'`;
+  const names = (agents: readonly AgentId[]) => agents.filter((agent) => receipt.agents.includes(agent)).map((agent) => AGENTS[agent].name).join(", ");
+  const skill = /^(.+)\/([^/]+)$/.exec(path);
+  if (skill !== null) {
+    const agents = (Object.keys(AGENTS) as AgentId[]).filter((agent) => AGENTS[agent].skillsRoot === skill[1]);
+    if (agents.length > 0) return `the Skill '${skill[2]}' for ${names(agents)}, ${from}`;
+  }
+  const context = OLD_CONTEXT.find((entry) => path === entry.prefix || path.startsWith(entry.prefix));
+  if (context !== undefined) return `${context.what ?? `the Context for ${names(context.agents)}`}, ${from}`;
+  return `a file the old apkit wrote, ${from}`;
+}
+
+/** The part the old apkit added to a configuration file that the user can also add to. */
+export interface OldGeneratedPart {
+  /** What apkit added, in plain words. */
+  readonly description: string;
+  /** Whether that part is still in the file; "unknown" when the file does not parse. */
+  readonly present: "yes" | "no" | "unknown";
+  /** The part as it is in the file now, when present. */
+  readonly text?: string;
+}
+
+const CODEX_CONTEXT = ".agent-profile-kit/codex/context.md";
+const OPENCODE_CONTEXT = ".agent-profile-kit/opencode/context.md";
+
+/** JSONC to JSON: drops comments and trailing commas outside strings. */
+function stripJsonc(text: string): string {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (c === '"') {
+      let j = i + 1;
+      while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+      out += text.slice(i, j + 1);
+      i = j;
+    } else if (c === "/" && text[i + 1] === "/") {
+      while (i < text.length && text[i] !== "\n") i++;
+      out += "\n";
+    } else if (c === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      i = end === -1 ? text.length : end + 1;
+    } else if (c === ",") {
+      const next = /^\s*([}\]])/.exec(text.slice(i + 1));
+      if (next === null) out += c;
+    } else out += c;
+  }
+  return out;
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * For `.codex/hooks.json` and `.opencode/opencode.jsonc`, the part the old apkit added,
+ * found in the file as it is now. Null for any other output: the old apkit owned it whole.
+ */
+export function oldGeneratedPart(path: string, text: string, skills: readonly string[]): OldGeneratedPart | null {
+  if (path === ".codex/hooks.json") {
+    const description = `the SessionStart hook that reads ${CODEX_CONTEXT}`;
+    const data = parseJson(text);
+    if (!isRecord(data)) return { description, present: "unknown" };
+    const groups = isRecord(data.hooks) && Array.isArray(data.hooks.SessionStart) ? data.hooks.SessionStart : [];
+    const ours = groups.flatMap((group: unknown) => {
+      if (!isRecord(group) || !Array.isArray(group.hooks)) return [];
+      const hooks = group.hooks.filter((hook: unknown) => isRecord(hook) && typeof hook.command === "string" && hook.command.includes(CODEX_CONTEXT));
+      return hooks.length === 0 ? [] : [{ ...group, hooks }];
+    });
+    if (ours.length === 0) return { description, present: "no" };
+    return { description, present: "yes", text: JSON.stringify({ hooks: { SessionStart: ours } }, null, 2) };
+  }
+  if (path === ".opencode/opencode.jsonc") {
+    const description = `the "Generated by apkit" comment at the top, the instructions entry ${OPENCODE_CONTEXT}, and the permission.skill entries for the Profile's Skills`;
+    const data = parseJson(stripJsonc(text));
+    if (!isRecord(data)) return { description, present: "unknown" };
+    const lines = text.split(/\r?\n/);
+    const header = lines[0]?.startsWith("// Generated by apkit") ? lines.slice(0, lines.findIndex((line) => !line.startsWith("//"))) : [];
+    const part: Record<string, unknown> = {};
+    if (Array.isArray(data.instructions) && data.instructions.includes(OPENCODE_CONTEXT)) part.instructions = [OPENCODE_CONTEXT];
+    const permissions = isRecord(data.permission) && isRecord(data.permission.skill) ? data.permission.skill : {};
+    const denied = Object.fromEntries(Object.entries(permissions).filter(([id, value]) => skills.includes(id) && value === "deny"));
+    if (Object.keys(denied).length > 0) part.permission = { skill: denied };
+    if (header.length === 0 && Object.keys(part).length === 0) return { description, present: "no" };
+    const json = Object.keys(part).length === 0 ? [] : [JSON.stringify(part, null, 2)];
+    return { description, present: "yes", text: [...header, ...json].join("\n") };
+  }
+  return null;
+}
+
+/**
+ * Every file now at an old output's path (POSIX, from the Project) with its new-engine hash, so
+ * `migrate --overwrite` can hand a changed output to the planner whole. Null when it holds a
+ * symlink or anything but files and folders: apkit does not delete those.
+ */
+export async function currentFiles(project: string, output: OldOutput): Promise<Record<string, string> | null> {
+  const path = abs(project, output.path);
+  const info = await lstat(path).catch(() => null);
+  if (info === null) return {};
+  if (info.isFile()) return { [output.path]: contentHash(await readFile(path)) };
+  if (!info.isDirectory()) return null;
+  const found = await members(path);
+  if (found === null) return null;
+  const files: Record<string, string> = {};
+  for (const member of found) if (member.type === "file") files[`${output.path}/${member.path}`] = contentHash(await readFile(abs(path, member.path)));
+  return files;
 }
