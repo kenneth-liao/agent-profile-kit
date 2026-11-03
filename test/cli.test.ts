@@ -1859,7 +1859,9 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(new Set(data.projects[0].outputs.map((o: { result: string }) => o.result))).toEqual(new Set(["deleted"]));
     expect(data.projects[0].exclusion.result).toBe("removed");
     expect(existsSync(join(folder, ".agents", "apkit.json"))).toBe(false);
-    expect(existsSync(join(fixture.root, "apkit", "config.json"))).toBe(false);
+    // The complete run selects the Workspace; nothing is installed.
+    const config = JSON.parse(await readFile(join(fixture.root, "apkit", "config.json"), "utf8"));
+    expect([config.workspace, config.installs ?? []]).toEqual([fixture.workspace, []]);
     // Only the user's own files are left, as before the old install.
     expect(await tree(folder)).toEqual(await tree(fixture.pristine));
     expect(data.backup).toEqual({ path: `${fixture.state}.migrated`, result: "renamed" });
@@ -2228,6 +2230,93 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.out).workspace.rename).toBeUndefined();
     expect(existsSync(join(fixture.workspace, "workspace.yaml"))).toBe(true);
+  });
+
+  describe("the old Workspace (SRC-08a)", () => {
+    /** The Workspace the new apkit has selected, if any. */
+    async function selected(fixture: MigrationFixture): Promise<string | undefined> {
+      const path = join(fixture.root, "apkit", "config.json");
+      return existsSync(path) ? JSON.parse(await readFile(path, "utf8")).workspace : undefined;
+    }
+
+    test("with no Project to migrate, a complete run selects the old Workspace", async () => {
+      const fixture = await materializeMachine([]);
+      const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      const data = JSON.parse(result.out);
+      expect(data.workspace).toMatchObject({ path: fixture.workspace, selected: true });
+      expect(data.backup.result).toBe("renamed");
+      expect(await selected(fixture)).toBe(fixture.workspace);
+      expect(migrateCli(fixture, fixture.root, "workspace").out).toContain(fixture.workspace);
+    });
+
+    test("a missing old Workspace that no Project needs does not block migrate, and no notice follows", async () => {
+      const fixture = await materializeMachine([{ name: "retired", retired: true }, { name: "gone", missing: true }]);
+      await rm(fixture.workspace, { recursive: true });
+      const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      const data = JSON.parse(result.out);
+      expect(data.workspace).toMatchObject({ path: fixture.workspace, selected: false });
+      expect(data.projects.map((p: { result: string }) => p.result)).toEqual(["retired", "missing"]);
+      expect(data.backup.result).toBe("renamed");
+      expect(await selected(fixture)).toBeUndefined();
+      const after = migrateCli(fixture, fixture.root, "status", "--all");
+      expect(after.out + after.err).not.toContain("Next: `apkit migrate`");
+    });
+
+    test("in text, a missing old Workspace that no Project needs is named, with the command that selects one", async () => {
+      const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+      await rm(fixture.workspace, { recursive: true });
+      const result = migrateCli(fixture, fixture.root, "migrate", "--yes");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(result.out).toContain(`${fixture.workspace} is not a Workspace, so it was not selected`);
+      expect(result.out).toContain("apkit workspace <path>");
+    });
+
+    test("a missing old Workspace that a Project needs: the error names config.yaml and the Workspace, and --workspace settles it", async () => {
+      const fixture = await materializeMigration();
+      const moved = join(fixture.root, "moved-workspace");
+      await rename(fixture.workspace, moved);
+      const project = await tree(fixture.project);
+      const failed = migrateCli(fixture, fixture.project, "migrate", "--yes");
+      expect(failed.code).toBe(1);
+      expect(failed.err).toContain(join(OLD, "config.yaml"));
+      expect(failed.err).toContain(fixture.workspace);
+      expect(failed.err).toContain("Nothing was changed");
+      expect(failed.err).toContain("apkit migrate --workspace <path>");
+      expect(await tree(fixture.project)).toEqual(project);
+      expect(existsSync(fixture.state)).toBe(true);
+
+      const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--workspace", moved, "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      const data = JSON.parse(result.out);
+      expect(data.workspace).toMatchObject({ path: moved, selected: true });
+      expect(data.projects[0].result).toBe("migrated");
+      expect(await selected(fixture)).toBe(moved);
+    });
+
+    test("an old configuration that names no Workspace does not block migrate when no Project needs one", async () => {
+      const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+      await writeFile(join(fixture.state, "config.yaml"), "schema_version: 2\n");
+      const result = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(JSON.parse(result.out).workspace).toBeNull();
+    });
+  });
+
+  test("a retired receipt whose outputs this apkit already installed again: --overwrite leaves them installed", async () => {
+    const fixture = await materializeMachine([{ name: "retired", retired: true }]);
+    const folder = fixture.projects.retired!;
+    const install = migrateCli(fixture, folder, "install", "engineering", folder, "--agents", ALL, "--yes", "--overwrite", "--workspace", fixture.workspace);
+    expect(install.code).toBe(0);
+    const result = migrateCli(fixture, fixture.root, "migrate", "--overwrite", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const outputs = JSON.parse(result.out).projects[0].outputs as { path: string; result: string }[];
+    expect(outputs.find((o) => o.path === ".claude/skills/review-pr")?.result).toBe("already-replaced");
+    // Every file this apkit installed is still there, as installed.
+    const manifest = JSON.parse(await read(folder, ".agents/apkit.json")) as { files: Record<string, string> };
+    expect(Object.keys(manifest.files)).toContain(".claude/skills/review-pr/SKILL.md");
+    for (const [path, recorded] of Object.entries(manifest.files)) expect(hash(await readFile(join(folder, ...path.split("/"))))).toBe(recorded);
   });
 
   test("with no old state, there is nothing to migrate", async () => {

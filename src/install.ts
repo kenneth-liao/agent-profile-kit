@@ -88,7 +88,7 @@ export function hash(bytes: Uint8Array | string): string {
   return createHash("sha256").update(text.replace(/\r\n/g, "\n"), "latin1").digest("hex");
 }
 
-function abs(target: string, path: string): string {
+export function abs(target: string, path: string): string {
   return join(target, ...path.split("/"));
 }
 

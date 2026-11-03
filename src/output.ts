@@ -1,5 +1,13 @@
 /** Human output shared by commands; arguments use POSIX shell quoting. */
+import { homedir } from "node:os";
+import { sep } from "node:path";
 import { COMMAND } from "./command.js";
+
+/** A path as the user reads it: under the home folder, it starts with `~`. */
+export function display(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(home + sep) ? `~${path.slice(home.length)}` : path;
+}
 
 export function quoteArgument(value: string): string {
   return /^[a-zA-Z0-9_./,:=@%+-]+$/.test(value) ? value : `'${value.replaceAll("'", `'"'"'`)}'`;
