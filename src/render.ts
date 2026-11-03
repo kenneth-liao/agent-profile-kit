@@ -7,8 +7,8 @@ import type { Workspace } from "./workspace.js";
 
 /**
  * Where each supported agent discovers project Skills, and what it does not load
- * from a project folder until the user trusts it (live checks in the prototype's
- * README). Everything else is native.
+ * from a project folder until the user trusts it (live checks in
+ * docs/ARCHITECTURE.md, Verified Locations). Everything else is native.
  */
 export const AGENTS = {
   antigravity: { name: "Antigravity", skillsRoot: ".agents/skills", untilTrusted: "everything" },
@@ -54,8 +54,8 @@ export const PROJECT_ROOTS: SkillRoots = Object.fromEntries(
 ) as Record<AgentId, string>;
 
 /**
- * User-level Skills folders, relative to the home folder. Verified 2026-10-30
- * against each agent (see the prototype's README).
+ * User-level Skills folders, relative to the home folder. Each is verified
+ * per agent (see docs/ARCHITECTURE.md, Verified Locations).
  */
 export function userRoots(home: string, env: Readonly<Record<string, string | undefined>>): SkillRoots {
   const rel = (path: string) => relative(home, path).split(sep).join("/");

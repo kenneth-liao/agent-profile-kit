@@ -1,632 +1,275 @@
 # Agent Profile Kit Architecture
 
-This document describes the implemented project-bound architecture for Profile Context and portable Skills on Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi. Antigravity Context and shared Skill delivery use native project surfaces; the former per-session overlay implementation is removed.
+This document owns the living structural facts of the `apkit` engine. Terms
+are defined in `CONTEXT.md`; decisions and their reasons are in `docs/adr/`;
+the Workspace format is `docs/guides/workspace-contract.md`.
 
 ## Purpose
 
-Agent Profile Kit is an open-source, user-agnostic tool and format for defining portable Profiles once and installing them into local projects for supported Agent Hosts. Hosts load the generated material through their native project discovery; Agent Profile Kit does not participate when a Host session runs.
-
-The tool repository owns the CLI, schemas, Installer, Adapters, and product documentation. Each user owns an independent Workspace containing reusable cross-project material. Each project repository remains authoritative for its own facts and configuration.
-
-## Application Boundary
-
-```text
-~/.agents/agent-profile-kit/
-├── config.yaml                # Machine-local Local Configuration
-├── operation-history.json     # Bounded diagnostic lifecycle history (latest 200 runs)
-└── state/                     # Durable ownership evidence and staging state
-
-<user-chosen Workspace path>/
-├── workspace.yaml             # Required Workspace Manifest (schema marker)
-├── profiles/                  # Optional category; missing means empty
-├── context/
-└── skills/
-```
-
-The Workspace lives wherever the user chose; it is not inside the application directory.
-
-Each machine has exactly one selected Workspace, and there is no default location: current Local Configuration explicitly records the one absolute or home-relative Workspace path the user gave (ADR-0049). `init <workspace>` may scaffold a missing or empty non-symlink custom destination, or adopt an existing valid Workspace, before recording the authored selection; without a path on a machine that has no selected Workspace, `init` refuses before any write. Symlinks are resolved once at ingestion to a canonical directory while the authored spelling remains available for diagnostics. Profiles and artifacts may be version-controlled independently of the engine. `config.yaml` is machine-local because checkout paths, Workspace placement, and installed Hosts vary by machine. Credential values belong in Host authentication, environment references, or operating-system secret storage and are invalid in both the Workspace and installation records.
-
-```yaml
-schema_version: 2
-workspace: ~/projects/agent-profile-workspace   # required; absolute or ~/… only
-bindings: []
-```
-
-A valid Workspace requires only a supported `workspace.yaml`. The artifact directories (`context/`, `skills/`, `profiles/`) are part of the required structure that initialization adds when missing; missing categories ingest as empty, and present artifacts remain fully validated. That layout rule is enforced by CLI **0.16.1+**; it does not change `workspace.yaml` `schema_version` (still `1`). Machines on 0.15.x or older still require the full scaffold — restore the six category directories and bootstrap files before rolling a CLI back, or keep every shared Workspace fully scaffolded in mixed-version environments (see the Workspace guide).
-
-Initialization writes no example material: a new Workspace contains only `workspace.yaml` and the three artifact directories (spec #593 DEC-003, ADR-0047); example Profiles and Context Modules live in the guides and `apkit guide` examples, authored through the single authoring-examples authority. Setup never creates or guides a first Profile (spec #640 US-002, OOS-002); the receipt names the Workspace and Local Configuration when written, lists only the parts actually added, and routes the handoff from the resulting content.
-
-The Workspace contract is one canonical document, `docs/guides/workspace-contract.md`, shipped with the guides (spec #593 DEC-010, #602): it states every rule Workspace validation enforces, the README links to it, `apkit guide --contract` renders it verbatim, and the other guides link to it instead of restating its rules. Its valid and invalid examples are executed by `test/workspace-contract.test.ts`, which also maps every enforced violation kind to a contract statement (ISC-35).
-
-A version-1 Local Configuration without `workspace` is legacy migration input only, and is never upgraded to a default: zero-argument `init` refuses, and `init <path>` upgrades it to the path the user gives (ADR-0049). Desired-state and binding-recording commands fail closed with `apkit init` guidance until migration completes. Current Local Configuration schema version is `2` and its `workspace` field is required. Older engines are not claimed to understand the version-2 file. Before migrating a legacy file, operators must retain a pre-migration backup; rollback without that backup is unsupported. The immediately previous 0.20.x CLI can use the restored version-1 configuration; follow the [Workspace migration guide](guides/workspace.md#legacy-local-configuration-migration-and-version-compatibility) for the restore procedure.
-
-Desired-state commands (`validate`, `status`, and `update`) resolve the Workspace through the shared Local Configuration ingestion boundary (`ingestApplication`) before reading artifacts or Project Bindings. `init` separately parses Local Configuration and validates an explicit request against the configured canonical selection before preparing source or publishing configuration. With no argument, a configured custom path is validated without creating or repairing it. `uninstall` intentionally operates from installation ownership state only and does not resolve a Workspace, keeping recovery independent of valid source or configuration. Invalid configured or explicit targets (relative paths, wildcards, files, dangling symlinks, empty symlink targets, and non-Workspace directories) fail before any Workspace or configuration publication.
-
-`apkit init` validates the folder's would-be Workspace state write-free — the on-disk manifest when present, otherwise the canonical manifest in memory — then adds exactly the missing required parts in place (`workspace.yaml`, `context/`, `skills/`, `profiles/`; never a parent directory: a named path is created only when its parent exists) and records a minimal `config.yaml` containing `schema_version: 2`, the authored `workspace` path, and `bindings: []` when Local Configuration is absent. There is no default Workspace location (ADR-0049): without a path on a machine that has no selected Workspace — a fresh home, or a legacy version-1 file without `workspace` — `init` refuses before any write and names the explicit `apkit init <path>` and `apkit init .` forms. Relative Workspace arguments are accepted; home-relative spellings keep their authored form and working-directory-relative forms record the resolved absolute folder. `installer/authoring-examples.ts` is the canonical home for the neutral Profile, Context Module, and Skill examples consumed by the focused guides and command examples; initialization writes no example material (spec #593 DEC-003, ADR-0047). A valid existing explicit destination is adopted, adding only its still-missing required parts; existing entries are never changed, moved, or deleted, and a failure after some parts were added reports exactly what was added. When configuration already selects a Workspace, zero-argument `init` validates it and selects nothing new; an explicit request must resolve to the same canonical directory, while a different selection fails before source or configuration writes. When upgrading a legacy version-1 configuration, `init` validates the effective Workspace and atomically publishes only the migrated Local Configuration, preserving its Project Bindings and authored content; an upgrade to a user-given path is a first connection and adds that folder's missing required parts. It never overwrites an existing Workspace or current local configuration, and it does not recreate optional scaffolding inside an already valid Workspace (including a Manifest-only tree). Humans and agents edit Workspace artifacts directly. Project Bindings may be hand-edited in Local Configuration or recorded with `install`, which installs the verified output in the same action; Local Configuration remains the sole canonical home either way.
-
-## Runtime Boundary
-
-Agent Profile Kit participates only during explicit reconciliation:
-
-```mermaid
-flowchart LR
-    W["Workspace Profiles"] --> I["Installer"]
-    B["Machine-local Project Bindings"] --> I
-    I --> A["Host Adapters"]
-    A --> O["Normalized project output set"]
-    O --> P["Profile Installation"]
-    P --> H["Native Host project loading"]
-```
-
-There is no Agent Profile Kit launcher, session router, global Skill projection, background watcher, or runtime daemon. A project has at most one bound Profile at a time. All sessions launched in that project receive the same installed Profile, and simultaneous session-specific Profiles in one project are intentionally unsupported.
-
-## Project Bindings
-
-A Project Binding associates exactly one explicit project root with one Profile and a set of Agent Hosts:
-
-```yaml
-schema_version: 2
-workspace: ~/projects/agent-profile-workspace
-bindings:
-  - project: ~/projects/tools/agent-profile-kit
-    profile: engineering
-    hosts:
-      - codex
-      - claude
-      - grok
-      - pi
-  - project: ~/projects/business/customer-portal
-    profile: engineering
-    hosts:
-      - codex
-```
-
-Every `project` is an explicit existing directory that the user declares to be the project root. Paths must be absolute or begin with `~/`; other relative paths are invalid. Home-relative paths and symbolic links are normalized once at ingestion to a canonical absolute directory, which is used for identity and installation state while the authored spelling remains available for display. Wildcards, directory scans, and implicit parent-root detection are unsupported. A canonical project root may appear in exactly one binding; duplicates are invalid regardless of whether their Profile and Hosts agree.
-
-Host selections are a set normalized at Local Configuration and selection ingestion: authored order and repeated entries collapse to the deterministic `SUPPORTED_HOSTS` order (`antigravity`, `claude`, `codex`, `grok`, `opencode`, `pi`).
-
-Git is optional. When a project is not a Git working tree, native Codex discovery can guarantee the installed project Context only when Codex starts in the exact bound root; starting it in a descendant is unsupported because Codex has no repository boundary to search toward. Claude project rules and Grok project rules load from the project root independently of Git. The project workflow documents the Codex launch-from-root constraint.
-
-For a Git binding, the Installer reconciles only the explicit canonical project root. It uses Git only to inspect that root's repository boundary, tracked paths, and repository-local exclusions; it does not enumerate, classify, deduplicate, or report worktree topology. A primary checkout and linked worktree are indistinguishable at the Project Binding boundary. A Host session launched from the bound root may operate on files elsewhere, while any other root that must support direct Host launches requires its own explicit Project Binding.
-
-Every bound root, Git or non-Git, uses the same removal semantics. The ordinary order is `uninstall` with an explicit scope, then delete the directory. If the directory is deleted first, the selection remains until `uninstall --project` matches its exact authored path. That explicit removal confirms intent: the Project's proven output is removed where possible and its Project Binding and active Installation Receipt are forgotten only after that Project's removal succeeds, so a later `update` does not recreate it. Restoring the project later requires a new `install`, which starts a clean receipt lifetime without manual state editing. Worktrees receive no special deletion or recovery mechanism.
-
-The former development-only automatic worktree expansion has no compatibility or state-migration path. It was never released; development installations created by that behavior are reset and reapplied from canonical source.
-
-Commands separate binding authoring from global reconciliation:
-
-- `install` records one Project Binding in Local Configuration and installs its verified output in the same action: the requested Profile and Host set become the exact desired final set for the Project (an existing installation is replaced, reported as an old → new receipt), then the generated output is planned, written, and verified for that Project. The prospective installation is planned and consented before any write; the commit then holds the Local Configuration lock across snapshot re-verification, selection publication, fresh planning, reconciliation, and recovery, with the installation lifecycle lock nested inside. A pre-commit failure restores the previous selection where possible (ownership re-proven under the held lock; a concurrent change is left untouched and reported); a post-commit verification failure keeps the committed selection and reports truthfully.
-- `uninstall [--here | --project <path> | --all] [--profile <name>] [--agent <agent>] [--auto-confirm] [--remove-changed] [--replace-changed] [--json]` removes selected Project installations and forgets their Project Binding and active ordinary Installation Receipt only after each Project's output removal succeeds, so no active receipt outlives a forgotten binding and a later `update` does not recreate a fully removed Project. Scope is explicit: `--here`, `--project <path>`, and `--all` are mutually exclusive with conflicting scopes rejected before writes, `--profile` alone selects installations using that Profile and intersects an explicit scope without broadening it, and an absent scope never implies all Projects: non-interactive and machine-JSON input refuses, while a bare or agent-only interactive invocation collects its scope through the searchable Project picker with nothing pre-selected (see ADR-0037 for the recorded interactive-selection decision). `--agent` narrows removal to those agents within the selected scope (an `--agent` filter never provides scope itself on non-interactive/machine-JSON input; interactive agent-only input routes into Project selection); the partial path re-plans the surviving agents from the Workspace through one surviving-set computation, removes only output no longer required by the remaining agents, and narrows the remembered selection and receipt to the survivors, while removing the last agent uses the complete-uninstall result path. `--replace-changed` is rejected for whole-removal because it only deletes, and authorizes only the survivor-rewrite portion of an `--agent` partial removal (see ADR-0036 for the recorded partial-removal decision). Existing paths match by canonical identity; a missing path may match only its exact authored spelling. The preview is confirmed by the general confirmation (DEC-004) on an interactive terminal even with fully supplied arguments (`--auto-confirm` answers only that confirmation), changed-file deletion is authorized through the shared consent gate (DEC-005), and each Project commits sequentially under the same joint Local Configuration and installation-lifecycle lock boundary as `install`: known Blockers skip while healthy Projects proceed, an unexpected write failure stops further work with completed work retained and the failed Project's previous selection and output restored where possible, and outcomes report completed, failed, and unattempted Projects with a scope-preserving retry; a picked batch prints one runnable equivalent per picked Project. Public `unbind` is retired without a shim: every `unbind` form exits `1` with `unbind was replaced by uninstall`.
-- `validate` checks the Workspace and Project Bindings without writing state. A successful human result derives its next action from the normalized Project Binding count: zero points to `install`, while one or more points to `status`; warnings remain visible without changing that branch.
-- `info [--json]` reports the engine version and the selected Workspace, Local Configuration, and Installation State locations without enumerating Workspace artifacts, Host state, Project Bindings, or Installation State contents, and never changes state. Its versioned machine payload identifies `current`, `legacy`, or `not-configured` Local Configuration; legacy input is reported as migration-required rather than as an unconfigured Workspace.
-- `list` prints the available read-only inventory topics and descriptions from one canonical topic table. Focused human inventory presents instructional usage rather than an optional or redundant `Next:` action; JSON remains unchanged.
-  - `list projects` reads the normalized Local Configuration model and renders the `Projects:` heading, one Project row carrying the view's shortest-unambiguous identity, Profile, normalized Host set, and configuration state, and one summary footer carrying the count (ADR-0042). Aligned tables print a header row labeling each column (US-008). Below `TABLE_MINIMUM_WIDTH` (80), and whenever a row group cannot fit the measure, the rows render as compact labeled records of about two lines when values fit, with a blank line between them and no fact dropped. A per-binding path problem shows the short `problem` state in its row and renders its complete typed sentence and repair locator once, after the entries, under the same identity instead of aborting the inventory. It does not inspect Workspace artifacts.
-  - `list profiles` reads the normalized selected Workspace model and renders every valid Profile ID with selected Context Module and Skill counts in deterministic order. It does not inspect Project roots and fails through Workspace ingestion when its selected source is missing or invalid. The focused route `list profiles [<profile>] [--json]` renders one Profile's selected Context Module and Skill names through the same trusted ingestion (`listProfileDetail`), preserving the authored definition order; it is read-only and installation-independent, rejects an unknown name through the shared missing-Profile boundary (`MissingProfileError`, with the #506 near-match suggestion), and publishes a focused machine payload variant under the same `schemaVersion: 1` list-inventory base (`profile` record on success; `error` plus `requestedProfile` on error, one key carrying one shape).
-  - `list agents` reads normalized Host inventory records from capability constants and renders the canonical agents supported for configured Projects in its concise human view, with guidance to select a listed agent through `install`. The human view labels each agent's executable detection as detected/not found — the one shared wording with the install agent picker (#669) — using the advisory Host detection authority (`detectInstalledHosts()`), never implying Profile loading; detection decides by executable presence on `PATH` alone and never starts a Host or writes (spec #593, US-009, DEC-012), so an executable absent from `PATH` — or an exhausted lookup budget — degrades to "not found" and every agent stays selectable. The `PATH` presence check is the recorded targeted exception to the no-process inventory boundary (ADR-0016 amendment for #512, narrowed by its #594 amendment): detection performs no process execution and writes no state, and the topic's `--json` view remains the byte-stable, probe-free capability-metadata envelope (DEC-009).
-  - `machine list temporary` reads active Temporary Profile Installation records from Installation State, omits terminal removed identities and ordinary installations, and renders each temporary identity with its short Project path, Profile, and Host. It does not inspect Local Configuration, Workspace artifacts, Git, project output, or Host capabilities.
-  - Each topic's `--json` view emits its normalized inventory records with engine provenance; Host JSON retains Temporary Profile Installation eligibility, while temporary JSON retains the canonical Project path and durable temporary installation identity. No inventory topic writes state.
-- `update` reconciles its selected Project scope and, after its commits, performs
-  a fresh reconciliation to report the verified resulting state. `update --all`
-  stops every write for a global Blocker, but skips Project-scoped blocked
-  Projects while committing healthy Projects sequentially. It separately emits
-  an `Updated` section containing only generated-output and Repository Exclusion
-  work that committed, distinct from blocked, failed, still-pending, and freshly
-  current Project results. Partial blockers exit `2`; a tool or post-commit
-  verification failure exits `1` and retains committed-work evidence. `--json`
-  includes both the resulting-state snapshot and an `applied` receipt snapshot.
-- `status` is the complete update-equivalent read-only plan. It reports current, not installed, stale source, drifted output (including wholly absent owned output), malformed ownership, and blocked installations; planned generated-file and Git exclusion operations; and warnings. It performs no Agent Host process execution (DEC-015): Host capability probing happens only during `update`, where a missing or outdated Host CLI produces one advisory warning per Host per invocation (DEC-014) — naming the Host and the strictest version it requires, regardless of Project count or distinct requirement messages — and never gates planning, writing, or the outcome. Host Setup Steps remain in the ReconciliationReport and appear in `--verbose` and JSON, but concise `status` renders none. A bound Project with no ordinary Installation Receipt is not installed and eligible for `update`; no separate teardown intent is inferred or consulted. Concise `status` names the selected Workspace and prints one compact row per checked Project — healthy Projects included — through the shared row-group seam (spec #640 US-007, superseding #491 US-013/014's settled-count-only default listing); actionable Blocker and removal evidence stays in the default view after the rows. A fully current concise status invents no next action; non-current state definitions are available through `--verbose`. Operation receipts stay concise and never copy this inventory. `--json` uses the same machine payload and exit-code matrix as `update`.
-- `details [--list | <operation-id>] [--json]` reads the one machine-local
-  operation-history document without writing anything or rerunning lifecycle
-  planning: no argument shows the latest retained run, `--list` the compact
-  newest-first history, one identity its complete entry, and `--json` the
-  versioned details family. History rows use compact human time and a labeled
-  header when the table aligns (US-008); one run's details show the outcome in
-  its headline, a local human time and scope, then `Changed files`, `What went
-  wrong` and `Not done` as they apply — written, removed, failed, skipped and
-  unattempted work stay distinct — while exact timestamps live only in `--json`
-  (US-008, DEC-009). An
-  absent history, an unknown or evicted identity,
-  an unreadable document, and invalid arguments each report clearly, and long
-  human detail pages on an interactive terminal through the shared pager.
-- `uninstall` keeps its own exit semantics outside the lifecycle machine surface: exit `2` when known Blockers skip healthy work and `0` when every selected Project completes. Exclusion cleanup is best-effort: entries are removed when they can be and the removal continues when they cannot. Temporary Profile Installation receipts are preserved.
-- `machine install-temp <profile> <project> --host <host>` (machine-facing namespace, DEC-019) installs one Profile temporarily into one explicit Project for one Host marked Temporary-eligible by the canonical Host catalog (`supportsTemporaryProfileInstallation`). It reuses Adapter planning, ownership preflight, transactional publication, and best-effort Repository Exclusion bookkeeping, writes a durable temporary receipt before owned project mutations can be orphaned, and never creates a Project Binding or runs global reconciliation. Concise human success prints the exact `apkit machine remove-temp <actual-id>` command from that durable identity; `--json` continues to emit the shape-unchanged versioned temporary-installation receipt (now at `schemaVersion: 9`, ADR-0023). Failures after the first visible owned mutation report `removalRequired` with the recoverable `temporaryInstallationId`; predictable validation and ownership blockers still occur before writes and require no removal. Temporary and ordinary Installer publication share an exclusive Installation State lifecycle lock so concurrent operations cannot interleave conflicting ownership writes.
-- `machine remove-temp <temporary-installation-id>` removes only that Temporary Profile Installation's owned outputs and exclusion entries. Temporary-owned roots are intentionally disposable: removal discards content drift and unexpected members inside complete recorded directories without traversing adjacent unowned paths. Cleanup commits before the terminal state write so an interrupted remove remains retryable. A successful removal leaves a terminal removed identity so repeated calls remain idempotent. Linked worktrees are distinct Projects that may hold independent Temporary Profile Installations; each removal rewrites the shared exclusion target's owned section from the receipts that remain, as best-effort bookkeeping.
-
-`status` and `update` share one machine-surface exit matrix and one JSON serializer
-in `cli/presentation.ts`: exit `0` means no tool error and no
-blockers (JSON `outcome` may still be `attention` for pending work), exit `1`
-is a tool error (`outcome: "error"` under `--json` when flags were accepted),
-and exit `2` means blockers are present. The lifecycle JSON contract is versioned
-(`schemaVersion: 16`) and publishes every broken Profile's violations as `{rule, path, message}`, the same shape as `validate --json`, plus global Blockers and one deterministic record
-per Project. Each Project record owns desired identity, state, observable output
-operations with consuming Hosts, Project Blockers, structured warnings classified
-as `diagnostic` or `host-attention` with their copyable values, Host Setup Steps,
-and repository-exclusion work. Every Blocker
-serializes its exhaustive structured evidence (`kind`, `scope`, Project identity
-when scoped, presentation-composed `message`, `problem`, `requirement`, `remedy`, and
-`affectedItems`) without parsing rendered prose. Update publishes the pre-update
-work as a nested `applied` snapshot distinct from the freshly verified resulting
-Project records. Execution-error payloads retain that applied snapshot and add
-`failedProject` plus `pendingProjects` when a Project transaction fails. The contract carries no separate lifecycle-impact collection
-and is not stability-guaranteed before 1.0. Blocked temporary-installation
-JSON advances to the same versioned structured blocker records. Temporary
-installation receipts use the same exit matrix (`0` / `1` / `2`) with their own
-versioned JSON schema and carry no blocker records.
-
-Human lifecycle presentation in `cli/presentation.ts` has three explicit
-boundaries over the same ReconciliationReport. Every human surface selects an
-explicit location-display scope: application-wide and fleet surfaces use a
-stable home-relative Project identity, while a single-Project surface may use a
-strictly-inside-the-working-directory spelling — a Project root is never named
-as `.`, `..`, or `../…`, and an invalid relative path is labeled as a relative
-path instead (ADR-0042). Authored Project identity must survive aggregation so
-presentation never substitutes a canonical path where the authored identity is
-available. Action locations — the install target notice, the install
-general-confirmation review, the install receipt, and the multi-Project
-uninstall general-confirmation review — render the stable home-relative or
-absolute Project path through `displayPath`/`pathPart` (US-006, DEC-006;
-ADR-0042 as amended). Scanning views (concise `status`, other default receipts and their
-failure/exception views, `list projects`, and `machine list temporary`) render
-each Project by the shortest-unambiguous identity among the Projects that view names — computed
-once per document through `projectIdentityLookup` and carried as an `identity`
-on path nodes and parts, so no two references in one view disagree — while
-requested evidence (`--verbose`, `apkit details`, `--json`), the changed-file
-consent review, and every executable command argument keep the stable spelling. An identity is display-only and
-never elided; when it exceeds the measure it wraps at path-segment boundaries
-(ADR-0042). Concise output
-presents the outcome notice and one compact scope row per checked Project
-(`Project` + canonical `Primary Cause` via `classifyPrimaryCause`) through the
-shared row-group seam, including healthy Projects labeled `up to date` (spec
-#640 US-007). The headline carries the state glyph: `✔` when every checked
-Project is up to date, `⚠` when any Project has pending work or a Blocker, and
-`●` for an empty scope. Blocker and removal evidence renders after the rows
-under the same Project identity. It preserves one footer block (`Next:` update
-with an optional secondary `Details:` verbose route). It renders each semantic
-fact once and omits routine generated paths from operation receipts, Git
-exclusion bookkeeping, setup provenance, and separate consequences.
-Blockers, warnings, ownership attention, drift, destructive-removal attention, and Git exclusion
-warnings retain the identity required for their remedies. Adapter diagnostic normalization keeps
-warning messages independent from Project identity (messages exclude Project
-path prefixes), while nested Project records in the ReconciliationReport remain
-the sole scope authority. Human presentation groups warnings across Projects by
-the exact warning tuple `(kind, message, consequence, copyableValues)` with
-deterministic canonical sorting and renders them inline directly beside command outcomes without a separate titled `Warnings:` section or empty warning block: concise output renders each semantic warning
-once, naming every affected Project through the view's one consistent identity
-(status and multi-Project scanning views use shortest-unambiguous aliases;
-install and single-Project update receipts use stable paths) with a see-all
-pointer when the list is long, while ordinary verbose output renders each
-semantic warning once and lists every affected Project via the canonical
-Project presenter (`displayProjectPath`). A missing-Host warning is its own
-`⚠` line under a truthful `✔` completed-outcome headline, with its
-Adapter-authored requirement and remedy on separate default-colored lines;
-different Hosts keep separate remedies and a genuinely shared identical
-remedy appears once with its Project list. Output never claims a successful
-generated-output update proved Host loading or that a missing Host failed the
-update.
-Machine JSON preserves normalized warning records nested under each affected
-Project without embedded Project prefixes. A concise clean `status` states that
-the selected scope is current once and emits no Host setup reminder or next
-action; a pending concise `status` does not pre-announce post-update setup.
-
-A changed `update` leads from its Apply Receipt and cannot describe the selected
-Projects as already current when that receipt records work. The default receipt
-is outcome-first (ADR-0040): it states the affected Project and changed-file
-counts once, keeps only the actionable exception identities — failures,
-skipped or preserved files, remaining work, cleanup problems, and approved
-changed-file replacements or deletions — and closes with one footer block
-whose optional secondary line is the
-`Details: apkit details` route to the run's retained evidence only when the run
-went wrong (US-008, DEC-007): after a failure, a warning, a blocked run or a
-partial run. A clean success, a clean no-op, or a neutral cancellation/decline
-omits the route while retention is unchanged. It carries no per-file, per-Project, or
-per-operation inventory, and re-running `update` is never offered as retrieval
-of an earlier run. It renders first-use
-Host setup as one action-grouped note with plain reasons when generated outputs
-are added or transitioned, omitting standing trust and root-launch reminders on
-routine updates and keeping shared-path notes behind `--verbose`. The fresh
-post-commit reconciliation remains authoritative for resulting state, while
-"already current" is reserved for a true no-op receipt. Changed update ends with
-one invocation-wide statement that the selected Profile or Profiles will load on
-the next configured-Host launch from a bound Project root, without splitting
-equivalent outcomes by exact Host or Project sets. `--verbose` retains complete
-per-Project, generated-path, Git, warning, Blocker, desired-setup, and Host Setup
-Step evidence. Versioned JSON retains the complete structured machine evidence,
-schemas, and exit semantics; human filtering does not alter it.
-
-`uninstall` removes proven generated output and forgets the removed Projects' Project Binding and active Installation Receipt in the same per-Project transition, so a later `update` does not recreate them. Successful `install`, `update`, and `uninstall` receipts are compact
-outcome-first task language (ADR-0040): `update` states the affected Project
-and changed-file counts once and names any approved changed-file replacement or
-deletion, `install` and `uninstall` keep their established installed/unchanged
-and removed-Project or removed-Host statements, and all three offer the
-retained `apkit details` route only when the run went wrong (US-008, DEC-007);
-`install` and `uninstall` receipts also name the
-short Project identity with the Profile and Hosts,
-omit the Local Configuration location and redundant canonical-path repetition
-in routine success, and retain recovery detail only for authored-path matches
-where canonical identity or configuration location is actionable. `status` reports a fully removed Project as no longer selected rather than as unsafe unexplained missing output. `status` and `update` select the complete fleet by default, accept `--here`
-for the bound Project containing the current working directory, accept one explicit
-existing absolute or home-relative Project root, and retain `--all` as explicit fleet scope. `install` records and installs in one action while `uninstall` removes and forgets in one per-Project action; hand-editing Local Configuration remains valid (removing a selection by hand to keep generated files in place leaves leftovers for the next `update` to reconcile).
-An `install` that names a different Profile or Host set replaces the installation in the same action (see ADR-0033), while removal stays
-exclusive to `uninstall` (see ADR-0035).
-
-## Canonical Model
-
-Profiles are explicit flat selections named by their file name under `profiles/` without `.yaml` (ADR-0046); the file contains exactly `context` and `skills`. The current slice accepts Profile Context for Antigravity CLI, Codex, Claude, Grok, OpenCode, and Pi, and portable Skills for Antigravity, Codex, Claude, Grok, OpenCode, and Pi. Antigravity, Codex, OpenCode, and Pi consume the qualified shared `.agents/skills/<Artifact ID>/` projection. Obsolete `agents`, `hooks`, and `tools` Profile placeholders fail at ingestion with removal guidance; those artifact categories remain undelivered. Trusted disabled model-invocation policy is projected into the qualified Host-native Skill package while explicit Artifact ID activation remains available. A Profile must select at least one supported artifact overall; no single category is mandatory, so Context-only, Skills-only, and combined Profiles are valid. A Skills-only Profile installs only selected Skill packages and Installer lifecycle metadata—Adapters emit no Context envelope, Codex SessionStart hooks, Claude unscoped Context rule, or Grok unscoped Context rule, and Host capability probing is scoped to the selected categories. Skills-only remains under Workspace `schema_version: 1` but is a **CLI 0.17.0+** acceptance change: older binaries still reject empty Context selections at ingestion, so convert or uninstall Skills-only Profiles with a 0.17+ CLI before rolling a machine back (see the Workspace guide). Profiles contain no inheritance, wildcards, Host settings, project paths, or artifact versions. A binding always selects the current Workspace form of its Profile; Project-scoped `update` updates the selected binding and `update --all` updates every Project bound to that Profile. A Project that needs different material installs a different Profile rather than pinning an older revision.
-
-Context Modules contain reusable declarative facts, preferences, and standing rules. A Context Module is any Markdown file under `context/`, at any depth; its ID is its path under `context/` without `.md`, with `/` between folders (ADR-0048, spec #593 DEC-004). apkit reads no Context frontmatter and requires none: each file's complete bytes are its content (spec #593 DEC-005). The engine deterministically composes selected Context inside one canonical complete envelope: a compact metadata header naming the Profile, carrying the generated-source notice (see ADR-0041) and stating that repository-owned project instructions take precedence on conflict, followed by the Context Module bytes as written in selection order with no generated per-module markers — so a module's own frontmatter travels as content after the generated header and never becomes Host frontmatter. Adapters deliver the same semantic envelope without attempting to normalize physical load order across Hosts. Agent Profile Kit does not detect contradictions in prose. A path segment that cannot form a valid Artifact ID is a violation suggesting the rename; a Profile naming a Context ID that no longer exists is a violation suggesting the closest existing ID, including a moved file's new path.
-
-Skills conform to the portable subset of the Agent Skills standard. Skill frontmatter accepts and ignores top-level fields beyond those Agent Profile Kit reads (DEC-015), so standard Skill packages with Host-specific fields validate and install unchanged. Standard Skill package members are projected with source bytes and modes preserved, except for two projection-owned edits: the generated-source notice that opens every projected `SKILL.md` body after frontmatter (ADR-0041) and Host-native translation of model-invocation policy, whose sole canonical authority is the standard top-level `disable-model-invocation` boolean (`true` disables; absent or `false` allows; ADR-0018 as amended by spec #593). The retired `metadata.agent-profile-kit.model-invocation` key is a validation violation naming the standard field as its replacement. A Skill package containing the retired `agent-profile-kit.yaml` sidecar fails Workspace validation; the sidecar never reaches planning or projection. Context Module frontmatter is never read at all (spec #593 DEC-005, ADR-0048): any keys a Context file carries are inert bytes delivered as written. Agents, Hooks, and Tools are not Profile selection categories and are not delivered: no Adapter projects them and no Host section consumes them.
-
-A Profile's explicit `context` and `skills` lists are the only source of what is installed: there are no Dependencies and no transitive resolution (ADR-0045). The desired-input digest covers Profile selection and artifact content only.
-
-Each supported Agent Host owns Skill discovery, precedence, deduplication,
-collision diagnostics, and resolution across project, personal, package,
-plugin, extension, and compatibility sources. Adapters do not reconstruct those
-resolvers or inventories. Same-identity material outside an exact planned
-output destination is Host Resolution and does not block lifecycle commands.
-Where an Adapter can detect a concrete disable without reconstructing Host
-Resolution, it emits an actionable warning: Codex checks SessionStart hooks and
-Grok checks `[skills].disabled` and `[skills].ignore`. Malformed or unreadable
-configuration that an Adapter reads for planned output also warns.
-Capability failures classify as advisory warnings (see the Adapter Boundary); unrepresentable portable semantics and exact Output
-Ownership Conflicts remain blockers.
-
-## Adapter Boundary
-
-Each supported Agent Host has one Adapter that owns its native paths, formats, discovery behavior, version detection, Capability Contract, and Host Setup Steps. An Adapter is a pure planner: it returns exact proposed files, bytes, modes, semantic requirements, and typed post-update setup requirements but does not write to the filesystem.
-
-One canonical Host registry owns supported Host order and lookup, Adapter versions, Temporary Profile Installation eligibility, and discovery metadata. Its policy-free Host catalog can be consumed by schemas and command validation without loading Adapter implementations; the registry attaches every complete Adapter at the planning boundary and supplies Host inventory. Antigravity, Claude, Codex, Grok, OpenCode, and Pi ordinary planning enter through the complete Adapter contract, which owns capability probing, Project-surface inspection, configuration warnings, topology inputs, output planning, Capability Contract selection, and Host Setup Steps. The Installer only iterates selected registrations, translates Adapter evidence, and normalizes physical outputs; it contains no Host-specific planning fallback. Ordinary and Temporary Profile Installations route capability checks, Project-surface checks, warnings, Capability Contracts, Host Setup Steps, and outputs through the same registered Adapter planning boundary; temporary Host eligibility is registry metadata. Generic executable invocation, core semantic-version handling, filesystem entry classification, and invocation-scoped reuse remain policy-free shared services.
-
-Host Setup Steps use the shared kinds `approval-required`, `trust-required`, `launch-constraint`, and `shared-path`. Every step carries typed provenance classified once at the Adapter boundary (DEC-036): `transition` steps are caused by the current lifecycle transition and name the exact generated output whose addition, update, or repair makes them newly relevant (the Codex hook approval names `.codex/hooks.json`); `standing` steps are persistent constraints (project trust, exact-root launch, shared-path explanation). Host identity has one Adapter-plan-level home; the Installer attaches that identity when it carries each Adapter-authored step into the ReconciliationReport. A step may identify its path semantically as the bound project, leaving the one canonical path presenter to choose its user-facing spelling.
-
-Presentation may order, filter, group, and simplify these records but cannot derive Host knowledge or setup completion. Concise `status` renders no Host Setup Steps. Concise `update` and concise `install` render standing trust or root-launch guidance only when the Apply Receipt creates the first relevant output for that Project/Host pairing, and render transition-triggered approval only when the associated output is added, updated, or repaired — install receipts surface the relevant required steps for the installed Hosts as concise `First use:` body guidance (spec #640 US-012). It groups guidance by user action and Host without exposing provenance headings or separate consequence lines. Shared-path explanations and complete provenance, consequences, and Project scopes remain verbose and JSON evidence and behind focused guidance. Blocked `update` suppresses guidance for work that did not happen; a no-op `update` or unchanged `install` shows no setup and does not claim next-launch Activation. Agent Profile Kit does not claim that Host-owned trust or approval is complete.
-
-The Installer normalizes all Adapter plans for one project into a single output set:
-
-- Identical path, type, mode, and bytes are coalesced and record every consuming Host.
-- Any disagreement for the same path fails during `status`.
-- Paths that escape the project root are invalid.
-- Tracked paths and occupied unowned paths are conflicts.
-- The Installer owns complete generated files and artifact directories, never selected fields inside another owner's file.
-
-This makes shared Host paths emerge from exact output equality rather than a maintained compatibility table or Adapter-to-Adapter coordination.
-
-Agent Host capability probing is advisory (ADR-0025): the Adapter owns each Host's version floor and project-surface requirements, and probing classifies capability for warning purposes only. Deduplication is one advisory warning per Host per invocation for a missing or outdated Host CLI, naming the Host and the strictest required version across its requirement sets, regardless of how many Projects select the Host and how many distinct requirement messages it produced, while Project-specific surface failures keep their distinct warnings per affected Project. Capability evidence never gates planning, never gates writing, and never produces a Blocker — the planned material is written regardless, and the Adapter never silently omits or weakens what it plans. `status` performs no Host process execution; probing happens only during `update`, temporary installation, and first-run `init` (for non-gating machine guidance per DEC-022), and its failure is never fatal. Host authentication, project trust, and approval flows remain native concerns; Agent Profile Kit never writes global trust or authentication state.
-
-## Initial Adapter Mappings
-
-The project-bound release supports Antigravity CLI, Codex CLI, Claude Code, Grok, OpenCode, and Pi on macOS for Profile Context. Antigravity, Codex, Claude, Grok, OpenCode, and Pi support portable Skills, with Antigravity, Codex, OpenCode, and Pi using the qualified shared projection and preserving disabled model invocation; Host-specific delivery remains Adapter-local. Agents, portable Hooks, Tools, and additional Agent Hosts remain explicit future slices. Every complete-envelope Context Adapter emits the same canonical Context envelope (compact Profile identity metadata and repository-instructions precedence followed by normalized module bodies); Antigravity additionally preserves per-module boundary markers in separate always-on rules; Host-specific delivery is Adapter-local.
-
-### Codex
-
-The Codex Adapter generates the composed Context snapshot under an owned `.agent-profile-kit/codex/` path and an owned project `.codex/hooks.json`. A native `SessionStart` Hook prints the snapshot for `startup`, `clear`, and `compact`, which Codex adds as extra developer Context. Resume is intentionally omitted: Codex reconstructs the conversation from the rollout, which already contains any prior injection, so re-running the Hook on resume would duplicate Context. Profile Context is therefore stable for the life of a conversation; a changed Installation takes effect on the next `startup`, `clear`, or `compact`, not merely because the session is reopened. The generated command handler sets `additionalContextLimit: 0`, the Codex contract for passing complete `additionalContext` directly to the model instead of spilling a head-and-tail preview (`0` means unlimited direct delivery, not "none"; see <https://github.com/openai/codex/releases/tag/rust-v0.145.0>). Context capability probing during `update` requires Codex CLI `0.145.0+` (the first stable release containing that handler field) on `PATH`; a missing, unreadable, or older CLI produces one advisory warning per invocation (naming Codex and the required floor) and the Context and hook material are written regardless. Skills-only Codex plans do not probe this floor. `status` performs no Codex process execution; a post-update Codex downgrade below `0.145.0` is visible only at the next `update`, where it warns. `validate` and `uninstall` remain probe-free. In Git projects the command resolves the snapshot from the Git worktree root plus the binding-relative path; in non-Git projects it uses a project-relative path under the launch-from-root contract. The command embeds no absolute project path and needs no generated helper script. Repository `AGENTS.md` files and global instructions remain live and untouched. When Context is selected, the Adapter emits a transition-triggered hook-approval step tied to the generated `.codex/hooks.json` output and a standing project-trust step; it also emits the standing exact-root launch constraint for a non-Git binding. A Skills-only Codex plan emits none of those Context-specific steps and records a Skills-only Capability Contract. Lifecycle Hooks are enabled by default; the Adapter warns when the effective global or project Codex configuration explicitly disables them (`[features].hooks = false`, with project configuration taking precedence, or the deprecated `codex_hooks` alias), or when relevant configuration is malformed or unreadable. These diagnostics do not block installation. The global file is `CODEX_HOME/config.toml` when `CODEX_HOME` is set, otherwise `~/.codex/config.toml`. Context remains unsupported when the required whole-file path is occupied.
-
-Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.agents/skills/<Artifact ID>/` tree that Codex discovers natively. The qualified shared projector composes each package once: portable members keep source bytes and modes, unrelated Codex interface/dependency metadata is preserved, and every projected `SKILL.md` opens its body, after frontmatter, with the generated-source notice (ADR-0041). Trusted top-level `disable-model-invocation` (`true` disables; absent or `false` allows) is the only policy authority (ADR-0018 as amended by spec #593). Allowed Skills add no restriction; disabled Skills receive both top-level `disable-model-invocation: true` in generated `SKILL.md` and Codex `agents/openai.yaml` with `policy.allow_implicit_invocation: false`, without rewriting Workspace source. Generated policy fields carry deterministic explanatory comments. Malformed, wrong-type, or contradictory Codex policy is a project-scoped structured Blocker before reconciliation writes. When any selected Skill is disabled, Codex capability probing during `update` also checks CLI `0.99.0+` (first stable tag with `policy.allow_implicit_invocation`; openai/codex#11244) and warns when the detected version is older; the policy fields are written regardless. Context-bearing installations record `native-project-sessionstart-complete-context-v1` or `native-project-sessionstart-complete-context-skills-invocation-v1`; Skills-only installations record `native-project-skills-v1` or `native-project-skills-invocation-v1`. Unselected Workspace Skills are not installed. There is no global Skill library, process filter, or launcher. Codex resolves same-identity Skills from other Host-native sources.
-
-### Claude Code
-
-The Claude Adapter generates the same canonical Context envelope as an unscoped owned project rule at `.claude/rules/agent-profile-kit.md`. The rule has no `paths` frontmatter so Claude loads it project-wide and re-injects it after compaction alongside existing project, local, user, and managed instructions. Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.claude/skills/<Artifact ID>/` tree that Claude discovers natively. Portable package members keep source file bytes and modes, and the Claude projection opens each generated `SKILL.md` body with the generated-source notice (ADR-0041). When trusted model-invocation policy is `disabled`, the Claude Adapter projects `disable-model-invocation: true` into generated `SKILL.md`, records Capability Contract `native-project-unscoped-rules-skills-invocation-v1`, and reuses the existing `2.0.64+` CLI floor (which honors that field). Workspace source stays unchanged. Unselected Workspace Skills are not installed. Claude resolves same-identity Skills from personal and other Host-native sources. `CLAUDE.md`, other rules, settings, trust, authentication, plugins, and sessions remain Host-owned and are never modified. Capability probing during `update` requires a Claude Code CLI on `PATH` at or above the Adapter minimum that first shipped recursive `.claude/rules/` support (`2.0.64`, which already includes native project Skill discovery); a missing, unreadable, or outdated CLI, or a non-directory `.claude` or `.claude/rules` surface, produces advisory warnings and the planned material is written regardless. After a successful check the Installation Receipt records the Claude Capability Contract covering unscoped rules and native Skill discovery, not raw CLI marketing numbers. When both Codex and Claude are bound, each Adapter plans its own Host-native Skill tree; exact shared output coalesces only when path, type, mode, and bytes agree.
-
-Claude plans no Host Setup Steps.
-
-### Grok
-
-The Grok Adapter generates the same canonical Context envelope as an unscoped owned Markdown rule. Grok always scans project `.grok/rules/*.md`; the Adapter’s default owned path is `.grok/rules/agent-profile-kit.md`. When Claude is co-selected on the same Project Binding and Grok reports Claude rules compatibility enabled (`grok inspect --json` `externalCompat` cell `claude`/`rules`), the Grok Adapter plans the exact Claude rule path and envelope bytes so Installer normalization coalesces one effective copy that both Hosts load. Grok loads project rules and Skills at startup only in a trusted folder, so every Grok plan with output emits a standing `trust-required` Host Setup Step. That exact coalescing case also emits a standing `shared-path` Host Setup Step naming Claude's rule path; Grok-only, compatibility-disabled, and Context-free plans emit no such step. Grok-only bindings and combined bindings with Claude rules disabled continue to use `.grok/rules/`. Resolved standard Skill packages are planned as owned artifact directories under the project-relative `.grok/skills/<Artifact ID>/` tree that Grok discovers natively. Portable package members keep source file bytes and modes, and each generated `SKILL.md` opens its body with the generated-source notice (ADR-0041). When trusted model-invocation policy is `disabled`, the Grok Adapter projects `disable-model-invocation: true` into generated `SKILL.md`, records Capability Contract `native-project-unscoped-rules-skills-invocation-v1`, and reuses the existing `0.2.0+` CLI floor (which honors that field). Workspace source stays unchanged. Unselected Workspace Skills are not installed. Capability probing during `update` requires a Grok CLI on `PATH` at or above `0.2.0` and treats a non-directory `.grok`, `.grok/rules` (when Context is selected), or `.grok/skills` (when Skills are selected) surface as an advisory warning; the planned material is written regardless. Context planning additionally requires successful `grok inspect --json` so Claude-rule compatibility can be determined; Skills-only planning does not inspect Grok's effective inventory, and a failed inspection cannot block the installation. Grok resolves same-identity material across personal, plugin, compatibility, extra-path, and project sources. A concrete `[skills].disabled` or `[skills].ignore` setting that covers planned output warns without blocking, as does malformed or unreadable relevant configuration. Repository-owned instructions (`AGENTS.md` and peers), other rules, trust, authentication, and Host configuration remain untouched. After a successful check the Installation Receipt records Capability Contract `native-project-unscoped-rules-v1` for Context-only Profiles, `native-project-unscoped-rules-skills-v1` when Skills are selected, or the invocation contract when any selected Skill requires disabled model invocation.
-
-### Pi
-
-The Pi Adapter requires Pi CLI `0.82.1+` and plans the canonical Context
-envelope as the complete owned project file `.pi/APPEND_SYSTEM.md`. It plans
-each resolved Skill once through the qualified shared `.agents/skills/<Artifact ID>/`
-projection, keeping standard package member bytes and modes except for the
-generated-source notice that opens each `SKILL.md` body after frontmatter
-(ADR-0041). Codex and Pi use
-the same complete package shape and the normalized output records every
-consuming Host; no consumer list is added to portable Skill metadata.
-Disabled-invocation Skills additionally receive the shared top-level
-`disable-model-invocation: true` restriction and Codex policy field. Pi honors
-the top-level field by hiding the Skill from the model's system prompt while
-preserving the canonical `name` used by explicit `/skill:<Artifact ID>` activation.
-Pi's official Skills documentation defines this enforcement behavior, introduced
-in Pi 0.50.0 and included in the supported 0.82.1+ floor:
-<https://pi.dev/docs/latest/skills> and <https://pi.dev/news/releases/0.50.0>.
-During `update` it probes `.pi` and the append-system destination only when
-Context is selected, and `.agents` plus `.agents/skills` only when Skills are
-selected; an unsuitable surface produces an advisory warning and the planned
-material is written regardless. Pi owns discovery and resolution across personal, ancestor, project,
-package, extension, and other configured Skill sources; the Adapter does not
-scan or approximate that inventory. For Skill-bearing Profiles, it reads the
-canonical global and project Pi settings only to warn when relevant
-configuration is malformed or unreadable. Extensions, packages, and additional
-Skill sources coexist through Pi Host Resolution and do not block installation.
-Context-only Profiles skip this settings inspection. Pi's native project trust,
-authentication, settings, prompt files, and per-session overrides remain
-Host-owned and are never changed; explicit runtime `--skill` and `--no-skills`
-overrides remain outside the Installation guarantee. Every non-empty Pi plan
-therefore emits a standing `trust-required` Host Setup Step; it emits no
-standing shared-path notice. Context-only installations record
-`native-project-append-system-v1`; shared Skills-only and combined installations
-record `native-project-shared-skills-v1` and
-`native-project-append-system-shared-skills-v1`; installations with at least one
-disabled-invocation Skill record `native-project-shared-skills-invocation-v1` or
-`native-project-append-system-shared-skills-invocation-v1`, all under Adapter
-version `pi-project-v2`.
-
-Installation State with Pi Skill-capable `host_versions` requires Agent Profile
-Kit 0.32.0+; unbind Pi or re-update/uninstall with 0.32.0+ before rolling back
-below 0.32.0. Context-only Pi state remains readable with 0.31.0+, and any
-Installation State that records the `pi` Host requires 0.31.0+ before rolling
-back to 0.30.3 or older. Invocation-capable Pi `host_versions` are first
-recorded by Agent Profile Kit 0.34.0; unbind Pi or re-update/uninstall with
-0.34.0+ before rolling back an invocation-capable installation below 0.34.0.
-
-### Antigravity
-
-The Antigravity Adapter requires `agy` CLI `1.1.13+` and plans Profile Context as
-owned always-on rules under `.agents/rules/`. Unlike complete-envelope Hosts,
-Antigravity's envelope rule preserves only the compact Profile identity and
-repository-instruction precedence metadata, while each later rule preserves one
-complete Context Module with its generated boundary markers and its own
-generated-source notice line (ADR-0041). Rule names use the
-stable `agent-profile-kit-000-envelope.md`, followed by ten-spaced module names
-in resolved Context order; a nested Context Module ID's `/` separators become
-`.` in the rule file name, keeping every rule a flat file under the rules root
-(the ID itself is preserved in the rule's boundary markers; ADR-0048). Every rule includes `trigger: always_on` frontmatter
-and stays within Antigravity's 12,000-character limit, which the generated
-notice counts against like any other rule byte. An oversized module is a projection refusal that fails the invocation: an Adapter that cannot plan valid output throws rather than return a partial plan, and content is never truncated or omitted.
-
-For Skills, Antigravity consumes the qualified shared `.agents/skills/<Artifact
-ID>/` projection used by Codex and Pi. The complete package is composed once,
-including the top-level `disable-model-invocation: true` field and
-`agents/openai.yaml` `policy.allow_implicit_invocation: false` when the
-canonical Workspace policy is disabled. Allowed Skills add no restriction;
-explicit Skill activation remains available for disabled Skills. Portable
-members, bytes, modes, and unrelated package metadata are preserved, every
-projected `SKILL.md` opens its body with the generated-source notice
-(ADR-0041). Native Antigravity
-discovery and resolution remain Host-owned; the Adapter does not inspect
-global, ancestor, package, plugin, extension, or other effective inventories.
-
-Capability probing during `update` checks `agy --version` and only the `.agents`,
-`.agents/rules`, and `.agents/skills` surfaces required by the selected
-artifact categories. Missing or real directory surfaces are safe; files,
-symlinks, and other entries produce advisory warnings and the planned
-material is written regardless. Antigravity trust, settings,
-native Project records, authentication, plugins, repository-owned
-`AGENTS.md`/`GEMINI.md`, and Host Resolution remain Host-owned. Every non-empty
-plan emits a standing `trust-required` Host Setup Step without reading or
-changing trust state. Context-only, shared Skills-only, combined, and
-invocation-capable plans record distinct Adapter Capability Contracts:
-`native-project-always-on-rules-v1`, `native-project-shared-skills-v1`,
-`native-project-always-on-rules-shared-skills-v1`,
-`native-project-shared-skills-invocation-v1`, or
-`native-project-always-on-rules-shared-skills-invocation-v1`. The Adapter uses
-ordinary exact-root Project Binding behavior and the shared
-status/update/deselection/uninstall and best-effort Repository Exclusion
-bookkeeping lifecycle.
-
-Installation State that records the new Antigravity Skill contracts requires
-Agent Profile Kit 0.83.0+; unbind or uninstall Antigravity with 0.83.0+ before
-rolling back below 0.83.0. A rollback without uninstall leaves generated
-always-on rules or shared Skills visible to Antigravity even though the older
-CLI cannot prove the newer Capability Contract.
-
-### OpenCode
-
-The OpenCode Adapter delivers Profile Context and portable Skills through dedicated Host configuration and the qualified shared `.agents/skills/<Artifact ID>/` projection. During `update` it probes for an `opencode` executable at or above verified floor `1.18.23` on `PATH`; a missing, unreadable, or older binary, or an unsuitable surface (`.agents` and `.agents/skills` when Skills are selected, `.opencode` when configuration is planned (Context or disabled Skills), `.agent-profile-kit` and `.agent-profile-kit/opencode` when Context is selected), produces advisory warnings and the planned material is written regardless.
-
-OpenCode delivers Profile Context through the owned composed Context document at `.agent-profile-kit/opencode/context.md` and references it through the additive `instructions` list inside the claimed wholly owned configuration file at `.opencode/opencode.jsonc`. OpenCode combines this configuration with user-authored slots via native additive merging, and the Project-relative reference continues to load Context when OpenCode is launched from any subdirectory. The claimed file opens with a JSONC comment notice — the generated-source policy plus Adapter-authored guidance naming the project configuration files apkit does not claim (`opencode.json`, `.opencode/opencode.json`) and keeping project-specific settings out of personal or global OpenCode configuration — so the configuration document itself still parses and no ownership, key merge, or unrelated user-owned configuration changes (ADR-0041, ADR-0021). Repository-owned instructions and other user configuration slots remain untouched. Existing unowned material at `.opencode/opencode.jsonc` produces an Output Ownership Conflict Blocker before writes. When configuration is planned (Context and/or disabled Skills), the Adapter emits one transition-provenance launch-constraint Host Setup Step tied to `.opencode/opencode.jsonc` reminding the user to restart running OpenCode sessions.
-
-OpenCode plans Skill packages at the shared discovery root, preserving standard package bytes and modes apart from the generated-source notice that opens each projected `SKILL.md` body (ADR-0041). When trusted model-invocation policy is `disabled`, the OpenCode Adapter configures an Artifact-ID-keyed global Skill permission rule with action `deny` inside `.opencode/opencode.jsonc`. OpenCode 1.18.23 filters that Skill from the model-facing inventory and rejects guessed `skill` tool calls before any approval request, so CLI and TUI auto-approval cannot bypass the rule. OpenCode separately registers every discovered Skill as a native user Command; explicit `/<Artifact ID>` activation expands the Skill without entering the denied tool path. User-authored per-Agent or session permission overrides and same-name Commands remain Host Resolution. Allowed-invocation Skills produce no permission rules. When neither Context nor disabled-invocation Skills are required, no OpenCode configuration file and no Host Setup Steps are generated.
-
-Healthy OpenCode installations record baseline Capability Contract `native-project-instructions-skills-v1` or invocation contract `native-project-instructions-skills-invocation-v1` under Adapter version `opencode-project-v1` in the Installation Receipt and participate in the standard Project Binding, status, update, Repository Exclusion, and Temporary Profile Installation lifecycle. When Claude and OpenCode are co-selected in a Project Binding with Skills, OpenCode natively discovers Skills under both `.claude/skills` and `.agents/skills` and reports duplicate Skill names; the OpenCode Adapter emits one non-blocking diagnostic warning naming both discovery roots while candidate Skill documents remain semantically identical across roots.
-
-## Reconciliation and Ownership
-
-`status` and `update` select the complete fleet by default, the bound Project containing the current working directory through `--here`, one explicit existing absolute or home-relative bound root, or `--all` for explicit fleet scope, then build and validate the same normalized desired output before per-Project reconciliation; Host capability probing during `update` is advisory and never changes the plan. Unbound, ambiguous, missing, wildcard, relative, and non-directory targets fail before reconciliation or writes. A Project-scoped command plans, probes, inspects, reconciles, reports, and writes only that Project; a shared Repository Exclusion target is republished from the receipts that will exist after the operation without inspecting or changing unrelated targets. Scoped update preserves unrelated Installation Receipts and never classifies them as stale. `update` on fleet scope classifies Blockers before mutation: global Blockers stop every write, while Project-scoped ownership and destination Blockers leave only their affected Projects untouched. Healthy Project transactions commit sequentially, and one fresh post-commit pass verifies their filesystem output.
-
-Desired-state planning creates one invocation-scoped planning context after Workspace and Local Configuration ingestion and Project selection (`installer/lifecycle-planning.ts`). Within that command only, the context is the single reader for reusable planning facts: resolved Profiles, resolved artifact fingerprints and workspace input hashes, portable Skill package source, composed Context envelopes, Host projections whose complete normalized inputs match, and machine-level Host capability evidence. Each unique selected Host executable/version requirement set is probed at most once per invocation, and both supported and failed probe results are immutable evidence for that command only. Projection options that affect output—including Project-relative Codex Context paths and Grok/Claude topology—participate in the key so unsafe reuse is impossible, while Project-specific Host surface checks (CLI paths, Grok inspection topology, and destination hostability) run only for selected Projects. The context is discarded when the command exits; there is no persistent cache or cross-command memoization, and call sites do not add local fallback readers for the same facts.
-
-Lifecycle reconciliation also creates one invocation-scoped Git inspection context (`installer/lifecycle-git-inspection.ts`) shared across desired-state planning and the reconciliation pass. Within that pass only, the context is the single reader for Git topology, batched tracked-path classification of planned generated destinations, and Repository Exclusion target snapshots. Each Project resolves Git topology at most once; each Git worktree root streams its index once (no fixed whole-output buffer) and classifies planned destinations with binary search over that sorted listing; each shared exclusion target is read and parsed once for the best-effort owned-section rewrite while unrelated bytes stay untouched. Update creates separate inspection contexts for preflight and post-commit verification so pre-write filesystem evidence cannot prove post-write state. The context is discarded when the command exits.
-
-Reconciliation also creates one invocation-scoped ownership inspection context (`installer/lifecycle-ownership-inspection.ts`) per pass. Within that pass only, the context is the single reader for ordinary owned outputs and unsafe-parent evidence: each owned file is read at most once and each owned directory walked at most once, and ownership proof, root-level diagnostics, conflict detection, and output reconciliation items all consume that one normalized result instead of re-reading. The cache key includes the canonical expected output identity (type, mode, and hash), so legacy directory member records neither cause another inspection nor provide an alternate ownership proof. A genuinely absent root (lstat `ENOENT`) is ordinary pending work that `update` restores from the Workspace; an unreadable or otherwise unprovable root or traversal failure fails closed instead, so existing output is never replaced without a continuity proof. Update creates one ownership context for preflight, a fresh one for the stale-removal pass (each destructive removal re-proves ownership from evidence captured after all earlier project commits, never from preflight snapshots), and a fresh one for post-commit verification, so pre-write filesystem evidence can neither prove post-write state nor authorize removal; contexts are discarded when the command exits.
-
-Independent per-Project planning and inspection work runs through one invocation-scoped bounded-concurrency scheduler (`installer/project-scheduler.ts`) shared by desired-state planning, reconciliation, and update's preflight and post-commit verification passes. The fixed product-policy limit is four concurrent Project reads (DEC-014); there is no user-facing concurrency setting (OOS-010). The scheduler is a pure executor that holds no Project, Git, or filesystem evidence, so sharing one instance across phases cannot leak facts between passes while each pass still creates fresh inspection contexts. Concurrent results are folded and sorted by canonical Project before report construction, so scheduling order is never observable in human or machine output (DEC-016), and a read failure propagates while global blockers still prevent writes. Update writes, Installation State publication, Repository Exclusion publication, commit sequencing, stale removals, rollback, and failure recovery remain ordered and never pass through the scheduler (DEC-015, OOS-004).
-
-The update presentation keeps the pre-commit receipt distinct from the
-post-commit snapshot in both concise and verbose output: the default receipt
-states the committed impact once, and the verbose view separates the receipt's
-`Updated` section from the remaining `Pending` work of the verified snapshot
-(ADR-0040). The resulting snapshot is authoritative for whether Profile
-Installations are current; the receipt is the audit of work that was performed,
-and its complete per-path form is retained by `apkit details`.
-
-Installation State is one durable machine-local ownership document at
-`~/.agents/agent-profile-kit/state/manifest.json`. Its strict JSON is
-deterministically ordered, resource-bounded, alias-free, and exact-field
-validated. Every publication serializes one normalized value, parses the exact
-bytes through the production reader, writes a sibling temporary file, and
-atomically renames it under the Installation State lifecycle lock.
-
-One active Installation Receipt stores exactly one canonical representation of
-its Installation ID, lifetime (`ordinary` or `temporary`), canonical Project,
-Profile ID, desired-input digest, Host receipt map, and generated output roots.
-A receipt retired by the removed `unbind` boundary is legacy input only: it keeps exactly its
-previously recorded detail, stays invisible to active ownership and
-`uninstall` (`ordinaryReceipts()` excludes it), and persists only so the next `update` on an older machine can still prove and
-remove the generated output. Current `uninstall` never creates retired receipts; it forgets the Project Binding and active receipt only after that Project's removal succeeds. Receipts record no
-exclusion target or entry list: the exclusion section is derived at write time
-as best-effort bookkeeping, never stored ownership evidence (ADR-0025). Each
-Host receipt contains
-that Host's Adapter version and Capability Contract. The state does not persist
-engine provenance, combined Adapter versions, separate Host arrays, selected
-Context, artifact fingerprints, output origins,
-intended teardown, or presentation-only evidence.
-
-A generated file receipt stores its project-relative path, type, mode, and
-content hash. A generated directory receipt stores its path, type, root mode,
-and one deterministic aggregate hash covering every complete member path, type,
-mode, and file byte sequence. Directory inspection computes that same aggregate
-without following symlinks. The aggregate hash is freshness evidence, not an
-authority requirement: an active receipt whose recorded output paths are safe
-grants authority over each recorded generated output root. At least one extant
-recorded root matching its recorded hash proves ownership continuity; wholly
-absent roots and content, mode, or membership differences are ordinary pending
-work that `update` restores from the Workspace by replacing the whole recorded
-root. Changed extant roots with no matching anchor cannot be distinguished from
-a different Project later created at the same path, so they fail closed.
-Unsupported entry types (such as symlinks) inside a proven root, root type
-confusion, unreadable output, and unsafe parents also fail closed and remain
-Blockers; no member tree is persisted or reconstructed.
-
-Lifecycle operation history is one durable machine-local diagnostic document at
-`~/.agents/agent-profile-kit/operation-history.json` — separate from Local
-Configuration and Installation State, and never an ownership or desired-state
-authority (ADR-0039). `install`, `update`, and `uninstall` append at most one
-structured entry per attempted run: operation id, command, start/finish times,
-requested scope, outcome, per-Project committed and removed generated paths,
-failed and remaining work, and consent-reviewed changed-output identities and
-review ids (never file contents, never rendered report prose), evicting the
-oldest entries only beyond the 200-entry cap so the retained window always
-holds the latest 200 runs. Every append and eviction re-reads, appends, evicts,
-and atomically replaces the document under its own exclusive kernel lock, so
-concurrent writers cannot lose a retained report or expose a torn document; a
-document the production reader cannot accept fails closed instead of being
-overwritten. Any invocation that stopped after committing work keeps that
-evidence, and an invocation that committed nothing records nothing; the
-complete recording boundary lives once in ADR-0039. A run cancelled or declined
-at an interactive authorization prompt records its cancellation, carrying work
-that already committed earlier in the same invocation. When an entry cannot
-be saved, the command warns and displays that run's complete evidence on
-stderr while the committed lifecycle work stays committed, and `details` reads
-the stored entries without mutating them.
-
-Ordinary and Temporary Profile Installations use the same active receipt shape.
-Bindings own ordinary desired lifetime; a temporary receipt owns temporary
-lifetime. Successful `machine remove-temp` removes the active receipt and retains only
-its Installation ID in `removed_temporary_installation_ids`, which is sufficient
-for idempotent retry and is excluded from active inventory. `uninstall` removes
-ordinary receipts and their proven output while preserving Project Bindings,
-active temporary receipts, and compact tombstones.
-
-Each active receipt's recorded output roots deterministically derive its
-Repository Exclusion Contribution at write time. The deterministic union per
-target is never persisted as a second ownership fact. Publication is best-effort
-bookkeeping, not ownership evidence: `update` rewrites the Agent Profile Kit-owned
-section of each derived target from the receipts that will exist after the
-operation, preserving unrelated bytes, and treats the section as a cache — a
-missing, stale, or modified section is overwritten rather than proven. No
-exclusion condition can produce a Blocker: a failure to read, derive, or write
-any target produces one warning and does not affect the outcome of the
-installation. Exclusions are a cache, so there is no rollback: a superseded or
-failed write self-heals on the next update.
-
-Publication and recovery distinguish **handled I/O failure** from **abrupt
-termination**. Every Installer publication boundary — Installation State,
-Local Configuration replacement, Profile configuration, Workspace
-scaffolding, repository exclusion sections, and per-Project output/removal
-transactions — stages its bytes and publishes through one atomic `rename`, so
-a reader of the published path observes previous or next bytes, never a torn
-file (crash-atomicity; power-loss durability is separately not claimed
-below).
-Recovery from a handled I/O failure — an operation that returns an error — is
-bounded cleanup: in-process rollback restoring the previous bytes, a state
-restore of the exact prior document, or, for Temporary Profile Installations,
-the durable-record identity that `machine remove-temp` finishes; selection
-restore under the joint install boundary is recorded in ADR-0033. Recovery
-from each named handled failure is asserted by the real-filesystem fault
-suites — `test/temporary-installation-recovery.test.ts` for the
-durable-record and interrupted-removal recovery paths, and the
-staging-rollback fault injection in `test/reconcile.test.ts` and
-`test/directory-output.test.ts` for ordinary `update` and `uninstall` — and
-is not restated here.
-
-What is **not** proven: atomicity across abrupt termination mid-sequence. A
-process killed mid-sequence (crash, `SIGKILL`, power loss) can leave some
-outputs published and some steps pending — staging gives per-file crash
-consistency, not multi-file transactionality — and no automatic repair beyond
-what ordinary reconciliation re-derives on the next run is claimed. Publication
-is not fsynced, so power-loss durability is not claimed either. Abrupt death can
-also leave bounded, conventionally named staging residue (for example
-`.agent-profile-kit-stage-*` trees and the sibling temporary files of each
-boundary); readers address exact canonical paths only, so residue is never read
-as ownership state, while its cleanup after abrupt death is not claimed. The
-lifecycle lock is a kernel lock (`installer/exclusive-file-lock.ts`) whose
-release is bound to the open file descriptor, so process death releases it
-automatically and no stale-lock deletion protocol exists or is needed — a
-lock guarantee, not a transaction guarantee. Interactive-child cleanup evidence
-follows the same handled-versus-abrupt line (ADR-0028), and operation history
-records the same crash-residue and no-fsync limits (ADR-0039).
-
-The pre-1.0 YAML migration window is closed. Runtime Installation State reading
-accepts strict `state/manifest.json` at the current ownership schema version
-(`9`) and migrates every earlier version published from the v0.132.0 spec
-baseline (`8`, `7`, and `6`) on read, dropping stored `repository_exclusion`
-fields and recorded legacy Marker output entries at the single ingestion
-boundary and republishing the current version on the next successful state
-write, so a direct upgrade from v0.132.0 keeps existing receipts working without
-re-binding or re-running update; no YAML parser, compatibility
-normalizer, or transitional receipt projection remains in production. A leftover
-`state/manifest.yaml` fails with focused guidance to use the shipped 0.95.0
-migration boundary. Missing state still starts empty, while unreadable state is
-never reconstructed from generated Profile Installation output. After that first
-successful schema-9 write, a binary predating the schema-9 publication cannot
-read Installation State: an operator who requires rollback must retain a
-pre-upgrade backup of `state/manifest.json` and restore it before downgrading.
-
-Reconciliation returns global Blockers plus one complete record per Project, ordered by canonical Project identity. A Project record owns desired identity, state, observable output operations and their consuming Hosts, Project Blockers, typed structured warnings and copyable values, Host Setup Steps, and Git exclusion changes. No report consumer joins parallel Project or path collections. Blockers carry typed facts only — kind, scope, Project identity, affected items, and per-kind non-prose evidence such as occupation type, ownership action, and diagnostic detail; the Installer emits no user-facing sentence. Presentation (`cli/blocker-wording.ts`) is the single home of every problem, requirement, and remedy sentence, keyed by the typed `BlockerKind`: sentences are authored once in plain newcomer language with atomic command parts, the machine JSON publishes the flattened projection verbatim, and human rendering displays the same authored parts with commands whole and copyable. The lifecycle selection flags select the same Projects for display, machine reports, and update writes: `--stale` selects existing installations needing updates or restoration (changed source, changed or missing generated files) and excludes never-installed, removal-pending, and Blocked Projects; `--blocked` selects Projects with Project-scoped Blockers. The filters are mutually exclusive, compose with fleet or explicit Project scope, never narrow inspection (classification and global safety checks still run over the full scope), and never filter away Global Blockers; under a filter, update writes only the selected membership, orphaned-receipt retirement is suppressed, and every selected committed write stays visible in the Apply Receipt (DEC-006, DEC-040). For Git-tracked output ownership conflicts, every view's remedy carries the exact `--literal-pathspecs` untracking command, staging index-only removal while the working files stay on disk, derived from the Blocker's recorded paths. Human lifecycle rendering consumes these nested typed records directly, authors task language without semantic regex translation, and renders each Blocker's complete structured evidence. The Apply Receipt remains the pre-update work record, while a fresh post-commit reconciliation remains authoritative for resulting state.
-
-A configured Project is handled by Project Binding scope alone (DEC-003): only the binding's canonical root is inspected, planned, or written, and no copy or relocation detection exists — a Project directory copied to a new location is ignored entirely, and a relocated Project is re-bound at its new path, where the next `update` starts a clean receipt lifetime. Within the canonical root, ownership and freshness follow the receipt boundaries above: wholly absent recorded roots are restored, and changed extant roots with no continuity anchor fail closed.
-
-When a binding, Host, project, or artifact disappears, `update` removes the no-longer-desired output after its receipt and path safety prove removal authority. For a currently bound installation, `update` replaces recorded output roots from current Workspace source — recreating wholly absent outputs, refreshing drifted bytes, modes, or members, and never adopting unknown descendants — while occupied unowned destinations and ordinary path-conflict checks still block. Occupied destinations, unsafe paths, and unprovable removal authority are reported as Blockers and are never overwritten or removed silently.
-
-Generated project paths are owned whole files. A symlink, occupied parent, or
-occupied unowned path blocks installation; shared repository and Host
-configuration are never edited. In Git repositories, the Installer keeps its
-generated files untracked through one marked set of exact, root-anchored entries
-in Git's repository-local exclude file, published as described above: `update`
-rewrites only that owned section, preserving every unrelated byte and never
-changing a shared `.gitignore`. The Installer treats the common directory reported by Git as the
-repository-local metadata authority only after proving every path component is
-a real directory.
-
-## Presentation Pipeline
-
-Every human CLI view flows through one structured document tree and pure renderer:
-
-- **Presentation Document (`cli/presentation-document.ts`)** defines a closed vocabulary of semantic nodes (`notice`, `prose`, `sentence`, `heading`, `key-value`, `list-item`, `row`, `column-group`, `verbatim`, `path`, `command`, `identifier`) and inline parts (`text`, `command`, `path`, `identifier`).
-- **Terminal Presentation Context (`cli/terminal-presentation.ts`)** is evaluated once per stream at the CLI process boundary (`cli/index.ts`) and passed into the renderer. It owns width clamping, `NO_COLOR` handling, and interactive vs redirected styling.
-- **Pure Document Renderer (`renderPresentationDocument`)** formats the document into terminal text. It wraps prose, sentence, and list-item content to the terminal width without splitting atomic tokens.
-- **Atomic-Node Rule (DEC-009)**: Structurally supplied values (paths, commands, identifiers, options) are authored as atomic nodes or parts at formatter and receipt sites (`cli/inline-content.ts`). Keeping values intact during wrapping is a structural property of atomic nodes rather than a substring scan in rendered text. The former string pipeline (regex categoriser, English prefix table, copyable-value substring protector, and string wrapping helpers) is removed. Prose reflows at the measure without mid-word breaks; a command or copyable path atom is placed on its own line when the inline node must wrap, and a command-only line never carries trailing sentence punctuation. Every command argument is quoted through the one shared `shellQuoteArg`, which leaves an unquoted `~/` prefix for shell expansion and single-quotes only the remainder (`~/'proj with space'`).
-- **Authored Semantic Roles (DEC-001, DEC-003)**: Semantic role (`command`, `muted`, `heading`, `path`, `success`, `warning`, `error`, `neutral`) is authored at the formatter boundary where meaning is known, rather than inferred downstream from rendered strings. `command` is the single accent; `muted` is secondary text only; names and headings are bold default; success/warning/error colors are reserved for state glyphs and headlines. Remedies, required actions, and suggestions render in the default color with commands in the accent. DEC-001 glyphs live in `cli/terminal-presentation.ts` (`✔`/`⚠`/`✖`/`●` state roles; `›`/`❯`/`◻`/`◼` interaction roles for picker chrome). The shared prompt seam (`cli/prompts.ts`) applies those interaction roles to every prompt kind behind one picker chrome (ADR-0050): a common `❯` focus marker, `◻`/`◼` multi-select checkboxes, one control hint that reflows at the terminal width without breaking words, and visible filter and selection state with no Instructions block.
-- **Machine Surfaces**: Versioned JSON (`--json`) serializes directly from typed structured records without touching presentation documents or parsing rendered prose.
-- **Guidance Paging (DEC-029, ADR-0028)**: Long guidance (rendered line count exceeding a known interactive terminal height, `cli/pager.ts`) is delivered through the configured `PAGER` — normalized once as argv syntax with POSIX quoting, no shell, content via stdin only, `less` fallback. Redirected or unknown-height output prints unchanged and never invokes a pager. The pager runs as an interactive child through the shared bounded executor (ADR-0028): no deadline, inherited terminal, foreground-group owned-pid cleanup, and `cleanupFailed` evidence preserved on unconfirmed termination. Ordinary pager failures print the unchanged guidance plus one structured advisory; the command exit code never changes except on user interruption (128+signal).
-
-## Qualification Boundaries
-
-This section records which qualification boundary is responsible for proving what kind of thing, so a new test lands at the boundary that owns the fact it protects. It is policy, not inventory: it names no suites and tracks no coverage, and it does not restate the canonical qualification commands, toolchain pin, or evidence-validity rules — the agent operating manual (Verification) owns those. The question this section answers is: **where does this test go?**
-
-**Pure and schema decisions.** Exhaustive deterministic decisions — desired-state planning, normalization, schema validation, receipt derivation, blocker classification, and presentation documents — are proven at this cheapest, hermetic boundary. It is the right place for complete decision matrices. It is the wrong place for anything whose meaning depends on real filesystem, Git, process, packaging, Node-runtime, terminal, or Agent Host identity.
-
-**Real filesystem and Git integration.** Durability and safety facts with real bytes and real processes: ownership continuity, path safety, staged atomic publication, recovery from handled I/O failure, repository exclusion section rewriting, and tracked-path classification. Real implementations are required here; a mock cannot prove what it does not execute. It is the wrong place for exhaustive decision matrices (their pure boundary above) and for broader abrupt-termination claims than the recovery guarantee boundary recorded under "Reconciliation and Ownership" — that section already states exactly which recovery claims the evidence supports and which it does not.
-
-**Packed Node CLI.** Facts that exist only in the distributed artifact: packaging wiring, the Bun-development/Node-runtime distinction, declared engine support, and exit codes, receipts, machine JSON, and rendered guides observed from the delivered bytes. It is the wrong place for logic that never crosses packaging — restating it here re-proves a cheaper boundary's fact at a higher price without adding a distinct guarantee.
-
-**Real PTY.** Interactive terminal truth that only a real terminal device exposes: prompt and redraw state, keyboard-driven flows, and behavior that depends on real terminal negotiation. Synchronization waits on observable terminal state, never fixed delays. It is the wrong place for redirected or unknown-height output behavior (owned at the presentation boundary, ADR-0016) and for decision logic of any kind.
-
-**Fleet-scale structural qualification.** Cross-Project aggregation, deterministic ordering, bounded concurrency, and invocation-scoped reuse at scale are proven as structural invariants — operation counts and complete observed evidence rather than hardware-timed gates (ADR-0017). It is the wrong place for single-Project behavior that a cheaper boundary already owns.
-
-**Human qualification.** Two obligations cannot be automated and remain human-owned under the project ISA: that an unfamiliar user can complete the documented workflow without assistance, and that a rendered terminal session satisfies the dated UI/UX review artifacts (tracked under #518 and #519). No automated boundary in this section discharges either obligation, and no delivery under this specification closes them.
-
-**Real-Host contract qualification.** Routine CI exercises Adapters through controlled Host fixtures. When Adapter behavior changes — path shapes, envelope bytes, Capability Contract selection, or capability probing — a separate, bounded qualification against real installed Host CLIs is required before the change ships. It is bounded by ADR-0012: it proves the Adapter's planned output against the real Host's native surfaces, but it does not reconstruct Host Resolution or inventory, and it makes no claim of automated proof that a Host loaded a Profile — native loading remains a human, Host-owned concern.
-
-**Placement rule.** Put evidence at the real-identity boundary the behavior depends on, and no higher: a fault in a decision belongs at the pure boundary, a fault in durability at the filesystem boundary, a fault in packaging at the packed CLI, a fault in interactive rendering at the PTY, and a fault in fleet aggregation at fleet scale. Escalate to the next real-identity boundary only for the part of the behavior that boundary's identity actually affects.
-
-## Freshness and Versioning
-
-Profiles and artifacts are not independently versioned. Deterministic hashes distinguish current installations from source changes and output drift. The engine, schemas, and Adapters share the package's semantic version; structured configuration and ownership-state formats carry schema versions.
-
-## Ownership Scope
-
-The Workspace owns reusable personal cross-project material as the single canonical source, including artifacts selected by Profiles and unselected universal artifacts. Profile selection controls Agent Profile Kit–managed project delivery only; it does not relocate canonical ownership into Host configuration. Project repositories own domain facts and shared project configuration. Native Agent Host configuration owns global settings and capabilities, including any user-managed global Skill delivery outside Project Bindings and Installation Receipts. Local Configuration owns Project Bindings and other non-secret machine bindings. Generated Profile Installations are disposable; Installation State is durable ownership evidence and must never be edited as canonical source. Agent Profile Kit v1 does not install, synchronize, or remove material in personal/global Host roots.
+`apkit` installs a Workspace's Profiles into folders for several Agent Hosts.
+It is a small command for an agent to drive:
+
+- **No prompts.** A step that needs the user is a Decision: the run changes
+  nothing, lists every Decision, and exits 3. The caller runs the command again
+  with `--yes` or `--overwrite`.
+- **Plain file writes only.** The engine starts no child processes (ISC-61)
+  and has no code path that depends on the operating system (ISC-62). It reads
+  Git's index file itself instead of running `git`.
+- **Verified Locations, no Adapters.** One location table gives each Host's
+  project and user-level paths. Each path has a dated live check (ADR-0055,
+  [Verified Locations](#verified-locations)).
+- **Host Resolution stays with the Host.** The engine relies on each Host's
+  own discovery and never rebuilds a resolver or an inventory (ADR-0012).
+
+## Components
+
+| Path | Owns |
+|---|---|
+| `src/cli.ts` | Argument parsing, the command set, the lock around writing commands, human and `--json` output, exit codes |
+| `src/command.ts` | The command name (`apkit`) used in every printed command |
+| `src/guide.ts` | `apkit help`, `apkit guide`, and the bundled Workspace contract (`apkit contract`) |
+| `src/workspace.ts` | Reading and validating a Workspace; `init` |
+| `src/render.ts` | The Host table (project Skills folder and trust behavior), user-level Skills folders, and rendering a Profile into desired files and one Context body |
+| `src/install.ts` | The planner and executor: Installation Manifest, Decisions, atomic writes, empty-folder pruning |
+| `src/instructions.ts` | Pure text edits: the marked Context Section and the `@AGENTS.md` line in `CLAUDE.md` |
+| `src/setup.ts` | User-level instruction files: the Setup Note and the User-Level Installation's Context Sections |
+| `src/config.ts` | Local Configuration (`config.json`) and the path of `global.json` |
+| `src/gitexclude.ts` | Repository Exclusion Contribution blocks in `.git/info/exclude` |
+| `src/gitindex.ts` | Finding a folder's repository and reading whether Git tracks a path (index versions 2 to 4; split and sparse indexes are not read) |
+| `src/lock.ts` | One lock per apkit home (ADR-0058) |
+| `src/schema.ts` | Refusing a file written by a newer apkit |
+| `build.ts` | The dependency-free Node bundle at `dist/cli.js` |
+| `test/` | Engine and CLI journey suites; `test/retained/` holds earlier-release Workspaces (ISC-46) |
+
+## Commands
+
+`init`, `workspace`, `check`, `install`, `update`, `remove`, `status`, and
+`setup`, plus `help`, `guide`, and `contract`. Flags: `--agents a,b`, `--yes`,
+`--overwrite`, `--global`, `--all`, `--remove` (with `setup`), `--json`, and
+`--workspace <path>` (one run only). `apkit migrate` moves an installation of
+the released engine to this one; see [Migration from the released engine](#migration-from-the-released-engine).
+
+Exit codes: `0` done, `1` error, `2` usage, `3` needs a Decision (nothing was
+changed). With `--json`, each command prints one JSON value that is the
+complete record of the operation; an error prints `{"error": "..."}`.
+
+Every command except `help`, `guide`, and `contract` first reads Local
+Configuration, so a configuration from a newer apkit stops it before anything
+is written.
+
+## Workspace ingestion
+
+`loadWorkspace` reads the Workspace once per run into Profiles, Skills, and
+Context Modules, plus two lists of findings: Workspace Errors and warnings
+(ADR-0057). `install` and `update` stop on any Workspace Error; `check` reports
+both lists; `workspace <path>` selects a Workspace even with errors and shows
+them. The format and every rule it enforces are in
+`docs/guides/workspace-contract.md`, which `guide.ts` bundles byte for byte.
+
+`init <path>` creates the folder if needed and adds what is missing:
+`apkit-workspace.yaml`, `context/`, `skills/`, and `profiles/`.
+
+## Rendering
+
+`render` turns one Profile and a set of Hosts into the desired state:
+
+- **Skills.** Each selected Skill's files are copied under each distinct
+  Skills folder of the selected Hosts. Project folders: `.claude/skills`
+  (Claude Code), `.grok/skills` (Grok), and `.agents/skills` (Antigravity,
+  Codex, OpenCode, Pi), so one copy serves every Host that shares a folder. For
+  a Skill with `disable-model-invocation: true`, the copy in Codex's folder
+  also gets `agents/openai.yaml` with `allow_implicit_invocation: false`,
+  merged into the Skill's own file when it has one.
+- **Context.** The selected Context Modules are joined in Profile order, each
+  after a `<!-- context: <id> -->` line (the ID is encoded so it cannot end the
+  comment), under a header that names the Profile. A project body says that
+  the project's own instructions take precedence.
+
+## Planning and ownership
+
+Every write follows one rule: replace or delete only what apkit wrote and
+nobody changed since. `plan` reads the disk and the previous Installation
+Manifest and writes nothing. It returns operations, Decisions, the changes to
+instruction files (create, change, or delete, and whether Git tracks each),
+and the next manifest. `execute` runs only after every Decision is settled.
+
+- **Installation Manifest.** `.agents/apkit.json` (schema 1) records the
+  Profile, the Hosts, a hash of each written file, the hash of the Context
+  Section, whether apkit created `AGENTS.md`, whether it added the `CLAUDE.md`
+  line, and the installed Context Module IDs. Hashes ignore CRLF versus LF.
+  Every field is checked when read, so planning never trusts a path or record
+  it did not write.
+- **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
+  user-level instruction file) and `outside` (a symlink would take a write or
+  deletion outside the folder) are settled by `--yes`. `changed` (a file or
+  section apkit wrote was changed) and `unowned` (a file apkit did not write is
+  in the way) are settled by `--overwrite`.
+- **Context Section.** Context goes in one marked `apkit` section of
+  `AGENTS.md`, which every supported Host loads. When `CLAUDE.md` exists and
+  Claude Code is selected, `CLAUDE.md` gets one `@AGENTS.md` line, because
+  Claude Code reads `CLAUDE.md` instead of `AGENTS.md` when both exist. The
+  section never goes in `CLAUDE.md`, because Grok loads both files. A symlinked
+  instruction file is written through to its real file. Line endings follow the
+  file, and each removal is the exact inverse of its insertion.
+- **Writes.** Each file is written to a temp file and renamed into place,
+  with short retries for Windows. The manifest is written last.
+- **Removal.** Deleting a file prunes the folders it leaves empty, up to the
+  install folder. Pruning stops at a link, so a Windows junction is never
+  removed. If apkit created `AGENTS.md` and only its section was in it, the
+  file is deleted.
+- **Two installs in the home folder.** The home folder can hold a project
+  install and the User-Level Installation at once. Each keeps its own manifest
+  and never deletes a file the other also owns.
+
+## User level
+
+- **Setup Note** (`setup`). One marked note in each installed Host's
+  user-level instruction file. A Host counts as installed when its user-level
+  folder exists, unless `--agents` names Hosts. The files are listed under
+  [Verified Locations](#verified-locations). Local Configuration records each
+  file, its note hash, and whether apkit created the file and its folders, so
+  `setup --remove` restores each file exactly.
+- **User-Level Installation** (`install --global`). Skills go to each Host's
+  user-level Skills folder. Context goes in an `apkit:global` section of the
+  same files that hold the note, a section of its own so each is added and
+  removed alone. A file that both use is deleted when the last section leaves
+  it, if apkit created it. The manifest is `global.json` in the apkit home.
+  Removal prunes empty folders up to each Host folder, never past it.
+- **OpenCode** reads only the first of `~/.config/opencode/AGENTS.md` and
+  `~/.claude/CLAUDE.md` that exists. When only `CLAUDE.md` exists, apkit writes
+  there, because creating OpenCode's own file would hide the user's `CLAUDE.md`
+  from OpenCode.
+- **Symlinked user files.** User-level files are often symlinks into a dotfiles
+  repository; apkit writes the real file.
+
+## Local Configuration and `--all`
+
+`config.json` in the apkit home (`~/.agents/apkit`, or `APKIT_HOME`) holds the
+selected Workspace, the list of installed folders, the Setup Note records, and
+the exclude file of each folder's block. `update --all` and `status --all`
+visit every listed folder and then the User-Level Installation, if
+`global.json` exists. A listed folder that no longer exists is forgotten by
+`update` with its exclusion block, as `remove` would.
+
+## Git
+
+- **Exclusion.** In a Git repository, each install folder owns one block in
+  the repository's `.git/info/exclude` (the common directory, so linked
+  worktrees share it), between `# apkit:begin <folder>` and
+  `# apkit:end <folder>`. It lists each installed Skill folder and the
+  manifest, as literal patterns. Instruction files are never listed (ISC-87).
+- **Tracking.** `gitindex.ts` finds the repository that holds a folder,
+  including a linked worktree, and reads path names from its index, so each
+  Decision about an instruction file says whether Git tracks it.
+
+## Concurrency
+
+`init`, `workspace`, `install`, `update`, `remove`, and `setup` hold
+`<APKIT_HOME>/lock` from their first read to their last write, so runs that
+write take turns and each plans against the disk as the previous run left it.
+`status`, `check`, `guide`, `contract`, and `help` do not take it. The lock is
+taken with an atomic `link`, a stopped owner's lock is taken over, and a run
+waits at most 120 seconds (ADR-0058).
+
+## Schema versions
+
+`config.json` and every Installation Manifest carry a schema number
+(`src/schema.ts`). An apkit that finds a newer number stops, changes nothing,
+and names the update. A newer `schema_version` in `apkit-workspace.yaml` is a
+Workspace Error that names the update.
+
+## Migration from the released engine
+
+The released engine (0.238.0 and earlier) kept Local Configuration in
+`~/.agents/agent-profile-kit/config.yaml` and receipts in
+`state/manifest.json` there. `apkit migrate` reads them, takes over each
+recorded Project without losing the user's edits, and installs the same
+Profile and agents with this engine; other commands name `apkit migrate` while
+that state is not migrated.
+
+## Verified Locations
+
+The location table is in `src/render.ts` (project and user-level Skills
+folders) and `src/setup.ts` (user-level instruction files). This section is
+the dated live-check record for every location in it (ADR-0055, ISC-68). Check
+a Host again when it changes how it loads files (ISC-69), and update the date
+here.
+
+### Project-level locations
+
+Verified 2026-10-30 in one Git project installed for all six agents. Each
+agent, with no tools, quoted both Context markers from the `AGENTS.md` section
+and named the marker Skill. A Skill with `disable-model-invocation: true` was
+hidden every time.
+
+| Agent | Context | Skills | Evidence |
+|---|---|---|---|
+| Claude Code | `AGENTS.md` through the `@AGENTS.md` line in `CLAUDE.md` | `.claude/skills` | `claude -p` |
+| Antigravity | `AGENTS.md`, in a trusted project | `.agents/skills`, in a trusted project | `agy -p`, and the interactive app after trust |
+| Codex | `AGENTS.md`, also in an untrusted project | `.agents/skills`, in a trusted project only | `codex exec` |
+| Grok | `AGENTS.md`, in a trusted project only | `.grok/skills`, in a trusted project only | interactive `grok` session |
+| OpenCode | `AGENTS.md` | `.agents/skills` | `opencode run` (v2.2.4, `opencode/deepseek-v4.1-flash`) |
+| Pi | `AGENTS.md`, also in an untrusted project | `.agents/skills`, in a trusted project only | `pi -p` and `pi -p --approve` (1.4.0) |
+
+The trust column is the source of the `untilTrusted` values in `src/render.ts`
+and of the trust lines that `install` prints.
+
+### User-level instruction files
+
+Used by `setup` and `install --global`. Verified 2026-10-30:
+
+| Agent | File | Evidence |
+|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR` or `~/.claude`, `CLAUDE.md` | Marker reached the model request |
+| Codex | `$CODEX_HOME` or `~/.codex`, `AGENTS.override.md` if present, else `AGENTS.md` | Marker reached the model request |
+| OpenCode | `~/.config/opencode/AGENTS.md`, else `~/.claude/CLAUDE.md` (first that exists) | Marker reached the model request, in both orders |
+| Pi | `$PI_CODING_AGENT_DIR` or `~/.pi/agent`, `AGENTS.md` | Marker reached the model request |
+| Grok | `$GROK_HOME` or `~/.grok`, `rules/*.md` (loaded without folder trust) | `grok -p` quoted the marker, in an untrusted folder |
+| Antigravity | `~/.gemini/AGENTS.md` or `GEMINI.md` | Live session quoted the marker |
+
+### User-level Skills folders
+
+Used by `install --global`. Verified 2026-10-30:
+
+| Agent | Folder | Evidence |
+|---|---|---|
+| Claude Code | `~/.claude/skills` | Marker Skill reached the model request |
+| Codex | `~/.agents/skills` (also reads `$CODEX_HOME/skills`) | Marker Skill reached the model request |
+| OpenCode | `~/.agents/skills` (also `~/.claude/skills`, `~/.config/opencode/skills`) | `opencode debug skill` listed it |
+| Pi | `~/.agents/skills` (also `~/.pi/agent/skills`) | Marker Skill reached the model request |
+| Grok | `~/.grok/skills` (also `~/.claude/skills`) | `grok -p` named the marker Skill, in an untrusted folder |
+| Antigravity | `~/.gemini/config/skills` | Live session listed the marker Skill |
+
+`install --global` was checked live on 2026-10-30 with a Profile holding one
+marker Context and one marker Skill, installed for all six agents. In an
+untrusted folder with no project instructions, each agent quoted the Context
+marker and named the marker Skill without tools: `claude -p` (2.1.314),
+`codex exec` (0.164.0), `opencode run` (2.2.4), `pi -p` (1.4.0), `grok -p`
+(1.0.70), and `agy -p` (1.4.12). `remove --global` then restored every file.
+
+Grok also reads `~/.claude/CLAUDE.md` by default, so it may see the Setup Note
+twice; that is harmless.
+
+### Known gaps
+
+The code writes these locations, but the record above does not show a live
+check for them as written (ISC-68):
+
+- **Pi:** `setup.ts` writes `AGENTS.override.md` when it exists in the Pi
+  folder; the Pi row names only `AGENTS.md`.
+- **Antigravity:** `setup.ts` writes `~/.gemini/AGENTS.md` only; the row also
+  names `GEMINI.md`, which apkit never writes.
+- **OpenCode:** `setup.ts` uses `$XDG_CONFIG_HOME/opencode` when that variable
+  is set; the row names `~/.config/opencode` only.
+- **Grok:** `setup.ts` writes `rules/apkit.md`, which the row covers as
+  `rules/*.md`.
+- **Claude Code and Grok Skills:** `render.ts` follows `$CLAUDE_CONFIG_DIR` and
+  `$GROK_HOME` for user-level Skills; the rows name only `~/.claude/skills` and
+  `~/.grok/skills`.
+
+## Qualification
+
+Root `bun test` runs every suite; CI runs it on macOS, Linux, and Windows and
+runs the CLI journeys on Node against the built bundle. Fixture homes isolate
+journeys from real user and Host state. The commands and evidence rules are in
+`AGENTS.md` (Verification), and the decision is ADR-0059.

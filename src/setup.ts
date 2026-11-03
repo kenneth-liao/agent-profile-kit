@@ -60,7 +60,7 @@ export async function detectAgents(home: string, env: Env): Promise<AgentId[]> {
   return found;
 }
 
-/** The user-level file each agent reads, verified per agent (see the prototype's README). */
+/** The user-level file each agent reads, verified per agent (see docs/ARCHITECTURE.md, Verified Locations). */
 async function noteFile(agent: AgentId, home: string, env: Env): Promise<string> {
   const dir = agentHome(agent, home, env);
   switch (agent) {
