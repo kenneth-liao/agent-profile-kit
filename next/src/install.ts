@@ -70,6 +70,8 @@ export interface Plan {
   readonly manifest: Manifest | null;
   /** The manifest text on disk before the plan, or null. */
   readonly manifestBefore: string | null;
+  /** Agent folders outside the target: pruning never goes above or removes one. */
+  readonly pruneLimits: readonly string[];
 }
 
 export interface Decisions {
@@ -114,7 +116,8 @@ async function resolveFile(path: string): Promise<string> {
   }
 }
 
-function isInside(target: string, path: string): boolean {
+/** Whether `path` is `target` or inside it (both absolute). */
+export function isInside(target: string, path: string): boolean {
   const rel = relative(target, path);
   return !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`);
 }
@@ -190,19 +193,7 @@ function isManifest(data: unknown, scope: "user" | undefined): data is Manifest 
   if (data.scope !== scope) return false;
   if (data.sections === undefined) return true;
   // Only the global manifest, in the apkit home, names user-level files, by absolute path.
-  return (
-    scope === "user" &&
-    isRecord(data.sections) &&
-    Object.entries(data.sections).every(
-      ([path, record]) => isAbsolute(path) &&
-        isRecord(record) &&
-        typeof record.hash === "string" &&
-        HASH.test(record.hash) &&
-        typeof record.created === "boolean" &&
-        (record.createdDirs === undefined ||
-          (Array.isArray(record.createdDirs) && record.createdDirs.every((dir) => typeof dir === "string" && isAbsolute(dir)))),
-    )
-  );
+  return scope === "user" && isNoteRecords(data.sections);
 }
 
 export interface PlanOptions {
@@ -210,6 +201,8 @@ export interface PlanOptions {
   readonly manifestPath?: string;
   /** Paths that another install in the same folder also owns: never deleted. */
   readonly shared?: ReadonlySet<string>;
+  /** Absolute agent folders outside the target (CLAUDE_CONFIG_DIR, GROK_HOME) that hold files of this install. */
+  readonly pruneLimits?: readonly string[];
 }
 
 /**
@@ -357,7 +350,7 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
     instructions.push({ path, action, tracked: await isTracked(target, path) });
   }
 
-  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore };
+  return { target, manifestPath, ops, issues, instructions, manifest, manifestBefore, pruneLimits: options.pruneLimits ?? [] };
 }
 
 function manifestText(manifest: Manifest): string {
@@ -388,7 +381,7 @@ export async function execute(planned: Plan): Promise<void> {
     } else {
       const path = abs(target, op.path);
       await unlink(path).catch(() => undefined);
-      await pruneEmpty(pruneBound(target, path), dirname(path));
+      await pruneEmpty(pruneBound(target, path, planned.pruneLimits), dirname(path));
     }
   }
   const { manifestPath } = planned;
@@ -434,13 +427,34 @@ async function pruneEmpty(target: string, dir: string): Promise<void> {
 }
 
 /**
- * The folder pruning stops at: the target, or for a user-level file outside it (an agent
- * folder set by a variable such as CLAUDE_CONFIG_DIR) the top folder it names there.
+ * The folder pruning stops at, and never removes: the target, or for a file outside it the
+ * agent folder that holds it. A file outside the target and every agent folder prunes nothing.
  */
-function pruneBound(target: string, path: string): string {
-  const parts = relative(target, path).split(sep);
-  const up = parts.findIndex((part) => part !== "..");
-  return up === 0 ? target : resolve(target, ...parts.slice(0, up + 1));
+function pruneBound(target: string, path: string, limits: readonly string[]): string {
+  if (isInside(target, path)) return target;
+  const holders = limits.filter((limit) => isInside(limit, path)).sort((a, b) => b.length - a.length);
+  return holders[0] ?? dirname(path);
+}
+
+/**
+ * Section records (setup's notes, a global install's Context sections) by absolute file path.
+ * Each recorded folder must lie above its own file: a record never names any other folder to delete.
+ */
+export function isNoteRecords(value: unknown): value is NoteRecords {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([path, record]) =>
+        isAbsolute(path) &&
+        isRecord(record) &&
+        typeof record.hash === "string" &&
+        HASH.test(record.hash) &&
+        typeof record.created === "boolean" &&
+        (record.createdDirs === undefined ||
+          (Array.isArray(record.createdDirs) &&
+            record.createdDirs.every((dir) => typeof dir === "string" && isAbsolute(dir) && dir !== path && isInside(dir, path)))),
+    )
+  );
 }
 
 /** The folders a write to `path` would create, deepest first. */

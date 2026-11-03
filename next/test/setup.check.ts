@@ -113,7 +113,7 @@ describe("setup", () => {
     expect(await read(home, ".codex/config.toml")).toBe("model = 'x'\n");
   });
 
-  test("a record written before folders were recorded still removes the note", async () => {
+  test("a record that names no created folders removes the note and no folder", async () => {
     const home = await tempDir("home");
     const { records } = await setup(home, ["codex"], {});
     const legacy = Object.fromEntries(Object.entries(records).map(([path, r]) => [path, { hash: r.hash, created: r.created }]));
@@ -121,6 +121,20 @@ describe("setup", () => {
     expect(removed.open).toEqual([]);
     expect(await exists(join(home, ".codex", "AGENTS.md"))).toBe(false);
     expect(await exists(join(home, ".codex"))).toBe(true);
+  });
+
+  test("through a linked agent home, removal deletes only the folder setup created behind the link", async () => {
+    if (process.platform === "win32") return;
+    const home = await tempDir("home");
+    const dotfiles = await tempDir("dotfiles");
+    await mkdir(join(dotfiles, "grok"));
+    await symlink(join(dotfiles, "grok"), join(home, ".grok"));
+    const { records } = await setup(home, ["grok"], {});
+    expect(await read(dotfiles, "grok/rules/apkit.md")).toContain(NOTE);
+    await setup(home, [], records);
+    expect(await exists(join(dotfiles, "grok", "rules"))).toBe(false);
+    expect(await exists(join(dotfiles, "grok"))).toBe(true);
+    expect(await readlink(join(home, ".grok"))).toBe(join(dotfiles, "grok"));
   });
 
   test("an edited note is kept until --overwrite", async () => {

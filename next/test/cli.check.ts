@@ -694,6 +694,37 @@ describe("apkit-next CLI", () => {
     expect(await Promise.all(folders.map(homeSnapshot))).toEqual(before);
   });
 
+  test("removing a global install keeps an empty agent folder set outside the home, however deep it sits", async () => {
+    const base = await tempDir("outside");
+    const home = join(base, "home");
+    const agentFolder = join(base, "opt", "cfg", "claude");
+    await mkdir(home);
+    await mkdir(agentFolder, { recursive: true });
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    const run = (...args: string[]) => cliWithEnv({ CLAUDE_CONFIG_DIR: agentFolder }, home, home, ...args);
+    expect(run("install", "skills-only", "--global", "--agents", "claude", "--yes").code).toBe(0);
+    expect(await read(agentFolder, "skills/summarize/SKILL.md")).toContain("name: summarize");
+    expect(run("remove", "--global").code).toBe(0);
+    expect(await readdir(agentFolder)).toEqual([]);
+  });
+
+  test("a config record that names a folder outside its own file's path stops setup before anything is removed", async () => {
+    const home = await tempDir("home");
+    const keep = join(home, "keep");
+    await mkdir(keep);
+    expect(cli(home, home, "setup", "--agents", "codex", "--yes").code).toBe(0);
+    const config = JSON.parse(await readFile(join(home, "config.json"), "utf8"));
+    const path = Object.keys(config.notes)[0] as string;
+    config.notes[path].createdDirs = [keep];
+    await writeFile(join(home, "config.json"), JSON.stringify(config));
+    const result = cli(home, home, "setup", "--remove");
+    expect(result.code).not.toBe(0);
+    expect(result.err).toContain("config.json");
+    expect(await read(home, ".codex/AGENTS.md")).toContain(COMMAND);
+    expect(await readdir(keep)).toEqual([]);
+  });
+
   for (const order of [["setup", "global"], ["global", "setup"]]) {
     test(`setup and a global install share a file, and removal (${order.join(" first, then ")}) restores it`, async () => {
       const home = await tempDir("home");
