@@ -13,16 +13,13 @@
   },
   "files": [
     "dist/cli.js",
-    "docs/guides",
+    "docs/guides/workspace-contract.md",
     "README.md"
   ],
   "scripts": {
     "build": "bun run typecheck && bun run build:bundle",
-    "build:bundle": "bun build cli/index.ts --target=node --packages=bundle --outfile=dist/cli.js --silent",
-    "test": "bun run test/support/suite-supervisor.ts full",
-    "test:focused": "bun run test/support/suite-supervisor.ts focused",
-    "test:fleet": "bun run test/support/suite-supervisor.ts focused test/fleet-qualification.test.ts",
-    "test:stress": "bun run test/support/suite-supervisor.ts stress",
+    "build:bundle": "bun run build.ts",
+    "test": "bun test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepack": "bun run build"
   },
@@ -30,14 +27,9 @@
     "node": ">=22",
     "bun": "1.4.0"
   },
-  "os": [
-    "darwin"
-  ],
   "devDependencies": {
-    "@inquirer/core": "^12.0.3",
     "@types/bun": "^1.4.0",
     "@types/node": "^26",
-    "smol-toml": "^1.9.0",
     "typescript": "^7.0.2",
     "yaml": "^2.9.1"
   }

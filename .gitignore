@@ -20,13 +20,15 @@ tmp/
 .agents/
 *.log
 
-# Compatibility and sample fixture material (#596, #608) intentionally records
+# Retained compatibility material (#596) intentionally records
 # Host-shaped directories and paths that the repo-level ignore rules above
 # would otherwise exclude; re-include them inside fixture trees only.
-!test/support/fixtures/compat-0.204.0/**/.agents/
-!test/support/fixtures/compat-0.204.0/**/.agents/**
-!test/support/fixtures/compat-0.204.0/**/.codex/
-!test/support/fixtures/compat-0.204.0/**/.codex/**
-!test/support/fixtures/scattered-sample/**/.agents/
-!test/support/fixtures/scattered-sample/**/.agents/**
+!test/retained/compat-0.204.0/**/.agents/
+!test/retained/compat-0.204.0/**/.agents/**
+!test/retained/compat-0.204.0/**/.codex/
+!test/retained/compat-0.204.0/**/.codex/**
 
+!test/migration/**/.agents/
+!test/migration/**/.agents/**
+!test/migration/**/.codex/
+!test/migration/**/.codex/**

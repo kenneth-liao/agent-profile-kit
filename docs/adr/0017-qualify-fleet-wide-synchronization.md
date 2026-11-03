@@ -4,6 +4,9 @@ status: accepted
 
 # Qualify invocation-scoped reuse, bounded concurrency, typed impacts, and scale-aware presentation
 
+Supervisor-related qualification machinery superseded at the agent-first cutover by
+[ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md).
+
 ## Context
 
 The fleet-wide synchronization work (spec #193) replaced per-Project repetition

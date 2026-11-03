@@ -4,6 +4,9 @@ status: accepted
 
 # Qualify the CLI as one presentation system with read-only inventory and typed blockers
 
+Supervisor-related qualification machinery superseded at the agent-first cutover by
+[ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md).
+
 ## Context
 
 The CLI presentation work shipped across the child tickets of spec #154: responsive
