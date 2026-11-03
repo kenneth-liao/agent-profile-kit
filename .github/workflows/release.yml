@@ -4,39 +4,39 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: SemVer from package.json (for example, 0.20.0)
+        description: Base SemVer from package.json (for example, 0.239.0)
         required: true
         type: string
+      prerelease:
+        description: Optional prerelease suffix (for example, rc.1); publishes to next from the selected ref
+        required: false
+        type: string
+      dry-run:
+        description: Qualify and retain the candidate without publishing, creating a tag, or creating a Release
+        type: boolean
+        default: true
 
-# Least privilege by default: only the publishing job receives release-write
-# and OIDC token permissions (#551, #712). Verification — including the
-# complete release gate — runs read-only and cannot publish.
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.version }}
+  group: release-${{ inputs.version }}-${{ inputs.prerelease }}
   cancel-in-progress: false
 
 jobs:
   verify-release-candidate:
     name: Verify the release candidate
     runs-on: macos-15
-    # Containment is reachable-state arithmetic, not stacked ceilings: a failed
-    # suite step (including a supervisor timeout) skips the remaining steps by
-    # default, so at most one 600s ceiling is spent after setup, plus a
-    # completed full run before an exhausted 600s fleet ceiling (≈17 minutes
-    # with the measured ≈7–9s setup on the macos-15 runner) — inside this bound,
-    # so the supervisor's bounded timeout, not the job clock, owns a hung run.
-    timeout-minutes: 25
+    timeout-minutes: 15
     permissions:
       contents: read
     outputs:
-      # The verified candidate's archive filename, so the publishing boundary
-      # addresses the handoff's identified artifact without re-globbing.
-      archive-name: ${{ steps.candidate.outputs.archive-name }}
+      version: ${{ steps.candidate.outputs.version }}
     env:
       VERSION: ${{ inputs.version }}
+      PRERELEASE: ${{ inputs.prerelease }}
+      DRY_RUN: ${{ inputs.dry-run }}
+      CANDIDATE: ${{ runner.temp }}/release-package
 
     steps:
       - name: Check out release commit
@@ -59,134 +59,85 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          test "$GITHUB_REF" = "refs/heads/main"
-          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          test "$GITHUB_SHA" = "$MAIN_SHA"
-
-          PACKAGE_VERSION="$(node -p 'require("./package.json").version')"
-          test "$VERSION" = "$PACKAGE_VERSION"
+          test "$VERSION" = "$(node -p 'require("./package.json").version')"
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          grep -F "## [$VERSION] - " CHANGELOG.md
-
-          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$VERSION" >/dev/null 2>&1; then
-            echo "Tag v$VERSION already exists" >&2
-            exit 1
+          if [ -z "$PRERELEASE" ] && [ "$DRY_RUN" != "true" ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            test "$GITHUB_SHA" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+            grep -F "## [$VERSION] - " CHANGELOG.md
           fi
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists" >&2
-            exit 1
+          # Candidate creation validates the suffix before touching the manifest.
+          # Dry runs perform no remote release/tag checks and have no write job.
+          if [ "$DRY_RUN" != "true" ]; then
+            release_version="$VERSION${PRERELEASE:+-$PRERELEASE}"
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v$release_version" >/dev/null 2>&1; then
+              echo "Tag already exists: v$release_version" >&2
+              exit 1
+            fi
+            if gh release view "v$release_version" >/dev/null 2>&1; then
+              echo "Release already exists: v$release_version" >&2
+              exit 1
+            fi
           fi
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --ignore-scripts
 
-      # One candidate creation owns the build and the pack once (#550): the
-      # shared from-source creator runs typecheck, bundling, and pack in a
-      # single bounded build, digests the exact packed bytes, and writes the
-      # identity record beside the archive. Every later consumer — the suite's
-      # packed qualification, the smoke install, and the release itself —
-      # consumes these exact bytes; no step rebuilds or repacks.
-      - name: Create release candidate
+      - name: Create one release candidate
         id: candidate
         run: |
-          archive_file="$(bun run scripts/create-package-candidate.ts "$RUNNER_TEMP/release-package")"
-          echo "APKIT_TEST_PACKAGE_ARCHIVE=$archive_file" >> "$GITHUB_ENV"
-          echo "archive-name=$(basename "$archive_file")" >> "$GITHUB_OUTPUT"
+          if [ -n "$PRERELEASE" ]; then
+            bun scripts/release.ts candidate "$CANDIDATE" "$PRERELEASE"
+          else
+            bun scripts/release.ts candidate "$CANDIDATE"
+          fi
+          echo "version=$(node -p 'require(process.env.CANDIDATE + "/candidate.json").version')" >> "$GITHUB_OUTPUT"
 
-      - name: Run test suite
-        env:
-          APKIT_TEST_PACKAGE_ARCHIVE: ${{ env.APKIT_TEST_PACKAGE_ARCHIVE }}
-          APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/suite-diagnostics
-        run: bun run test
+      - name: Qualify the packed CLI with plain tests
+        run: bun scripts/release.ts qualify "$CANDIDATE"
 
-      # Shared CI evidence policy: the qualification record and supervised
-      # diagnostics are retained on every outcome, success and failure alike.
-      - name: Upload supervised suite qualification evidence
+      - name: Retain qualification attempt on every outcome
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supervised-suite-qualification-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/suite-diagnostics/
+          name: qualification-attempt-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/release-package/candidate.json
+            ${{ runner.temp }}/release-package/qualification-record.json
+            ${{ runner.temp }}/release-package/tests.xml
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Run fleet-scale regressions
-        env:
-          APKIT_TEST_DIAGNOSTICS_DIR: ${{ runner.temp }}/fleet-diagnostics
-        run: bun run test:fleet
-
-      # Same evidence policy as the fast run and CI's fleet job: the artifact
-      # contains only what the fleet supervisor wrote; a pre-suite failure
-      # leaves no record, and the failing step's log is that outcome's evidence.
-      - name: Upload fleet suite qualification evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: supervised-fleet-qualification-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/fleet-diagnostics/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      # Load-bearing for golden snapshots: an uncommitted snapshot must fail
-      # rather than pass silently. Snapshot updating is never enabled here.
-      - name: Verify clean generated output
-        run: |
-          git diff --check
-          git diff --exit-code
-          test -z "$(git status --porcelain)"
-
-      - name: Smoke-test packed CLI
-        run: |
-          INSTALL_ROOT="$(mktemp -d)"
-          npm install --ignore-scripts --prefix "$INSTALL_ROOT" "$APKIT_TEST_PACKAGE_ARCHIVE"
-          "$INSTALL_ROOT/node_modules/.bin/apkit" guide >/dev/null
-
-      # Publication gate (#550): the release is created only for the exact
-      # candidate whose required qualification succeeded — the archive's
-      # actual bytes must still match its identity record, the record must
-      # bind this release revision, and the retained qualification record
-      # must be complete and bind the same artifact digest and source. After
-      # the gate passes, the record travels beside the candidate into the
-      # publishing boundary's handoff (#551); a failed gate exits the step
-      # before the copy, so the handoff exists only for accepted evidence.
       - name: Verify release candidate evidence
-        run: |
-          bun run scripts/verify-release-candidate.ts \
-            "$APKIT_TEST_PACKAGE_ARCHIVE" \
-            "$GITHUB_SHA" \
-            "$RUNNER_TEMP/suite-diagnostics/qualification-record.json"
-          cp "$RUNNER_TEMP/suite-diagnostics/qualification-record.json" \
-            "$RUNNER_TEMP/release-package/qualification-record.json"
+        env:
+          PACKED_VERSION: ${{ steps.candidate.outputs.version }}
+        run: bun scripts/release.ts verify "$CANDIDATE" "$GITHUB_SHA" "$PACKED_VERSION"
 
-      # The publishing job receives only the identified candidate and the
-      # required evidence (#551): the exact archive bytes, the identity record
-      # beside them, and the qualification record the evidence gate just
-      # accepted. This upload exists only after that gate succeeded — failed
-      # verification stops this job and the publishing job never runs.
       - name: Hand the verified candidate to the publishing boundary
-        if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: release-candidate-handoff
-          path: ${{ runner.temp }}/release-package/
+          path: |
+            ${{ runner.temp }}/release-package/*.tgz
+            ${{ runner.temp }}/release-package/candidate.json
+            ${{ runner.temp }}/release-package/qualification-record.json
+            ${{ runner.temp }}/release-package/tests.xml
           if-no-files-found: error
           retention-days: 7
 
   publish-release:
     name: Publish the verified release
+    if: ${{ !inputs.dry-run }}
     needs: [verify-release-candidate]
     runs-on: macos-15
-    # No suite runs here; the job's own bounded verifier plus npm and GitHub
-    # Release publication is a minutes-scale step sequence after setup.
     timeout-minutes: 10
-    # The workflow's single write grant: this job consumes only the verified
-    # candidate and its evidence, publishes through npm OIDC trusted publishing
-    # with provenance, and cannot rebuild or repack the artifact (#551, #712).
     permissions:
       contents: write
       id-token: write
     env:
-      VERSION: ${{ inputs.version }}
+      VERSION: ${{ needs.verify-release-candidate.outputs.version }}
+      DIST_TAG: ${{ inputs.prerelease != '' && 'next' || 'latest' }}
+      CANDIDATE: ${{ runner.temp }}/candidate
 
     steps:
       - name: Check out release commit
@@ -206,62 +157,50 @@ jobs:
         with:
           bun-version-file: package.json
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
       - name: Receive the verified candidate
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-candidate-handoff
           path: ${{ runner.temp }}/candidate
 
-      # The publishing boundary enforces the predecessor identity/evidence
-      # contract itself (#551): the received archive's actual bytes are
-      # re-digested against the received identity record, the record must
-      # bind this release revision, and the received qualification record
-      # must still be a complete full-suite qualification of the same
-      # artifact digest and source. This is the same canonical gate, not a
-      # second checker; a substituted or unqualified candidate cannot publish.
       - name: Verify the received candidate and evidence
-        run: |
-          candidate_dir="$RUNNER_TEMP/candidate"
-          archive_file="$candidate_dir/${{ needs.verify-release-candidate.outputs.archive-name }}"
-          bun run scripts/verify-release-candidate.ts \
-            "$archive_file" \
-            "$GITHUB_SHA" \
-            "$candidate_dir/qualification-record.json"
+        run: bun scripts/release.ts verify "$CANDIDATE" "$GITHUB_SHA" "$VERSION"
 
       - name: Prepare release notes
         run: |
-          awk -v version="$VERSION" '
-            $0 ~ "^## \\[" version "\\] - " { capture = 1; next }
-            capture && /^## \[/ { exit }
-            capture { print }
-          ' CHANGELOG.md > release-notes.md
-          test -s release-notes.md
+          if [ "$DIST_TAG" = "next" ]; then
+            printf 'Prerelease %s from commit %s. Install with npm install --global agent-profile-kit@next.\n' "$VERSION" "$GITHUB_SHA" > "$RUNNER_TEMP/release-notes.md"
+          else
+            awk -v version="$VERSION" '
+              $0 ~ "^## \\[" version "\\] - " { capture = 1; next }
+              capture && /^## \[/ { exit }
+              capture { print }
+            ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+            test -s "$RUNNER_TEMP/release-notes.md"
+          fi
 
       - name: Publish to npm
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          test "$GITHUB_SHA" = "$MAIN_SHA"
-
+          if [ "$DIST_TAG" = "latest" ]; then
+            test "$GITHUB_REF" = "refs/heads/main"
+            test "$GITHUB_SHA" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          fi
           npm install --global npm@latest
-          npm publish \
-            "$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}" \
-            --provenance \
-            --access public
+          bun scripts/release.ts verify "$CANDIDATE" "$GITHUB_SHA" "$VERSION"
+          npm publish "$CANDIDATE/agent-profile-kit-$VERSION.tgz" --ignore-scripts --provenance --access public --tag "$DIST_TAG"
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
-          test "$GITHUB_SHA" = "$MAIN_SHA"
-
-          gh release create "v$VERSION" \
-            "$RUNNER_TEMP/candidate/${{ needs.verify-release-candidate.outputs.archive-name }}" \
-            --target "$GITHUB_SHA" \
-            --title "Agent Profile Kit $VERSION" \
-            --notes-file release-notes.md
+          if [ "$DIST_TAG" = "latest" ]; then
+            test "$GITHUB_SHA" = "$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)"
+          fi
+          bun scripts/release.ts verify "$CANDIDATE" "$GITHUB_SHA" "$VERSION"
+          flags=()
+          if [ "$DIST_TAG" = "next" ]; then flags+=(--prerelease --latest=false); fi
+          gh release create "v$VERSION" "$CANDIDATE/agent-profile-kit-$VERSION.tgz" \
+            --target "$GITHUB_SHA" --title "Agent Profile Kit $VERSION" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" "${flags[@]}"
