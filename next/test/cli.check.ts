@@ -78,12 +78,14 @@ const USER_FILES = [
   ".gemini/AGENTS.md",
 ];
 
-/** Every file under home (POSIX path → exact bytes), without apkit's own config files (APKIT_HOME is home here). */
+/** Every file (POSIX path → exact bytes) and folder (path ending in `/`) under home, without apkit's own config files (APKIT_HOME is home here). */
 async function homeSnapshot(home: string): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   for (const entry of await readdir(home, { recursive: true, withFileTypes: true })) {
-    if (!entry.isFile()) continue;
     const path = relative(home, join(entry.parentPath, entry.name)).split(sep).join("/");
+    // Folders count too: a removal must not leave behind a folder it created.
+    if (entry.isDirectory()) files[`${path}/`] = "";
+    if (!entry.isFile()) continue;
     if (path === "config.json" || path === "global.json") continue;
     files[path] = (await readFile(join(home, path))).toString("latin1");
   }
@@ -697,9 +699,9 @@ describe("apkit-next CLI", () => {
       const home = await tempDir("home");
       const ws = await makeWorkspace();
       cli(home, home, "workspace", ws);
-      await writeTree(home, { ".codex/config.toml": "" });
+      // No ~/.codex yet: whichever install runs first creates it, and the last removal deletes it.
       const before = await homeSnapshot(home);
-      const install = { setup: ["setup", "--yes"], global: ["install", "engineering", "--global", "--agents", "codex", "--yes"] };
+      const install = { setup: ["setup", "--agents", "codex", "--yes"], global: ["install", "engineering", "--global", "--agents", "codex", "--yes"] };
       const remove = { setup: ["setup", "--remove"], global: ["remove", "--global"] };
       for (const step of order) expect(cli(home, home, ...install[step as "setup"]).code).toBe(0);
       const both = await read(home, ".codex/AGENTS.md");

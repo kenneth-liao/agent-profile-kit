@@ -7,7 +7,7 @@
 import { lstat, readFile, realpath, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { COMMAND } from "./guide.js";
-import { atomicWrite, hash, type Issue } from "./install.js";
+import { atomicWrite, hash, missingFolders, removeEmptyFolders, type Issue } from "./install.js";
 import { readBlock, writeBlock, type Marker } from "./instructions.js";
 import type { AgentId } from "./render.js";
 
@@ -15,8 +15,16 @@ export const NOTE =
   "The user's Skills and Context are managed from one Workspace by apkit (Agent Profile Kit).\n" +
   `Before creating or changing Skills, Context, Profiles, or the instruction files apkit installs, run \`${COMMAND} guide\` and follow it.\n`;
 
-/** What setup recorded for each file it wrote, by absolute path. */
-export type NoteRecords = Readonly<Record<string, { readonly hash: string; readonly created: boolean }>>;
+/**
+ * What apkit recorded for each user-level file it wrote, by absolute path: the section's hash, whether
+ * apkit created the file, and the folders it created to hold it (deepest first; absent when none).
+ */
+export type NoteRecords = Readonly<Record<string, NoteRecord>>;
+export interface NoteRecord {
+  readonly hash: string;
+  readonly created: boolean;
+  readonly createdDirs?: readonly string[];
+}
 
 export interface NoteTarget {
   readonly path: string;
@@ -89,7 +97,8 @@ export async function noteTargets(agents: readonly AgentId[], home: string, env:
 }
 
 export interface NotePlan {
-  readonly ops: readonly { readonly path: string; readonly text: string | null }[];
+  /** `text` null deletes the file, then removes the folders in `prune` that are left empty. */
+  readonly ops: readonly { readonly path: string; readonly text: string | null; readonly prune?: readonly string[] }[];
   readonly issues: readonly Issue[];
   readonly records: NoteRecords;
 }
@@ -124,13 +133,21 @@ export function contextSection(body: string): Section {
   };
 }
 
-/** Files apkit created, from section records. */
-export function createdFiles(records: NoteRecords | undefined): Set<string> {
-  return new Set(Object.entries(records ?? {}).filter(([, record]) => record.created).map(([path]) => path));
+/** Files apkit created, from section records, with the folders it created to hold each. */
+export function createdFiles(records: NoteRecords | undefined): Map<string, readonly string[]> {
+  return new Map(
+    Object.entries(records ?? {})
+      .filter(([, record]) => record.created)
+      .map(([path, record]) => [path, record.createdDirs ?? []]),
+  );
 }
 
 /** Plans adding the note to `targets` and removing it from recorded files that are no longer targets. */
-export function planNotes(targets: readonly NoteTarget[], recorded: NoteRecords, alsoCreated?: ReadonlySet<string>): Promise<NotePlan> {
+export function planNotes(
+  targets: readonly NoteTarget[],
+  recorded: NoteRecords,
+  alsoCreated?: ReadonlyMap<string, readonly string[]>,
+): Promise<NotePlan> {
   return planSections(targets, recorded, NOTE_SECTION, alsoCreated);
 }
 
@@ -143,11 +160,11 @@ export async function planSections(
   targets: readonly NoteTarget[],
   recorded: NoteRecords,
   section: Section,
-  alsoCreated: ReadonlySet<string> = new Set(),
+  alsoCreated: ReadonlyMap<string, readonly string[]> = new Map(),
 ): Promise<NotePlan> {
-  const ops: { path: string; text: string | null }[] = [];
+  const ops: { path: string; text: string | null; prune?: readonly string[] }[] = [];
   const issues: Issue[] = [];
-  const records: Record<string, { hash: string; created: boolean }> = {};
+  const records: Record<string, NoteRecord> = {};
   const want = hash(section.body);
   const wanted = new Set(targets.map((t) => t.path));
 
@@ -155,7 +172,13 @@ export async function planSections(
     const text = await readText(path);
     const block = text === null ? null : readBlock(text, section.marker);
     const was = recorded[path];
-    records[path] = { hash: want, created: was?.created ?? (text === null || alsoCreated.has(path)) };
+    // Folders are recorded with the file that needed them, or taken over from the other kind of section.
+    const dirs = was?.createdDirs ?? (text === null ? await missingFolders(path) : (alsoCreated.get(path) ?? []));
+    records[path] = {
+      hash: want,
+      created: was?.created ?? (text === null || alsoCreated.has(path)),
+      ...(dirs.length > 0 ? { createdDirs: dirs } : {}),
+    };
     if (block !== null && hash(block) === want) continue;
     if (text === null) {
       issues.push({ kind: "consent", path, message: section.create(path) });
@@ -176,7 +199,11 @@ export async function planSections(
       issues.push({ kind: "changed", path, message: `${section.changed(path)}, and would be removed.` });
     }
     const remaining = writeBlock(text, null, section.marker);
-    ops.push({ path, text: (was.created || alsoCreated.has(path)) && remaining.trim() === "" ? null : remaining });
+    if ((was.created || alsoCreated.has(path)) && remaining.trim() === "") {
+      ops.push({ path, text: null, prune: [...(was.createdDirs ?? []), ...(alsoCreated.get(path) ?? [])] });
+    } else {
+      ops.push({ path, text: remaining });
+    }
   }
   return { ops, issues, records };
 }
@@ -185,8 +212,10 @@ export async function executeNotes(planned: NotePlan): Promise<void> {
   for (const op of planned.ops) {
     // User-level files are often symlinks into a dotfiles repo: write the real file.
     const real = await realpath(op.path).catch(() => op.path);
-    if (op.text === null) await unlink(real);
-    else await atomicWrite(real, new TextEncoder().encode(op.text));
+    if (op.text === null) {
+      await unlink(real);
+      await removeEmptyFolders(op.prune ?? []);
+    } else await atomicWrite(real, new TextEncoder().encode(op.text));
   }
 }
 

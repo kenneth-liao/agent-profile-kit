@@ -194,7 +194,13 @@ function isManifest(data: unknown, scope: "user" | undefined): data is Manifest 
     scope === "user" &&
     isRecord(data.sections) &&
     Object.entries(data.sections).every(
-      ([path, record]) => isAbsolute(path) && isRecord(record) && typeof record.hash === "string" && HASH.test(record.hash) && typeof record.created === "boolean",
+      ([path, record]) => isAbsolute(path) &&
+        isRecord(record) &&
+        typeof record.hash === "string" &&
+        HASH.test(record.hash) &&
+        typeof record.created === "boolean" &&
+        (record.createdDirs === undefined ||
+          (Array.isArray(record.createdDirs) && record.createdDirs.every((dir) => typeof dir === "string" && isAbsolute(dir)))),
     )
   );
 }
@@ -380,8 +386,9 @@ export async function execute(planned: Plan): Promise<void> {
       if (op.text === null) await unlink(op.absolute);
       else await atomicWrite(op.absolute, new TextEncoder().encode(op.text));
     } else {
-      await unlink(abs(target, op.path)).catch(() => undefined);
-      await pruneEmpty(target, dirname(abs(target, op.path)));
+      const path = abs(target, op.path);
+      await unlink(path).catch(() => undefined);
+      await pruneEmpty(pruneBound(target, path), dirname(path));
     }
   }
   const { manifestPath } = planned;
@@ -421,12 +428,43 @@ export async function atomicWrite(path: string, bytes: Uint8Array): Promise<void
 async function pruneEmpty(target: string, dir: string): Promise<void> {
   let current = dir;
   while (current.length > target.length && current.startsWith(target)) {
-    try {
-      if ((await lstat(current)).isSymbolicLink() || (await readdir(current)).length > 0) return;
-      await rmdir(current);
-    } catch {
-      return;
-    }
+    if (!(await removeIfEmpty(current))) return;
     current = dirname(current);
+  }
+}
+
+/**
+ * The folder pruning stops at: the target, or for a user-level file outside it (an agent
+ * folder set by a variable such as CLAUDE_CONFIG_DIR) the top folder it names there.
+ */
+function pruneBound(target: string, path: string): string {
+  const parts = relative(target, path).split(sep);
+  const up = parts.findIndex((part) => part !== "..");
+  return up === 0 ? target : resolve(target, ...parts.slice(0, up + 1));
+}
+
+/** The folders a write to `path` would create, deepest first. */
+export async function missingFolders(path: string): Promise<string[]> {
+  const missing: string[] = [];
+  for (let dir = dirname(path); dirname(dir) !== dir; dir = dirname(dir)) {
+    if (await lstat(dir).then(() => true, () => false)) break;
+    missing.push(dir);
+  }
+  return missing;
+}
+
+/** Removes each of `dirs` that is now empty, deepest first; a folder with anything in it, or a link, stays. */
+export async function removeEmptyFolders(dirs: readonly string[]): Promise<void> {
+  for (const dir of [...new Set(dirs)].sort((a, b) => b.length - a.length)) await removeIfEmpty(dir);
+}
+
+/** Removes `dir` when it is an empty real folder. Never a link: on Windows, rmdir would delete a junction the user made. */
+async function removeIfEmpty(dir: string): Promise<boolean> {
+  try {
+    if ((await lstat(dir)).isSymbolicLink() || (await readdir(dir)).length > 0) return false;
+    await rmdir(dir);
+    return true;
+  } catch {
+    return false;
   }
 }

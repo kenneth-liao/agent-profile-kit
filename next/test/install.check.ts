@@ -1,11 +1,12 @@
 import { describe, expect, mock, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import * as fs from "node:fs/promises";
-import { chmod, lstat, readdir, readFile, readlink, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, readdir, readFile, readlink, rename, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findRepository, isTracked } from "../src/gitindex.js";
 import { execute, hash, plan, readManifest, readManifestAt, unresolved, type Decisions } from "../src/install.js";
 import { render, type AgentId } from "../src/render.js";
+import { executeNotes, noteTargets, planNotes } from "../src/setup.js";
 import { loadWorkspace } from "../src/workspace.js";
 import { makeWorkspace, read, tempDir, writeTree } from "./fixtures.js";
 
@@ -412,5 +413,23 @@ describe("pruning", () => {
     }
     expect(await readdir(outside)).toEqual([]);
     expect((await lstat(join(target, ".claude"))).isSymbolicLink()).toBe(true);
+  });
+
+  test("removing a note never deletes a folder it created once the user replaced it with a link", async () => {
+    const home = await tempDir("home");
+    const dotfiles = await tempDir("dotfiles");
+    const added = await planNotes(await noteTargets(["codex"], home, {}), {});
+    await executeNotes(added);
+    // The user moves the folder apkit created into dotfiles and links it back.
+    await rename(join(home, ".codex"), join(dotfiles, "codex"));
+    await symlink(join(dotfiles, "codex"), join(home, ".codex"), "junction");
+    rmdirRemovesLinks = true;
+    try {
+      await executeNotes(await planNotes([], added.records));
+    } finally {
+      rmdirRemovesLinks = false;
+    }
+    expect(await readdir(join(dotfiles, "codex"))).toEqual([]);
+    expect((await lstat(join(home, ".codex"))).isSymbolicLink()).toBe(true);
   });
 });

@@ -77,6 +77,52 @@ describe("setup", () => {
     expect(await exists(join(home, ".grok", "rules", "apkit.md"))).toBe(false);
   });
 
+  test("removal deletes a folder setup created inside an existing agent home, and keeps the home", async () => {
+    const home = await tempDir("home");
+    await mkdir(join(home, ".grok"));
+    const { records } = await setup(home, ["grok"], {});
+    await setup(home, [], records);
+    expect(await exists(join(home, ".grok"))).toBe(true);
+    expect(await exists(join(home, ".grok", "rules"))).toBe(false);
+  });
+
+  test("removal deletes an agent home setup created, so the agent is no longer detected", async () => {
+    const home = await tempDir("home");
+    const { records } = await setup(home, ["codex"], {});
+    expect(await detectAgents(home, {})).toEqual(["codex"]);
+    await setup(home, [], records);
+    expect(await exists(join(home, ".codex"))).toBe(false);
+    expect(await detectAgents(home, {})).toEqual([]);
+  });
+
+  test("removal keeps a folder that existed before setup, even when it is left empty", async () => {
+    const home = await tempDir("home");
+    await mkdir(join(home, ".grok", "rules"), { recursive: true });
+    const { records } = await setup(home, ["grok"], {});
+    await setup(home, [], records);
+    expect(await exists(join(home, ".grok", "rules", "apkit.md"))).toBe(false);
+    expect(await exists(join(home, ".grok", "rules"))).toBe(true);
+  });
+
+  test("removal keeps a created folder that now holds the user's files", async () => {
+    const home = await tempDir("home");
+    const { records } = await setup(home, ["codex"], {});
+    await writeTree(home, { ".codex/config.toml": "model = 'x'\n" });
+    await setup(home, [], records);
+    expect(await exists(join(home, ".codex", "AGENTS.md"))).toBe(false);
+    expect(await read(home, ".codex/config.toml")).toBe("model = 'x'\n");
+  });
+
+  test("a record written before folders were recorded still removes the note", async () => {
+    const home = await tempDir("home");
+    const { records } = await setup(home, ["codex"], {});
+    const legacy = Object.fromEntries(Object.entries(records).map(([path, r]) => [path, { hash: r.hash, created: r.created }]));
+    const removed = await setup(home, [], legacy);
+    expect(removed.open).toEqual([]);
+    expect(await exists(join(home, ".codex", "AGENTS.md"))).toBe(false);
+    expect(await exists(join(home, ".codex"))).toBe(true);
+  });
+
   test("an edited note is kept until --overwrite", async () => {
     const home = await tempDir("home");
     const { records } = await setup(home, ["codex"], {});
