@@ -117,6 +117,8 @@ test("workflow dry run excludes the entire write job and prereleases select next
   expect(workflow.on.workflow_dispatch.inputs["dry-run"].default).toBe(true);
   const publish = workflow.jobs["publish-release"];
   expect(publish.if).toBe("${{ !inputs.dry-run }}");
+  expect(JSON.stringify(publish.env)).not.toContain("runner.temp");
+  expect(JSON.stringify(workflow.jobs["verify-release-candidate"].env)).not.toContain("runner.temp");
   expect(publish.permissions).toEqual({ contents: "write", "id-token": "write" });
   const verify = workflow.jobs["verify-release-candidate"];
   expect(verify.permissions).toEqual({ contents: "read" });
