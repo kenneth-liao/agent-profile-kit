@@ -4,6 +4,9 @@ status: accepted
 
 # Own one shared bounded process executor
 
+Superseded at the agent-first cutover by
+[ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md).
+
 ## Context
 
 The repository spawned child processes through two independent mechanisms:

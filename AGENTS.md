@@ -1,6 +1,6 @@
 # Agent Profile Kit Operating Manual
 
-This repository is the open-source Agent Profile Kit engine. It contains product code, schemas, adapters, installer behavior, documentation, and neutral fixtures—not user-owned Workspace material.
+This repository is the open-source Agent Profile Kit engine. It contains the agent-first engine, documentation, and neutral fixtures—not user-owned Workspace material.
 
 ## Repository Rules
 
@@ -8,26 +8,26 @@ This repository is the open-source Agent Profile Kit engine. It contains product
 - Normalize external inputs at the boundary of the tool or skill that ingests them.
 - Prefer small, complete changes over broad scaffolding that is not used yet.
 - Delegate native discovery, precedence, deduplication, collisions, and resource
-  resolution to each Agent Host. Adapters detect only the capabilities needed
-  to project portable material and must not reconstruct Host resolvers or
-  effective inventories. See ADR-0012.
+  resolution to each Agent Host. The engine uses verified delivery locations
+  and must not reconstruct Host resolvers or effective inventories. See
+  ADR-0012 and ADR-0055.
 - Use test-driven development for behavior changes unless the change is trivial, docs-only, or a throwaway spike.
 - Keep per-issue worktrees under `.worktrees/` and never commit local runtime state.
 - Until 1.0, follow standard SemVer 0.x: breaking changes bump the **minor** version rather than forcing a premature 1.0. Breaking changes are expected pre-launch and carry no compatibility shims. See ADR-0014.
 
 ## Canonical Locations
 
-- `cli/` owns the `apkit` command and user-facing orchestration.
-- `adapters/` owns Host-specific project output planning and capability detection.
-- `installer/` owns shared validation, reconciliation planning, ownership, and installation lifecycle.
-- `schemas/` owns portable Workspace and artifact schemas.
+- `src/` owns the `apkit` command, Workspace validation, verified delivery locations, and installation lifecycle.
+- `build.ts` owns the dependency-free Node bundle at `dist/cli.js`.
+- `test/` owns engine and CLI journey tests; `test/retained/` owns earlier-release Workspace fixtures and their provenance.
+- `docs/guides/workspace-contract.md` owns the portable Workspace format, bundled into `apkit contract`.
 - `docs/adr/` owns accepted decisions and rationale.
 - `docs/ARCHITECTURE.md` owns living structural facts.
 - `docs/USER-JOURNEY.md` owns user-facing CLI surface behavior: the stages and the outcome each stage owes.
 - `docs/runbooks/` owns operational playbooks.
 - `docs/archive/` owns shipped plans and spent research only.
 
-Personal material belongs in the user's Workspace, not in this repository. A maintained user workflow belongs there as well; an Adapter may generate Host-native project files from it.
+Personal material belongs in the user's Workspace, not in this repository. A maintained user workflow belongs there as well; the engine installs its material at verified Host-native locations.
 
 When a new category of fact does not fit these locations, record the placement decision in `docs/adr/` before spreading it across the repo.
 
@@ -35,23 +35,20 @@ When a new category of fact does not fit these locations, record the placement d
 
 Prefer a focused suite while iterating; for code changes, run the full suite before opening a PR:
 
-- `bun run test:focused -- <paths-or-filters>` — one explicitly selected run under the supervised lifecycle.
-- `bun run test` — one full-suite run under the supervised lifecycle.
-- `bun run test:fleet` — fleet-scale regressions outside the fast suite's deadline.
-- `bun run test:stress` — up to ten sequential full-suite runs for repeated qualification.
+- `bun test ./test/<suite>.test.ts` — run an explicitly selected suite (add `-t <filter>` to select tests).
+- `bun test` — run all engine and CLI tests at the repository root.
+- `bun run build` — typecheck and bundle the CLI for Node.
+- `APKIT_CLI=dist/cli.js bun test ./test/cli.test.ts` — run the CLI journeys on Node against the built bundle.
 
-All four supervise the test runner through the repository's bounded process executor and report one concise summary with a retained diagnostic log. Prefer these canonical commands over invoking the runner directly or writing custom timeout or repetition loops.
-
-The Bun toolchain version is pinned at package.json `engines.bun` — one canonical home read by local development (the supervisor's runner-identity gate, which rejects any other version before a run) and by CI (`setup-bun` with `bun-version-file: package.json`).
+The Bun toolchain version is pinned at package.json `engines.bun`, read by CI through `setup-bun` with `bun-version-file: package.json`. CI runs plain `bun test` on macOS, Linux, and Windows, and runs the built CLI on supported Node lines. CI jobs have finite timeouts. See ADR-0059 for the qualification boundary.
 
 ### Evidence validity
 
-Repository verification decisions consume only valid evidence. The canonical evidence contract is the supervised run's retained qualification record (#539).
-
+- Record the tested revision, runtime, command, selection, and outcome. A failed, interrupted, or incomplete run is never a pass; preserve the original failure when investigating it.
 - Re-execution requires changed relevant inputs or an unresolved hypothesis. Documentation and snapshot edits run their affected content, packaging, or rendering checks; they neither automatically require the full suite nor receive a blanket no-test exemption.
-- A full-suite timeout starts a bounded investigation with an explicit hypothesis. Rerun only after a relevant change or for a stated discriminating experiment; a timed-out run never counts as a branch pass — only a completed rerun under those conditions does.
-- When CI provides final qualification, its tested revision must match the accepted change and its executed coverage must match the required selection. Initial failures are preserved: automatic retries and phase transitions do not conceal or erase them, and review does not rerun valid checks solely because verification moved to a different phase.
-- Maintained qualification procedures signal and probe only the child PIDs or process groups owned by the invocation, through the bounded executor's explicit target policy (ADR-0027, ADR-0028); machine-wide process-name termination (such as `pkill` by name) is prohibited. Outcomes are read from the qualification record, never inferred from a rerun that replaced it.
+- A full-suite timeout starts a bounded investigation with an explicit hypothesis. Rerun only after a relevant change or for a stated discriminating experiment.
+- When CI provides final qualification, its tested revision must match the accepted change and its executed coverage must match the required selection. Review reuses still-valid evidence rather than rerunning checks solely because verification moved to a different phase.
+- Qualification cleanup targets only child PIDs owned by the invocation; machine-wide process-name termination (such as `pkill` by name) is prohibited.
 
 ## Agent skills
 
