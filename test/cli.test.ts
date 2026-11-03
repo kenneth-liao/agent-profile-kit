@@ -1590,6 +1590,9 @@ describe("Workspaces valid in an earlier release", () => {
 
 describe("migrate from the old engine (0.238.0 receipts)", () => {
   const ALL = "antigravity,claude,codex,grok,opencode,pi";
+  /** The old state folder and its backup as text names them, with native separators. */
+  const OLD = join("~", ".agents", "agent-profile-kit");
+  const BACKUP = `${OLD}.migrated`;
 
   /** Runs with the new apkit home apart from the home folder, so the home folder holds only the user's and the old engine's files. */
   function migrateCli(fixture: MigrationFixture, cwd: string, ...args: string[]) {
@@ -1825,7 +1828,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect([result.code, result.err]).toEqual([0, ""]);
     expect(result.out).toContain(`${fixture.projects.one}: migrated`);
     expect(result.out).toContain(`${fixture.projects.two}: migrated`);
-    expect(result.out).toContain("Renamed ~/.agents/agent-profile-kit to ~/.agents/agent-profile-kit.migrated");
+    expect(result.out).toContain(`Renamed ${OLD} to ${BACKUP}.`);
   });
 
   test("a recorded Project folder that no longer exists is named and skipped; the others migrate and the backup is made", async () => {
@@ -1863,7 +1866,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(await snapshot(fixture.state)).toEqual(before);
     expect(existsSync(`${fixture.state}.migrated`)).toBe(false);
     const text = migrateCli(fixture, fixture.root, "migrate", "--yes").out;
-    expect(text).toContain(`Kept ~/.agents/agent-profile-kit as it is. It is renamed to ~/.agents/agent-profile-kit.migrated as a backup once these Projects are migrated:\n  - ${fixture.projects.edited}\n`);
+    expect(text).toContain(`Kept ${OLD} as it is. It is renamed to ${BACKUP} as a backup once these Projects are migrated:\n  - ${fixture.projects.edited}\n`);
 
     await rm(hooks);
     const second = migrateCli(fixture, fixture.root, "migrate", "--yes", "--json");
@@ -1916,7 +1919,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     expect(JSON.parse(again.out)).toEqual({ state: fixture.state, found: false, projects: [], backup: `${fixture.state}.migrated` });
     const text = migrateCli(fixture, fixture.root, "migrate", "--yes");
     expect(text.out).toContain("Nothing to migrate");
-    expect(text.out).toContain("~/.agents/agent-profile-kit.migrated");
+    expect(text.out).toContain(BACKUP);
     expect([await tree(fixture.projects.one!), await tree(fixture.projects.two!)]).toEqual(trees);
     expect(await snapshot(fixture.home)).toEqual(home);
     expect(await snapshot(join(fixture.root, "apkit"))).toEqual(apkit);
@@ -1929,7 +1932,7 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     const home = await snapshot(fixture.home);
     const result = migrateCli(fixture, fixture.root, "migrate", "--yes");
     expect(result.code).toBe(1);
-    expect(result.err).toContain("~/.agents/agent-profile-kit.migrated already exists");
+    expect(result.err).toContain(`${BACKUP} already exists`);
     expect(result.err).toContain("Next: `apkit migrate`");
     expect(await tree(fixture.projects.one!)).toEqual(project);
     expect(await snapshot(fixture.home)).toEqual(home);
