@@ -969,7 +969,7 @@ describe("apkit CLI", () => {
     const setup = cli(home, home, "setup", "--remove", "--yes");
     expect(setup.code).toBe(3);
     expect(setup.out).toContain("Next: `apkit setup --remove --yes --overwrite`");
-    expect(setup.out).toContain(".claude/CLAUDE.md");
+    expect(setup.out).toContain(join(home, ".claude", "CLAUDE.md"));
   });
 
   test("status next commands update the named Project and user-level install from another folder", async () => {
@@ -982,7 +982,7 @@ describe("apkit CLI", () => {
     const status = cli(home, home, "status", "--all", "--workspace", ws);
     expect(status.code).toBe(0);
     expect(status.out).toContain("AGENTS.md");
-    expect(status.out).toContain(".claude/CLAUDE.md");
+    expect(status.out).toContain(join(home, ".claude", "CLAUDE.md"));
     const commands = [...status.out.matchAll(/Next: `([^`]+)`/g)].map((m) => m[1]!);
     expect(commands).toHaveLength(2);
     expect(commands[0]).toStartWith("apkit update ");
