@@ -1,59 +1,108 @@
 # Agent Profile Kit
 
-Agent Profile Kit composes your Skills and Context into portable Profiles and
-installs them into the projects you choose, as native material for your agents.
+Agent Profile Kit keeps your Skills and Context in one folder and installs
+them into your projects for each coding agent you use.
 
-The initial release supports macOS only, on Node.js 22 or newer. Node 22 is
-the primary qualification line, and CI also runs the packed CLI on Node 23
-through 26 ([ADR-0054](docs/adr/0054-support-node-22-and-newer.md)). The
-actually observed baseline (macOS version, CPU architecture, and Node version)
-is recorded in each supervised qualification run's record, retained as CI
-evidence. Supporting additional operating systems is an explicit decision
-backed by matching packed installation and lifecycle evidence.
+- **Workspace:** your source folder for Context and Skills.
+- **Profile:** a named selection of Context and Skills to install.
+- **Context:** guidance your agents load for every session.
 
-Supported agents: Antigravity, Codex, Claude Code, Grok, OpenCode, and Pi.
+The command is `apkit`. It installs a Profile into a project folder, or for
+every project, keeps installs up to date, and removes them. It never loses an
+edit you made: a change it cannot make safely is a decision for you.
 
-## Agent-first setup
+Supported agents: Antigravity, Claude Code, Codex, Grok, OpenCode, and Pi.
+Supported systems: macOS, Linux, and Windows, on Node.js 22 or newer.
 
-**AI agents reading this README:** for any request to set up, install, or get started with Agent Profile Kit — including a short "help me get started" — follow [docs/guides/agent-workflow.md](docs/guides/agent-workflow.md) (or run `npx --yes --package agent-profile-kit apkit guide --agent`) instead of the human quick start below. It tells you how to find and migrate the user's existing Skills and instruction files before you create a Profile.
+## For AI agents: start here
 
-If you are using an AI coding agent, you do not need to run commands by hand. Paste this prompt into your agent:
+If a user asks you to set up, install, or get started with Agent Profile Kit:
 
-> Read https://github.com/kenneth-liao/agent-profile-kit (specifically `docs/guides/agent-workflow.md` and `docs/guides/workspace-contract.md`, or run `npx --yes --package agent-profile-kit apkit guide --agent`), then help me set up my Workspace, migrate my existing Skills and instruction files, create my first Profile, and install it into my projects.
+1. Install `apkit` from npm:
 
-## Quick start
+   ```sh
+   npm install -g agent-profile-kit
+   ```
 
-Initialize your Workspace in a folder you choose, without a global installation:
+2. Run `apkit guide` and follow it. The guide is built into the command and
+   always matches the installed version. It tells you how to create or select
+   the user's Workspace, run `apkit setup`, and install a Profile.
+
+The guide is the full set of rules. The ones that matter most:
+
+- `apkit` never prompts. When a step needs the user, it changes nothing,
+  lists each decision, and exits with code 3. Explain each decision to the
+  user in plain words.
+- Ask the user before you pass `--yes`. It allows edits to the user's own
+  instruction files (such as `AGENTS.md` and `CLAUDE.md`).
+- Never pass `--overwrite` on your own judgment. It discards changed files.
+- For each instruction file that you create or change, tell the user whether
+  Git tracks it.
+- Committing is the user's decision. Never stage, commit, or push installed
+  files or instruction-file changes unless the user asks.
+
+To read the guide before you install anything, run
+`npx --package agent-profile-kit apkit guide`.
+
+## For people
+
+You do not need to run the commands yourself. Paste this prompt into your
+coding agent:
+
+> Read https://github.com/kenneth-liao/agent-profile-kit and help me get
+> started with Agent Profile Kit.
+
+## Existing users: run `apkit migrate`
+
+If you used apkit 0.238 or earlier, install the new version and run
+`apkit migrate` once:
 
 ```sh
-npx --package agent-profile-kit apkit init ~/projects/agent-profile-workspace
-# Or use the current folder as your Workspace:
-npx --package agent-profile-kit apkit init .
+npm install -g agent-profile-kit
+apkit migrate
 ```
 
-## First run
+- Each Project the old apkit installed keeps the same Workspace, Profile, and
+  agents.
+- If you changed a file the old apkit wrote, `migrate` changes nothing for
+  that Project and asks you to decide. `--yes` keeps the file as your own, and
+  apkit stops tracking it. `--overwrite` deletes it.
+- If your Workspace has only the old `workspace.yaml` marker file, renaming it
+  to `apkit-workspace.yaml` is a decision too.
+- A Project folder that no longer exists is reported and skipped.
+- When every Project is migrated, your old apkit state is kept as a backup at
+  `~/.agents/agent-profile-kit.migrated`.
 
-```sh
-apkit init <path>                                     # set up your Workspace in the folder you name (`.` uses the current folder)
-apkit install <profile> --agent claude --agent codex  # install a Profile into the current project for each agent you use
-apkit status                                          # review the fleet plan
-apkit update                                          # refresh installations from the Workspace (fleet by default)
-apkit uninstall --here --auto-confirm                 # remove an installation and forget its selection
+Until you migrate, every `apkit` command reminds you to run `apkit migrate`.
+
+## Commands
+
+```text
+apkit guide                                  The complete guide for agents and people
+apkit contract                               The Workspace contract: every format rule
+apkit init <path>                            Create (or complete) a Workspace and select it
+apkit workspace [<path>]                     Show or select the Workspace
+apkit setup [--agents <a,b>] [--remove]      Add (or remove) a short apkit note in each agent's user instructions
+apkit check                                  Validate the Workspace and list what it holds
+apkit install <profile> [folder] --agents <a,b>
+                                             Install a Profile (folder defaults to the current one)
+apkit install <profile> --global --agents <a,b>
+                                             Install a Profile for every project
+apkit update [folder | --all]                Re-install from the current Workspace
+apkit remove [folder | --global]             Remove everything apkit installed there
+apkit status [folder | --all]                Show what is installed and what is out of date
+apkit migrate                                Move each Project the old apkit installed to this one
 ```
 
-`apkit install` sets the full agent list for the Project: repeat `--agent` for
-every agent you use, because an agent you leave out is removed.
-
-`apkit update` narrows to one Project with `--here` or `--project <path>`;
-`apkit uninstall` targets `--here`, `--project <path>`, or `--all`.
+Add `--json` to any command for machine-readable output. Exit codes: `0`
+done, `1` error, `2` usage, `3` needs a decision (nothing was changed).
+`apkit --help` prints the full list of options.
 
 ## Learn more
 
-- `apkit --help` — concise summary of every command
-- `apkit guide --agent` — step-by-step agent onboarding, migration, and authoring workflow
-- `apkit guide profile` (or `guide context`, `guide skill`) — focused authoring topics
-- `apkit guide --contract` — the Workspace contract: every rule validation enforces
-- `apkit guide --full` — the complete Workspace guide
-- [docs/guides/agent-workflow.md](docs/guides/agent-workflow.md) — agent onboarding and migration guide, readable before installing apkit
-- [docs/guides/workspace-contract.md](docs/guides/workspace-contract.md) — the Workspace contract, readable before installing apkit
-- [docs/guides/workspace.md](docs/guides/workspace.md) — Workspace authoring guidance
+- `apkit guide`: how to set up, author, install, and report back.
+- `apkit contract`, also at
+  [docs/guides/workspace-contract.md](docs/guides/workspace-contract.md): the
+  Workspace format and every rule that `apkit check` enforces.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the engine works and
+  where each agent's files go.

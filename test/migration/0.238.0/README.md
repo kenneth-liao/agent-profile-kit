@@ -6,7 +6,8 @@ content is neutral.
 
 - `workspace/`: the content of `test/retained/compat-0.237.0/` with an extra
   `apkit-workspace.yaml`. It has both marker files, so 0.238.0 and the current
-  engine both accept it. The `workspace.yaml`-only case is #756.
+  engine both accept it. The `workspace.yaml`-only journeys (#756) delete
+  `apkit-workspace.yaml` from their copy.
 - `pristine/`: the Project before the old install. It holds the user's own
   `README.md`, `docs/notes.md`, and `.claude/settings.json`; that last file
   keeps `.claude/` from being removed.
