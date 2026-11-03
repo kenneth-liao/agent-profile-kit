@@ -50,8 +50,14 @@ It is a small command for an agent to drive:
 the released engine to this one; see [Migration from the released engine](#migration-from-the-released-engine).
 
 Exit codes: `0` done, `1` error, `2` usage, `3` needs a Decision (nothing was
-changed). With `--json`, each command prints one JSON value that is the
-complete record of the operation; an error prints `{"error": "..."}`.
+changed). With `--json`, each command prints one JSON object that is the
+complete record of the operation; `status` and `update` put one record per
+location in `results`. An error prints `{"error": "..."}`.
+
+While the old engine's state folder exists, every command except `migrate`
+names `apkit migrate`: human output ends with the notice (`contract` prints it
+on stderr, so stdout stays the contract), and each `--json` object carries
+`migration: {command, state}`. One stat per run decides it.
 
 Every command except `help`, `guide`, and `contract` first reads Local
 Configuration, so a configuration from a newer apkit stops it before anything
@@ -190,7 +196,8 @@ that names the part apkit added: `--overwrite` deletes it, and `--yes` keeps it
 as the user's own, recorded in Local Configuration so a later run does not ask
 again. Once no recorded Project needs a decision or failed, `migrate` renames
 the folder to `~/.agents/agent-profile-kit.migrated` and keeps it, unchanged,
-as a backup; it never replaces an existing backup.
+as a backup; it never replaces an existing backup. A folder with neither
+file holds nothing to migrate, so `migrate` renames it the same way.
 
 ## Verified Locations
 
