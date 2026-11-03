@@ -235,10 +235,10 @@ TEST-013 in the spec reads, exactly:
 
 > **TEST-013** — Scattered sample material for TEST-001 and TEST-012 is neutral: instruction files in project folders (a root `AGENTS.md`, a `CLAUDE.md`, and a nested instruction file) and standard Skills in more than one Host folder, including one Skill with Host-specific frontmatter and one Skill with `references/` and `scripts/` Skill Resources. The principal approves the material before human runs. Qualification runs use the packed release candidate built from `main`, with the README read on `main`.
 
-The material under review is [`test/support/fixtures/scattered-sample/`](../../test/support/fixtures/scattered-sample/)
-— its [`README.md`](../../test/support/fixtures/scattered-sample/README.md)
+The material under review is `test/support/fixtures/scattered-sample/`
+— its `README.md`
 (provenance and specification note, kept outside `material/`) and its
-[`material/`](../../test/support/fixtures/scattered-sample/material) folder:
+`material/` folder:
 
 - `material/AGENTS.md`, `material/CLAUDE.md`, `material/docs/AGENTS.md` —
   instruction files in project folders, including a nested one.
