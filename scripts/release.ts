@@ -1,7 +1,7 @@
 // A small artifact/evidence boundary around plain Bun tests. CI owns timeouts.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 
 function command(exe: string, args: string[], env = process.env): string {
@@ -11,6 +11,8 @@ function command(exe: string, args: string[], env = process.env): string {
     args = [join(dirname(node), "node_modules", "npm", "bin", "npm-cli.js"), ...args];
     exe = node;
   }
+  // Git for Windows may put GNU tar first; it treats drive letters as remote hosts.
+  if (exe === "tar" && process.platform === "win32") exe = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe");
   const result = spawnSync(exe, args, { env, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 });
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.status !== 0) throw new Error(`${exe} ${args.join(" ")}: ${result.error ?? result.signal ?? result.status}\n${result.stdout ?? ""}`);
@@ -96,6 +98,8 @@ async function qualify(directory: string) {
     clean();
     if (record.commit !== identity.commit || await digest(join(directory, identity.archive)) !== identity.digest) throw new Error("Candidate source or digest mismatch");
     const prefix = join(directory, "install");
+    await rm(prefix, { recursive: true, force: true });
+    await rm(join(directory, "tests.xml"), { force: true });
     command("npm", ["install", "--ignore-scripts", "--no-audit", "--no-fund", "--prefix", prefix, join(directory, identity.archive)]);
     const cli = join(prefix, "node_modules", "agent-profile-kit", "dist", "cli.js");
     command(process.execPath, ["test", "--reporter=junit", "--reporter-outfile=" + join(directory, "tests.xml")], { ...process.env, APKIT_CLI: cli });

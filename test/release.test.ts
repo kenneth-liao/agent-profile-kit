@@ -35,7 +35,9 @@ test("candidate records its commit and prerelease version without changing the s
   expect(identity.commit).toMatch(/^[a-f0-9]{40}$/);
   expect(identity.digest).toMatch(/^[a-f0-9]{64}$/);
   expect(JSON.parse(await readFile(join(root, "package.json"), "utf8")).version).toBe("0.239.0");
-  const packed = spawnSync("tar", ["-xOf", join(output, identity.archive), "package/package.json"], { encoding: "utf8" });
+  const tar = process.platform === "win32" ? join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
+  const packed = spawnSync(tar, ["-xOf", join(output, identity.archive), "package/package.json"], { encoding: "utf8" });
+  expect(packed.stderr).toBe("");
   expect(JSON.parse(packed.stdout).version).toBe("0.239.0-rc.1");
 });
 
@@ -58,6 +60,9 @@ test("plain qualification records the full selection and observed runtimes for t
   expect(record.runtime.bun).toBe(Bun.version);
   expect(record.runtime.node).toMatch(/^v\d+/);
   expect(run(root, "verify", output, identity.commit).status).toBe(0);
+  // Requalification must install the archive again, rather than trust a stale prefix.
+  await writeFile(join(output, "install/node_modules/agent-profile-kit/dist/cli.js"), "console.log(99);\n");
+  expect(run(root, "qualify", output).status).toBe(0);
 });
 
 test("release gate rejects substituted bytes, revision, or incomplete and omitted-selection records", async () => {

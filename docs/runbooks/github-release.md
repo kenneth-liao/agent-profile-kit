@@ -43,7 +43,7 @@ it before starting a new candidate. No version commit is needed on the
 integration branch. Never reuse a candidate whose creation failed.
 
 Qualification installs that archive with lifecycle scripts disabled into
-`<candidate>/install`, sets `APKIT_CLI` to its absolute
+`<candidate>/install` (recreated on every attempt), sets `APKIT_CLI` to its absolute
 `node_modules/agent-profile-kit/dist/cli.js`, and runs
 `bun test --reporter=junit --reporter-outfile=<candidate>/tests.xml` from the
 source root. This runs every engine test and exercises the packed CLI on Node.
