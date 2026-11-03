@@ -16,7 +16,7 @@ async function repository() {
     ".gitignore": "dist/\n",
     "package.json": JSON.stringify({ name: "agent-profile-kit", version: "0.239.0", bin: { apkit: "dist/cli.js" }, files: ["dist/cli.js"], scripts: { build: "bun build.ts", prepack: "exit 88" } }),
     "build.ts": 'await Bun.write("dist/cli.js", "#!/usr/bin/env node\\nconsole.log(42);\\n");',
-    "test/cli.test.ts": 'import {test,expect} from "bun:test"; test("packed CLI",()=>expect(Bun.spawnSync(["node", Bun.env.APKIT_CLI!]).stdout.toString().trim()).toBe("42"));',
+    "test/cli.test.ts": 'import {test,expect,describe} from "bun:test"; describe("installed package",()=>test("packed CLI",()=>expect(Bun.spawnSync(["node", Bun.env.APKIT_CLI!]).stdout.toString().trim()).toBe("42")));',
   });
   for (const args of [["init"], ["add", "."], ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "fixture"]]) {
     const result = spawnSync("git", args, { cwd: root });

@@ -101,7 +101,7 @@ async function qualify(directory: string) {
     command(process.execPath, ["test", "--reporter=junit", "--reporter-outfile=" + join(directory, "tests.xml")], { ...process.env, APKIT_CLI: cli });
     const report = await readFile(join(directory, "tests.xml"), "utf8");
     const suites = [...report.matchAll(/<testsuite\s[^>]*file="([^"]+)"[^>]*>/g)];
-    const observed = suites.map((match) => relative(process.cwd(), resolve(match[1]!)).replaceAll("\\", "/")).sort();
+    const observed = [...new Set(suites.map((match) => relative(process.cwd(), resolve(match[1]!)).replaceAll("\\", "/")))].sort();
     if (!record.selectedTests.length || JSON.stringify(observed) !== JSON.stringify(record.selectedTests)) throw new Error("Required test file omitted");
     if (/\b(?:failures|errors|skipped)="[1-9]\d*"/.test(report) || suites.some((match) => /\btests="0"/.test(match[0]))) throw new Error("Required tests failed or were skipped");
     const count = /<testsuites\s[^>]*tests="(\d+)"/.exec(report);
