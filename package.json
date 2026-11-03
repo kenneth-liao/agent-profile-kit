@@ -13,7 +13,7 @@
   },
   "files": [
     "dist/cli.js",
-    "docs/guides",
+    "docs/guides/workspace-contract.md",
     "README.md"
   ],
   "scripts": {
