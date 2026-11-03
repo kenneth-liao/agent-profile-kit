@@ -6,7 +6,8 @@ import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
-import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP } from "./guide.js";
+import { groupedWarning, nextCommand } from "./output.js";
+import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
 import {
   atomicWrite,
   changesManifest,
@@ -129,7 +130,12 @@ async function missingProfiles(workspace: Workspace, installs: readonly string[]
 
 /** Warnings never block; they are shown so that no skipped file goes unnoticed (ADR-0057 §4). */
 function warningLines(workspace: Workspace): string[] {
-  return workspace.warnings.length === 0 ? [] : ["Warnings:", ...workspace.warnings.map((w) => `  - ${w.message}`)];
+  return workspace.warnings.map((w) => groupedWarning(w.message, [display(resolve(workspace.root, w.path))]));
+}
+
+/** Keep the per-Project JSON records complete without changing the array result shape. */
+function withWarnings(outcomes: readonly Outcome[], workspace: Workspace): unknown {
+  return workspace.warnings.length === 0 ? outcomes : outcomes.map((outcome) => ({ ...outcome, warnings: workspace.warnings }));
 }
 
 function agentsFlag(args: Args, fallback: readonly AgentId[] | undefined): AgentId[] {
@@ -323,15 +329,43 @@ async function targets(args: Args): Promise<Target[]> {
   return (await stat(globalManifestPath()).then(() => true, () => false)) ? [...folders, global] : folders;
 }
 
-function describe(outcome: Outcome, mode: "apply" | "status"): string {
-  const text = describeResult(outcome, mode);
-  const overlap = outcome.overlap ?? [];
-  if (mode !== "status" || overlap.length === 0) return text;
-  const ids = overlap.map((id) => `'${id}'`).join(", ");
-  return `${text}\n  Context ${ids} is also installed at user level; an agent selected in both places reads it twice.`;
+/** A shared warning appears once, with every Project affected by that condition. */
+function describeOutcomes(outcomes: readonly Outcome[], mode: "apply" | "status", args: Args): string {
+  const warnings = new Map<string, string[]>();
+  if (mode === "status") {
+    for (const outcome of outcomes) {
+      if (!outcome.overlap?.length) continue;
+      const ids = [...outcome.overlap].sort().map((id) => `'${id}'`).join(", ");
+      const message = `Context ${ids} is also installed at user level; an agent selected in both places reads it twice.`;
+      warnings.set(message, [...(warnings.get(message) ?? []), display(outcome.folder)]);
+    }
+  }
+  return [
+    ...outcomes.map((outcome) => describe(outcome, mode, args)),
+    ...[...warnings].map(([message, paths]) => groupedWarning(message, paths)),
+  ].join("\n") || "Nothing is installed yet.";
 }
 
-function describeResult(outcome: Outcome, mode: "apply" | "status"): string {
+/** Preserve the caller's selection, but make the target and Workspace independent of cwd. */
+function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): string[] {
+  const command = mode === "status" ? "update" : args.positional[0]!;
+  const global = outcome.global === true;
+  const result = command === "setup" ? [command]
+    : command === "install" || (command === "update" && global)
+      ? ["install", outcome.profile!, ...(global ? ["--global"] : [outcome.folder])]
+      : [command, ...(global ? ["--global"] : [outcome.folder])];
+  for (const [flag, value] of args.flags) {
+    if (["--all", "--global", "--json"].includes(flag)) continue;
+    result.push(flag);
+    if (typeof value === "string") result.push(flag === "--workspace" ? resolve(value) : value);
+  }
+  if (result[0] === "install" && !args.flags.has("--agents")) result.push("--agents", outcome.agents!.join(","));
+  if (outcome.issues?.some((i) => i.kind === "consent" || i.kind === "outside") && !result.includes("--yes")) result.push("--yes");
+  if (outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") && !result.includes("--overwrite")) result.push("--overwrite");
+  return result;
+}
+
+function describe(outcome: Outcome, mode: "apply" | "status", args: Args): string {
   const where = outcome.global ? "User level" : display(outcome.folder);
   const who = outcome.agents?.map((id) => AGENTS[id].name).join(", ");
   const what = outcome.profile === undefined ? "" : `'${outcome.profile}'${who ? ` for ${who}` : ""}`;
@@ -340,7 +374,7 @@ function describeResult(outcome: Outcome, mode: "apply" | "status"): string {
       return `Installed ${what} in ${where}.`;
     case "updated":
       return mode === "status"
-        ? `${where}: ${what} is out of date (${outcome.changed?.length ?? 0} to update). Run \`apkit update\`.`
+        ? `${where}: ${what} is out of date.\n${(outcome.changed ?? []).map((path) => `  - ${path}`).join("\n")}\n${nextCommand(nextArgs(outcome, args, mode))}`
         : `Updated ${what} in ${where} (${outcome.changed?.length ?? 0} changed).`;
     case "removed":
       return `Removed ${what} from ${where}.`;
@@ -353,28 +387,20 @@ function describeResult(outcome: Outcome, mode: "apply" | "status"): string {
       return `${where}: ${outcome.message}`;
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
-      const yes = [
-        outcome.issues?.some((i) => i.kind === "consent") ? "the edits to your instruction files" : null,
-        outcome.issues?.some((i) => i.kind === "outside") ? "the writes outside this folder" : null,
-      ].filter((what) => what !== null);
-      const flags = [
-        yes.length > 0 ? `--yes to allow ${yes.join(" and ")}` : null,
-        outcome.issues?.some((i) => i.kind === "changed" || i.kind === "unowned") ? "--overwrite to replace the changed files" : null,
-      ].filter((flag) => flag !== null);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
       const files = (outcome.instructions ?? []).map(
         (file) =>
           `    - ${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git.`,
       );
       const listed = files.length > 0 ? `\n  Instruction files:\n${files.join("\n")}` : "";
-      return `${lead}\n${lines.join("\n")}${listed}\n  Re-run with ${flags.join(" and ")}.`;
+      return `${lead}\n${lines.join("\n")}${listed}\n  Only after the user agrees:\n  ${nextCommand(nextArgs(outcome, args, mode))}`;
     }
   }
 }
 
 /** Until setup has run, init and workspace name it as the next step: agents follow command output. */
 function setupHint(config: { readonly notes?: Readonly<Record<string, unknown>> }): string | null {
-  return Object.keys(config.notes ?? {}).length > 0 ? null : `Next: run \`${COMMAND} setup\` so your agents know about apkit.`;
+  return Object.keys(config.notes ?? {}).length > 0 ? null : `${nextCommand(["setup"])} so your agents know about apkit.`;
 }
 
 interface TrustNeed {
@@ -392,15 +418,15 @@ function trustNeeds(desired: Desired): TrustNeed[] {
   });
 }
 
-function trustLines(needs: readonly TrustNeed[]): string[] {
+function trustLines(needs: readonly TrustNeed[], folder: string): string[] {
   const names = (kind: TrustNeed["untilTrusted"]) => needs.filter((n) => n.untilTrusted === kind).map((n) => AGENTS[n.agent].name);
   const list = (items: readonly string[]) =>
     items.length === 1 ? items[0] : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
   const skills = names("skills");
   const everything = names("everything");
   return [
-    skills.length === 0 ? null : `${list(skills)} ${skills.length === 1 ? "loads" : "load"} this folder's Skills only after you trust the folder.`,
-    everything.length === 0 ? null : `${list(everything)} ${everything.length === 1 ? "loads" : "load"} nothing from this folder until you trust it.`,
+    skills.length === 0 ? null : `${list(skills)} ${skills.length === 1 ? "loads" : "load"} Skills from ${display(folder)} only after you trust that Project.`,
+    everything.length === 0 ? null : `${list(everything)} ${everything.length === 1 ? "loads" : "load"} nothing from ${display(folder)} until you trust that Project.`,
   ].filter((line) => line !== null);
 }
 
@@ -690,7 +716,7 @@ async function run(argv: readonly string[]): Promise<number> {
       await writeConfig({ ...config, workspace: root });
       const next = setupHint(config);
       print(
-        `Workspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.${next ? `\n${next}` : ""}`,
+        `${INTRODUCTION}\nWorkspace ready at ${display(root)}${added.length > 0 ? ` (added ${added.join(", ")})` : ""}.${next ? `\n${next}` : ""}`,
         { workspace: root, added, next },
       );
       return EXIT.ok;
@@ -700,14 +726,14 @@ async function run(argv: readonly string[]): Promise<number> {
       const path = args.positional[1];
       if (path === undefined) {
         const current = (await readConfig()).workspace;
-        print(current === undefined ? "No Workspace selected." : display(current), { workspace: current ?? null });
+        print(`${INTRODUCTION}\n${current === undefined ? "No Workspace selected." : display(current)}`, { workspace: current ?? null });
         return EXIT.ok;
       }
       const workspace = await loadWorkspace(resolve(path));
       const unmarked = workspace.violations.find((v) => v.code === "workspace-missing-manifest" || v.code === "workspace-old-manifest");
       if (unmarked?.code === "workspace-old-manifest") throw new Error(`${display(workspace.root)}: ${unmarked.message}`);
       if (unmarked !== undefined) {
-        throw new Error(`${display(workspace.root)} is not a Workspace. Run \`apkit init ${path}\` to make it one.`);
+        throw new Error(`${display(workspace.root)} is not a Workspace.\n${nextCommand(["init", workspace.root])}`);
       }
       const config = await readConfig();
       await writeConfig({ ...config, workspace: workspace.root });
@@ -725,7 +751,7 @@ async function run(argv: readonly string[]): Promise<number> {
               "These installs use a Profile this Workspace lacks:",
               ...missing.map((m) => `  - ${m.global ? "User level" : display(m.folder)}: '${m.profile}'`),
             ];
-      const lines = [`Selected the Workspace at ${display(workspace.root)}.`, ...problems, ...warningLines(workspace), ...lacks, ...(next ? [next] : [])];
+      const lines = [INTRODUCTION, `Selected the Workspace at ${display(workspace.root)}.`, ...problems, ...warningLines(workspace), ...lacks, ...(next ? [next] : [])];
       print(lines.join("\n"), {
         workspace: workspace.root,
         valid: workspace.violations.length === 0,
@@ -779,7 +805,7 @@ async function run(argv: readonly string[]): Promise<number> {
       const desired = renderFor(workspace, profile, agents, global ? "user" : undefined);
       const outcome = await apply(target, desired, previous, decisions);
       const trust = outcome.result === "needs-decision" ? [] : trustNeeds(desired);
-      print([describe(outcome, "apply"), ...trustLines(trust), ...warningLines(workspace)].join("\n"), {
+      print([describe(outcome, "apply", args), ...trustLines(trust, target.folder), ...warningLines(workspace)].join("\n"), {
         ...outcome,
         trust,
         warnings: workspace.warnings,
@@ -803,7 +829,7 @@ async function run(argv: readonly string[]): Promise<number> {
         const desired = renderFor(workspace, previous!.profile, previous!.agents, previous!.scope);
         outcomes.push(await apply(target, desired, previous, decisions));
       }
-      print(outcomes.map((o) => describe(o, "apply")).join("\n") || "Nothing is installed yet.", outcomes);
+      print([describeOutcomes(outcomes, "apply", args), ...warningLines(workspace)].join("\n"), withWarnings(outcomes, workspace));
       if (outcomes.some((o) => o.result === "needs-decision")) return EXIT.decision;
       return outcomes.some((o) => o.result === "error" || o.result === "not-installed") ? EXIT.error : EXIT.ok;
     }
@@ -817,7 +843,7 @@ async function run(argv: readonly string[]): Promise<number> {
           return EXIT.ok;
         }
         const outcome = await apply(target, null, previous, decisions);
-        print(describe(outcome, "apply"), outcome);
+        print(describe(outcome, "apply", args), outcome);
         return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
       }
       const path = resolve(args.positional[1] ?? process.cwd());
@@ -835,7 +861,7 @@ async function run(argv: readonly string[]): Promise<number> {
         return EXIT.ok;
       }
       const outcome = await apply({ folder }, null, previous, decisions);
-      print(describe(outcome, "apply"), outcome);
+      print(describe(outcome, "apply", args), outcome);
       return outcome.result === "needs-decision" ? EXIT.decision : EXIT.ok;
     }
 
@@ -845,7 +871,7 @@ async function run(argv: readonly string[]): Promise<number> {
       const detected = await detectAgents(homedir(), process.env);
       const agents = remove ? [] : args.flags.has("--agents") ? agentsFlag(args, undefined) : detected;
       if (!remove && agents.length === 0) {
-        print("No supported agents found on this machine. Name them with --agents.", { result: "no-agents" });
+        print(`No supported agents found on this machine. Select the agents to set up.\n${nextCommand(["setup", "--agents", Object.keys(AGENTS).join(",")])}`, { result: "no-agents" });
         return EXIT.error;
       }
       const targets = await noteTargets(agents, homedir(), process.env);
@@ -855,7 +881,7 @@ async function run(argv: readonly string[]): Promise<number> {
       const files = targets.map((t) => ({ path: t.path, agents: t.agents }));
       if (open.length > 0) {
         const outcome: Outcome = { folder: homedir(), result: "needs-decision", issues: open };
-        print(describe(outcome, "apply"), { result: "needs-decision", issues: open, files });
+        print(describe(outcome, "apply", args), { result: "needs-decision", issues: open, files });
         return EXIT.decision;
       }
       await executeNotes(planned);
@@ -878,12 +904,12 @@ async function run(argv: readonly string[]): Promise<number> {
       const workspace = await workspaceFor(args);
       const outcomes: Outcome[] = [];
       for (const target of await targets(args)) outcomes.push(await statusOf(workspace, target));
-      print(outcomes.map((o) => describe(o, "status")).join("\n") || "Nothing is installed yet.", outcomes);
+      print([describeOutcomes(outcomes, "status", args), ...warningLines(workspace)].join("\n"), withWarnings(outcomes, workspace));
       return EXIT.ok;
     }
 
     default:
-      throw new UsageError(`Unknown command '${command}'. Run \`apkit help\`.`);
+      throw new UsageError(`Unknown command '${command}'.\n${nextCommand(["help"])}`);
   }
 }
 

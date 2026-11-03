@@ -5,92 +5,76 @@ Agent Profile Kit is the shared language for an agent-independent system of reus
 ## Language
 
 **Agent Profile Kit**:
-The open-source tool and format that composes reusable agent material into Profiles and adapts them for different Agent Hosts while each maintained fact retains one canonical home.
+The open-source tool and format that installs a Workspace's Profiles into folders for several Agent Hosts, at Verified Locations, while each maintained fact keeps one canonical home. Its command is `apkit`. It never prompts: a step that needs the user is a Decision.
 _Avoid_: Monorepo, universal agent runtime
 
 **Agent Profile Kit Workspace**:
-The user's single canonical source of Profiles, Context, and Skills consumed by Agent Profile Kit. It may own both Profile-selected artifacts and unselected universal artifacts; selection controls managed project delivery, not whether material is valid Workspace source. There is no default location: every command records or selects a Workspace path the user gave, and current Local Configuration explicitly selects that one existing absolute or home-relative Workspace path on this machine. `init <workspace>` may provision a missing or empty non-symlink destination before recording it, or adopt an existing valid Workspace. It may be a Git repository version-controlled independently of the tool.
+The user's single canonical source of Profiles, Context, and Skills that Agent Profile Kit installs from. It holds plain files the user owns, and it may be a Git repository versioned apart from the tool. There is no default location: `init <path>` creates or completes a Workspace at the path the user gives and selects it, and `workspace <path>` selects an existing one. Local Configuration records the selection. The format is the Workspace contract (`apkit contract`).
 _Avoid_: Open-source tool repository, Profile Installation, Host-global second source
 
 **Workspace Manifest**:
-The `workspace.yaml` file that marks a Workspace root and declares the Workspace schema version without listing or duplicating artifact content.
-_Avoid_: Installation Receipt, Profile
+The `apkit-workspace.yaml` file that marks a folder as a Workspace. It may be empty; a missing `schema_version` means version 1. A folder with only the older `workspace.yaml` is not a Workspace, and validation names the rename (ADR-0057).
+_Avoid_: Installation Manifest, Profile
+
+**Workspace Error**:
+A validation finding that would make an install wrong or ambiguous. Any Workspace Error stops every `install` and `update` until it is fixed. A file that apkit skips is a warning instead: every warning is shown, and no warning stops an install (ADR-0057).
+_Avoid_: Decision, Blocker
 
 **Agent**:
-The user-facing term for an agent product or environment that consumes Agent Profile Kit material (such as Antigravity, Claude Code, Codex, Cursor, Grok, OpenCode, or Pi). User-facing surfaces (the `--agent` flag, `apkit list agents`, help output, guides, and the README) call these tools agents. Contributor and architectural documentation maintains "Agent Host" for the integration target and its Adapters (ADR-0051).
+The user-facing term for an Agent Host (ADR-0051). User-facing surfaces (the `--agents` flag, help output, the guide, and the README) say agent.
 _Avoid_: Host (in user-facing surfaces), Agent Profile Kit implementation
 
 **Agent Host**:
-An agent product or environment that consumes Agent Profile Kit material, such as Antigravity, Codex, Claude Code, Grok, OpenCode, or Pi. This term is used in contributor, architecture, and adapter documentation to describe the external execution environment and integration target, whereas user-facing surfaces use "agent" (ADR-0051).
-_Avoid_: Agent Profile Kit implementation
+An agent product that consumes Agent Profile Kit material: Antigravity, Claude Code, Codex, Grok, OpenCode, or Pi. Contributor and architecture documentation uses this term for the external environment that apkit installs for (ADR-0051).
+_Avoid_: Adapter, Agent Profile Kit implementation
 
-**Adapter**:
-The single boundary that owns all host-specific knowledge for one Agent Host and translates Agent Profile Kit material without a portable native form into concepts that Host supports.
-_Avoid_: Installer, canonical source, duplicate implementation
-
-**Host Setup Step**:
-A typed, Adapter-authored action a user must take in an Agent Host after generated output is applied, including the consequence of skipping it when one exists. Every step is classified once at the Adapter boundary as transition-triggered (caused by the current lifecycle transition and tied to the generated output that makes it relevant) or standing (a persistent constraint); presentation may order, filter, and render these steps but does not derive Host-specific requirements from installed files. One line of presentation-owned host-neutral guidance sits beside Adapter-authored steps: the install receipt's start-folder line ("Start your agents from this Project folder, not a subfolder.") renders on first delivery for every agent because launching from the Project folder is always correct, and it replaces the former Codex Adapter-authored bound-root `launch-constraint` step (ADR-0014, DEC-006 of spec #672). Other Host Setup Steps stay Adapter-authored, and each step authors two texts together at its creation site: the machine `message` that stays the machine `setupSteps` value (DEC-004) and a plain human rendering, authored once per agent, that every public human surface reads (the install receipt composes one line per agent with the display name once); the machine message never reaches human output and lives only in machine JSON and the `apkit machine` namespace.
-_Avoid_: Activation, generated output, Installer-derived Host guidance, presentation-invented Host requirements
-
-**Capability Contract**:
-The machine-readable set of behaviors an Adapter can preserve for a detected Agent Host version and surface. The Installer compares artifact requirements against this contract before installation.
-_Avoid_: Best-effort compatibility, version number alone
+**Verified Location**:
+A project or user-level path where apkit writes a Host's Skills or Context, kept in one location table in the engine. Each one has a dated live check in which a marker reached a real session of that Host (ADR-0055, ISC-68). A Host is added with a table row and its live check. The live-check record is in `docs/ARCHITECTURE.md`.
+_Avoid_: Adapter, Capability Contract, version probe
 
 **Host Resolution**:
-An Agent Host's native discovery, precedence, deduplication, and collision behavior across Agent Profile Kit output and other Host-visible material. Agent Profile Kit relies on this behavior rather than reproducing it.
-_Avoid_: Adapter-owned resolver, emulated Host inventory
-
-**Installer**:
-The mechanism that reads the Workspace and Project Bindings, combines Adapter output plans, and reconciles Profile Installations. Portable Skills keep their canonical package content apart from the Adapter-owned generated-source notice and Host-native model-invocation projection (ADR-0018, ADR-0041).
-_Avoid_: Adapter, runtime router
+An Agent Host's native discovery, precedence, deduplication, and collision behavior across Agent Profile Kit output and other Host-visible material. Agent Profile Kit relies on this behavior rather than reproducing it (ADR-0012, ADR-0055).
+_Avoid_: apkit-owned resolver, emulated Host inventory
 
 **Profile Installation**:
-A generated, host-native snapshot of one Workspace Profile installed into one bound project for all Agent Hosts selected by its Project Binding. The Installer exclusively owns its normalized output set; the Profile Installation is disposable output with no authority independent of its Workspace source. Matching durable installation identity — an active Installation Receipt — grants the Installer authority over each recorded generated output root; content differences from the recorded output are refreshable drift, not ownership changes, while identity or path-safety failures remain Blockers.
-_Avoid_: Canonical source, live link, Temporary Profile Installation
+One Workspace Profile installed for selected Agent Hosts into one folder: any folder, including a linked worktree. It is generated output with no authority apart from its Workspace source. There is one kind of installation; its Installation Manifest owns it, and `remove` deletes it with the folders its writes left empty (ADR-0056).
+_Avoid_: Canonical source, live link, Temporary Profile Installation, Project Binding
 
-**Temporary Profile Installation**:
-Generated Host-native output for one Profile, one or more Hosts, and one explicit Project whose desired lifetime is owned by a temporary Installation Receipt rather than a Project Binding. It uses the same receipt shape, Adapter planning, output ownership, and Repository Exclusion Contribution machinery as an ordinary installation, creates no Local Configuration change, and is removed only through `apkit machine remove-temp` by durable temporary installation identity.
-_Avoid_: Project Binding, ordinary Profile Installation, global apply
+**User-Level Installation**:
+A Profile Installation made with `install --global`: the Profile's Skills go in each Host's user-level Skills folder, and its Context goes in a Context Section of each Host's user-level instruction file. It follows the same consent, hash, and restore rules as a project install, and its Installation Manifest is `global.json` in the apkit home.
+_Avoid_: Global apply, Host-global second source
 
-**Output Ownership Conflict**:
-A condition where reconciling a planned Profile Installation output would overwrite, adopt, or conflict with project material not proven to be owned by that installation. Same-identity material at a different Host-visible location is Host Resolution, not an Output Ownership Conflict.
-_Avoid_: Host Skill collision, precedence conflict
+**Installation Manifest**:
+The record that owns one Profile Installation: `.agents/apkit.json` in the install folder, or `global.json` in the apkit home for the User-Level Installation. It records the Profile, the Hosts, a content hash of each file apkit wrote, and the hash of each Context Section. apkit replaces or deletes only what still matches its hash; anything else is a Decision (ADR-0056).
+_Avoid_: Installation Receipt, Installation State, Project Binding
 
-**Blocker**:
-A condition that prevents a lifecycle operation from proceeding. A Blocker is one exhaustively typed structured record (`kind`, `scope`, and `affectedItems`, plus per-kind non-prose evidence such as occupation type, ownership action, or foreign diagnostic detail) normalized at the Installer boundary, carrying facts only; the Installer emits no user-facing sentence. Presentation owns every `problem`, `requirement`, and `remedy` sentence, keyed by the typed kind. `scope: global` applies independently of one project; `scope: project` carries one canonical project identity that no sentence duplicates. Machine JSON publishes the structured record and its presentation-owned wording verbatim; human views render the same record and derive grouping and verbose completeness from it.
-_Avoid_: Warning, reconciliation item, Output Ownership Conflict
+**Context Section**:
+The marked part of an instruction file that apkit owns: the `apkit` section in a project's `AGENTS.md`, and the `apkit:global` section in a user-level instruction file. When `CLAUDE.md` exists in a project and Claude Code is selected, `CLAUDE.md` gets one `@AGENTS.md` line instead of a section. Text outside the section or line belongs to the user, and an edit to these files needs consent (ADR-0055, ADR-0056).
+_Avoid_: Generated instruction file, whole-file ownership
 
-**Apply Receipt**:
-The pre-apply ReconciliationReport retained after a successful apply. It represents `Applied` generated-output and Repository Exclusion work; a separate post-commit reconciliation snapshot is authoritative for the resulting Profile Installation state and represents `Pending` work.
-_Avoid_: Resulting state, pending report
+**Setup Note**:
+The short marked note that `setup` adds to each installed Host's user-level instructions. It tells every session to run `apkit guide` before it changes Skills, Context, or Profiles, and it names only that command, so a newer guide never makes it stale. `setup --remove` restores each file.
+_Avoid_: Host Setup Step, User-Level Installation
 
-**Host Bundle**:
-A plugin, extension, or similar Agent Host-native package generated by an Adapter from canonical Agent Profile Kit artifacts.
-_Avoid_: Canonical artifact, independent source
-
-**Installation State**:
-The durable machine-local JSON ownership evidence used to prove ownership and drive restoration, teardown, and recovery of Profile Installations. It contains active and retired Installation Receipts and compact removed-temporary identities, but is not canonical Workspace source or desired state independent of Workspace and Project Bindings.
-_Avoid_: Disposable Profile Installation output, Workspace source, reconstructed Host inventory
-
-**Installation Receipt**:
-The single ownership record for one ordinary or Temporary Profile Installation. It owns installation identity, lifetime, canonical Project, Profile ID, desired-input digest, one Host receipt map, generated output roots, and the Project folders its installation created; it records no exclusion target or entry list. An active receipt grants the Installer authority over each recorded generated output root while the recorded paths are safe; a receipt retired by the removed `unbind` boundary no longer proves active ownership and persists only as the teardown authority whose recorded detail a later `update` consumes. Directory roots retain one aggregate ownership hash and no member tree.
-_Avoid_: Installation Manifest, presentation history, selected Context, generated output
+**Decision**:
+A planned change that needs the user before apkit writes anything: an edit to a file the user owns or a write through a symlink that leads outside the folder (allowed by `--yes`), or a file that apkit wrote and someone changed, or a file apkit did not write (replaced only with `--overwrite`). When a Decision is open, the run changes nothing, lists every Decision, and exits 3.
+_Avoid_: Blocker, prompt, Output Ownership Conflict
 
 **Repository Exclusion Contribution**:
-The best-effort exclusion bookkeeping derived at write time from active Installation Receipts' recorded output roots. No exclusion target or entry list is persisted in any record; `apply` rewrites the Agent Profile Kit-owned section of each derived target as a cache, preserving unrelated bytes, and any failure to read, derive, or write produces one warning that never blocks the installation.
-_Avoid_: Repository Exclusion Record (as a separately persisted record), shared `.gitignore`, persisted target union, receipt-recorded exclusion evidence
+The marked block in a repository's `.git/info/exclude` that keeps one install folder's Skill copies and Installation Manifest out of `git status`. Each install folder owns its own block, so subfolders and linked worktrees that share the exclude file do not overwrite each other. apkit never hides an instruction file; it says which ones it creates or changes and whether Git tracks them, and the user decides what to commit (ADR-0056).
+_Avoid_: Shared `.gitignore`, hidden instruction file
+
+**Local Configuration**:
+The machine-local file `config.json` in the apkit home (`~/.agents/apkit`, or `APKIT_HOME`). It holds the selected Workspace, the list of installed folders that `--all` uses, the files that hold the Setup Note, and the exclude file of each folder's block. What is installed in a folder is read from that folder's Installation Manifest, not from here. The released engine's `~/.agents/agent-profile-kit/config.yaml` and its receipts are input to `apkit migrate` only.
+_Avoid_: Project Binding, canonical default, credential value, Profile
 
 **Artifact ID**:
-The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml`; a Context Module's Artifact ID is its path under `context/` without `.md`, with `/` between folders, every segment a lowercase kebab-case name.
+The stable identity of a canonical Agent Profile Kit artifact, unique within its artifact type and independent of its display name. A Skill's Agent Skills `name` is its Artifact ID; a Profile's Artifact ID is its file name under `profiles/` without `.yaml` or `.yml`; a Context Module's Artifact ID is its path under `context/` without `.md`, with `/` between folders. Two Context Module IDs that differ only in case are a Workspace Error.
 _Avoid_: Display name, frontmatter-carried identity, organizational path (except a Context Module's path, which is its ID, and a Profile's file name, which is its ID)
 
 **Credential Requirement**:
-A semantic declaration that an artifact needs authenticated access, independent of how an Agent Host or system supplies it. Credential values never belong to Agent Profile Kit source or Installation State.
+A semantic declaration that an artifact needs authenticated access, independent of how an Agent Host or system supplies it. Credential values never belong to Agent Profile Kit source, Local Configuration, or an Installation Manifest.
 _Avoid_: Token, API key, host credential binding
-
-**Local Configuration**:
-The untracked source of machine-specific, non-secret values, including Project Bindings and the required explicit Workspace path, that bind canonical definitions to the current system. `init` records the path the user gave; without a path on a machine that has no selected Workspace it refuses instead of choosing a location (ADR-0049), and an existing selection cannot be silently switched to a different canonical Workspace. Older files without `workspace` are migration input only and are rejected by desired-state and binding-recording commands until `init` upgrades them to a path the user gives.
-_Avoid_: Canonical default, credential value, Profile
 
 **Skill**:
 The canonical package for a reusable agent workflow, conforming to the portable subset of the Agent Skills open standard. A Skill contains `SKILL.md` and may include supporting scripts, references, and assets.
@@ -101,7 +85,7 @@ Always-loaded declarative facts, preferences, and standing rules selected by a P
 _Avoid_: Skill, procedure
 
 **Context Module**:
-An independently reusable unit of Context organized around one reason to change. A Context Module is any Markdown file under `context/`, at any depth; its ID is its path under `context/` without `.md`. apkit reads no Context frontmatter and requires none: each file's bytes are delivered as written after the generated Context envelope header. Profiles select Context Modules, and Adapters compose them for an Agent Host.
+An independently reusable unit of Context organized around one reason to change. A Context Module is any Markdown file under `context/`, at any depth and with any `.md` file name; its ID is its path under `context/` without `.md` (ADR-0057). apkit reads no Context frontmatter: each file's bytes are delivered as written, in Profile order, inside the Context Section.
 _Avoid_: Profile, generated host instructions, frontmatter-carried identity
 
 **Skill Resource**:
@@ -113,12 +97,8 @@ Functionality supplied by an Agent Host or the surrounding system that Agent Pro
 _Avoid_: Tool, Skill Resource
 
 **Profile**:
-An explicit named selection containing exactly an Artifact ID, Context, and Skills suited to a kind of work and reusable across projects. A Profile's Artifact ID is its file name under `profiles/` without `.yaml`, and the file holds only its `context` and `skills` lists. A Project Binding selects one Profile for a project, and Adapters add its material without replacing user-managed Host or project configuration. Agents, Hooks, and Tools are not implemented Profile selection categories.
+An explicit named selection of Context and Skills suited to a kind of work and reusable across projects. A Profile's Artifact ID is its file name under `profiles/`, and the file holds only its `context` and `skills` lists. A missing list is empty, and `skills: all` selects every Skill in the Workspace; Context has no `all`, because Context is joined in list order (ADR-0057). `install <profile>` installs one Profile into a folder for the Hosts named with `--agents`.
 _Avoid_: Agent, Agent Host, Profile Installation
-
-**Project Binding**:
-The machine-local association that selects one Profile and a set of Agent Hosts for exactly one explicit project root. Each project has exactly one Project Binding, separate from both the reusable Profile and the project's own configuration.
-_Avoid_: Profile, project configuration, per-session selection
 
 **Activation**:
 The event or entrypoint that starts a Skill during use. A user request, command, model selection, or hook can provide an Activation.
@@ -128,7 +108,14 @@ _Avoid_: Skill, installation, source update
 An Agent Host-specific, user-facing entrypoint that explicitly activates a Skill. A Command does not own workflow instructions independently of the Skill it activates.
 _Avoid_: Skill, canonical workflow
 
-**Primary Cause**:
-The single authoritative category assigned to a Project in lifecycle status presentation, strictly prioritized: `needs attention` (blocker, malformed ownership state, blocked state, or removal), `generated files changed` (modified generated output files), `generated files missing` (absent generated output files), `not installed yet` (uninstalled addition), `source changed` (workspace source or binding modified since last update), or `up to date` (settled, requiring no synchronization work). Status presentation at all detail levels consistently retains these default cause labels rather than introducing synonyms (`addition`, `drifted output`, `stale source`, `current`), adding specific conditions or affected items beside the canonical label; the human column heading for these labels reads `Status` (US-006 of spec #672).
-_Avoid_: Reconciliation kind synonym, machine state renaming
+## Retired terms
 
+These terms named parts of the released engine that ADR-0055 and ADR-0056 removed. Do not use them for the current engine. Each maps to its successor:
+
+- **Adapter**, **Capability Contract**, **Host Bundle**: Verified Location.
+- **Host Setup Step**: Setup Note for the user-level note; the install output's trust lines are presentation, not a domain record.
+- **Project Binding**, **Temporary Profile Installation**: Profile Installation and the folder list in Local Configuration.
+- **Installation Receipt**, **Installation State**, **Apply Receipt**: Installation Manifest.
+- **Installer**: no named concept; the engine's planner is described in `docs/ARCHITECTURE.md`.
+- **Blocker**, **Output Ownership Conflict**: Decision, or Workspace Error.
+- **Primary Cause**: none; `status` reports each install's result.
