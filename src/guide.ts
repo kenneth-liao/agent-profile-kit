@@ -2,6 +2,7 @@
 // running `apkit guide`; nothing has to be installed first, and the guide
 // always matches the installed version.
 import CONTRACT from "../docs/guides/workspace-contract.md" with { type: "text" };
+import { nextCommand } from "./output.js";
 import { COMMAND } from "./command.js";
 import { AGENTS } from "./render.js";
 
@@ -11,7 +12,12 @@ export { COMMAND };
 export { CONTRACT };
 
 /** Where failed validation sends the reader. */
-export const CONTRACT_POINTER = `Read the Workspace contract: \`${COMMAND} contract\``;
+export const CONTRACT_POINTER = nextCommand(["contract"]);
+
+/** Short first-use explanation, shared by the introductory human surfaces. */
+export const INTRODUCTION = `Workspace: your source folder for Context and Skills.
+Profile: a named selection of Context and Skills to install.
+Context: guidance your agents load for every session.`;
 
 export const HELP = `${COMMAND} — install Workspace Profiles into folders for your agents
 
@@ -47,6 +53,8 @@ Exit codes: 0 done, 1 error, 2 usage, 3 needs a decision (nothing was changed)
 `;
 
 export const GUIDE = `# Agent Profile Kit guide
+
+${INTRODUCTION}
 
 The user keeps their Skills and Context in one Workspace folder and groups
 them into Profiles. ${COMMAND} installs a Profile into any project folder for
@@ -89,8 +97,8 @@ All commands are non-interactive. Add --json when you need to parse results.
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
 
 Agent ids: ${Object.keys(AGENTS).join(", ")}. To change a folder's agents or
-Profile, run install again with the new values. The folder defaults to the
-current directory.
+Profile, run \`${COMMAND} install <profile> <folder> --agents <ids>\` with the
+new values. The folder defaults to the current directory.
 
 ## First-time setup
 
@@ -134,8 +142,8 @@ Only after setup, move the user's material into the Workspace and install a Prof
 ## Decisions (exit code 3)
 
 When a step needs the user's decision, ${COMMAND} changes nothing, prints the
-decisions, and exits with code 3. Explain each one to the user in plain words,
-then re-run the same command:
+decisions, and exits with code 3. Explain each one to the user in plain words.
+The Next line gives the complete command to run after the user agrees:
 
 - For each listed instruction file (AGENTS.md, CLAUDE.md, or an agent's
   user-level file), tell the user whether it will be created, changed, or
@@ -159,7 +167,9 @@ files or instruction-file changes unless the user asks.
 
 End with a short summary in plain words, not a list of every file and step:
 
-- What changed: set up, installed, updated, or removed, and where.
+- What changed: set up, installed, updated, or removed. Name each Project by
+  its path, even when Projects have the same folder name.
+- Each warning once, with every affected Project or file listed by path.
 - Each instruction file created or changed in a Git repository, whether Git
   tracks it, and that committing it is the user's call.
 - Every line ${COMMAND} printed about trusting a folder, and that agents pick
@@ -170,7 +180,8 @@ End with a short summary in plain words, not a list of every file and step:
   to date.
 - What they can do next: add a Context Module or a Skill to the Workspace,
   list it in a Profile (\`skills: all\` already includes every Skill), then
-  ask you to update their installs.
+  run \`${COMMAND} update --all\`. Give each command to run next on a
+  Next line in the same format as apkit, with actual arguments and quoted paths.
 
 Give other paths and details only if the user asks.
 `;

@@ -23,12 +23,17 @@ function cli(home: string, cwd: string, ...args: string[]) {
   return cliWithEnv({}, home, cwd, ...args);
 }
 
-/** Like `cli`, with agent folder variables (such as `CLAUDE_CONFIG_DIR`) set in `extra`. */
-function cliWithEnv(extra: Record<string, string>, home: string, cwd: string, ...args: string[]) {
-  const [exe, ...pre] = RUNTIME as [string, ...string[]];
+function cliEnv(home: string, extra: Record<string, string> = {}): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
   for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
   Object.assign(env, extra);
+  return env;
+}
+
+/** Like `cli`, with agent folder variables (such as `CLAUDE_CONFIG_DIR`) set in `extra`. */
+function cliWithEnv(extra: Record<string, string>, home: string, cwd: string, ...args: string[]) {
+  const [exe, ...pre] = RUNTIME as [string, ...string[]];
+  const env = cliEnv(home, extra);
   const result = spawnSync(exe, [...pre, ...args], { cwd, env, encoding: "utf8" });
   return { code: result.status, out: result.stdout, err: result.stderr };
 }
@@ -36,8 +41,7 @@ function cliWithEnv(extra: Record<string, string>, home: string, cwd: string, ..
 /** Like `cli`, but returns at once, so several runs can overlap. */
 function cliAsync(home: string, cwd: string, ...args: string[]): Promise<{ code: number | null; out: string; err: string }> {
   const [exe, ...pre] = RUNTIME as [string, ...string[]];
-  const env: Record<string, string | undefined> = { ...process.env, APKIT_HOME: home, HOME: home, USERPROFILE: home };
-  for (const name of ["CLAUDE_CONFIG_DIR", "CODEX_HOME", "XDG_CONFIG_HOME", "PI_CODING_AGENT_DIR", "GROK_HOME"]) delete env[name];
+  const env = cliEnv(home);
   return new Promise((done, fail) => {
     const child = spawn(exe, [...pre, ...args], { cwd, env });
     let out = "";
@@ -266,7 +270,7 @@ describe("apkit CLI", () => {
     const refused = cli(home, home, "workspace", plain);
     expect(refused.code).toBe(1);
     expect(refused.err).toContain(`${COMMAND} init`);
-    expect(cli(home, home, "workspace").out.trim()).toBe("No Workspace selected.");
+    expect(cli(home, home, "workspace").out.trim()).toEndWith("No Workspace selected.");
   });
 
   test("lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace", async () => {
@@ -345,6 +349,14 @@ describe("apkit CLI", () => {
     const again = JSON.parse(cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--json").out);
     expect(again.result).toBe("unchanged");
     expect(again.warnings.length).toBe(skipped.length + 1);
+
+    for (const command of ["update", "status"]) {
+      const result = cli(home, folder, command, "--all", "--workspace", ws);
+      expect(result.code).toBe(0);
+      for (const path of skipped) expect(result.out).toContain(join(ws, ...path.split("/")));
+      const records = JSON.parse(cli(home, folder, command, "--all", "--workspace", ws, "--json").out);
+      expect(records[0].warnings.map((w: { path: string }) => w.path)).toContain("skills/README.md");
+    }
 
     // An error still blocks the install, and the warnings are listed with it.
     await writeTree(ws, { "profiles/old.yaml": "skills: [old, gone]\n" });
@@ -813,6 +825,7 @@ describe("apkit CLI", () => {
       const result = cli(home, newer, ...args);
       expect(`${result.out}${result.err}`).toContain("written by a newer apkit");
       expect(`${result.out}${result.err}`).toContain("Update apkit");
+      expect(`${result.out}${result.err}`).toContain("Next: `npm install --global agent-profile-kit`");
       expect(await snapshot(newer)).toEqual(before);
       expect(await read(home, "config.json")).toBe(config);
     }
@@ -901,11 +914,11 @@ describe("apkit CLI", () => {
       cli(home, await tempDir("project"), "install", profile, "--agents", agents, "--yes").out;
 
     const skills = await install("engineering", "codex,pi");
-    expect(skills).toContain("Codex and Pi load this folder's Skills only after you trust the folder.");
+    expect(skills).toMatch(/Codex and Pi load Skills from .+ only after you trust that Project\./);
     const everything = await install("skills-only", "grok,antigravity");
-    expect(everything).toContain("Antigravity and Grok load nothing from this folder until you trust it.");
+    expect(everything).toMatch(/Antigravity and Grok load nothing from .+ until you trust that Project\./);
     // Grok holds back Context too; Codex loads Context without trust, so a Profile with no Skills needs no line for it.
-    expect(await install("writing", "codex,grok")).toEndWith("\nGrok loads nothing from this folder until you trust it.\n");
+    expect(await install("writing", "codex,grok")).toMatch(/\nGrok loads nothing from .+ until you trust that Project\.\n$/);
     expect(await install("engineering", "claude,opencode")).not.toContain("trust");
     for (const out of [skills, everything]) expect(out).not.toMatch(/\bloaded\b/);
   });
@@ -924,6 +937,149 @@ describe("apkit CLI", () => {
     expect((await install("claude")).trust).toEqual([]);
     const global = cli(home, home, "install", "skills-only", "--global", "--agents", "codex,grok", "--json");
     expect(JSON.parse(global.out).trust).toEqual([]);
+  });
+
+  test("a Workspace selection remedy quotes the complete init command", async () => {
+    const home = await tempDir("home");
+    const folder = join(await tempDir("sources"), "empty Workspace");
+    await mkdir(folder);
+    const result = cli(home, home, "workspace", folder);
+    expect(result.code).toBe(1);
+    expect(result.err).toContain(`Next: \`apkit init '${folder}'\``);
+  });
+
+  test("remove and setup removal decisions give complete commands without losing existing flags", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("project");
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--workspace", ws, "--yes").code).toBe(0);
+    await writeTree(folder, { ".claude/skills/summarize/SKILL.md": "Keep my edit" });
+    const before = await snapshot(folder);
+    const remove = cli(home, home, "remove", folder, "--yes");
+    expect(remove.code).toBe(3);
+    expect(remove.out).toContain("Next: `apkit remove ");
+    expect(remove.out).toContain(folder);
+    expect(remove.out).toContain(" --yes --overwrite`");
+    expect(await snapshot(folder)).toEqual(before);
+    await writeTree(home, { ".claude/CLAUDE.md": "# My instructions\n" });
+    expect(cli(home, home, "setup", "--agents", "claude", "--yes").code).toBe(0);
+    await writeTree(home, { ".claude/CLAUDE.md": (await read(home, ".claude/CLAUDE.md")).replace("apkit guide", "apkit guide (edited)") });
+    const setup = cli(home, home, "setup", "--remove", "--yes");
+    expect(setup.code).toBe(3);
+    expect(setup.out).toContain("Next: `apkit setup --remove --yes --overwrite`");
+    expect(setup.out).toContain(".claude/CLAUDE.md");
+  });
+
+  test("status next commands update the named Project and user-level install from another folder", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("project");
+    expect(cli(home, folder, "install", "engineering", "--agents", "claude", "--workspace", ws, "--yes").code).toBe(0);
+    expect(cli(home, home, "install", "engineering", "--global", "--agents", "claude", "--workspace", ws, "--yes").code).toBe(0);
+    await writeTree(ws, { "context/communication.md": "# Changed guidance\n" });
+    const status = cli(home, home, "status", "--all", "--workspace", ws);
+    expect(status.code).toBe(0);
+    expect(status.out).toContain("AGENTS.md");
+    expect(status.out).toContain(".claude/CLAUDE.md");
+    const commands = [...status.out.matchAll(/Next: `([^`]+)`/g)].map((m) => m[1]!);
+    expect(commands).toHaveLength(2);
+    expect(commands[0]).toStartWith("apkit update ");
+    expect(commands[0]).toContain(folder);
+    expect(commands[0]).toContain(" --workspace ");
+    expect(commands[0]).toContain(ws);
+    expect(commands[1]).toContain("apkit install engineering --global");
+    expect(commands[1]).toContain("--agents claude");
+    for (const command of commands) {
+      if (process.platform === "win32") continue;
+      const env = cliEnv(home);
+      const result = spawnSync("sh", ["-c", 'exec "$@" ' + command.slice("apkit ".length), "apkit", ...RUNTIME], { cwd: home, env, encoding: "utf8" });
+      expect([result.status, result.stderr]).toEqual([0, ""]);
+    }
+    if (process.platform !== "win32") {
+      const after = JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out);
+      expect(after.map((o: { result: string }) => o.result)).toEqual(["unchanged", "unchanged"]);
+    }
+  });
+
+  test("trust warnings name the affected Project path", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("project");
+    const result = cli(home, folder, "install", "engineering", "--agents", "codex,grok", "--workspace", ws, "--yes");
+    expect(result.code).toBe(0);
+    const warnings = result.out.split("\n").filter((line) => line.includes("trust"));
+    expect(warnings).toHaveLength(2);
+    for (const line of warnings) expect(line).toContain(folder);
+  });
+
+  test("shared warnings list every Project once and keep different Context warnings separate", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const projects = await tempDir("projects");
+    const first = join(projects, "one", "same name");
+    const second = join(projects, "two", "same name");
+    const different = join(projects, "three", "same name");
+    const unrelated = join(projects, "four", "same name");
+    await writeTree(ws, { "profiles/global.yaml": "context: [communication, writing/voice]\n" });
+    expect(cli(home, home, "workspace", ws).code).toBe(0);
+    expect(cli(home, home, "install", "global", "--global", "--agents", "claude", "--yes").code).toBe(0);
+    for (const [folder, profile] of [[first, "engineering"], [second, "engineering"], [different, "writing"], [unrelated, "skills-only"]]) {
+      await mkdir(folder!, { recursive: true });
+      expect(cli(home, folder!, "install", profile!, "--agents", "claude", "--yes").code).toBe(0);
+    }
+    const status = cli(home, home, "status", "--all");
+    expect(status.code).toBe(0);
+    expect(status.out.split("Context 'communication' is also installed")).toHaveLength(2);
+    expect(status.out.split("Context 'writing/voice' is also installed")).toHaveLength(2);
+    const warnings = status.out.slice(status.out.indexOf("Warning:"));
+    for (const path of [first, second, different]) expect(warnings.split(path)).toHaveLength(2);
+    expect(warnings).not.toContain(unrelated);
+    const json = JSON.parse(cli(home, home, "status", "--all", "--json").out);
+    expect(json.find((o: { folder: string }) => o.folder === second).overlap).toEqual(["communication"]);
+  });
+
+  test("decision next commands preserve the operation, target, and Workspace and run from elsewhere", async () => {
+    const home = await tempDir("home");
+    const source = await makeWorkspace();
+    const ws = join(await tempDir("sources"), "user's Workspace $safe");
+    await cp(source, ws, { recursive: true });
+    const folder = join(await tempDir("projects"), "user's Project $safe");
+    await mkdir(folder);
+    await writeTree(folder, { ".claude/skills/summarize/SKILL.md": "user's content" });
+    const before = await snapshot(folder);
+    const result = cli(home, home, "install", "engineering", folder, "--agents", "claude", "--workspace", relative(home, ws));
+    expect(result.code).toBe(3);
+    expect(await snapshot(folder)).toEqual(before);
+    const command = result.out.match(/Next: `([^`]+)`/)?.[1];
+    expect(command).toBeDefined();
+    expect(command).toContain("--yes");
+    expect(command).toContain("--overwrite");
+    expect(command).toContain("--agents claude");
+    expect(command).toContain("'\"'\"'");
+    // The displayed POSIX command can be copied to a shell, with a test runtime standing in for apkit.
+    if (process.platform !== "win32") {
+      const env = cliEnv(home);
+      const retry = spawnSync("sh", ["-c", 'exec "$@" ' + command!.slice("apkit ".length), "apkit", ...RUNTIME], { cwd: home, env, encoding: "utf8" });
+      expect([retry.status, retry.stderr]).toEqual([0, ""]);
+      expect(JSON.parse(cli(home, folder, "status", "--workspace", ws, "--json").out)[0].profile).toBe("engineering");
+    }
+  });
+
+  test("first output explains Workspace, Profile, and Context in three plain lines", async () => {
+    const home = await tempDir("home");
+    const ws = join(home, "workspace");
+    const introduction = [
+      "Workspace: your source folder for Context and Skills.",
+      "Profile: a named selection of Context and Skills to install.",
+      "Context: guidance your agents load for every session.",
+    ].join("\n");
+    for (const args of [["workspace"], ["init", ws], ["workspace", ws], ["workspace"], ["guide"]]) {
+      const result = cli(home, home, ...args);
+      expect(result.code).toBe(0);
+      expect(result.out).toContain(introduction);
+      expect(result.out.split("Workspace: your source folder")).toHaveLength(2);
+    }
+    expect(JSON.parse(cli(home, home, "workspace", "--json").out).workspace).toBe(ws);
   });
 
   test("public help teaches the installed apkit command", async () => {
@@ -974,7 +1130,7 @@ describe("apkit CLI", () => {
     const ws = await tempDir("ws");
     const folder = await tempDir("f");
     await writeTree(ws, { "apkit-workspace.yaml": "", "profiles/p.yaml": "skills: [gone]\n" });
-    const pointer = `Read the Workspace contract: \`${COMMAND} contract\``;
+    const pointer = `Next: \`${COMMAND} contract\``;
     const check = cli(home, folder, "check", "--workspace", ws);
     expect(check.code).toBe(1);
     expect(check.out).toContain(pointer);
