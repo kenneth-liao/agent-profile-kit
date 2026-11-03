@@ -4,6 +4,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { isNoteRecords } from "./install.js";
 import { refuseNewer } from "./schema.js";
 import type { NoteRecords } from "./setup.js";
 
@@ -42,6 +43,10 @@ export async function readConfig(): Promise<Config> {
     throw new Error(`${configPath()} is not valid JSON. Fix it, or delete it to start over (apkit then forgets every installed folder).`);
   }
   refuseNewer(data.schema, 1, configPath());
+  // Recorded folders decide what removal deletes: never act on a record that fails the rule.
+  if (data.notes !== undefined && !isNoteRecords(data.notes)) {
+    throw new Error(`${configPath()} has an invalid apkit note record. Fix it, or delete its "notes" entry (apkit then keeps the notes it wrote).`);
+  }
   return { workspace: data.workspace, installs: Array.isArray(data.installs) ? data.installs : [], notes: data.notes, exclusions: data.exclusions };
 }
 

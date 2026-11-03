@@ -10,6 +10,7 @@ import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP } from "./guide.js";
 import {
   changesManifest,
   execute,
+  isInside,
   plan,
   readManifest,
   readManifestAt,
@@ -193,6 +194,7 @@ async function planAt(target: Target, desired: Desired | null, previous: Manifes
   const planned = await plan(home, desired, previous, {
     manifestPath: globalManifestPath(),
     shared: new Set(Object.keys(project?.files ?? {})),
+    pruneLimits: agentFoldersOutside(home),
   });
   const body = desired?.context ?? null;
   const targets = body === null ? [] : await noteTargets(desired?.agents ?? [], homedir(), process.env);
@@ -236,6 +238,12 @@ async function apply(
   const changed = [...new Set(planned.paths)];
   const result = desired === null ? "removed" : previous === null ? "installed" : "updated";
   return { ...base, result, changed };
+}
+
+/** Agent folders outside the home that hold user-level Skills: removal prunes up to each, never past it. */
+function agentFoldersOutside(home: string): string[] {
+  const folders = Object.values(userRoots(homedir(), process.env)).map((root) => resolve(home, root, ".."));
+  return [...new Set(folders)].filter((folder) => !isInside(home, folder));
 }
 
 /** Renders for a project folder, or (scope "user") for each agent's user-level folders and files. */
