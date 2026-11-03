@@ -4,6 +4,9 @@ status: accepted
 
 # Run interactive children through the shared bounded executor
 
+Superseded at the agent-first cutover by
+[ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md).
+
 ## Context
 
 ADR-0027 made `process/process-executor.ts` the only sanctioned spawn boundary
