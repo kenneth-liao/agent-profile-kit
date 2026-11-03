@@ -26,6 +26,17 @@ recorded on macOS can never match there. The engine always compares exactly,
 as 0.238.0 did. Hash compatibility with 0.238.0 is therefore proven on macOS
 and Linux. `.gitattributes` keeps these bytes the same on every checkout.
 
+## Several Projects on one machine (#755, SRC-25c)
+
+`materializeMachine` in `test/migration.ts` builds a machine with several
+Projects from this one install, without rerunning the package. Each Project is
+a copy of `project/` (its own Git repository with the 0.238.0 exclude file).
+Its receipt is the 0.238.0 receipt with that Project's path, a Profile from
+`workspace/profiles/`, and a subset of the six agents. A receipt can be marked
+`retired`, or name a folder that is not created. The outputs, modes, hashes,
+and bytes are exactly what 0.238.0 wrote; only the receipt's Project path,
+`profile_id`, `hosts`, and `retired` differ.
+
 ## How it was made (2026-11-03, macOS, Node 22.23.4)
 
 The package is `npm pack agent-profile-kit@0.238.0`. Its integrity is

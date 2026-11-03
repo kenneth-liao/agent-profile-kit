@@ -61,18 +61,64 @@ export async function materializeMigration(): Promise<MigrationFixture> {
     const text = (await readFile(path, "utf8")).replaceAll("{{ROOT}}", value);
     await writeFile(path, text);
   }
-  if (process.platform === "win32") await rerecord(join(state, "state", "manifest.json"), project);
+  if (process.platform === "win32") await rerecord(join(state, "state", "manifest.json"));
   return { root, home, workspace, project, pristine, state };
 }
 
-async function rerecord(manifest: string, project: string): Promise<void> {
+async function rerecord(manifest: string): Promise<void> {
   const data = JSON.parse(await readFile(manifest, "utf8"));
   for (const receipt of data.receipts) {
     for (const output of receipt.outputs) {
-      const path = join(project, ...output.path.split("/"));
+      const path = join(receipt.project, ...output.path.split("/"));
       output.mode = (await lstat(path)).mode & 0o777;
       output.hash = output.type === "file" ? await oldFileHash(path) : await hashOldDirectory(path);
     }
   }
   await writeFile(manifest, JSON.stringify(data, null, 2));
+}
+
+/** One Project on a fixture machine: a copy of the 0.238.0 Project under `name`, with its own receipt. */
+export interface MachineProject {
+  readonly name: string;
+  readonly profile?: string;
+  readonly agents?: readonly string[];
+  readonly retired?: boolean;
+  /** Recorded, but its folder is not created. */
+  readonly missing?: boolean;
+}
+
+export interface MachineFixture extends MigrationFixture {
+  /** Each Project's folder, by name. */
+  readonly projects: Readonly<Record<string, string>>;
+}
+
+/**
+ * A machine where 0.238.0 installed several Projects (SRC-25c). Each Project is a copy of the
+ * 0.238.0 Project, a Git repository with the 0.238.0 exclude file. Its receipt is the 0.238.0
+ * receipt with that Project's path, Profile, and a subset of its agents: the outputs, modes,
+ * hashes, and bytes are exactly what 0.238.0 wrote (test/migration/0.238.0/README.md).
+ */
+export async function materializeMachine(projects: readonly MachineProject[]): Promise<MachineFixture> {
+  const fixture = await materializeMigration();
+  const manifest = join(fixture.state, "state", "manifest.json");
+  const data = JSON.parse(await readFile(manifest, "utf8"));
+  const [template] = data.receipts;
+  const folders: Record<string, string> = {};
+  data.receipts = [];
+  for (const entry of projects) {
+    const folder = join(fixture.root, entry.name);
+    folders[entry.name] = folder;
+    if (!entry.missing && folder !== fixture.project) await cp(fixture.project, folder, { recursive: true });
+    const agents = entry.agents ?? Object.keys(template.hosts);
+    data.receipts.push({
+      ...template,
+      installation_id: `${template.installation_id}-${entry.name}`,
+      project: folder,
+      profile_id: entry.profile ?? template.profile_id,
+      hosts: Object.fromEntries(agents.map((agent) => [agent, template.hosts[agent]])),
+      ...(entry.retired ? { retired: true } : {}),
+    });
+  }
+  await writeFile(manifest, JSON.stringify(data, null, 2));
+  return { ...fixture, projects: folders };
 }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { chmod, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { hash } from "../src/install.js";
-import { inspectOldOutput, oldGeneratedPart, oldOutputOrigin, readOldState, rewriteOldExclude, takenOver, type OldOutput } from "../src/migrate.js";
+import { inspectOldOutput, oldBlockEntries, oldGeneratedPart, oldOutputOrigin, readOldState, rewriteOldExclude, takenOver, type OldOutput } from "../src/migrate.js";
 import { materializeMigration } from "./migration.js";
 import { tempDir, writeTree } from "./fixtures.js";
 
@@ -143,6 +143,14 @@ describe("old exclusion block", () => {
 
   test("a file without the block is unchanged", () => {
     expect(rewrite("# mine\n/x\n")).toBe("# mine\n/x\n");
+  });
+
+  test("the entries the block holds now", async () => {
+    const committed = await readFile(join(import.meta.dir, "migration", "0.238.0", "git-info-exclude"));
+    expect(oldBlockEntries(committed)).toHaveLength(15);
+    expect(oldBlockEntries(committed)).toContain("/.codex/hooks.json");
+    expect(oldBlockEntries(Buffer.from(`# mine\r\n${BEGIN} (separator owned)\r\n/a\r\n/sub/é\r\n${END}\r\n`))).toEqual(["/a", "/sub/é"]);
+    expect(oldBlockEntries(Buffer.from("# mine\n/x\n"))).toEqual([]);
   });
 
   test("a malformed block is refused", () => {

@@ -26,7 +26,7 @@ import {
 } from "./install.js";
 import { removeGitExclude, syncGitExclude } from "./gitexclude.js";
 import { findRepository } from "./gitindex.js";
-import { currentFiles, inspectOldOutput, oldExcludeEntries, oldGeneratedPart, oldOutputOrigin, oldStateFolder, readOldState, rewriteOldExclude, takenOver, type OldGeneratedPart, type OldOutput, type OldReceipt } from "./migrate.js";
+import { currentFiles, inspectOldOutput, oldBlockEntries, oldExcludeEntries, oldGeneratedPart, oldOutputOrigin, oldStateFolder, readOldState, rewriteOldExclude, takenOver, type OldGeneratedPart, type OldOutput, type OldReceipt } from "./migrate.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import {
   contextSection,
@@ -453,8 +453,12 @@ interface OldOutputOutcome {
 /** The complete record of migrating one Project from the old engine (ISC-89, ISC-90). */
 interface Migration {
   readonly folder: string;
-  /** "waiting": a planning run found no decision of its own; it continues after the Workspace decision. */
-  readonly result: "migrated" | "unchanged" | "needs-decision" | "waiting" | "retired" | "error";
+  /**
+   * "retired": the old apkit no longer had a Profile selected here; its unchanged files were deleted and nothing was installed.
+   * "missing": the recorded Project folder no longer exists; it was skipped.
+   * "waiting": a planning run found no decision of its own; it continues after the Workspace decision.
+   */
+  readonly result: "migrated" | "unchanged" | "needs-decision" | "waiting" | "retired" | "missing" | "error";
   readonly profile: string;
   readonly agents: readonly AgentId[];
   readonly outputs: readonly OldOutputOutcome[];
@@ -492,17 +496,25 @@ async function isFolder(path: string): Promise<boolean> {
   return lstat(path).then((info) => info.isDirectory(), () => false);
 }
 
-/** The exclude file that holds the old block for `folder`, and the entries the other old Projects keep in it. */
-async function oldExclusion(folder: string, others: readonly OldReceipt[]): Promise<{ file: string; keep: string[] } | null> {
+/**
+ * The exclude file that holds the old block for `folder`, and the entries in it that other
+ * old Projects still need: those whose old files are not gone yet (`pending`). An entry
+ * already removed is never written back. A malformed block stops the Project before any write.
+ */
+async function oldExclusion(folder: string, pending: readonly OldReceipt[]): Promise<{ file: string; keep: string[] } | null> {
   const repository = await findRepository(folder);
   if (repository === null) return null;
   const file = join(repository.commonDir, "info", "exclude");
+  const before = await readFile(file).catch(() => null);
+  if (before === null) return { file, keep: [] };
+  const present = new Set(oldBlockEntries(before));
   const keep: string[] = [];
-  for (const other of others) {
+  for (const other of pending) {
     const theirs = await findRepository(other.project);
     if (theirs === null || theirs.commonDir !== repository.commonDir) continue;
-    keep.push(...oldExcludeEntries(relative(theirs.root, other.project).split(sep).join("/"), other.outputs));
+    keep.push(...oldExcludeEntries(relative(theirs.root, other.project).split(sep).join("/"), other.outputs).filter((entry) => present.has(entry)));
   }
+  rewriteOldExclude(before, keep, file);
   return { file, keep };
 }
 
@@ -540,7 +552,8 @@ async function changedOutputs(
   receipt: OldReceipt,
   folder: string,
   states: readonly { output: OldOutput; state: { result: string } }[],
-  desired: Desired,
+  /** Null for a retired Project: nothing is installed, so `--yes` can keep every changed output. */
+  desired: Desired | null,
   decisions: Decisions,
 ): Promise<OldChange[]> {
   const skills = workspace.profiles.get(receipt.profile)?.skills ?? [];
@@ -549,7 +562,7 @@ async function changedOutputs(
     if (state.result !== "changed") continue;
     const apkitPart = await generatedPartAt(folder, output, skills);
     const files = await currentFiles(folder, output);
-    const installed = installsAt(desired, output.path);
+    const installed = desired !== null && installsAt(desired, output.path);
     const lead = `${output.path} was changed after the old apkit wrote it. It is ${oldOutputOrigin(output.path, receipt)}.`;
     let resolution: OldChange["resolution"] = "open";
     let message = lead;
@@ -562,13 +575,18 @@ async function changedOutputs(
   return result;
 }
 
-/**
- * Moves one Project from the old engine to this one. Every unchanged old output is handed
- * to the ordinary planner as if this engine had written it, so the same safety core replaces
- * or deletes it, prunes only folders it emptied, and stops for the same decisions (ISC-65).
- */
-async function migrateProject(workspace: Workspace, receipt: OldReceipt, others: readonly OldReceipt[], decisions: Decisions, planOnly = false): Promise<Migration> {
-  const base = {
+/** Removes the old entries for one Project from its exclude file, keeping those `exclusion.keep` names. */
+async function removeOldEntries(exclusion: { file: string; keep: string[] } | null): Promise<Migration["exclusion"]> {
+  if (exclusion === null) return { file: null, result: "none" };
+  const before = await readFile(exclusion.file).catch(() => null);
+  const after = before === null ? null : rewriteOldExclude(before, exclusion.keep, exclusion.file);
+  if (before === null || after === null || after.equals(before)) return { file: exclusion.file, result: "none" };
+  await atomicWrite(exclusion.file, after);
+  return { file: exclusion.file, result: exclusion.keep.length === 0 ? "removed" : "kept-for-others" };
+}
+
+function emptyMigration(receipt: OldReceipt) {
+  return {
     folder: receipt.project,
     profile: receipt.profile,
     agents: receipt.agents,
@@ -579,10 +597,102 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
     instructions: [] as InstructionChange[],
     trust: [] as TrustNeed[],
   };
-  if (receipt.retired) {
-    return { ...base, result: "retired", message: "The old apkit no longer had a Profile selected here. Its old files stay; this run does not change them." };
+}
+
+/** The old outputs of one Project and their states, as `migrate` inspects them. */
+type OldStates = readonly { output: OldOutput; state: { result: OldOutputOutcome["result"]; files?: Readonly<Record<string, string>> } }[];
+
+/**
+ * Builds each old output's outcome, with what a changed or kept output was and the part the
+ * old apkit added to it. `result` gives each output's result for this outcome.
+ */
+async function outcomeBuilder(workspace: Workspace, receipt: OldReceipt, folder: string, states: OldStates, changes: readonly OldChange[]) {
+  const skills = workspace.profiles.get(receipt.profile)?.skills ?? [];
+  const keptParts = new Map<OldOutput, OldGeneratedPart | null>();
+  for (const { output, state } of states) if (state.result === "kept") keptParts.set(output, await generatedPartAt(folder, output, skills));
+  return (result: (output: OldOutput, state: { result: OldOutputOutcome["result"] }) => OldOutputOutcome["result"]) =>
+    states.map(({ output, state }): OldOutputOutcome => {
+      const change = changes.find((c) => c.output === output);
+      const described = change !== undefined || state.result === "kept";
+      return {
+        path: output.path,
+        type: output.type,
+        result: result(output, state),
+        ...(described ? { origin: oldOutputOrigin(output.path, receipt), apkitPart: change?.apkitPart ?? keptParts.get(output) ?? null } : {}),
+        ...(change !== undefined && state.result === "changed" ? { choices: change.choices, installedAgain: change.installedAgain } : {}),
+      };
+    });
+}
+
+/** Records the changed old outputs that `migrate --yes` left to the user, so a later run does not ask again. */
+async function recordKept(folder: string, changes: readonly OldChange[]): Promise<void> {
+  const keep = changes.filter((change) => change.resolution === "keep").map((change) => change.output.path);
+  if (keep.length === 0) return;
+  const config = await readConfig();
+  await writeConfig({ ...config, kept: { ...config.kept, [folder]: [...new Set([...(config.kept?.[folder] ?? []), ...keep])].sort() } });
+}
+
+/**
+ * Takes over a Project the old apkit had unbound: deletes each of its old outputs that is still
+ * as the old apkit wrote it, through the ordinary planner, and its old exclusion entries.
+ * Nothing is installed. A changed output follows the same decision rules as a bound Project's
+ * (`--yes` keeps it, `--overwrite` deletes it). Paths that a bound receipt for the same folder records stay.
+ */
+async function retireProject(
+  workspace: Workspace,
+  receipt: OldReceipt,
+  pending: readonly OldReceipt[],
+  bound: readonly OldReceipt[],
+  decisions: Decisions,
+  planOnly = false,
+): Promise<Migration> {
+  const base = emptyMigration(receipt);
+  if (!(await isFolder(receipt.project))) return { ...base, result: "missing" };
+  const folder = await realpath(receipt.project);
+  const keptBefore = new Set((await readConfig()).kept?.[folder] ?? []);
+  const states: OldStates = await Promise.all(
+    receipt.outputs.map(async (output) =>
+      // `migrate --yes` left it to the user in an earlier run.
+      keptBefore.has(output.path) ? { output, state: { result: "kept" as const } } : { output, state: await inspectOldOutput(folder, output) },
+    ),
+  );
+  const changes = await changedOutputs(workspace, receipt, folder, states, null, decisions);
+  const outcomes = await outcomeBuilder(workspace, receipt, folder, states, changes);
+  if (changes.some((change) => change.resolution === "open") || (planOnly && changes.length > 0)) {
+    // Nothing is written, so every decision is listed, including those the flags given would settle.
+    return { ...base, folder, result: "needs-decision", outputs: outcomes((_, state) => state.result), issues: changes.map((change) => change.issue) };
   }
-  if (!(await isFolder(receipt.project))) return { ...base, result: "error", message: "The folder no longer exists." };
+
+  const exclusion = await oldExclusion(folder, pending);
+  const shared = new Set(bound.filter((other) => other.project === receipt.project).flatMap((other) => other.outputs.map((output) => output.path)));
+  const resolution = (output: OldOutput) => changes.find((change) => change.output === output)?.resolution;
+  const goes = (output: OldOutput, state: { result: string }) => !shared.has(output.path) && (state.result === "unchanged" || resolution(output) === "overwrite");
+  const files: Record<string, string> = {};
+  for (const { output, state } of states) if (goes(output, state)) Object.assign(files, state.files ?? changes.find((change) => change.output === output)?.files ?? {});
+  const previous: Manifest = { schema: 1, profile: receipt.profile, agents: receipt.agents, files, block: null, createdAgentsMd: false, claudeImport: false };
+  const candidates = await oldFolders(folder, receipt.outputs);
+  const planned = await plan(folder, null, previous);
+  const issues = unresolved(planned, decisions);
+  if (issues.length > 0) return { ...base, folder, result: "needs-decision", outputs: outcomes((_, state) => state.result), issues };
+  if (planOnly) return { ...base, folder, result: "waiting", outputs: outcomes((_, state) => state.result) };
+  // Only the old files: any manifest this apkit keeps here is left as it is.
+  await execute({ ...planned, manifest: null, manifestBefore: null });
+  await recordKept(folder, changes);
+  const exclusionResult = await removeOldEntries(exclusion);
+  const folders: string[] = [];
+  for (const path of candidates) if (!(await isFolder(join(folder, ...path.split("/"))))) folders.push(path);
+  const outputs = outcomes((output, state) => (resolution(output) === "keep" ? "kept" : goes(output, state) ? "deleted" : state.result));
+  return { ...base, folder, result: "retired", outputs, folders: folders.sort(), exclusion: exclusionResult };
+}
+
+/**
+ * Moves one Project from the old engine to this one. Every unchanged old output is handed
+ * to the ordinary planner as if this engine had written it, so the same safety core replaces
+ * or deletes it, prunes only folders it emptied, and stops for the same decisions (ISC-65).
+ */
+async function migrateProject(workspace: Workspace, receipt: OldReceipt, pending: readonly OldReceipt[], decisions: Decisions, planOnly = false): Promise<Migration> {
+  const base = emptyMigration(receipt);
+  if (!(await isFolder(receipt.project))) return { ...base, result: "missing" };
   const folder = await realpath(receipt.project);
   if (!workspace.profiles.has(receipt.profile)) {
     return { ...base, folder, result: "error", message: `Profile '${receipt.profile}' is not in the Workspace.` };
@@ -602,10 +712,7 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
   );
   const desired = renderFor(workspace, receipt.profile, receipt.agents);
   const changes = await changedOutputs(workspace, receipt, folder, states, desired, decisions);
-  const exclusion = await oldExclusion(folder, others);
-  const excludeBefore = exclusion === null ? null : await readFile(exclusion.file).catch(() => null);
-  // A malformed block stops this Project before any write.
-  if (exclusion !== null && excludeBefore !== null) rewriteOldExclude(excludeBefore, exclusion.keep, exclusion.file);
+  const exclusion = await oldExclusion(folder, pending);
 
   // The old outputs join any install this engine already made here. A changed output the user
   // did not keep is handed over whole, so a decision about it is not listed twice.
@@ -616,21 +723,7 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
     agents: receipt.agents,
     files: { ...owned, ...current?.files },
   };
-  const skills = workspace.profiles.get(receipt.profile)?.skills ?? [];
-  const keptParts = new Map<OldOutput, OldGeneratedPart | null>();
-  for (const { output, state } of states) if (state.result === "kept") keptParts.set(output, await generatedPartAt(folder, output, skills));
-  const outcomes = (result: (output: OldOutput, state: { result: OldOutputOutcome["result"] }) => OldOutputOutcome["result"]) =>
-    states.map(({ output, state }): OldOutputOutcome => {
-      const change = changes.find((c) => c.output === output);
-      const described = change !== undefined || state.result === "kept";
-      return {
-        path: output.path,
-        type: output.type,
-        result: result(output, state),
-        ...(described ? { origin: oldOutputOrigin(output.path, receipt), apkitPart: change?.apkitPart ?? keptParts.get(output) ?? null } : {}),
-        ...(change !== undefined && state.result === "changed" ? { choices: change.choices, installedAgain: change.installedAgain } : {}),
-      };
-    });
+  const outcomes = await outcomeBuilder(workspace, receipt, folder, states, changes);
   const open = changes.filter((change) => change.resolution === "open");
   if (open.length > 0 || (planOnly && changes.length > 0)) {
     // Nothing is written, so every decision is listed, including those the flags given would settle.
@@ -653,21 +746,9 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
     const outputs = outcomes((_, state) => state.result);
     return { ...base, folder, result: "needs-decision", outputs, issues: install.issues ?? [], instructions, install };
   }
-  const keep = changes.filter((change) => change.resolution === "keep").map((change) => change.output.path);
-  if (keep.length > 0) {
-    const config = await readConfig();
-    await writeConfig({ ...config, kept: { ...config.kept, [folder]: [...new Set([...kept, ...keep])].sort() } });
-  }
+  await recordKept(folder, changes);
 
-  let removed: Migration["exclusion"] = { file: exclusion?.file ?? null, result: "none" };
-  if (exclusion !== null) {
-    const before = await readFile(exclusion.file).catch(() => null);
-    const after = before === null ? null : rewriteOldExclude(before, exclusion.keep, exclusion.file);
-    if (before !== null && after !== null && !after.equals(before)) {
-      await atomicWrite(exclusion.file, after);
-      removed = { file: exclusion.file, result: exclusion.keep.length === 0 ? "removed" : "kept-for-others" };
-    }
-  }
+  const removed = await removeOldEntries(exclusion);
 
   const outputs = outcomes((output, state) => {
     const resolution = changes.find((change) => change.output === output)?.resolution;
@@ -746,9 +827,22 @@ function describeMigration(migration: Migration, nextStep = true): string[] {
       : []),
   ];
   switch (migration.result) {
-    case "retired":
+    case "missing":
+      // Listed once, with every missing folder, by `migrate`.
+      return [];
     case "error":
       return [`${where}: not migrated. ${migration.message}`];
+    case "retired":
+      if (paths("deleted").length === 0 && migration.exclusion.result === "none") {
+        return [`${where}: the old apkit no longer had a Profile selected here, and none of its files are left.`, ...keptLines];
+      }
+      return [
+        `${where}: the old apkit no longer had a Profile selected here. Deleted its old files; installed nothing.`,
+        ...list("Deleted old files", paths("deleted")),
+        ...keptLines,
+        ...list("Removed folders that held only old files", migration.folders),
+        ...(migration.exclusion.result === "none" ? [] : [`  Removed the old apkit lines from ${display(migration.exclusion.file!)}.`]),
+      ];
     case "waiting":
       return [`${where}: nothing changed yet. It continues with the Profile '${migration.profile}' for ${who} after the Workspace decision.`];
     case "unchanged":
@@ -792,6 +886,20 @@ function describeMigration(migration: Migration, nextStep = true): string[] {
   }
 }
 
+async function exists(path: string): Promise<boolean> {
+  return lstat(path).then(() => true, () => false);
+}
+
+function backupExists(state: string, backup: string, changed: boolean): Error {
+  return new Error(
+    [
+      `${display(backup)} already exists, so apkit cannot keep the old state at ${display(state)} there as a backup. ${changed ? `${display(state)} was not renamed.` : "Nothing was changed."}`,
+      `Move ${display(backup)} somewhere else, then run migrate again.`,
+      nextCommand(["migrate"]),
+    ].join("\n"),
+  );
+}
+
 /** Renaming an old Workspace's `workspace.yaml` to the file that marks a Workspace now (ADR-0057 §6). */
 interface WorkspaceRename {
   readonly from: string;
@@ -821,11 +929,16 @@ function describeRename(rename: WorkspaceRename | undefined): string[] {
 async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   const old = await readOldState(homedir());
   const state = oldStateFolder(homedir());
+  const backup = `${state}.migrated`;
   if (old === null) {
-    if (json) console.log(JSON.stringify({ state, found: false, projects: [] }, null, 2));
+    const kept = (await exists(backup)) ? backup : null;
+    if (json) console.log(JSON.stringify({ state, found: false, projects: [], backup: kept }, null, 2));
+    else if (kept !== null) console.log(`Nothing to migrate: the old apkit state was already migrated. It is kept as a backup at ${display(kept)}.`);
     else console.log(`Nothing to migrate: there is no old apkit state at ${display(state)}.`);
     return EXIT.ok;
   }
+  // The backup is never replaced or merged into.
+  if (await exists(backup)) throw backupExists(state, backup, false);
   if (old.workspace === undefined) throw new Error(`${display(join(state, "config.yaml"))} names no Workspace, so apkit cannot tell which Profiles to install. Nothing was changed.`);
   let workspace = await loadWorkspace(old.workspace);
   const marker = oldMarkerRename(workspace);
@@ -839,38 +952,61 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   const renamed: WorkspaceRename | undefined = marker === null ? undefined : { ...marker, result: planOnly ? "needs-decision" : "renamed" };
   const previousWorkspace = (await readConfig()).workspace ?? null;
   const projects: Migration[] = [];
+  const bound = old.receipts.filter((receipt) => !receipt.retired);
+  // Receipts whose old files are gone: their exclusion entries are no longer kept for them.
+  const settled = new Set<OldReceipt>();
   for (const receipt of old.receipts) {
-    // A retired receipt's files are still on disk, so its exclusion entries stay until they go (#755).
-    const others = old.receipts.filter((other) => other !== receipt);
+    const pending = old.receipts.filter((other) => other !== receipt && !settled.has(other));
+    let migration: Migration;
     try {
-      projects.push(await migrateProject(workspace, receipt, others, decisions, planOnly));
+      migration = receipt.retired ? await retireProject(workspace, receipt, pending, bound, decisions, planOnly) : await migrateProject(workspace, receipt, pending, decisions, planOnly);
     } catch (error) {
       if (error instanceof NewerSchemaError || !(error instanceof Error)) throw error;
-      projects.push({ folder: receipt.project, result: "error", profile: receipt.profile, agents: receipt.agents, outputs: [], folders: [], exclusion: { file: null, result: "none" }, issues: [], instructions: [], trust: [], message: error.message });
+      migration = { ...emptyMigration(receipt), result: "error", message: error.message };
     }
+    projects.push(migration);
+    if (migration.result !== "needs-decision" && migration.result !== "waiting" && migration.result !== "error") settled.add(receipt);
   }
   // The Workspace the old apkit used is selected once a Project uses it with this one.
   if (projects.some((p) => p.result === "migrated" || p.result === "unchanged")) await writeConfig({ ...(await readConfig()), workspace: workspace.root });
 
+  // The old state is kept, renamed, once no Project needs it any more (ISC-92). A rename changes no file.
+  const open = projects.filter((p) => p.result === "needs-decision" || p.result === "waiting" || p.result === "error");
+  if (open.length === 0 && !planOnly) {
+    if (await exists(backup)) throw backupExists(state, backup, true);
+    await rename(state, backup);
+  }
+  const kept = { path: backup, result: open.length === 0 && !planOnly ? "renamed" : "kept" };
+
   if (json) {
-    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace, ...(renamed ? { rename: renamed } : {}) }, projects }, null, 2));
+    console.log(JSON.stringify({ state, found: true, workspace: { path: workspace.root, previous: previousWorkspace, ...(renamed ? { rename: renamed } : {}) }, projects, backup: kept }, null, 2));
   } else {
+    const missing = projects.filter((p) => p.result === "missing").map((p) => display(p.folder));
     console.log(
       [
         INTRODUCTION,
-        `Migrating from the old apkit, whose records are in ${display(state)} (they are not changed).`,
+        `Migrating from the old apkit, whose records are in ${display(state)}.`,
         `This apkit keeps each Project's installation in the Project itself, in ${MANIFEST_PATH}.`,
         `Workspace: ${display(workspace.root)}`,
         ...describeRename(renamed),
         // A planning run ends with one next step for every decision.
         ...projects.flatMap((project) => describeMigration(project, !planOnly)),
         ...(planOnly ? ["Only after the user agrees to every decision above:", `  ${nextCommand(["migrate", "--yes"])}`] : []),
+        ...(missing.length === 0 ? [] : [groupedWarning("these recorded Project folders no longer exist, so they were skipped:", missing)]),
+        ...(open.length === 0 && !planOnly
+          ? [`Renamed ${display(state)} to ${display(backup)}. It keeps the old apkit records, unchanged, as a backup.`]
+          : open.length === 0
+            ? [`Kept ${display(state)} as it is. It is renamed to ${display(backup)} as a backup after the Workspace decision.`]
+            : [
+                `Kept ${display(state)} as it is. It is renamed to ${display(backup)} as a backup once these Projects are migrated:`,
+                ...open.map((p) => `  - ${display(p.folder)}`),
+              ]),
         ...warningLines(workspace),
       ].join("\n"),
     );
   }
-  if (planOnly || projects.some((p) => p.result === "needs-decision")) return EXIT.decision;
-  return projects.some((p) => p.result === "error") ? EXIT.error : EXIT.ok;
+  if (planOnly || open.some((p) => p.result === "needs-decision")) return EXIT.decision;
+  return open.some((p) => p.result === "error") ? EXIT.error : EXIT.ok;
 }
 
 /** Commands that can write. `workspace` without a path only reads, but takes the lock anyway: it is quick. */

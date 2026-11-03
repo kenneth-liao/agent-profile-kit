@@ -281,6 +281,15 @@ function lines(source: string): Line[] {
   return result;
 }
 
+/** The entries the old engine's block in an exclude file holds now: empty without a block. */
+export function oldBlockEntries(source: Buffer): string[] {
+  const all = lines(source.toString("latin1"));
+  const begin = all.findIndex((line) => line.text === BEGIN || line.text === BEGIN_WITH_SEPARATOR);
+  const end = all.findIndex((line) => line.text === END);
+  if (begin === -1 || end < begin) return [];
+  return all.slice(begin + 1, end).map((line) => Buffer.from(line.text, "latin1").toString("utf8"));
+}
+
 /**
  * Rewrites the old engine's one block in an exclude file to hold `entries` (the other old
  * Projects' entries), or removes it, with the separator it owned, when none remain. Everything
