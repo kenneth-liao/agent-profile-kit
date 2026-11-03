@@ -2316,6 +2316,44 @@ describe("the migration notice (SRC-10)", () => {
     expect(JSON.parse(json.out).migration).toEqual({ command: "apkit migrate", state: fixture.state });
   });
 
+  test("an old state folder with no old records: migrate renames it to the backup, and the notice disappears", async () => {
+    const home = await tempDir("home");
+    const state = join(home, ".agents", "agent-profile-kit");
+    const backup = `${state}.migrated`;
+    await writeTree(state, { "notes.txt": "left by the user\n" });
+    const before = cli(home, home, "status", "--all");
+    expect(before.out + before.err).toContain(NOTICE);
+
+    // An existing backup is never replaced: nothing changes.
+    await mkdir(backup);
+    const refused = cli(home, home, "migrate");
+    expect(refused.code).toBe(1);
+    expect(refused.err).toContain("already exists");
+    expect(await read(state, "notes.txt")).toBe("left by the user\n");
+    await rm(backup, { recursive: true });
+
+    const result = cli(home, home, "migrate");
+    expect(result.code).toBe(0);
+    expect(result.out).toContain("Nothing to migrate");
+    expect(result.out).toContain(join("~", ".agents", "agent-profile-kit.migrated"));
+    expect(existsSync(state)).toBe(false);
+    expect(await read(backup, "notes.txt")).toBe("left by the user\n");
+    for (const args of [["status", "--all"], ["help"], ["migrate"]]) {
+      const after = cli(home, home, ...args);
+      expect(after.out + after.err).not.toContain(NOTICE);
+    }
+    expect(JSON.parse(cli(home, home, "status", "--all", "--json").out).migration).toBeUndefined();
+  });
+
+  test("an empty old state folder: migrate --json records the rename", async () => {
+    const home = await tempDir("home");
+    const state = join(home, ".agents", "agent-profile-kit");
+    await mkdir(state, { recursive: true });
+    const result = cli(home, home, "migrate", "--json");
+    expect([result.code, JSON.parse(result.out)]).toEqual([0, { state, found: false, projects: [], backup: { path: `${state}.migrated`, result: "renamed" } }]);
+    expect(existsSync(`${state}.migrated`)).toBe(true);
+  });
+
   test("after a complete migration, no command shows the notice", async () => {
     const fixture = await materializeMigration();
     const run = runner(fixture);

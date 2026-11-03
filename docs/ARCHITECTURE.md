@@ -196,7 +196,8 @@ that names the part apkit added: `--overwrite` deletes it, and `--yes` keeps it
 as the user's own, recorded in Local Configuration so a later run does not ask
 again. Once no recorded Project needs a decision or failed, `migrate` renames
 the folder to `~/.agents/agent-profile-kit.migrated` and keeps it, unchanged,
-as a backup; it never replaces an existing backup.
+as a backup; it never replaces an existing backup. A folder with neither
+file holds nothing to migrate, so `migrate` renames it the same way.
 
 ## Verified Locations
 

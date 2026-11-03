@@ -930,6 +930,14 @@ async function migrate(decisions: Decisions, json: boolean): Promise<number> {
   const old = await readOldState(homedir());
   const state = oldStateFolder(homedir());
   const backup = `${state}.migrated`;
+  if (old === null && (await exists(state))) {
+    // The folder holds no old records: there is nothing to move, so the migration is complete.
+    if (await exists(backup)) throw backupExists(state, backup, false);
+    await rename(state, backup);
+    if (json) console.log(JSON.stringify({ state, found: false, projects: [], backup: { path: backup, result: "renamed" } }, null, 2));
+    else console.log(`Nothing to migrate: ${display(state)} holds no old apkit records. Renamed it to ${display(backup)}, unchanged, as a backup.`);
+    return EXIT.ok;
+  }
   if (old === null) {
     const kept = (await exists(backup)) ? backup : null;
     if (json) console.log(JSON.stringify({ state, found: false, projects: [], backup: kept }, null, 2));
