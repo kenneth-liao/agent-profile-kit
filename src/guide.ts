@@ -32,6 +32,7 @@ Usage:
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
+  ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier) installed to this one
 
 Options:
   --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
@@ -87,6 +88,7 @@ All commands are non-interactive. Add --json when you need to parse results.
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`
+- Move installs from the old apkit:  \`${COMMAND} migrate\`
 
 Agent ids: ${Object.keys(AGENTS).join(", ")}. To change a folder's agents or
 Profile, run install again with the new values. The folder defaults to the

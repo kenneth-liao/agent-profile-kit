@@ -1,0 +1,131 @@
+{
+  "schema_version": 9,
+  "receipts": [
+    {
+      "installation_id": "3b333981-2fa7-45d2-b981-176bdb52c742",
+      "lifetime": "ordinary",
+      "project": "{{ROOT}}/project",
+      "profile_id": "engineering",
+      "desired_input_digest": "sha256:963d5d755846b3fd34b7e85ec41252403df22e78d7ac373939ea975661364e45",
+      "hosts": {
+        "antigravity": {
+          "adapter_version": "antigravity-project-v2",
+          "capability_contract": "native-project-always-on-rules-shared-skills-invocation-v1"
+        },
+        "claude": {
+          "adapter_version": "claude-project-v1",
+          "capability_contract": "native-project-unscoped-rules-skills-invocation-v1"
+        },
+        "codex": {
+          "adapter_version": "codex-project-v3",
+          "capability_contract": "native-project-sessionstart-complete-context-skills-invocation-v1"
+        },
+        "grok": {
+          "adapter_version": "grok-project-v1",
+          "capability_contract": "native-project-unscoped-rules-skills-invocation-v1"
+        },
+        "opencode": {
+          "adapter_version": "opencode-project-v1",
+          "capability_contract": "native-project-instructions-skills-invocation-v1"
+        },
+        "pi": {
+          "adapter_version": "pi-project-v2",
+          "capability_contract": "native-project-append-system-shared-skills-invocation-v1"
+        }
+      },
+      "outputs": [
+        {
+          "path": ".agent-profile-kit/codex/context.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:4e2663805f2993f7c409d776eb320bd93a45a314d9d097023c27f9a65dbae121"
+        },
+        {
+          "path": ".agent-profile-kit/opencode/context.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:4e2663805f2993f7c409d776eb320bd93a45a314d9d097023c27f9a65dbae121"
+        },
+        {
+          "path": ".agents/rules/agent-profile-kit-000-envelope.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:8601f3c167e7ba989064970613302f9df6ef8e467cff3533670c1474378d09a1"
+        },
+        {
+          "path": ".agents/rules/agent-profile-kit-010-communication.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:0e33b4edea6c18a1b70fd03b86a68a679b37c96d0fb71f913db5e2063e5053b2"
+        },
+        {
+          "path": ".agents/rules/agent-profile-kit-020-engineering.review-findings.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:305997585939a6388f426377d475c075f501c7c21fb5cc75f01083c8b69bd1ef"
+        },
+        {
+          "path": ".agents/skills/review-pr",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:1985bb31d4578f9211f9e9ba9be1b167cfe82d66960c16793bd5582b4a462eca"
+        },
+        {
+          "path": ".agents/skills/summarize",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:79324cf391e1b5a79e38af6d679a414d0ba40e8ce7ae72a2dc8fdbf475159165"
+        },
+        {
+          "path": ".claude/rules/agent-profile-kit.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:4e2663805f2993f7c409d776eb320bd93a45a314d9d097023c27f9a65dbae121"
+        },
+        {
+          "path": ".claude/skills/review-pr",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:1ec37161708f3ba0eabee2927aaf257f10a5d5ddd7dc42acecc173cb41059e3c"
+        },
+        {
+          "path": ".claude/skills/summarize",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:79324cf391e1b5a79e38af6d679a414d0ba40e8ce7ae72a2dc8fdbf475159165"
+        },
+        {
+          "path": ".codex/hooks.json",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:9a13cd30603c621ffa578c4ca2b7bb2f8f826e58a12f3741d7a05c6edf001ad1"
+        },
+        {
+          "path": ".grok/skills/review-pr",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:09011fe344bc086c6ec79a06a4cd559c5949a1d4635e8a1145ef5573bdb8f510"
+        },
+        {
+          "path": ".grok/skills/summarize",
+          "type": "directory",
+          "mode": 493,
+          "hash": "sha256:79324cf391e1b5a79e38af6d679a414d0ba40e8ce7ae72a2dc8fdbf475159165"
+        },
+        {
+          "path": ".opencode/opencode.jsonc",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:048d4aec03638565e122dcbc714686b93251ed0a95a8273a23bb5cbab0cb1baa"
+        },
+        {
+          "path": ".pi/APPEND_SYSTEM.md",
+          "type": "file",
+          "mode": 420,
+          "hash": "sha256:4e2663805f2993f7c409d776eb320bd93a45a314d9d097023c27f9a65dbae121"
+        }
+      ]
+    }
+  ],
+  "removed_temporary_installation_ids": []
+}

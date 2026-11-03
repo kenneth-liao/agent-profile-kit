@@ -1,0 +1,12 @@
+schema_version: 2
+workspace: {{ROOT}}/workspace
+bindings:
+  - project: {{ROOT}}/project
+    profile: engineering
+    hosts:
+      - antigravity
+      - claude
+      - codex
+      - grok
+      - opencode
+      - pi

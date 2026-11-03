@@ -28,3 +28,7 @@ tmp/
 !test/retained/compat-0.204.0/**/.codex/
 !test/retained/compat-0.204.0/**/.codex/**
 
+!test/migration/**/.agents/
+!test/migration/**/.agents/**
+!test/migration/**/.codex/
+!test/migration/**/.codex/**
