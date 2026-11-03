@@ -959,6 +959,15 @@ describe("apkit-next CLI", () => {
     expect(firstTime.indexOf(`${COMMAND} setup`)).toBeLessThan(firstTime.indexOf("install a Profile"));
   });
 
+  test("the guide's closing summary keeps tracked files, commits, and trust lines", () => {
+    const finish = GUIDE.slice(GUIDE.indexOf("## When you finish"));
+    expect(finish).toContain("short summary in plain words");
+    expect(finish).toContain("Each instruction file created or changed");
+    expect(finish).toContain("whether Git\n  tracks it");
+    expect(finish).toContain("committing it is the user's call");
+    expect(finish).toContain("trusting a folder");
+  });
+
   test("usage errors explain themselves", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();

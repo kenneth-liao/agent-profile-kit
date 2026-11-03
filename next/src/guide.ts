@@ -154,4 +154,23 @@ until the user trusts the folder. Pass those lines on to the user.
 Agents pick up installed material in their next session.
 Committing is the user's decision: never stage, commit, or push installed
 files or instruction-file changes unless the user asks.
+
+## When you finish
+
+End with a short summary in plain words, not a list of every file and step:
+
+- What changed: set up, installed, updated, or removed, and where.
+- Each instruction file created or changed in a Git repository, whether Git
+  tracks it, and that committing it is the user's call.
+- Every line ${COMMAND} printed about trusting a folder, and that agents pick
+  up changes in their next session.
+- In one or two sentences, how it works: the Workspace holds the user's
+  Context Modules and Skills, a Profile selects some of them, and ${COMMAND}
+  installs a Profile into a project, or for every project, and keeps it up
+  to date.
+- What they can do next: add a Context Module or a Skill to the Workspace,
+  list it in a Profile (\`skills: all\` already includes every Skill), then
+  ask you to update their installs.
+
+Give other paths and details only if the user asks.
 `;
