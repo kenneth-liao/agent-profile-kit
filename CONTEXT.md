@@ -65,7 +65,7 @@ The marked block in a repository's `.git/info/exclude` that keeps one install fo
 _Avoid_: Shared `.gitignore`, hidden instruction file
 
 **Local Configuration**:
-The machine-local file `config.json` in the apkit home (`~/.agents/apkit`, or `APKIT_HOME`). It holds the selected Workspace, the list of installed folders that `--all` uses, the files that hold the Setup Note, and the exclude file of each folder's block. What is installed in a folder is read from that folder's Installation Manifest, not from here. The released engine's `~/.agents/agent-profile-kit/config.yaml` and its receipts are input to `apkit migrate` only.
+The machine-local file `config.json` in the apkit home (`~/.agents/apkit`, or `APKIT_HOME`). It holds the selected Workspace, the list of installed folders that `--all` uses, the files that hold the Setup Note, the exclude file of each folder's block, and the old engine's changed files that `apkit migrate --yes` left to the user in each folder. What is installed in a folder is read from that folder's Installation Manifest, not from here. The released engine's `~/.agents/agent-profile-kit/config.yaml` and its receipts are input to `apkit migrate` only.
 _Avoid_: Project Binding, canonical default, credential value, Profile
 
 **Artifact ID**:

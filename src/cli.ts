@@ -26,7 +26,7 @@ import {
 } from "./install.js";
 import { removeGitExclude, syncGitExclude } from "./gitexclude.js";
 import { findRepository } from "./gitindex.js";
-import { inspectOldOutput, oldExcludeEntries, oldStateFolder, readOldState, rewriteOldExclude, takenOver, type OldOutput, type OldReceipt } from "./migrate.js";
+import { currentFiles, inspectOldOutput, oldExcludeEntries, oldGeneratedPart, oldOutputOrigin, oldStateFolder, readOldState, rewriteOldExclude, takenOver, type OldGeneratedPart, type OldOutput, type OldReceipt } from "./migrate.js";
 import { AGENTS, isAgentId, render, userRoots, type AgentId, type Desired } from "./render.js";
 import {
   contextSection,
@@ -437,8 +437,17 @@ interface OldOutputOutcome {
   /**
    * "unchanged": still as the old apkit wrote it, because the run stopped for a decision.
    * "already-replaced": an earlier run replaced it, and this apkit owns it now.
+   * "kept": it was changed, and `migrate --yes` left it to the user; apkit does not track it.
    */
-  readonly result: "deleted" | "replaced" | "already-replaced" | "missing" | "changed" | "unchanged";
+  readonly result: "deleted" | "replaced" | "already-replaced" | "missing" | "changed" | "kept" | "unchanged";
+  /** For a changed or kept output: what it was, in plain words. */
+  readonly origin?: string;
+  /** For a changed or kept `.codex/hooks.json` or `.opencode/opencode.jsonc`: the part the old apkit added. */
+  readonly apkitPart?: OldGeneratedPart | null;
+  /** For a changed output: the flags that settle it. Empty when the user must move it by hand. */
+  readonly choices?: readonly ("yes" | "overwrite")[];
+  /** For a changed output: this apkit installs its own copy at the same path. */
+  readonly installedAgain?: boolean;
 }
 
 /** The complete record of migrating one Project from the old engine (ISC-89, ISC-90). */
@@ -496,6 +505,62 @@ async function oldExclusion(folder: string, others: readonly OldReceipt[]): Prom
   return { file, keep };
 }
 
+/** Whether this apkit installs a file at `path` or inside it. */
+function installsAt(desired: Desired, path: string): boolean {
+  return [...desired.files.keys()].some((file) => file === path || file.startsWith(`${path}/`));
+}
+
+/** The part the old apkit added to a configuration file at an old output's path, as it is now. */
+async function generatedPartAt(folder: string, output: OldOutput, skills: readonly string[]): Promise<OldGeneratedPart | null> {
+  if (output.type !== "file") return null;
+  const text = await readFile(join(folder, ...output.path.split("/")), "utf8").catch(() => null);
+  return text === null ? null : oldGeneratedPart(output.path, text, skills);
+}
+
+/** A changed old output and what the flags settle for it (ISC-66, ISC-91). */
+interface OldChange {
+  readonly output: OldOutput;
+  /** "keep" (`--yes`): left to the user. "overwrite": handed to the planner whole, which deletes or replaces it. */
+  readonly resolution: "open" | "keep" | "overwrite";
+  readonly issue: Issue;
+  readonly apkitPart: OldGeneratedPart | null;
+  readonly choices: readonly ("yes" | "overwrite")[];
+  readonly installedAgain: boolean;
+  /** Its current files, handed to the planner unless the user keeps it. */
+  readonly files?: Readonly<Record<string, string>>;
+}
+
+/**
+ * Settles each changed old output with the flags. `--overwrite` deletes it whole; `--yes` keeps
+ * it, unless this apkit installs at the same path. Without either, it stays a decision.
+ */
+async function changedOutputs(
+  workspace: Workspace,
+  receipt: OldReceipt,
+  folder: string,
+  states: readonly { output: OldOutput; state: { result: string } }[],
+  desired: Desired,
+  decisions: Decisions,
+): Promise<OldChange[]> {
+  const skills = workspace.profiles.get(receipt.profile)?.skills ?? [];
+  const result: OldChange[] = [];
+  for (const { output, state } of states) {
+    if (state.result !== "changed") continue;
+    const apkitPart = await generatedPartAt(folder, output, skills);
+    const files = await currentFiles(folder, output);
+    const installed = installsAt(desired, output.path);
+    const lead = `${output.path} was changed after the old apkit wrote it. It is ${oldOutputOrigin(output.path, receipt)}.`;
+    let resolution: OldChange["resolution"] = "open";
+    let message = lead;
+    if (files === null) message = `${lead} It holds a symlink or another special file, so apkit does not delete it: move your changes out of it and delete it, then run migrate again.`;
+    else if (decisions.overwrite) resolution = "overwrite";
+    else if (decisions.yes && !installed) resolution = "keep";
+    const choices = files === null ? [] : installed ? (["overwrite"] as const) : (["yes", "overwrite"] as const);
+    result.push({ output, resolution, apkitPart, choices, installedAgain: installed, issue: { kind: "changed", path: output.path, message }, ...(files === null || resolution === "keep" ? {} : { files }) });
+  }
+  return result;
+}
+
 /**
  * Moves one Project from the old engine to this one. Every unchanged old output is handed
  * to the ordinary planner as if this engine had written it, so the same safety core replaces
@@ -523,45 +588,67 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
   }
 
   const current = await readManifest(folder);
+  const kept = new Set((await readConfig()).kept?.[folder] ?? []);
   const states = await Promise.all(
     receipt.outputs.map(async (output) => {
+      // `migrate --yes` left it to the user in an earlier run.
+      if (kept.has(output.path)) return { output, state: { result: "kept" as const } };
       const state = await inspectOldOutput(folder, output);
       // An earlier run replaced it: this engine owns it now.
       const replaced = state.result === "changed" && (await takenOver(folder, output, current?.files ?? {}));
       return { output, state: replaced ? { result: "already-replaced" as const } : state };
     }),
   );
-  const changed = states.filter(({ state }) => state.result === "changed");
-  if (changed.length > 0) {
-    const issues = changed.map(({ output }): Issue => ({
-      kind: "changed",
-      path: output.path,
-      message: `${output.path} was changed after the old apkit wrote it. apkit cannot migrate a changed file yet: move your changes out of it, or delete it, then run migrate again.`,
-    }));
-    const outputs = states.map(({ output, state }) => ({ path: output.path, type: output.type, result: state.result }));
-    return { ...base, folder, result: "needs-decision", outputs, issues };
-  }
-
+  const desired = renderFor(workspace, receipt.profile, receipt.agents);
+  const changes = await changedOutputs(workspace, receipt, folder, states, desired, decisions);
   const exclusion = await oldExclusion(folder, others);
   const excludeBefore = exclusion === null ? null : await readFile(exclusion.file).catch(() => null);
   // A malformed block stops this Project before any write.
   if (exclusion !== null && excludeBefore !== null) rewriteOldExclude(excludeBefore, exclusion.keep, exclusion.file);
 
-  // The old outputs join any install this engine already made here.
-  const owned = Object.assign({}, ...states.map(({ state }) => ("files" in state ? state.files : undefined) ?? {})) as Record<string, string>;
+  // The old outputs join any install this engine already made here. A changed output the user
+  // did not keep is handed over whole, so a decision about it is not listed twice.
+  const owned = Object.assign({}, ...states.map(({ state }) => ("files" in state ? state.files : undefined) ?? {}), ...changes.map((change) => change.files ?? {})) as Record<string, string>;
   const previous: Manifest = {
     ...(current ?? { schema: 1, block: null, createdAgentsMd: false, claudeImport: false }),
     profile: receipt.profile,
     agents: receipt.agents,
     files: { ...owned, ...current?.files },
   };
-  const desired = renderFor(workspace, receipt.profile, receipt.agents);
+  const skills = workspace.profiles.get(receipt.profile)?.skills ?? [];
+  const keptParts = new Map<OldOutput, OldGeneratedPart | null>();
+  for (const { output, state } of states) if (state.result === "kept") keptParts.set(output, await generatedPartAt(folder, output, skills));
+  const outcomes = (result: (output: OldOutput, state: { result: OldOutputOutcome["result"] }) => OldOutputOutcome["result"]) =>
+    states.map(({ output, state }): OldOutputOutcome => {
+      const change = changes.find((c) => c.output === output);
+      const described = change !== undefined || state.result === "kept";
+      return {
+        path: output.path,
+        type: output.type,
+        result: result(output, state),
+        ...(described ? { origin: oldOutputOrigin(output.path, receipt), apkitPart: change?.apkitPart ?? keptParts.get(output) ?? null } : {}),
+        ...(change !== undefined && state.result === "changed" ? { choices: change.choices, installedAgain: change.installedAgain } : {}),
+      };
+    });
+  const open = changes.filter((change) => change.resolution === "open");
+  if (open.length > 0) {
+    // Nothing is written, so every decision is listed, including those the flags given would settle.
+    const planned = await planAt({ folder }, desired, previous);
+    const issues = [...changes.map((change) => change.issue), ...planned.issues];
+    const outputs = outcomes((_, state) => state.result);
+    return { ...base, folder, result: "needs-decision", outputs, issues, instructions: planned.files.instructions };
+  }
   const candidates = await oldFolders(folder, receipt.outputs);
   const install = await apply({ folder }, desired, previous, decisions);
   const instructions = install.instructions ?? [];
   if (install.result === "needs-decision") {
-    const outputs = states.map(({ output, state }) => ({ path: output.path, type: output.type, result: state.result }));
+    const outputs = outcomes((_, state) => state.result);
     return { ...base, folder, result: "needs-decision", outputs, issues: install.issues ?? [], instructions, install };
+  }
+  const keep = changes.filter((change) => change.resolution === "keep").map((change) => change.output.path);
+  if (keep.length > 0) {
+    const config = await readConfig();
+    await writeConfig({ ...config, kept: { ...config.kept, [folder]: [...new Set([...kept, ...keep])].sort() } });
   }
 
   let removed: Migration["exclusion"] = { file: exclusion?.file ?? null, result: "none" };
@@ -574,10 +661,11 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
     }
   }
 
-  const outputs = states.map(({ output, state }): OldOutputOutcome => {
-    if (state.result !== "unchanged") return { path: output.path, type: output.type, result: state.result };
-    const kept = [...desired.files.keys()].some((path) => path === output.path || path.startsWith(`${output.path}/`));
-    return { path: output.path, type: output.type, result: kept ? "replaced" : "deleted" };
+  const outputs = outcomes((output, state) => {
+    const resolution = changes.find((change) => change.output === output)?.resolution;
+    if (resolution === "keep") return "kept";
+    if (state.result !== "unchanged" && resolution !== "overwrite") return state.result;
+    return installsAt(desired, output.path) ? "replaced" : "deleted";
   });
   const folders: string[] = [];
   for (const path of candidates) if (!(await isFolder(join(folder, ...path.split("/"))))) folders.push(path);
@@ -595,28 +683,90 @@ async function migrateProject(workspace: Workspace, receipt: OldReceipt, others:
   };
 }
 
+/** The lines that show what the old apkit added to a changed or kept configuration file. */
+function apkitPartLines(part: OldGeneratedPart): string[] {
+  switch (part.present) {
+    case "yes":
+      return [`    The part the old apkit added (${part.description}):`, ...part.text!.split("\n").map((line) => `      ${line}`)];
+    case "no":
+      return [`    The part the old apkit added is no longer in it: ${part.description}.`];
+    case "unknown":
+      return [`    It does not parse, so apkit cannot show its part. The old apkit added ${part.description}.`];
+  }
+}
+
+/** For changed old outputs: what each flag does to each listed file, and the commands that settle them. */
+function changedChoices(migration: Migration): { lines: string[]; next: string[][] } | null {
+  const changed = migration.outputs.filter((o) => o.result === "changed");
+  if (changed.length === 0) return null;
+  const paths = (items: readonly OldOutputOutcome[]) => items.map((o) => o.path).join(", ");
+  const them = (items: readonly OldOutputOutcome[]) => (items.length === 1 ? "it" : "them");
+  const keepable = changed.filter((o) => o.choices?.includes("yes"));
+  const notKeepable = changed.filter((o) => o.choices?.includes("overwrite") && !o.choices.includes("yes"));
+  const deletable = changed.filter((o) => o.choices?.includes("overwrite"));
+  const consent = migration.issues.filter((issue) => issue.kind === "consent" || issue.kind === "outside");
+  const deleted = deletable.filter((o) => !o.installedAgain);
+  const replaced = deletable.filter((o) => o.installedAgain);
+  const lines = [
+    "  What each choice does:",
+    ...(keepable.length === 0 ? [] : [`    --yes keeps ${paths(keepable)} as your own: apkit stops tracking ${them(keepable)}, and Git no longer ignores ${them(keepable)}. First remove the part the old apkit added, with the user.`]),
+    ...(notKeepable.length === 0 ? [] : [`    --yes cannot keep ${paths(notKeepable)}: this apkit installs its own copy there. To keep your changes, move them out first.`]),
+    ...consent.map((issue) => `    --yes also allows: ${issue.message}`),
+    ...(deleted.length === 0 ? [] : [`    --overwrite deletes ${paths(deleted)}.`]),
+    ...(replaced.length === 0 ? [] : [`    --overwrite deletes ${paths(replaced)} and installs this apkit's copy in its place.`]),
+  ];
+  const next: string[][] = [];
+  if (keepable.length === changed.length) next.push(["migrate", "--yes"]);
+  if (deletable.length === changed.length) next.push(["migrate", "--overwrite", ...(consent.length > 0 ? ["--yes"] : [])]);
+  return { lines, next };
+}
+
 /** Text for one migration. Kept in one place so the shared output rules (#760) can take it over. */
 function describeMigration(migration: Migration): string[] {
   const where = display(migration.folder);
   const who = migration.agents.map((id) => AGENTS[id].name).join(", ");
   const list = (label: string, items: readonly string[]) => (items.length === 0 ? [] : [`  ${label}:`, ...items.map((item) => `    - ${item}`)]);
   const paths = (result: OldOutputOutcome["result"]) => migration.outputs.filter((o) => o.result === result).map((o) => o.path);
+  const kept = migration.outputs.filter((o) => o.result === "kept");
+  const keptLines = [
+    ...list("Kept as your own (apkit no longer tracks them)", kept.map((o) => o.path)),
+    ...(kept.some((o) => o.apkitPart != null && o.apkitPart.present !== "no")
+      ? groupedWarning(
+          "these files you kept may still hold the part the old apkit added, which loads files that are now deleted. Remove that part with the user:",
+          kept.filter((o) => o.apkitPart != null && o.apkitPart.present !== "no").map((o) => display(join(migration.folder, ...o.path.split("/")))),
+        ).split("\n").map((line) => `  ${line}`)
+      : []),
+  ];
   switch (migration.result) {
     case "retired":
     case "error":
       return [`${where}: not migrated. ${migration.message}`];
     case "unchanged":
-      return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`];
+      return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`, ...keptLines];
     case "needs-decision": {
       const yes = migration.issues.some((issue) => issue.kind === "consent" || issue.kind === "outside");
       const files = migration.instructions.map(
         (file) => `${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git`,
       );
+      const issueLines = migration.issues.flatMap((issue) => {
+        const output = issue.kind === "changed" ? migration.outputs.find((o) => o.path === issue.path && o.result === "changed") : undefined;
+        return [`  - ${issue.message}`, ...(output?.apkitPart ? apkitPartLines(output.apkitPart) : [])];
+      });
+      const choices = changedChoices(migration);
+      const next =
+        choices === null
+          ? yes
+            ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`]
+            : [`  ${nextCommand(["migrate"])}`]
+          : choices.next.length === 0
+            ? [`  ${nextCommand(["migrate"])}`]
+            : [`  Only after the user agrees, ${choices.next.length === 1 ? "run" : "one of"}:`, ...choices.next.map((args) => `  ${nextCommand(args)}`)];
       return [
         `${where}: nothing changed. Needs a decision:`,
-        ...migration.issues.map((issue) => `  - ${issue.message}`),
+        ...issueLines,
         ...list("Instruction files", files),
-        ...(yes ? ["  Only after the user agrees:", `  ${nextCommand(["migrate", "--yes"])}`] : [`  ${nextCommand(["migrate"])}`]),
+        ...(choices?.lines ?? []),
+        ...next,
       ];
     }
     case "migrated":
@@ -624,6 +774,7 @@ function describeMigration(migration: Migration): string[] {
         `${where}: migrated. Installed the Profile '${migration.profile}' for ${who} again with this apkit.`,
         ...list("Deleted old files", paths("deleted")),
         ...list("Replaced old Skill and file copies", paths("replaced")),
+        ...keptLines,
         ...list("Removed folders that held only old files", migration.folders),
         ...(migration.exclusion.result === "none" ? [] : [`  Removed the old apkit lines from ${display(migration.exclusion.file!)}.`]),
         ...trustLines(migration.trust, migration.folder).map((line) => `  ${line}`),
