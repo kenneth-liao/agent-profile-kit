@@ -573,6 +573,30 @@ describe("apkit CLI", () => {
     );
   });
 
+  test("after a change, the output names each instruction file changed and whether Git tracks it", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const repo = await tempDir("repo");
+    const git = (...args: string[]) =>
+      spawnSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...args], { cwd: repo, encoding: "utf8" }).stdout;
+    git("init", "-q");
+    await writeTree(repo, { "CLAUDE.md": "# Repo\n" });
+    git("add", "CLAUDE.md");
+    git("commit", "-qm", "claude");
+    cli(home, repo, "workspace", ws);
+
+    const install = cli(home, repo, "install", "engineering", "--agents", "claude", "--yes");
+    expect(install.code).toBe(0);
+    expect(install.out).toContain("  Instruction files:\n    - AGENTS.md: created; not tracked by Git.\n    - CLAUDE.md: changed; tracked by Git.");
+    // A run that changes no instruction file lists none.
+    const update = cli(home, repo, "update");
+    expect(update.out).not.toContain("Instruction files");
+
+    const remove = cli(home, repo, "remove");
+    expect(remove.code).toBe(0);
+    expect(remove.out).toContain("  Instruction files:\n    - AGENTS.md: deleted; not tracked by Git.\n    - CLAUDE.md: changed; tracked by Git.");
+  });
+
   test("an AGENTS.md apkit creates is never hidden from Git", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
@@ -590,14 +614,18 @@ describe("apkit CLI", () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
     cli(home, home, "workspace", ws);
-    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude,codex,grok,antigravity").code).toBe(0);
+    const install = cli(home, home, "install", "skills-only", "--global", "--agents", "claude,codex,grok,antigravity");
+    expect(install.code).toBe(0);
+    expect(install.out).toContain("Installed 'skills-only' for Antigravity, Claude Code, Codex, Grok at user level.");
     for (const path of [".claude/skills", ".agents/skills", ".grok/skills", ".gemini/config/skills"]) {
       expect(await read(home, `${path}/summarize/SKILL.md`)).toContain("name: summarize");
     }
     await writeTree(ws, { "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: v2\n---\n" });
     expect(cli(home, home, "update", "--all").code).toBe(0);
     expect(await read(home, ".gemini/config/skills/summarize/SKILL.md")).toContain("v2");
-    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    const remove = cli(home, home, "remove", "--global");
+    expect(remove.code).toBe(0);
+    expect(remove.out).toContain("Removed 'skills-only' for Antigravity, Claude Code, Codex, Grok from user level.");
     const left = await readdir(home);
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
   });
@@ -1179,6 +1207,29 @@ describe("apkit CLI", () => {
     expect(cli(home, folder, "install", "nope", "--agents", "codex").err).toContain("No Profile named 'nope'");
   });
 
+  test("an option the command does not take is a usage error, and nothing changes", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    cli(home, folder, "workspace", ws);
+    const before = await snapshot(folder);
+
+    const global = cli(home, folder, "status", "--global");
+    expect([global.code, global.out]).toEqual([2, ""]);
+    expect(global.err).toContain("`status` does not take --global. It takes --all, --workspace, --json.");
+    expect(global.err).toContain(`${COMMAND} help`);
+    const unknown = cli(home, folder, "install", "engineering", "--agents", "codex", "--yse");
+    expect([unknown.code, unknown.out]).toEqual([2, ""]);
+    expect(unknown.err).toContain("Unknown option --yse.");
+    expect(cli(home, folder, "guide", "--all").err).toContain("`guide` does not take --all. It takes no options.");
+    expect(cli(home, folder, "--version").err).toContain("Unknown option --version.");
+    expect(await snapshot(folder)).toEqual(before);
+
+    // --help works with any command.
+    const help = cli(home, folder, "install", "--help");
+    expect([help.code, help.out]).toEqual([0, `${HELP}\n`]);
+  });
+
   test.skipIf(!BUILT)("the bundle imports only node: built-ins and never checks the operating system", async () => {
     const bundle = await readFile(resolve(import.meta.dir, "..", BUILT ?? ""), "utf8");
     const specifiers = [...bundle.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|require\s*\(\s*|^import\s*)["']([^"']+)["']/gm)].map((m) => m[1]);
@@ -1660,6 +1711,36 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     // The old state is kept as a backup, as it was.
     expect(existsSync(fixture.state)).toBe(false);
     expect(await readFile(join(`${fixture.state}.migrated`, "state", "manifest.json"), "utf8")).toBe(before);
+  });
+
+  test("a folder that holds only old output and a macOS .DS_Store file is removed", async () => {
+    const fixture = await materializeMigration();
+    await writeFile(join(fixture.project, ".agent-profile-kit", ".DS_Store"), "Finder");
+    await writeFile(join(fixture.project, ".agents", "rules", ".DS_Store"), "Finder");
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const [project] = JSON.parse(result.out).projects;
+    expect(project.folders).toContain(".agent-profile-kit");
+    expect(project.folders).toContain(".agents/rules");
+    expect(existsSync(join(fixture.project, ".agent-profile-kit"))).toBe(false);
+    expect(existsSync(join(fixture.project, ".agents", "rules"))).toBe(false);
+  });
+
+  test("a folder with a file of the user's beside .DS_Store is kept", async () => {
+    const fixture = await materializeMigration();
+    await writeTree(fixture.project, { ".agent-profile-kit/.DS_Store": "Finder", ".agent-profile-kit/notes.md": "mine\n" });
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes", "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    expect(JSON.parse(result.out).projects[0].folders).not.toContain(".agent-profile-kit");
+    expect(await read(fixture.project, ".agent-profile-kit/.DS_Store")).toBe("Finder");
+    expect(await read(fixture.project, ".agent-profile-kit/notes.md")).toBe("mine\n");
+  });
+
+  test("the migrated output names each instruction file changed and whether Git tracks it", async () => {
+    const fixture = await materializeMigration();
+    const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    expect(result.out).toMatch(/  Instruction files:\n    - AGENTS\.md: (created|changed); (not )?tracked by Git\./);
   });
 
   test("names each old output and its outcome in text, by Project path", async () => {

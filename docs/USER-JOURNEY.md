@@ -23,10 +23,10 @@ install, update, and removal.
 | 3 | Create or select a Workspace | `apkit init <path>`, `apkit workspace [<path>]` | A Workspace at the path the user chose (never a default), selected for later commands. `workspace` without a path shows the selected Workspace's path. `workspace <path>` also shows its problems and each install whose Profile it lacks. |
 | 4 | Tell the user's agents | `apkit setup [--agents <a,b>]`, `apkit setup --remove` | A short Setup Note in each installed agent's user-level instructions, so later sessions run `apkit guide` before they change Skills, Context, or Profiles. Adding or removing it is a Decision first. `--remove` restores each file. |
 | 5 | Author and validate | Edit Workspace files, then `apkit check` | Each error names its file and the change that fixes it, and blocks installs and updates until fixed. Each warning names a file that `apkit` skips and blocks nothing. `check` lists the Profiles. |
-| 6 | Install | `apkit install <profile> [folder] --agents <a,b>`, `apkit install <profile> --global --agents <a,b>` | The Profile's Skills in each selected agent's Skills folder and its Context in one Context Section, for one folder or for every project. Running `install` again with other values changes that folder's Profile or agents. Each instruction file it creates or changes is named, with whether Git tracks it. |
+| 6 | Install | `apkit install <profile> [folder] --agents <a,b>`, `apkit install <profile> --global --agents <a,b>` | The Profile's Skills in each selected agent's Skills folder and its Context in one Context Section, for one folder or for every project. Running `install` again with other values changes that folder's Profile or agents. Each instruction file it creates or changes is named, with whether Git tracks it, in the Decision and again after the write. |
 | 7 | Use | The agent's next session | Agents load the material natively. `apkit` names each selected agent that does not load it until the user trusts the folder. Where each agent's files go: [`docs/ARCHITECTURE.md` § Verified Locations](ARCHITECTURE.md#verified-locations). |
 | 8 | Re-sync | `apkit status [folder \| --all]`, `apkit update [folder \| --all]` | `status` shows what is installed and what is out of date and changes nothing. `update` re-installs from the current Workspace. `--all` covers every installed folder and the user-level install. |
-| 9 | Remove | `apkit remove [folder \| --global]` | Everything `apkit` installed there is gone, with the folders its writes left empty. Instruction files keep everything outside the Context Section. |
+| 9 | Remove | `apkit remove [folder \| --global]` | Everything `apkit` installed there is gone, with the folders its writes left empty. A folder that holds only macOS Finder's `.DS_Store` file counts as empty. Instruction files keep everything outside the Context Section. |
 | 10 | Migrate | `apkit migrate` | For a user of apkit 0.238 or earlier: each recorded Project keeps the same Workspace, Profile, and agents under this engine. See [Migration](#migration). |
 
 ## Rules for every stage
@@ -51,6 +51,9 @@ install, update, and removal.
 - **`--json`** makes each operation command print one JSON value that is the
   complete record of the operation. `help`, `guide`, and `contract` print text
   only.
+- **Options.** A command stops with exit 2, before it reads or writes, on an
+  option it does not take, and names the options it takes. `--help` works with
+  every command.
 - **Exit codes** agree across commands: `0` done, `1` error, `2` usage, `3`
   needs a Decision.
 
