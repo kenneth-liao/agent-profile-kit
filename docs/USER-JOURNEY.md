@@ -93,6 +93,7 @@ Every human output follows these rules, including output added later:
    that applies to several Projects is printed once, with every Project
    listed.
 4. Every next step is the exact command to run, with real arguments and quoted
-   paths, on a Next line.
+   paths, on a Next line. Next lines are for the agent: it runs them for the
+   user and tells the user, in plain words, what it can do next.
 5. User-facing output says "agent", not "Host" (ADR-0051).
 6. One run prints one report, and each fact appears once in it.
