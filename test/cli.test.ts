@@ -643,6 +643,7 @@ describe("apkit CLI", () => {
     expect(blocked.code).toBe(3);
     expect(blocked.out).toContain(".claude/skills/summarize/SKILL.md has the same content but was not written by apkit. apkit manages it from now on, and remove deletes it.");
     expect(blocked.out).toContain("--yes");
+    expect(cli(home, home, "install", "--help").out.replace(/\s+/g, " ")).toContain("taking over a file apkit did not write that has the same content (remove then deletes it)");
     expect(cli(home, home, "status", "--global").out).toBe("User level: nothing installed.\n");
     expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude", "--yes").code).toBe(0);
     expect(cli(home, home, "remove", "--global").code).toBe(0);
@@ -654,8 +655,10 @@ describe("apkit CLI", () => {
     const ws = await makeWorkspace();
     cli(home, home, "workspace", ws);
     expect(cli(home, home, "install", "skills-only", "--agents", "claude").code).toBe(0);
-    const global = cli(home, home, "install", "skills-only", "--global", "--agents", "claude");
-    expect(global.code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude").code).toBe(0);
+    // And the other way round: the global install first, then the home folder's.
+    expect(cli(home, home, "remove").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--agents", "claude").code).toBe(0);
   });
 
   test("install --global puts a Profile's Context in each agent's user-level file, after consent", async () => {

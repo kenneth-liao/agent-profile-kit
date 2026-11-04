@@ -31,7 +31,7 @@ export interface Manifest {
 }
 
 export type IssueKind =
-  /** An edit to a file the user owns (AGENTS.md, CLAUDE.md). Allowed by `--yes`. */
+  /** A change the user owns: an edit to AGENTS.md / CLAUDE.md, or taking over a file apkit did not write that has the same content (remove then deletes it). Allowed by `--yes`. */
   | "consent"
   /** A file apkit wrote was changed since. Replaced only with `--overwrite`. */
   | "changed"
@@ -75,7 +75,7 @@ export interface Plan {
 }
 
 export interface Decisions {
-  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, and writes through a symlink outside the target. */
+  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, writes through a symlink outside the target, and taking over a file apkit did not write that has the same content. */
   readonly yes?: boolean;
   /** Replace or delete files that were changed or not written by apkit. */
   readonly overwrite?: boolean;

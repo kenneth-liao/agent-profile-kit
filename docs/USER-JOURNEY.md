@@ -38,8 +38,8 @@ install, update, and removal.
 - **`--yes`** allows an edit to a file the user owns (such as `AGENTS.md`,
   `CLAUDE.md`, or an agent's user-level instruction file), a write through
   a symlink that leads outside the folder, and taking over a file `apkit` did
-  not write that already has the same content, which `remove` then deletes. An agent passes it only after the
-  user agrees.
+  not write that already has the same content, which `remove` then deletes.
+  An agent passes it only after the user agrees.
 - **`--overwrite`** replaces or deletes files that someone changed or that
   `apkit` did not write. An agent passes it only after the user explicitly
   agrees to discard the files it lists.

@@ -119,6 +119,17 @@ describe("install", () => {
     expect(await read(target, ".agents/skills/summarize/SKILL.md")).toBe(original);
   });
 
+  test("after the manifest is lost, the identical files are taken over again with --yes", async () => {
+    const { wsRoot, target } = await setup();
+    await run(wsRoot, target, "skills-only", ["codex"]);
+    await fs.rm(join(target, ".agents/apkit.json"));
+    const blocked = await run(wsRoot, target, "skills-only", ["codex"]);
+    expect(blocked.open.every((i) => i.kind === "consent")).toBe(true);
+    expect(kinds(blocked)).toContain("consent:.agents/skills/summarize/SKILL.md");
+    expect((await run(wsRoot, target, "skills-only", ["codex"], { yes: true })).open).toEqual([]);
+    expect(await readManifest(target)).not.toBeNull();
+  });
+
   test("an identical file apkit already wrote needs no decision", async () => {
     const { wsRoot, target } = await setup();
     await run(wsRoot, target, "skills-only", ["codex"]);

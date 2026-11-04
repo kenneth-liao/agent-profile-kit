@@ -42,8 +42,9 @@ Usage:
   ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier) installed to this one
 
 Options:
-  --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
-                      and writes through a symlink that leads outside the folder.
+  --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...),
+                      writes through a symlink that leads outside the folder, and taking over
+                      a file apkit did not write that has the same content (remove then deletes it).
                       With migrate: also keep each file the old apkit wrote and the user changed
   --remove            With setup: remove the note from every agent
   --global            Install or remove at the user level instead of a project
