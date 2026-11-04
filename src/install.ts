@@ -472,10 +472,22 @@ export async function removeEmptyFolders(dirs: readonly string[]): Promise<void>
   for (const dir of [...new Set(dirs)].sort((a, b) => b.length - a.length)) await removeIfEmpty(dir);
 }
 
-/** Removes `dir` when it is an empty real folder. Never a link: on Windows, rmdir would delete a junction the user made. */
+/** The view settings macOS Finder writes into any folder it shows: not the user's content. */
+const FINDER_FILE = ".DS_Store";
+
+/**
+ * Removes `dir` when it is an empty real folder, or holds only Finder's `.DS_Store` file.
+ * Never a link: on Windows, rmdir would delete a junction the user made.
+ */
 async function removeIfEmpty(dir: string): Promise<boolean> {
   try {
-    if ((await lstat(dir)).isSymbolicLink() || (await readdir(dir)).length > 0) return false;
+    if ((await lstat(dir)).isSymbolicLink()) return false;
+    const entries = await readdir(dir);
+    if (entries.length === 1 && entries[0] === FINDER_FILE && (await lstat(join(dir, FINDER_FILE))).isFile()) {
+      await unlink(join(dir, FINDER_FILE));
+    } else if (entries.length > 0) {
+      return false;
+    }
     await rmdir(dir);
     return true;
   } catch {

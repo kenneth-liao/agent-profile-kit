@@ -8,7 +8,7 @@ import { join, resolve } from "node:path";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
-import { changesManifest, readManifest, readManifestAt, MANIFEST_PATH, type Decisions, type Manifest } from "./install.js";
+import { changesManifest, readManifest, readManifestAt, MANIFEST_PATH, type Decisions, type InstructionChange, type Manifest } from "./install.js";
 import { removeGitExclude } from "./gitexclude.js";
 import { apply, globalTarget, planAt, previousAt, renderFor, trustNeeds, type Outcome, type Planned, type Target, type TrustNeed } from "./location.js";
 import { migrate, oldStateFolder, type Migration, type MigrationRun, type OldGeneratedPart, type OldOutputOutcome, type WorkspaceRename } from "./migrate.js";
@@ -48,6 +48,41 @@ function parseArgs(argv: readonly string[]): Args {
 }
 
 class UsageError extends Error {}
+
+/**
+ * The options each command takes. `--help` works with any command, and `--json` is accepted
+ * everywhere (help, guide, and contract print text with it). Anything else is a usage error,
+ * before any read or write.
+ */
+const OPTIONS: Readonly<Record<string, readonly string[]>> = {
+  help: [],
+  guide: [],
+  contract: [],
+  init: ["--json"],
+  workspace: ["--json"],
+  setup: ["--agents", "--remove", "--yes", "--overwrite", "--json"],
+  check: ["--workspace", "--json"],
+  install: ["--agents", "--global", "--yes", "--overwrite", "--workspace", "--json"],
+  update: ["--all", "--yes", "--overwrite", "--workspace", "--json"],
+  remove: ["--global", "--yes", "--overwrite", "--json"],
+  status: ["--all", "--global", "--workspace", "--json"],
+  migrate: ["--yes", "--overwrite", "--workspace", "--json"],
+};
+
+const KNOWN = new Set(Object.values(OPTIONS).flat());
+
+/** Rejects an option the command does not take, so a mistyped or misplaced flag never runs as if it were absent. */
+function checkOptions(command: string | undefined, args: Args): void {
+  const allowed = command === undefined ? [] : OPTIONS[command];
+  // An unknown command is reported as such.
+  if (allowed === undefined) return;
+  for (const flag of args.flags.keys()) {
+    if (flag === "--json" || allowed.includes(flag)) continue;
+    const takes = allowed.length === 0 ? "It takes no options." : `It takes ${allowed.join(", ")}.`;
+    const message = !KNOWN.has(flag) || command === undefined ? `Unknown option ${flag}.` : `\`${command}\` does not take ${flag}. ${takes}`;
+    throw new UsageError(`${message}\n${nextCommand(["help"])}`);
+  }
+}
 
 async function folderArg(value: string | undefined): Promise<string> {
   const path = resolve(value ?? process.cwd());
@@ -137,7 +172,7 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
     if (error instanceof NewerSchemaError) return { folder, ...(target.global ? { global: target.global } : {}), result: "error", message: error.message };
     throw error;
   }
-  if (previous === null) return { folder, result: "not-installed" };
+  if (previous === null) return { folder, ...(target.global ? { global: target.global } : {}), result: "not-installed" };
   const base = {
     folder,
     ...(target.global ? { global: target.global } : {}),
@@ -182,8 +217,9 @@ async function forget(folder: string): Promise<void> {
   await recordInstall(folder, false);
 }
 
-/** `--all` is every registered folder plus the global install, if there is one. */
+/** `--all` is every registered folder plus the global install, if there is one; `--global` (status) is the global install. */
 async function targets(args: Args): Promise<Target[]> {
+  if (args.flags.has("--global")) return [await globalTarget()];
   if (!args.flags.has("--all")) return [{ folder: await folderArg(args.positional[1]) }];
   const folders: Target[] = (await readConfig()).installs.map((folder) => ({ folder }));
   const global = await globalTarget();
@@ -226,19 +262,35 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   return result;
 }
 
+const DONE = { create: "created", change: "changed", delete: "deleted" } as const;
+
+/** One instruction file, what happens (or happened) to it, and whether Git tracks it (ISC-86). */
+function instructionLine(file: InstructionChange, when: "planned" | "done"): string {
+  return `${file.path}: ${when === "planned" ? "will be " : ""}${DONE[file.action]}; ${file.tracked ? "tracked" : "not tracked"} by Git.`;
+}
+
+/** After a run that wrote: each instruction file it created, changed, or deleted. */
+function changedInstructionLines(files: readonly InstructionChange[] | undefined): string[] {
+  if (files === undefined || files.length === 0) return [];
+  return ["  Instruction files:", ...files.map((file) => `    - ${instructionLine(file, "done")}`)];
+}
+
 function describe(outcome: Outcome, mode: "apply" | "status", args: Args): string {
   const where = outcome.global ? "User level" : display(outcome.folder);
+  const at = outcome.global ? "at user level" : `in ${where}`;
+  const from = outcome.global ? "from user level" : `from ${where}`;
   const who = outcome.agents?.map((id) => AGENTS[id].name).join(", ");
   const what = outcome.profile === undefined ? "" : `'${outcome.profile}'${who ? ` for ${who}` : ""}`;
+  const written = (line: string) => [line, ...changedInstructionLines(outcome.instructions)].join("\n");
   switch (outcome.result) {
     case "installed":
-      return `Installed ${what} in ${where}.`;
+      return written(`Installed ${what} ${at}.`);
     case "updated":
       return mode === "status"
         ? `${where}: ${what} is out of date.\n${(outcome.changed ?? []).map((path) => `  - ${path}`).join("\n")}\n${nextCommand(nextArgs(outcome, args, mode))}`
-        : `Updated ${what} in ${where} (${outcome.changed?.length ?? 0} changed).`;
+        : written(`Updated ${what} ${at} (${outcome.changed?.length ?? 0} changed).`);
     case "removed":
-      return `Removed ${what} from ${where}.`;
+      return written(`Removed ${what} ${from}.`);
     case "unchanged":
       return mode === "status" ? `${where}: ${what} is up to date.` : `${where}: ${what} is already up to date.`;
     case "not-installed":
@@ -249,10 +301,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
-      const files = (outcome.instructions ?? []).map(
-        (file) =>
-          `    - ${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git.`,
-      );
+      const files = (outcome.instructions ?? []).map((file) => `    - ${instructionLine(file, "planned")}`);
       const listed = files.length > 0 ? `\n  Instruction files:\n${files.join("\n")}` : "";
       return `${lead}\n${lines.join("\n")}${listed}\n  Only after the user agrees:\n  ${nextCommand(nextArgs(outcome, args, mode))}`;
     }
@@ -353,9 +402,7 @@ function describeMigration(migration: Migration, nextStep = true): string[] {
       return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`, ...keptLines];
     case "needs-decision": {
       const yes = migration.issues.some((issue) => issue.kind === "consent" || issue.kind === "outside");
-      const files = migration.instructions.map(
-        (file) => `${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git`,
-      );
+      const files = migration.instructions.map((file) => instructionLine(file, "planned"));
       const issueLines = migration.issues.flatMap((issue) => {
         const output = issue.kind === "changed" ? migration.outputs.find((o) => o.path === issue.path && o.result === "changed") : undefined;
         return [`  - ${issue.message}`, ...(output?.apkitPart ? apkitPartLines(output.apkitPart) : [])];
@@ -385,6 +432,7 @@ function describeMigration(migration: Migration, nextStep = true): string[] {
         ...keptLines,
         ...list("Removed folders that held only old files", migration.folders),
         ...(migration.exclusion.result === "none" ? [] : [`  Removed the old apkit lines from ${display(migration.exclusion.file!)}.`]),
+        ...changedInstructionLines(migration.instructions),
         ...trustLines(migration.trust, migration.folder).map((line) => `  ${line}`),
       ];
   }
@@ -482,9 +530,12 @@ function migrationField(state: string | null): { migration?: { command: string; 
 
 /** Runs that write take turns, so none plans against files another run is changing. */
 async function main(argv: readonly string[]): Promise<number> {
-  const command = parseArgs(argv).positional[0];
+  const args = parseArgs(argv);
+  const command = args.positional[0];
   const state = oldStateFolder(homedir());
   unmigrated = (await exists(state)) ? state : null;
+  // Before the lock, so a rejected option writes nothing.
+  if (!args.flags.has("--help")) checkOptions(command, args);
   return command !== undefined && WRITES.has(command) ? withLock(configHome(), () => run(argv)) : run(argv);
 }
 
@@ -493,6 +544,10 @@ async function run(argv: readonly string[]): Promise<number> {
   const json = args.flags.has("--json");
   const decisions: Decisions = { yes: args.flags.has("--yes"), overwrite: args.flags.has("--overwrite") };
   const command = args.positional[0];
+  if (args.flags.has("--help")) {
+    console.log(unmigrated === null ? HELP : `${HELP}\n${migrationNotice(unmigrated)}`);
+    return EXIT.ok;
+  }
   // A configuration from a newer apkit stops every command before anything is written.
   if (command !== undefined && command !== "help" && command !== "guide" && command !== "contract") await readConfig();
   // `migrate` explains the migration itself, so it does not repeat the notice.
@@ -505,7 +560,7 @@ async function run(argv: readonly string[]): Promise<number> {
     case undefined:
     case "help":
       console.log(withNotice(HELP));
-      return args.flags.has("--help") || command === "help" ? EXIT.ok : EXIT.usage;
+      return command === "help" ? EXIT.ok : EXIT.usage;
 
     case "guide":
       console.log(withNotice(GUIDE));

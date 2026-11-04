@@ -37,7 +37,8 @@ Usage:
                                               Install a Profile for every project (user level)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
-  ${COMMAND} status [folder | --all]          Show what is installed and what is out of date
+  ${COMMAND} status [folder | --all | --global]
+                                              Show what is installed and what is out of date
   ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier) installed to this one
 
 Options:

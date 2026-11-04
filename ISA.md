@@ -716,3 +716,9 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
     plain `bun test`, because the new engine starts no child processes.
   - Two specs: first the Workspace format and the remaining engine gaps in
     `next/`, then migration and cutover.
+- 2026-11-03 — refined: macOS Finder's `.DS_Store` file is not the user's
+  content. A folder that holds only apkit's output and a `.DS_Store` file
+  counts as empty when apkit removes the folders its writes emptied. The
+  live 0.239.0-rc.1 migration (#762) left `.agent-profile-kit/` in four
+  Projects only because Finder had written that file, and the principal asked
+  for it to be fixed. A folder with any other file stays.
