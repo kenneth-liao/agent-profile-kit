@@ -224,7 +224,14 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
       issues.push({ kind: "unowned", path, message: `${path} is a folder where apkit needs a file.` });
       continue;
     }
-    if (disk !== null && hash(disk) === want) continue;
+    if (disk !== null && hash(disk) === want) {
+      // Same bytes, but apkit did not write them: taking the file over is the user's decision,
+      // because remove then deletes it. A file another install here owns is apkit's already.
+      if (owned[path] === undefined && !shared.has(path)) {
+        issues.push({ kind: "consent", path, message: `${path} has the same content but was not written by apkit. apkit manages it from now on, and remove deletes it.` });
+      }
+      continue;
+    }
     if (disk !== null && owned[path] === undefined) {
       issues.push({ kind: "unowned", path, message: `${path} exists and was not written by apkit.` });
     } else if (disk !== null && hash(disk) !== owned[path]) {
