@@ -138,19 +138,22 @@ projects. After setup, offer to gather them into the Workspace:
 1. Look where agents keep them: each agent's user-level Skills folder and
    user-level instruction file (the files \`${COMMAND} setup\` named), and the
    projects the user names (their AGENTS.md, CLAUDE.md, and agent Skills
-   folders). Skip what ${COMMAND} installed: a folder's .agents/apkit.json lists
-   its installed files, and apkit's sections in instruction files are marked.
+   folders). Skip what ${COMMAND} installed: a Skill whose name the Workspace
+   already has, and each section of an instruction file between an
+   \`<!-- apkit:...begin -->\` line and its end line.
 2. Show the user what you found, by path: Skills, and guidance that could
    become Context Modules. Ask which to bring in.
 3. Copy each one they choose into the Workspace: a Skill folder to
-   skills/<name>/, and guidance for many projects to context/<id>.md. Leave
+   skills/<dir>/, and guidance for many projects to context/<id>.md. Leave
    guidance for one project in that project. Do not delete or change the
    originals.
 4. Run \`${COMMAND} check\` and fix what it reports. Then propose a Profile
    that groups the material, and write it after the user agrees.
-5. An original at a path where ${COMMAND} later installs is listed as a
-   decision, because ${COMMAND} did not write it. Replace it only after the
-   user confirms that the Workspace copy takes its place.
+5. Before you install where an original lies at a path that ${COMMAND}
+   installs to (such as a Skill folder), tell the user that ${COMMAND} then
+   manages that path: an identical original is taken over without a
+   decision, and a later remove deletes it; a different one is a decision.
+   Install only after the user agrees that the Workspace copy takes its place.
 
 ## What gets installed
 
@@ -183,8 +186,8 @@ Next lines are for you to run, not for the user to type.
   the user's next commit. For each listed write through a symlink that leads
   outside the folder, name the link and where it leads.
   Add --yes only after the user agrees.
-- Add --overwrite only after the user explicitly agrees to discard the changed
-  files it lists. Never pass --overwrite on your own judgment. If the user
+- Add --overwrite only after the user explicitly agrees to discard the files
+  it lists: files that were changed, or that ${COMMAND} did not write. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
 
 ## After installing

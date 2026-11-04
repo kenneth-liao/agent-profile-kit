@@ -1214,7 +1214,7 @@ describe("apkit CLI", () => {
     const start = GUIDE.indexOf("## Bring in the user's existing material");
     expect(start).toBeGreaterThan(GUIDE.indexOf("## First-time setup"));
     const section = GUIDE.slice(start, GUIDE.indexOf("\n## ", start + 1)).replace(/\s+/g, " ");
-    for (const phrase of ["user-level Skills folder", "Ask which to bring in", "Copy each one", "Do not delete or change the originals", `${COMMAND} check`, "Profile"]) {
+    for (const phrase of ["user-level Skills folder", "a Skill whose name the Workspace already has", "Ask which to bring in", "Copy each one", "Do not delete or change the originals", `${COMMAND} check`, "propose a Profile", "an identical original is taken over without a decision"]) {
       expect(section).toContain(phrase);
     }
   });
