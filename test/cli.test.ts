@@ -1199,6 +1199,26 @@ describe("apkit CLI", () => {
     expect(finish).toContain("trusting a folder");
   });
 
+  test("the guide has the agent work for the user: it offers what it can do and never hands over commands", () => {
+    // Phrases are matched across the guide's line wrapping.
+    const finish = GUIDE.slice(GUIDE.indexOf("## When you finish")).replace(/\s+/g, " ");
+    expect(finish).toContain("what you can do for them next");
+    expect(finish).toContain("bring in Skills and instructions they already have");
+    expect(finish).toContain("Do not give the user commands to run");
+    expect(finish).not.toContain("Next line in the same format");
+    // apkit's Next lines are the agent's to run.
+    expect(GUIDE).toContain("Next lines are for you to run, not for the user to type.");
+  });
+
+  test("the guide explains how to bring the user's existing Skills and instructions into the Workspace", () => {
+    const start = GUIDE.indexOf("## Bring in the user's existing material");
+    expect(start).toBeGreaterThan(GUIDE.indexOf("## First-time setup"));
+    const section = GUIDE.slice(start, GUIDE.indexOf("\n## ", start + 1)).replace(/\s+/g, " ");
+    for (const phrase of ["user-level Skills folder", "a Skill whose name the Workspace already has", "Ask which to bring in", "Copy each one", "Do not delete or change the originals", `${COMMAND} check`, "propose a Profile", "an identical original is taken over without a decision"]) {
+      expect(section).toContain(phrase);
+    }
+  });
+
   test("usage errors explain themselves", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();

@@ -11,6 +11,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 - Fixed `install`, `update`, `remove`, and `migrate --yes` naming each instruction file only before the user agreed; after the write they now list each `AGENTS.md` and `CLAUDE.md` they created, changed, or deleted, with whether Git tracks it (#762)
 - Fixed `migrate` and `remove` leaving a folder that held only macOS Finder's `.DS_Store` file, such as `.agent-profile-kit/`; such a folder now counts as empty and is removed (#762)
 - Fixed the user-level install output reading `Installed … in User level.`; it now reads `at user level` and `from user level` (#762)
+- Changed `apkit guide` so the agent ends by offering what it can do for the user, such as bringing in Skills and instructions they already have, instead of listing commands for the user to run, and added a section on bringing existing Skills and instructions into the Workspace (#762)
 
 ## [0.238.0] - 2026-10-28
 

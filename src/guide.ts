@@ -65,7 +65,10 @@ them into Profiles. ${COMMAND} installs a Profile into any project folder for
 the user's coding agents, keeps installs up to date, and removes them. If you
 are an agent: you do the authoring and the conversation; ${COMMAND} does every
 install, update, and removal so that the user's own edits are never lost.
-Never copy or edit installed files by hand.
+Never copy or edit installed files by hand. Work on the user's behalf: run
+${COMMAND} yourself and tell the user, in plain words, what happened and what
+you can do for them. The user does not need to learn its commands unless they
+ask.
 
 ## Workspace format
 
@@ -125,7 +128,32 @@ Do these steps once, before any install.
    decision first. \`--agents\` limits it to some agents; \`setup --remove\`
    takes the note back out.
 
-Only after setup, move the user's material into the Workspace and install a Profile.
+Only after setup, bring in the user's existing material and install a Profile.
+
+## Bring in the user's existing material
+
+Most users already have Skills and instructions spread across their agents and
+projects. After setup, offer to gather them into the Workspace:
+
+1. Look where agents keep them: each agent's user-level Skills folder and
+   user-level instruction file (the files \`${COMMAND} setup\` named), and the
+   projects the user names (their AGENTS.md, CLAUDE.md, and agent Skills
+   folders). Skip what ${COMMAND} installed: a Skill whose name the Workspace
+   already has, and each section of an instruction file between an
+   \`<!-- apkit:...begin -->\` line and its end line.
+2. Show the user what you found, by path: Skills, and guidance that could
+   become Context Modules. Ask which to bring in.
+3. Copy each one they choose into the Workspace: a Skill folder to
+   skills/<dir>/, and guidance for many projects to context/<id>.md. Leave
+   guidance for one project in that project. Do not delete or change the
+   originals.
+4. Run \`${COMMAND} check\` and fix what it reports. Then propose a Profile
+   that groups the material, and write it after the user agrees.
+5. Before you install where an original lies at a path that ${COMMAND}
+   installs to (such as a Skill folder), tell the user that ${COMMAND} then
+   manages that path: an identical original is taken over without a
+   decision, and a later remove deletes it; a different one is a decision.
+   Install only after the user agrees that the Workspace copy takes its place.
 
 ## What gets installed
 
@@ -149,7 +177,8 @@ Only after setup, move the user's material into the Workspace and install a Prof
 When a step needs the user's decision, ${COMMAND} does not change the folder or
 Project that needs it, prints the decisions, and exits with code 3. With several
 folders or Projects in one run, the others may already be done. Explain each one to the user in plain words.
-The Next line gives the complete command to run after the user agrees:
+The Next line gives the complete command to run after the user agrees.
+Next lines are for you to run, not for the user to type.
 
 - For each listed instruction file (AGENTS.md, CLAUDE.md, or an agent's
   user-level file), tell the user whether it will be created, changed, or
@@ -157,8 +186,8 @@ The Next line gives the complete command to run after the user agrees:
   the user's next commit. For each listed write through a symlink that leads
   outside the folder, name the link and where it leads.
   Add --yes only after the user agrees.
-- Add --overwrite only after the user explicitly agrees to discard the changed
-  files it lists. Never pass --overwrite on your own judgment. If the user
+- Add --overwrite only after the user explicitly agrees to discard the files
+  it lists: files that were changed, or that ${COMMAND} did not write. Never pass --overwrite on your own judgment. If the user
   wants to keep a change, move it into the Workspace first, then update.
 
 ## After installing
@@ -184,10 +213,12 @@ End with a short summary in plain words, not a list of every file and step:
   Context Modules and Skills, a Profile selects some of them, and ${COMMAND}
   installs a Profile into a project, or for every project, and keeps it up
   to date.
-- What they can do next: add a Context Module or a Skill to the Workspace,
-  list it in a Profile (\`skills: all\` already includes every Skill), then
-  run \`${COMMAND} update --all\`. Give each command to run next on a
-  Next line in the same format as apkit, with actual arguments and quoted paths.
+- In plain words, what you can do for them next, as offers: bring in Skills
+  and instructions they already have elsewhere, create or change a Profile,
+  install a Profile into another project or for every project, and update
+  every install after they edit the Workspace.
 
-Give other paths and details only if the user asks.
+Do not give the user commands to run, and leave ${COMMAND}'s Next lines out
+of the summary: you run ${COMMAND} for them. Give a command, other paths, or
+details only if the user asks.
 `;
