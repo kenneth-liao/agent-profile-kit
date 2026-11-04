@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.239.0] - 2026-11-03
+
 - Changed `apkit` to the agent-first engine (BREAKING): the commands are now `init`, `workspace`, `setup`, `check`, `install`, `update`, `remove`, `status`, `guide`, `contract`, and `migrate`, and users of 0.238.0 or earlier must run `apkit migrate` once so each installed Project keeps its Workspace, Profile, and agents under the new engine (#728)
 - Fixed `apkit` ignoring an option the command does not take, so `apkit status --global` showed the current Project and a mistyped `--yse` ran as if absent; each command now stops with exit 2 and names the options it takes, `status --global` shows the user-level install alone, and `--help` works with every command (#762)
 - Fixed `install`, `update`, `remove`, and `migrate --yes` naming each instruction file only before the user agreed; after the write they now list each `AGENTS.md` and `CLAUDE.md` they created, changed, or deleted, with whether Git tracks it (#762)
