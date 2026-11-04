@@ -73,7 +73,7 @@ jobs:
   built-cli-node-lines:
     name: Built CLI on Node ${{ matrix.node }}
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
