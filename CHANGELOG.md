@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+## [0.239.1] - 2026-11-04
+
 - Fixed `install` and `update` silently taking over a file apkit did not write when it already had the same bytes, so a later `remove` deleted the user's own Skill; taking it over is now a Decision settled by `--yes`, and the message says `remove` deletes it (#767)
 
 ## [0.239.0] - 2026-11-03
