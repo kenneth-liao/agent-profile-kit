@@ -634,6 +634,33 @@ describe("apkit CLI", () => {
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
   });
 
+  test("install --global takes over an identical Skill the user put there only after a decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    await writeTree(home, { ".claude/skills/summarize/SKILL.md": await read(ws, "skills/summarize/SKILL.md") });
+    const blocked = cli(home, home, "install", "skills-only", "--global", "--agents", "claude");
+    expect(blocked.code).toBe(3);
+    expect(blocked.out).toContain(".claude/skills/summarize/SKILL.md has the same content but was not written by apkit. apkit manages it from now on, and remove deletes it.");
+    expect(blocked.out).toContain("--yes");
+    expect(cli(home, home, "install", "--help").out.replace(/\s+/g, " ")).toContain("taking over a file apkit did not write that has the same content (remove then deletes it)");
+    expect(cli(home, home, "status", "--global").out).toBe("User level: nothing installed.\n");
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude", "--yes").code).toBe(0);
+    expect(cli(home, home, "remove", "--global").code).toBe(0);
+    expect(await readdir(home)).not.toContain(".claude");
+  });
+
+  test("a Skill both the home folder's install and the global install wrote needs no decision", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    cli(home, home, "workspace", ws);
+    expect(cli(home, home, "install", "skills-only", "--agents", "claude").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--global", "--agents", "claude").code).toBe(0);
+    // And the other way round: the global install first, then the home folder's.
+    expect(cli(home, home, "remove").code).toBe(0);
+    expect(cli(home, home, "install", "skills-only", "--agents", "claude").code).toBe(0);
+  });
+
   test("install --global puts a Profile's Context in each agent's user-level file, after consent", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
@@ -1214,7 +1241,7 @@ describe("apkit CLI", () => {
     const start = GUIDE.indexOf("## Bring in the user's existing material");
     expect(start).toBeGreaterThan(GUIDE.indexOf("## First-time setup"));
     const section = GUIDE.slice(start, GUIDE.indexOf("\n## ", start + 1)).replace(/\s+/g, " ");
-    for (const phrase of ["user-level Skills folder", "a Skill whose name the Workspace already has", "Ask which to bring in", "Copy each one", "Do not delete or change the originals", `${COMMAND} check`, "propose a Profile", "an identical original is taken over without a decision"]) {
+    for (const phrase of ["user-level Skills folder", "a Skill whose name the Workspace already has", "Ask which to bring in", "Copy each one", "Do not delete or change the originals", `${COMMAND} check`, "propose a Profile", "installing is a decision"]) {
       expect(section).toContain(phrase);
     }
   });

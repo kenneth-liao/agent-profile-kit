@@ -6,6 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed `install` and `update` silently taking over a file apkit did not write when it already had the same bytes, so a later `remove` deleted the user's own Skill; taking it over is now a Decision settled by `--yes`, and the message says `remove` deletes it (#767)
+
 ## [0.239.0] - 2026-11-03
 
 - Changed `apkit` to the agent-first engine (BREAKING): the commands are now `init`, `workspace`, `setup`, `check`, `install`, `update`, `remove`, `status`, `guide`, `contract`, and `migrate`, and users of 0.238.0 or earlier must run `apkit migrate` once so each installed Project keeps its Workspace, Profile, and agents under the new engine (#728)

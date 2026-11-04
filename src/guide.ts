@@ -42,8 +42,9 @@ Usage:
   ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier) installed to this one
 
 Options:
-  --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...)
-                      and writes through a symlink that leads outside the folder.
+  --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...),
+                      writes through a symlink that leads outside the folder, and taking over
+                      a file apkit did not write that has the same content (remove then deletes it).
                       With migrate: also keep each file the old apkit wrote and the user changed
   --remove            With setup: remove the note from every agent
   --global            Install or remove at the user level instead of a project
@@ -149,11 +150,9 @@ projects. After setup, offer to gather them into the Workspace:
    originals.
 4. Run \`${COMMAND} check\` and fix what it reports. Then propose a Profile
    that groups the material, and write it after the user agrees.
-5. Before you install where an original lies at a path that ${COMMAND}
-   installs to (such as a Skill folder), tell the user that ${COMMAND} then
-   manages that path: an identical original is taken over without a
-   decision, and a later remove deletes it; a different one is a decision.
-   Install only after the user agrees that the Workspace copy takes its place.
+5. Where an original lies at a path that ${COMMAND} installs to (such as a
+   Skill folder), installing is a decision: ${COMMAND} then manages that path,
+   and a later remove deletes it.
 
 ## What gets installed
 
@@ -184,7 +183,8 @@ Next lines are for you to run, not for the user to type.
   user-level file), tell the user whether it will be created, changed, or
   deleted, and whether Git tracks it. A change to a tracked file shows up in
   the user's next commit. For each listed write through a symlink that leads
-  outside the folder, name the link and where it leads.
+  outside the folder, name the link and where it leads. For each file
+  ${COMMAND} would take over, tell the user that a later remove deletes it.
   Add --yes only after the user agrees.
 - Add --overwrite only after the user explicitly agrees to discard the files
   it lists: files that were changed, or that ${COMMAND} did not write. Never pass --overwrite on your own judgment. If the user

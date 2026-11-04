@@ -31,7 +31,7 @@ export interface Manifest {
 }
 
 export type IssueKind =
-  /** An edit to a file the user owns (AGENTS.md, CLAUDE.md). Allowed by `--yes`. */
+  /** A change the user owns: an edit to AGENTS.md / CLAUDE.md, or taking over a file apkit did not write that has the same content (remove then deletes it). Allowed by `--yes`. */
   | "consent"
   /** A file apkit wrote was changed since. Replaced only with `--overwrite`. */
   | "changed"
@@ -75,7 +75,7 @@ export interface Plan {
 }
 
 export interface Decisions {
-  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, and writes through a symlink outside the target. */
+  /** Allow edits to AGENTS.md / CLAUDE.md, including creating AGENTS.md, writes through a symlink outside the target, and taking over a file apkit did not write that has the same content. */
   readonly yes?: boolean;
   /** Replace or delete files that were changed or not written by apkit. */
   readonly overwrite?: boolean;
@@ -224,7 +224,14 @@ export async function plan(target: string, desired: Desired | null, previous: Ma
       issues.push({ kind: "unowned", path, message: `${path} is a folder where apkit needs a file.` });
       continue;
     }
-    if (disk !== null && hash(disk) === want) continue;
+    if (disk !== null && hash(disk) === want) {
+      // Same bytes, but apkit did not write them: taking the file over is the user's decision,
+      // because remove then deletes it. A file another install here owns is apkit's already.
+      if (owned[path] === undefined && !shared.has(path)) {
+        issues.push({ kind: "consent", path, message: `${path} has the same content but was not written by apkit. apkit manages it from now on, and remove deletes it.` });
+      }
+      continue;
+    }
     if (disk !== null && owned[path] === undefined) {
       issues.push({ kind: "unowned", path, message: `${path} exists and was not written by apkit.` });
     } else if (disk !== null && hash(disk) !== owned[path]) {

@@ -36,9 +36,10 @@ install, update, and removal.
   already be done. The run lists every Decision and exits 3. The Next line is
   the exact command to run after the user agrees.
 - **`--yes`** allows an edit to a file the user owns (such as `AGENTS.md`,
-  `CLAUDE.md`, or an agent's user-level instruction file) and a write through
-  a symlink that leads outside the folder. An agent passes it only after the
-  user agrees.
+  `CLAUDE.md`, or an agent's user-level instruction file), a write through
+  a symlink that leads outside the folder, and taking over a file `apkit` did
+  not write that already has the same content, which `remove` then deletes.
+  An agent passes it only after the user agrees.
 - **`--overwrite`** replaces or deletes files that someone changed or that
   `apkit` did not write. An agent passes it only after the user explicitly
   agrees to discard the files it lists.

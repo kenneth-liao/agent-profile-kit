@@ -112,7 +112,8 @@ and the next manifest. `execute` runs only after every Decision is settled.
   Every field is checked when read, so planning never trusts a path or record
   it did not write.
 - **Decisions.** `consent` (an edit to `AGENTS.md`, `CLAUDE.md`, or a
-  user-level instruction file) and `outside` (a symlink would take a write or
+  user-level instruction file, or taking over a file apkit did not write that
+  already has the same content) and `outside` (a symlink would take a write or
   deletion outside the folder) are settled by `--yes`. `changed` (a file or
   section apkit wrote was changed) and `unowned` (a file apkit did not write is
   in the way) are settled by `--overwrite`.

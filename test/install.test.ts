@@ -106,11 +106,36 @@ describe("install", () => {
     expect(await read(target, ".claude/skills/summarize/SKILL.md")).toBe("someone else's skill\n");
   });
 
-  test("an identical file already in place is adopted silently", async () => {
+  test("an identical file apkit did not write is taken over only with --yes", async () => {
     const { wsRoot, target } = await setup();
-    await writeTree(target, { ".agents/skills/summarize/SKILL.md": await read(wsRoot, "skills/summarize/SKILL.md") });
-    const result = await run(wsRoot, target, "skills-only", ["codex"]);
-    expect(result.open).toEqual([]);
+    const original = await read(wsRoot, "skills/summarize/SKILL.md");
+    await writeTree(target, { ".agents/skills/summarize/SKILL.md": original });
+    const blocked = await run(wsRoot, target, "skills-only", ["codex"], { overwrite: true });
+    expect(kinds(blocked)).toEqual(["consent:.agents/skills/summarize/SKILL.md"]);
+    expect(blocked.open[0]?.message).toContain("remove deletes it");
+    expect(await readManifest(target)).toBeNull();
+    await run(wsRoot, target, "skills-only", ["codex"], { yes: true });
+    expect(Object.keys((await readManifest(target))?.files ?? {})).toContain(".agents/skills/summarize/SKILL.md");
+    expect(await read(target, ".agents/skills/summarize/SKILL.md")).toBe(original);
+  });
+
+  test("after the manifest is lost, the identical files are taken over again with --yes", async () => {
+    const { wsRoot, target } = await setup();
+    await run(wsRoot, target, "skills-only", ["codex"]);
+    await fs.rm(join(target, ".agents/apkit.json"));
+    const blocked = await run(wsRoot, target, "skills-only", ["codex"]);
+    expect(blocked.open.every((i) => i.kind === "consent")).toBe(true);
+    expect(kinds(blocked)).toContain("consent:.agents/skills/summarize/SKILL.md");
+    expect((await run(wsRoot, target, "skills-only", ["codex"], { yes: true })).open).toEqual([]);
+    expect(await readManifest(target)).not.toBeNull();
+  });
+
+  test("an identical file apkit already wrote needs no decision", async () => {
+    const { wsRoot, target } = await setup();
+    await run(wsRoot, target, "skills-only", ["codex"]);
+    const again = await run(wsRoot, target, "skills-only", ["codex"]);
+    expect(again.open).toEqual([]);
+    expect(again.planned.ops).toEqual([]);
   });
 
   test("Skills-only Profiles never touch AGENTS.md", async () => {
