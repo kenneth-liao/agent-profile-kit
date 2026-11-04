@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Install one Temporary Profile Installation for several Hosts
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md).
 
 ## Context
 
@@ -65,4 +67,4 @@ e012809 installed and removed both.
   Temporary Profile Installation still leaves its empty folders.
 - apkit still writes no Host trust or approval state. A new worktree is a new
   path for each Host, and the orchestrator owns trust.
-- *Superseded at cutover by ADR-0056:* one kind of installation covers disposable worktrees. Until cutover this decision stays in force for the current engine.
+- *Superseded at cutover by ADR-0056:* one kind of installation covers disposable worktrees.

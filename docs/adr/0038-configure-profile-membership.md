@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Configure Profile membership through one validated write path
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 `apkit configure profile [name]` changes a reusable Profile's Context and
 Skill membership with explicit flags or, on an interactive human stream,

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Remove individual Hosts from an installation
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 Per-Host removal with final partial-removal semantics (ticket #498,
 US-004/US-008, DEC-003/DEC-005/DEC-006/DEC-014): `uninstall --host`

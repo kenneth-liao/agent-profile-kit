@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Select uninstall targets interactively
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 Bare and Host-only interactive `uninstall` collects its scope through the
 searchable Project picker with nothing pre-selected, then one per-flow

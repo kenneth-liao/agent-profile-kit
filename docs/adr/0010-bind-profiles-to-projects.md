@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Bind Profiles to projects and use native Host loading
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md).
 
 Agent Profile Kit keeps Profiles portable in the user Workspace, while each machine-local Project Binding selects one Profile and a set of Agent Hosts for exactly one explicit project directory root. An explicit global reconciliation installs a disposable snapshot into whole files and directories that Agent Profile Kit exclusively owns inside each project; the Hosts then load that material through their normal project discovery alongside untouched global and repository-owned configuration. This replaces per-session launch overlays and deliberately gives up simultaneous Profiles in one project in exchange for a smaller runtime-free system, native reliability, and no Host-global writes.
 
@@ -158,4 +160,4 @@ preserved by that publication machinery.
 
 Spec #371 (ticket #375) removed this record's recording-only `unbind` state boundary. `unbind` still records desired Project Binding state only and never removes generated output, but it now also retires the Project's active ordinary Installation Receipt in the same operation, so no active receipt can outlive its binding. The retired record keeps exactly the detail the active receipt recorded and persists as the sole teardown authority until the next `apply` consumes it. `bind` remains recording-only. See ADR-0025 for the accepted reduction.
 
-*Superseded at cutover by ADR-0056:* each folder owns its installation through a manifest, a folder list replaces Project Bindings, and user-level writes are allowed. Until cutover this decision stays in force for the current engine.
+*Superseded at cutover by ADR-0056:* each folder owns its installation through a manifest, a folder list replaces Project Bindings, and user-level writes are allowed.

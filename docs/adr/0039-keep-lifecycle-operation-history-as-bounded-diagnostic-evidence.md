@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Keep lifecycle operation history as bounded machine-local diagnostic evidence
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 `apkit install`, `apkit update`, and `apkit uninstall` automatically retain one
 bounded, machine-local record of what each run attempted, so a user can

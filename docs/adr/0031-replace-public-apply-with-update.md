@@ -63,3 +63,5 @@ amendments): the reconciliation path is invoked as `apkit update`, and
 Binding scope, and recording-only `bind` boundary are unaffected, as are the
 `bind`/`unbind` public names owned by sibling slices. Unrelated ownership,
 Host Resolution, versioning, and process-executor decisions are intact.
+
+*Amended at the agent-first cutover (0.239.0):* The public name `update` stands. `--here`, `--project`, `--stale`, `--blocked`, `--verbose`, and `--replace-changed` are retired; `update [folder | --all]` takes `--yes` and `--overwrite` (ADR-0060).

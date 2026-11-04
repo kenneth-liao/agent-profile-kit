@@ -54,3 +54,5 @@ presentation and lifecycle decisions are not redefined here.
 - Cross-platform and built-Node results, rather than a macOS runner-identity
   gate, establish support. Local evidence records the runtime actually used;
   CI reads the pinned Bun version from `package.json`.
+
+*Amended 2026-11-04:* `test/migration/` holds what apkit 0.238.0 wrote, for the `migrate` journeys (ADR-0061).

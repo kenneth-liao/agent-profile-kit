@@ -195,7 +195,7 @@ Workspace Error that names the update.
 
 The released engine (0.238.0 and earlier) kept Local Configuration in
 `~/.agents/agent-profile-kit/config.yaml` and receipts in
-`state/manifest.json` there. `apkit migrate` reads them, takes over each
+`state/manifest.json` there. `apkit migrate` (ADR-0061) reads them, takes over each
 recorded Project without losing the user's edits, and installs the same
 Profile and agents with this engine; other commands name `apkit migrate` while
 that state is not migrated. An old output that the user changed is a Decision

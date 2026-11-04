@@ -40,3 +40,5 @@ although the packed CLI runs.
 - The README support statement names Node 22 or newer.
 - A Node major newer than 26 is claimed before CI has run on it, until it is
   added to the matrix.
+
+*Amended at the agent-first cutover (0.239.0):* The CI job is `built-cli-node-lines`. It runs on `ubuntu-latest` and runs the CLI journeys (`test/cli.test.ts`) against the built bundle on each Node line after 22 (#770). The `>=22` range and the per-line evidence rule stand.

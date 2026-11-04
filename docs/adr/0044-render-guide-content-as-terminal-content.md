@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Render guide content as terminal content with verbatim copyable code
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 ## Context
 

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0055
 ---
 
 # Explain the source of generated instructions and configuration
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0055](0055-deliver-through-verified-locations-instead-of-adapters.md).
 
 Generated material now says that it is generated and where lasting edits belong
 (spec #491, US-021, DEC-014; ticket #503). US-021 supersedes US-010 and extends

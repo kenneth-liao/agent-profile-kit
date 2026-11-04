@@ -4,8 +4,7 @@ status: accepted
 
 # Deliver through verified locations instead of Adapters
 
-Takes effect at cutover to the engine in `next/`. Until then, the current
-engine keeps its Adapters.
+Took effect at the agent-first cutover (0.239.0).
 
 ## Context
 
@@ -46,3 +45,5 @@ and Windows (ISC-59 to ISC-62).
   done again. ISC-10 still holds: install success never claims that a Host
   loaded anything.
 - Adding a Host means adding a table row and its live check, not an Adapter.
+
+*Amended 2026-11-04:* §2 is about project folders. At user level, no one file is read by every Host, so `setup` and `install --global` write each Host's own user-level instruction file, and the user-level Skills folders are a second table. `docs/ARCHITECTURE.md` (Verified Locations) lists both, with their live checks.

@@ -22,7 +22,7 @@ This repository is the open-source Agent Profile Kit engine. It contains the age
 - `scripts/` owns release tooling: `scripts/release.ts` creates, qualifies, and verifies the release candidate (see `docs/runbooks/github-release.md`).
 - `test/` owns engine and CLI journey tests; `test/retained/` owns earlier-release Workspace fixtures and their provenance; `test/migration/` owns what apkit 0.238.0 wrote, with its provenance, for the `migrate` journeys.
 - `docs/guides/workspace-contract.md` owns the portable Workspace format, bundled into `apkit contract`.
-- `docs/adr/` owns accepted decisions and rationale.
+- `docs/adr/` owns accepted decisions and rationale. Each ADR opens with `status: accepted` or `status: superseded by ADR-NNNN` front matter; a decision that changes part of an ADR adds a dated *Amended* note to it instead of rewriting it.
 - `docs/ARCHITECTURE.md` owns living structural facts.
 - `docs/USER-JOURNEY.md` owns user-facing CLI surface behavior: the stages and the outcome each stage owes.
 - `docs/runbooks/` owns operational playbooks.

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Guide installation through searchable choices
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 Interactive `install` collects only its missing Profile/Host choices through
 searchable pickers (spec #491, US-001/US-005/US-006, DEC-002/DEC-004; ticket
