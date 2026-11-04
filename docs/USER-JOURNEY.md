@@ -25,7 +25,7 @@ install, update, and removal.
 | 5 | Author and validate | Edit Workspace files, then `apkit check` | Each error names its file and the change that fixes it, and blocks installs and updates until fixed. Each warning names a file that `apkit` skips and blocks nothing. `check` lists the Profiles. |
 | 6 | Install | `apkit install <profile> [folder] --agents <a,b>`, `apkit install <profile> --global --agents <a,b>` | The Profile's Skills in each selected agent's Skills folder and its Context in one Context Section, for one folder or for every project. Running `install` again with other values changes that folder's Profile or agents. Each instruction file it creates or changes is named, with whether Git tracks it, in the Decision and again after the write. |
 | 7 | Use | The agent's next session | Agents load the material natively. `apkit` names each selected agent that does not load it until the user trusts the folder. Where each agent's files go: [`docs/ARCHITECTURE.md` § Verified Locations](ARCHITECTURE.md#verified-locations). |
-| 8 | Re-sync | `apkit status [folder \| --all]`, `apkit update [folder \| --all]` | `status` shows what is installed and what is out of date and changes nothing. `update` re-installs from the current Workspace. `--all` covers every installed folder and the user-level install. |
+| 8 | Re-sync | `apkit status [folder \| --all \| --global]`, `apkit update [folder \| --all]` | `status` shows what is installed and what is out of date and changes nothing; `status --global` shows the user-level install alone. `update` re-installs from the current Workspace. `--all` covers every installed folder and the user-level install. |
 | 9 | Remove | `apkit remove [folder \| --global]` | Everything `apkit` installed there is gone, with the folders its writes left empty. A folder that holds only macOS Finder's `.DS_Store` file counts as empty. Instruction files keep everything outside the Context Section. |
 | 10 | Migrate | `apkit migrate` | For a user of apkit 0.238 or earlier: each recorded Project keeps the same Workspace, Profile, and agents under this engine. See [Migration](#migration). |
 
@@ -51,7 +51,7 @@ install, update, and removal.
 - **`--json`** makes each operation command print one JSON value that is the
   complete record of the operation. `help`, `guide`, and `contract` print text
   only.
-- **Options.** A command stops with exit 2, before it reads or writes, on an
+- **Options.** A command stops with exit 2, before it writes, on an
   option it does not take, and names the options it takes. `--help` works with
   every command.
 - **Exit codes** agree across commands: `0` done, `1` error, `2` usage, `3`

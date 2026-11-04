@@ -65,7 +65,7 @@ const OPTIONS: Readonly<Record<string, readonly string[]>> = {
   install: ["--agents", "--global", "--yes", "--overwrite", "--workspace", "--json"],
   update: ["--all", "--yes", "--overwrite", "--workspace", "--json"],
   remove: ["--global", "--yes", "--overwrite", "--json"],
-  status: ["--all", "--workspace", "--json"],
+  status: ["--all", "--global", "--workspace", "--json"],
   migrate: ["--yes", "--overwrite", "--workspace", "--json"],
 };
 
@@ -172,7 +172,7 @@ async function statusOf(workspace: Workspace, target: Target): Promise<Outcome> 
     if (error instanceof NewerSchemaError) return { folder, ...(target.global ? { global: target.global } : {}), result: "error", message: error.message };
     throw error;
   }
-  if (previous === null) return { folder, result: "not-installed" };
+  if (previous === null) return { folder, ...(target.global ? { global: target.global } : {}), result: "not-installed" };
   const base = {
     folder,
     ...(target.global ? { global: target.global } : {}),
@@ -217,8 +217,9 @@ async function forget(folder: string): Promise<void> {
   await recordInstall(folder, false);
 }
 
-/** `--all` is every registered folder plus the global install, if there is one. */
+/** `--all` is every registered folder plus the global install, if there is one; `--global` (status) is the global install. */
 async function targets(args: Args): Promise<Target[]> {
+  if (args.flags.has("--global")) return [await globalTarget()];
   if (!args.flags.has("--all")) return [{ folder: await folderArg(args.positional[1]) }];
   const folders: Target[] = (await readConfig()).installs.map((folder) => ({ folder }));
   const global = await globalTarget();
@@ -261,11 +262,17 @@ function nextArgs(outcome: Outcome, args: Args, mode: "apply" | "status"): strin
   return result;
 }
 
-/** After a run that wrote: each instruction file it created, changed, or deleted, and whether Git tracks it (ISC-86). */
+const DONE = { create: "created", change: "changed", delete: "deleted" } as const;
+
+/** One instruction file, what happens (or happened) to it, and whether Git tracks it (ISC-86). */
+function instructionLine(file: InstructionChange, when: "planned" | "done"): string {
+  return `${file.path}: ${when === "planned" ? "will be " : ""}${DONE[file.action]}; ${file.tracked ? "tracked" : "not tracked"} by Git.`;
+}
+
+/** After a run that wrote: each instruction file it created, changed, or deleted. */
 function changedInstructionLines(files: readonly InstructionChange[] | undefined): string[] {
   if (files === undefined || files.length === 0) return [];
-  const done = { create: "created", change: "changed", delete: "deleted" } as const;
-  return ["  Instruction files:", ...files.map((file) => `    - ${file.path}: ${done[file.action]}; ${file.tracked ? "tracked" : "not tracked"} by Git.`)];
+  return ["  Instruction files:", ...files.map((file) => `    - ${instructionLine(file, "done")}`)];
 }
 
 function describe(outcome: Outcome, mode: "apply" | "status", args: Args): string {
@@ -294,10 +301,7 @@ function describe(outcome: Outcome, mode: "apply" | "status", args: Args): strin
     case "needs-decision": {
       const lines = (outcome.issues ?? []).map((issue) => `  - ${issue.message}`);
       const lead = mode === "status" ? `${where}: needs a decision before updating:` : `${where}: nothing changed. Needs a decision:`;
-      const files = (outcome.instructions ?? []).map(
-        (file) =>
-          `    - ${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git.`,
-      );
+      const files = (outcome.instructions ?? []).map((file) => `    - ${instructionLine(file, "planned")}`);
       const listed = files.length > 0 ? `\n  Instruction files:\n${files.join("\n")}` : "";
       return `${lead}\n${lines.join("\n")}${listed}\n  Only after the user agrees:\n  ${nextCommand(nextArgs(outcome, args, mode))}`;
     }
@@ -398,9 +402,7 @@ function describeMigration(migration: Migration, nextStep = true): string[] {
       return [`${where}: already migrated; '${migration.profile}' for ${who} is installed and nothing of the old apkit is left.`, ...keptLines];
     case "needs-decision": {
       const yes = migration.issues.some((issue) => issue.kind === "consent" || issue.kind === "outside");
-      const files = migration.instructions.map(
-        (file) => `${file.path}: will be ${file.action === "create" ? "created" : file.action === "delete" ? "deleted" : "changed"}; ${file.tracked ? "tracked" : "not tracked"} by Git`,
-      );
+      const files = migration.instructions.map((file) => instructionLine(file, "planned"));
       const issueLines = migration.issues.flatMap((issue) => {
         const output = issue.kind === "changed" ? migration.outputs.find((o) => o.path === issue.path && o.result === "changed") : undefined;
         return [`  - ${issue.message}`, ...(output?.apkitPart ? apkitPartLines(output.apkitPart) : [])];

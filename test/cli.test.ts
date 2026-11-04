@@ -623,9 +623,13 @@ describe("apkit CLI", () => {
     await writeTree(ws, { "skills/summarize/SKILL.md": "---\nname: summarize\ndescription: v2\n---\n" });
     expect(cli(home, home, "update", "--all").code).toBe(0);
     expect(await read(home, ".gemini/config/skills/summarize/SKILL.md")).toContain("v2");
+    // status --global shows the user-level install alone, from any folder.
+    const project = await tempDir("p");
+    expect(cli(home, project, "status", "--global").out).toBe("User level: 'skills-only' for Antigravity, Claude Code, Codex, Grok is up to date.\n");
     const remove = cli(home, home, "remove", "--global");
     expect(remove.code).toBe(0);
     expect(remove.out).toContain("Removed 'skills-only' for Antigravity, Claude Code, Codex, Grok from user level.");
+    expect(cli(home, project, "status", "--global").out).toBe("User level: nothing installed.\n");
     const left = await readdir(home);
     for (const dir of [".claude", ".agents", ".grok", ".gemini"]) expect(left).not.toContain(dir);
   });
@@ -1214,9 +1218,9 @@ describe("apkit CLI", () => {
     cli(home, folder, "workspace", ws);
     const before = await snapshot(folder);
 
-    const global = cli(home, folder, "status", "--global");
+    const global = cli(home, folder, "update", "--global");
     expect([global.code, global.out]).toEqual([2, ""]);
-    expect(global.err).toContain("`status` does not take --global. It takes --all, --workspace, --json.");
+    expect(global.err).toContain("`update` does not take --global. It takes --all, --yes, --overwrite, --workspace, --json.");
     expect(global.err).toContain(`${COMMAND} help`);
     const unknown = cli(home, folder, "install", "engineering", "--agents", "codex", "--yse");
     expect([unknown.code, unknown.out]).toEqual([2, ""]);
@@ -1740,7 +1744,9 @@ describe("migrate from the old engine (0.238.0 receipts)", () => {
     const fixture = await materializeMigration();
     const result = migrateCli(fixture, fixture.project, "migrate", "--yes");
     expect([result.code, result.err]).toEqual([0, ""]);
-    expect(result.out).toMatch(/  Instruction files:\n    - AGENTS\.md: (created|changed); (not )?tracked by Git\./);
+    // The fixture Project has no AGENTS.md or CLAUDE.md, and no commit.
+    expect(result.out).toContain("  Removed the old apkit lines from");
+    expect(result.out).toContain(`${join(".git", "info", "exclude")}.\n  Instruction files:\n    - AGENTS.md: created; not tracked by Git.\n  Codex and Pi load Skills`);
   });
 
   test("names each old output and its outcome in text, by Project path", async () => {
