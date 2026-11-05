@@ -1151,16 +1151,21 @@ describe("apkit CLI", () => {
     expect(help.out).toContain("apkit install <profile>");
   });
 
-  test("`init` and `workspace` without a path write nothing in a fresh home (ISC-25.1)", async () => {
+  test("`init` and `workspace` without a path, and `--help`, write nothing in a fresh home (ISC-25.1)", async () => {
     const home = await tempDir("home");
     const apkitHome = join(home, "apkit");
+    // The runtime may add its own cache folder to the home; apkit adds nothing.
+    const before = await readdir(home);
     const init = cliWithEnv({ APKIT_HOME: apkitHome }, home, home, "init");
     expect(init.code).toBe(2);
     expect(init.err).toContain(`${COMMAND} init <path>`);
     const workspace = cliWithEnv({ APKIT_HOME: apkitHome }, home, home, "workspace");
     expect(workspace.code).toBe(0);
     expect(workspace.out).toContain("No Workspace selected.");
+    for (const command of ["init", "install"]) expect(cliWithEnv({ APKIT_HOME: apkitHome }, home, home, command, "--help").code).toBe(0);
     expect(existsSync(apkitHome)).toBe(false);
+    const caches = ["Library", "AppData", ".cache", ".bun"];
+    expect((await readdir(home)).filter((name) => !before.includes(name) && !caches.includes(name))).toEqual([]);
   });
 
   test("bare invocation points agents at the guide", async () => {

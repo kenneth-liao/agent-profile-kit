@@ -508,16 +508,17 @@ async function exists(path: string): Promise<boolean> {
   return lstat(path).then(() => true, () => false);
 }
 
-/** Commands that can write. `workspace` without a path only reads, so it does not take the lock. */
+/** Commands that can write. */
 const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup", "migrate"]);
 
-/** `init` without a path fails before the lock, so a fresh home gets no apkit folder (ISC-25.1). */
-const INIT_PATH = `Name the Workspace folder: \`${COMMAND} init <path>\`.`;
-
-/** Whether this run takes the lock: the lock creates the apkit home, so a run that cannot write never takes it. */
+/**
+ * Whether this run takes the lock. Taking it creates the apkit home, so a run that cannot write never
+ * takes it (ISC-25.1): `--help` only prints, `workspace` without a path only reads, and `init` without
+ * a path stops with a usage error.
+ */
 function locks(command: string | undefined, args: Args): boolean {
-  if (command === undefined || !WRITES.has(command)) return false;
-  return command !== "workspace" || args.positional[1] !== undefined;
+  if (command === undefined || !WRITES.has(command) || args.flags.has("--help")) return false;
+  return (command !== "init" && command !== "workspace") || args.positional[1] !== undefined;
 }
 
 /**
@@ -544,10 +545,7 @@ async function main(argv: readonly string[]): Promise<number> {
   const state = oldStateFolder(homedir());
   unmigrated = (await exists(state)) ? state : null;
   // Before the lock, so a rejected option writes nothing.
-  if (!args.flags.has("--help")) {
-    checkOptions(command, args);
-    if (command === "init" && args.positional[1] === undefined) throw new UsageError(INIT_PATH);
-  }
+  if (!args.flags.has("--help")) checkOptions(command, args);
   return locks(command, args) ? withLock(configHome(), () => run(argv)) : run(argv);
 }
 
@@ -586,7 +584,7 @@ async function run(argv: readonly string[]): Promise<number> {
 
     case "init": {
       const path = args.positional[1];
-      if (path === undefined) throw new UsageError(INIT_PATH);
+      if (path === undefined) throw new UsageError("Name the Workspace folder: `apkit init <path>`.");
       const root = resolve(path);
       const added = await initWorkspace(root);
       const config = await readConfig();
