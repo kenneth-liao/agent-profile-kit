@@ -73,3 +73,5 @@ Darwin `O_EXLOCK`, so the engine cannot use it.
   milliseconds to strand it, and the bounded failure is enough.
 
 *Amended 2026-11-04:* `migrate` writes, so it also holds the lock. `contract` does not take it.
+
+*Amended 2026-11-05:* a run that cannot write does not take the lock: any command with `--help`, `workspace` without a path, which only reads, and `init` without a path, which stops with a usage error. Taking the lock creates the apkit home, and a fresh home must get no write from either (ADR-0049 §2, ISC-25.1, #774).

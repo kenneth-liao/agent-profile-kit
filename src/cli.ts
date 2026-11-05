@@ -508,8 +508,18 @@ async function exists(path: string): Promise<boolean> {
   return lstat(path).then(() => true, () => false);
 }
 
-/** Commands that can write. `workspace` without a path only reads, but takes the lock anyway: it is quick. */
+/** Commands that can write. */
 const WRITES = new Set(["init", "workspace", "install", "update", "remove", "setup", "migrate"]);
+
+/**
+ * Whether this run takes the lock. Taking it creates the apkit home, so a run that cannot write never
+ * takes it (ISC-25.1): `--help` only prints, `workspace` without a path only reads, and `init` without
+ * a path stops with a usage error.
+ */
+function locks(command: string | undefined, args: Args): boolean {
+  if (command === undefined || !WRITES.has(command) || args.flags.has("--help")) return false;
+  return (command !== "init" && command !== "workspace") || args.positional[1] !== undefined;
+}
 
 /**
  * The old engine's state folder while it exists, so every command names `apkit migrate` (ISC-93).
@@ -536,7 +546,7 @@ async function main(argv: readonly string[]): Promise<number> {
   unmigrated = (await exists(state)) ? state : null;
   // Before the lock, so a rejected option writes nothing.
   if (!args.flags.has("--help")) checkOptions(command, args);
-  return command !== undefined && WRITES.has(command) ? withLock(configHome(), () => run(argv)) : run(argv);
+  return locks(command, args) ? withLock(configHome(), () => run(argv)) : run(argv);
 }
 
 async function run(argv: readonly string[]): Promise<number> {

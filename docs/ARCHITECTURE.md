@@ -180,7 +180,10 @@ visit every listed folder and then the User-Level Installation, if
 `init`, `workspace`, `install`, `update`, `remove`, `setup`, and `migrate` hold
 `<APKIT_HOME>/lock` from their first read to their last write, so runs that
 write take turns and each plans against the disk as the previous run left it.
-`status`, `check`, `guide`, `contract`, and `help` do not take it. The lock is
+`status`, `check`, `guide`, `contract`, and `help` do not take it. Taking the
+lock creates the apkit home, so a run that cannot write never takes it
+(ISC-25.1): any command with `--help`, `workspace` without a path, and `init`
+without a path, which stops with a usage error. The lock is
 taken with an atomic `link`, a stopped owner's lock is taken over, and a run
 waits at most 120 seconds (ADR-0058).
 
