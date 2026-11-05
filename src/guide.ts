@@ -29,19 +29,22 @@ Usage:
   ${COMMAND} init <path>                      Create (or complete) a Workspace and select it
   ${COMMAND} workspace [<path>]               Show or select the Workspace
   ${COMMAND} setup [--agents <a,b>] [--remove]
-                                              Add (or remove) a short apkit note in each agent's user instructions
+                                         Add (or remove) a short apkit note in each agent's user instructions
   ${COMMAND} check                            Validate the Workspace and list what it holds
   ${COMMAND} install <profile> [folder] --agents <a,b>
-                                              Install a Profile (folder defaults to the current one)
+                                         Install a Profile (folder defaults to the current one)
   ${COMMAND} install <profile> --global --agents <a,b>
-                                              Install a Profile for every project (user level)
+                                         Install a Profile for every project (user level)
   ${COMMAND} update [folder | --all]          Re-install from the current Workspace
   ${COMMAND} remove [folder | --global]       Remove everything apkit installed there
   ${COMMAND} status [folder | --all | --global]
-                                              Show what is installed and what is out of date
-  ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier) installed to this one
+                                         Show what is installed and what is out of date
+  ${COMMAND} migrate                          Move each Project the old apkit (0.238 or earlier)
+                                         installed to this one
 
 Options:
+  --agents <a,b>      The agents to install for, or to give the setup note (comma-separated)
+  --all               With update or status: every installed folder and the user-level install
   --yes               Allow edits to instruction files the user owns (AGENTS.md, CLAUDE.md, ...),
                       writes through a symlink that leads outside the folder, and taking over
                       a file apkit did not write that has the same content (remove then deletes it).
@@ -99,7 +102,7 @@ All commands are non-interactive. Add --json when you need to parse results.
 - Tell the user's agents about apkit: \`${COMMAND} setup\`
 - Validate and list Profiles:        \`${COMMAND} check\`
 - Install into a folder:             \`${COMMAND} install <profile> [folder] --agents <ids>\`
-- Install for every project:        \`${COMMAND} install <profile> --global --agents <ids>\`
+- Install for every project:         \`${COMMAND} install <profile> --global --agents <ids>\`
 - Apply Workspace edits everywhere:  \`${COMMAND} update --all\`
 - See what is installed or stale:    \`${COMMAND} status --all\`
 - Uninstall from a folder:           \`${COMMAND} remove [folder]\`

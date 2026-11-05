@@ -44,10 +44,10 @@ recorded environment.
 candidate_dir="$(mktemp -d)"
 bun scripts/release.ts candidate "$candidate_dir" rc.1
 bun scripts/release.ts qualify "$candidate_dir"
-bun scripts/release.ts verify "$candidate_dir" "$(git rev-parse HEAD)" 0.239.0-rc.1
+bun scripts/release.ts verify "$candidate_dir" "$(git rev-parse HEAD)" "<version>-rc.1"
 ```
 
-Omit `rc.1` and use the base version when qualifying a stable candidate. Candidate
+Replace `<version>` with the release's base version and `<branch>` with the source ref. Omit `rc.1` and use the base version when qualifying a stable candidate. Candidate
 creation runs `bun run build`, then `npm pack --ignore-scripts` once. For a
 prerelease it temporarily sets the manifest version before building and packing,
 then restores the original manifest even on an ordinary build/pack failure.
@@ -71,8 +71,8 @@ For a workflow dry run, select any source ref and leave the default
 `dry-run=true`:
 
 ```sh
-gh workflow run release.yml --ref spec/728-agent-first-cutover \
-  -f version=0.239.0 -f prerelease=rc.1 -f dry-run=true
+gh workflow run release.yml --ref "<branch>" \
+  -f version="<version>" -f prerelease=rc.1 -f dry-run=true
 ```
 
 This retains the verified handoff without publishing it. If the workflow is not
@@ -88,11 +88,11 @@ check is skipped. `latest` is left alone: npm receives `--tag next`, and GitHub
 receives `--prerelease --latest=false`.
 
 ```sh
-gh workflow run release.yml --ref spec/728-agent-first-cutover \
-  -f version=0.239.0 -f prerelease=rc.1 -f dry-run=false
+gh workflow run release.yml --ref "<branch>" \
+  -f version="<version>" -f prerelease=rc.1 -f dry-run=false
 ```
 
-This publishes `0.239.0-rc.1`, with both the source commit and packed version in
+This publishes `<version>-rc.1`, with both the source commit and packed version in
 the qualification record. Each candidate suffix must be unused.
 
 ## Publish a stable release
@@ -103,7 +103,7 @@ the matching base version in `package.json`, and a dated changelog section
 exist. Leave `prerelease` empty. Stable publication explicitly uses `--tag latest`.
 
 ```sh
-gh workflow run release.yml --ref main -f version=0.239.0 -f dry-run=false
+gh workflow run release.yml --ref main -f version="<version>" -f dry-run=false
 ```
 
 Watch the run:
@@ -149,7 +149,7 @@ both published copies and compare their SHA-256 with `digest` in the retained
 qualification record:
 
 ```sh
-version=0.239.0
+version="<version>"
 verify_dir="$(mktemp -d)"
 gh release download "v$version" --pattern "agent-profile-kit-$version.tgz" --dir "$verify_dir"
 curl -fsSL "$(npm view "agent-profile-kit@$version" dist.tarball)" -o "$verify_dir/npm-$version.tgz"
