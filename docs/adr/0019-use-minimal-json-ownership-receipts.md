@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Use Project-scoped lifecycle and minimal JSON ownership receipts
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md).
 
 ## Context
 

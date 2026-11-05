@@ -4,7 +4,7 @@ status: accepted
 
 # Serialize writing runs with one lock per apkit home
 
-Takes effect at cutover to the engine in `next/`.
+Took effect at the agent-first cutover (0.239.0).
 
 ## Context
 
@@ -71,3 +71,5 @@ Darwin `O_EXLOCK`, so the engine cannot use it.
   §4 failure, which then names the lock file and the stranded mark to delete.
   The mark is not reclaimed: a run must stop inside a window of a few
   milliseconds to strand it, and the bounded failure is enough.
+
+*Amended 2026-11-04:* `migrate` writes, so it also holds the lock. `contract` does not take it.

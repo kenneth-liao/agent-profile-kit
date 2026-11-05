@@ -10,7 +10,7 @@ own the Workspace format (`docs/guides/workspace-contract.md`, printed by
 structure and file locations (`docs/ARCHITECTURE.md`), terms (`CONTEXT.md`),
 or decisions (`docs/adr/`).
 
-The primary user is an agent acting for a person. The agent runs `apkit guide`
+The primary user is an agent acting for a person (ADR-0060). The agent runs `apkit guide`
 first, does the authoring and the conversation, and lets `apkit` do every
 install, update, and removal.
 
@@ -61,7 +61,7 @@ install, update, and removal.
 ## Migration
 
 `apkit migrate` moves installs of the released engine (0.238 and earlier) to
-this one. The decisions are in spec #728; the mechanism is in
+this one. The decisions are in ADR-0061; the mechanism is in
 `docs/ARCHITECTURE.md` (Migration from the released engine). What it owes the
 user:
 

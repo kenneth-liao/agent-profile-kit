@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056 and ADR-0060
 ---
 
 # Uninstall selected Projects and forget them safely
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md) and [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 The public lifecycle becomes **install → update → uninstall** (spec #491,
 DEC-001). This record covers the `unbind` → `uninstall` slice only (ticket

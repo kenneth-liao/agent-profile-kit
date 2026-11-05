@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Use portable artifacts as canonical source
 
 Agent Profile Kit Workspaces author workflows as standard Agent Skills and use minimal host-neutral definitions for Context, Agents, Hooks, and Tools, with stable typed identities and optional `agent-profile-kit.yaml` dependency metadata. Commands, plugins, extensions, and other Host-native forms are derived outputs rather than canonical categories, favoring one maintained source and existing interoperability over a more expressive custom capability format.
@@ -20,3 +24,5 @@ field this decision carried inside Context files is removed; apkit reads no
 Context frontmatter and delivers each file's bytes as written. ADR-0048
 supersedes that part. Typed artifact identities and portable artifacts as
 canonical source stand unchanged.
+
+*Amended at the agent-first cutover (0.239.0):* Agents, Hooks, and Tools are no longer artifact categories, and there is no `agent-profile-kit.yaml` dependency metadata. A Workspace holds Context, Skills, and Profiles only (ADR-0057). Skills as the canonical workflow form and typed artifact identities stand.

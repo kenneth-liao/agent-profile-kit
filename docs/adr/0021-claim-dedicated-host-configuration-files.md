@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0055
 ---
 
 # Claim dedicated Host configuration files instead of merging user configuration
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0055](0055-deliver-through-verified-locations-instead-of-adapters.md).
 
 ## Context
 

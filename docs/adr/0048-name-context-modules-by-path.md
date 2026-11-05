@@ -75,3 +75,5 @@ changed the identity that Profiles reference.
   this rollback caveat, mirroring the 0.208.0 Profile caveat.
 
 *Amended at cutover by ADR-0057:* Context path segments need not be kebab-case. IDs that differ only in case are an error.
+
+*Amended at the agent-first cutover (0.239.0):* ADR-0057 amends §2 (any `.md` file name) and ends §4 with the Adapters. `apkit new context` is retired (ADR-0060). A Context Module's ID is still its path under `context/` without `.md`.

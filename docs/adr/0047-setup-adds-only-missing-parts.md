@@ -82,3 +82,5 @@ Profile could be connected (spec #593, US-002–US-003, DEC-003, DEC-011).
   are #601's, with their own superseding ADR.
 - A re-run of `init` never rewrites current source or restores a deleted
   optional entry; it adds only still-missing required parts.
+
+*Amended at the agent-first cutover (0.239.0):* A Workspace is `apkit-workspace.yaml`, `context/`, `skills/`, and `profiles/` (ADR-0057), and `init <path>` adds what is missing. The legacy paths in §5 and §7 and the first-Profile guidance in §8 are retired (ADR-0060, ADR-0061).

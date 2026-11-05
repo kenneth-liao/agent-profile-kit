@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Present the CLI in user-facing language
 
 Agent Profile Kit is built to be adopted by people who have never used it, so its default output is written for a newcomer completing a task rather than for a maintainer reading the domain model. Canonical domain vocabulary remains correct and unchanged in code, schemas, Installation Manifests, ADRs, and the issue tracker; what changes is that the default CLI view is no longer obliged to speak it. The design target is that a first run succeeds knowing only **Workspace**, **Profile**, **Project**, **Host**, and the rule that Agent Profile Kit owns what it generates. Any other term appearing in default output must justify its presence. `docs/USER-JOURNEY.md` holds the journey map, the gap register these decisions answer, and the accepted presentation principles.
@@ -29,3 +33,5 @@ An Installation Manifest's `engine_version` records the engine that last publish
 *Amendment (spec #672 US-001/US-005, ticket #701): each Host Setup Step authors its plain human rendering beside its machine `message`, at the step's creation site in its Adapter, so a new step cannot lack a human line and no surface rewords machine copy. Every public human surface reads that human rendering (the install receipt composes one line per agent with the catalog display name once — screens 04/26); the machine `message` stays the machine `setupSteps` value (DEC-004) and appears only in machine JSON and the `apkit machine` namespace. Consequence parentheticals no longer append to human lines (superseding the #686 INT-2 rendering): each human line states what to do and why in plain words, while `consequence` stays in verbose labels and machine JSON. See CONTEXT.md (Host Setup Step) for the boundary.*
 
 *Amendment (launch host qualification, [#722](https://github.com/kenneth-liao/agent-profile-kit/pull/722)): Grok loads project rules and Skills at startup only in a trusted folder, so the Grok Adapter now authors a standing `trust-required` step (`Trust the bound project in Grok.`, human line `trust this project`) for every plan with output. This adds one Grok element to machine `setupSteps`: a second deliberate, narrow exception to DEC-004, requested by the principal and pinned by test — this one value only, with no other machine change.*
+
+*Amended at the agent-first cutover (0.239.0):* Only **Versioning** and the `apkit` command name stand. Host Setup Steps, Adapters, `bind`, `preview`, `apply`, `--verbose`, and the teaching surface are retired (ADR-0055, ADR-0060), and the generated paths it names are no longer written.

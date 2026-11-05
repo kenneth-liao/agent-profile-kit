@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Present one Project identity per view
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 A newcomer reading `apkit list projects` and the lifecycle receipts cannot scan
 a fleet when every row repeats a long path, and a receipt that names a Project

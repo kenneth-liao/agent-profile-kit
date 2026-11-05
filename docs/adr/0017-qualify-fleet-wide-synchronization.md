@@ -1,11 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0059 and ADR-0060
 ---
 
 # Qualify invocation-scoped reuse, bounded concurrency, typed impacts, and scale-aware presentation
 
-Supervisor-related qualification machinery superseded at the agent-first cutover by
-[ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md).
+Superseded at the agent-first cutover (0.239.0) by [ADR-0059](0059-qualify-the-agent-first-engine-with-plain-tests.md) and [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 ## Context
 

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Keep lifecycle receipts compact with optional complete details
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 A routine lifecycle run must lead with its outcome, not its audit trail (spec
 #491, US-011, DEC-007; ticket #502). The default `update` receipt previously

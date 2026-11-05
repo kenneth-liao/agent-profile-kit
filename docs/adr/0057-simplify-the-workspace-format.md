@@ -4,8 +4,7 @@ status: accepted
 
 # Simplify the Workspace format
 
-Takes effect at cutover to the engine in `next/`. Until then, the current
-contract stays in force.
+Took effect at the agent-first cutover (0.239.0).
 
 ## Context
 

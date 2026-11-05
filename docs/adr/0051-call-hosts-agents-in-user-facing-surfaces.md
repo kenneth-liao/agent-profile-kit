@@ -48,3 +48,5 @@ payloads.
    - Architectural, contributor, and adapter-layer documentation continues to use
      "Agent Host" when referring to the external execution environment and its
      capability contracts.
+
+*Amended at the agent-first cutover (0.239.0):* The flag is `--agents a,b`, and `apkit list agents` and the `apkit machine` namespace are retired (ADR-0060). The rule that user-facing surfaces say "agent" and contributor documentation says Agent Host stands.

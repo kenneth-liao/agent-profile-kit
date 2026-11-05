@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Separate the engine from user Workspaces
 
 Amendment: since spec #593 (DEC-001, ticket #601; DEC-002, ticket #607), the fixed default

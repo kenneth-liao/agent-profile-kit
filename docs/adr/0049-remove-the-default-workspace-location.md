@@ -80,3 +80,5 @@ Bindings, and reports missing Profile bindings.
 - Machines configured under earlier releases keep working: a configured
   zero-argument `init` revalidates the selected Workspace, whatever path it
   records.
+
+*Amended at the agent-first cutover (0.239.0):* §1 stands: no command creates or selects a Workspace at a location the user did not give. In §2, `init` with no path always stops with exit 2, and a fresh home still gets no write. The legacy-configuration parts of §2 to §5 are superseded by ADR-0061, and the interactive and bare-screen parts by ADR-0060.

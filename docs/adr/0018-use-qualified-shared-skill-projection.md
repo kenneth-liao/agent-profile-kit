@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0055 and ADR-0057
 ---
 
 # Use one qualified shared Skill projector for compatible Hosts
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0055](0055-deliver-through-verified-locations-instead-of-adapters.md) and [ADR-0057](0057-simplify-the-workspace-format.md).
 
 ## Context
 

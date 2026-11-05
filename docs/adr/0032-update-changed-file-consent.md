@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0060
 ---
 
 # Require explicit per-operation changed-file consent during update
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0060](0060-drive-apkit-through-the-users-agent-without-prompts.md).
 
 The update lifecycle must discard independently changed generated files only
 with explicit consent (spec #491, US-006/US-007/US-020, DEC-004/DEC-005/

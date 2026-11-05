@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Record the ownership reduction to match generated-output disposability
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md).
 
 Agent Profile Kit generates disposable, deterministically reproducible material into Projects, but for most of its life it guarded that output with proof-of-ownership discipline appropriate for irreplaceable user data. Two structural causes produced a class of permanent dead ends: ownership was stored in two places (an Installation Receipt in machine-global Installation State *and* an Installation Marker inside the Project), and a design trade made in ADR-0004 was reversed by ADR-0010 without being re-argued, returning the path-level ownership machinery ADR-0004 had deliberately declined. Ordinary user actions — deleting a Project's generated files, emptying `.git/info/exclude`, uninstalling an Agent Host — wedged fleets behind Blockers whose remedies asked users to restore internal bookkeeping they had never been told about (spec #371).
 

@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0056
 ---
 
 # Use receipt-owned Temporary Profile Installations
+
+Superseded at the agent-first cutover (0.239.0) by [ADR-0056](0056-let-each-folder-own-its-installation.md).
 
 ADR-0010 binds ordinary Profile lifetime to Project Bindings and global
 reconciliation. External runners such as Agent Eval Kit need one Profile
@@ -62,4 +64,4 @@ ADR-0010's binding-owned model:
   ADR-0010; Hosts still load project material natively after install-temp.
 - *Amended by ADR-0052:* one Temporary Profile Installation covers one or more
   Hosts, and every supported Host is eligible.
-- *Superseded at cutover by ADR-0056:* every installation is owned by its folder, so there is no separate temporary lifetime. Until cutover this decision stays in force for the current engine.
+- *Superseded at cutover by ADR-0056:* every installation is owned by its folder, so there is no separate temporary lifetime.

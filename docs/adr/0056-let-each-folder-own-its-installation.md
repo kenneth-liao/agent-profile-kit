@@ -4,8 +4,7 @@ status: accepted
 
 # Let each folder own its Profile Installation
 
-Takes effect at cutover to the engine in `next/`. Until then, ADR-0010,
-ADR-0015, and ADR-0052 stay in force for the current engine.
+Took effect at the agent-first cutover (0.239.0).
 
 ## Context
 
@@ -60,3 +59,4 @@ user-level Host folders.
 - Supersedes ADR-0010, ADR-0015, and ADR-0052 at cutover.
 - *Amended 2026-10-30:* §6 hides installed Skill copies and the manifest only. apkit never hides `AGENTS.md` or `CLAUDE.md`, even when it creates them. It says which instruction files it creates or changes and whether Git tracks them, and the user decides what to commit (ISC-55, ISC-86, ISC-87).
 - *Amended 2026-10-30:* ADR-0058 supersedes "No lock guards the folder list". One lock now serializes every run that writes, so the folder list and each manifest change one run at a time.
+- *Amended 2026-11-04:* §2's machine configuration also records the files that hold the Setup Note, the exclude file of each folder's block, and the old engine's changed files that `apkit migrate --yes` left to the user (ADR-0061). What is installed in a folder is still read only from its manifest.
