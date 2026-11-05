@@ -6,7 +6,8 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
-- Fixed `apkit --help` starting the descriptions of the long usage lines five columns right of the others and leaving `--agents` and `--all` out of `Options:`; every description now starts in one column and both options are listed, and the npm package description now says what apkit does instead of "Compose portable agent material into host-native profiles."
+- Fixed `apkit init` without a path and `apkit workspace` without a path leaving an empty `~/.agents/apkit/` folder in a fresh home; neither now writes anything there (#774)
+- Fixed `apkit --help` starting the descriptions of the long usage lines five columns right of the others and leaving `--agents` and `--all` out of `Options:`; every description now starts in one column and both options are listed, and the npm package description now says what apkit does instead of "Compose portable agent material into host-native profiles." (#772)
 
 ## [0.239.1] - 2026-11-04
 

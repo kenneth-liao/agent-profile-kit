@@ -1151,6 +1151,18 @@ describe("apkit CLI", () => {
     expect(help.out).toContain("apkit install <profile>");
   });
 
+  test("`init` and `workspace` without a path write nothing in a fresh home (ISC-25.1)", async () => {
+    const home = await tempDir("home");
+    const apkitHome = join(home, "apkit");
+    const init = cliWithEnv({ APKIT_HOME: apkitHome }, home, home, "init");
+    expect(init.code).toBe(2);
+    expect(init.err).toContain(`${COMMAND} init <path>`);
+    const workspace = cliWithEnv({ APKIT_HOME: apkitHome }, home, home, "workspace");
+    expect(workspace.code).toBe(0);
+    expect(workspace.out).toContain("No Workspace selected.");
+    expect(existsSync(apkitHome)).toBe(false);
+  });
+
   test("bare invocation points agents at the guide", async () => {
     const home = await tempDir("home");
     const bare = cli(home, home);
