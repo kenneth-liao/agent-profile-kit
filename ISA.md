@@ -1,10 +1,10 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 0/101
+progress: 44/87
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
-updated: 2026-10-30
+updated: 2026-11-05
 ---
 
 # Ideal State — Agent Profile Kit
@@ -20,8 +20,8 @@ New users cannot tell where setup puts the Workspace, what a valid Workspace
 must contain, or how to use the Context and Skills they already have.
 Disposable worker worktrees get no Profile, so orchestrators copy apkit output
 into them by hand.
-The current engine is large: per-Host Adapters, interactive prompts, and
-supervised processes. Each new agent or platform makes it larger.
+Until 0.239.0, the engine was large: per-Host Adapters, interactive prompts,
+and supervised processes. Each new agent or platform made it larger.
 
 ## Vision
 
@@ -44,7 +44,7 @@ Linux, and Windows, and an agent learns it from the tool itself.
 - Automatic verification of Profile loading inside an Agent Host.
 - apkit finding, importing, copying, or converting scattered Context and Skill
   files into a Workspace; the user or their agent moves material.
-- Recovering Project Bindings after Local Configuration is lost.
+- Recovering the list of installed folders after Local Configuration is lost.
 - apkit writing Host trust or approval state.
 - Automatic worktree discovery, Git hooks, or watchers.
 - Prompts inside the engine; the user decides through their agent or with
@@ -73,23 +73,11 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 
 ## Claims
 
-- [ ] **ISC-1:** An unfamiliar user, working through their agent, can create a
-  Profile without coaching.
-  Probe: observe a newcomer and their agent create a Profile using only public
-  guidance; needing coaching to complete the task fails the claim. manual
-- [ ] **ISC-2:** An unfamiliar user, working through their agent, can install a
-  Profile into a Project with their chosen Hosts without coaching.
-  Probe: observe that step in the newcomer journey and verify the resulting
-  Project/Host selection; coaching or a different selection fails. manual
-- [ ] **ISC-3:** An unfamiliar user, working through their agent, can update
-  installations after changing their Profile without coaching.
-  Probe: observe the change-and-update step using public guidance; failure to
-  propagate the intended change without coaching fails. manual
-- [ ] **ISC-4:** An unfamiliar user, working through their agent, can remove
-  selected installations without coaching.
-  Probe: observe selective removal in the newcomer journey; coaching or removal
-  of an unselected installation fails. manual
-- [ ] **ISC-5:** Repeated lifecycle operations are available through explicit,
+- **ISC-1:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-2:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-3:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-4:** [DROPPED — see Decisions 2026-11-05]
+- [x] **ISC-5:** Repeated lifecycle operations are available through explicit,
   scriptable commands.
   Probe: run the packed CLI's create/install/update/uninstall journey with
   explicit inputs and no TTY; required interactive input fails. bash
@@ -116,20 +104,16 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: check success and handoff output throughout the install/update journey;
   any claim that a Host loaded a Profile without supporting observation fails.
   manual
-- [ ] **ISC-11:** **Anti:** Required qualification cannot report success when
+- [x] **ISC-11:** **Anti:** Required qualification cannot report success when
   required tests are omitted, fail, or remain incomplete.
   Probe: exercise required qualification with a deliberately omitted test,
   failing test, and interrupted run; any successful qualification fails. bash
-- [ ] **ISC-12:** Qualification evidence identifies what was tested well enough
-  for another maintainer to reproduce the run.
-  Probe: reconstruct a completed qualification from its retained evidence;
-  missing source identity, artifact identity when applicable, runtime,
-  selection, command, or result fails. manual
-- [ ] **ISC-13:** Every published package is byte-identical to the package
-  that passed its required release qualification.
+- **ISC-12:** [DROPPED — see Decisions 2026-11-05]
+- [x] **ISC-13:** Every package published from 0.239.0 on is byte-identical to
+  the package that passed its required release qualification.
   Probe: compare the published package digest with its qualified artifact
   digest; a mismatch or missing qualification evidence fails. bash
-- [ ] **ISC-14:** Routine qualification completes within its declared finite
+- [x] **ISC-14:** Routine qualification completes within its declared finite
   execution budget on the documented qualification environment.
   Probe: run canonical qualification on that environment; a deadline expiry
   or an unbounded stage fails. bash
@@ -142,34 +126,16 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: vary unselected Host executables and unrelated environment settings
   around isolated fixtures; changed outcomes or unexpected real Host execution
   fails. bash
-- [ ] **ISC-17:** Declared runtime and platform support has matching
-  qualification evidence.
-  Probe: compare the declared support set with retained compatibility results;
-  an unsupported claim or unqualified declared member fails. manual
+- **ISC-17:** [DROPPED — see Decisions 2026-11-05]
 - [ ] **ISC-18:** Routine verification reuses still-valid evidence rather than
   repeating checks without a change or an unresolved hypothesis.
   Probe: inspect implementation and review verification records for a completed
   change; a repeated check without an identified invalidation or hypothesis
   fails. manual
-- [ ] **ISC-19:** An unfamiliar user starting with no Context or Skills,
-  working through their agent, reaches a valid, connected Workspace without
-  coaching.
-  Probe: observe a newcomer and their agent from a fresh install using only
-  public guidance and CLI output; coaching, or a Workspace that is invalid or
-  not connected, fails. manual
-- [ ] **ISC-20:** An unfamiliar user with scattered Context and Skill files,
-  working through their agent, reaches a valid, connected Workspace that
-  contains that material without coaching.
-  Probe: observe a newcomer and their agent given prepared scattered material
-  and only public guidance; coaching, missing material, or a Workspace that is
-  invalid or not connected, fails. manual
-- [ ] **ISC-21:** An agent in a fresh session, given only the README link and
-  scattered material, reaches a valid, connected Workspace that contains that
-  material.
-  Probe: run a fresh agent session with only the README link and the material;
-  human help, missing material, or a Workspace that is invalid or not connected,
-  fails. manual
-- [ ] **ISC-22:** On a machine that is not set up, `apkit` names the command
+- **ISC-19:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-20:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-21:** [DROPPED — see Decisions 2026-11-05]
+- [x] **ISC-22:** On a machine that is not set up, `apkit` names the command
   that connects an existing valid Workspace.
   Probe: in a fresh home, run bare `apkit`, then run the named command without a
   TTY on a valid fixture Workspace; no such command, or a Workspace that is not
@@ -183,10 +149,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - **ISC-24.1:** [DROPPED — see Decisions 2026-10-30]
 - **ISC-24.2:** [DROPPED — see Decisions 2026-10-30]
 - **ISC-24.3:** [DROPPED — see Decisions 2026-10-30]
-- [ ] **ISC-25.1:** `init` without a Workspace path writes nothing.
+- [x] **ISC-25.1:** `init` without a Workspace path writes nothing.
   Probe: packed CLI `init` without a path in a fresh home; any write fails.
   bash
-- [ ] **ISC-25.2:** `init` without a Workspace path prints an executable
+- [x] **ISC-25.2:** `init` without a Workspace path prints an executable
   command that supplies a path.
   Probe: run the printed command with a valid fixture path supplied; a missing
   or failing command fails. bash
@@ -209,19 +175,19 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   and invalid folders that contain unrelated files; any changed, moved, or
   deleted entry fails. bash
 - **ISC-29:** [DROPPED — see Decisions 2026-10-30]
-- [ ] **ISC-30:** A user can connect a different Workspace after setup without
+- [x] **ISC-30:** A user can connect a different Workspace after setup without
   hand-editing Local Configuration.
   Probe: packed CLI connects a second valid Workspace after setup; needing a
   hand edit, or the first Workspace staying selected, fails. bash
-- [ ] **ISC-31:** Connecting a Workspace again, the same one or a different one,
-  keeps existing Project Bindings.
+- [x] **ISC-31:** Connecting a Workspace again, the same one or a different one,
+  keeps the list of installed folders.
   Probe: connect the same Workspace, then a different one, on a machine with
-  Project Bindings; any lost or changed binding fails. bash
-- [ ] **ISC-32:** After connecting a Workspace, every Project Binding whose
+  Profile Installations; any lost or changed listed folder fails. bash
+- [x] **ISC-32:** After connecting a Workspace, every Profile Installation whose
   Profile that Workspace lacks is reported.
-  Probe: connect a Workspace that lacks a bound Profile; an unreported binding
-  fails. bash
-- [ ] **ISC-33:** **Anti:** Connecting a Workspace, first or again, never changes
+  Probe: connect a Workspace that lacks an installed Profile; an unreported
+  installation fails. bash
+- [x] **ISC-33:** **Anti:** Connecting a Workspace, first or again, never changes
   its files.
   Probe: compare valid Workspaces' file trees before and after first
   connection, connecting the same Workspace again, and connecting a different
@@ -234,31 +200,31 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   contract.
   Probe: map each validation failure kind to a contract statement; an enforced
   rule the contract does not state fails. manual
-- [ ] **ISC-36.1:** The contract includes a valid Workspace example.
+- [x] **ISC-36.1:** The contract includes a valid Workspace example.
   Probe: read the contract; no valid Workspace example fails. manual
-- [ ] **ISC-36.2:** The contract includes invalid Workspace examples.
+- [x] **ISC-36.2:** The contract includes invalid Workspace examples.
   Probe: read the contract; no invalid Workspace example fails. manual
-- [ ] **ISC-36.3:** Each contract example validates as the contract says.
+- [x] **ISC-36.3:** Each contract example validates as the contract says.
   Probe: validate each contract example; an outcome different from the
   contract's statement fails. bash
 - [ ] **ISC-37.1:** The contract states where this machine records the selected
   Workspace location.
   Probe: read the contract; a missing or wrong location fails. manual
-- [ ] **ISC-37.2:** The contract states where this machine records Project
-  Bindings.
+- [ ] **ISC-37.2:** The contract states where this machine records the list
+  of installed folders.
   Probe: read the contract; a missing or wrong location fails. manual
 - [ ] **ISC-38:** A standard Agent Skill is valid Workspace material without
   edits.
   Probe: copy real standard Skill packages unchanged into a Workspace and
   validate; any required edit fails. bash
-- [ ] **ISC-39:** An existing Markdown instruction file is a valid Context
+- [x] **ISC-39:** An existing Markdown instruction file is a valid Context
   Module unchanged.
   Probe: copy real instruction files, such as `CLAUDE.md` and `AGENTS.md`, into
   `context/` as they are and validate; any required rename or edit fails. bash
-- [ ] **ISC-40.1:** A folder that is not connected can be validated.
+- [x] **ISC-40.1:** A folder that is not connected can be validated.
   Probe: packed CLI validates a folder that is not connected in a fresh home; no
   validation report fails. bash
-- [ ] **ISC-40.2:** Validating a folder that is not connected creates no Local
+- [x] **ISC-40.2:** Validating a folder that is not connected creates no Local
   Configuration.
   Probe: compare the fresh home before and after that validation; any created
   Local Configuration fails. bash
@@ -274,14 +240,12 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [ ] **ISC-43:** Failed Workspace validation points to the contract.
   Probe: trigger each violation kind; output without a contract reference fails.
   bash
-- [ ] **ISC-44:** **Anti:** A file that apkit skips is never silently ignored.
+- [x] **ISC-44:** **Anti:** A file that apkit skips is never silently ignored,
+  except a hidden file.
   Probe: put stray files in `context/`, `skills/`, and `profiles/`, then run
-  `check` and `install`; a skipped file without a warning in either output
-  fails. bash
-- [ ] **ISC-45:** An agent can repair an invalid Workspace using only validation
-  output.
-  Probe: run a fresh agent session on an invalid Workspace without the guides;
-  human help, or a Workspace that is still invalid, fails. manual
+  `check` and `install`; a skipped file that is not hidden, without a warning
+  in either output, fails. bash
+- **ISC-45:** [DROPPED — see Decisions 2026-11-05]
 - [ ] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
   never fails validation without the output naming every change needed.
   Probe: validate retained fixtures kept from each release that changed the
@@ -300,7 +264,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   complete validation report.
   Probe: connect folders with several violations; output missing any violation
   that `check` reports fails. bash
-- [ ] **ISC-49:** The CLI shows the Workspace contract on request.
+- [x] **ISC-49:** The CLI shows the Workspace contract on request.
   Probe: find the contract command from `apkit --help` and run it; output that
   differs from the canonical contract fails. bash
 - [ ] **ISC-50:** One command gives a Project a Profile Installation of one
@@ -312,7 +276,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Hosts.
   Probe: one `remove` after the ISC-50 install; any remaining Host output fails.
   bash
-- [ ] **ISC-52:** Every supported Host can receive a Profile Installation.
+- [x] **ISC-52:** Every supported Host can receive a Profile Installation.
   Probe: packed CLI `install` for each Host in the Host catalog; any rejected
   supported Host fails. bash
 - [ ] **ISC-53:** **Anti:** Removing a Profile Installation never leaves
@@ -331,13 +295,13 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Host, into a repository root and into a subfolder of a repository; any new
   untracked entry other than a created `AGENTS.md` fails. Changes to files the
   user already tracks are allowed. bash
-- [ ] **ISC-56:** **Anti:** No output of a Profile Installation lands outside
+- [x] **ISC-56:** **Anti:** No output of a Profile Installation lands outside
   its Project without the user's decision.
   Probe: install with a Host folder that is a symlink to a folder outside the
   Project, without and then with the decision granted; a write outside the
   Project before the decision, or a decision output that does not name the
   link and where it leads, fails. bash
-- [ ] **ISC-57:** **Anti:** A Profile Installation stays removable after its
+- [x] **ISC-57:** **Anti:** A Profile Installation stays removable after its
   Project is deleted.
   Probe: install for several Hosts, `git worktree remove --force`, then
   `remove`; a failed removal, or the installation still listed by
@@ -346,24 +310,21 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Projects all succeed.
   Probe: start four several-Host `install` runs into separate worktrees at
   once; any failed run or missing installation record fails. bash
-- [ ] **ISC-59:** Every lifecycle command behaves the same on macOS, Linux, and
+- [x] **ISC-59:** Every lifecycle command behaves the same on macOS, Linux, and
   Windows.
   Probe: run the packed CLI journey in CI on all three; any failure, or a
   different outcome on one platform, fails. bash
-- [ ] **ISC-60:** The published package has no runtime dependencies.
+- [x] **ISC-60:** The published package has no runtime dependencies.
   Probe: the packed `package.json` has no `dependencies`, and the bundle
   imports only `node:` built-ins; anything else fails. bash
-- [ ] **ISC-61:** The engine starts no child processes.
+- [x] **ISC-61:** The engine starts no child processes.
   Probe: run the full journey with marker-writing fake executables first on
   `PATH`; any marker fails. bash
-- [ ] **ISC-62:** The engine has no code path that depends on the operating
+- [x] **ISC-62:** The engine has no code path that depends on the operating
   system.
   Probe: `rg` the engine source for `process.platform` and other OS checks; any
   branch on the operating system fails. bash
-- [ ] **ISC-63:** An agent learns the whole tool from `guide` alone.
-  Probe: run a fresh agent session with only the installed command, no repo or
-  docs, through setup, install, update, and remove; needing other docs or human
-  help fails. manual
+- **ISC-63:** [DROPPED — see Decisions 2026-11-05]
 - [ ] **ISC-64:** `guide` names every command, flag, and Host id that the CLI
   accepts.
   Probe: compare the CLI parser with the guide text; anything the CLI accepts
@@ -372,22 +333,16 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   file.
   Probe: snapshot the Project and the home folder, trigger each decision case,
   and compare; any change fails. bash
-- [ ] **ISC-66:** **Anti:** Moving from the current engine never discards a
+- [x] **ISC-66:** **Anti:** Moving from the old engine (apkit 0.238.0) never discards a
   user's edit to an installed file without explicit consent.
-  Probe: install with apkit 0.239, edit the generated files, then take over or
-  remove with the new engine; any unauthorized loss fails. bash
-- [ ] **ISC-67:** A Project installed by the current engine can be taken over
-  or removed without the current engine.
-  Probe: on that fixture, use only the new engine; needing the current engine,
+  Probe: install with apkit 0.238.0, edit the generated files, then take over or
+  remove with the current apkit; any unauthorized loss fails. bash
+- [ ] **ISC-67:** A Project installed by the old engine can be taken over or
+  removed without the old engine.
+  Probe: on that fixture, use only the current apkit; needing the old engine,
   or leftover output, fails. bash
-- [ ] **ISC-68:** Every location that apkit writes for a Host, at project or
-  user level, has a dated live check that the Host loads it.
-  Probe: compare the written locations with the live-check record; a location
-  without a check fails. manual
-- [ ] **ISC-69:** Each live check is newer than the Host's last change to how it
-  loads files.
-  Probe: compare live-check dates with each Host's release notes; a newer
-  loading change fails. manual (after: ISC-68)
+- **ISC-68:** [DROPPED — see Decisions 2026-11-05]
+- **ISC-69:** [DROPPED — see Decisions 2026-11-05]
 - [ ] **ISC-70:** `setup` gives each installed Host's user-level instructions a
   note that points to `guide`.
   Probe: in an isolated home with Host folders, run `setup --yes`; a target
@@ -400,11 +355,11 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   restores each user-level file byte for byte.
   Probe: byte-compare each user-level file before install and after removal;
   any difference fails. bash
-- [ ] **ISC-73:** One command installs a Profile's Skills and Context at user
+- [x] **ISC-73:** One command installs a Profile's Skills and Context at user
   level for each selected Host.
   Probe: `install --global` with a Profile that has both; any missing Skill or
   Context for a selected Host fails. bash
-- [ ] **ISC-74:** `status` reports a Context Module that is installed both
+- [x] **ISC-74:** `status` reports a Context Module that is installed both
   globally and in the Project.
   Probe: install the Module both ways, then run `status` in the Project; no
   report fails. bash
@@ -413,20 +368,20 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: edit text around the section, then install, update, and remove; any
   change outside the section fails. bash
 
-- [ ] **ISC-76:** A Context file with any `.md` name is valid, and its ID is
+- [x] **ISC-76:** A Context file with any `.md` name is valid, and its ID is
   its path under `context/` without `.md`.
   Probe: validate and install Context files with mixed-case names and names
   with spaces; a rejected file or a different ID fails. bash
-- [ ] **ISC-77:** Two Context IDs that differ only in case are an error on
+- [x] **ISC-77:** Two Context IDs that differ only in case are an error on
   every platform.
   Probe: validate `Style.md` beside `style.md` on Linux; no error fails. bash
-- [ ] **ISC-78:** A Profile without a `context` or `skills` list treats that
+- [x] **ISC-78:** A Profile without a `context` or `skills` list treats that
   list as empty.
   Probe: validate and install a Skills-only Profile with no `context` list; an
   error fails. bash
-- [ ] **ISC-79:** A Profile with a `.yml` extension is valid.
+- [x] **ISC-79:** A Profile with a `.yml` extension is valid.
   Probe: validate and install a `.yml` Profile; an error fails. bash
-- [ ] **ISC-80:** A Profile with `skills: all` installs every Skill in the
+- [x] **ISC-80:** A Profile with `skills: all` installs every Skill in the
   Workspace, including Skills added after the Profile was written.
   Probe: install, add a Skill, run `update` without editing the Profile; a
   missing Skill fails. bash
@@ -437,17 +392,17 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   wrong or ambiguous.
   Probe: map each error kind to the wrong or ambiguous install it prevents; an
   error kind without one fails. manual
-- [ ] **ISC-83:** A folder is a Workspace when it has an `apkit-workspace.yaml`
+- [x] **ISC-83:** A folder is a Workspace when it has an `apkit-workspace.yaml`
   file, which may be empty. Its `schema_version` matters only when it is not a
   version this apkit supports.
   Probe: `init`, empty the file, and validate; then set an unsupported
-  version; an error for the empty file, or no error naming the needed apkit
-  version, fails. bash
-- [ ] **ISC-84:** A folder with only the old `workspace.yaml` fails validation,
+  version; an error for the empty file, or no error that says a newer apkit
+  is needed, fails. bash
+- [x] **ISC-84:** A folder with only the old `workspace.yaml` fails validation,
   and the output names the rename to `apkit-workspace.yaml`.
   Probe: validate that fixture; a pass, or output without the rename, fails.
   bash
-- [ ] **ISC-85:** The Workspace contract states no rule for a retired feature.
+- [x] **ISC-85:** The Workspace contract states no rule for a retired feature.
   Probe: `rg` the contract for retired features, such as the sidecar and the
   retired model-invocation key; any match fails. bash
 
@@ -456,37 +411,33 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   whether Git tracks it.
   Probe: run install with `AGENTS.md` and `CLAUDE.md` absent, untracked, and
   tracked; a decision output that misses any of the three facts fails. bash
-- [ ] **ISC-87:** **Anti:** apkit never hides an instruction file from Git.
+- [x] **ISC-87:** **Anti:** apkit never hides an instruction file from Git.
   Probe: install where apkit creates `AGENTS.md`, then read
   `.git/info/exclude`; any entry for `AGENTS.md` or `CLAUDE.md` fails. bash
-- [ ] **ISC-88:** The guide tells agents to get the user's agreement before an
-  instruction-file change, and to leave committing to the user.
-  Probe: run a fresh agent session on a project that tracks `AGENTS.md`; an
-  agent that allows the change without asking, or commits on its own judgment,
-  fails. manual
+- **ISC-88:** [DROPPED — see Decisions 2026-11-05]
 
-- [ ] **ISC-89:** One `apkit migrate` command moves every Project recorded by
-  the current engine to the new engine, with the same Workspace, Profile, and
+- [x] **ISC-89:** One `apkit migrate` command moves every Project recorded by
+  the old engine to the current apkit, with the same Workspace, Profile, and
   Hosts.
-  Probe: on a fixture machine with several Projects installed by apkit 0.239,
+  Probe: on a fixture machine with several Projects installed by apkit 0.238.0,
   run `migrate` with each decision granted; a Project with a different
   Profile, Host set, or Workspace afterwards fails. bash (after: ISC-67)
-- [ ] **ISC-90:** **Anti:** After `migrate`, nothing the current engine wrote
+- [x] **ISC-90:** **Anti:** After `migrate`, nothing the old engine wrote
   remains, except files the user changed, and no Context is delivered twice.
-  Probe: compare each migrated Project with a fresh new-engine install of the
+  Probe: compare each migrated Project with a fresh current-apkit install of the
   same Profile, including empty folders, old exclusion blocks, the Codex hook,
   and the OpenCode configuration; any leftover unchanged output fails. bash
-- [ ] **ISC-91:** A changed file that the current engine wrote is kept and
+- [x] **ISC-91:** A changed file that the old engine wrote is kept and
   listed as a decision that names the part apkit added.
   Probe: edit `.codex/hooks.json` and `.opencode/opencode.jsonc` before
   `migrate`; a deleted file, or a decision without apkit's part, fails. bash
-- [ ] **ISC-92:** After `migrate`, the current engine's state folder is kept,
+- [x] **ISC-92:** After `migrate`, the old engine's state folder is kept,
   renamed as a backup.
   Probe: compare `~/.agents/agent-profile-kit` before migration with
   `~/.agents/agent-profile-kit.migrated` after; a missing or changed file
   fails. bash
-- [ ] **ISC-93:** While the current engine's state exists and is not migrated,
-  every command names `apkit migrate`.
+- [x] **ISC-93:** While the old engine's state exists and is not migrated,
+  every command except `apkit migrate` itself names `apkit migrate`.
   Probe: run each command on that fixture machine; output without
   `apkit migrate` fails. bash
 
@@ -495,18 +446,11 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: connect a Workspace with each error kind, then run `install` and
   `update`; any write fails. bash
 
-- [ ] **ISC-95:** After an install, apkit names each selected Host that needs
+- [x] **ISC-95:** After an install, apkit names each selected Host that needs
   the user to trust the Project, and what does not load until then.
-  Probe: install for every Host; a Host whose live check (ISC-68) needs trust
-  without a line, or a line for a Host that does not need trust, fails. bash
-  (after: ISC-68)
-
-## Not yet specified
-
-- What scattered sample material ISC-20 and ISC-21 must contain to represent
-  real users (which Host folders and instruction files).
-- Whether the agent probes (ISC-21, ISC-45) require a specific agent or Host.
-- Whether one Project can hold more than one Profile.
+  Probe: install for every Host; a Host whose trust column in the
+  `docs/ARCHITECTURE.md` Verified Locations table needs trust without a line,
+  or a line for a Host that does not need trust, fails. bash
 
 ## Decisions
 
@@ -722,3 +666,71 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   live 0.239.0-rc.1 migration (#762) left `.agent-profile-kit/` in four
   Projects only because Finder had written that file, and the principal asked
   for it to be fixed. A folder with any other file stays.
+- 2026-11-05 — refined: after the 0.239 cutover, the principal dropped every
+  claim that needed a newcomer walkthrough, a fresh agent session, a record
+  review, or a live Host check: ISC-1–4, 12, 17, 19–21, 45, 63, 68, 69, and 88.
+  The two fog items that defined those walkthroughs (ISC-20, 21, and 45) are
+  removed with them. ISC-95 now checks the trust lines against the trust column
+  of the Verified Locations table in `docs/ARCHITECTURE.md`, not against
+  ISC-68. Also accepted:
+  - ISC-13 covers packages published from 0.239.0 on. Earlier releases had no
+    qualification record.
+  - ISC-44 excludes hidden files, which apkit skips without a warning on
+    purpose (#605).
+  - ISC-83 asks for "a newer apkit is needed": apkit cannot know which future
+    version reads a newer `schema_version`.
+  - ISC-93 excludes `migrate`, which does not repeat its own notice.
+  - The migration claims (ISC-66, 67, 89–93) stay until 1.0, then are dropped.
+  - One folder holds one Profile. A Profile already selects any mix of Context
+    and Skills, so stacking Profiles adds nothing. The fog item is closed.
+  - The beginner Goal stays unchanged. Without the walkthrough claims, it is
+    covered by the scripted lifecycle claims and ISC-6, ISC-7.1, and ISC-7.2.
+
+## Verification
+
+Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless the line says otherwise.
+
+- ISC-5: `test/cli.test.ts` "the daily loop: select, check, install, edit, update everywhere, remove"
+- ISC-11: `test/release.test.ts` "failing, skipped, omitted-file and interrupted plain test runs cannot record success"
+- ISC-14: CI run 42127574355 @2dd146d: every job passed within its `timeout-minutes` (10)
+- ISC-22: 2026-11-05 manual run of `dist/cli.js` @2dd146d: bare `apkit` names `apkit workspace [<path>]`; running it in a fresh home selected the fixture
+- ISC-25.1: `test/cli.test.ts` "`init` and `workspace` without a path, and `--help`, write nothing in a fresh home (ISC-25.1)"
+- ISC-25.2: 2026-11-05 manual run @2dd146d: `init` prints `apkit init <path>`; with a path supplied it exits 0 and selects the Workspace
+- ISC-30: 2026-11-05 manual run @2dd146d: `workspace <B>` after `<A>`; Local Configuration names B
+- ISC-31: 2026-11-05 manual run @2dd146d: reconnecting A, then B, kept both Profile Installations in Local Configuration
+- ISC-32: `test/cli.test.ts` "selecting a Workspace that lacks an installed Profile names each affected folder"
+- ISC-33: 2026-11-05 manual run @2dd146d: file and folder trees of A and B unchanged after first, repeat, and different connection
+- ISC-36.1: `test/contract.test.ts` "has valid and invalid examples"
+- ISC-36.2: `test/contract.test.ts` "has valid and invalid examples"
+- ISC-36.3: `test/contract.test.ts` "<example> validates as the contract says"
+- ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
+- ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
+- ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
+- ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)
+- ISC-56: `test/cli.test.ts` "a symlink that leads outside the Project needs a decision before any write there"
+- ISC-57: `test/cli.test.ts` "remove forgets a deleted linked worktree and drops its block"
+- ISC-59: CI run 42127574355 @2dd146d: tests and Node 22 CLI passed on ubuntu, macOS, and Windows
+- ISC-60: 2026-11-05: published 0.239.1 `package.json` has no dependencies; its bundle imports only `node:` modules
+- ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
+- ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
+- ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
+- ISC-73: `test/cli.test.ts` "install --global puts a Profile's Context in each agent's user-level file, after consent"
+- ISC-74: `test/cli.test.ts` "status names Context installed both at user level and in the Project, and never blocks"
+- ISC-76: `test/cli.test.ts` "any .md Context name installs, and an encoded ID keeps the marked section intact"
+- ISC-77: `test/workspace.test.ts` "two Context IDs that differ only in case are an error" on Linux CI
+- ISC-78: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
+- ISC-79: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
+- ISC-80: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
+- ISC-84: `test/cli.test.ts` "apkit-workspace.yaml marks a Workspace; the old workspace.yaml names the rename"
+- ISC-85: `test/contract.test.ts` "states no rule for a retired feature"
+- ISC-87: `test/cli.test.ts` "an AGENTS.md apkit creates is never hidden from Git"
+- ISC-89: `test/cli.test.ts` "one run migrates every Project with its own Profile and agents, then keeps the old state as a backup, unchanged"
+- ISC-90: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install"
+- ISC-91: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"
+- ISC-92: `test/cli.test.ts` "one run migrates every Project with its own Profile and agents, then keeps the old state as a backup, unchanged"
+- ISC-93: `test/cli.test.ts` "with unmigrated old state, every command names `apkit migrate`, and none changes the old state"
+- ISC-13: 2026-11-05: the npm tarballs of 0.239.0-rc.1 to 0.239.1 match the digest in each release's `qualification-record.json`
+- ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-83: 2026-11-05 manual run @2dd146d: `init`, then an emptied `apkit-workspace.yaml`, passes `check`; `schema_version: 99` names a newer apkit
+- ISC-95: `test/cli.test.ts` "an install names each selected agent that needs the folder trusted, and what waits for it"; values match the Verified Locations trust column
