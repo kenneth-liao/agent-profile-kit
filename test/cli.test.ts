@@ -1,7 +1,7 @@
 import { describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, readlink, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
@@ -2628,4 +2628,327 @@ describe("the migration notice (SRC-10)", () => {
     expect(JSON.parse(cli(home, home, "status", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
     expect(JSON.parse(cli(home, home, "update", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
   });
+});
+
+
+describe("isolated detection and Decisions (ISC-16, ISC-47, ISC-61, ISC-65)", () => {
+  const ALL = "antigravity,claude,codex,grok,opencode,pi";
+  const HOST_DIRS = [".gemini/antigravity", ".claude", ".codex", ".grok", ".config/opencode", ".pi/agent"];
+  // Resolve Node before replacing PATH; the Bun runner is already an absolute path.
+  const runtime = BUILT ? spawnSync("node", ["-p", "process.execPath"], { encoding: "utf8" }).stdout.trim() : process.execPath;
+
+  /** No exclusions: exact bytes, all directories (including empty ones), and link targets. */
+  async function completeTree(root: string): Promise<Record<string, string>> {
+    const tree: Record<string, string> = {};
+    async function visit(folder: string): Promise<void> {
+      for (const name of (await readdir(folder)).sort()) {
+        const full = join(folder, name);
+        const path = relative(root, full).split(sep).join("/");
+        const info = await lstat(full);
+        if (info.isSymbolicLink()) tree[path] = `link:${await readlink(full)}`;
+        else if (info.isDirectory()) {
+          tree[`${path}/`] = "";
+          await visit(full);
+        } else tree[path] = `file:${(await readFile(full)).toString("latin1")}`;
+      }
+    }
+    await visit(root);
+    return tree;
+  }
+
+  async function fakePrograms() {
+    const bin = await tempDir("fake-bin");
+    const markers = await tempDir("markers");
+    const names = [...ALL.split(","), "git", "node", "bun", "sh", "bash", "cmd", "powershell", "pwsh"];
+    for (const name of names) {
+      await writeFile(join(bin, name), `#!/bin/sh\nprintf started > "$APKIT_EXEC_MARKER/${name}"\n`);
+      await chmod(join(bin, name), 0o755);
+      await writeFile(join(bin, `${name}.cmd`), `@echo off\r\n> "%APKIT_EXEC_MARKER%\\${name}" echo started\r\n`);
+    }
+    // Windows environment names are case insensitive. Never leave competing Path/PATH entries.
+    const env: Record<string, string | undefined> = { ...process.env, APKIT_EXEC_MARKER: markers };
+    for (const key of Object.keys(env)) if (key.toUpperCase() === "PATH" || key.toUpperCase() === "PATHEXT") delete env[key];
+    const isolated = { ...env, PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD" };
+    // Positive control: each fake must resolve by name and really write its own marker.
+    for (const name of names) {
+      const result = process.platform === "win32"
+        ? spawnSync(process.env.ComSpec ?? "C:\\Windows\\System32\\cmd.exe", ["/d", "/s", "/c", name], { env: isolated, encoding: "utf8" })
+        : spawnSync(name, [], { env: isolated, encoding: "utf8" });
+      expect([result.status, result.error, result.stderr]).toEqual([0, undefined, ""]);
+      expect((await readFile(join(markers, name), "utf8")).trim()).toBe("started");
+      await rm(join(markers, name));
+    }
+    return { bin, markers };
+  }
+
+  function isolatedCli(extra: Record<string, string>, home: string, cwd: string, ...args: string[]) {
+    const env = cliEnv(home, { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0", ...extra });
+    for (const key of Object.keys(env)) if (["PATH", "PATHEXT"].includes(key.toUpperCase()) && key !== key.toUpperCase()) delete env[key];
+    const result = spawnSync(runtime, [...RUNTIME.slice(1), ...args, "--json"], { cwd, env, encoding: "utf8" });
+    expect(result.error).toBeUndefined();
+    return { code: result.status, data: JSON.parse(result.stdout), err: result.stderr };
+  }
+
+  test("detecting all six agents starts no program and changes neither home nor working folder", async () => {
+    const home = await tempDir("detection-home");
+    const cwd = await tempDir("detection-project");
+    const { bin, markers } = await fakePrograms();
+    const env = { PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD", APKIT_EXEC_MARKER: markers };
+    await mkdir(join(cwd, "empty"));
+    await writeTree(cwd, { "mine.txt": "mine\r\n" });
+    async function unchanged(args: string[], code: number, result: string) {
+      const before = await Promise.all([completeTree(home), completeTree(cwd)]);
+      const run = isolatedCli(env, home, cwd, ...args);
+      expect([run.code, run.err, run.data.result]).toEqual([code, "", result]);
+      expect(await Promise.all([completeTree(home), completeTree(cwd)])).toEqual(before);
+      expect(await readdir(markers)).toEqual([]);
+      return run.data;
+    }
+    await unchanged(["setup"], 1, "no-agents");
+    for (const dir of HOST_DIRS) await mkdir(join(home, dir), { recursive: true });
+    const blocked = await unchanged(["setup"], 3, "needs-decision");
+    expect(blocked.issues.length).toBeGreaterThan(0);
+    await unchanged(["setup", "--agents", ALL], 3, "needs-decision");
+    expect(isolatedCli(env, home, cwd, "setup", "--yes").code).toBe(0);
+    await unchanged(["setup"], 0, "unchanged");
+    expect(isolatedCli(env, home, cwd, "setup", "--remove").code).toBe(0);
+    await unchanged(["setup", "--remove"], 0, "removed");
+    expect(await readdir(markers)).toEqual([]);
+  });
+  /** Replace fixture roots only; keep every result field and every byte otherwise. */
+  function portable(value: unknown, root: string): unknown {
+    if (typeof value === "string") return value.replaceAll(JSON.stringify(root).slice(1, -1), "<fixture>").replaceAll(root, "<fixture>");
+    if (Array.isArray(value)) return value.map((item) => portable(item, root));
+    if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, portable(item, root)]));
+    return value;
+  }
+
+  for (const agent of ALL.split(",")) {
+    test(`${agent}: unselected programs and unrelated environment settings do not change isolated outcomes`, async () => {
+      const { bin, markers } = await fakePrograms();
+      const emptyBin = await tempDir("empty-bin");
+      const outcomes: unknown[] = [];
+      for (const variant of ["absent", "present"]) {
+        const root = await tempDir("ambient");
+        const home = join(root, "home");
+        const project = join(root, "project");
+        const ws = join(root, "workspace");
+        for (const folder of [home, project, ws]) await mkdir(folder);
+        await writeTree(ws, {
+          "apkit-workspace.yaml": "",
+          "profiles/mine.yaml": "context: [note]\nskills: [summarize]\n",
+          "context/note.md": "Use plain words.\n",
+          "skills/summarize/SKILL.md": SKILL("summarize"),
+        });
+        const env = {
+          PATH: variant === "absent" ? emptyBin : bin,
+          PATHEXT: ".COM;.EXE;.BAT;.CMD",
+          APKIT_EXEC_MARKER: markers,
+          EDITOR: variant === "absent" ? "no-editor" : "codex",
+          VISUAL: variant === "absent" ? "no-visual" : "claude",
+          TERM: variant === "absent" ? "dumb" : "xterm-256color",
+          UNRELATED_SETTING: variant,
+        };
+        const results: unknown[] = [];
+        for (const args of [
+          ["workspace", ws], ["check"],
+          ["install", "mine", "--agents", agent, "--yes"], ["status"],
+          ["update"], ["remove"],
+        ]) {
+          const result = isolatedCli(env, home, project, ...args);
+          expect([result.code, result.err]).toEqual([0, ""]);
+          results.push(result.data, await completeTree(home), await completeTree(project));
+        }
+        outcomes.push(portable(results, root));
+        expect(await readdir(markers)).toEqual([]);
+      }
+      expect(outcomes[1]).toEqual(outcomes[0]);
+    });
+  }
+
+  test("the full lifecycle including retained migration starts no program", async () => {
+    const fixture = await materializeMigration();
+    const home = await tempDir("journey-home");
+    const project = await tempDir("journey-project");
+    const ws = await tempDir("journey-workspace");
+    const { bin, markers } = await fakePrograms();
+    const env = { PATH: bin, PATHEXT: ".COM;.EXE;.BAT;.CMD", APKIT_EXEC_MARKER: markers };
+    const run = (...args: string[]) => {
+      const result = isolatedCli(env, home, project, ...args);
+      expect([result.code, result.err]).toEqual([0, ""]);
+      return result.data;
+    };
+    run("init", ws);
+    await writeTree(ws, {
+      "profiles/mine.yaml": "context: [note]\nskills: [summarize]\n",
+      "context/note.md": "Use plain words.\n",
+      "skills/summarize/SKILL.md": SKILL("summarize"),
+    });
+    run("workspace", ws);
+    run("check");
+    for (const command of ["help", "guide", "contract"]) {
+      // These commands print plain text even when --json is present.
+      const result = spawnSync(runtime, [...RUNTIME.slice(1), command], { cwd: project, env: cliEnv(home, { ...env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }), encoding: "utf8" });
+      expect([result.status, result.error, result.stderr]).toEqual([0, undefined, ""]);
+    }
+    for (const dir of HOST_DIRS) await mkdir(join(home, dir), { recursive: true });
+    run("setup", "--yes");
+    run("install", "mine", "--agents", ALL, "--yes");
+    run("install", "mine", "--agents", ALL, "--global", "--yes");
+    await writeTree(ws, { "context/note.md": "Use shorter words.\n" });
+    run("status", "--all");
+    run("update", "--all");
+    expect(await read(project, "AGENTS.md")).toContain("Use shorter words.");
+    run("remove");
+    run("remove", "--global");
+    run("setup", "--remove");
+    const migration = isolatedCli({ ...env, APKIT_HOME: join(fixture.root, "apkit") }, fixture.home, fixture.project, "migrate", "--yes");
+    expect([migration.code, migration.err, migration.data.projects[0].result]).toEqual([0, "", "migrated"]);
+    expect(await read(fixture.project, "AGENTS.md")).toContain("Answer in short, plain sentences.");
+    expect(await readdir(markers)).toEqual([]);
+  });
+
+  async function decision(home: string, project: string, roots: string[], args: string[], kind: string, path?: string) {
+    const before = await Promise.all(roots.map(completeTree));
+    const result = isolatedCli({}, home, project, ...args);
+    expect([result.code, result.err]).toEqual([3, ""]);
+    const outcomes = result.data.results ?? result.data.projects ?? [result.data];
+    expect(outcomes).toContainEqual(expect.objectContaining({
+      result: "needs-decision",
+      issues: expect.arrayContaining([expect.objectContaining({ kind, ...(path === undefined ? {} : { path }) })]),
+    }));
+    expect(await Promise.all(roots.map(completeTree))).toEqual(before);
+  }
+
+  test("each project install Decision preserves the complete Project, home and Workspace trees", async () => {
+    const home = await tempDir("decision-home");
+    const project = await tempDir("decision-project");
+    const ws = await makeWorkspace();
+    const roots = [home, project, ws];
+    await mkdir(join(home, "empty"));
+    await mkdir(join(project, "empty"));
+    expect(isolatedCli({}, home, project, "workspace", ws).code).toBe(0);
+    const install = ["install", "engineering", "--agents", ALL];
+    await decision(home, project, roots, install, "consent", "AGENTS.md");
+    await writeTree(project, { "AGENTS.md": "# Mine\r\n", "CLAUDE.md": "# Claude\r\n" });
+    await decision(home, project, roots, install, "consent", "AGENTS.md");
+    await decision(home, project, roots, install, "consent", "CLAUDE.md");
+    const skill = ".claude/skills/summarize/SKILL.md";
+    await writeTree(project, { [skill]: await read(ws, "skills/summarize/SKILL.md") });
+    await decision(home, project, roots, [...install, "--overwrite"], "consent", skill);
+    await writeTree(project, { [skill]: "My own Skill\r\n" });
+    await decision(home, project, roots, [...install, "--yes"], "unowned", skill);
+    await rm(join(project, skill));
+    await mkdir(join(project, skill));
+    await decision(home, project, roots, [...install, "--yes"], "unowned", skill);
+    await rm(join(project, skill), { recursive: true });
+    // A pre-existing section that this installation does not own is a separate takeover case.
+    await writeTree(project, { "AGENTS.md": "<!-- apkit:begin -->\nMine\n<!-- apkit:end -->\n" });
+    await decision(home, project, roots, [...install, "--yes"], "unowned", "AGENTS.md");
+    expect(isolatedCli({}, home, project, ...install, "--yes", "--overwrite").code).toBe(0);
+    // Keep global.json present too: a blocked project operation must not touch it.
+    expect(isolatedCli({}, home, project, "install", "engineering", "--global", "--agents", ALL, "--yes").code).toBe(0);
+    const original = await read(project, "AGENTS.md");
+    for (const text of [original.replace("Be concise.", "My changed section."), "# Section removed\n"]) {
+      await writeTree(project, { "AGENTS.md": text });
+      for (const args of [[...install, "--yes"], ["update", "--yes"]]) await decision(home, project, roots, args, "changed", "AGENTS.md");
+    }
+    await writeTree(project, { "AGENTS.md": original.replace("Be concise.", "My changed section."), [skill]: "My changed Skill\n" });
+    for (const args of [[...install, "--yes"], ["update", "--yes"], ["remove", "--yes"]]) {
+      await decision(home, project, roots, args, "changed", "AGENTS.md");
+      await decision(home, project, roots, args, "changed", skill);
+    }
+  });
+
+  test("outside-folder install, update and removal Decisions preserve links and their targets as well as home", async () => {
+    const home = await tempDir("outside-home");
+    const project = await tempDir("outside-project");
+    const outside = await tempDir("outside-target");
+    const ws = await makeWorkspace();
+    await mkdir(join(outside, "empty"));
+    await symlink(outside, join(project, ".claude"), "junction");
+    const roots = [home, project, outside, ws];
+    expect(isolatedCli({}, home, project, "workspace", ws).code).toBe(0);
+    const install = ["install", "skills-only", "--agents", "claude"];
+    await decision(home, project, roots, install, "outside", ".claude");
+    expect(isolatedCli({}, home, project, ...install, "--yes").code).toBe(0);
+    await writeTree(ws, { "skills/summarize/SKILL.md": SKILL("summarize", "license: MIT\n") });
+    await decision(home, project, roots, ["update"], "outside", ".claude");
+    await decision(home, project, roots, ["remove"], "outside", ".claude");
+  });
+
+  test("global install, update, removal and setup Decisions preserve every home file including both registries", async () => {
+    const home = await tempDir("global-decision-home");
+    const project = await tempDir("global-decision-project");
+    const ws = await makeWorkspace();
+    const roots = [home, project, ws];
+    const run = (...args: string[]) => expect(isolatedCli({}, home, project, ...args).code).toBe(0);
+    run("workspace", ws);
+    const install = ["install", "engineering", "--global", "--agents", ALL];
+    await decision(home, project, roots, install, "consent");
+    for (const path of USER_FILES) await writeTree(home, { [path]: "# My instructions\r\n" });
+    await decision(home, project, roots, install, "consent");
+    run(...install, "--yes");
+    const file = ".codex/AGENTS.md";
+    const original = await read(home, file);
+    await writeTree(home, { [file]: original.replace("Be concise.", "My changed global section.") });
+    for (const args of [[...install, "--yes"], ["update", "--all", "--yes"], ["remove", "--global", "--yes"]]) {
+      await decision(home, project, roots, args, "changed", join(home, file));
+    }
+    await writeTree(home, { [file]: original });
+    // A global file with no manifest ownership still requires overwrite consent.
+    const manifest = await read(home, "global.json");
+    await rm(join(home, "global.json"));
+    await writeTree(home, { [file]: original.replace("Be concise.", "An unowned section.") });
+    await decision(home, project, roots, [...install, "--yes"], "unowned", join(home, file));
+    await writeTree(home, { "global.json": manifest, [file]: original });
+    const skill = ".claude/skills/summarize/SKILL.md";
+    const originalSkill = await read(home, skill);
+    await writeTree(home, { [skill]: "My changed global Skill\n" });
+    for (const args of [[...install, "--yes"], ["update", "--all", "--yes"], ["remove", "--global", "--yes"]]) {
+      await decision(home, project, roots, args, "changed", skill);
+    }
+    await writeTree(home, { [skill]: originalSkill });
+    await decision(home, project, roots, ["setup", "--agents", ALL], "consent");
+    run("setup", "--agents", ALL, "--yes");
+    await writeTree(home, { [file]: (await read(home, file)).replace("apkit guide", "my changed guide") });
+    for (const args of [["setup", "--agents", ALL, "--yes"], ["setup", "--remove", "--yes"]]) {
+      await decision(home, project, roots, args, "changed", join(home, file));
+    }
+    // The same edited note is unowned if no Local Configuration record owns it.
+    const config = JSON.parse(await read(home, "config.json"));
+    delete config.notes;
+    await writeTree(home, { "config.json": JSON.stringify(config) });
+    await decision(home, project, roots, ["setup", "--agents", ALL, "--yes"], "unowned", join(home, file));
+  });
+
+  test("migration Decisions preserve complete home, Project, Workspace and old-state trees", async () => {
+    const fixture = await materializeMigration();
+    const { home, project, workspace, state } = fixture;
+    const roots = [home, project, workspace];
+    await mkdir(join(home, "empty"));
+    await mkdir(join(project, "empty"));
+    await decision(home, project, roots, ["migrate"], "consent", "AGENTS.md");
+    // The Workspace marker rename is a Decision too, even before an installation is changed.
+    await rm(join(workspace, "apkit-workspace.yaml"));
+    const before = await Promise.all(roots.map(completeTree));
+    const rename = isolatedCli({}, home, project, "migrate");
+    expect([rename.code, rename.err, rename.data.workspace.rename.result]).toEqual([3, "", "needs-decision"]);
+    expect(await Promise.all(roots.map(completeTree))).toEqual(before);
+    await writeTree(workspace, { "apkit-workspace.yaml": "" });
+    // A changed legacy configuration and Skill cannot be overwritten just by --yes.
+    const hook = ".codex/hooks.json";
+    const hooks = JSON.parse(await read(project, hook));
+    hooks.hooks.SessionStart.push({ matcher: "startup", hooks: [{ command: "echo mine", type: "command" }] });
+    await writeTree(project, { [hook]: JSON.stringify(hooks), ".claude/skills/summarize/SKILL.md": "My changed Skill\n" });
+    const changedBefore = await Promise.all(roots.map(completeTree));
+    const changed = isolatedCli({}, home, project, "migrate", "--yes");
+    expect([changed.code, changed.err]).toEqual([3, ""]);
+    expect(changed.data.projects[0]).toMatchObject({ result: "needs-decision", issues: expect.arrayContaining([
+      expect.objectContaining({ kind: "changed", path: ".claude/skills/summarize" }),
+    ]) });
+    expect(await Promise.all(roots.map(completeTree))).toEqual(changedBefore);
+    expect(await readFile(join(state, "state", "manifest.json"), "utf8")).toContain("receipts");
+  });
+
 });
