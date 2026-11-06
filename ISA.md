@@ -213,7 +213,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [ ] **ISC-37.2:** The contract states where this machine records the list
   of installed folders.
   Probe: read the contract; a missing or wrong location fails. manual
-- [ ] **ISC-38:** A standard Agent Skill is valid Workspace material without
+- [x] **ISC-38:** A standard Agent Skill is valid Workspace material without
   edits.
   Probe: copy real standard Skill packages unchanged into a Workspace and
   validate; any required edit fails. bash
@@ -228,16 +228,16 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Configuration.
   Probe: compare the fresh home before and after that validation; any created
   Local Configuration fails. bash
-- [ ] **ISC-41:** One validation run reports every contract violation in a
+- [x] **ISC-41:** One validation run reports every contract violation in a
   Workspace.
   Probe: validate a Workspace seeded with several violations across categories;
   any violation missing from one run fails. bash
-- [ ] **ISC-42.1:** Each reported contract violation names its path.
+- [x] **ISC-42.1:** Each reported contract violation names its path.
   Probe: trigger each violation kind; a report without the path fails. bash
-- [ ] **ISC-42.2:** Each reported contract violation names the change that fixes
+- [x] **ISC-42.2:** Each reported contract violation names the change that fixes
   it.
   Probe: trigger each violation kind; a report without the fix fails. bash
-- [ ] **ISC-43:** Failed Workspace validation points to the contract.
+- [x] **ISC-43:** Failed Workspace validation points to the contract.
   Probe: trigger each violation kind; output without a contract reference fails.
   bash
 - [x] **ISC-44:** **Anti:** A file that apkit skips is never silently ignored,
@@ -246,7 +246,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   `check` and `install`; a skipped file that is not hidden, without a warning
   in either output, fails. bash
 - **ISC-45:** [DROPPED — see Decisions 2026-11-05]
-- [ ] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
+- [x] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
   never fails validation without the output naming every change needed.
   Probe: validate retained fixtures kept from each release that changed the
   contract, including a realistic-scale fixture with neutral content modeled on
@@ -385,7 +385,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Workspace, including Skills added after the Profile was written.
   Probe: install, add a Skill, run `update` without editing the Profile; a
   missing Skill fails. bash
-- [ ] **ISC-81:** **Anti:** A warning never blocks an install.
+- [x] **ISC-81:** **Anti:** A warning never blocks an install.
   Probe: install with each warning case present; a non-zero exit or missing
   output fails. bash
 - [ ] **ISC-82:** Validation reports an error only when an install would be
@@ -441,7 +441,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: run each command on that fixture machine; output without
   `apkit migrate` fails. bash
 
-- [ ] **ISC-94:** **Anti:** No install or update runs from a Workspace that
+- [x] **ISC-94:** **Anti:** No install or update runs from a Workspace that
   has errors.
   Probe: connect a Workspace with each error kind, then run `install` and
   `update`; any write fails. bash
@@ -693,6 +693,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-5: `test/cli.test.ts` "the daily loop: select, check, install, edit, update everywhere, remove"
 - ISC-9: `test/cli.test.ts` "the daily loop: select, check, install, edit, update everywhere, remove"; "no run overwrites a file that the user changed"; "install, update, and remove preserve changed generated files until --overwrite" (the CLI never prompts; consent is a flag)
 - ISC-11: `test/release.test.ts` "failing, skipped, omitted-file and interrupted plain test runs cannot record success"
+- ISC-13: 2026-11-05: the npm tarballs of 0.239.0-rc.1 to 0.239.1 match the digest in each release's `qualification-record.json`
 - ISC-14: CI run 42127574355 @2dd146d: every job passed within its `timeout-minutes` (10)
 - ISC-22: 2026-11-05 manual run of `dist/cli.js` @2dd146d: bare `apkit` names `apkit workspace [<path>]`; running it in a fresh home selected the fixture
 - ISC-23: `test/cli.test.ts` "only caller-supplied paths select a Workspace, including migration without a legacy selection"
@@ -709,9 +710,16 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-36.1: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.2: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.3: `test/contract.test.ts` "<example> validates as the contract says"
+- ISC-38: `test/cli.test.ts` "published Skills validate unchanged, including allowed-tools, compatibility, metadata and Resources"
 - ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
 - ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
+- ISC-41: `test/cli.test.ts` "a Workspace with errors can be selected and shows every error; installs and updates wait until it is fixed"
+- ISC-42.1: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
+- ISC-42.2: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
+- ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
+- ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-46: `test/cli.test.ts` "every retained format names all needed changes in one CLI check, and those changes suffice"
 - ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
 - ISC-50: `test/cli.test.ts` "one install gives a linked worktree every selected agent's outputs, and one remove leaves it as it was, empty folders included" (all six agents; also with `APKIT_CLI=dist/cli.js`)
@@ -741,6 +749,8 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-78: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-79: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-80: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
+- ISC-81: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-83: 2026-11-05 manual run @2dd146d: `init`, then an emptied `apkit-workspace.yaml`, passes `check`; `schema_version: 99` names a newer apkit
 - ISC-84: `test/cli.test.ts` "apkit-workspace.yaml marks a Workspace; the old workspace.yaml names the rename"
 - ISC-85: `test/contract.test.ts` "states no rule for a retired feature"
 - ISC-86: `test/cli.test.ts` "instruction-file decisions cover absent, untracked, and tracked AGENTS.md and CLAUDE.md"
@@ -750,7 +760,5 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-91: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"
 - ISC-92: `test/cli.test.ts` "one run migrates every Project with its own Profile and agents, then keeps the old state as a backup, unchanged"
 - ISC-93: `test/cli.test.ts` "with unmigrated old state, every command names `apkit migrate`, and none changes the old state"
-- ISC-13: 2026-11-05: the npm tarballs of 0.239.0-rc.1 to 0.239.1 match the digest in each release's `qualification-record.json`
-- ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
-- ISC-83: 2026-11-05 manual run @2dd146d: `init`, then an emptied `apkit-workspace.yaml`, passes `check`; `schema_version: 99` names a newer apkit
+- ISC-94: `test/cli.test.ts` "install and update leave every file and folder unchanged"
 - ISC-95: `test/cli.test.ts` "an install names each selected agent that needs the folder trusted, and what waits for it"; values match the Verified Locations trust column

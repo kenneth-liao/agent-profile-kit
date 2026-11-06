@@ -74,11 +74,11 @@ export async function loadWorkspace(root: string): Promise<Workspace> {
   for (const { profile, path } of selections) {
     for (const id of profile.context) {
       if (!context.has(id)) {
-        add("missing-context-reference", path, `Profile '${profile.id}' names Context '${id}', which does not exist${contextFix(id, context, declared)}.`);
+        add("missing-context-reference", path, `${path}: Profile '${profile.id}' names Context '${id}', which does not exist${contextFix(id, context, declared)}; add the missing Context or remove its selection.`);
       }
     }
     for (const name of profile.skills) {
-      if (!skills.has(name)) add("missing-skill-reference", path, `Profile '${profile.id}' names Skill '${name}', which does not exist.`);
+      if (!skills.has(name)) add("missing-skill-reference", path, `${path}: Profile '${profile.id}' names Skill '${name}', which does not exist; add the missing Skill or remove its selection.`);
     }
   }
   return {
@@ -250,7 +250,7 @@ async function loadSkills(root: string, add: Add): Promise<Map<string, Skill>> {
       continue;
     }
     if (skills.has(name)) {
-      add("duplicate-artifact-name", path, `Two Skill packages declare the name '${name}'.`);
+      add("duplicate-artifact-name", path, `${path}: two Skill packages declare the name '${name}'; rename one so each Skill name is unique.`);
       continue;
     }
     const files = await readPackage(join(dir, ...pkg.split("/")), `skills/${pkg}`, add);
@@ -351,14 +351,14 @@ async function loadProfiles(
       continue;
     }
     if (ids.indexOf(id) !== index) {
-      add("duplicate-profile", path, `Two files define Profile '${id}'; keep one of ${id}.yaml and ${id}.yml.`);
+      add("duplicate-profile", path, `${path}: two files define Profile '${id}'; keep one of ${id}.yaml and ${id}.yml.`);
       continue;
     }
     let data: unknown;
     try {
       data = parseYaml(await readFile(join(dir, file), "utf8"));
     } catch {
-      add("invalid-yaml", path, `${path} is not valid YAML.`);
+      add("invalid-yaml", path, `${path} is not valid YAML; correct its YAML syntax.`);
       continue;
     }
     if (data === null || data === undefined) data = {};
@@ -385,7 +385,7 @@ async function loadProfiles(
     }
     const skills = selected === "all" ? [...skillMap.keys()].sort() : selected;
     if (new Set(context).size !== context.length || new Set(skills).size !== skills.length) {
-      add("duplicate-selection", path, `${path} names the same item more than once.`);
+      add("duplicate-selection", path, `${path} names the same item more than once; remove the repeated selection.`);
       continue;
     }
     if (context.length === 0 && skills.length === 0 && selected !== "all") {
