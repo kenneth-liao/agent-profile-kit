@@ -385,7 +385,8 @@ async function loadProfiles(
       continue;
     }
     // A Skill named twice is still installed once, so the repeat is only a warning.
-    const repeatedSkills = repeats(selected === "all" ? [] : selected);
+    // A name that does not exist gets missing-skill-reference instead.
+    const repeatedSkills = repeats(selected === "all" ? [] : selected).filter((name) => skillMap.has(name));
     for (const name of repeatedSkills) {
       add("duplicate-skill-selection", path, `${path} names Skill '${name}' more than once; apkit installs it once. Remove the repeated name.`);
     }

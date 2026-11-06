@@ -311,7 +311,7 @@ describe("apkit CLI", () => {
     expect(bad.out).toContain("Context must be listed");
   });
 
-  test("a skipped file is a warning: check and install show it, and it never blocks an install", async () => {
+  test("a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install", async () => {
     const home = await tempDir("home");
     const ws = await makeWorkspace();
     const outside = await tempDir("outside");
@@ -326,7 +326,8 @@ describe("apkit CLI", () => {
       // A Skill package with a leftover sidecar and the retired model-invocation key.
       "skills/old/SKILL.md": SKILL("old", "metadata:\n  agent-profile-kit:\n    model-invocation: explicit\n"),
       "skills/old/agent-profile-kit.yaml": "dependencies: []\n",
-      "profiles/old.yaml": "skills: [old]\n",
+      // A Skill named twice is installed once.
+      "profiles/old.yaml": "skills: [old, old]\n",
     });
     // A junction on Windows needs no privilege; elsewhere it is a plain folder symlink.
     await symlink(join(outside, "linked"), join(ws, "skills", "linked"), "junction");
@@ -335,11 +336,11 @@ describe("apkit CLI", () => {
     const check = cli(home, home, "check", "--workspace", ws);
     expect(check.code).toBe(0);
     expect(check.out).toContain("is valid");
-    for (const path of [...skipped, "profiles/draft.yaml"]) expect(check.out).toContain(path);
+    for (const path of [...skipped, "profiles/draft.yaml", "profiles/old.yaml"]) expect(check.out).toContain(path);
     const json = JSON.parse(cli(home, home, "check", "--workspace", ws, "--json").out);
     expect(json.valid).toBe(true);
     expect(json.violations).toEqual([]);
-    expect(json.warnings.map((w: { path: string }) => w.path).sort()).toEqual([...skipped, "profiles/draft.yaml"].sort());
+    expect(json.warnings.map((w: { path: string }) => w.path).sort()).toEqual([...skipped, "profiles/draft.yaml", "profiles/old.yaml"].sort());
     const warnings = [
       ["empty-content", "context/empty.md"],
       ["stray-context-file", "context/notes.txt"],
@@ -348,14 +349,16 @@ describe("apkit CLI", () => {
       ["profile-in-subfolder", "profiles/team/nested.yaml"],
       ["symlink", "skills/linked"],
       ["profile-without-artifacts", "profiles/draft.yaml"],
+      ["duplicate-skill-selection", "profiles/old.yaml"],
     ].sort();
     expect(json.warnings.map((w: Violation) => [w.code, w.path]).sort()).toEqual(warnings);
 
     const folder = await tempDir("f");
     const install = cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--yes");
     expect(install.code).toBe(0);
-    for (const path of skipped) expect(install.out).toContain(path);
+    for (const path of [...skipped, "profiles/old.yaml"]) expect(install.out).toContain(path);
     expect(await read(folder, ".claude/skills/old/agent-profile-kit.yaml")).toBe("dependencies: []\n");
+    expect(await readdir(join(folder, ".claude", "skills"))).toEqual(["old"]);
     const again = JSON.parse(cli(home, folder, "install", "old", "--workspace", ws, "--agents", "claude", "--json").out);
     expect(again.result).toBe("unchanged");
     expect(again.warnings.map((w: Violation) => [w.code, w.path]).sort()).toEqual(warnings);

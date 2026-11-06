@@ -163,9 +163,10 @@ and the next manifest. `execute` runs only after every Decision is settled.
 
 ## Local Configuration and `--all`
 
-`config.json` in the apkit home (`~/.agents/apkit`, or `APKIT_HOME`) holds the
-selected Workspace, the list of installed folders, the Setup Note records, and
-the exclude file of each folder's block. `update --all` and `status --all`
+Local Configuration (`CONTEXT.md`) holds the selected Workspace, the list of
+installed folders, the Setup Note records, and the exclude file of each
+folder's block. The Workspace contract states where it is and the keys a user
+reads (`apkit contract`, § Where this machine records it). `update --all` and `status --all`
 visit every listed folder and then the User-Level Installation, if
 `global.json` exists. A listed folder that no longer exists is forgotten by
 `update` with its exclusion block, as `remove` would.

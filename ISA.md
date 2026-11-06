@@ -709,21 +709,21 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-32: `test/cli.test.ts` "selecting a Workspace that lacks an installed Profile names each affected folder"
 - ISC-33: 2026-11-05 manual run @2dd146d: file and folder trees of A and B unchanged after first, repeat, and different connection
 - ISC-34: 2026-11-05 manual read @fd0ee11: `README.md` § Learn more links `docs/guides/workspace-contract.md`, the complete contract, with no install
-- ISC-35: 2026-11-05 manual map @fd0ee11 of each check in `src/workspace.ts` to a contract statement, none missing; `test/contract.test.ts` "states every code validation reports, as an error or a warning" (#791)
+- ISC-35: 2026-11-05 manual map @3fdba5c of each check in `src/workspace.ts` to a contract statement, none missing; `test/contract.test.ts` "states every code validation reports, as an error or a warning", Bun 1.4.4 @3fdba5c
 - ISC-36.1: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.2: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.3: `test/contract.test.ts` "<example> validates as the contract says"
-- ISC-37.1: 2026-11-05 manual read (#791): contract § Where this machine records it names `workspace` in `config.json` in the apkit home, as `src/config.ts` writes it
-- ISC-37.2: 2026-11-05 manual read (#791): the same section names `installs`, and `global.json` for the user-level install, as `src/config.ts` and `src/location.ts` write them
+- ISC-37.1: 2026-11-05 manual read @3fdba5c: contract § Where this machine records it names `workspace` in `config.json` in the apkit home, as `src/config.ts` writes it
+- ISC-37.2: 2026-11-05 manual read @3fdba5c: the same section names `installs`, and `global.json` for the user-level install, as `src/config.ts` and `src/location.ts` write them
 - ISC-38: `test/cli.test.ts` "published Skills validate unchanged, including allowed-tools, compatibility, metadata and Resources"
 - ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
-- ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-40.1: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install"
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
 - ISC-41: `test/cli.test.ts` "a Workspace with errors can be selected and shows every error; installs and updates wait until it is fixed"
 - ISC-42.1: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-42.2: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
-- ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-44: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install"
 - ISC-46: `test/cli.test.ts` "0.20.0 minimal: one CLI check names every needed change, and those changes suffice"; "0.20.0 partial: one CLI check names every needed change, and those changes suffice"; "0.95.0: one CLI check names every needed change, and those changes suffice"; "0.204.0 source: one CLI check names every needed change, and those changes suffice"; "0.204.0 realistic: one CLI check names every needed change, and those changes suffice"; "0.237.0: one CLI check names every needed change, and those changes suffice"
 - ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"; "the engine source never starts a program: no child_process, Bun.spawn, or Bun.$"
 - ISC-47.2: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
@@ -757,8 +757,8 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-78: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-79: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-80: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
-- ISC-81: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
-- ISC-82: `test/validation-cases.ts` `ERROR_KINDS` names the wrong or ambiguous install each error kind prevents; `test/workspace.test.ts` "<code> is an error: it prevents …" and "every code the validator reports is a documented error kind or a warning"; a repeated Skill is a warning (#791)
+- ISC-81: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install" (#791)
+- ISC-82: `test/validation-cases.ts` `ERROR_KINDS` names the wrong or ambiguous install each error kind prevents; `test/workspace.test.ts` "<code> is an error: it prevents …" and "every code the validator reports is a documented error kind or a warning"; "a Skill named twice is a warning and is selected once; a Context ID named twice is an error", Bun 1.4.4 @3fdba5c
 - ISC-83: 2026-11-05 manual run @2dd146d: `init`, then an emptied `apkit-workspace.yaml`, passes `check`; `schema_version: 99` names a newer apkit
 - ISC-84: `test/cli.test.ts` "apkit-workspace.yaml marks a Workspace; the old workspace.yaml names the rename"
 - ISC-85: `test/contract.test.ts` "states no rule for a retired feature"
