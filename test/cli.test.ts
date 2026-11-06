@@ -3008,6 +3008,84 @@ describe("validation reports for every error kind", () => {
   }
 });
 
+describe("published standard Skill packages (ISC-38)", () => {
+  test("published Skills validate unchanged, including allowed-tools, compatibility, metadata and Resources", async () => {
+    const source = join(import.meta.dir, "retained", "standard-skills");
+    const home = await tempDir("home");
+    const root = await tempDir("published-skills");
+    await writeTree(root, { "apkit-workspace.yaml": "schema_version: 1\n", "profiles/published.yaml": "skills: all\n" });
+    const manifest = JSON.parse(await read(source, "sha256.json")) as Record<string, string>;
+    for (const name of ["django-perf-review", "transformers-js"]) {
+      await cp(join(source, name), join(root, "skills", name), { recursive: true });
+    }
+    const before = await retainedTree(root);
+    const copied = await retainedTree(join(root, "skills"));
+    expect(Object.fromEntries(Object.entries(copied).filter(([path]) => !path.endsWith("/")))).toEqual(manifest);
+    const result = cli(home, root, "check", "--workspace", root, "--json");
+    expect([result.code, result.err]).toEqual([0, ""]);
+    const report = JSON.parse(result.out);
+    expect(report.valid).toBe(true);
+    expect(report.violations).toEqual([]);
+    expect(report.warnings).toEqual([]);
+    expect(report.skills).toEqual(["django-perf-review", "transformers-js"]);
+    expect(await retainedTree(root)).toEqual(before);
+  });
+});
+
+/** Exact file bytes (SHA-256) and every directory, including empty ones. */
+async function retainedTree(root: string): Promise<Record<string, string>> {
+  const tree: Record<string, string> = {};
+  for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+    const full = join(entry.parentPath, entry.name);
+    const path = relative(root, full).split(sep).join("/");
+    if (entry.isDirectory()) tree[`${path}/`] = "";
+    else if (entry.isFile()) tree[path] = hash(await readFile(full));
+    else throw new Error(`Unexpected retained-fixture entry: ${path}`);
+  }
+  return tree;
+}
+
+describe("retained Workspace CLI compatibility (ISC-46)", () => {
+  test("every retained format names all needed changes in one CLI check, and those changes suffice", async () => {
+    const fixtures: { source: string; counts: Record<string, number> }[] = [
+      { source: "compat-0.16.0/minimal", counts: { "workspace-old-manifest": 1 } },
+      { source: "compat-0.16.0/partial", counts: { "workspace-old-manifest": 1, "invalid-profile": 1 } },
+      { source: "compat-0.84.0", counts: { "workspace-old-manifest": 1, "invalid-profile": 1, "missing-context-reference": 1 } },
+      { source: "compat-0.204.0/workspace-source", counts: { "workspace-old-manifest": 1, "invalid-profile": 2, "missing-context-reference": 1 } },
+      { source: "compat-0.204.0/workspace-realistic", counts: { "workspace-old-manifest": 1, "invalid-profile": 5, "missing-context-reference": 29 } },
+      { source: "compat-0.237.0", counts: { "workspace-old-manifest": 1 } },
+    ];
+    for (const fixture of fixtures) {
+      const home = await tempDir("home");
+      const root = await tempDir("retained-cli");
+      await cp(join(import.meta.dir, "retained", ...fixture.source.split("/")), root, { recursive: true });
+      // An empty user-owned folder must survive validation and every named repair.
+      await mkdir(join(root, "empty-folder"));
+      const before = await retainedTree(root);
+      const first = cli(home, root, "check", "--workspace", root, "--json");
+      expect([fixture.source, first.code, first.err]).toEqual([fixture.source, 1, ""]);
+      const report = JSON.parse(first.out) as { valid: boolean; violations: Violation[]; contract: string };
+      expect(report.valid).toBe(false);
+      expect(report.contract).toBe("apkit contract");
+      const counts: Record<string, number> = {};
+      for (const error of report.violations) {
+        counts[error.code] = (counts[error.code] ?? 0) + 1;
+        expect(Object.keys(before)).toContain(error.path);
+      }
+      expect([fixture.source, counts]).toEqual([fixture.source, fixture.counts]);
+      expect(await retainedTree(root)).toEqual(before);
+      await applyNamedChanges(root, report.violations);
+      const repaired = await retainedTree(root);
+      expect(repaired["empty-folder/"]).toBe("");
+      const second = cli(home, root, "check", "--workspace", root, "--json");
+      expect([fixture.source, second.code, second.err]).toEqual([fixture.source, 0, ""]);
+      expect(JSON.parse(second.out).violations).toEqual([]);
+      expect(JSON.parse(second.out).valid).toBe(true);
+      expect(await retainedTree(root)).toEqual(repaired);
+    }
+  });
+});
+
 describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
   function folderCli(home: string, cwd: string, ...args: string[]) {
     return cliWithEnv({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, home, cwd, ...args);
