@@ -54,6 +54,7 @@ export const WARNINGS: ReadonlySet<string> = new Set([
   "symlink",
   "empty-content",
   "profile-without-artifacts",
+  "duplicate-skill-selection",
 ]);
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -383,9 +384,18 @@ async function loadProfiles(
       add("invalid-profile", path, `${path}: \`context\` must be a list of IDs and \`skills\` a list of names or \`all\`.`);
       continue;
     }
-    const skills = selected === "all" ? [...skillMap.keys()].sort() : selected;
-    if (new Set(context).size !== context.length || new Set(skills).size !== skills.length) {
-      add("duplicate-selection", path, `${path} names the same item more than once; remove the repeated selection.`);
+    // A Skill named twice is still installed once, so the repeat is only a warning.
+    // A name that does not exist gets missing-skill-reference instead.
+    const repeatedSkills = repeats(selected === "all" ? [] : selected).filter((name) => skillMap.has(name));
+    for (const name of repeatedSkills) {
+      add("duplicate-skill-selection", path, `${path} names Skill '${name}' more than once; apkit installs it once. Remove the repeated name.`);
+    }
+    const skills = selected === "all" ? [...skillMap.keys()].sort() : [...new Set(selected)];
+    // A Context ID named twice would join its text twice, or in an order the user did not choose.
+    const repeatedContext = repeats(context);
+    if (repeatedContext.length > 0) {
+      const named = repeatedContext.map((id) => `'${id}'`).join(", ");
+      add("duplicate-selection", path, `${path} names Context ${named} more than once; remove the repeated selection.`);
       continue;
     }
     if (context.length === 0 && skills.length === 0 && selected !== "all") {
@@ -414,6 +424,11 @@ function readFrontmatter(source: string): Record<string, unknown> | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Each item that appears more than once, in first-seen order. */
+function repeats(items: readonly string[]): string[] {
+  return [...new Set(items.filter((item, index) => items.indexOf(item) !== index))];
 }
 
 function isNameList(value: unknown): value is string[] {

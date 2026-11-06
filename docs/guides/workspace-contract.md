@@ -15,8 +15,8 @@ Validation reports two kinds of finding:
 
 - An **error** means that an install would be wrong or ambiguous. Any error
   blocks every install and update until it is fixed.
-- A **warning** names a file that apkit skips. Every warning is shown, and no
-  warning blocks an install.
+- A **warning** names a file or a selection that apkit skips. Every warning is
+  shown, and no warning blocks an install.
 
 The Errors and Warnings sections below list every code that `check` reports.
 
@@ -98,7 +98,8 @@ A Profile says what is installed together. It is the only apkit-specific file.
   has no `all`.
 - `skills` lists Skill names, or is `all`. `skills: all` selects every Skill in
   the Workspace, including Skills added later.
-- A list must not name the same item twice.
+- `context` must not name the same ID twice. A Skill named twice in `skills`
+  is installed once.
 - Every ID in `context` must be a Context Module in the Workspace, and every
   name in `skills` must be a Skill in the Workspace.
 - A Profile that selects nothing installs nothing.
@@ -121,7 +122,7 @@ A Profile says what is installed together. It is the only apkit-specific file.
 | `duplicate-profile` | One file defines each Profile. | Keep one of `x.yaml` and `x.yml`. |
 | `invalid-yaml` | A Profile file is valid YAML. | Fix the YAML. |
 | `invalid-profile` | A Profile holds only a `context` list of IDs and a `skills` list of names or `all`. | Remove other keys, and fix the lists. |
-| `duplicate-selection` | A Profile list names each item once. | Remove the repeated item. |
+| `duplicate-selection` | A Profile's `context` list names each ID once. | Remove the repeated ID. |
 | `missing-context-reference` | Each Context ID in a Profile exists. | Use the module's path ID, or add the module. |
 | `missing-skill-reference` | Each Skill name in a Profile exists. | Use the Skill's `name`, or add the Skill. |
 
@@ -136,6 +137,19 @@ A Profile says what is installed together. It is the only apkit-specific file.
 | `profile-in-subfolder` | A Profile file in a subfolder of `profiles/`. | Move it directly into `profiles/`. |
 | `stray-profile-file` | A file under `profiles/` that is not `.yaml` or `.yml`. | Rename it, or move it out of `profiles/`. |
 | `profile-without-artifacts` | Nothing: a Profile that selects nothing installs nothing. | Add items to its lists, or delete it. |
+| `duplicate-skill-selection` | The repeat: a Skill named twice in `skills` is installed once. | Remove the repeated name. |
+
+## Where this machine records it
+
+The Workspace holds no record of where it is installed. Each machine keeps its
+own Local Configuration in `config.json`, in the apkit home:
+`~/.agents/apkit/`, or the folder that `APKIT_HOME` names.
+
+- `workspace` is the path of the selected Workspace. `apkit init <path>` and
+  `apkit workspace <path>` set it.
+- `installs` lists the project folders that apkit installed into, which
+  `--all` uses. What is installed in a folder is recorded in that folder. The
+  user-level install is recorded in `global.json`, next to `config.json`.
 
 ## Examples
 
@@ -191,9 +205,9 @@ skills: all
 context: [CLAUDE]
 ```
 
-### Valid: skipped files are warnings
+### Valid: skipped files and repeated Skills are warnings
 
-<!-- expects warnings: stray-context-file, stray-skill-file, stray-profile-file -->
+<!-- expects warnings: stray-context-file, stray-skill-file, stray-profile-file, duplicate-skill-selection -->
 
 <!-- apkit-workspace.yaml -->
 ```yaml
@@ -227,7 +241,7 @@ My Profiles.
 
 <!-- profiles/default.yaml -->
 ```yaml
-skills: [summarize]
+skills: [summarize, summarize]
 ```
 
 ### Invalid: the old marker file

@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 76/87
+progress: 81/87
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-11-05
@@ -192,11 +192,11 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: compare valid Workspaces' file trees before and after first
   connection, connecting the same Workspace again, and connecting a different
   Workspace, with and without a TTY; any change fails. bash
-- [ ] **ISC-34:** The Workspace contract is readable from the README before
+- [x] **ISC-34:** The Workspace contract is readable from the README before
   installing apkit.
   Probe: from the public README, reach the complete contract without installing
   apkit; failure to reach it fails. manual
-- [ ] **ISC-35:** Every rule that Workspace validation enforces is stated in the
+- [x] **ISC-35:** Every rule that Workspace validation enforces is stated in the
   contract.
   Probe: map each validation failure kind to a contract statement; an enforced
   rule the contract does not state fails. manual
@@ -207,10 +207,10 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [x] **ISC-36.3:** Each contract example validates as the contract says.
   Probe: validate each contract example; an outcome different from the
   contract's statement fails. bash
-- [ ] **ISC-37.1:** The contract states where this machine records the selected
+- [x] **ISC-37.1:** The contract states where this machine records the selected
   Workspace location.
   Probe: read the contract; a missing or wrong location fails. manual
-- [ ] **ISC-37.2:** The contract states where this machine records the list
+- [x] **ISC-37.2:** The contract states where this machine records the list
   of installed folders.
   Probe: read the contract; a missing or wrong location fails. manual
 - [x] **ISC-38:** A standard Agent Skill is valid Workspace material without
@@ -388,7 +388,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [x] **ISC-81:** **Anti:** A warning never blocks an install.
   Probe: install with each warning case present; a non-zero exit or missing
   output fails. bash
-- [ ] **ISC-82:** Validation reports an error only when an install would be
+- [x] **ISC-82:** Validation reports an error only when an install would be
   wrong or ambiguous.
   Probe: map each error kind to the wrong or ambiguous install it prevents; an
   error kind without one fails. manual
@@ -708,18 +708,22 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-31: 2026-11-05 manual run @2dd146d: reconnecting A, then B, kept both Profile Installations in Local Configuration
 - ISC-32: `test/cli.test.ts` "selecting a Workspace that lacks an installed Profile names each affected folder"
 - ISC-33: 2026-11-05 manual run @2dd146d: file and folder trees of A and B unchanged after first, repeat, and different connection
+- ISC-34: 2026-11-05 manual read @fd0ee11: `README.md` § Learn more links `docs/guides/workspace-contract.md`, the complete contract, with no install
+- ISC-35: 2026-11-05 manual map @3fdba5c of each check in `src/workspace.ts` to a contract statement, none missing; `test/contract.test.ts` "states every code validation reports, as an error or a warning", Bun 1.4.4 @c3ae6da
 - ISC-36.1: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.2: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.3: `test/contract.test.ts` "<example> validates as the contract says"
+- ISC-37.1: 2026-11-05 manual read @3fdba5c: contract § Where this machine records it names `workspace` in `config.json` in the apkit home, as `src/config.ts` writes it
+- ISC-37.2: 2026-11-05 manual read @3fdba5c: the same section names `installs`, and `global.json` for the user-level install, as `src/config.ts` and `src/location.ts` write them
 - ISC-38: `test/cli.test.ts` "published Skills validate unchanged, including allowed-tools, compatibility, metadata and Resources"
 - ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
-- ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-40.1: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install", Bun 1.4.4 @c3ae6da
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
 - ISC-41: `test/cli.test.ts` "a Workspace with errors can be selected and shows every error; installs and updates wait until it is fixed"
 - ISC-42.1: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-42.2: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
-- ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-44: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install", Bun 1.4.4 @c3ae6da
 - ISC-46: `test/cli.test.ts` "0.20.0 minimal: one CLI check names every needed change, and those changes suffice"; "0.20.0 partial: one CLI check names every needed change, and those changes suffice"; "0.95.0: one CLI check names every needed change, and those changes suffice"; "0.204.0 source: one CLI check names every needed change, and those changes suffice"; "0.204.0 realistic: one CLI check names every needed change, and those changes suffice"; "0.237.0: one CLI check names every needed change, and those changes suffice"
 - ISC-47.1: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"; "the engine source never starts a program: no child_process, Bun.spawn, or Bun.$"
 - ISC-47.2: `test/cli.test.ts` "detecting all six agents starts no program and changes neither home nor working folder"
@@ -753,7 +757,8 @@ Test names are at @41c818a, `bun test` (Bun 1.4.4) and CI run 42143427215 unless
 - ISC-78: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-79: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
 - ISC-80: `test/cli.test.ts` "lenient Profiles: a missing list is empty, .yml is a Profile, and skills: all follows the Workspace"
-- ISC-81: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-81: `test/cli.test.ts` "a skipped file or a repeated Skill is a warning: check and install show it, and it never blocks an install", Bun 1.4.4 @c3ae6da
+- ISC-82: `test/validation-cases.ts` `ERROR_KINDS` names the wrong or ambiguous install each error kind prevents; `test/workspace.test.ts` "<code> is an error: it prevents …" and "every code the validator reports is a documented error kind or a warning"; "a Skill named twice is a warning and is selected once; a Context ID named twice is an error", Bun 1.4.4 @c3ae6da
 - ISC-83: 2026-11-05 manual run @2dd146d: `init`, then an emptied `apkit-workspace.yaml`, passes `check`; `schema_version: 99` names a newer apkit
 - ISC-84: `test/cli.test.ts` "apkit-workspace.yaml marks a Workspace; the old workspace.yaml names the rename"
 - ISC-85: `test/contract.test.ts` "states no rule for a retired feature"

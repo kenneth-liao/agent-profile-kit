@@ -104,7 +104,7 @@ export const ERROR_KINDS: Record<string, {
   "duplicate-selection": {
     paths: ["profiles/p.yaml"],
     fix: "remove the repeated selection",
-    prevents: "an ambiguous selection or Context order",
+    prevents: "Context joined twice, or in an order the user did not choose",
     files: { "apkit-workspace.yaml": "", "context/a.md": "A\n", "profiles/p.yaml": "context: [a, a]\n" },
   },
   "missing-context-reference": {

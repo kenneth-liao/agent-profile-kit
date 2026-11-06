@@ -36,6 +36,9 @@ The ISA records the destination (ISC-39, ISC-44, ISC-76 to ISC-85).
    ambiguous, and it blocks installs. A file that apkit skips is a warning:
    every warning is shown, and none blocks an install. Profiles in subfolders
    and stray files become warnings.
+   *Amended 2026-11-05 (#791):* a Skill named twice in a Profile's `skills`
+   list is also a warning, because it is installed once. A Context ID named
+   twice stays an error.
 5. **No rules for retired features.** The sidecar and the retired
    model-invocation key leave the contract and the validator. A leftover
    sidecar is ordinary package content.

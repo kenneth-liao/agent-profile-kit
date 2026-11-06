@@ -209,6 +209,32 @@ describe("loadWorkspace", () => {
     });
   }
 
+  test("a Skill named twice is a warning and is selected once; a Context ID named twice is an error", async () => {
+    const root = await tempDir("ws");
+    await writeTree(root, {
+      "apkit-workspace.yaml": "",
+      "context/a.md": "A\n",
+      "skills/a/SKILL.md": SKILL("a"),
+      "skills/b/SKILL.md": SKILL("b"),
+      "profiles/skills.yaml": "skills: [a, b, a]\n",
+      "profiles/both.yaml": "context: [a, a]\nskills: [a, a]\n",
+      // A repeated name that does not exist is only a missing reference.
+      "profiles/gone.yaml": "skills: [gone, gone]\n",
+    });
+    const workspace = await loadWorkspace(root);
+    expect(workspace.warnings.map((w) => [w.code, w.path])).toEqual([
+      ["duplicate-skill-selection", "profiles/both.yaml"],
+      ["duplicate-skill-selection", "profiles/skills.yaml"],
+    ]);
+    expect(workspace.warnings[1]!.message).toBe("profiles/skills.yaml names Skill 'a' more than once; apkit installs it once. Remove the repeated name.");
+    expect(workspace.violations.map((v) => [v.code, v.path])).toEqual([
+      ["duplicate-selection", "profiles/both.yaml"],
+      ["missing-skill-reference", "profiles/gone.yaml"],
+    ]);
+    expect(workspace.profiles.get("skills")).toEqual({ id: "skills", context: [], skills: ["a", "b"] });
+    expect(workspace.profiles.has("both")).toBe(false);
+  });
+
   test("every code the validator reports is a documented error kind or a warning", async () => {
     const source = await readFile(join(import.meta.dir, "..", "src", "workspace.ts"), "utf8");
     const emitted = [...source.matchAll(/add\(\s*"([a-z-]+)"/g)].map((match) => match[1] as string);
