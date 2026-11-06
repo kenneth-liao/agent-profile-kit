@@ -53,8 +53,9 @@ install, update, and removal.
   complete record of the operation. `help`, `guide`, and `contract` print text
   only.
 - **Options.** A command stops with exit 2, before it writes, on an
-  option it does not take, and names the options it takes. `--help` works with
-  every command.
+  option it does not take, and names the options it takes. It also stops with
+  exit 2, before it writes, on more arguments than it takes, and names its
+  usage. `--help` works with every command.
 - **Exit codes** agree across commands: `0` done, `1` error, `2` usage, `3`
   needs a Decision.
 

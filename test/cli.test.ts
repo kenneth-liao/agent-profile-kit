@@ -1461,6 +1461,45 @@ describe("apkit CLI", () => {
     expect([help.code, help.out]).toEqual([0, `${HELP}\n`]);
   });
 
+  test("an argument past the ones a command takes is a usage error, and nothing changes", async () => {
+    const home = await tempDir("home");
+    const ws = await makeWorkspace();
+    const folder = await tempDir("f");
+    cli(home, folder, "workspace", ws);
+    const before = { folder: await snapshot(folder), home: await snapshot(home) };
+
+    const calls: string[][] = [
+      ["help", "x"],
+      ["guide", "x"],
+      ["contract", "x"],
+      ["init", "a", "b"],
+      ["workspace", "a", "b"],
+      ["setup", "x"],
+      ["check", "x"],
+      ["install", "engineering", ".", "x", "--agents", "codex"],
+      ["update", ".", "x"],
+      ["remove", "my", "project"],
+      ["status", ".", "x"],
+      ["migrate", "x"],
+    ];
+    for (const args of calls) {
+      const run = cli(home, folder, ...args);
+      expect([args, run.code, run.out]).toEqual([args, 2, ""]);
+      expect(run.err).toContain(`${COMMAND} help`);
+    }
+    expect(await snapshot(folder)).toEqual(before.folder);
+    expect(await snapshot(home)).toEqual(before.home);
+
+    const remove = cli(home, folder, "remove", "my", "project");
+    expect(remove.err).toContain("`remove` takes at most 1 argument; got 2 (my, project).");
+    expect(remove.err).toContain(`Usage: ${COMMAND} remove [folder | --global]`);
+    expect(cli(home, folder, "install", "engineering", ".", "x").err).toContain(
+      `Usage: ${COMMAND} install <profile> [folder] --agents <a,b>\n       ${COMMAND} install <profile> --global --agents <a,b>`,
+    );
+    expect(cli(home, folder, "check", "x").err).toContain("`check` takes no arguments; got 1 (x).");
+    expect(cli(home, folder, "help", "x").err).toContain("`help` takes no arguments; got 1 (x).");
+  });
+
   test.skipIf(!BUILT)("the bundle imports only node: built-ins and never checks the operating system", async () => {
     const bundle = await readFile(resolve(import.meta.dir, "..", BUILT ?? ""), "utf8");
     const specifiers = [...bundle.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*|require\s*\(\s*|^import\s*)["']([^"']+)["']/gm)].map((m) => m[1]);

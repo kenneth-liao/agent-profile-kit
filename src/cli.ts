@@ -5,7 +5,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { OPTIONS } from "./command.js";
+import { OPTIONS, POSITIONALS } from "./command.js";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
@@ -63,6 +63,21 @@ function checkOptions(command: string | undefined, args: Args): void {
     const message = !KNOWN.has(flag) || command === undefined ? `Unknown option ${flag}.` : `\`${command}\` does not take ${flag}. ${takes}`;
     throw new UsageError(`${message}\n${nextCommand(["help"])}`);
   }
+  const most = POSITIONALS[command!] ?? 0;
+  const extra = args.positional.slice(1);
+  if (extra.length > most) {
+    const takes = most === 0 ? "takes no arguments" : `takes at most ${most} argument${most === 1 ? "" : "s"}`;
+    const usage = usageOf(command!);
+    const lines = [`\`${command}\` ${takes}; got ${extra.length} (${extra.join(", ")}).`, ...(usage.length > 0 ? [`Usage: ${usage.join("\n       ")}`] : [])];
+    throw new UsageError(`${lines.join("\n")}\n${nextCommand(["help"])}`);
+  }
+}
+
+/** The command's usage lines, as `--help` prints them. */
+function usageOf(command: string): string[] {
+  return HELP.split("\n")
+    .filter((line) => line.startsWith(`  ${COMMAND} ${command} `) || line === `  ${COMMAND} ${command}`)
+    .map((line) => line.trim().split(/\s{2,}/)[0]!);
 }
 
 async function folderArg(value: string | undefined): Promise<string> {

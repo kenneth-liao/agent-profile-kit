@@ -20,3 +20,19 @@ export const OPTIONS: Readonly<Record<string, readonly string[]>> = {
   status: ["--all", "--global", "--workspace", "--json"],
   migrate: ["--yes", "--overwrite", "--workspace", "--json"],
 };
+
+/** The most arguments each command takes after its name. More is a usage error, before any read or write. */
+export const POSITIONALS: Readonly<Record<string, number>> = {
+  help: 0,
+  guide: 0,
+  contract: 0,
+  init: 1,
+  workspace: 1,
+  setup: 0,
+  check: 0,
+  install: 2,
+  update: 1,
+  remove: 1,
+  status: 1,
+  migrate: 0,
+};
