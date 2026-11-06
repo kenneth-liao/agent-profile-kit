@@ -6,6 +6,7 @@ This repository uses Semantic Versioning. Entries are one flat list per version 
 
 ## [Unreleased]
 
+- Fixed Workspace validation reports omitting offending paths for duplicate Skills, duplicate Profiles, and missing references, and omitting concrete corrections for duplicate Skills, invalid Profile YAML, repeated selections, and missing references (#782)
 - Fixed `apkit guide` omitting `help` and `--help`, and clarified `--workspace` and text output with `--json`; coverage now compares against the parser inventory (#786)
 - Fixed `apkit init <path>` selecting a Workspace with errors without reporting them; it now shows the complete validation report, like `workspace <path>`, while keeping the Workspace selected (#781)
 - Fixed `apkit init` without a path, `apkit workspace` without a path, and `--help` with a command that writes leaving an empty `~/.agents/apkit/` folder in a fresh home; none of them now writes anything there (#774)
