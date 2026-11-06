@@ -213,7 +213,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
 - [ ] **ISC-37.2:** The contract states where this machine records the list
   of installed folders.
   Probe: read the contract; a missing or wrong location fails. manual
-- [ ] **ISC-38:** A standard Agent Skill is valid Workspace material without
+- [x] **ISC-38:** A standard Agent Skill is valid Workspace material without
   edits.
   Probe: copy real standard Skill packages unchanged into a Workspace and
   validate; any required edit fails. bash
@@ -246,7 +246,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   `check` and `install`; a skipped file that is not hidden, without a warning
   in either output, fails. bash
 - **ISC-45:** [DROPPED — see Decisions 2026-11-05]
-- [ ] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
+- [x] **ISC-46:** **Anti:** A Workspace that was valid in any earlier release
   never fails validation without the output naming every change needed.
   Probe: validate retained fixtures kept from each release that changed the
   contract, including a realistic-scale fixture with neutral content modeled on
@@ -710,6 +710,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-36.1: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.2: `test/contract.test.ts` "has valid and invalid examples"
 - ISC-36.3: `test/contract.test.ts` "<example> validates as the contract says"
+- ISC-38: `test/cli.test.ts` "published Skills validate unchanged, including allowed-tools, compatibility, metadata and Resources"
 - ISC-39: `test/workspace.test.ts` "any .md name is a Context Module, and its ID is its path without .md"
 - ISC-40.1: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
 - ISC-40.2: 2026-11-05 manual run @2dd146d: `check --workspace` in a fresh home left the home empty
@@ -718,6 +719,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-42.2: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-43: `test/cli.test.ts` "check names every offending path, its fix, and the contract"
 - ISC-44: `test/cli.test.ts` "a skipped file is a warning: check and install show it, and it never blocks an install"
+- ISC-46: `test/cli.test.ts` "every retained format names all needed changes in one CLI check, and those changes suffice"
 - ISC-48: `test/cli.test.ts` "init and workspace select Workspaces with errors and show the complete check report (ISC-48)"
 - ISC-49: 2026-11-05 manual run @2dd146d: `--help` names `apkit contract`; its output is byte-identical to `docs/guides/workspace-contract.md`
 - ISC-52: `test/cli.test.ts` "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install" (all six Hosts)

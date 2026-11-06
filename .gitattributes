@@ -4,3 +4,6 @@ docs/guides/workspace-contract.md text eol=lf
 
 # The old engine's receipts hash these exact bytes (test/migration/0.238.0/README.md).
 test/migration/** -text
+
+# Retained upstream packages and historical Workspaces are exact-byte provenance.
+test/retained/** -text
