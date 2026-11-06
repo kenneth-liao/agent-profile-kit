@@ -1,7 +1,7 @@
 ---
 thing: Agent Profile Kit
 phase: active
-progress: 44/87
+progress: 49/87
 principal_stated_goal: "I just want apkit to be user-friendly to the unfamiliar beginner, be a joy to use, and polished. Only give the user what they need to know at each step but the power to dig deeper if they want to."
 started: 2026-09-10
 updated: 2026-11-05
@@ -140,7 +140,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   Probe: in a fresh home, run bare `apkit`, then run the named command without a
   TTY on a valid fixture Workspace; no such command, or a Workspace that is not
   connected afterwards, fails. bash
-- [ ] **ISC-23:** **Anti:** apkit never selects a Workspace location that the
+- [x] **ISC-23:** **Anti:** apkit never selects a Workspace location that the
   user did not give or confirm.
   Probe: in fresh homes, run every command that creates or selects a Workspace:
   `init` (with and without a path), selecting again, and upgrading legacy Local
@@ -156,20 +156,20 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   command that supplies a path.
   Probe: run the printed command with a valid fixture path supplied; a missing
   or failing command fails. bash
-- [ ] **ISC-26:** A relative Workspace path, including `.`, selects the folder
+- [x] **ISC-26:** A relative Workspace path, including `.`, selects the folder
   the user named.
   Probe: packed CLI `init` with `.` and with a relative path, then `check` from
   a different directory; a Workspace other than the named folder fails. bash
-- [ ] **ISC-27.1:** `init` adds every missing part of the Workspace structure
+- [x] **ISC-27.1:** `init` adds every missing part of the Workspace structure
   that the contract requires.
   Probe: `init` an empty folder and a folder with unrelated files; any required
   part still missing fails. bash
-- [ ] **ISC-27.2:** `init` adds nothing to the chosen folder that the contract
+- [x] **ISC-27.2:** `init` adds nothing to the chosen folder that the contract
   does not require.
   Probe: compare file trees before and after `init`; any added entry that the
   contract does not require fails. bash
 - **ISC-27.3:** [DROPPED — see Decisions 2026-10-30]
-- [ ] **ISC-28:** **Anti:** `init` never changes, moves, or deletes an existing
+- [x] **ISC-28:** **Anti:** `init` never changes, moves, or deletes an existing
   file in the chosen folder.
   Probe: compare existing entries before and after `init` of valid, incomplete,
   and invalid folders that contain unrelated files; any changed, moved, or
@@ -695,8 +695,13 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-11: `test/release.test.ts` "failing, skipped, omitted-file and interrupted plain test runs cannot record success"
 - ISC-14: CI run 42127574355 @2dd146d: every job passed within its `timeout-minutes` (10)
 - ISC-22: 2026-11-05 manual run of `dist/cli.js` @2dd146d: bare `apkit` names `apkit workspace [<path>]`; running it in a fresh home selected the fixture
+- ISC-23: `test/cli.test.ts` "only caller-supplied paths select a Workspace, including migration without a legacy selection"
 - ISC-25.1: `test/cli.test.ts` "`init` and `workspace` without a path, and `--help`, write nothing in a fresh home (ISC-25.1)"
 - ISC-25.2: 2026-11-05 manual run @2dd146d: `init` prints `apkit init <path>`; with a path supplied it exits 0 and selects the Workspace
+- ISC-26: `test/cli.test.ts` "init . selects that folder when check runs elsewhere"; "init nested/my workspace selects that folder when check runs elsewhere"
+- ISC-27.1: `test/cli.test.ts` "init completes empty, unrelated-file, and partial folders with only the contract structure"
+- ISC-27.2: `test/cli.test.ts` "init completes empty, unrelated-file, and partial folders with only the contract structure"
+- ISC-28: `test/cli.test.ts` "init preserves every existing entry in valid, incomplete, and invalid folders with unrelated files"
 - ISC-30: 2026-11-05 manual run @2dd146d: `workspace <B>` after `<A>`; Local Configuration names B
 - ISC-31: 2026-11-05 manual run @2dd146d: reconnecting A, then B, kept both Profile Installations in Local Configuration
 - ISC-32: `test/cli.test.ts` "selecting a Workspace that lacks an installed Profile names each affected folder"

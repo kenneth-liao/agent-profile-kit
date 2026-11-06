@@ -2823,3 +2823,138 @@ describe("the migration notice (SRC-10)", () => {
     expect(JSON.parse(cli(home, home, "update", "--all", "--workspace", ws, "--json").out)).toEqual({ results: [] });
   });
 });
+
+describe("Workspace folder states (ISC-23, ISC-26, ISC-27, ISC-28)", () => {
+  function folderCli(home: string, cwd: string, ...args: string[]) {
+    return cliWithEnv({ BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, home, cwd, ...args);
+  }
+
+  // Exact bytes and every directory, including empty ones; paths are portable across CI platforms.
+  async function folderTree(root: string): Promise<Record<string, string>> {
+    const entries: Record<string, string> = {};
+    for (const entry of await readdir(root, { recursive: true, withFileTypes: true })) {
+      const full = join(entry.parentPath, entry.name);
+      const path = relative(root, full).split(sep).join("/");
+      entries[entry.isDirectory() ? `${path}/` : path] = entry.isDirectory() ? "" : (await readFile(full)).toString("hex");
+    }
+    return entries;
+  }
+
+  test("only caller-supplied paths select a Workspace, including migration without a legacy selection", async () => {
+    const home = await tempDir("selection-home");
+    const cwd = await tempDir("selection-cwd");
+    const one = await tempDir("selection-one");
+    const two = await makeWorkspace();
+    expect(folderCli(home, cwd, "init").code).toBe(2);
+    expect(await folderTree(home)).toEqual({});
+    expect(await folderTree(cwd)).toEqual({});
+    for (const [command, path] of [["init", one], ["init", one], ["workspace", one], ["workspace", one], ["workspace", two]]) {
+      const result = folderCli(home, cwd, command!, path!, "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(JSON.parse(result.out).workspace).toBe(path);
+      expect(JSON.parse(await read(home, "config.json")).workspace).toBe(path);
+    }
+
+    const legacyHome = await tempDir("unselected-home");
+    const apkitHome = join(legacyHome, "apkit");
+    await writeTree(legacyHome, {
+      ".agents/agent-profile-kit/config.yaml": "schema_version: 1\n",
+      "apkit/config.json": '{"installs": []}\n',
+    });
+    const run = (...args: string[]) => cliWithEnv({ APKIT_HOME: apkitHome, BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" }, legacyHome, cwd, ...args);
+    expect(JSON.parse(run("workspace", "--json").out).workspace).toBeNull();
+    const migrated = run("migrate", "--json");
+    expect([migrated.code, migrated.err]).toEqual([0, ""]);
+    expect(JSON.parse(migrated.out).workspace).toBeNull();
+    expect(JSON.parse(await read(apkitHome, "config.json"))).not.toHaveProperty("workspace");
+    expect(JSON.parse(run("workspace", "--json").out).workspace).toBeNull();
+    expect(await folderTree(legacyHome)).toEqual({
+      ".agents/": "",
+      ".agents/agent-profile-kit.migrated/": "",
+      ".agents/agent-profile-kit.migrated/config.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+      "apkit/": "",
+      "apkit/config.json": Buffer.from('{"installs": []}\n').toString("hex"),
+    });
+    expect(await folderTree(cwd)).toEqual({});
+  });
+
+  for (const path of [".", "nested/my workspace"]) {
+    test(`init ${path} selects that folder when check runs elsewhere`, async () => {
+      const home = await tempDir("relative-home");
+      const cwd = await tempDir("relative-cwd");
+      const elsewhere = await tempDir("elsewhere");
+      const expected = resolve(cwd, path);
+      const initialized = folderCli(home, cwd, "init", path, "--json");
+      expect([initialized.code, initialized.err]).toEqual([0, ""]);
+      expect(JSON.parse(initialized.out).workspace).toBe(expected);
+      const checked = folderCli(home, elsewhere, "check", "--json");
+      expect([checked.code, checked.err]).toEqual([0, ""]);
+      expect(JSON.parse(checked.out)).toMatchObject({ workspace: expected, valid: true });
+      expect(JSON.parse(await read(home, "config.json")).workspace).toBe(expected);
+    });
+  }
+
+
+  test("init completes empty, unrelated-file, and partial folders with only the contract structure", async () => {
+    const home = await tempDir("structure-home");
+    const structure = {
+      "apkit-workspace.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+      "context/": "", "skills/": "", "profiles/": "",
+    };
+    for (const state of ["empty", "unrelated", "partial"]) {
+      const root = await tempDir(`structure-${state}`);
+      if (state !== "empty") {
+        await writeTree(root, { "notes/nested/readme.txt": "Keep me.\r\n" });
+        await writeFile(join(root, "notes", "data.bin"), Buffer.from([0, 255, 13, 10, 128]));
+        await mkdir(join(root, "notes", "empty"));
+      }
+      if (state === "partial") await writeTree(root, { "context/existing.md": "Existing Context.\n" });
+      const before = await folderTree(root);
+      const result = folderCli(home, home, "init", root, "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      expect(await folderTree(root)).toEqual({ ...structure, ...before });
+      expect(JSON.parse(result.out).added.sort()).toEqual(Object.keys(structure).filter((path) => !(path in before)).sort());
+      const checked = folderCli(home, home, "check", "--json");
+      expect([checked.code, checked.err]).toEqual([0, ""]);
+      expect(JSON.parse(checked.out)).toMatchObject({ workspace: root, valid: true });
+    }
+  });
+
+
+  test("init preserves every existing entry in valid, incomplete, and invalid folders with unrelated files", async () => {
+    const home = await tempDir("preserve-home");
+    for (const state of ["valid", "incomplete", "invalid"]) {
+      const root = state === "incomplete" ? await tempDir("incomplete") : await makeWorkspace();
+      await writeTree(root, {
+        "notes/nested/keep.txt": "Unrelated content.\r\n",
+        ".hidden": "Keep hidden files too.\n",
+      });
+      await writeFile(join(root, "notes", "binary"), Buffer.from([255, 0, 254, 10, 13]));
+      await mkdir(join(root, "notes", "empty"));
+      if (state === "incomplete") await writeTree(root, { "context/existing.md": "Keep Context.\n" });
+      if (state === "invalid") {
+        await writeTree(root, {
+          "apkit-workspace.yaml": "schema_version: 99\n",
+          "profiles/broken.yaml": "context: [does-not-exist]\n",
+        });
+      }
+      const before = await folderTree(root);
+      const result = folderCli(home, home, "init", root, "--json");
+      expect([result.code, result.err]).toEqual([0, ""]);
+      const after = await folderTree(root);
+      // Exact whole-tree equality catches changes, moves, deletions, and extra additions.
+      expect(after).toEqual({
+        "apkit-workspace.yaml": Buffer.from("schema_version: 1\n").toString("hex"),
+        "context/": "", "skills/": "", "profiles/": "",
+        ...before,
+      });
+      expect(JSON.parse(result.out).added.sort()).toEqual(
+        ["apkit-workspace.yaml", "context/", "skills/", "profiles/"].filter((path) => !(path in before)).sort(),
+      );
+      const checked = folderCli(home, home, "check", "--json");
+      expect(checked.code).toBe(state === "invalid" ? 1 : 0);
+      expect(JSON.parse(checked.out)).toMatchObject({ workspace: root, valid: state !== "invalid" });
+    }
+  });
+
+});
