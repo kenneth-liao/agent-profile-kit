@@ -337,7 +337,7 @@ on macOS, Linux, and Windows and which an agent learns from the tool itself.
   user's edit to an installed file without explicit consent.
   Probe: install with apkit 0.238.0, edit the generated files, then take over or
   remove with the current apkit; any unauthorized loss fails. bash
-- [ ] **ISC-67:** A Project installed by the old engine can be taken over or
+- [x] **ISC-67:** A Project installed by the old engine can be taken over or
   removed without the old engine.
   Probe: on that fixture, use only the current apkit; needing the old engine,
   or leftover output, fails. bash
@@ -715,6 +715,7 @@ Test names are at @2dd146d, `bun test` (Bun 1.4.4) and CI run 42127574355 unless
 - ISC-61: 2026-11-05 manual run of `dist/cli.js` @2dd146d on Node 26.12.1 with marker-writing fakes as the whole `PATH`, from `init` to `migrate`: no marker
 - ISC-62: `test/cli.test.ts` "the bundle imports only node: built-ins and never checks the operating system" with `APKIT_CLI=dist/cli.js`; `rg` of `src/` found no OS check
 - ISC-66: `test/cli.test.ts` "a changed Codex hook and OpenCode configuration are a decision that names apkit's part, and nothing changes"; "a changed Skill folder and Markdown output are listed with their origin; --yes cannot keep a Skill this apkit installs again"
+- ISC-67: `test/cli.test.ts` "a Project the old engine installed is removed by the current apkit alone: after migrate and remove it matches the Project before the old install"; takeover: "deletes every unchanged old output and installs the same Profile, agents, and Workspace: the Project matches a fresh install"
 - ISC-73: `test/cli.test.ts` "install --global puts a Profile's Context in each agent's user-level file, after consent"
 - ISC-74: `test/cli.test.ts` "status names Context installed both at user level and in the Project, and never blocks"
 - ISC-76: `test/cli.test.ts` "any .md Context name installs, and an encoded ID keeps the marked section intact"
