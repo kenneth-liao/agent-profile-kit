@@ -48,6 +48,8 @@ and terminal styling are dead ends.
 6. **Exit codes agree across commands.** `0` done, `1` error, `2` usage, `3`
    needs a Decision. A command stops with exit 2, before it writes, on an
    option it does not take.
+   *Amended 2026-11-05 (#775):* it also stops with exit 2 on more arguments
+   than it takes; `docs/USER-JOURNEY.md` owns the rule.
 
 `docs/USER-JOURNEY.md` owns the stages and the rules every output follows.
 

@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { chmod, cp, mkdir, readFile, readdir, rename, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, relative, resolve, sep } from "node:path";
-import { OPTIONS } from "../src/command.js";
+import { COMMANDS } from "../src/command.js";
 import { COMMAND, GUIDE, HELP } from "../src/guide.js";
 import { hash } from "../src/install.js";
 import { AGENTS, type AgentId } from "../src/render.js";
@@ -1345,13 +1345,13 @@ describe("apkit CLI", () => {
     const guide = cli(home, home, "guide");
     expect(guide.code).toBe(0);
     expect(guide.out).toBe(`${GUIDE}\n`);
-    const commands = Object.keys(OPTIONS);
+    const commands = Object.keys(COMMANDS);
     for (const command of commands) {
       expect(guide.out).toContain(`${COMMAND} ${command}`);
       const help = cli(home, home, command, "--help");
       expect([help.code, help.out, help.err]).toEqual([0, `${HELP}\n`, ""]);
     }
-    const flags = new Set(["--help", "--json", ...Object.values(OPTIONS).flat()]);
+    const flags = new Set(["--help", "--json", ...Object.values(COMMANDS).flatMap((c) => c.options)]);
     for (const flag of flags) expect(guide.out).toContain(flag);
     for (const agent of Object.keys(AGENTS)) expect(guide.out).toContain(agent);
   });
@@ -1481,23 +1481,31 @@ describe("apkit CLI", () => {
       ["remove", "my", "project"],
       ["status", ".", "x"],
       ["migrate", "x"],
+      // A scope option takes the place of the folder.
+      ["install", "engineering", ".", "--global", "--agents", "codex"],
+      ["update", ".", "--all"],
+      ["remove", ".", "--global"],
+      ["status", ".", "--all"],
+      ["status", ".", "--global"],
     ];
     for (const args of calls) {
       const run = cli(home, folder, ...args);
       expect([args, run.code, run.out]).toEqual([args, 2, ""]);
       expect(run.err).toContain(`${COMMAND} help`);
+      if (args[0] !== "help") expect([args, run.err]).toEqual([args, expect.stringContaining(`Usage: ${COMMAND} ${args[0]}`)]);
     }
     expect(await snapshot(folder)).toEqual(before.folder);
     expect(await snapshot(home)).toEqual(before.home);
 
     const remove = cli(home, folder, "remove", "my", "project");
-    expect(remove.err).toContain("`remove` takes at most 1 argument; got 2 (my, project).");
+    expect(remove.err).toContain("`remove` takes at most 1 argument; got 2: 'my', 'project'.");
     expect(remove.err).toContain(`Usage: ${COMMAND} remove [folder | --global]`);
     expect(cli(home, folder, "install", "engineering", ".", "x").err).toContain(
       `Usage: ${COMMAND} install <profile> [folder] --agents <a,b>\n       ${COMMAND} install <profile> --global --agents <a,b>`,
     );
-    expect(cli(home, folder, "check", "x").err).toContain("`check` takes no arguments; got 1 (x).");
-    expect(cli(home, folder, "help", "x").err).toContain("`help` takes no arguments; got 1 (x).");
+    expect(cli(home, folder, "check", "x").err).toContain("`check` takes no arguments; got 1: 'x'.");
+    expect(cli(home, folder, "help", "x").err).toContain("`help` takes no arguments; got 1: 'x'.");
+    expect(cli(home, folder, "remove", ".", "--global").err).toContain("`remove` with --global takes no arguments; got 1: '.'.");
   });
 
   test.skipIf(!BUILT)("the bundle imports only node: built-ins and never checks the operating system", async () => {

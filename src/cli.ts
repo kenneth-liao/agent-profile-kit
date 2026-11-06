@@ -5,7 +5,7 @@
 import { lstat, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { OPTIONS, POSITIONALS } from "./command.js";
+import { COMMANDS } from "./command.js";
 import { configHome, globalManifestPath, readConfig, recordInstall, writeConfig } from "./config.js";
 import { display, groupedWarning, nextCommand } from "./output.js";
 import { COMMAND, CONTRACT, CONTRACT_POINTER, GUIDE, HELP, INTRODUCTION } from "./guide.js";
@@ -50,27 +50,39 @@ function parseArgs(argv: readonly string[]): Args {
 
 class UsageError extends Error {}
 
-const KNOWN = new Set(Object.values(OPTIONS).flat());
+const KNOWN = new Set(Object.values(COMMANDS).flatMap((c) => c.options));
 
-/** Rejects an option the command does not take, so a mistyped or misplaced flag never runs as if it were absent. */
-function checkOptions(command: string | undefined, args: Args): void {
-  const allowed = command === undefined ? [] : OPTIONS[command];
+/**
+ * Rejects an option the command does not take, or more arguments than it takes, so a mistyped
+ * flag or a path with a space in it never runs as if it were absent.
+ */
+function checkUsage(command: string | undefined, args: Args): void {
+  if (command === undefined) {
+    for (const flag of args.flags.keys()) if (flag !== "--json") throw new UsageError(`Unknown option ${flag}.\n${nextCommand(["help"])}`);
+    return;
+  }
+  const spec = COMMANDS[command];
   // An unknown command is reported as such.
-  if (allowed === undefined) return;
+  if (spec === undefined) return;
+  const allowed = spec.options;
   for (const flag of args.flags.keys()) {
     if (flag === "--json" || allowed.includes(flag)) continue;
     const takes = allowed.length === 0 ? "It takes no options." : `It takes ${allowed.join(", ")}.`;
-    const message = !KNOWN.has(flag) || command === undefined ? `Unknown option ${flag}.` : `\`${command}\` does not take ${flag}. ${takes}`;
+    const message = KNOWN.has(flag) ? `\`${command}\` does not take ${flag}. ${takes}` : `Unknown option ${flag}.`;
     throw new UsageError(`${message}\n${nextCommand(["help"])}`);
   }
-  const most = POSITIONALS[command!] ?? 0;
+  // A scope option takes the place of the folder.
+  const scope = ["--global", "--all"].find((flag) => args.flags.has(flag));
+  const most = spec.arguments - (scope === undefined ? 0 : 1);
   const extra = args.positional.slice(1);
-  if (extra.length > most) {
-    const takes = most === 0 ? "takes no arguments" : `takes at most ${most} argument${most === 1 ? "" : "s"}`;
-    const usage = usageOf(command!);
-    const lines = [`\`${command}\` ${takes}; got ${extra.length} (${extra.join(", ")}).`, ...(usage.length > 0 ? [`Usage: ${usage.join("\n       ")}`] : [])];
-    throw new UsageError(`${lines.join("\n")}\n${nextCommand(["help"])}`);
-  }
+  if (extra.length <= most) return;
+  const takes = most === 0 ? "takes no arguments" : `takes at most ${most} argument${most === 1 ? "" : "s"}`;
+  const usage = usageOf(command);
+  const lines = [
+    `\`${command}\`${scope === undefined ? "" : ` with ${scope}`} ${takes}; got ${extra.length}: ${extra.map((a) => `'${a}'`).join(", ")}.`,
+    ...(usage.length > 0 ? [`Usage: ${usage.join("\n       ")}`] : []),
+  ];
+  throw new UsageError(`${lines.join("\n")}\n${nextCommand(["help"])}`);
 }
 
 /** The command's usage lines, as `--help` prints them. */
@@ -546,8 +558,8 @@ async function main(argv: readonly string[]): Promise<number> {
   const command = args.positional[0];
   const state = oldStateFolder(homedir());
   unmigrated = (await exists(state)) ? state : null;
-  // Before the lock, so a rejected option writes nothing.
-  if (!args.flags.has("--help")) checkOptions(command, args);
+  // Before the lock, so a rejected option or argument writes nothing.
+  if (!args.flags.has("--help")) checkUsage(command, args);
   return locks(command, args) ? withLock(configHome(), () => run(argv)) : run(argv);
 }
 
